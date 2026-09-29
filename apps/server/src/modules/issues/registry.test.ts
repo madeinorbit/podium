@@ -4,6 +4,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { SessionRegistry } from '../../relay'
+import { INLINE_BODY_MAX } from '../../store/messages'
 import { OPERATOR } from '../../test-support/capabilities'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { ShippingOrderAccessError } from '../shipping/service'
@@ -1124,9 +1125,13 @@ describe('issue mail read state is per reading session [POD-1379]', () => {
         }
 
       // Session A mails ITS OWN issue, meaning it for session B (the POD-1342 move).
+      // Too long to type inline, so B is handed a pointer and only B's own read
+      // retires it; a short body would be typed to B as a turn and never nag
+      // [POD-4845].
+      const handoff = `handing this to you ${'x'.repeat(INLINE_BODY_MAX)}`
       await registry.issueCommands.dispatch(agent(sA), 'issues', 'mailSend', {
         id: issue.id,
-        body: 'handing this to you',
+        body: handoff,
       })
       expect((await pending(sA)).unread).toBe(0)
       expect((await pending(sB)).unread).toBe(1)
@@ -1138,7 +1143,7 @@ describe('issue mail read state is per reading session [POD-1379]', () => {
       const inboxB = (await registry.issueCommands.dispatch(agent(sB), 'issues', 'mailInbox', {
         id: issue.id,
       })) as Array<{ body: string; wasUnread: boolean }>
-      expect(inboxB).toMatchObject([{ body: 'handing this to you', wasUnread: true }])
+      expect(inboxB).toMatchObject([{ body: handoff, wasUnread: true }])
       expect((await pending(sB)).unread).toBe(0)
     } finally {
       await registry.dispose()

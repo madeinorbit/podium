@@ -646,10 +646,11 @@ describe('characterization: duplicate delivery is impossible by timer (D7)', () 
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
-    for (const body of ['one', 'two']) {
+    // A pointer is an issue body too long to type inline [POD-4845].
+    for (const body of ['one', 'two'].map((b) => b + 'x'.repeat(INLINE_BODY_MAX))) {
       await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body, urgency: 'fyi' })
     }
-    // Each fyi row goes to the daemon on its own, at once [POD-4661].
+    // Each pointer row goes to the daemon on its own, at once [POD-4661].
     expect(h.pushes.map((p) => p.fn)).toEqual(['queueText', 'queueText'])
     // A pointer is confirmed by an inbox READ, never by echo, and is never
     // re-pushed however long the sweep runs.

@@ -4,7 +4,7 @@ import { statementBudget } from '../../test-support/statement-budget'
 // Unified agent messaging (#237) [spec:SP-34d7] — store CRUD, server-stamped
 // sender, envelope rendering + spoof containment, the full delivery
 // state × axis table, clamp matrix, containment brakes (wake cooldown, spawn
-// budget, hop limit), pointer coalescing, and the queued→delivered ledger.
+// budget, hop limit), pointer rendering, and the queued→delivered ledger.
 
 import type { IssueId, SessionMeta, SessionMetaInput } from '@podium/model'
 import {
@@ -1964,7 +1964,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
   })
 })
 
-describe('pointer renderings + coalescing [spec:SP-34d7]', () => {
+describe('pointer renderings [spec:SP-34d7]', () => {
   it('delivers each held fyi issue message on its own when a session arrives — no server batching [POD-4661]', async () => {
     const live: SessionMeta[] = []
     const { svc, queued, store } = await harness(live)
@@ -1983,14 +1983,14 @@ describe('pointer renderings + coalescing [spec:SP-34d7]', () => {
     await svc.onSessionEligibilityChanged(asSessionId('s1'), s)
     await svc.flushDeliveryTriggers()
     expect(queued.map((q) => q.text.includes('one') || q.text.includes('two'))).toEqual([true, true])
-    // fyi issue mail stays the PULL path: queued (handed on) until the inbox read.
+    // Handed on: dispatched until the daemon settles it or an inbox read.
     expect((await store.messages.getMessage(r1.message.id))!.deliveryStatus).toBe('dispatched')
     expect((await store.messages.getMessage(r1.message.id))!.injectedAt).not.toBeNull()
     // A further eligibility change must NOT re-nudge (the POD-279 storm).
     await svc.onSessionEligibilityChanged(asSessionId('s1'), s)
     await svc.flushDeliveryTriggers()
     expect(queued).toHaveLength(2)
-    // Reading the inbox is what confirms them (read = the pull-path delivery).
+    // Reading the inbox confirms them too (read = the pull-path delivery).
     await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: asSessionId('s1') })
     expect((await store.messages.getMessage(r1.message.id))!.deliveryStatus).toBe('confirmed')
     expect((await store.messages.getMessage(r2.message.id))!.deliveryStatus).toBe('confirmed')
@@ -2019,6 +2019,45 @@ describe('pointer renderings + coalescing [spec:SP-34d7]', () => {
     await svc.flushDeliveryTriggers()
     expect(queued[0]!.text).toContain('short note')
     expect(queued[0]!.text).toContain(`[podium message ${r.message.id}`)
+  })
+
+  // POD-4845: an fyi body short enough to type inline IS typed inline, so the
+  // daemon's settlement is its delivery, as for any other inline row. It is not
+  // a pointer: it neither waits in `typed` for an inbox read nor nags the
+  // session it was handed to while it is on its way.
+  it('a short fyi issue message the daemon applied is confirmed and never nags its receiver', async () => {
+    const { svc, store, queued } = await harness([
+      session({ sessionId: asSessionId('s1'), issueId: ISSUE.id }),
+    ])
+    const r = await svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'lane green', urgency: 'fyi' },
+    )
+    expect(queued[0]!.text).toContain(`[podium message ${r.message.id}`)
+    expect(r.message.deliveredTo).toBe('s1')
+    // Handed on to s1: on its way as a turn, so no "you have mail" for it.
+    expect(await store.messages.countPendingForSession(ISSUE.id, asSessionId('s1'))).toBe(0)
+
+    await applied(svc, asSessionId('s1'), r.message.id)
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('confirmed')
+    expect(await store.messages.countPendingForSession(ISSUE.id, asSessionId('s1'))).toBe(0)
+  })
+
+  it('an oversized issue message the daemon applied stays typed and nags until it is read', async () => {
+    const { svc, store } = await harness([
+      session({ sessionId: asSessionId('s1'), issueId: ISSUE.id }),
+    ])
+    const r = await svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
+      {
+        to: { kind: 'issue', id: ISSUE.id },
+        body: 'x'.repeat(INLINE_BODY_MAX + 1),
+        urgency: 'fyi',
+      },
+    )
+    await applied(svc, asSessionId('s1'), r.message.id)
+    expect((await store.messages.getMessage(r.message.id))!.deliveryStatus).toBe('typed')
+    expect(await store.messages.countPendingForSession(ISSUE.id, asSessionId('s1'))).toBe(1)
   })
 })
 
@@ -3470,7 +3509,7 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     expect((delivered?.payload as { confirmedVia?: string }).confirmedVia).toBe('injection')
   })
 
-  it('does not confirm a pointer (pull-path) row at a turn boundary — only an inbox read does', async () => {
+  it('a turn boundary confirms no handed-on row — the daemon, an echo or an inbox read does', async () => {
     const live: SessionMeta[] = []
     const { svc, queued, store } = await harness(live)
     const r1 = await svc.send(
@@ -3487,8 +3526,8 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     await svc.flushDeliveryTriggers()
     expect(queued).toHaveLength(2)
     expect((await store.messages.getMessage(r1.message.id))!.deliveryStatus).toBe('dispatched')
-    // A second turn boundary must NOT flip pointer rows delivered — they are the
-    // PULL path, confirmed by an inbox read, never by a turn ending.
+    // A turn boundary must NOT flip them delivered: the server does not know
+    // which turn took them. The daemon's settlement, an echo or a read does.
     svc.onSessionIdle(s.sessionId)
     expect((await store.messages.getMessage(r1.message.id))!.deliveryStatus).toBe('dispatched')
     expect((await store.messages.getMessage(r2.message.id))!.deliveryStatus).toBe('dispatched')
@@ -3498,9 +3537,9 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
   })
 
   it('an OVERSIZED issue row is pull-path too — no boundary confirm, no sweep re-nudge', async () => {
-    // Two things make an issue-addressed row a pointer: fyi urgency, and a body
-    // too large to paste inline. The tests above cover the fyi half; this covers
-    // the oversized half, whose CLASSIFICATION nothing else asserted — the
+    // One thing makes an issue-addressed row a pointer: a body too large to
+    // paste inline (fyi urgency no longer does [POD-4845]). This covers its
+    // CLASSIFICATION, which nothing else asserted — the
     // rendering tests only check the text, and `renderFor` decides that on its
     // own. So a delivery path that forgot the size clause and treated an
     // oversized row as an echo row stayed green: it would be confirmed at the
@@ -3510,8 +3549,7 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     const now = () => new Date(clock).toISOString()
     const live: SessionMeta[] = []
     const { svc, queued, store } = await harness(live, { now })
-    // next-turn, NOT fyi — the size clause has to carry this row on its own, or
-    // the fyi clause would mask a delivery path that dropped it.
+    // next-turn, NOT fyi — the size clause carries this row on its own.
     const r = await svc.send(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id) },
       {

@@ -25,8 +25,8 @@ export function systemIssueNotice(
       {
         to: { kind: 'issue', id: issueId },
         kind: 'notification',
-        // next-turn, not fyi: an fyi issue message is delivered as a pointer to
-        // the inbox, and the notice's words are the point.
+        // next-turn: the notice's words are the point, typed in full at the
+        // next turn boundary.
         urgency: 'next-turn',
         lifecycle: 'wait',
         body,

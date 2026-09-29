@@ -7,20 +7,20 @@
  * There is deliberately no `dispose()` because there is nothing to dispose.
  *
  * It is one seam rather than two because the rendering and the confirmation
- * mode are the same decision read twice. `renderFor` turns an fyi/oversized
+ * mode are the same decision read twice. `renderFor` turns an oversized
  * issue-addressed row into an inbox pointer instead of an inline body; that row
  * therefore carries no id into the transcript and can only be confirmed by an
- * inbox READ. Before this module those two facts lived in three places kept in
- * lockstep by comment — `renderFor`, `deliveryMode`, and `deliverBatch`'s
- * pointer filter each restated the predicate. {@link MessageRenderer.isPointer}
- * is now the single statement of it and all three call it.
+ * inbox READ. Every other row, fyi included, is typed inline and confirmed by
+ * the daemon's settlement or its echo. The rule is stated once, as the store's
+ * `isPointerMessage` beside the pending-mail SQL that restates it, and
+ * {@link MessageRenderer.isPointer} is how this module reads it [POD-4845].
  */
 
 import { AUTO_CONTINUE_SENDER, deliversUnwrapped, type MailSenderPrincipal } from '@podium/commands'
 import type { SessionMeta, SessionId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
-import { INLINE_BODY_MAX } from '../../store/messages'
+import { INLINE_BODY_MAX, isPointerMessage } from '../../store/messages'
 import { sanitizeForInjection } from '../sessions/paste'
 
 /** Bodies past this render as a pointer, not inline (issue-addressed only). */
@@ -29,9 +29,9 @@ export { INLINE_BODY_MAX }
 /** How a rendered message is confirmed as reaching the agent [POD-834]:
  *   - `echo`      enveloped body carrying the msg id (the full envelope or the
  *                 short frame) → confirmed by transcript echo;
- *   - `pointer`   a coalesced "you have mail" nudge (fyi / oversized issue mail) →
- *                 the body isn't shown inline, so it is confirmed by an inbox READ,
- *                 never echo — and is never auto-requeued (no re-nudge storm);
+ *   - `pointer`   a "you have mail" line typed in place of an oversized issue
+ *                 body → the body isn't shown inline, so it is confirmed by an
+ *                 inbox READ, never echo — and is never auto-requeued;
  *   - `unwrapped` an operator's byte-faithful body (no envelope, no id) → no echo
  *                 is possible, so injection itself is the confirmation. */
 export type DeliveryMode = 'echo' | 'pointer' | 'unwrapped'
@@ -196,29 +196,24 @@ export class MessageRenderer {
   constructor(private readonly deps: MessageRenderDeps) {}
 
   /**
-   * THE pointer predicate — one statement, three readers.
-   *
-   * An issue-addressed row that is fyi, or whose body is too large to paste
-   * inline, is delivered as a coalesced nudge rather than an inline body.
-   * `renderFor` renders it as one, `deliveryMode` reports it cannot echo, and
-   * the idle drain batches it with the other pointers. Those three MUST agree:
-   * a row rendered inline but classified `pointer` would wait forever for an
-   * inbox read that never comes, and one rendered as a pointer but classified
-   * `echo` would be re-injected by the sweep every pass.
+   * THE pointer predicate: the store's {@link isPointerMessage}, which the
+   * pending-mail SQL states too. `renderFor` types a pointer exactly when it
+   * holds, and `deliveryMode` and the daemon's settlement read it for how the
+   * row is confirmed. They MUST agree: a row typed inline but classified
+   * `pointer` stays `typed` and nags until an inbox read nobody needs
+   * [POD-4845], and one typed as a pointer but classified `echo` waits for an
+   * echo of an id it never carried.
    */
   isPointer(message: MessageRow): boolean {
-    return (
-      message.toKind === 'issue' &&
-      (message.urgency === 'fyi' || message.body.length > INLINE_BODY_MAX)
-    )
+    return isPointerMessage(message)
   }
 
   /** The exact text the receiver sees: enveloped for every principal EXCEPT the
    *  operator — only the human's own words land unwrapped. A server job's
-   *  message no agent answers gets the short frame. Oversized issue-addressed
-   *  bodies render as an inbox pointer instead of inline. */
+   *  message no agent answers gets the short frame. A pointer ({@link isPointer}:
+   *  an oversized issue-addressed body) renders as an inbox pointer instead. */
   async renderFor(message: MessageRow, receiverSessionId?: SessionId): Promise<string> {
-    if (message.toKind === 'issue' && message.body.length > INLINE_BODY_MAX) {
+    if (this.isPointer(message)) {
       return await this.pointerText([message])
     }
     // An automation's prompt and auto-continue (POD-4868): the words are kept,
@@ -281,7 +276,7 @@ export class MessageRenderer {
     return (await this.deps.sessionById(receiverSessionId))?.agentKind === 'shell'
   }
 
-  /** The coalesced pointer rendering (also used for oversized bodies). */
+  /** The pointer rendering: the line typed in place of an oversized body. */
   async pointerText(rows: MessageRow[]): Promise<string> {
     const senders = [...new Set(await Promise.all(rows.map(async (m) => await this.fromLabel(m))))]
     // The pointer path leads to the same interrupted-turn problem the envelope's
