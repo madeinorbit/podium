@@ -270,7 +270,7 @@ describe('visibility plants against the oracle (POD-4681)', () => {
           one: (from, id, relation) => relations.one(from, id, relation),
           many: (from, id, relation) => relations.many(from, id, relation),
           size: (from, id, relation) => relations.size(from, id, relation),
-          issueless: () => [],
+          subset: () => [],
         },
       }
       return membersOf(noLane, this.id, this.standing)
