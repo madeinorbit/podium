@@ -906,3 +906,108 @@ describe('late proof of an unconfirmed row (POD-4840)', () => {
     ])
   })
 })
+
+describe('a refusal is a proven "no" (POD-4839)', () => {
+  const fixture = (refusal: { reason: string; detail?: string }) => {
+    vi.useFakeTimers()
+    let alive = true
+    const send = vi.fn(async (_input: { text: string }, _options?: unknown) => ({
+      outcome: 'refused' as const,
+      refusal,
+    }))
+    const emit = vi.fn()
+    const handle = withDeliveryQueue(
+      {
+        send,
+        state: async () => ({ phase: 'idle' }),
+        lease: { state: async () => null },
+      } as unknown as AgentSessionHandle,
+      emit,
+      undefined,
+      () => alive,
+    )
+    return {
+      handle,
+      send,
+      emit,
+      end: () => {
+        alive = false
+      },
+    }
+  }
+  const options = { origin: 'human', delivery: 'when-ready' } as const
+
+  it('settles any final refusal as never typed, with its detail, never unconfirmed', async () => {
+    // A JSON-RPC or HTTP refusal of the request recorded nothing (POD-4834,
+    // N2), and every other refusal is reached before a byte is written.
+    const f = fixture({ reason: 'invalid_value', detail: 'codex turn/start → -32600: bad input' })
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.send).toHaveBeenCalledTimes(1)
+    expect(f.emit).toHaveBeenCalledExactlyOnceWith({
+      t: 'delivery',
+      rowId: 'row',
+      outcome: 'failed',
+      reason: 'codex turn/start → -32600: bad input',
+    })
+  })
+
+  it('settles a refusal it has no rule for as never typed, named by its reason', async () => {
+    const f = fixture({ reason: 'no_archive_yet' })
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.emit).toHaveBeenCalledExactlyOnceWith({
+      t: 'delivery',
+      rowId: 'row',
+      outcome: 'failed',
+      reason: 'no_archive_yet',
+    })
+  })
+
+  it('leaves a row refused by an ended session to the server, for the next owner', async () => {
+    // Hibernate, stop and a dead process end the session; the server still
+    // holds the row and forwards it again on the next bind.
+    const f = fixture({ reason: 'not_running' })
+    f.send.mockImplementationOnce(async () => {
+      f.end()
+      return { outcome: 'refused', refusal: { reason: 'not_running' } }
+    })
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(f.send).toHaveBeenCalledTimes(1)
+    expect(f.emit).not.toHaveBeenCalled()
+  })
+
+  it('waits for a live session whose process is not running, then fails it as never typed', async () => {
+    const f = fixture({ reason: 'not_running', detail: 'the opencode server for this session is gone' })
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(59_000)
+    expect(f.send.mock.calls.length).toBeGreaterThan(1)
+    expect(f.emit).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1_400)
+    expect(f.emit).toHaveBeenCalledExactlyOnceWith({
+      t: 'delivery',
+      rowId: 'row',
+      outcome: 'failed',
+      reason: 'agent not accepting input',
+      cause: 'not-accepting-input',
+    })
+  })
+
+  it('a session that ends while it waits keeps the row for the next owner', async () => {
+    const f = fixture({ reason: 'not_running' })
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(30_000)
+    f.end()
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(f.emit).not.toHaveBeenCalled()
+  })
+
+  it('a retract while it waits on a session that is not running still wins', async () => {
+    const f = fixture({ reason: 'not_running' })
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(await f.handle.cancelDelivery!('row')).toEqual({ ok: true })
+    expect(f.emit).toHaveBeenCalledExactlyOnceWith({ t: 'delivery', rowId: 'row', outcome: 'dropped' })
+  })
+})
