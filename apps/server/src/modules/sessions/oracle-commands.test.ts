@@ -1318,7 +1318,7 @@ describe('oracle: continue (the errored-agent retry)', () => {
    * A plain shell keeps the raw keystroke, pinned byte-for-byte below. The
    * command's own gate — ONLY when the phase is errored — is unchanged on both.
    */
-  it(`${MUST_NOT_CHANGE}: continue of an agent hands 'continue' to its driver stamped 'auto_continue', ONLY when the agent phase is errored, and types nothing`, async () => {
+  it(`${MUST_NOT_CHANGE}: continue of an agent hands 'continue' in the short frame to its driver stamped 'auto_continue', ONLY when the agent phase is errored, and types nothing`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await goLive(o, sessionId, 'idle')
@@ -1340,9 +1340,12 @@ describe('oracle: continue (the errored-agent retry)', () => {
       () => durableSends(o.daemon, sessionId).length > 0,
       'the continue row to be handed on',
     )
+    // The short frame (POD-4868): its id in the text, no mail rules.
     expect(durableSends(o.daemon, sessionId)).toEqual([
       expect.objectContaining({
-        text: 'continue',
+        text: expect.stringMatching(
+          /^\[podium message (msg_\S+) · from system:auto-continue · to your session\]\ncontinue\n\[end podium message \1\]$/,
+        ),
         origin: 'auto_continue',
         delivery: 'when-ready',
       }),
