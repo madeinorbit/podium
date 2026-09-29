@@ -42,6 +42,8 @@ import { openApp, openHome, RELAY } from './_harness'
  */
 test.skip(() => process.env.PODIUM_E2E_REAL_AGENTS !== '1', 'real-agent run only')
 test.skip(({ isMobile }) => isMobile, 'the desktop project drives its own phone context')
+// A blocked click must fail with a picture, not wait out the whole test.
+test.use({ actionTimeout: 30_000, navigationTimeout: 90_000 })
 
 const PORT = Number(process.env.PORT ?? 8799)
 const HTTP = RELAY.replace(/^ws/, 'http')
@@ -563,6 +565,15 @@ test('the agent’s real size, the server’s copy and every browser grid agree 
       body: JSON.stringify(verdicts, null, 2),
       contentType: 'application/json',
     })
-    for (const context of contexts) await context.close().catch(() => {})
+    for (const context of contexts) {
+      for (const [index, page] of context.pages().entries()) {
+        await page
+          .screenshot({
+            path: test.info().outputPath(`end-${contexts.indexOf(context)}-${index}.png`),
+          })
+          .catch(() => {})
+      }
+      await context.close().catch(() => {})
+    }
   }
 })
