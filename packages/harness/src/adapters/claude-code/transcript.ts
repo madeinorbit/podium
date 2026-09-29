@@ -466,7 +466,15 @@ function queuedCommandItems(
   if (att.commandMode !== 'prompt' || att.isMeta === true) return []
   const origin = att.origin as Record<string, unknown> | undefined
   if (origin?.kind !== undefined && origin.kind !== 'human') return []
-  const { text, paths } = harvestImageMarkers(typeof att.prompt === 'string' ? att.prompt : '')
+  // The SDK stores queued prompts as content blocks; the terminal stores text.
+  const prompt = typeof att.prompt === 'string'
+    ? att.prompt
+    : Array.isArray(att.prompt)
+      ? att.prompt.map((block) =>
+          block?.type === 'text' && typeof block.text === 'string' ? block.text : '',
+        ).join('')
+      : ''
+  const { text, paths } = harvestImageMarkers(prompt)
   if (!text && paths.length === 0) return []
   return [
     {

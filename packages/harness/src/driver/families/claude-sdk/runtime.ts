@@ -53,6 +53,16 @@ import type { SessionDriverSlots } from '../session-slots.js'
 import { claudeSdkCapabilities } from './capabilities.js'
 import { classifyClaudeSdkFailure, redactClaudeSdkFailureDetail } from './classify.js'
 import { claudeUserMessageUuid } from './message-uuid.js'
+import { claudeTranscriptReceipts } from './transcript-receipt.js'
+
+const RECEIPT_WATCH_MS = 120_000
+
+interface HeldMessage {
+  uuid: string
+  resumeValue: string
+  options: SendOptions
+  deadline: number
+}
 
 /**
  * WHAT THE SDK CAN TAKE, structurally. Which model aliases and effort levels
@@ -247,6 +257,11 @@ interface SessionCore {
   /** Transcript-item ids already published for this session's tool calls and
    *  results. See `notePublishedToolItem`. */
   publishedToolItems: Set<string>
+  publishedPromptItems: Set<string>
+  heldMessages: Set<HeldMessage>
+  receiptTimer?: ReturnType<typeof setTimeout>
+  receiptReading: boolean
+  receiptPollMs: number
   handleGeneration: number
   textDeliveries: number
   lastRequestedModel?: ModelPolicy
@@ -339,6 +354,65 @@ export function createClaudeSdkRuntime(
 
   function publishItem(core: SessionCore, item: TranscriptItem): void {
     push(core, { t: 'item', item: { kind: 'complete', item } })
+  }
+
+  function watchReceipt(core: SessionCore, uuid: string, options: SendOptions): void {
+    core.heldMessages.add({
+      uuid,
+      resumeValue: core.binding.resume?.value ?? '',
+      options,
+      deadline: Date.now() + RECEIPT_WATCH_MS,
+    })
+    core.receiptPollMs = 100
+    if (core.receiptTimer) clearTimeout(core.receiptTimer)
+    core.receiptTimer = undefined
+    void readReceipts(core)
+  }
+
+  /** One read for all held lines. A turn ending, including an API error, is
+   * not a negative receipt and does not close these watches (POD-4819 §6.2). */
+  async function readReceipts(core: SessionCore): Promise<void> {
+    if (core.receiptReading || core.disposed || core.heldMessages.size === 0) return
+    core.receiptReading = true
+    try {
+      const pending = [...core.heldMessages]
+      for (const resumeValue of new Set(pending.map((message) => message.resumeValue))) {
+        const messages = pending.filter((message) => message.resumeValue === resumeValue)
+        const archive = await host.readArchive({ workdir: core.spec.workdir, resumeValue })
+          .catch(() => undefined)
+        if (core.disposed) return
+        const found = archive
+          ? claudeTranscriptReceipts(archive.bytes, resumeValue, new Set(messages.map((message) => message.uuid)))
+          : new Map<string, TranscriptItem>()
+        for (const message of messages) {
+          if (!core.heldMessages.has(message)) continue
+          const item = found.get(message.uuid)
+          if (item) {
+            core.heldMessages.delete(message)
+            if (!core.publishedPromptItems.has(item.id)) {
+              core.publishedPromptItems.add(item.id)
+              publishItem(core, item)
+            }
+            message.options.onTranscriptItem?.({ id: item.id }, [{ kind: 'claude-uuid', id: message.uuid }])
+          } else if (!core.alive || Date.now() >= message.deadline) {
+            core.heldMessages.delete(message)
+            // This closes the watch as unconfirmed. N4 owns a proven no after
+            // process exit; neither an unreadable file nor a timer proves it.
+            message.options.onUnrecorded?.('Claude transcript receipt watch ended without a record')
+          }
+        }
+      }
+    } finally {
+      core.receiptReading = false
+      if (!core.disposed && core.heldMessages.size > 0) {
+        core.receiptTimer = setTimeout(() => {
+          core.receiptTimer = undefined
+          void readReceipts(core)
+        }, core.receiptPollMs)
+        core.receiptTimer.unref?.()
+        core.receiptPollMs = Math.min(core.receiptPollMs * 2, 1000)
+      }
+    }
   }
 
   /**
@@ -694,10 +768,9 @@ export function createClaudeSdkRuntime(
    * not in a turn, but taken. The turn opens on the ack. A failure before it
    * is a refusal, and no turn opened.
    *
-   * A DUPLICATE is a message the session already holds under that uuid: an
-   * earlier attempt reached the CLI and its receipt was lost. The CLI skips
-   * the line, so it is accepted — it IS in the history, under the entry this
-   * receipt names — and the turn it opens ends at once, having run nothing.
+   * The ack proves only custody in memory. A duplicate may also be queued
+   * or running without a record. Only the session file can name its entry;
+   * the held receipt is followed by onTranscriptItem when that proof arrives.
    */
   async function deliver(
     core: SessionCore,
@@ -774,22 +847,15 @@ export function createClaudeSdkRuntime(
       }
     }
     core.delivering = undefined
+    if (!core.disposed) watchReceipt(core, userItemId, options)
     if (!core.alive) {
       // Stopped while the ack was on its way: the CLI took the line, so it is
       // accepted, but no turn opens on a session that has ended.
-      return accepted(input, options, userItemId, core.turnEpoch)
+      return accepted(options, userItemId, core.turnEpoch)
     }
     epoch = openTurn(core, options.origin)
     core.partialText = ''
     core.partialItemId = `claude-sdk-${core.sessionId}-${epoch}`
-    if (input.text) {
-      publishItem(core, {
-        id: userItemId,
-        role: 'user',
-        text: input.text,
-        ts: host.now(),
-      })
-    }
     core.textDeliveries += 1
     core.lastRequestedModel = input.overrides?.supported ? input.overrides.value : core.spec.model
     core.conversationStarted = true
@@ -831,11 +897,10 @@ export function createClaudeSdkRuntime(
         closeTurn(core, error instanceof Error ? error : new Error(String(error)))
       },
     )
-    return accepted(input, options, userItemId, epoch)
+    return accepted(options, userItemId, epoch)
   }
 
   function accepted(
-    input: TurnInput,
     options: SendOptions,
     userItemId: string,
     turnEpoch: number,
@@ -847,8 +912,7 @@ export function createClaudeSdkRuntime(
       // The CLI's own ack of the line's uuid (`command_lifecycle`, or its
       // echo): a protocol acknowledgement, not a callback returning.
       provenBy: 'protocol-ack',
-      // No cursor: the live item has none until history re-reads the record.
-      ...(input.text ? { transcriptItem: { id: userItemId } } : {}),
+      held: 'memory',
       // The uuid the CLI keeps the line under, text or not (POD-4841).
       harnessRef: [{ kind: 'claude-uuid', id: userItemId }],
       at: host.now(),
@@ -896,6 +960,13 @@ export function createClaudeSdkRuntime(
   }
   function end(core: SessionCore, exit?: RuntimeEventBody): void {
     if (core.disposed) return
+    if (core.receiptTimer) clearTimeout(core.receiptTimer)
+    core.receiptTimer = undefined
+    const held = [...core.heldMessages]
+    core.heldMessages.clear()
+    for (const message of held) {
+      message.options.onUnrecorded?.('Claude session closed before its transcript record was seen')
+    }
     core.alive = false
     core.turnOpen = false
     core.fenced.add(core.turnEpoch)
@@ -1224,7 +1295,16 @@ export function createClaudeSdkRuntime(
       },
     }
     slots.set(core.sessionId, handle)
-    return withDeliveryQueue(handle, (event) => push(core, event), undefined, () => core.alive)
+    const queued = withDeliveryQueue(handle, (event) => push(core, event), undefined, () => core.alive)
+    const send = queued.send.bind(queued)
+    queued.send = (input, options) => send(
+      // Claude ignores a repeated uuid even while queued/running and after
+      // resume (POD-4819 §3.8, measured on 2.1.284). Clear the shared queue's
+      // recovery stop only when this line carries that stable message id.
+      input.deliveryRecovery && input.id !== undefined ? { ...input, deliveryRecovery: false } : input,
+      options,
+    )
+    return queued
   }
 
   function newCore(
@@ -1272,6 +1352,10 @@ export function createClaudeSdkRuntime(
       partialText: '',
       partialItemId: '',
       publishedToolItems: new Set<string>(),
+      publishedPromptItems: new Set<string>(),
+      heldMessages: new Set(),
+      receiptReading: false,
+      receiptPollMs: 100,
       handleGeneration: 0,
       textDeliveries: 0,
       conversationStarted: !fresh,

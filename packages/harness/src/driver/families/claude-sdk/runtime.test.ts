@@ -34,12 +34,15 @@ function hostWith(fail: (message: string) => Error): {
   resumeValue: string
 } {
   const resumeValue = '00000000-0000-4000-8000-000000000001'
+  let archive = ''
   const host: ClaudeSdkRuntimeHost = {
     mintSessionId: () => SESSION,
     mintResumeValue: () => resumeValue,
     now: () => '2026-08-28T00:00:00.000Z',
-    startTurn(): ClaudeSdkTurnHandle {
+    startTurn(input): ClaudeSdkTurnHandle {
       // The CLI took the line; the turn then failed.
+      archive += `${JSON.stringify({ type: 'user', uuid: input.userMessageUuid, sessionId: input.resumeValue,
+        message: { role: 'user', content: input.turn.text }, timestamp: host.now() })}\n`
       const done = Promise.reject(fail('turn'))
       done.catch(() => {})
       return {
@@ -54,7 +57,7 @@ function hostWith(fail: (message: string) => Error): {
       return { items: [], hasMore: false }
     },
     async readArchive() {
-      return undefined
+      return { path: `${resumeValue}.jsonl`, bytes: new TextEncoder().encode(archive) }
     },
   }
   return { host, resumeValue }
@@ -187,11 +190,15 @@ function manualHost(): {
   const started: string[] = []
   const turns: ReturnType<typeof manualHost>['turns'] = []
   const { host } = hostWith(() => new Error('unused'))
+  let archive = ''
   return {
     started,
     turns,
     host: {
       ...host,
+      async readArchive() {
+        return { path: 'fixture.jsonl', bytes: new TextEncoder().encode(archive) }
+      },
       startTurn(input): ClaudeSdkTurnHandle {
         started.push(input.userMessageUuid)
         let ack!: () => void
@@ -209,7 +216,11 @@ function manualHost(): {
         })
         done.catch(() => {})
         const turn: ReturnType<typeof manualHost>['turns'][number] = {
-          ack: () => ack(),
+          ack: () => {
+            archive += `${JSON.stringify({ type: 'user', uuid: input.userMessageUuid, sessionId: input.resumeValue,
+              message: { role: 'user', content: input.turn.text }, timestamp: host.now() })}\n`
+            ack()
+          },
           refuse: (error) => {
             refuse(error)
             fail(error)
@@ -281,7 +292,7 @@ describe('the history entry a delivered send became (POD-4774, POD-4836)', () =>
     await expect(receipt).resolves.toMatchObject({
       outcome: 'accepted',
       provenBy: 'protocol-ack',
-      transcriptItem: { id: ENTRY },
+      held: 'memory',
     })
     expect(started).toEqual([ENTRY])
     // The id the chat shows for the prompt.
@@ -467,7 +478,7 @@ describe('the receipt waits for the CLI to acknowledge the line (POD-4836)', () 
     turns[0]!.finish()
     await expect(receipt).resolves.toMatchObject({
       outcome: 'accepted',
-      transcriptItem: { id: claudeUserMessageUuid('m1') },
+      held: 'memory',
     })
     const events = await eventsUntil(handle, (seen) => turnEvents(seen).includes('completed'))
     expect(turnEvents(events)).toEqual(['started', 'completed'])
