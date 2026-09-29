@@ -139,7 +139,10 @@ POD-4838).
 
 ### 5.3 Order plus text
 
-Needed only for a person's own words typed into a terminal agent.
+Needed only for a person's own words typed into a terminal agent. **Operator decision
+(2026-09-29): best effort.** No id is added to a person's words and no transport is forced for
+chat; these messages end `confirmed` when the rule below can credit them, and `unknown` otherwise.
+The rule must still never credit the wrong message.
 
 **Idea.** The next prompt entry after our position is ours when nothing else can have produced
 it; the text only has to agree.
