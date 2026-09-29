@@ -105,6 +105,11 @@ export const TranscriptItem = z.object({
    *  re-reads of the same bytes in the same session namespace, independent of path. */
   cursor: z.string().optional(),
   role: TranscriptRole,
+  /** Whether the harness history identifies this item as a submitted prompt.
+   *  Generated entries and user actions are false; absence means the reader has
+   *  not established the distinction. Receipt matching must not infer it from
+   *  the display role alone. */
+  promptEntry: z.boolean().optional(),
   ts: z.string().optional(), // ISO 8601
   /** Markdown body. Empty for pure tool-call items. */
   text: z.string(),

@@ -24,6 +24,7 @@ describe('codexRecordToItems', () => {
         ts: '2026-06-16T16:11:00.000Z',
         text: 'Conversation interrupted',
         event: 'interrupt',
+        promptEntry: false,
       },
     ])
   })
@@ -43,6 +44,7 @@ describe('codexRecordToItems', () => {
       {
         id: 'user-message-1',
         role: 'user',
+        promptEntry: true,
         ts: '2026-06-16T16:11:00.000Z',
         text: 'please quickly push the pending commits',
       },

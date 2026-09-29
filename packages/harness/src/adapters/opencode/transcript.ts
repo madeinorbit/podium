@@ -43,6 +43,7 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
         ...(ts ? { ts } : {}),
         text: '[Request interrupted by user]',
         event: 'interrupt',
+        promptEntry: false,
       },
     ]
   }
@@ -128,6 +129,15 @@ export function opencodeRowsToItems(rows: OpencodeMessagePartRow[]): TranscriptI
   const items: TranscriptItem[] = []
   for (const row of rows) items.push(...opencodePartToItems(row))
   return items
+}
+
+/** OpenCode 1.18.33 terminal S7 preserves typed text. A paste appends one space,
+ *  replacing a final LF with it. Compare from submitted text to recorded text:
+ *  trimming both sides would also accept unmeasured deletions of whitespace. */
+export function opencodePromptTextMatches(submitted: string, recorded: string): boolean {
+  if (!submitted) return false
+  const pasted = submitted.endsWith('\n') ? submitted.slice(0, -1) : submitted
+  return recorded === submitted || recorded === `${pasted} `
 }
 
 export function classifyOpencodeIdleText(text: string | undefined): {
