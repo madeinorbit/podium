@@ -297,7 +297,10 @@ describe('guarded ledger transitions', () => {
     expect(await messages.requestRetract('q', 't2')).toBe(true)
     expect(await messages.requestRetract('q', 't3')).toBe(true)
     expect(await messages.requestRetract('d', 't2')).toBe(false)
-    expect(await back('q')).toMatchObject({ deliveryStatus: 'dispatched', retractRequestedAt: 't2' })
+    expect(await back('q')).toMatchObject({
+      deliveryStatus: 'dispatched',
+      retractRequestedAt: 't2',
+    })
     expect((await back('d'))?.retractRequestedAt).toBeUndefined()
   })
 
