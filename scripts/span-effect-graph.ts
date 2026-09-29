@@ -345,6 +345,15 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     body: 'arg0',
     label: 'SyncUnitOfWork.transact',
   },
+  {
+    // The chat message feed's boot reconcile [POD-4764]: composition binds it to
+    // `SessionStore.transact`, and the body reads the open set, reconciles the
+    // feed kind and turns the capture on in one unit of work.
+    file: 'apps/server/src/modules/message-feed/feed.ts',
+    symbol: 'transact',
+    body: 'arg0',
+    label: 'MessageFeedDeps.transact',
+  },
 ]
 
 /**
@@ -550,6 +559,18 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'packages/model/src/identity/first-admin.ts#<module>.firstAdminMemberId': {
     kind: 'contained',
     why: 'Resolves the active administrator through the owning store’s earliestAdmin query; it only reads database state, so rollback leaves no externally observed effect.',
+  },
+  'apps/server/src/modules/message-feed/feed.ts#MessageFeedDeps.listOpen': {
+    kind: 'contained',
+    why: "The feed's boot read of the open chat messages [POD-4764]: composition binds it to MessagesRepository.listOpenChat, a SELECT with no write and no publication.",
+  },
+  'apps/server/src/store/messages.ts#MessagesRepository.query': {
+    kind: 'opaque',
+    why: "The messages repository's own write callback, handed to its write funnel [POD-4764]; every caller's query is declared in the same file and is checked there, exactly as CommittedRows.query is.",
+  },
+  'apps/server/src/store/messages.ts#MessageFeedCapture.MessageFeedCapture': {
+    kind: 'contained',
+    why: "The chat message feed's capture [POD-4764]: it appends the rows' feed changes to the change log through Ledger.capture, which joins this same transaction, and defers both the subscriber delivery (the Authority's postCommit) and its own memory (applyAfterCommit) past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
   },
   'packages/sync/src/ledger.ts#LedgerCommitOp.changes': {
     kind: 'contained',
