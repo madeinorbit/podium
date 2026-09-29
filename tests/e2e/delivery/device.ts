@@ -429,8 +429,19 @@ export class Device {
   /** Retract a queued message by its id — from ANY device, as the web does
    *  from the queued bubble's menu. */
   async retract(sessionId: SessionId, messageId: string): Promise<void> {
-    const bubble = this.bubble(sessionId, messageId)
-    if (!bubble) throw new Error(`${this.name}: no bubble for ${messageId} to retract`)
+    // A person retracts what they SEE: on a device that did not send it, the
+    // bubble appears when the feed carries the record — wait for it, as they would.
+    const deadline = Date.now() + 15_000
+    let bubble = this.bubble(sessionId, messageId)
+    while (!bubble && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      bubble = this.bubble(sessionId, messageId)
+    }
+    if (!bubble) {
+      throw new Error(
+        `${this.name}: no bubble for ${messageId} to retract (frames: ${JSON.stringify([...this.socketFrames])}, records: ${this.records.all().length})`,
+      )
+    }
     await this.controller(sessionId)
       .retract(bubble.id)
       .catch(() => undefined)
