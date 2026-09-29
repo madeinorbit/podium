@@ -293,7 +293,10 @@ describe('a prompt Grok may hold is never refused (POD-4839)', () => {
       const handle = await runtime.driver.create(spec())
       w.serverFor(handle.binding.sessionId).crash()
       await expect(
-        handle.send({ id: 'msg_after', text: 'after' }, { origin: 'human', delivery: 'when-ready' }),
+        handle.send(
+          { id: 'msg_after', text: 'after' },
+          { origin: 'human', delivery: 'when-ready' },
+        ),
       ).resolves.toMatchObject({ outcome: 'refused', refusal: { reason: 'not_running' } })
     } finally {
       runtime.dispose()

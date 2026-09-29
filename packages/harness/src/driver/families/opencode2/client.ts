@@ -1,4 +1,8 @@
-import { type OpencodeClient, type OpencodeClientConfig, OpencodeHttpError } from '../opencode/client.js'
+import {
+  type OpencodeClient,
+  type OpencodeClientConfig,
+  OpencodeHttpError,
+} from '../opencode/client.js'
 import type {
   OpencodeEvent,
   OpencodeMessageWithParts,

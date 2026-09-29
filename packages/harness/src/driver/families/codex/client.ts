@@ -33,6 +33,7 @@
  * bug that a queue would hide.
  */
 
+import { RequestNotSentError } from '../../errors.js'
 import {
   CODEX_METHODS,
   CODEX_NOTIFICATION_METHODS,
@@ -49,7 +50,6 @@ import {
   DELTA_NOTIFICATIONS,
   parseCodexNotification,
 } from './protocol.js'
-import { RequestNotSentError } from '../../errors.js'
 
 /**
  * The framed duplex transport, abstracted.

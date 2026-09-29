@@ -8,9 +8,9 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { SessionSpec } from '../../host.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 import { createOpencodeRuntime } from './runtime.js'
 import { makeOpencodeTestHost } from './test-support/host.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
 
 const spec = (): SessionSpec => ({
   harness: 'opencode',
