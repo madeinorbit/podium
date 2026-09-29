@@ -300,8 +300,9 @@ To do (filed 2026-09-29; hard on Claude Code Opus 5.5 high, easy on Codex gpt-6-
 
 Held until the operator decides the proposed simplifications: the order-plus-text matching rule
 (its anchor), and the terminal receipts per program (Claude, Codex, Grok, OpenCode terminals —
-whether hooks stay in receipt proof). Dropped from the design: `failed → confirmed`. Moved to
-Phase C: Codex `thread/queue` handling.
+whether hooks stay in receipt proof). Also pending that decision, and not built by the issues
+above: `failed → confirmed` on an exact id (POD-4885 keeps `failed` final; adding the move later
+is small), and Codex `thread/queue` handling (Podium does not use that transport today).
 
 Upstream: Claude's queued-prompt `prompt_id` behaviour may be worth reporting to Claude Code.
 
