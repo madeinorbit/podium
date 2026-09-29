@@ -17,7 +17,7 @@
 import { type AgentStateEvent, initialAgentState, reduceAgentState } from '@podium/harness/metadata'
 import { asUserId, computePriorities, type SessionId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
-import type { RuntimeEvent } from '@podium/protocol/daemon'
+import { RuntimeAttachmentRef, type RuntimeEvent } from '@podium/protocol/daemon'
 import { MutationLedger, type SyncRepository } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { userCommandPrincipal } from '../../command-principal'
@@ -47,6 +47,22 @@ import type { SessionLifecycle, SessionLifecycleDeps } from './lifecycle'
 import type { Session, SessionDurableState } from './session'
 
 type QueuedMessageRow = Awaited<ReturnType<SyncRepository['listQueuedMessages']>>[number]
+
+/** A queued row's stored file refs (POD-4795). Only this module writes the
+ *  column, from refs already checked against the session; a value that no
+ *  longer decodes is reported, and the row goes on as text alone rather than
+ *  blocking the session's whole queue. */
+function storedQueueAttachments(
+  json: string | null,
+): { attachments?: readonly RuntimeAttachmentRef[] } {
+  if (json === null) return {}
+  try {
+    const parsed = RuntimeAttachmentRef.array().safeParse(JSON.parse(json))
+    if (parsed.success) return parsed.data.length ? { attachments: parsed.data } : {}
+  } catch {}
+  console.error('[session-inbox] queued row file refs do not decode; typing its text only')
+  return {}
+}
 
 import { SessionMachineReconciler } from './machine-reconciler'
 import { SessionNaming } from './naming'
@@ -361,6 +377,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           actorId: actor.actorId,
           onBehalfOf: row.principal.attribution.onBehalfOf,
           sourceMessageId: row.sourceMessageId,
+          delivery: row.delivery,
+          attachmentsJson: row.attachments?.length ? JSON.stringify(row.attachments) : null,
         })
       },
       list: async (sessionId) => {
@@ -382,6 +400,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
             },
           },
           sourceMessageId: row.sourceMessageId,
+          delivery: row.delivery,
+          ...storedQueueAttachments(row.attachmentsJson),
         }))
       },
       reserveDelivery: (id) => store.sync.reserveQueuedDelivery(id),
@@ -546,7 +566,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         initialPrompt: input.initialPrompt,
         text: input.text,
         origin: input.origin,
-        delivery: 'when-ready',
+        delivery: input.delivery,
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         principal: input.principal,
       }),
     // Stop follows the same contract delivery route, including headed sessions.
@@ -666,6 +687,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         // module confirms, cancels and sweep-guards a queued row by.
         ...(input.mutationId ? { mutationId: input.mutationId } : {}),
         ...(input.sourceMessageId ? { sourceMessageId: input.sourceMessageId } : {}),
+        ...(input.delivery ? { delivery: input.delivery } : {}),
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       })
       if (!queued.ok) {
         return {
@@ -914,33 +937,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
    * the answer can be watched changing in one place rather than in ~29.
    */
   bag.receiptSender = new ReceiptSender({
-    prepareSend: (input) =>
-      life.prepareInboxSend(
-        input.sessionId,
-        (input.principal ?? SYSTEM_INBOX_PRINCIPAL).attribution,
-        'text',
-        input.inputOrigin ?? 'controller',
-      ),
     legacy: inbox,
-    contract: { send: (input) => bag.runtimeGateway.send(input) },
     queue: durableQueue,
-    // Immediate and durable sends share active-custody routing. Agents are
-    // always on the contract (POD-4427); only shells keep the raw transport.
+    // Every agent send is one durable row (POD-4795). Agents are always on
+    // the contract (POD-4427); only shells keep the raw transport.
     onContract: (sessionId: SessionId) => {
       const session = bag.sessions.get(sessionId)
       return session !== undefined && session.agentKind !== 'shell'
-    },
-    liveWithEmptyQueue: (sessionId: SessionId) => {
-      const s = bag.sessions.get(sessionId)
-      return s?.status === 'live' && s.queuedMessageCount === 0
-    },
-    // The SAME condition `SessionInbox.sendText` uses to queue instead of type,
-    // and for the same reason: order. Once a driver exists there are two queues
-    // and nothing sequences between them, so a live send past a non-empty
-    // durable queue would land ahead of older messages still waiting to drain.
-    queueNotEmpty: (sessionId: SessionId) => {
-      const s = bag.sessions.get(sessionId)
-      return (s?.queuedMessageCount ?? 0) > 0 || bag.inbox.isDraining(sessionId)
     },
     archiveReason: (sessionId: SessionId) => {
       const s = bag.sessions.get(sessionId)
@@ -1118,8 +1121,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     store,
     toPtyInput: (mid: string, input: unknown) => bag.toPtyInput(mid, input),
     // A server-family session has no PTY bridge, so its continue rides the
-    // same receipt seam as every other send: 'now' goes when-ready through the
-    // driver, joining the durable queue only when older work is ahead of it.
+    // same receipt seam as every other send: one durable when-ready row.
     sendContinueViaContract: (sessionId: SessionId) =>
       bag.receiptSender.send('now', {
         sessionId,

@@ -40,7 +40,7 @@ import type {
   TurnDelivery,
   TurnReceipt,
 } from '@podium/protocol/daemon'
-import type { InboxPrincipalReference } from './inbox'
+import type { InboxPrincipalReference, QueuedDelivery } from './inbox'
 import type { RuntimeEventGate, RuntimeEventGateResult } from './runtime-event-gate'
 
 /**
@@ -89,6 +89,10 @@ export interface RuntimeDurableQueuePort {
      * re-pushed by the next sweep.
      */
     sourceMessageId?: string
+    /** How the daemon types the row; absent = `when-ready` (POD-4795). */
+    delivery?: QueuedDelivery
+    /** Staged file refs stored on the row and typed with it. */
+    attachments?: readonly RuntimeAttachmentRef[]
   }): Promise<
     { ok: true; position: number } | { ok: false; reason: Refusal['reason']; detail?: string }
   >
@@ -258,20 +262,12 @@ export class SessionRuntimeGateway {
      */
     principal?: InboxPrincipalReference
   }): Promise<TurnReceipt> {
-    if (input.attachments?.length && (input.delivery === 'queue' || input.delivery === 'steer')) {
-      return {
-        outcome: 'refused',
-        refusal: {
-          reason: 'unsupported',
-          detail: 'durable queued turns do not yet carry attachment refs',
-        },
-      }
-    }
     if (input.delivery === 'queue' || input.delivery === 'steer') {
       const queued = await this.ports.queue.enqueue({
         sessionId: input.sessionId,
         text: input.text,
         origin: input.origin,
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         // NEVER A LOCAL DEFAULT. When a caller did not name itself the
         // composition root's own system principal is used — declared there,
         // where a reader can see what "system" means and W4 can watch it stop

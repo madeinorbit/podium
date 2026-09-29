@@ -3,27 +3,22 @@
  * spec §9 phase 2, server half; one route since POD-4427).
  *
  * ---------------------------------------------------------------------------
- * ADMISSION COMPLETION AND LATER RECEIPTS
+ * EVERY AGENT SEND IS ONE DURABLE ROW (POD-4795)
  * ---------------------------------------------------------------------------
  *
- * Admission awaits durable metadata preparation before dispatch. It does not wait
- * for a driver receipt: proof may arrive later through the existing reconciler.
- * Legacy inbox admission and durable queue ports carry that same completion
- * promise, so a failed offer clear refuses the send instead of leaving a stale
- * actionable card after input has already gone out.
+ * A session with a driver behind it gets every turn — `now`, `queue`, `wake`
+ * and `interrupt` alike — as one row in the server's durable queue, stored
+ * under the message id and forwarded to the daemon under that same id. The
+ * daemon's delivery queue decides when to type it and recognises a repeat by
+ * the id; `interrupt` is a delivery MODE of that queue (the row goes ahead of
+ * the waiting rows and cuts the running turn), not a second pipeline, and
+ * staged files travel on the row. Nothing here reads whether the agent is
+ * ready or whether older work is queued: ordering and readiness are the
+ * daemon's, and there is only one queue to order.
  *
- * ---------------------------------------------------------------------------
- * WHAT ACTUALLY FLIPPED (POD-4427: the branch below is agent-vs-shell now,
- * not a rollout flag)
- * ---------------------------------------------------------------------------
- *
- * Not WHEN a caller hears something — WHERE THE OUTCOME COMES FROM.
- *
- * On the contract path the server states the delivery mode it wants and the
- * driver reports what actually happened, including a `deliveredAs` downgrade
- * it would otherwise have had to guess at. The urgency x lifecycle table above
- * this seam keeps reading phase to CHOOSE the mode — that is product policy
- * and it is unchanged. Phase stops being consulted for the RESULT.
+ * The caller's receipt is therefore the queue's own answer, given at once:
+ * `queued`, or the refusal that kept the row out. What happened at the agent
+ * comes back later as the row's delivery outcome, by id.
  *
  * Shells keep the legacy verbs: they have no driver, so the inbox's raw
  * transport is their only delivery.
@@ -32,36 +27,27 @@
  * WHY `queue` NEVER CROSSES THE WIRE
  * ---------------------------------------------------------------------------
  *
- * For the same reason `SessionRuntimeGateway` does not forward it: the durable
- * FIFO is a server table, so a queued turn survives a daemon restart, a machine
- * going offline and a parked session, and forwarding it would move that promise
- * to the one place that cannot keep it. Both this seam and the gateway complete
- * `queue` through the SAME {@link RuntimeDurableQueuePort}, so there is one
- * queue with one behaviour and two awaited admission paths.
- *
- * It also keeps W3's second review precondition satisfied by construction:
- * `host.authorizeAtDrain` has no provider on the daemon, so a forwarded
- * driver-side queue would drain unauthorized. Nothing here forwards one.
+ * The durable FIFO is a server table, so a queued turn survives a daemon
+ * restart, a machine going offline and a parked session. Both this seam and
+ * the gateway complete it through the SAME {@link RuntimeDurableQueuePort}, so
+ * there is one queue with one behaviour.
  */
 
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, isAbsolute, normalize } from 'node:path'
-import { describeError } from '@podium/logger'
 import type { MutationId, SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import type { RuntimeAttachmentRef, TurnDelivery, TurnReceipt } from '@podium/protocol/daemon'
+import type { RuntimeAttachmentRef, TurnReceipt } from '@podium/protocol/daemon'
 import type { InboxPrincipalReference } from './inbox'
 import type { RuntimeDurableQueuePort } from './runtime-gateway'
 
 /**
  * HOW A MIGRATED CALLER NAMES ITS INTENT.
  *
- * Deliberately the vocabulary the callers already reason in, not the contract's
- * four deliveries: `messages` picks between "inject now", "ride the durable
- * queue" and "interrupt the open turn", and `wake` is the resume-then-send shape
- * steward and the superagent use. Mapping them onto `TurnDelivery` happens HERE,
- * once, where the reasoning can be written down — rather than at each of the ~29
- * call sites, where it would be re-derived slightly differently every time.
+ * The vocabulary the callers already reason in. For an agent it maps onto the
+ * durable row's delivery mode HERE, once: `interrupt` cuts the running turn,
+ * everything else waits for the boundary (POD-4795). The four verbs still
+ * differ for a shell, whose raw transport has no queue of its own to order.
  */
 export type ReceiptSendVia = 'now' | 'queue' | 'interrupt' | 'wake'
 
@@ -83,11 +69,6 @@ export interface ReceiptSendResult {
   reason?: string
   /** 1-based position in the server's durable FIFO when queued. */
   position?: number
-  /** True when a driver receipt WILL follow through `onReceipt` — the contract
-   *  path's direct send. Until it arrives the push is only handed on, so a
-   *  caller must not record it as delivered (POD-4765). Absent: no receipt is
-   *  coming (a legacy send, or one completed here). */
-  receiptPending?: true
 }
 
 /** The legacy verbs, as this seam needs them. Structurally satisfied by
@@ -99,24 +80,8 @@ export interface ReceiptSendLegacyPort {
   resumeAndSend(input: ReceiptSendInput & { mutationId?: MutationId }): Promise<ReceiptSendResult>
 }
 
-/** The contract path's machine-crossing half. `queue` is absent on purpose —
- *  see the header: it completes on this side and never travels. */
-export interface ReceiptSendContractPort {
-  send(input: {
-    sessionId: SessionId
-    turnId?: string
-    text: string
-    origin: ObservationInputOrigin
-    delivery: Exclude<TurnDelivery, 'queue' | 'steer'>
-    attachments?: readonly RuntimeAttachmentRef[]
-    principal?: InboxPrincipalReference
-  }): Promise<TurnReceipt>
-}
-
 export interface ReceiptSenderPorts {
-  prepareSend(input: ReceiptSendInput): Promise<void>
   legacy: ReceiptSendLegacyPort
-  contract: ReceiptSendContractPort
   /** The SAME durable FIFO the gateway completes `queue` through. */
   queue: RuntimeDurableQueuePort
   /**
@@ -128,30 +93,6 @@ export interface ReceiptSenderPorts {
    * machine. The fact is reported by the daemon on bind — see `BindMessage`.
    */
   onContract(sessionId: SessionId): boolean
-  /**
-   * Is there a live process to hand a turn to, with nothing already queued ahead
-   * of it — the condition `resumeAndSend` uses today to send straight through
-   * instead of riding the durable queue.
-   *
-   * A LIFECYCLE question, not a readiness prediction, and the distinction is the
-   * whole reason it survives the migration. "Is the agent ready for bytes" is
-   * exactly the guess receipts replace. "Does a process exist at all" is not
-   * guessable from a receipt: `when-ready` to a parked session is refused
-   * `not_running` by a driver that cannot wake anything, so routing a wake
-   * through it would turn every steward nudge and superagent resume from "wakes
-   * the session" into "dropped".
-   */
-  liveWithEmptyQueue(sessionId: SessionId): boolean
-  /**
-   * Is there older work in the SERVER's durable queue ahead of this send —
-   * anything queued, or a drain in flight.
-   *
-   * An ordering fact, not a readiness one, and the driver cannot supply it: the
-   * durable table is the server's and the driver has never seen it. See the
-   * `orderingHold` note in `send` for why the distinction decides whether a
-   * `now` may go straight to the driver.
-   */
-  queueNotEmpty(sessionId: SessionId): boolean
   /** Human-facing refusal for deliberate archive intent — the one lifecycle
    *  fact the server owns. What the agent is doing (errored, a native view
    *  holding the lease, busy) is the driver's to answer (POD-4775). */
@@ -192,10 +133,10 @@ export class ReceiptSender {
   /**
    * Dispatch one turn.
    *
-   * Resolves after admission and dispatch, without waiting for the driver receipt. On
-   * the contract path `onReceipt` fires later with the honest outcome — exactly
-   * once, and never for a legacy send, so a caller can tell "no receipt is
-   * coming" from "the receipt said nothing happened".
+   * Resolves once the row is stored (or refused). `onReceipt` fires exactly
+   * once on the contract path with that answer, and never for a legacy send,
+   * so a caller can tell "no receipt is coming" from "the receipt said
+   * nothing happened".
    */
   async send(
     via: ReceiptSendVia,
@@ -231,108 +172,7 @@ export class ReceiptSender {
       }
       return this.legacy(via, input)
     }
-
-    // The durable modes complete here through the same table the gateway uses.
-    // Build both the caller's answer and its receipt from the completed enqueue.
-    //
-    // `now` JOINS THEM WHENEVER THE SERVER FIFO IS NOT EMPTY, and that guard is
-    // load-bearing rather than defensive. `sendText` queues instead of typing
-    // when anything is already queued or draining, and it does so to preserve
-    // ORDER: there are two queues once a driver exists — the server's durable
-    // table and the driver's in-memory one — and nothing sequences between them.
-    // A `when-ready` sent past a non-empty server queue would be typed BEFORE the
-    // older messages still waiting to drain, silently reordering a conversation.
-    //
-    // This is the same distinction `liveWithEmptyQueue` draws for `wake`, and it
-    // is worth being precise about, because "the server stops predicting
-    // readiness" is exactly the kind of principle that eats an invariant it was
-    // never aimed at: readiness ("can the agent take bytes now") is the driver's
-    // question and the migration hands it over. Ordering ("is there older work
-    // ahead of this") is a fact about the server's own table, which the driver
-    // cannot see and therefore cannot answer.
-    //
-    // It applies to `wake` as well as `now`, and that is not belt-and-braces:
-    // `liveWithEmptyQueue` reads the queue COUNT, which is already zero while
-    // the last row is being drained. A wake arriving in that window would pass
-    // the liveness check and overtake the row currently going out.
-    const orderingHold =
-      (via === 'now' || via === 'wake') && this.ports.queueNotEmpty(input.sessionId)
-    if (
-      via === 'queue' ||
-      orderingHold ||
-      (via === 'wake' && !this.ports.liveWithEmptyQueue(input.sessionId))
-    ) {
-      if (input.attachments?.length) {
-        return this.refuseAttachments(
-          via,
-          input,
-          'unsupported',
-          'files cannot wait behind another turn; try again when pending messages have delivered',
-          onReceipt,
-        )
-      }
-      return this.enqueue(via, input, onReceipt)
-    }
-
-    // WHEN-READY IS THE HEART OF THE CONTRACT PATH. The server says "when
-    // ready" and the driver's injection state machine answers with what it
-    // did — including `deliveredAs: 'queue'`, the downgrade the server used
-    // to have to infer.
-    const delivery = via === 'interrupt' ? ('interrupt' as const) : ('when-ready' as const)
-    await this.ports.prepareSend(input)
-    const settled = this.ports.contract.send({
-      sessionId: input.sessionId,
-      ...(input.sourceMessageId ? { turnId: input.sourceMessageId } : {}),
-      text: input.text,
-      origin: input.inputOrigin ?? 'controller',
-      delivery,
-      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
-      principal: input.principal ?? this.ports.systemPrincipal(),
-    })
-    // THE REJECTION IS HANDLED WHETHER OR NOT ANYONE IS LISTENING, and the
-    // `onReceipt`-shaped version of this was a bug: a caller with no reconciler
-    // to run (the superagent's spawn tool, an automation) still produces a
-    // promise, and an unobserved rejection from a daemon that went away is an
-    // unhandled rejection — which is a process-level event, not a quiet one. So
-    // the handler is attached unconditionally and the reconciler is what is
-    // optional.
-    //
-    // A RECEIPT THAT NEVER ARRIVES MUST NOT BE SILENT EITHER. A driver that died
-    // mid-window rejects, and a caller waiting to reconcile a row would
-    // otherwise wait forever — so the failure is reported AS a receipt, in the
-    // vocabulary the caller already handles.
-    //
-    // AND IT IS `unverified`, NEVER A REFUSAL (POD-4775). The frame may have
-    // left before the throw, so "nobody can prove what happened" is the true
-    // statement; a `not_running` refusal would tell the caller nothing was
-    // typed and let it fail — or resend — a message that may have landed.
-    void settled.then(
-      (receipt) => {
-        this.dispatchReceipt(input, via, receipt, onReceipt)
-      },
-      (err: unknown) => {
-        console.error('[receipt-send] direct send rejected; its outcome is unknown', {
-          sessionId: input.sessionId,
-          sourceMessageId: input.sourceMessageId,
-          error: describeError(err),
-        })
-        this.dispatchReceipt(
-          input,
-          via,
-          {
-            outcome: 'unverified',
-            deliveredAs: delivery,
-            verificationWindowMs: 0,
-            at: new Date(this.ports.now()).toISOString(),
-          },
-          onReceipt,
-        )
-      },
-    )
-    // The bytes are on their way; the receipt says whether they landed, and
-    // `receiptPending` tells the caller to wait for it rather than record a
-    // delivery now.
-    return { ok: true, receiptPending: true }
+    return this.enqueue(via, input, onReceipt)
   }
 
   /** Invoke immediately, but own completion separately from send admission.
@@ -386,6 +226,8 @@ export class ReceiptSender {
       text: input.text,
       origin: input.inputOrigin ?? 'controller',
       principal: input.principal ?? this.ports.systemPrincipal(),
+      delivery: via === 'interrupt' ? 'interrupt' : 'when-ready',
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       // EVERYTHING THE LEGACY VERB CARRIED, CARRIED. A queued turn that lost its
       // `mutationId` makes every steward/automation retry a duplicate rather
       // than a no-op; one that lost its `sourceMessageId` is invisible to the

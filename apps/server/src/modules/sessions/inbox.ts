@@ -32,7 +32,12 @@ import {
   isAgentComputing,
 } from '@podium/model'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
-import type { QueueDrainAbandonedReason, Refusal, TurnReceipt } from '@podium/protocol/daemon'
+import type {
+  QueueDrainAbandonedReason,
+  Refusal,
+  RuntimeAttachmentRef,
+  TurnReceipt,
+} from '@podium/protocol/daemon'
 import { asDelegationRef, type DelegationRef } from '@podium/protocol'
 import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
@@ -184,7 +189,18 @@ export interface QueuedInboxMessage {
   inputOrigin: ObservationInputOrigin
   principal: InboxPrincipalReference
   sourceMessageId: string | null
+  delivery: QueuedDelivery
+  /** Staged file refs typed with the text; absent = none. */
+  attachments?: readonly RuntimeAttachmentRef[]
 }
+
+/**
+ * HOW THE DAEMON TYPES A QUEUED ROW (POD-4795). `when-ready` waits for the turn
+ * boundary; `interrupt` waits ahead of the other rows and cuts the running
+ * turn. One queue, one id per row, two modes — an interrupt is never a second
+ * path around the queue.
+ */
+export type QueuedDelivery = 'when-ready' | 'interrupt'
 
 export interface InboxQueuePort {
   enqueue(row: {
@@ -195,6 +211,8 @@ export interface InboxQueuePort {
     inputOrigin: ObservationInputOrigin
     principal: InboxPrincipalReference
     sourceMessageId: string | null
+    delivery: QueuedDelivery
+    attachments?: readonly RuntimeAttachmentRef[]
   }): Promise<boolean>
   list(sessionId: SessionId): Promise<QueuedInboxMessage[]>
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
@@ -356,6 +374,8 @@ export interface SessionInboxDeps {
     turnId: string
     deliveryRecovery?: boolean
     initialPrompt?: boolean
+    delivery: QueuedDelivery
+    attachments?: readonly RuntimeAttachmentRef[]
     text: string
     origin: ObservationInputOrigin
     principal: InboxPrincipalReference
@@ -606,24 +626,14 @@ export class SessionInbox {
       return { ok: false, reason: 'session not running' }
     }
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
-    // Contract-only stops for agents (POD-4279). The driver owns the abort key
-    // behind its manifest idle guard; the server never types it. Plain-terminal
-    // shells (POD-4278) keep the raw path below — they have no driver to call.
+    // An agent's interrupt is a DELIVERY MODE of its durable queue (POD-4795):
+    // one stored row under the message id, which the daemon puts ahead of the
+    // waiting rows, cutting the running turn before typing it. Only the daemon
+    // knows whether there is a turn to cut (POD-4666), so the server neither
+    // reads the phase nor sends a stop of its own. Plain-terminal shells
+    // (POD-4278) keep the raw path below — they have no driver to call.
     if (session.agentKind !== 'shell') {
-      await this.cancelInterruptedDelivery(input.sessionId, true, input.sourceMessageId)
-      // EVERY interrupt goes to the driver (POD-4666). The server's phase is a
-      // lagging copy of the daemon's, so gating on it skipped the interrupt of
-      // a turn that was really running. The driver skips it when there is no
-      // turn to cut into; a driver with no running session (`not_running`) has
-      // nothing to cut into either, and the message still lands, which is the
-      // point of this path.
-      const interruption = await this.requestDriverInterrupt(input.sessionId)
-      if (!('ok' in interruption) && interruption.reason !== 'not_running') {
-        return { ok: false, reason: this.interruptRefusalReason(session, interruption) }
-      }
-      // The follow-up text rides the durable queue down the drain's contract
-      // branch. The queue result is the caller's answer, not a silent ok:true.
-      return await this.queueText({ ...input, principal })
+      return await this.queueText({ ...input, principal, delivery: 'interrupt' })
     }
     // An idle agent has no turn to cut into, so the abort key is skipped rather
     // than refused — the message still lands, which is the point of this path.
@@ -896,7 +906,13 @@ export class SessionInbox {
     return abort.bytes
   }
 
-  async queueText(input: InboxSendInput & { mutationId?: MutationId }): Promise<{
+  async queueText(
+    input: InboxSendInput & {
+      mutationId?: MutationId
+      delivery?: QueuedDelivery
+      attachments?: readonly RuntimeAttachmentRef[]
+    },
+  ): Promise<{
     ok: boolean
     queued?: boolean
     reason?: string
@@ -951,6 +967,8 @@ export class SessionInbox {
       queuedAt: this.deps.now(),
       principal,
       sourceMessageId: input.sourceMessageId ?? null,
+      delivery: input.delivery ?? 'when-ready',
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     })
     const inserted = await insertion
     if (inserted) {
@@ -1163,6 +1181,8 @@ export class SessionInbox {
             sessionId, turnId: row.id, text: row.text, origin: row.inputOrigin,
             principal: row.principal, deliveryRecovery: recovery,
             initialPrompt: isInitialPromptRow(sessionId, row),
+            delivery: row.delivery,
+            ...(row.attachments?.length ? { attachments: row.attachments } : {}),
           })
           if (!current()) return
           if (receipt.outcome !== 'queued' && receipt.outcome !== 'accepted') {
