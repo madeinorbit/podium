@@ -59,10 +59,14 @@ function messagesRouterBlock(): string {
 }
 
 describe('POD-424 gate: the messages router is DERIVED, not hand-written', () => {
-  /** Every `<key>: mail(Query|Mutation)('<proc>'),` line in the messages block. */
+  /** Every `<key>: mail(Query|Mutation)('<proc>'),` line in the messages block.
+   *  A helper may name the answer's type (`mailQuery<{ … }>('records')`): that
+   *  types what the client reads, and the procedure is derived all the same. */
   function derivedProcs(): { key: string; verb: 'query' | 'mutation'; proc: string }[] {
     const block = messagesRouterBlock()
-    return [...block.matchAll(/^\s{4}(\w+): mail(Query|Mutation)\('(\w+)'\),$/gm)].map((m) => ({
+    return [
+      ...block.matchAll(/^\s{4}(\w+): mail(Query|Mutation)(?:<[^>]*>)?\('(\w+)'\),$/gm),
+    ].map((m) => ({
       key: m[1] as string,
       verb: m[2] === 'Query' ? 'query' : 'mutation',
       proc: m[3] as string,
