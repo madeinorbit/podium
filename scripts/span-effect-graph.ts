@@ -568,6 +568,22 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: "The messages repository's own write callback, handed to its write funnel [POD-4764]; every caller's query is declared in the same file and is checked there, exactly as CommittedRows.query is.",
   },
+  'apps/server/src/store/messages.ts#MessagesRepository.fail': {
+    kind: 'opaque',
+    why: "The status move a failure runs beside its sender's notice [POD-4778], handed to the repository's own failWith; every such move is declared in the same file, through its write funnel, and is checked there, exactly as MessagesRepository.query is.",
+  },
+  'apps/server/src/store/guarded-move.ts#GuardedMove.write': {
+    kind: 'opaque',
+    why: "The owning repository's guarded UPDATE, handed to moveStatus [POD-4765]; each is declared in its repository through that repository's write funnel and is checked there.",
+  },
+  'apps/server/src/store/guarded-move.ts#GuardedMove.read': {
+    kind: 'opaque',
+    why: "The owning repository's one-row status SELECT, read only when a guarded move did not apply [POD-4765]; declared beside the write in its repository and checked there.",
+  },
+  'packages/model/src/state-machine.ts#StateMachine.allowedFrom': {
+    kind: 'contained',
+    why: 'A lookup in the declared transition table: the states a row may be in for a move into one state. Pure data; no I/O, nothing observable outside the process.',
+  },
   'apps/server/src/store/messages.ts#MessageFeedCapture.MessageFeedCapture': {
     kind: 'contained',
     why: "The chat message feed's capture [POD-4764]: it appends the rows' feed changes to the change log through Ledger.capture, which joins this same transaction, and defers both the subscriber delivery (the Authority's postCommit) and its own memory (applyAfterCommit) past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
