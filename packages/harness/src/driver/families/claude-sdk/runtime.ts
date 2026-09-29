@@ -849,6 +849,8 @@ export function createClaudeSdkRuntime(
       provenBy: 'protocol-ack',
       // No cursor: the live item has none until history re-reads the record.
       ...(input.text ? { transcriptItem: { id: userItemId } } : {}),
+      // The uuid the CLI keeps the line under, text or not (POD-4841).
+      harnessRef: [{ kind: 'claude-uuid', id: userItemId }],
       at: host.now(),
     }
   }

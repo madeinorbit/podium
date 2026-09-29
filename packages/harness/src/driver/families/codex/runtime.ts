@@ -59,12 +59,13 @@ import { type AgentStateEvent } from '../../../agent-state/types.js'
 import { reduceAgentState } from '../../../observer.js'
 import type {
   AgentRuntimeState,
+  HarnessRef,
   ResumeRef,
   SessionId,
   TranscriptItem,
   TranscriptItemRef,
 } from '@podium/model'
-import { transcriptItemRefOf } from '@podium/model'
+import { mergeHarnessRefs, transcriptItemRefOf } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
@@ -411,7 +412,8 @@ interface AwaitedEntry {
   messageId: string | undefined
   turnId: CodexTurnId
   deliveredAs: 'turn' | 'steer'
-  onItem: ((item: TranscriptItemRef) => void) | undefined
+  /** The entry, with our id as Codex echoed it when it did (POD-4841). */
+  onItem: ((item: TranscriptItemRef, echo: HarnessRef | undefined) => void) | undefined
   /** Codex will not record it any more (POD-4849). */
   onUnrecorded: ((reason: string) => void) | undefined
 }
@@ -425,6 +427,15 @@ interface AwaitedEntry {
  * then only as a `turn/start`'s input: the turn's first user item. A steer has
  * no fallback, because it joins a turn it did not open and no turn id names it.
  */
+/** Our id, as the recorded item echoed it back (POD-4841). */
+function echoOf(seen: SeenUserItem): HarnessRef | undefined {
+  return seen.clientId !== null ? [{ kind: 'codex-client-message', id: seen.clientId }] : undefined
+}
+
+/** The turn Codex's answer named for a send: the one it opened, or the
+ *  running turn the message joined (POD-4841). */
+const turnRef = (turnId: CodexTurnId): HarnessRef => [{ kind: 'codex-turn', id: turnId }]
+
 function entryPairing(entry: AwaitedEntry, seen: SeenUserItem): EntryPairing | undefined {
   if (seen.claimed) return undefined
   if (seen.clientId !== null) return entry.messageId === seen.clientId ? 'client-id' : undefined
@@ -1072,7 +1083,7 @@ export function createCodexRuntime(
       if (!pairedBy) continue
       session.awaitingEntry.splice(index, 1)
       claimEntry(session, entry, seen, pairedBy)
-      entry.onItem?.(ref)
+      entry.onItem?.(ref, echoOf(seen))
       return
     }
   }
@@ -1083,12 +1094,12 @@ export function createCodexRuntime(
    * lands, so the items already seen are read first; otherwise the send waits,
    * and `onItem` names the entry when it is recorded.
    */
-  function awaitEntry(session: DriverSession, entry: AwaitedEntry): TranscriptItemRef | undefined {
+  function awaitEntry(session: DriverSession, entry: AwaitedEntry): SeenUserItem | undefined {
     for (const seen of session.userItems) {
       const pairedBy = entryPairing(entry, seen)
       if (!pairedBy) continue
       claimEntry(session, entry, seen, pairedBy)
-      return seen.ref
+      return seen
     }
     session.awaitingEntry.push(entry)
     if (session.awaitingEntry.length > AWAITING_ENTRIES_KEPT) {
@@ -1304,6 +1315,8 @@ export function createCodexRuntime(
   ): Promise<{
     turnId: CodexTurnId | undefined
     transcriptItem: TranscriptItemRef | undefined
+    /** Codex's own ids for the send: its turn, and the echo once recorded. */
+    harnessRef: HarnessRef | undefined
     held: boolean
     deliveredAs: 'turn' | 'steer'
   }> {
@@ -1332,13 +1345,7 @@ export function createCodexRuntime(
     )
     const turnId = result.turn?.id
     const awaited = (deliveredAs: 'turn' | 'steer', id: CodexTurnId) =>
-      awaitEntry(session, {
-        messageId: input.id,
-        turnId: id,
-        deliveredAs,
-        onItem: options.onTranscriptItem,
-        onUnrecorded: options.onUnrecorded,
-      })
+      awaitRecord(session, input, options, deliveredAs, id)
     /**
      * A `turn/start` THAT LANDED ON A RUNNING TURN OPENED NOTHING (POD-4849).
      *
@@ -1354,8 +1361,14 @@ export function createCodexRuntime(
      * only, so that turn's own first item is never taken for ours.
      */
     if (turnId !== undefined && turnId === openAtAnswer) {
-      const transcriptItem = awaited('steer', turnId)
-      return { turnId, transcriptItem, held: transcriptItem === undefined, deliveredAs: 'steer' }
+      const { transcriptItem, harnessRef } = awaited('steer', turnId)
+      return {
+        turnId,
+        transcriptItem,
+        harnessRef,
+        held: transcriptItem === undefined,
+        deliveredAs: 'steer',
+      }
     }
     /**
      * THE RESPONSE IS THE ACK AND *NOT* THE OPEN TURN.
@@ -1386,12 +1399,42 @@ export function createCodexRuntime(
     })
     persist(session)
     emit(session, { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin } }, iso())
-    const transcriptItem = turnId ? awaited('turn', turnId) : undefined
+    const { transcriptItem, harnessRef } = turnId
+      ? awaited('turn', turnId)
+      : { transcriptItem: undefined, harnessRef: undefined }
     return {
       turnId,
       transcriptItem,
+      harnessRef,
       held: turnId !== undefined && transcriptItem === undefined,
       deliveredAs: 'turn',
+    }
+  }
+
+  /**
+   * THE RECORD A SEND AWAITS, AND CODEX'S OWN IDS FOR IT (POD-4841): the turn
+   * its answer named, and our id as the record echoed it. The entry is named
+   * now when already recorded; otherwise `onTranscriptItem` names it later
+   * with the same ids, so a late naming carries the turn too.
+   */
+  function awaitRecord(
+    session: DriverSession,
+    input: TurnInput,
+    options: Pick<SendOptions, 'onTranscriptItem' | 'onUnrecorded'>,
+    deliveredAs: 'turn' | 'steer',
+    turnId: CodexTurnId,
+  ): { transcriptItem: TranscriptItemRef | undefined; harnessRef: HarnessRef | undefined } {
+    const onItem = options.onTranscriptItem
+    const seen = awaitEntry(session, {
+      messageId: input.id,
+      turnId,
+      deliveredAs,
+      onItem: onItem && ((item, echo) => onItem(item, mergeHarnessRefs(turnRef(turnId), echo))),
+      onUnrecorded: options.onUnrecorded,
+    })
+    return {
+      transcriptItem: seen?.ref,
+      harnessRef: mergeHarnessRefs(turnRef(turnId), seen && echoOf(seen)),
     }
   }
 
@@ -1544,10 +1587,10 @@ export function createCodexRuntime(
       const next = session.queue.shift()
       if (!next) return
       try {
-        const { transcriptItem } = await deliver(session, next.input, next.options)
+        const { transcriptItem, harnessRef } = await deliver(session, next.input, next.options)
         // The caller's receipt went back long ago, so an entry already
         // recorded is named the way a later one would be.
-        if (transcriptItem) next.options.onTranscriptItem?.(transcriptItem)
+        if (transcriptItem) next.options.onTranscriptItem?.(transcriptItem, harnessRef)
       } catch {
         /**
          * THE SEND ITSELF FAILED, AND THE CALLER IS LONG GONE.
@@ -1798,19 +1841,14 @@ export function createCodexRuntime(
                * is `held`, not delivered (POD-4849). A steer with no id can
                * never be paired: nothing follows its receipt.
                */
-              const transcriptItem =
+              const { transcriptItem, harnessRef } =
                 input.id !== undefined
-                  ? awaitEntry(session, {
-                      messageId: input.id,
-                      turnId,
-                      deliveredAs: 'steer',
-                      onItem: options.onTranscriptItem,
-                      onUnrecorded: options.onUnrecorded,
-                    })
-                  : undefined
+                  ? awaitRecord(session, input, options, 'steer', turnId)
+                  : { transcriptItem: undefined, harnessRef: turnRef(turnId) }
               return {
                 outcome: 'accepted',
                 ...(transcriptItem ? { transcriptItem } : { held: 'memory' as const }),
+                ...(harnessRef ? { harnessRef } : {}),
                 // THE SAME EPOCH. A steer joins the open turn rather than
                 // opening one, so advancing the epoch would tell every consumer
                 // a new turn began and orphan the events still arriving under
@@ -1891,11 +1929,12 @@ export function createCodexRuntime(
         } catch (err) {
           return refuseUnrecorded(err, 'codex turn/start')
         }
-        const { transcriptItem } = delivered
+        const { transcriptItem, harnessRef } = delivered
         return {
           outcome: 'accepted',
           turnEpoch: session.turnEpoch,
           ...(transcriptItem ? { transcriptItem } : {}),
+          ...(harnessRef ? { harnessRef } : {}),
           ...(delivered.held ? { held: 'memory' as const } : {}),
           // A requested `steer` either steered and returned above, or queued.
           // What reaches here steers only when Codex made it one — a

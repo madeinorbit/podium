@@ -341,6 +341,44 @@ describe('the history entry a delivered send became (POD-4774, POD-4836)', () =>
   })
 })
 
+describe("Claude's own id for our message (POD-4841)", () => {
+  it('names the uuid the line was typed under, on the receipt and on the outcome', async () => {
+    const { host, turns } = manualHost()
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
+    const handle = await runtime.createWithId(SESSION, spec())
+    const uuid = claudeUserMessageUuid('msg_direct')
+    const receipt = handle.send(
+      { id: 'msg_direct', text: 'ping' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await vi.waitFor(() => expect(turns).toHaveLength(1))
+    turns[0]!.ack()
+    await expect(receipt).resolves.toMatchObject({
+      outcome: 'accepted',
+      harnessRef: [{ kind: 'claude-uuid', id: uuid }],
+    })
+    runtime.dispose()
+
+    const durable = manualHost()
+    const rowRuntime = createClaudeSdkRuntime(durable.host, createMemoryDriverSlots())
+    const rowHandle = await rowRuntime.createWithId(SESSION, spec())
+    await rowHandle.send(
+      { id: 'row-1', text: 'durable ping', rowId: 'row-1' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await vi.waitFor(() => expect(durable.turns).toHaveLength(1))
+    durable.turns[0]!.ack()
+    const events = await eventsUntil(rowHandle, (seen) =>
+      seen.some((event) => event.t === 'delivery'),
+    )
+    expect(events.find((event) => event.t === 'delivery')).toMatchObject({
+      rowId: 'row-1',
+      harnessRef: [{ kind: 'claude-uuid', id: claudeUserMessageUuid('row-1') }],
+    })
+    rowRuntime.dispose()
+  })
+})
+
 describe('the receipt waits for the CLI to acknowledge the line (POD-4836)', () => {
   it('is not accepted, and opens no turn, until the CLI acks the line', async () => {
     const { host, turns } = manualHost()
