@@ -219,10 +219,10 @@ describe('OpenCode measured v2 wire frames', () => {
   it.each([
     ['1.18.33', stable],
     ['beta-18866', beta],
-  ])('leaves %s cross-session 409 unproven after a scoped lookup', async (_version, timeline) => {
-    const send = frame<PromptBody>(timeline as Frame[], 'http.send', 'S5f.cross')
-    const conflict = frame(timeline as Frame[], 'http.reply', 'S5f.cross')
-    const history = frame(timeline as Frame[], 'http.reply', 'S5f.other-after')
+  ] as const)('leaves %s cross-session 409 unproven after a scoped lookup', async (_version, timeline) => {
+    const send = frame<PromptBody>(timeline, 'http.send', 'S5f.cross')
+    const conflict = frame(timeline, 'http.reply', 'S5f.cross')
+    const history = frame(timeline, 'http.reply', 'S5f.other-after')
     const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
       if (init?.method === 'POST') return response(conflict)
       expect(new URL(String(url)).pathname).toBe(history.path.split('?')[0])
@@ -241,6 +241,24 @@ describe('OpenCode measured v2 wire frames', () => {
       init?.method === 'POST'
         ? response(conflict)
         : new Response(JSON.stringify({ error: 'lookup failed' }), { status }),
+    )
+    await expect(
+      createOpencode2Client(config(fetch)).prompt(sessionFor(send), inputFor(send)),
+    ).rejects.toMatchObject({ name: 'OpencodeHttpError', status: 409 })
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    { type: 'user' },
+    { type: 'assistant', content: [{ type: 'text', text: 'assistant output' }] },
+    { type: 'user', id: 'msg_other', text: 'another prompt' },
+  ])('never credits a 409 from an unrelated or text-less history row: %j', async (row) => {
+    const send = frame<PromptBody>(beta, 'http.send', 'S5f.cross')
+    const conflict = frame(beta, 'http.reply', 'S5f.cross')
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) =>
+      init?.method === 'POST'
+        ? response(conflict)
+        : new Response(JSON.stringify({ data: [{ id: send.body.id, ...row }] })),
     )
     await expect(
       createOpencode2Client(config(fetch)).prompt(sessionFor(send), inputFor(send)),
