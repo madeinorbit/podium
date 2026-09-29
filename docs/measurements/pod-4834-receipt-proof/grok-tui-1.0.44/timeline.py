@@ -68,13 +68,24 @@ for r in load('model-requests.jsonl'):
         tail.append(f"{m['role']}:{short(c, 120)}")
     rows.append((r['at'], 'MODEL', f"#{r['idx']} model={r['model']} tools={r['nTools']} n={len(msgs)} last: " + ' || '.join(tail)))
 skip = ('summary.json', 'signals.json', 'usage.json', 'prompt_context.json')
-for f in load('files.jsonl'):
+for f in load('files.jsonl') + load('files2.jsonl'):
     if not (lo <= f['at'] <= hi):
         continue
     name = f['file'].split('/')[-1]
     if name in skip:
         continue
+    if 'rewritten' in f:
+        w = f['rewritten']
+        rows.append((f['at'], name.replace('.jsonl', ''), f"REWRITTEN inodeChanged={w['inodeChanged']} lines {w['oldLines']}->{w['newLines']} from line {w['firstDiffLine']}; replaced: " + short(json.dumps(w['replacedOld']), 200)))
+        continue
+    if f.get('inodeChanged'):
+        rows.append((f['at'], name.replace('.jsonl', ''), 'INODE CHANGED, content append-only'))
+        continue
     rec = f.get('rec', f.get('json'))
+    if f.get('relined'):
+        name_tag = ' (re-written line)'
+    else:
+        name_tag = ''
     if name == 'updates.jsonl' and isinstance(rec, dict):
         u = rec['params']['update']
         meta = rec['params'].get('_meta', {})
@@ -92,10 +103,10 @@ for f in load('files.jsonl'):
         for k in ('eventId', 'promptId', 'agentTimestampMs'):
             if k in meta:
                 bits.append(f"_meta.{k}={meta[k]}")
-        rows.append((f['at'], 'updates', ' '.join(bits)))
+        rows.append((f['at'], 'updates', name_tag + ' '.join(bits)))
     elif name == 'chat_history.jsonl' and isinstance(rec, dict):
         keys = {k: v for k, v in rec.items() if k != 'content'}
-        rows.append((f['at'], 'chat_history', f"{rec.get('type')} {short(text_of(rec.get('content')), 140)!r} {json.dumps(keys)}"))
+        rows.append((f['at'], 'chat_history', name_tag + f"{rec.get('type')} {short(text_of(rec.get('content')), 140)!r} {json.dumps(keys)}"))
     else:
         rows.append((f['at'], name.replace('.jsonl', ''), short(json.dumps(rec), 260)))
 

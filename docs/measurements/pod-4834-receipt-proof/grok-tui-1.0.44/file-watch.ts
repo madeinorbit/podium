@@ -1,12 +1,15 @@
-// Polls every *.jsonl/*.json file under WATCH_DIR every 20 ms and logs each new line (jsonl)
-// or each content change (json) with the time it was first SEEN — the write time to within
-// one poll, in file order. Output: one JSON line per observation to WATCH_LOG.
+// Polls every *.jsonl/*.json file under WATCH_DIR every 20 ms and logs what changed, with the
+// time it was first SEEN (the write time to within one poll), in file order:
+//   jsonl, grown by appending      -> one {rec} line per new complete line
+//   jsonl, earlier content changed -> {rewritten:{inodeChanged, oldLines, newLines, firstDiffLine}}
+//                                     and then every line from the first difference as {rec, relined:true}
+//   json, content changed           -> {json}
+// tool_definitions.json is skipped (large, static).
 import { appendFileSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 const DIR = process.env.WATCH_DIR!
 const LOG = process.env.WATCH_LOG!
-const offsets = new Map<string, number>()
-const jsonSeen = new Map<string, string>()
+const seen = new Map<string, { content: string; ino: number }>()
 const walk = (d: string): string[] => {
   let out: string[] = []
   let entries: any[] = []
@@ -18,35 +21,42 @@ const walk = (d: string): string[] => {
   }
   return out
 }
+const parse = (line: string): unknown => { try { return JSON.parse(line) } catch { return line } }
+// WATCH_SKIP_INITIAL=1: the first poll only records what exists (restart without re-logging).
+let quiet = process.env.WATCH_SKIP_INITIAL === '1'
+const emit = (o: unknown) => { if (!quiet) appendFileSync(LOG, JSON.stringify(o) + '\n') }
 const tick = () => {
   const at = Date.now()
   for (const f of walk(DIR)) {
-    const rel = relative(DIR, f)
-    let size = 0
-    try { size = statSync(f).size } catch { continue }
-    if (f.endsWith('.jsonl')) {
-      const off = offsets.get(f) ?? 0
-      if (size < off) { appendFileSync(LOG, JSON.stringify({ at, file: rel, truncated: { from: off, to: size } }) + '\n'); offsets.set(f, 0); continue }
-      if (size === off) continue
-      const buf = readFileSync(f).subarray(off)
-      const text = buf.toString('utf8')
-      const lastNl = text.lastIndexOf('\n')
-      if (lastNl < 0) continue
-      for (const line of text.slice(0, lastNl).split('\n')) {
-        let rec: unknown = line
-        try { rec = JSON.parse(line) } catch {}
-        appendFileSync(LOG, JSON.stringify({ at, file: rel, rec }) + '\n')
-      }
-      offsets.set(f, off + Buffer.byteLength(text.slice(0, lastNl + 1)))
-    } else {
-      let content = ''
-      try { content = readFileSync(f, 'utf8') } catch { continue }
-      if (jsonSeen.get(f) === content) continue
-      jsonSeen.set(f, content)
-      let rec: unknown = content
-      try { rec = JSON.parse(content) } catch {}
-      appendFileSync(LOG, JSON.stringify({ at, file: rel, json: rec }) + '\n')
+    const file = relative(DIR, f)
+    let content = ''
+    let ino = 0
+    try { ino = statSync(f).ino; content = readFileSync(f, 'utf8') } catch { continue }
+    const prev = seen.get(f)
+    if (prev && prev.content === content && prev.ino === ino) continue
+    if (f.endsWith('.json')) {
+      if (prev?.content !== content) emit({ at, file, json: parse(content) })
+      seen.set(f, { content, ino })
+      continue
     }
+    // jsonl: only complete lines count
+    const complete = content.slice(0, content.lastIndexOf('\n') + 1)
+    const old = prev?.content ?? ''
+    if (complete === old && prev?.ino === ino) continue
+    if (complete.startsWith(old)) {
+      if (prev && prev.ino !== ino) emit({ at, file, inodeChanged: true, appendOnly: true })
+      for (const line of complete.slice(old.length).split('\n').filter(Boolean)) emit({ at, file, rec: parse(line) })
+    } else {
+      const a = old.split('\n').filter(Boolean)
+      const b = complete.split('\n').filter(Boolean)
+      let i = 0
+      while (i < a.length && i < b.length && a[i] === b[i]) i++
+      emit({ at, file, rewritten: { inodeChanged: prev?.ino !== ino, oldLines: a.length, newLines: b.length, firstDiffLine: i + 1, replacedOld: a.slice(i).map(parse) } })
+      for (const line of b.slice(i)) emit({ at, file, rec: parse(line), relined: true })
+    }
+    seen.set(f, { content: complete, ino })
   }
 }
+tick()
+quiet = false
 setInterval(tick, 20)
