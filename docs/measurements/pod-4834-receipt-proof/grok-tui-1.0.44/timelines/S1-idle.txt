@@ -1,0 +1,28 @@
+# timeline for S1 (Enter at 1790698264811), ms relative to Enter
+     +0  KEY           S1 Enter: ALPHA idle prompt
+   +239  prompt_history {"timestamp": "2026-09-29T16:11:05.040593499Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "ALPHA idle prompt", "is_bash": false}
+   +239  events        {"ts": "2026-09-29T16:11:05.043Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 0, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 3, "session_relationship": "primary", "schema_version": "1.0…
+   +270  HOOK          UserPromptSubmit promptId=179a1a36-3d91-443a-ae16-06aa06e2f29d prompt='ALPHA idle prompt'
+   +279  chat_history  "e contents of the subsection.\\n\\n\\n<user_rules description=\\\"These are rules set by the user that you should follow if appropriate.\\\">\\n<user_rule>\\nState points directly in affirmative language. Avoid unnecessary contrastive negation such as \u201cX…
+   +279  chat_history  user '<system-reminder>\\nThe following workflows are available:\\n\\n- deep-research: Research a query with bounded parallelism, cross-check the evi…' {"type": "user", "synthetic_reason": "system_reminder"}
+   +350  PODIUM-HOOK   user_prompt_submit promptId=179a1a36-3d91-443a-ae16-06aa06e2f29d
+   +364  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=179a1a36-3d91-443a-ae16-06aa06e2f29d _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-3 _meta.agentTimestampMs=1790698265165
+   +380  MODEL         #4 model=grok-4.6 tools=1 n=1 last: user:<user_query>\nALPHA idle prompt\n</user_query>
+   +384  chat_history  user '<user_query>\\nALPHA idle prompt\\n</user_query>' {"type": "user", "prompt_index": 0}
+   +404  updates       session/update user_message_chunk text='ALPHA idle prompt' u._meta.promptIndex=0 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-4 _meta.agentTimestampMs=1790698265166
+   +493  events        {"ts": "2026-09-29T16:11:05.292Z", "type": "loop_started", "loop_index": 0}
+   +495  MODEL         #4 reply done (quick)
+   +499  MODEL         #5 model=fake tools=25 n=3 last: user:<user_info>\nOS Version: linux\nShell: /bin/sh\nWorkspace Path: <scratch>/grok/work\nToday's date: 2026-09-29\n</user_in… || user:<system-reminder>\nThe following workflows are available:\n\n- deep-research: Research a query with bounded parallelism,… || user:<user_query>\nALPHA idle prompt\n</user_query>
+   +592  MODEL         #5 reply done (quick)
+   +594  chat_history  assistant 'r5w1 r5w2 r5w3 ' {"type": "assistant", "model_id": "fake"}
+   +618  HOOK          Stop promptId=179a1a36-3d91-443a-ae16-06aa06e2f29d reason=end_turn
+   +653  PODIUM-HOOK   stop promptId=179a1a36-3d91-443a-ae16-06aa06e2f29d
+   +679  updates       _x.ai/session/update hook_execution event_name=stop prompt_id=179a1a36-3d91-443a-ae16-06aa06e2f29d _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-12 _meta.agentTimestampMs=1790698265481
+   +699  updates       session/update agent_message_chunk text='r5w1 r5w2 r5w3 ' _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-8 _meta.promptId=179a1a36-3d91-443a-ae16-06aa06e2f29d _meta.agentTimestampMs=1790698265404
+   +722  events        {"ts": "2026-09-29T16:11:05.519Z", "type": "turn_ended", "outcome": "completed"}
+   +722  rewind_points {"prompt_index": 0, "created_at": "2026-09-29T16:11:05.166241093Z", "file_snapshots": {}, "after_snapshots": {}}
+   +741  MODEL         #6 model=fake tools=25 n=5 last: user:<system-reminder>\nThe following workflows are available:\n\n- deep-research: Research a query with bounded parallelism,… || user:<user_query>\nALPHA idle prompt\n</user_query> || assistant:r5w1 r5w2 r5w3  || user:<system-reminder>Write an ultra-short dashboard line that captures the AGENT'S REPLY for the last turn only — everything…
+   +742  updates       _x.ai/session/update turn_completed prompt_id=179a1a36-3d91-443a-ae16-06aa06e2f29d stop_reason=end_turn _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-13 _meta.agentTimestampMs=1790698265545
+   +754  MODEL         #7 model=fake tools=0 n=1 last: user:CWD: <scratch>/grok/work\n\nTranscript:\n\nUser: <user_info>\nOS Version: linux\nShell: /bin/sh\nWorkspace Path: <scratc…
+   +842  MODEL         #6 reply done (quick)
+   +857  MODEL         #7 reply done (quick)

@@ -1,0 +1,21 @@
+# timeline for S10-err (Enter at 1790698885434), ms relative to Enter
+     +0  KEY           S10-err Enter: ERRORNOW please
+    +46  HOOK          UserPromptSubmit promptId=edce6d40-b81e-4af9-a3a8-88fba84816cd prompt='ERRORNOW please'
+    +50  prompt_history {"timestamp": "2026-09-29T16:21:25.467199258Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "ERRORNOW please", "is_bash": false}
+    +50  events        {"ts": "2026-09-29T16:21:25.468Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 26, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 8, "session_relationship": "primary", "schema_version": "1.…
+   +102  PODIUM-HOOK   user_prompt_submit promptId=edce6d40-b81e-4af9-a3a8-88fba84816cd
+   +112  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=edce6d40-b81e-4af9-a3a8-88fba84816cd _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-334 _meta.agentTimestampMs=1790698885541
+   +112  chat_history  user '<user_query>\\nERRORNOW please\\n</user_query>' {"type": "user", "prompt_index": 26}
+   +132  updates       session/update user_message_chunk text='ERRORNOW please' u._meta.promptIndex=26 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-335 _meta.agentTimestampMs=1790698885541
+   +142  MODEL         #7 model=fake tools=25 n=8 last: user:<system-reminder>\n\nTo use MCP tools, you MUST call `search_tool` first to retrieve the tool's input schema before call… || user:<user_query>\n# /loop -- schedule a recurring prompt\n\nTurn the input below into a scheduler_create call. Each fire run… || assistant:r4w1 r4w2 r4w3  || user:<user_query>\nERRORNOW please\n</user_query>
+   +142  MODEL         #7 reply done (error-400)
+   +153  events        {"ts": "2026-09-29T16:21:25.572Z", "type": "loop_started", "loop_index": 0}
+   +153  updates       _x.ai/session/update retry_state _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-337 _meta.agentTimestampMs=1790698885578
+   +168  HOOK          Notification promptId=None
+   +193  PODIUM-HOOK   notification promptId=None
+   +235  rewind_points {"prompt_index": 26, "created_at": "2026-09-29T16:21:25.541832923Z", "file_snapshots": {}, "after_snapshots": {}}
+   +276  events        {"ts": "2026-09-29T16:21:25.705Z", "type": "turn_ended", "outcome": "error"}
+   +297  HOOK          StopFailure promptId=edce6d40-b81e-4af9-a3a8-88fba84816cd
+   +319  updates       _x.ai/session/update turn_completed prompt_id=edce6d40-b81e-4af9-a3a8-88fba84816cd stop_reason=error _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-338 _meta.agentTimestampMs=1790698885741
+   +325  PODIUM-HOOK   stop_failure promptId=edce6d40-b81e-4af9-a3a8-88fba84816cd
+   +340  updates       _x.ai/session/update hook_execution event_name=stop_failure prompt_id=edce6d40-b81e-4af9-a3a8-88fba84816cd _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-339 _meta.agentTimestampMs=1790698885762

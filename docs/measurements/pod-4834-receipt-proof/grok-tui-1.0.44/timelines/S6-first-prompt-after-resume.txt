@@ -1,0 +1,24 @@
+# timeline for S6-after (Enter at 1790698971696), ms relative to Enter
+     +0  KEY           S6-after Enter: AFTERKILL first prompt after resume
+    +38  prompt_history {"timestamp": "2026-09-29T16:22:51.728598521Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "AFTERKILL first prompt after resume", "is_bash": false}
+    +73  events        {"ts": "2026-09-29T16:22:51.735Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 29, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 15, "session_relationship": "primary", "schema_version": "1…
+    +86  HOOK          UserPromptSubmit promptId=69ab4b8a-a625-44c2-aa27-3fee37a499ad prompt='AFTERKILL first prompt after resume'
+   +127  PODIUM-HOOK   user_prompt_submit promptId=69ab4b8a-a625-44c2-aa27-3fee37a499ad
+   +154  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=69ab4b8a-a625-44c2-aa27-3fee37a499ad _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-362 _meta.agentTimestampMs=1790698971843
+   +175  chat_history  user '<user_query>\\nAFTERKILL first prompt after resume\\n</user_query>' {"type": "user", "prompt_index": 29}
+   +218  events        {"ts": "2026-09-29T16:22:51.913Z", "type": "loop_started", "loop_index": 0}
+   +218  updates       session/update user_message_chunk text='AFTERKILL first prompt after resume' u._meta.promptIndex=29 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-363 _meta.agentTimestampMs=1790698971843
+   +239  MODEL         #13 model=fake tools=25 n=15 last: assistant: [tool_call call_fake11] || tool:[tool_result call_fake11] Tool execution was cancelled by the user (tool `run_terminal_command` was not executed). || user:<system-reminder>\nThe previous turn was interrupted (the system exited or was restarted). Work before this message may … || user:<user_query>\nAFTERKILL first prompt after resume\n</user_query>
+   +337  MODEL         #13 reply done (quick)
+   +383  chat_history  assistant 'r13w1 r13w2 r13w3 ' {"type": "assistant", "model_id": "fake"}
+   +397  HOOK          Stop promptId=69ab4b8a-a625-44c2-aa27-3fee37a499ad reason=end_turn
+   +555  PODIUM-HOOK   stop promptId=69ab4b8a-a625-44c2-aa27-3fee37a499ad
+   +569  updates       _x.ai/session/update hook_execution event_name=stop prompt_id=69ab4b8a-a625-44c2-aa27-3fee37a499ad _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-371 _meta.agentTimestampMs=1790698972259
+   +590  updates       session/update agent_message_chunk text='r13w1 r13w2 r13w3 ' _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-367 _meta.promptId=69ab4b8a-a625-44c2-aa27-3fee37a499ad _meta.agentTimestampMs=1790698972053
+   +634  rewind_points {"prompt_index": 29, "created_at": "2026-09-29T16:22:51.843149093Z", "file_snapshots": {}, "after_snapshots": {}}
+   +654  events        {"ts": "2026-09-29T16:22:52.345Z", "type": "turn_ended", "outcome": "completed"}
+   +698  updates       _x.ai/session/update turn_completed prompt_id=69ab4b8a-a625-44c2-aa27-3fee37a499ad stop_reason=end_turn _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-372 _meta.agentTimestampMs=1790698972392
+   +703  MODEL         #14 model=fake tools=25 n=17 last: user:<system-reminder>\nThe previous turn was interrupted (the system exited or was restarted). Work before this message may … || user:<user_query>\nAFTERKILL first prompt after resume\n</user_query> || assistant:r13w1 r13w2 r13w3  || user:<system-reminder>Write an ultra-short dashboard line that captures the AGENT'S REPLY for the last turn only — everything…
+   +710  MODEL         #15 model=fake tools=0 n=1 last: user:CWD: <scratch>/grok/work\n\nTranscript:\n\nUser: <user_query>\nOMEGA two\n</user_query>\n\nUser: <user_query>\n# /loop -…
+   +711  MODEL         #15 reply done (error-400)
+   +799  MODEL         #14 reply done (quick)

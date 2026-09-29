@@ -1,0 +1,12 @@
+# timeline for S9-compact (Enter at 1790698677836), ms relative to Enter
+     +0  KEY           S9-compact Enter: /compact
+   +111  HOOK          PreCompact promptId=None source=manual
+   +228  PODIUM-HOOK   pre_compact promptId=None
+   +255  MODEL         #73 model=fake tools=25 n=2 last: assistant:\n[... truncated 18 bytes to fit the compaction window ...] || user:Your task is to produce a faithful, concise summary of the conversation so far so that a successor assistant can continu…
+   +256  updates       _x.ai/session/update hook_execution event_name=pre_compact _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-318 _meta.agentTimestampMs=1790698678081
+   +354  MODEL         #73 reply done (quick)
+  +3361  MODEL         #74 model=fake tools=25 n=2 last: assistant:\n[... truncated 18 bytes to fit the compaction window ...] || user:Your task is to produce a faithful, concise summary of the conversation so far so that a successor assistant can continu…
+  +3529  MODEL         #74 reply done (quick)
+  +6533  MODEL         #75 model=fake tools=25 n=2 last: assistant:\n[... truncated 18 bytes to fit the compaction window ...] || user:Your task is to produce a faithful, concise summary of the conversation so far so that a successor assistant can continu…
+  +6717  MODEL         #75 reply done (quick)
+  +6752  d43ec782-e2d1-4675-88c9-1ba17169a565.json (state file written; keys ['attempt_details', 'attempts', 'chat_history', 'created_at', 'error', 'model', 'prompt_variant', 'request_id', 'schema_version', 'summary', 'tools', 'trigger'])

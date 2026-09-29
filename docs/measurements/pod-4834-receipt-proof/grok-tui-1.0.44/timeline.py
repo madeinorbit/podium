@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Merge marks, hooks, model requests and file observations into one timeline around a mark.
 
-usage: timeline.py <logs-dir> <label> [seconds-after=15] [seconds-before=1]
+usage: timeline.py raw <label> [seconds-after=15] [seconds-before=1]
 Each line: ms after the mark's Enter, source, and a short digest of the record. File records
 appear in FILE ORDER at the time the watcher first saw them (20 ms poll).
 """
@@ -47,7 +47,7 @@ for h in load('hooks.jsonl'):
         rows.append((h['at'], 'HOOK', f"{h['ev']} promptId={p.get('promptId')}{extra}"))
 for h in load('podium-hook.jsonl'):
     if lo <= h['at'] <= hi:
-        p = h['payload'] or {}
+        p = h.get('payload', h) or {}
         rows.append((h['at'], 'PODIUM-HOOK', f"{p.get('hookEventName')} promptId={p.get('promptId')}"))
 for r in load('model-requests.jsonl'):
     if not (lo <= r['at'] <= hi):
@@ -68,11 +68,14 @@ for r in load('model-requests.jsonl'):
         tail.append(f"{m['role']}:{short(c, 120)}")
     rows.append((r['at'], 'MODEL', f"#{r['idx']} model={r['model']} tools={r['nTools']} n={len(msgs)} last: " + ' || '.join(tail)))
 skip = ('summary.json', 'signals.json', 'usage.json', 'prompt_context.json')
-for f in load('files.jsonl') + load('files2.jsonl'):
+for f in load('session-files-observed.jsonl'):
     if not (lo <= f['at'] <= hi):
         continue
     name = f['file'].split('/')[-1]
     if name in skip:
+        continue
+    if f.get('stub'):
+        rows.append((f['at'], name, f"(state file written; keys {f.get('keys')})"))
         continue
     if 'rewritten' in f:
         w = f['rewritten']

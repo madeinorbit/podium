@@ -1,0 +1,11 @@
+# timeline for RACE-resume (Enter at 1790699023563), ms relative to Enter
+     +0  KEY           RACE-resume Enter: grok -c after RACE60
+   +396  updates       _x.ai/session/update turn_completed prompt_id=b239b967-a0cd-4d3d-a6a3-67505cb0ed0a stop_reason=interrupted _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-0 _meta.agentTimestampMs=1790699023945
+   +464  events        {"ts": "2026-09-29T16:23:44.022Z", "type": "turn_ended", "outcome": "interrupted"}
+   +507  chat_history  INODE CHANGED, content append-only
+   +568  chat_history  INODE CHANGED, content append-only
+   +584  HOOK          SessionStart promptId=None source=load
+   +609  updates       _x.ai/session/update background_tasks _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-387 _meta.agentTimestampMs=1790699024141
+   +609  chat_history  user '<system-reminder>\\nThe previous turn was interrupted (the system exited or was restarted). Work before this message may have been lost.\\n</s…' {"type": "user", "synthetic_reason": "system_reminder"}
+   +636  PODIUM-HOOK   session_start promptId=None
+   +650  updates       _x.ai/session/update hook_execution event_name=session_start _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-389 _meta.agentTimestampMs=1790699024203

@@ -1,0 +1,5 @@
+# timeline for RACE20 (Enter at 1790699004891), ms relative to Enter
+     +0  KEY           RACE20 Enter: RACE20 killed right after Enter
+    +41  KEY           RACE20-kill Enter: kill -9 996471
+    +52  prompt_history {"timestamp": "2026-09-29T16:23:24.926073660Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "RACE20 killed right after Enter", "is_bash": false}
+    +52  events        {"ts": "2026-09-29T16:23:24.928Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 31, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 19, "session_relationship": "primary", "schema_version": "1…

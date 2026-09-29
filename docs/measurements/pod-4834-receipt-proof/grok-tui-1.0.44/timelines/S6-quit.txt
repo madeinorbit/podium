@@ -1,0 +1,15 @@
+# timeline for S6-quit (Enter at 1790699054114), ms relative to Enter
+     +0  KEY           S6-quit Enter: /quit
+    +91  HOOK          SessionEnd promptId=None reason=shutdown
+   +143  PODIUM-HOOK   session_end promptId=None
+   +165  updates       _x.ai/session/update hook_execution event_name=session_end _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-401 _meta.agentTimestampMs=1790699054262
+   +172  HOOK          Stop promptId=None reason=shutdown
+   +234  PODIUM-HOOK   stop promptId=None
+   +249  updates       _x.ai/session/update hook_execution event_name=stop _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-402 _meta.agentTimestampMs=1790699054354
+  +3113  KEY           S6-resume2 Enter: grok -c after /quit
+  +3598  chat_history  INODE CHANGED, content append-only
+  +3635  HOOK          SessionStart promptId=None source=load
+  +3638  chat_history  INODE CHANGED, content append-only
+  +3659  updates       _x.ai/session/update background_tasks _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-405 _meta.agentTimestampMs=1790699057745
+  +3675  PODIUM-HOOK   session_start promptId=None
+  +3679  updates       _x.ai/session/update hook_execution event_name=session_start _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-407 _meta.agentTimestampMs=1790699057793

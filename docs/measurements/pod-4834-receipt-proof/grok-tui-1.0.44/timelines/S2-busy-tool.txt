@@ -1,0 +1,68 @@
+# timeline for S2-busy (Enter at 1790698326633), ms relative to Enter
+   -929  HOOK          Notification promptId=None
+   -874  PODIUM-HOOK   notification promptId=None
+     +0  KEY           S2-busy Enter: BETA TOOLSLEEP please
+    +85  prompt_history {"timestamp": "2026-09-29T16:12:06.698146314Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "BETA TOOLSLEEP please", "is_bash": false}
+    +85  events        {"ts": "2026-09-29T16:12:06.713Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 1, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 5, "session_relationship": "primary", "schema_version": "1.0…
+   +108  HOOK          UserPromptSubmit promptId=7546b3b0-da40-4652-b643-c3ff8dc5cc1d prompt='BETA TOOLSLEEP please'
+   +139  PODIUM-HOOK   user_prompt_submit promptId=7546b3b0-da40-4652-b643-c3ff8dc5cc1d
+   +167  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=7546b3b0-da40-4652-b643-c3ff8dc5cc1d _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-14 _meta.agentTimestampMs=1790698326779
+   +192  chat_history  user '<user_query>\\nBETA TOOLSLEEP please\\n</user_query>' {"type": "user", "prompt_index": 1}
+   +212  updates       session/update user_message_chunk text='BETA TOOLSLEEP please' u._meta.promptIndex=1 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-15 _meta.agentTimestampMs=1790698326780
+   +250  MODEL         #8 model=fake tools=25 n=5 last: user:<system-reminder>\nThe following workflows are available:\n\n- deep-research: Research a query with bounded parallelism,… || user:<user_query>\nALPHA idle prompt\n</user_query> || assistant:r5w1 r5w2 r5w3  || user:<user_query>\nBETA TOOLSLEEP please\n</user_query>
+   +250  MODEL         #8 reply done (tool)
+   +253  events        {"ts": "2026-09-29T16:12:06.880Z", "type": "loop_started", "loop_index": 0}
+   +273  events        {"ts": "2026-09-29T16:12:06.889Z", "type": "tool_started", "tool_name": "run_terminal_command"}
+   +273  chat_history  assistant '' {"type": "assistant", "tool_calls": [{"id": "call_fake8", "name": "run_terminal_command", "arguments": "{\"command\":\"sleep 8\",\"description\":\"wait eight seconds\"}"}], "model_id": "fake"}
+   +277  HOOK          PreToolUse promptId=None tool=run_terminal_command
+   +304  PODIUM-HOOK   pre_tool_use promptId=None
+   +316  events        {"ts": "2026-09-29T16:12:06.945Z", "type": "permission_requested", "tool_name": "run_terminal_command"}
+   +316  updates       _x.ai/session/update hook_execution event_name=pre_tool_use _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-19 _meta.agentTimestampMs=1790698326945
+   +340  events        {"ts": "2026-09-29T16:12:06.957Z", "type": "permission_resolved", "tool_name": "run_terminal_command", "decision": "allow", "wait_ms": 11}
+   +340  updates       session/update tool_call _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-18 _meta.promptId=7546b3b0-da40-4652-b643-c3ff8dc5cc1d _meta.agentTimestampMs=1790698326891
+  +2876  KEY           S2 Enter: GAMMA sent while tool runs
+  +8419  HOOK          PostToolUse promptId=None tool=run_terminal_command
+  +8459  PODIUM-HOOK   post_tool_use promptId=None
+  +8484  MODEL         #9 model=fake tools=25 n=7 last: assistant:r5w1 r5w2 r5w3  || user:<user_query>\nBETA TOOLSLEEP please\n</user_query> || assistant: [tool_call call_fake8] || tool:[tool_result call_fake8] exit: 0\n
+  +8487  events        {"ts": "2026-09-29T16:12:15.111Z", "type": "tool_completed", "tool_name": "run_terminal_command", "duration_ms": 8078, "outcome": "success", "tool_call_id": "call_fake8"}
+  +8487  events        {"ts": "2026-09-29T16:12:15.112Z", "type": "loop_started", "loop_index": 1}
+  +8487  updates       _x.ai/session/update hook_execution event_name=post_tool_use _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-22 _meta.agentTimestampMs=1790698335111
+  +8507  updates       session/update tool_call_update _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-20 _meta.promptId=7546b3b0-da40-4652-b643-c3ff8dc5cc1d _meta.agentTimestampMs=1790698326945
+  +8507  chat_history  tool_result 'exit: 0\\n' {"type": "tool_result", "tool_call_id": "call_fake8"}
+  +8527  updates       session/update tool_call_update _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-21 _meta.promptId=7546b3b0-da40-4652-b643-c3ff8dc5cc1d _meta.agentTimestampMs=1790698335111
+  +8578  MODEL         #9 reply done (quick)
+  +8587  chat_history  assistant 'r9w1 r9w2 r9w3 ' {"type": "assistant", "model_id": "fake"}
+  +8595  HOOK          Stop promptId=7546b3b0-da40-4652-b643-c3ff8dc5cc1d reason=end_turn
+  +8711  PODIUM-HOOK   stop promptId=7546b3b0-da40-4652-b643-c3ff8dc5cc1d
+  +8718  resources_state.json (state file written; keys ['params', 'state'])
+  +8739  updates       _x.ai/session/update hook_execution event_name=stop prompt_id=7546b3b0-da40-4652-b643-c3ff8dc5cc1d _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-31 _meta.agentTimestampMs=1790698335349
+  +8739  updates       session/update agent_message_chunk text='r9w1 r9w2 r9w3 ' _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-27 _meta.promptId=7546b3b0-da40-4652-b643-c3ff8dc5cc1d _meta.agentTimestampMs=1790698335212
+  +8759  rewind_points {"prompt_index": 1, "created_at": "2026-09-29T16:12:06.780897773Z", "file_snapshots": {}, "after_snapshots": {}}
+  +8779  events        {"ts": "2026-09-29T16:12:15.399Z", "type": "turn_ended", "outcome": "completed"}
+  +8818  MODEL         #10 model=fake tools=0 n=9 last: assistant: [tool_call call_fake8] || tool:[tool_result call_fake8] exit: 0\n || assistant:r9w1 r9w2 r9w3  || user:<system-reminder>Generate a session title for the conversation above. It should be a short and distinctive 5-10 word des…
+  +8821  updates       _x.ai/session/update turn_completed prompt_id=7546b3b0-da40-4652-b643-c3ff8dc5cc1d stop_reason=end_turn _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-32 _meta.agentTimestampMs=1790698335445
+  +8831  MODEL         #11 model=fake tools=25 n=9 last: assistant: [tool_call call_fake8] || tool:[tool_result call_fake8] exit: 0\n || assistant:r9w1 r9w2 r9w3  || user:<system-reminder>Write an ultra-short dashboard line that captures the AGENT'S REPLY for the last turn only — everything…
+  +8843  prompt_history {"timestamp": "2026-09-29T16:12:15.462897961Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "GAMMA sent while tool runs", "is_bash": false}
+  +8850  MODEL         #11 reply done (tool)
+  +8863  events        {"ts": "2026-09-29T16:12:15.477Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 2, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 9, "session_relationship": "primary", "schema_version": "1.0…
+  +8899  HOOK          UserPromptSubmit promptId=92c6a032-d1ab-4c9e-8fc6-a141293cb746 prompt='GAMMA sent while tool runs'
+  +8916  MODEL         #10 reply done (quick)
+  +9041  PODIUM-HOOK   user_prompt_submit promptId=92c6a032-d1ab-4c9e-8fc6-a141293cb746
+  +9072  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=92c6a032-d1ab-4c9e-8fc6-a141293cb746 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-33 _meta.agentTimestampMs=1790698335685
+  +9092  updates       session/update user_message_chunk text='GAMMA sent while tool runs' u._meta.promptIndex=2 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-34 _meta.agentTimestampMs=1790698335692
+  +9092  chat_history  user '<user_query>\\nGAMMA sent while tool runs\\n</user_query>' {"type": "user", "prompt_index": 2}
+  +9098  MODEL         #12 model=fake tools=25 n=9 last: assistant: [tool_call call_fake8] || tool:[tool_result call_fake8] exit: 0\n || assistant:r9w1 r9w2 r9w3  || user:<user_query>\nGAMMA sent while tool runs\n</user_query>
+  +9112  events        {"ts": "2026-09-29T16:12:15.728Z", "type": "loop_started", "loop_index": 0}
+  +9190  MODEL         #12 reply done (quick)
+  +9203  chat_history  assistant 'r12w1 r12w2 r12w3 ' {"type": "assistant", "model_id": "fake"}
+  +9240  HOOK          Stop promptId=92c6a032-d1ab-4c9e-8fc6-a141293cb746 reason=end_turn
+  +9309  PODIUM-HOOK   stop promptId=92c6a032-d1ab-4c9e-8fc6-a141293cb746
+  +9330  updates       _x.ai/session/update hook_execution event_name=stop prompt_id=92c6a032-d1ab-4c9e-8fc6-a141293cb746 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-42 _meta.agentTimestampMs=1790698335945
+  +9330  updates       session/update agent_message_chunk text='r12w1 r12w2 r12w3 ' _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-38 _meta.promptId=92c6a032-d1ab-4c9e-8fc6-a141293cb746 _meta.agentTimestampMs=1790698335824
+  +9350  events        {"ts": "2026-09-29T16:12:15.983Z", "type": "turn_ended", "outcome": "completed"}
+  +9350  rewind_points {"prompt_index": 2, "created_at": "2026-09-29T16:12:15.692023238Z", "file_snapshots": {}, "after_snapshots": {}}
+  +9384  MODEL         #13 model=fake tools=25 n=11 last: assistant:r9w1 r9w2 r9w3  || user:<user_query>\nGAMMA sent while tool runs\n</user_query> || assistant:r12w1 r12w2 r12w3  || user:<system-reminder>Write an ultra-short dashboard line that captures the AGENT'S REPLY for the last turn only — everything…
+  +9391  updates       _x.ai/session/update turn_completed prompt_id=92c6a032-d1ab-4c9e-8fc6-a141293cb746 stop_reason=end_turn _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-43 _meta.agentTimestampMs=1790698336014
+  +9393  MODEL         #14 model=fake tools=0 n=1 last: user:CWD: <scratch>/grok/work\n\nTranscript:\n\nUser: <user_info>\nOS Version: linux\nShell: /bin/sh\nWorkspace Path: <scratc…
+  +9393  MODEL         #14 reply done (tool)
+  +9479  MODEL         #13 reply done (quick)

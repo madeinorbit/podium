@@ -1,0 +1,46 @@
+# timeline for S3-busy (Enter at 1790698355388), ms relative to Enter
+     +0  KEY           S3-busy Enter: DELTA SLOWTEXT please
+    +33  prompt_history {"timestamp": "2026-09-29T16:12:35.419367052Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "DELTA SLOWTEXT please", "is_bash": false}
+    +33  events        {"ts": "2026-09-29T16:12:35.420Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 3, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 11, "session_relationship": "primary", "schema_version": "1.…
+    +48  HOOK          UserPromptSubmit promptId=6bc68bf3-ebd1-4651-a591-1b79b0bd89da prompt='DELTA SLOWTEXT please'
+    +87  PODIUM-HOOK   user_prompt_submit promptId=6bc68bf3-ebd1-4651-a591-1b79b0bd89da
+    +95  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=6bc68bf3-ebd1-4651-a591-1b79b0bd89da _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-44 _meta.agentTimestampMs=1790698355480
+   +115  updates       session/update user_message_chunk text='DELTA SLOWTEXT please' u._meta.promptIndex=3 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-45 _meta.agentTimestampMs=1790698355480
+   +115  chat_history  user '<user_query>\\nDELTA SLOWTEXT please\\n</user_query>' {"type": "user", "prompt_index": 3}
+   +135  events        {"ts": "2026-09-29T16:12:35.522Z", "type": "loop_started", "loop_index": 0}
+   +138  MODEL         #15 model=fake tools=25 n=11 last: assistant:r9w1 r9w2 r9w3  || user:<user_query>\nGAMMA sent while tool runs\n</user_query> || assistant:r12w1 r12w2 r12w3  || user:<user_query>\nDELTA SLOWTEXT please\n</user_query>
+  +3038  KEY           S3 Enter: EPSILON sent while text streams
+ +10257  MODEL         #15 reply done (slow)
+ +10266  chat_history  assistant 'r15w1 r15w2 r15w3 r15w4 r15w5 r15w6 r15w7 r15w8 r15w9 r15w10 r15w11 r15w12 r15w13 r15w14 r15w15 r15w16 r15w17 r15w18 r15w19 r15w20 ' {"type": "assistant", "model_id": "fake"}
+ +10289  HOOK          Stop promptId=6bc68bf3-ebd1-4651-a591-1b79b0bd89da reason=end_turn
+ +10342  PODIUM-HOOK   stop promptId=6bc68bf3-ebd1-4651-a591-1b79b0bd89da
+ +10353  updates       _x.ai/session/update hook_execution event_name=stop prompt_id=6bc68bf3-ebd1-4651-a591-1b79b0bd89da _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-70 _meta.agentTimestampMs=1790698365740
+ +10373  updates       session/update agent_message_chunk text='r15w1 r15w2 r15w3 r15w4 r15w5 r15w6 r15w7 r15w8 r15w9 r15w10 r15w11 r15w12 r15w1…' _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-66 _meta.promptId=6bc68bf3-ebd1-4651-a591-1b79b0bd89da _meta.agentTimestampMs=1790698365650
+ +10413  events        {"ts": "2026-09-29T16:12:45.799Z", "type": "turn_ended", "outcome": "completed"}
+ +10413  rewind_points {"prompt_index": 3, "created_at": "2026-09-29T16:12:35.480499257Z", "file_snapshots": {}, "after_snapshots": {}}
+ +10450  MODEL         #16 model=fake tools=25 n=13 last: assistant:r12w1 r12w2 r12w3  || user:<user_query>\nDELTA SLOWTEXT please\n</user_query> || assistant:r15w1 r15w2 r15w3 r15w4 r15w5 r15w6 r15w7 r15w8 r15w9 r15w10 r15w11 r15w12 r15w13 r15w14 r15w15 r15w16 r15w17 r15w18 r15… || user:<system-reminder>Write an ultra-short dashboard line that captures the AGENT'S REPLY for the last turn only — everything…
+ +10454  updates       _x.ai/session/update turn_completed prompt_id=6bc68bf3-ebd1-4651-a591-1b79b0bd89da stop_reason=end_turn _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-71 _meta.agentTimestampMs=1790698365833
+ +10495  prompt_history {"timestamp": "2026-09-29T16:12:45.857677923Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "EPSILON sent while text streams", "is_bash": false}
+ +10495  events        {"ts": "2026-09-29T16:12:45.866Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 4, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 13, "session_relationship": "primary", "schema_version": "1.…
+ +10510  HOOK          UserPromptSubmit promptId=37d75c14-08f7-4e80-a5e3-d942f9ef42e3 prompt='EPSILON sent while text streams'
+ +10545  PODIUM-HOOK   user_prompt_submit promptId=37d75c14-08f7-4e80-a5e3-d942f9ef42e3
+ +10555  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=37d75c14-08f7-4e80-a5e3-d942f9ef42e3 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-72 _meta.agentTimestampMs=1790698365941
+ +10575  updates       session/update user_message_chunk text='EPSILON sent while text streams' u._meta.promptIndex=4 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-73 _meta.agentTimestampMs=1790698365941
+ +10575  chat_history  user '<user_query>\\nEPSILON sent while text streams\\n</user_query>' {"type": "user", "prompt_index": 4}
+ +10590  MODEL         #17 model=fake tools=25 n=13 last: assistant:r12w1 r12w2 r12w3  || user:<user_query>\nDELTA SLOWTEXT please\n</user_query> || assistant:r15w1 r15w2 r15w3 r15w4 r15w5 r15w6 r15w7 r15w8 r15w9 r15w10 r15w11 r15w12 r15w13 r15w14 r15w15 r15w16 r15w17 r15w18 r15… || user:<user_query>\nEPSILON sent while text streams\n</user_query>
+ +10595  events        {"ts": "2026-09-29T16:12:45.973Z", "type": "loop_started", "loop_index": 0}
+ +10682  MODEL         #17 reply done (quick)
+ +10695  HOOK          Stop promptId=37d75c14-08f7-4e80-a5e3-d942f9ef42e3 reason=end_turn
+ +10700  chat_history  assistant 'r17w1 r17w2 r17w3 ' {"type": "assistant", "model_id": "fake"}
+ +10729  PODIUM-HOOK   stop promptId=37d75c14-08f7-4e80-a5e3-d942f9ef42e3
+ +10740  updates       _x.ai/session/update hook_execution event_name=stop prompt_id=37d75c14-08f7-4e80-a5e3-d942f9ef42e3 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-81 _meta.agentTimestampMs=1790698366123
+ +10761  updates       session/update agent_message_chunk text='r17w1 r17w2 r17w3 ' _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-77 _meta.promptId=37d75c14-08f7-4e80-a5e3-d942f9ef42e3 _meta.agentTimestampMs=1790698366071
+ +10761  rewind_points {"prompt_index": 4, "created_at": "2026-09-29T16:12:45.941773967Z", "file_snapshots": {}, "after_snapshots": {}}
+ +10781  events        {"ts": "2026-09-29T16:12:46.156Z", "type": "turn_ended", "outcome": "completed"}
+ +10815  MODEL         #18 model=fake tools=0 n=15 last: assistant:r15w1 r15w2 r15w3 r15w4 r15w5 r15w6 r15w7 r15w8 r15w9 r15w10 r15w11 r15w12 r15w13 r15w14 r15w15 r15w16 r15w17 r15w18 r15… || user:<user_query>\nEPSILON sent while text streams\n</user_query> || assistant:r17w1 r17w2 r17w3  || user:<system-reminder>Generate a session title for the conversation above. It should be a short and distinctive 5-10 word des…
+ +10818  MODEL         #19 model=fake tools=25 n=15 last: assistant:r15w1 r15w2 r15w3 r15w4 r15w5 r15w6 r15w7 r15w8 r15w9 r15w10 r15w11 r15w12 r15w13 r15w14 r15w15 r15w16 r15w17 r15w18 r15… || user:<user_query>\nEPSILON sent while text streams\n</user_query> || assistant:r17w1 r17w2 r17w3  || user:<system-reminder>Write an ultra-short dashboard line that captures the AGENT'S REPLY for the last turn only — everything…
+ +10823  updates       _x.ai/session/update turn_completed prompt_id=37d75c14-08f7-4e80-a5e3-d942f9ef42e3 stop_reason=end_turn _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-82 _meta.agentTimestampMs=1790698366201
+ +10836  MODEL         #20 model=fake tools=0 n=1 last: user:CWD: <scratch>/grok/work\n\nTranscript:\n\nUser: <user_info>\nOS Version: linux\nShell: /bin/sh\nWorkspace Path: <scratc…
+ +10837  MODEL         #20 reply done (tool)
+ +10914  MODEL         #18 reply done (quick)
+ +10956  MODEL         #19 reply done (quick)

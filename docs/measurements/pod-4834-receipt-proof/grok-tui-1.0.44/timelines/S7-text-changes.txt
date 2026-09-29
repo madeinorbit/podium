@@ -1,0 +1,34 @@
+# S7: the sent text compared with every recorded copy (equal = byte-identical to what was typed/pasted)
+
+== S7-ws  SENT len=16 "   PI  spaced   "
+  prompt_history.jsonl     equal=False len=   10 "PI  spaced"
+  updates.jsonl            equal=True  len=   16 "   PI  spaced   "
+  chat_history.jsonl       equal=False len=   43 "<user_query>\n   PI  spaced   \n</user_query>"
+  hook UserPromptSubmit    equal=True  len=   16 "   PI  spaced   "
+  model request (last msg) equal=False len=   43 "<user_query>\n   PI  spaced   \n</user_query>"
+  model request (last msg) equal=False len=  322 "<system-reminder>Write an ultra-short dashboard line that captures the AGENT'S REPLY for the last turn only — " … "f the tu…[trimmed, 1364 chars]"
+
+== S7-multi  SENT len=44 "RHO line one\nline two\n\n  line four indented\n"
+  prompt_history.jsonl     equal=False len=   43 "RHO line one\nline two\n\n  line four indented"
+  chat_history.jsonl       equal=False len=   71 "<user_query>\nRHO line one\nline two\n\n  line four indented\n\n</user_query>"
+  updates.jsonl            equal=True  len=   44 "RHO line one\nline two\n\n  line four indented\n"
+  hook UserPromptSubmit    equal=True  len=   44 "RHO line one\nline two\n\n  line four indented\n"
+  model request (last msg) equal=False len=   71 "<user_query>\nRHO line one\nline two\n\n  line four indented\n\n</user_query>"
+  model request (last msg) equal=False len=  322 "<system-reminder>Write an ultra-short dashboard line that captures the AGENT'S REPLY for the last turn only — " … "ered — n…[trimmed, 1395 chars]"
+
+== S7-long  SENT len=6009 "TAU long w0001 w0002 w0003 w0004 w0005 w0006 w0007 w0008 w0009 w0010 w0011 w0012 w0013 w0014 w0015 w0016 w0017 w0018 w00"
+  prompt_history.jsonl     equal=False len= 6008 "TAU long w0001 w0002 w0003 w0004 w0005 w0006 w0007 w0008 w0009 w0010 w0011 w0012 w0013 w0014 w0015 w0016 w0017" … " w0996 w0997 w0998 w0999 w1000"
+  chat_history.jsonl       equal=False len= 6036 "<user_query>\nTAU long w0001 w0002 w0003 w0004 w0005 w0006 w0007 w0008 w0009 w0010 w0011 w0012 w0013 w0014 w001" … "998 w0999 w1000\n\n</user_query>"
+  updates.jsonl            equal=True  len= 6009 "TAU long w0001 w0002 w0003 w0004 w0005 w0006 w0007 w0008 w0009 w0010 w0011 w0012 w0013 w0014 w0015 w0016 w0017" … "w0996 w0997 w0998 w0999 w1000\n"
+  hook UserPromptSubmit    equal=True  len= 6009 "TAU long w0001 w0002 w0003 w0004 w0005 w0006 w0007 w0008 w0009 w0010 w0011 w0012 w0013 w0014 w0015 w0016 w0017"
+  model request (last msg) equal=False len= 6036 "<user_query>\nTAU long w0001 w0002 w0003 w0004 w0005 w0006 w0007 w0008 w0009 w0010 w0011 w0012 w0013 w0014 w001" … "998 w0999 w1000\n\n</user_query>"
+  model request (last msg) equal=False len=  322 "<system-reminder>Write an ultra-short dashboard line that captures the AGENT'S REPLY for the last turn only — " … "t the as…[trimmed, 1453 chars]"
+
+== S7-uni  SENT len=31 "SIGMA ünïcödé 日本語 🙂 é tab\there"
+  prompt_history.jsonl     equal=False len=   34 "SIGMA ünïcödé 日本語 🙂 é tab    here"
+  chat_history.jsonl       equal=False len=   61 "<user_query>\nSIGMA ünïcödé 日本語 🙂 é tab    here\n</user_query>"
+  updates.jsonl            equal=False len=   34 "SIGMA ünïcödé 日本語 🙂 é tab    here"
+  hook UserPromptSubmit    equal=False len=   34 "SIGMA ünïcödé 日本語 🙂 é tab    here"
+  model request (last msg) equal=False len=   61 "<user_query>\nSIGMA ünïcödé 日本語 🙂 é tab    here\n</user_query>"
+  model request (last msg) equal=False len=  322 "<system-reminder>Write an ultra-short dashboard line that captures the AGENT'S REPLY for the last turn only — " … "t a meta…[trimmed, 1386 chars]"
+(the tab became 4 spaces in Grok's input box before submit; the combining accent U+0301 is kept, no Unicode normalization)

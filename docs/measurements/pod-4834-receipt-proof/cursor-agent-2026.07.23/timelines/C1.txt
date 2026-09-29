@@ -1,0 +1,13 @@
+# cursor-agent TUI, C1: ms after Enter (capture server on localhost cannot answer the agent run, HTTP/2 → "[internal] Protocol error")
+     +0  KEY      C1 Enter: CURSORALPHA idle prompt
+   +168  FILE     prompt_history.json ["CURSORALPHA idle prompt"]
+   +282  HOOK     beforeSubmitPrompt conversation_id=33a0a54a-b20d-41f0-ae30-0a023d5bfacf generation_id=601dc266-0f5f-4d98-bd2e-31d3c957632b prompt='CURSORALPHA idle prompt' transcript_path=None
+   +696  REQUEST  /aiserver.v1.AiService/NameAgent bytes=25 strings=['CURSORALPHA idle prompt']
+  +3388  REQUEST  /aiserver.v1.AnalyticsService/TrackEvents bytes=5628
+  +5393  REQUEST  /v1/traces bytes=9165
+ +12434  REQUEST  /v1/traces bytes=3956
+ +15847  FILE     33a0a54a-b20d-41f0-ae30-0a023d5bfacf.jsonl {"type": "turn_ended", "status": "error", "error": "[internal] Protocol error"}
+ +15847  FILE     meta.json {"schemaVersion": 1, "createdAtMs": 1790699385897, "hasConversation": true, "updatedAtMs": 1790699538500, "cwd": "<scratch>/cursor/work"}
+ +15894  HOOK     stop conversation_id=33a0a54a-b20d-41f0-ae30-0a023d5bfacf generation_id=601dc266-0f5f-4d98-bd2e-31d3c957632b status=error transcript_path=set
+ +18819  REQUEST  /aiserver.v1.AnalyticsService/TrackEvents bytes=8002
+ +20767  REQUEST  /v1/traces bytes=5415

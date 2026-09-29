@@ -1,0 +1,45 @@
+# timeline for S9-fast1 (Enter at 1790698665996), ms relative to Enter
+     +0  KEY           S9-fast1 Enter: PSI one
+    +35  KEY           S9-fast2 Enter: OMEGA two
+    +52  prompt_history {"timestamp": "2026-09-29T16:17:46.035170450Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "PSI one", "is_bash": false}
+    +52  events        {"ts": "2026-09-29T16:17:46.046Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 23, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 58, "session_relationship": "primary", "schema_version": "1…
+    +93  HOOK          UserPromptSubmit promptId=0ace6212-a670-4bbf-8e7a-a6697cd26bce prompt='PSI one'
+   +147  PODIUM-HOOK   user_prompt_submit promptId=0ace6212-a670-4bbf-8e7a-a6697cd26bce
+   +163  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=0ace6212-a670-4bbf-8e7a-a6697cd26bce _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-296 _meta.agentTimestampMs=1790698666147
+   +163  chat_history  user '<user_query>\\nPSI one\\n</user_query>' {"type": "user", "prompt_index": 23}
+   +188  chat_history  REWRITTEN inodeChanged=True lines 59->59 from line 31; replaced: [{"type": "tool_result", "prompt_index": null, "tool_call_id": "call_fake34", "content": "Tool execution was halted by the harness (user_cancel); the tool `run_terminal_command` was not executed."}, {…
+   +208  updates       session/update user_message_chunk text='PSI one' u._meta.promptIndex=23 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-297 _meta.agentTimestampMs=1790698666148
+   +421  events        {"ts": "2026-09-29T16:17:46.402Z", "type": "loop_started", "loop_index": 0}
+   +423  MODEL         #68 model=fake tools=25 n=58 last: assistant:r63w1 r63w2 r63w3  || user:<user_query>\nCHI second queued\n</user_query> || assistant:r65w1 r65w2 r65w3  || user:<user_query>\nPSI one\n</user_query>
+   +519  MODEL         #68 reply done (quick)
+   +550  chat_history  assistant 'r68w1 r68w2 r68w3 ' {"type": "assistant", "model_id": "fake"}
+   +556  HOOK          Stop promptId=0ace6212-a670-4bbf-8e7a-a6697cd26bce reason=end_turn
+   +598  PODIUM-HOOK   stop promptId=0ace6212-a670-4bbf-8e7a-a6697cd26bce
+   +611  updates       _x.ai/session/update hook_execution event_name=stop prompt_id=0ace6212-a670-4bbf-8e7a-a6697cd26bce _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-305 _meta.agentTimestampMs=1790698666598
+   +696  updates       session/update agent_message_chunk text='r68w1 r68w2 r68w3 ' _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-301 _meta.promptId=0ace6212-a670-4bbf-8e7a-a6697cd26bce _meta.agentTimestampMs=1790698666520
+   +696  rewind_points {"prompt_index": 23, "created_at": "2026-09-29T16:17:46.148099201Z", "file_snapshots": {}, "after_snapshots": {}}
+   +717  events        {"ts": "2026-09-29T16:17:46.699Z", "type": "turn_ended", "outcome": "completed"}
+   +787  MODEL         #69 model=fake tools=25 n=60 last: assistant:r65w1 r65w2 r65w3  || user:<user_query>\nPSI one\n</user_query> || assistant:r68w1 r68w2 r68w3  || user:<system-reminder>Write an ultra-short dashboard line that captures the AGENT'S REPLY for the last turn only — everything…
+   +794  updates       _x.ai/session/update turn_completed prompt_id=0ace6212-a670-4bbf-8e7a-a6697cd26bce stop_reason=end_turn _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-306 _meta.agentTimestampMs=1790698666767
+   +837  prompt_history {"timestamp": "2026-09-29T16:17:46.815986306Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "OMEGA two", "is_bash": false}
+   +837  events        {"ts": "2026-09-29T16:17:46.823Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 24, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 60, "session_relationship": "primary", "schema_version": "1…
+   +867  HOOK          UserPromptSubmit promptId=ee00ef5f-7dd9-4790-b6a9-5dc6c8041e30 prompt='OMEGA two'
+   +946  PODIUM-HOOK   user_prompt_submit promptId=ee00ef5f-7dd9-4790-b6a9-5dc6c8041e30
+   +968  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=ee00ef5f-7dd9-4790-b6a9-5dc6c8041e30 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-307 _meta.agentTimestampMs=1790698666947
+   +968  chat_history  user '<user_query>\\nOMEGA two\\n</user_query>' {"type": "user", "prompt_index": 24}
+   +989  events        {"ts": "2026-09-29T16:17:46.985Z", "type": "loop_started", "loop_index": 0}
+   +989  updates       session/update user_message_chunk text='OMEGA two' u._meta.promptIndex=24 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-308 _meta.agentTimestampMs=1790698666948
+   +993  MODEL         #70 model=fake tools=25 n=60 last: assistant:r65w1 r65w2 r65w3  || user:<user_query>\nPSI one\n</user_query> || assistant:r68w1 r68w2 r68w3  || user:<user_query>\nOMEGA two\n</user_query>
+  +1113  MODEL         #70 reply done (quick)
+  +1306  chat_history  assistant 'r70w1 r70w2 r70w3 ' {"type": "assistant", "model_id": "fake"}
+  +1352  HOOK          Stop promptId=ee00ef5f-7dd9-4790-b6a9-5dc6c8041e30 reason=end_turn
+  +1456  PODIUM-HOOK   stop promptId=ee00ef5f-7dd9-4790-b6a9-5dc6c8041e30
+  +1479  updates       _x.ai/session/update hook_execution event_name=stop prompt_id=ee00ef5f-7dd9-4790-b6a9-5dc6c8041e30 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-316 _meta.agentTimestampMs=1790698667457
+  +1479  updates       session/update agent_message_chunk text='r70w1 r70w2 r70w3 ' _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-312 _meta.promptId=ee00ef5f-7dd9-4790-b6a9-5dc6c8041e30 _meta.agentTimestampMs=1790698667281
+  +1520  rewind_points {"prompt_index": 24, "created_at": "2026-09-29T16:17:46.948027391Z", "file_snapshots": {}, "after_snapshots": {}}
+  +1584  events        {"ts": "2026-09-29T16:17:47.567Z", "type": "turn_ended", "outcome": "completed"}
+  +1619  MODEL         #71 model=fake tools=25 n=62 last: assistant:r68w1 r68w2 r68w3  || user:<user_query>\nOMEGA two\n</user_query> || assistant:r70w1 r70w2 r70w3  || user:<system-reminder>Write an ultra-short dashboard line that captures the AGENT'S REPLY for the last turn only — everything…
+  +1627  updates       _x.ai/session/update turn_completed prompt_id=ee00ef5f-7dd9-4790-b6a9-5dc6c8041e30 stop_reason=end_turn _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-317 _meta.agentTimestampMs=1790698667607
+  +1656  MODEL         #72 model=fake tools=0 n=1 last: user:CWD: <scratch>/grok/work\n\nTranscript:\n\nUser: <user_info>\nOS Version: linux\nShell: /bin/sh\nWorkspace Path: <scratc…
+  +1656  MODEL         #72 reply done (tool)
+  +1715  MODEL         #71 reply done (quick)

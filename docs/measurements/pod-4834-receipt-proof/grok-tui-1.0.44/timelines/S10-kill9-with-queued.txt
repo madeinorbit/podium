@@ -1,0 +1,22 @@
+# timeline for S10-kill-busy (Enter at 1790698929362), ms relative to Enter
+     +0  KEY           S10-kill-busy Enter: KAPPA2 TOOLSLEEP before kill
+    +68  prompt_history {"timestamp": "2026-09-29T16:22:09.415032417Z", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "prompt": "KAPPA2 TOOLSLEEP before kill", "is_bash": false}
+    +68  events        {"ts": "2026-09-29T16:22:09.417Z", "type": "turn_started", "session_id": "01a0edee-690d-73c0-bba4-6a60e8bc0ebb", "turn_number": 28, "model_id": "fake", "yolo_mode": true, "conversation_message_count": 11, "session_relationship": "primary", "schema_version": "1…
+    +77  HOOK          UserPromptSubmit promptId=0d38ad93-9bb0-4092-b4ae-4382c6f93f89 prompt='KAPPA2 TOOLSLEEP before kill'
+   +175  PODIUM-HOOK   user_prompt_submit promptId=0d38ad93-9bb0-4092-b4ae-4382c6f93f89
+   +186  updates       _x.ai/session/update hook_execution event_name=user_prompt_submit prompt_id=0d38ad93-9bb0-4092-b4ae-4382c6f93f89 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-351 _meta.agentTimestampMs=1790698929545
+   +271  chat_history  user '<user_query>\\nKAPPA2 TOOLSLEEP before kill\\n</user_query>' {"type": "user", "prompt_index": 28}
+   +318  updates       session/update user_message_chunk text='KAPPA2 TOOLSLEEP before kill' u._meta.promptIndex=28 _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-352 _meta.agentTimestampMs=1790698929545
+   +339  MODEL         #11 model=fake tools=25 n=11 last: user:<user_query>\nERRORNOW please\n</user_query> || user:<user_query>\nAFTERERR next prompt\n</user_query> || assistant:r8w1 r8w2 r8w3  || user:<user_query>\nKAPPA2 TOOLSLEEP before kill\n</user_query>
+   +339  MODEL         #11 reply done (tool)
+   +341  events        {"ts": "2026-09-29T16:22:09.698Z", "type": "loop_started", "loop_index": 0}
+   +359  HOOK          PreToolUse promptId=None tool=run_terminal_command
+   +363  events        {"ts": "2026-09-29T16:22:09.704Z", "type": "tool_started", "tool_name": "run_terminal_command"}
+   +363  chat_history  assistant '' {"type": "assistant", "tool_calls": [{"id": "call_fake11", "name": "run_terminal_command", "arguments": "{\"command\":\"sleep 8\",\"description\":\"wait eight seconds\"}"}], "model_id": "fake"}
+   +399  PODIUM-HOOK   pre_tool_use promptId=None
+   +423  events        {"ts": "2026-09-29T16:22:09.768Z", "type": "permission_requested", "tool_name": "run_terminal_command"}
+   +423  events        {"ts": "2026-09-29T16:22:09.770Z", "type": "permission_resolved", "tool_name": "run_terminal_command", "decision": "allow", "wait_ms": 2}
+   +423  updates       _x.ai/session/update hook_execution event_name=pre_tool_use _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-356 _meta.agentTimestampMs=1790698929768
+   +423  updates       session/update tool_call _meta.eventId=01a0edee-690d-73c0-bba4-6a60e8bc0ebb-355 _meta.promptId=0d38ad93-9bb0-4092-b4ae-4382c6f93f89 _meta.agentTimestampMs=1790698929704
+  +1824  KEY           S6-queued Enter: QUEUEDATKILL held in queue
+  +2868  KEY           S10-kill9 Enter: kill -9 grok pid 917814
