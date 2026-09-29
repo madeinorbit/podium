@@ -1011,3 +1011,156 @@ describe('a refusal is a proven "no" (POD-4839)', () => {
     expect(f.emit).toHaveBeenCalledExactlyOnceWith({ t: 'delivery', rowId: 'row', outcome: 'dropped' })
   })
 })
+
+/**
+ * THE PROGRAM'S OWN IDS TRAVEL WITH THE ROW'S OUTCOME (POD-4841).
+ *
+ * A driver names them on the receipt (the answer to the send) and beside the
+ * entry it learns later. Every outcome for the row carries all the ids known
+ * by then, merged; ids alone never move a row — only the receipt or the entry
+ * does — so a late id with nothing else emits nothing.
+ */
+describe("the program's own ids for a row (POD-4841)", () => {
+  type Ref = { kind: string; id: string }
+  type Named = (item: { id: string }, harnessRef?: readonly Ref[]) => void
+  type Unrecorded = (reason: string) => void
+  type LateProof = (proof: { transcriptItem?: { id: string }; harnessRef?: readonly Ref[] }) => void
+  const turn = { kind: 'codex-turn', id: 'turn-1' }
+  const echo = { kind: 'codex-client-message', id: 'row' }
+  const fixture = (receipt: Record<string, unknown>) => {
+    vi.useFakeTimers()
+    let named: Named | undefined
+    let unrecorded: Unrecorded | undefined
+    let lateProof: LateProof | undefined
+    const send = vi.fn(
+      async (
+        _input: { text: string },
+        options?: { onTranscriptItem?: Named; onUnrecorded?: Unrecorded; onLateProof?: LateProof },
+      ) => {
+        named = options?.onTranscriptItem
+        unrecorded = options?.onUnrecorded
+        lateProof = options?.onLateProof
+        return {
+          turnEpoch: 1,
+          deliveredAs: 'when-ready',
+          provenBy: 'protocol-ack',
+          verificationWindowMs: 4800,
+          at: new Date().toISOString(),
+          ...receipt,
+        }
+      },
+    )
+    const emit = vi.fn()
+    const handle = withDeliveryQueue(
+      {
+        send,
+        state: async () => ({ phase: 'idle' }),
+        lease: { state: async () => null },
+      } as unknown as AgentSessionHandle,
+      emit,
+    )
+    return {
+      handle,
+      events: () => emit.mock.calls.map(([event]) => event),
+      name: (item: { id: string }, refs?: readonly Ref[]) => named?.(item, refs),
+      unrecorded: (reason: string) => unrecorded?.(reason),
+      prove: (proof: Parameters<LateProof>[0]) => lateProof?.(proof),
+    }
+  }
+  const options = { origin: 'human', delivery: 'when-ready' } as const
+
+  it("carries the receipt's ids on the delivered outcome, and replays them", async () => {
+    const f = fixture({ outcome: 'accepted', transcriptItem: { id: 'entry-1' }, harnessRef: [turn] })
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    const delivered = {
+      t: 'delivery',
+      rowId: 'row',
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry-1' },
+      harnessRef: [turn],
+    }
+    expect(f.events()).toEqual([delivered])
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    expect(f.events().at(-1)).toEqual(delivered)
+  })
+
+  it('merges ids learned with a late entry into the second delivered outcome', async () => {
+    const f = fixture({ outcome: 'accepted', harnessRef: [turn] })
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    f.name({ id: 'entry-2' }, [turn, echo])
+    expect(f.events()).toEqual([
+      { t: 'delivery', rowId: 'row', outcome: 'delivered', harnessRef: [turn] },
+      {
+        t: 'delivery',
+        rowId: 'row',
+        outcome: 'delivered',
+        transcriptItem: { id: 'entry-2' },
+        harnessRef: [turn, echo],
+      },
+    ])
+  })
+
+  it('a held row keeps its receipt ids until it settles, either way', async () => {
+    const recorded = fixture({ outcome: 'accepted', held: 'memory', harnessRef: [turn] })
+    await recorded.handle.send({ id: 'row', rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(recorded.events()).toEqual([])
+    recorded.name({ id: 'entry-1' }, [echo])
+    expect(recorded.events()).toEqual([
+      {
+        t: 'delivery',
+        rowId: 'row',
+        outcome: 'delivered',
+        transcriptItem: { id: 'entry-1' },
+        harnessRef: [turn, echo],
+      },
+    ])
+
+    const lost = fixture({ outcome: 'accepted', held: 'memory', harnessRef: [turn] })
+    await lost.handle.send({ id: 'row', rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    lost.unrecorded('the turn was interrupted')
+    // The turn id is what a later look-up of an unconfirmed steer needs most.
+    expect(lost.events()).toEqual([
+      {
+        t: 'delivery',
+        rowId: 'row',
+        outcome: 'failed',
+        reason: 'the turn was interrupted',
+        cause: 'unconfirmed',
+        harnessRef: [turn],
+      },
+    ])
+  })
+
+  it('carries the ids a late proof names', async () => {
+    const f = fixture({ outcome: 'unverified' })
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    f.prove({ transcriptItem: { id: 'entry-1' }, harnessRef: [echo] })
+    expect(f.events().at(-1)).toEqual({
+      t: 'delivery',
+      rowId: 'row',
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry-1' },
+      harnessRef: [echo],
+    })
+  })
+
+  it("names a direct send's late ids under its turn id, with its entry", async () => {
+    const f = fixture({ outcome: 'accepted' })
+    await f.handle.send({ id: 'msg_direct', text: 'a' }, options)
+    f.name({ id: 'entry-3' }, [echo])
+    expect(f.events()).toEqual([
+      {
+        t: 'delivery',
+        rowId: 'msg_direct',
+        outcome: 'delivered',
+        transcriptItem: { id: 'entry-3' },
+        harnessRef: [echo],
+      },
+    ])
+  })
+})

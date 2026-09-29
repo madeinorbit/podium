@@ -179,3 +179,75 @@ export function transcriptItemRefOf(
   if (!item.id) return undefined
   return { id: item.id, ...(item.cursor ? { cursor: item.cursor } : {}) }
 }
+
+/**
+ * THE AGENT PROGRAM'S OWN IDS FOR A MESSAGE (POD-4841).
+ *
+ * Beside the transcript entry ({@link TranscriptItemRef}), a program often
+ * names our message in ids of its own: the turn it opened, the prompt id its
+ * hooks and records carry, the id it echoed back. Each is a way to find the
+ * message in that program's history later — after a restart, by the daemon or
+ * the server — without its text. Only ids the program gave for THIS message:
+ * never guessed, and never an id that might name another message.
+ *
+ * `kind` says whose id it is and what it names; `id` is the program's value,
+ * verbatim. The kinds a driver writes today are {@link HARNESS_REF_KINDS}; the
+ * wire keeps `kind` an open string, so a kind a newer daemon adds reaches an
+ * older server as data, never as a frame it rejects.
+ */
+export const HARNESS_REF_KINDS = [
+  /** Codex app-server: the turn id its `turn/start` or `turn/steer` answered. */
+  'codex-turn',
+  /** Codex app-server: our `clientUserMessageId`, as the recorded
+   *  `userMessage` item echoed it back in `clientId`. */
+  'codex-client-message',
+  /** Claude Code: the `prompt_id` of the prompt (the `UserPromptSubmit` hook,
+   *  `promptId` on its transcript records). */
+  'claude-prompt',
+  /** Claude SDK: the `uuid` the user line was typed, and is recorded, under. */
+  'claude-uuid',
+  /** Grok: the `promptId` the prompt runs under (ACP `_meta.promptId`). */
+  'grok-prompt',
+  /** OpenCode: the message id the prompt is stored under. */
+  'opencode-message',
+  /** OpenCode: the id of the prompt's text part. */
+  'opencode-part',
+] as const
+export type HarnessRefKind = (typeof HARNESS_REF_KINDS)[number]
+
+export const HarnessRefEntry = z.object({
+  kind: z.string().min(1).max(64),
+  id: z.string().min(1).max(512),
+})
+export type HarnessRefEntry = z.infer<typeof HarnessRefEntry>
+
+/** At most this many ids per message: a message has a handful, and a list
+ *  that grew past this would be a driver bug, not more knowledge. */
+export const HARNESS_REF_MAX = 16
+
+export const HarnessRef = z.array(HarnessRefEntry).max(HARNESS_REF_MAX)
+export type HarnessRef = readonly HarnessRefEntry[]
+
+/**
+ * Every id in the lists, each once, in the order first seen, capped at
+ * {@link HARNESS_REF_MAX}; undefined when there are none. Ids are learned at
+ * different moments (the answer to a send, the record that follows it), so a
+ * message's list only ever grows: nothing already known is dropped or changed.
+ */
+export function mergeHarnessRefs(
+  ...lists: ReadonlyArray<HarnessRef | undefined>
+): HarnessRefEntry[] | undefined {
+  const merged: HarnessRefEntry[] = []
+  const seen = new Set<string>()
+  for (const list of lists) {
+    for (const entry of list ?? []) {
+      if (!entry.kind || !entry.id) continue
+      const key = `${entry.kind}\u0000${entry.id}`
+      if (seen.has(key)) continue
+      if (merged.length >= HARNESS_REF_MAX) return merged
+      seen.add(key)
+      merged.push({ kind: entry.kind, id: entry.id })
+    }
+  }
+  return merged.length > 0 ? merged : undefined
+}

@@ -2,6 +2,7 @@ import { NativeBindingReceipt } from './native-binding'
 export { NativeBindingReceipt } from './native-binding'
 import {
   DriverFamilyWire,
+  HarnessRef,
   ResumeRef,
   SessionIdField,
   TranscriptItem,
@@ -173,6 +174,14 @@ export type DeliveryCancelResult = z.infer<typeof DeliveryCancelResult>
  * `deliveredAs` appears on every non-refused arm because a driver that degraded
  * `steer` to `queue` must SAY SO — no silent substitution.
  */
+/**
+ * THE PROGRAM'S OWN IDS FOR A MESSAGE, ON THE WIRE (POD-4841). Optional, and
+ * never able to cost the frame it rides on: a list this build cannot read is
+ * dropped (`catch`) and the receipt or outcome beside it parses as before. An
+ * older peer strips the field, for the rolling-upgrade reason `cause` gives.
+ */
+const HarnessRefWire = HarnessRef.optional().catch(undefined)
+
 export const TurnReceipt = z.discriminatedUnion('outcome', [
   z.object({
     outcome: z.literal('accepted'),
@@ -182,6 +191,8 @@ export const TurnReceipt = z.discriminatedUnion('outcome', [
     /** The agent's transcript entry that IS this send, when the driver could
      *  identify it (POD-4774). Absent means unidentified, never guessed. */
     transcriptItem: TranscriptItemRef.optional(),
+    /** The program's own ids for this send, when it gave any (POD-4841). */
+    harnessRef: HarnessRefWire,
     at: z.string().datetime(),
   }),
   z.object({
@@ -355,6 +366,12 @@ export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservati
  * as a string it ignores rather than a frame it rejects.
  */
 /*
+ * THE PROGRAM'S OWN IDS FOR THE ROW (POD-4841): `harnessRef` on the delivery
+ * arm, on any outcome — the turn id of a steer that ended unconfirmed is what
+ * a later look-up needs most. Each id is the program's for this message only.
+ * A later outcome for the same row may carry more; the server keeps them all.
+ */
+/*
  * WHICH TRANSCRIPT ITEM A `delivered` ROW BECAME (POD-4774): `transcriptItem`
  * on the delivery arm, set only on `delivered` and only when the daemon paired
  * the typed text with the agent's own record of it. An optional object field,
@@ -380,6 +397,7 @@ export const RuntimeEventBody = z.discriminatedUnion('t', [
     reason: z.string().optional(),
     cause: z.string().optional(),
     transcriptItem: TranscriptItemRef.optional(),
+    harnessRef: HarnessRefWire,
   }),
   z.object({ t: z.literal('state'), change: z.record(z.string(), z.unknown()) }),
   z.object({ t: z.literal('item'), item: TranscriptItemDelta }),
