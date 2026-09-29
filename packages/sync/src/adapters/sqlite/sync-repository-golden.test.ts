@@ -445,6 +445,7 @@ describe('the session inbox', () => {
         sourceMessageId: 'msg-2',
         delivery: 'interrupt',
         attachmentsJson: '[{"id":"a1"}]',
+        retractRequestedAt: null,
       },
     ])
   })
