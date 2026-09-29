@@ -39,7 +39,7 @@ describe('unknown inbound methods', () => {
       expect(warn).toHaveBeenCalledTimes(1)
       expect(warn).toHaveBeenLastCalledWith(expect.any(String), {
         method: fixture.request.method,
-        harnessVersion: '0.2.118',
+        harnessVersion: '1.0.44',
         sessionId: 'session-diagnostic',
       })
       receive({ ...fixture.request, id: 901 })

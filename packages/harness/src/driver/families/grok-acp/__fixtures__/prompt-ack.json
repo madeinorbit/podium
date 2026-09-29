@@ -1,0 +1,3520 @@
+{
+  "recordedFrom": "grok 1.0.44 (5b807183dd79) [stable]",
+  "recordedAt": "2026-09-29",
+  "transport": "live `grok agent stdio` ACP JSON-RPC",
+  "source": "POD-4837 probe: scratch GROK_HOME, a local fake OpenAI-compatible model server with a dummy key",
+  "redactions": "The probe scratch directory is rewritten to /tmp/grokprobe. Grok's session/setup, MCP and session-list side channels and the available-command inventory are not selected.",
+  "timing": "t is milliseconds since the probe client started; mark entries name each step.",
+  "scenarios": {
+    "promptIdAndMessageId": {
+      "note": "A: _meta.promptId is kept (every chunk, the reply). B: a top-level messageId is ignored (Grok mints a promptId). C: the same promptId again runs a second turn. D: no id, Grok mints one. No live user_message_chunk in any.",
+      "frames": [
+        { "t": 805.2, "dir": "mark", "mark": "A promptId meta" },
+        {
+          "t": 805.4,
+          "dir": "out",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "session/prompt",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "prompt": [{ "type": "text", "text": "alpha one" }],
+              "_meta": { "promptId": "podmsg-A" }
+            }
+          }
+        },
+        {
+          "t": 894.3,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "entries": [
+                {
+                  "id": "podmsg-A",
+                  "version": 0,
+                  "kind": "prompt",
+                  "text": "alpha one",
+                  "position": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "t": 894.5,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "entries": [],
+              "runningPromptId": "podmsg-A",
+              "runningText": "alpha one",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        {
+          "t": 1527.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w1 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-4",
+                "agentTimestampMs": 1790693668531,
+                "promptId": "podmsg-A",
+                "streamStartMs": 1790693668031,
+                "turnStartMs": 1790693667997,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 1
+              }
+            }
+          }
+        },
+        {
+          "t": 2026.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w2 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-5",
+                "agentTimestampMs": 1790693669031,
+                "promptId": "podmsg-A",
+                "streamStartMs": 1790693668031,
+                "turnStartMs": 1790693667997,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 2
+              }
+            }
+          }
+        },
+        {
+          "t": 2527.5,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w3 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-6",
+                "agentTimestampMs": 1790693669531,
+                "promptId": "podmsg-A",
+                "streamStartMs": 1790693668031,
+                "turnStartMs": 1790693667997,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 3
+              }
+            }
+          }
+        },
+        {
+          "t": 2972,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "session_summary_generated",
+                "session_summary": "alpha one"
+              }
+            }
+          }
+        },
+        {
+          "t": 3035.1,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w4 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-7",
+                "agentTimestampMs": 1790693670037,
+                "promptId": "podmsg-A",
+                "streamStartMs": 1790693668031,
+                "turnStartMs": 1790693667997,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 4
+              }
+            }
+          }
+        },
+        {
+          "t": 3035.3,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": { "sessionUpdate": "response_completed" }
+            }
+          }
+        },
+        {
+          "t": 3113,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": { "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375", "entries": [] }
+          }
+        },
+        {
+          "t": 3115,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "turn_completed",
+                "prompt_id": "podmsg-A",
+                "stop_reason": "end_turn",
+                "elapsed_ms": 2216
+              },
+              "_meta": {
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-10",
+                "agentTimestampMs": 1790693670115
+              }
+            }
+          }
+        },
+        {
+          "t": 3119.6,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session/prompt_complete",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "promptId": "podmsg-A",
+              "stopReason": "end_turn",
+              "agentResult": null
+            }
+          }
+        },
+        {
+          "t": 3127.3,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "result": {
+              "stopReason": "end_turn",
+              "_meta": {
+                "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+                "requestId": "podmsg-A",
+                "promptId": "podmsg-A",
+                "totalTokens": 2262,
+                "modelId": "fake"
+              }
+            }
+          }
+        },
+        { "t": 4630, "dir": "mark", "mark": "B messageId" },
+        {
+          "t": 4630.2,
+          "dir": "out",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "session/prompt",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "prompt": [{ "type": "text", "text": "bravo two" }],
+              "messageId": "0199aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee"
+            }
+          }
+        },
+        {
+          "t": 4637.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "entries": [
+                {
+                  "id": "cecc4932-85bd-4066-90b5-c39761b8cce6",
+                  "version": 0,
+                  "kind": "prompt",
+                  "text": "bravo two",
+                  "position": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "t": 4637.5,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "entries": [],
+              "runningPromptId": "cecc4932-85bd-4066-90b5-c39761b8cce6",
+              "runningText": "bravo two",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        {
+          "t": 5165.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w1 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-13",
+                "agentTimestampMs": 1790693672170,
+                "promptId": "cecc4932-85bd-4066-90b5-c39761b8cce6",
+                "streamStartMs": 1790693671669,
+                "turnStartMs": 1790693671665,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 1
+              }
+            }
+          }
+        },
+        {
+          "t": 5672.7,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w2 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-14",
+                "agentTimestampMs": 1790693672671,
+                "promptId": "cecc4932-85bd-4066-90b5-c39761b8cce6",
+                "streamStartMs": 1790693671669,
+                "turnStartMs": 1790693671665,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 2
+              }
+            }
+          }
+        },
+        {
+          "t": 6171.1,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w3 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-15",
+                "agentTimestampMs": 1790693673174,
+                "promptId": "cecc4932-85bd-4066-90b5-c39761b8cce6",
+                "streamStartMs": 1790693671669,
+                "turnStartMs": 1790693671665,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 3
+              }
+            }
+          }
+        },
+        {
+          "t": 6689.2,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w4 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-16",
+                "agentTimestampMs": 1790693673690,
+                "promptId": "cecc4932-85bd-4066-90b5-c39761b8cce6",
+                "streamStartMs": 1790693671669,
+                "turnStartMs": 1790693671665,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 4
+              }
+            }
+          }
+        },
+        {
+          "t": 6690.7,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": { "sessionUpdate": "response_completed" }
+            }
+          }
+        },
+        {
+          "t": 6739.2,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": { "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375", "entries": [] }
+          }
+        },
+        {
+          "t": 6739.6,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "turn_completed",
+                "prompt_id": "cecc4932-85bd-4066-90b5-c39761b8cce6",
+                "stop_reason": "end_turn",
+                "elapsed_ms": 2100
+              },
+              "_meta": {
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-19",
+                "agentTimestampMs": 1790693673742
+              }
+            }
+          }
+        },
+        {
+          "t": 6739.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session/prompt_complete",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "promptId": "cecc4932-85bd-4066-90b5-c39761b8cce6",
+              "stopReason": "end_turn",
+              "agentResult": null
+            }
+          }
+        },
+        {
+          "t": 6744.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "result": {
+              "stopReason": "end_turn",
+              "_meta": {
+                "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+                "requestId": "cecc4932-85bd-4066-90b5-c39761b8cce6",
+                "promptId": "cecc4932-85bd-4066-90b5-c39761b8cce6",
+                "totalTokens": 2262,
+                "modelId": "fake"
+              }
+            }
+          }
+        },
+        { "t": 8246, "dir": "mark", "mark": "C repeat promptId A" },
+        {
+          "t": 8246.2,
+          "dir": "out",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "session/prompt",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "prompt": [{ "type": "text", "text": "alpha one" }],
+              "_meta": { "promptId": "podmsg-A" }
+            }
+          }
+        },
+        {
+          "t": 8259,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "entries": [
+                {
+                  "id": "podmsg-A",
+                  "version": 0,
+                  "kind": "prompt",
+                  "text": "alpha one",
+                  "position": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "t": 8259.1,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "entries": [],
+              "runningPromptId": "podmsg-A",
+              "runningText": "alpha one",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        {
+          "t": 8773.1,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w1 " }
+              },
+              "_meta": {
+                "totalTokens": 2295,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-22",
+                "agentTimestampMs": 1790693675776,
+                "promptId": "podmsg-A",
+                "streamStartMs": 1790693675274,
+                "turnStartMs": 1790693675270,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 1
+              }
+            }
+          }
+        },
+        {
+          "t": 8785.2,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "session_summary_generated",
+                "session_summary": "w1 w2 w3 w4"
+              }
+            }
+          }
+        },
+        {
+          "t": 9275.6,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w2 " }
+              },
+              "_meta": {
+                "totalTokens": 2295,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-23",
+                "agentTimestampMs": 1790693676277,
+                "promptId": "podmsg-A",
+                "streamStartMs": 1790693675274,
+                "turnStartMs": 1790693675270,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 2
+              }
+            }
+          }
+        },
+        {
+          "t": 9772.7,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w3 " }
+              },
+              "_meta": {
+                "totalTokens": 2295,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-24",
+                "agentTimestampMs": 1790693676776,
+                "promptId": "podmsg-A",
+                "streamStartMs": 1790693675274,
+                "turnStartMs": 1790693675270,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 3
+              }
+            }
+          }
+        },
+        {
+          "t": 10275.5,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w4 " }
+              },
+              "_meta": {
+                "totalTokens": 2295,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-25",
+                "agentTimestampMs": 1790693677277,
+                "promptId": "podmsg-A",
+                "streamStartMs": 1790693675274,
+                "turnStartMs": 1790693675270,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 4
+              }
+            }
+          }
+        },
+        {
+          "t": 10275.7,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": { "sessionUpdate": "response_completed" }
+            }
+          }
+        },
+        {
+          "t": 10320.7,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": { "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375", "entries": [] }
+          }
+        },
+        {
+          "t": 10321.1,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "turn_completed",
+                "prompt_id": "podmsg-A",
+                "stop_reason": "end_turn",
+                "elapsed_ms": 2067
+              },
+              "_meta": {
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-28",
+                "agentTimestampMs": 1790693677322
+              }
+            }
+          }
+        },
+        {
+          "t": 10321.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session/prompt_complete",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "promptId": "podmsg-A",
+              "stopReason": "end_turn",
+              "agentResult": null
+            }
+          }
+        },
+        {
+          "t": 10322.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "result": {
+              "stopReason": "end_turn",
+              "_meta": {
+                "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+                "requestId": "podmsg-A",
+                "promptId": "podmsg-A",
+                "totalTokens": 2262,
+                "modelId": "fake"
+              }
+            }
+          }
+        },
+        { "t": 11828, "dir": "mark", "mark": "D plain" },
+        {
+          "t": 11828.5,
+          "dir": "out",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "session/prompt",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "prompt": [{ "type": "text", "text": "delta four" }]
+            }
+          }
+        },
+        {
+          "t": 11839.7,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "entries": [
+                {
+                  "id": "f26560c5-a050-4392-a8b3-13ea810b7d3d",
+                  "version": 0,
+                  "kind": "prompt",
+                  "text": "delta four",
+                  "position": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "t": 11842.1,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "entries": [],
+              "runningPromptId": "f26560c5-a050-4392-a8b3-13ea810b7d3d",
+              "runningText": "delta four",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        {
+          "t": 12379.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w1 " }
+              },
+              "_meta": {
+                "totalTokens": 2307,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-31",
+                "agentTimestampMs": 1790693679383,
+                "promptId": "f26560c5-a050-4392-a8b3-13ea810b7d3d",
+                "streamStartMs": 1790693678883,
+                "turnStartMs": 1790693678875,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 1
+              }
+            }
+          }
+        },
+        {
+          "t": 12879,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w2 " }
+              },
+              "_meta": {
+                "totalTokens": 2307,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-32",
+                "agentTimestampMs": 1790693679883,
+                "promptId": "f26560c5-a050-4392-a8b3-13ea810b7d3d",
+                "streamStartMs": 1790693678883,
+                "turnStartMs": 1790693678875,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 2
+              }
+            }
+          }
+        },
+        {
+          "t": 13387.5,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w3 " }
+              },
+              "_meta": {
+                "totalTokens": 2307,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-33",
+                "agentTimestampMs": 1790693680391,
+                "promptId": "f26560c5-a050-4392-a8b3-13ea810b7d3d",
+                "streamStartMs": 1790693678883,
+                "turnStartMs": 1790693678875,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 3
+              }
+            }
+          }
+        },
+        {
+          "t": 13945,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w4 " }
+              },
+              "_meta": {
+                "totalTokens": 2307,
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-34",
+                "agentTimestampMs": 1790693680930,
+                "promptId": "f26560c5-a050-4392-a8b3-13ea810b7d3d",
+                "streamStartMs": 1790693678883,
+                "turnStartMs": 1790693678875,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 4
+              }
+            }
+          }
+        },
+        {
+          "t": 13945.2,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": { "sessionUpdate": "response_completed" }
+            }
+          }
+        },
+        {
+          "t": 14056.2,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": { "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375", "entries": [] }
+          }
+        },
+        {
+          "t": 14056.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "update": {
+                "sessionUpdate": "turn_completed",
+                "prompt_id": "f26560c5-a050-4392-a8b3-13ea810b7d3d",
+                "stop_reason": "end_turn",
+                "elapsed_ms": 2216
+              },
+              "_meta": {
+                "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-37",
+                "agentTimestampMs": 1790693681053
+              }
+            }
+          }
+        },
+        {
+          "t": 14057.3,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session/prompt_complete",
+            "params": {
+              "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+              "promptId": "f26560c5-a050-4392-a8b3-13ea810b7d3d",
+              "stopReason": "end_turn",
+              "agentResult": null
+            }
+          }
+        },
+        {
+          "t": 14058.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 6,
+            "result": {
+              "stopReason": "end_turn",
+              "_meta": {
+                "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+                "requestId": "f26560c5-a050-4392-a8b3-13ea810b7d3d",
+                "promptId": "f26560c5-a050-4392-a8b3-13ea810b7d3d",
+                "totalTokens": 2262,
+                "modelId": "fake"
+              }
+            }
+          }
+        },
+        { "t": 15565, "dir": "mark", "mark": "end" }
+      ],
+      "recordedUpdates": [
+        {
+          "timestamp": 1790693667,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": { "type": "text", "text": "alpha one" },
+              "_meta": { "modelId": "fake", "promptIndex": 0 }
+            },
+            "_meta": {
+              "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-2",
+              "agentTimestampMs": 1790693667910
+            }
+          }
+        },
+        {
+          "timestamp": 1790693670,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "w1 w2 w3 w4 " }
+            },
+            "_meta": {
+              "totalTokens": 2271,
+              "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-7",
+              "agentTimestampMs": 1790693670037,
+              "promptId": "podmsg-A",
+              "streamStartMs": 1790693668031,
+              "turnStartMs": 1790693667997,
+              "updateType": "AgentMessageChunk",
+              "chunkId": 4
+            }
+          }
+        },
+        {
+          "timestamp": 1790693670,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "podmsg-A",
+              "stop_reason": "end_turn",
+              "elapsed_ms": 2216
+            },
+            "_meta": {
+              "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-10",
+              "agentTimestampMs": 1790693670115
+            }
+          }
+        },
+        {
+          "timestamp": 1790693671,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": { "type": "text", "text": "bravo two" },
+              "_meta": { "modelId": "fake", "promptIndex": 1 }
+            },
+            "_meta": {
+              "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-11",
+              "agentTimestampMs": 1790693671643
+            }
+          }
+        },
+        {
+          "timestamp": 1790693673,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "w1 w2 w3 w4 " }
+            },
+            "_meta": {
+              "totalTokens": 2283,
+              "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-16",
+              "agentTimestampMs": 1790693673690,
+              "promptId": "cecc4932-85bd-4066-90b5-c39761b8cce6",
+              "streamStartMs": 1790693671669,
+              "turnStartMs": 1790693671665,
+              "updateType": "AgentMessageChunk",
+              "chunkId": 4
+            }
+          }
+        },
+        {
+          "timestamp": 1790693673,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "cecc4932-85bd-4066-90b5-c39761b8cce6",
+              "stop_reason": "end_turn",
+              "elapsed_ms": 2100
+            },
+            "_meta": {
+              "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-19",
+              "agentTimestampMs": 1790693673742
+            }
+          }
+        },
+        {
+          "timestamp": 1790693675,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": { "type": "text", "text": "alpha one" },
+              "_meta": { "modelId": "fake", "promptIndex": 2 }
+            },
+            "_meta": {
+              "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-20",
+              "agentTimestampMs": 1790693675259
+            }
+          }
+        },
+        {
+          "timestamp": 1790693677,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "w1 w2 w3 w4 " }
+            },
+            "_meta": {
+              "totalTokens": 2295,
+              "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-25",
+              "agentTimestampMs": 1790693677277,
+              "promptId": "podmsg-A",
+              "streamStartMs": 1790693675274,
+              "turnStartMs": 1790693675270,
+              "updateType": "AgentMessageChunk",
+              "chunkId": 4
+            }
+          }
+        },
+        {
+          "timestamp": 1790693677,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "podmsg-A",
+              "stop_reason": "end_turn",
+              "elapsed_ms": 2067
+            },
+            "_meta": {
+              "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-28",
+              "agentTimestampMs": 1790693677322
+            }
+          }
+        },
+        {
+          "timestamp": 1790693678,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": { "type": "text", "text": "delta four" },
+              "_meta": { "modelId": "fake", "promptIndex": 3 }
+            },
+            "_meta": {
+              "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-29",
+              "agentTimestampMs": 1790693678838
+            }
+          }
+        },
+        {
+          "timestamp": 1790693680,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "w1 w2 w3 w4 " }
+            },
+            "_meta": {
+              "totalTokens": 2307,
+              "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-34",
+              "agentTimestampMs": 1790693680930,
+              "promptId": "f26560c5-a050-4392-a8b3-13ea810b7d3d",
+              "streamStartMs": 1790693678883,
+              "turnStartMs": 1790693678875,
+              "updateType": "AgentMessageChunk",
+              "chunkId": 4
+            }
+          }
+        },
+        {
+          "timestamp": 1790693681,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "f26560c5-a050-4392-a8b3-13ea810b7d3d",
+              "stop_reason": "end_turn",
+              "elapsed_ms": 2216
+            },
+            "_meta": {
+              "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-37",
+              "agentTimestampMs": 1790693681053
+            }
+          }
+        },
+        {
+          "timestamp": 1790693709,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0eda8-f267-72e1-bf10-904d369bf375",
+            "update": { "sessionUpdate": "background_tasks", "tasks": [] },
+            "_meta": {
+              "eventId": "01a0eda8-f267-72e1-bf10-904d369bf375-40",
+              "agentTimestampMs": 1790693709722
+            }
+          }
+        }
+      ]
+    },
+    "queuedWhileBusy": {
+      "note": "F sent while E runs: queue/changed lists F under its promptId behind running E; F runs after E ends.",
+      "frames": [
+        { "t": 367, "dir": "mark", "mark": "E first" },
+        {
+          "t": 367.3,
+          "dir": "out",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "session/prompt",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "prompt": [{ "type": "text", "text": "echo five" }],
+              "_meta": { "promptId": "podmsg-E" }
+            }
+          }
+        },
+        {
+          "t": 378.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "entries": [
+                {
+                  "id": "podmsg-E",
+                  "version": 0,
+                  "kind": "prompt",
+                  "text": "echo five",
+                  "position": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "t": 378.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "entries": [],
+              "runningPromptId": "podmsg-E",
+              "runningText": "echo five",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        { "t": 668.3, "dir": "mark", "mark": "F while busy" },
+        {
+          "t": 668.5,
+          "dir": "out",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "session/prompt",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "prompt": [{ "type": "text", "text": "foxtrot six" }],
+              "_meta": { "promptId": "podmsg-F" }
+            }
+          }
+        },
+        {
+          "t": 674,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "entries": [
+                {
+                  "id": "podmsg-F",
+                  "version": 0,
+                  "kind": "prompt",
+                  "text": "foxtrot six",
+                  "position": 0
+                }
+              ],
+              "runningPromptId": "podmsg-E",
+              "runningText": "echo five",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        {
+          "t": 950.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w1 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-4",
+                "agentTimestampMs": 1790693713573,
+                "promptId": "podmsg-E",
+                "streamStartMs": 1790693713073,
+                "turnStartMs": 1790693713066,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 1
+              }
+            }
+          }
+        },
+        {
+          "t": 1446,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w2 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-5",
+                "agentTimestampMs": 1790693714076,
+                "promptId": "podmsg-E",
+                "streamStartMs": 1790693713073,
+                "turnStartMs": 1790693713066,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 2
+              }
+            }
+          }
+        },
+        {
+          "t": 1945.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w3 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-6",
+                "agentTimestampMs": 1790693714577,
+                "promptId": "podmsg-E",
+                "streamStartMs": 1790693713073,
+                "turnStartMs": 1790693713066,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 3
+              }
+            }
+          }
+        },
+        {
+          "t": 2449,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w4 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-7",
+                "agentTimestampMs": 1790693715079,
+                "promptId": "podmsg-E",
+                "streamStartMs": 1790693713073,
+                "turnStartMs": 1790693713066,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 4
+              }
+            }
+          }
+        },
+        {
+          "t": 2449.3,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "update": { "sessionUpdate": "response_completed" }
+            }
+          }
+        },
+        {
+          "t": 2471.5,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "update": {
+                "sessionUpdate": "session_summary_generated",
+                "session_summary": "echo five"
+              }
+            }
+          }
+        },
+        {
+          "t": 2512.2,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "entries": [
+                {
+                  "id": "podmsg-F",
+                  "version": 0,
+                  "kind": "prompt",
+                  "text": "foxtrot six",
+                  "position": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "t": 2514,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "update": {
+                "sessionUpdate": "turn_completed",
+                "prompt_id": "podmsg-E",
+                "stop_reason": "end_turn",
+                "elapsed_ms": 2136
+              },
+              "_meta": {
+                "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-10",
+                "agentTimestampMs": 1790693715141
+              }
+            }
+          }
+        },
+        {
+          "t": 2519.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "entries": [],
+              "runningPromptId": "podmsg-F",
+              "runningText": "foxtrot six",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        {
+          "t": 2522.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session/prompt_complete",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "promptId": "podmsg-E",
+              "stopReason": "end_turn",
+              "agentResult": null
+            }
+          }
+        },
+        {
+          "t": 2529.6,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "result": {
+              "stopReason": "end_turn",
+              "_meta": {
+                "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+                "requestId": "podmsg-E",
+                "promptId": "podmsg-E",
+                "totalTokens": 2262,
+                "modelId": "fake"
+              }
+            }
+          }
+        },
+        {
+          "t": 3076.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w1 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-13",
+                "agentTimestampMs": 1790693715707,
+                "promptId": "podmsg-F",
+                "streamStartMs": 1790693715205,
+                "turnStartMs": 1790693715199,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 1
+              }
+            }
+          }
+        },
+        {
+          "t": 3580,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w2 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-14",
+                "agentTimestampMs": 1790693716210,
+                "promptId": "podmsg-F",
+                "streamStartMs": 1790693715205,
+                "turnStartMs": 1790693715199,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 2
+              }
+            }
+          }
+        },
+        {
+          "t": 4080.3,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w3 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-15",
+                "agentTimestampMs": 1790693716711,
+                "promptId": "podmsg-F",
+                "streamStartMs": 1790693715205,
+                "turnStartMs": 1790693715199,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 3
+              }
+            }
+          }
+        },
+        {
+          "t": 4583.5,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w4 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-16",
+                "agentTimestampMs": 1790693717214,
+                "promptId": "podmsg-F",
+                "streamStartMs": 1790693715205,
+                "turnStartMs": 1790693715199,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 4
+              }
+            }
+          }
+        },
+        {
+          "t": 4584,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "update": { "sessionUpdate": "response_completed" }
+            }
+          }
+        },
+        {
+          "t": 4624,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": { "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142", "entries": [] }
+          }
+        },
+        {
+          "t": 4624.3,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "update": {
+                "sessionUpdate": "turn_completed",
+                "prompt_id": "podmsg-F",
+                "stop_reason": "end_turn",
+                "elapsed_ms": 2109
+              },
+              "_meta": {
+                "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-19",
+                "agentTimestampMs": 1790693717251
+              }
+            }
+          }
+        },
+        {
+          "t": 4624.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session/prompt_complete",
+            "params": {
+              "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+              "promptId": "podmsg-F",
+              "stopReason": "end_turn",
+              "agentResult": null
+            }
+          }
+        },
+        {
+          "t": 4627.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "result": {
+              "stopReason": "end_turn",
+              "_meta": {
+                "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+                "requestId": "podmsg-F",
+                "promptId": "podmsg-F",
+                "totalTokens": 2262,
+                "modelId": "fake"
+              }
+            }
+          }
+        },
+        { "t": 6129.2, "dir": "mark", "mark": "end" }
+      ],
+      "recordedUpdates": [
+        {
+          "timestamp": 1790693713,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": { "type": "text", "text": "echo five" },
+              "_meta": { "modelId": "fake", "promptIndex": 0 }
+            },
+            "_meta": {
+              "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-2",
+              "agentTimestampMs": 1790693713006
+            }
+          }
+        },
+        {
+          "timestamp": 1790693715,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "w1 w2 w3 w4 " }
+            },
+            "_meta": {
+              "totalTokens": 2271,
+              "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-7",
+              "agentTimestampMs": 1790693715079,
+              "promptId": "podmsg-E",
+              "streamStartMs": 1790693713073,
+              "turnStartMs": 1790693713066,
+              "updateType": "AgentMessageChunk",
+              "chunkId": 4
+            }
+          }
+        },
+        {
+          "timestamp": 1790693715,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "podmsg-E",
+              "stop_reason": "end_turn",
+              "elapsed_ms": 2136
+            },
+            "_meta": {
+              "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-10",
+              "agentTimestampMs": 1790693715141
+            }
+          }
+        },
+        {
+          "timestamp": 1790693715,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": { "type": "text", "text": "foxtrot six" },
+              "_meta": { "modelId": "fake", "promptIndex": 1 }
+            },
+            "_meta": {
+              "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-11",
+              "agentTimestampMs": 1790693715147
+            }
+          }
+        },
+        {
+          "timestamp": 1790693717,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "w1 w2 w3 w4 " }
+            },
+            "_meta": {
+              "totalTokens": 2283,
+              "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-16",
+              "agentTimestampMs": 1790693717214,
+              "promptId": "podmsg-F",
+              "streamStartMs": 1790693715205,
+              "turnStartMs": 1790693715199,
+              "updateType": "AgentMessageChunk",
+              "chunkId": 4
+            }
+          }
+        },
+        {
+          "timestamp": 1790693717,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0eda9-a40c-7d10-85eb-63debf912142",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "podmsg-F",
+              "stop_reason": "end_turn",
+              "elapsed_ms": 2109
+            },
+            "_meta": {
+              "eventId": "01a0eda9-a40c-7d10-85eb-63debf912142-19",
+              "agentTimestampMs": 1790693717251
+            }
+          }
+        }
+      ]
+    },
+    "repeatedPromptIdWhileBusy": {
+      "note": "G sent again while G runs: the queue shows no second entry, and G then runs a second turn under the same promptId.",
+      "frames": [
+        { "t": 407.3, "dir": "mark", "mark": "G first" },
+        {
+          "t": 407.4,
+          "dir": "out",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "session/prompt",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "prompt": [{ "type": "text", "text": "golf seven" }],
+              "_meta": { "promptId": "podmsg-G" }
+            }
+          }
+        },
+        {
+          "t": 429.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "entries": [
+                {
+                  "id": "podmsg-G",
+                  "version": 0,
+                  "kind": "prompt",
+                  "text": "golf seven",
+                  "position": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "t": 430.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "entries": [],
+              "runningPromptId": "podmsg-G",
+              "runningText": "golf seven",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        { "t": 708, "dir": "mark", "mark": "G repeat while busy" },
+        {
+          "t": 708.4,
+          "dir": "out",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "session/prompt",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "prompt": [{ "type": "text", "text": "golf seven" }],
+              "_meta": { "promptId": "podmsg-G" }
+            }
+          }
+        },
+        {
+          "t": 712.6,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "entries": [],
+              "runningPromptId": "podmsg-G",
+              "runningText": "golf seven",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        {
+          "t": 986.5,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w1 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-4",
+                "agentTimestampMs": 1790693720106,
+                "promptId": "podmsg-G",
+                "streamStartMs": 1790693719606,
+                "turnStartMs": 1790693719596,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 1
+              }
+            }
+          }
+        },
+        {
+          "t": 1492.1,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w2 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-5",
+                "agentTimestampMs": 1790693720609,
+                "promptId": "podmsg-G",
+                "streamStartMs": 1790693719606,
+                "turnStartMs": 1790693719596,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 2
+              }
+            }
+          }
+        },
+        {
+          "t": 2005.6,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w3 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-6",
+                "agentTimestampMs": 1790693721109,
+                "promptId": "podmsg-G",
+                "streamStartMs": 1790693719606,
+                "turnStartMs": 1790693719596,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 3
+              }
+            }
+          }
+        },
+        {
+          "t": 2476.7,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "update": {
+                "sessionUpdate": "session_summary_generated",
+                "session_summary": "golf seven"
+              }
+            }
+          }
+        },
+        {
+          "t": 2490.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w4 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-7",
+                "agentTimestampMs": 1790693721609,
+                "promptId": "podmsg-G",
+                "streamStartMs": 1790693719606,
+                "turnStartMs": 1790693719596,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 4
+              }
+            }
+          }
+        },
+        {
+          "t": 2491,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "update": { "sessionUpdate": "response_completed" }
+            }
+          }
+        },
+        {
+          "t": 2525.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "entries": [],
+              "runningPromptId": "podmsg-G",
+              "runningText": "golf seven",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        {
+          "t": 2525.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "update": {
+                "sessionUpdate": "turn_completed",
+                "prompt_id": "podmsg-G",
+                "stop_reason": "end_turn",
+                "elapsed_ms": 2094
+              },
+              "_meta": {
+                "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-10",
+                "agentTimestampMs": 1790693721643
+              }
+            }
+          }
+        },
+        {
+          "t": 2526,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "entries": [],
+              "runningPromptId": "podmsg-G",
+              "runningText": "golf seven",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        {
+          "t": 2526.1,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session/prompt_complete",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "promptId": "podmsg-G",
+              "stopReason": "end_turn",
+              "agentResult": null
+            }
+          }
+        },
+        {
+          "t": 2526.6,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "result": {
+              "stopReason": "end_turn",
+              "_meta": {
+                "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+                "requestId": "podmsg-G",
+                "promptId": "podmsg-G",
+                "totalTokens": 2262,
+                "modelId": "fake"
+              }
+            }
+          }
+        },
+        {
+          "t": 3078.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w1 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-13",
+                "agentTimestampMs": 1790693722198,
+                "promptId": "podmsg-G",
+                "streamStartMs": 1790693721697,
+                "turnStartMs": 1790693721692,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 1
+              }
+            }
+          }
+        },
+        {
+          "t": 3580.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w2 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-14",
+                "agentTimestampMs": 1790693722700,
+                "promptId": "podmsg-G",
+                "streamStartMs": 1790693721697,
+                "turnStartMs": 1790693721692,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 2
+              }
+            }
+          }
+        },
+        {
+          "t": 4082.2,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w3 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-15",
+                "agentTimestampMs": 1790693723201,
+                "promptId": "podmsg-G",
+                "streamStartMs": 1790693721697,
+                "turnStartMs": 1790693721692,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 3
+              }
+            }
+          }
+        },
+        {
+          "t": 4585.1,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w4 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-16",
+                "agentTimestampMs": 1790693723704,
+                "promptId": "podmsg-G",
+                "streamStartMs": 1790693721697,
+                "turnStartMs": 1790693721692,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 4
+              }
+            }
+          }
+        },
+        {
+          "t": 4588.6,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "update": { "sessionUpdate": "response_completed" }
+            }
+          }
+        },
+        {
+          "t": 4679,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": { "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053", "entries": [] }
+          }
+        },
+        {
+          "t": 4679.3,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "update": {
+                "sessionUpdate": "turn_completed",
+                "prompt_id": "podmsg-G",
+                "stop_reason": "end_turn",
+                "elapsed_ms": 2155
+              },
+              "_meta": {
+                "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-19",
+                "agentTimestampMs": 1790693723799
+              }
+            }
+          }
+        },
+        {
+          "t": 4682.3,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session/prompt_complete",
+            "params": {
+              "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+              "promptId": "podmsg-G",
+              "stopReason": "end_turn",
+              "agentResult": null
+            }
+          }
+        },
+        {
+          "t": 4684,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "result": {
+              "stopReason": "end_turn",
+              "_meta": {
+                "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+                "requestId": "podmsg-G",
+                "promptId": "podmsg-G",
+                "totalTokens": 2262,
+                "modelId": "fake"
+              }
+            }
+          }
+        },
+        { "t": 6184.8, "dir": "mark", "mark": "end" }
+      ],
+      "recordedUpdates": [
+        {
+          "timestamp": 1790693719,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": { "type": "text", "text": "golf seven" },
+              "_meta": { "modelId": "fake", "promptIndex": 0 }
+            },
+            "_meta": {
+              "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-2",
+              "agentTimestampMs": 1790693719550
+            }
+          }
+        },
+        {
+          "timestamp": 1790693721,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "w1 w2 w3 w4 " }
+            },
+            "_meta": {
+              "totalTokens": 2271,
+              "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-7",
+              "agentTimestampMs": 1790693721609,
+              "promptId": "podmsg-G",
+              "streamStartMs": 1790693719606,
+              "turnStartMs": 1790693719596,
+              "updateType": "AgentMessageChunk",
+              "chunkId": 4
+            }
+          }
+        },
+        {
+          "timestamp": 1790693721,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "podmsg-G",
+              "stop_reason": "end_turn",
+              "elapsed_ms": 2094
+            },
+            "_meta": {
+              "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-10",
+              "agentTimestampMs": 1790693721643
+            }
+          }
+        },
+        {
+          "timestamp": 1790693721,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": { "type": "text", "text": "golf seven" },
+              "_meta": { "modelId": "fake", "promptIndex": 1 }
+            },
+            "_meta": {
+              "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-11",
+              "agentTimestampMs": 1790693721644
+            }
+          }
+        },
+        {
+          "timestamp": 1790693723,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "w1 w2 w3 w4 " }
+            },
+            "_meta": {
+              "totalTokens": 2283,
+              "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-16",
+              "agentTimestampMs": 1790693723704,
+              "promptId": "podmsg-G",
+              "streamStartMs": 1790693721697,
+              "turnStartMs": 1790693721692,
+              "updateType": "AgentMessageChunk",
+              "chunkId": 4
+            }
+          }
+        },
+        {
+          "timestamp": 1790693723,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "podmsg-G",
+              "stop_reason": "end_turn",
+              "elapsed_ms": 2155
+            },
+            "_meta": {
+              "eventId": "01a0eda9-bd85-7ed3-95c2-8fc71a7c0053-19",
+              "agentTimestampMs": 1790693723799
+            }
+          }
+        }
+      ]
+    },
+    "userPromptSubmitHook": {
+      "note": "H allowed, I blocked, J allowed. The queue ack precedes the hook; a blocked prompt ends cancelled with cancellationCategory HookDenied and is not recorded.",
+      "frames": [
+        { "t": 1131.9, "dir": "mark", "mark": "H allowed" },
+        {
+          "t": 1132.2,
+          "dir": "out",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "session/prompt",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "prompt": [{ "type": "text", "text": "hotel eight" }],
+              "_meta": { "promptId": "podmsg-H" }
+            }
+          }
+        },
+        {
+          "t": 1216.2,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "entries": [
+                {
+                  "id": "podmsg-H",
+                  "version": 0,
+                  "kind": "prompt",
+                  "text": "hotel eight",
+                  "position": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "t": 1216.3,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "entries": [],
+              "runningPromptId": "podmsg-H",
+              "runningText": "hotel eight",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        {
+          "t": 1223.6,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "hook_run_started",
+                "event_name": "user_prompt_submit",
+                "prompt_id": "podmsg-H",
+                "count": 1
+              },
+              "_meta": { "agentTimestampMs": 1790694051360 }
+            }
+          }
+        },
+        {
+          "t": 1245.6,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "hook_execution",
+                "event_name": "user_prompt_submit",
+                "prompt_id": "podmsg-H",
+                "runs": [
+                  {
+                    "name": "global/probe:user_prompt_submit[0].hooks[0]",
+                    "status": { "status": "success", "elapsed_ms": 16 }
+                  }
+                ]
+              },
+              "_meta": {
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-2",
+                "agentTimestampMs": 1790694051378
+              }
+            }
+          }
+        },
+        {
+          "t": 1897,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w1 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-5",
+                "agentTimestampMs": 1790694051987,
+                "promptId": "podmsg-H",
+                "streamStartMs": 1790694051482,
+                "turnStartMs": 1790694051458,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 1
+              }
+            }
+          }
+        },
+        {
+          "t": 2387.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w2 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-6",
+                "agentTimestampMs": 1790694052503,
+                "promptId": "podmsg-H",
+                "streamStartMs": 1790694051482,
+                "turnStartMs": 1790694051458,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 2
+              }
+            }
+          }
+        },
+        {
+          "t": 2893.2,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w3 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-7",
+                "agentTimestampMs": 1790694053016,
+                "promptId": "podmsg-H",
+                "streamStartMs": 1790694051482,
+                "turnStartMs": 1790694051458,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 3
+              }
+            }
+          }
+        },
+        {
+          "t": 3375.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "session_summary_generated",
+                "session_summary": "hotel eight"
+              }
+            }
+          }
+        },
+        {
+          "t": 3381.1,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w4 " }
+              },
+              "_meta": {
+                "totalTokens": 2271,
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-8",
+                "agentTimestampMs": 1790694053517,
+                "promptId": "podmsg-H",
+                "streamStartMs": 1790694051482,
+                "turnStartMs": 1790694051458,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 4
+              }
+            }
+          }
+        },
+        {
+          "t": 3383.6,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": { "sessionUpdate": "response_completed" }
+            }
+          }
+        },
+        {
+          "t": 3463.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": { "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72", "entries": [] }
+          }
+        },
+        {
+          "t": 3464.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "turn_completed",
+                "prompt_id": "podmsg-H",
+                "stop_reason": "end_turn",
+                "elapsed_ms": 2237
+              },
+              "_meta": {
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-11",
+                "agentTimestampMs": 1790694053591
+              }
+            }
+          }
+        },
+        {
+          "t": 3472.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session/prompt_complete",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "promptId": "podmsg-H",
+              "stopReason": "end_turn",
+              "agentResult": null
+            }
+          }
+        },
+        {
+          "t": 3474.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "result": {
+              "stopReason": "end_turn",
+              "_meta": {
+                "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+                "requestId": "podmsg-H",
+                "promptId": "podmsg-H",
+                "totalTokens": 2262,
+                "modelId": "fake"
+              }
+            }
+          }
+        },
+        { "t": 4984.3, "dir": "mark", "mark": "I blocked" },
+        {
+          "t": 4984.5,
+          "dir": "out",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "session/prompt",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "prompt": [{ "type": "text", "text": "india blockme" }],
+              "_meta": { "promptId": "podmsg-I" }
+            }
+          }
+        },
+        {
+          "t": 4988.3,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "entries": [
+                {
+                  "id": "podmsg-I",
+                  "version": 0,
+                  "kind": "prompt",
+                  "text": "india blockme",
+                  "position": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "t": 4988.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "entries": [],
+              "runningPromptId": "podmsg-I",
+              "runningText": "india blockme",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        {
+          "t": 4990,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "hook_run_started",
+                "event_name": "user_prompt_submit",
+                "prompt_id": "podmsg-I",
+                "count": 1
+              },
+              "_meta": { "agentTimestampMs": 1790694055127 }
+            }
+          }
+        },
+        {
+          "t": 5009.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "hook_execution",
+                "event_name": "user_prompt_submit",
+                "prompt_id": "podmsg-I",
+                "runs": [
+                  {
+                    "name": "global/probe:user_prompt_submit[0].hooks[0]",
+                    "status": {
+                      "status": "failed",
+                      "error": "blocked: blocked by probe",
+                      "elapsed_ms": 18,
+                      "blocked": true
+                    }
+                  }
+                ]
+              },
+              "_meta": {
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-12",
+                "agentTimestampMs": 1790694055146
+              }
+            }
+          }
+        },
+        {
+          "t": 5010,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "hook_annotation",
+                "message": "\u26a0 Prompt blocked by global/probe: blocked by probe"
+              },
+              "_meta": {
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-13",
+                "agentTimestampMs": 1790694055146
+              }
+            }
+          }
+        },
+        {
+          "t": 5072.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": { "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72", "entries": [] }
+          }
+        },
+        {
+          "t": 5073.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "turn_completed",
+                "prompt_id": "podmsg-I",
+                "stop_reason": "cancelled",
+                "elapsed_ms": 85
+              },
+              "_meta": {
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-14",
+                "agentTimestampMs": 1790694055210,
+                "cancellationCategory": "HookDenied",
+                "cancellationContext": {
+                  "reason": "blocked by probe",
+                  "hook_name": "global/probe:user_prompt_submit[0].hooks[0]"
+                }
+              }
+            }
+          }
+        },
+        {
+          "t": 5073.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session/prompt_complete",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "promptId": "podmsg-I",
+              "stopReason": "cancelled",
+              "agentResult": null,
+              "cancellationCategory": "HookDenied",
+              "cancellationContext": {
+                "reason": "blocked by probe",
+                "hook_name": "global/probe:user_prompt_submit[0].hooks[0]"
+              }
+            }
+          }
+        },
+        {
+          "t": 5074.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "result": {
+              "stopReason": "cancelled",
+              "_meta": {
+                "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+                "requestId": "podmsg-I",
+                "promptId": "podmsg-I",
+                "totalTokens": 2262,
+                "modelId": "fake",
+                "cancellationCategory": "HookDenied",
+                "cancellationContext": {
+                  "reason": "blocked by probe",
+                  "hook_name": "global/probe:user_prompt_submit[0].hooks[0]"
+                }
+              }
+            }
+          }
+        },
+        { "t": 6578.4, "dir": "mark", "mark": "J after block" },
+        {
+          "t": 6578.7,
+          "dir": "out",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "session/prompt",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "prompt": [{ "type": "text", "text": "juliet ten" }],
+              "_meta": { "promptId": "podmsg-J" }
+            }
+          }
+        },
+        {
+          "t": 6581.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "entries": [
+                {
+                  "id": "podmsg-J",
+                  "version": 0,
+                  "kind": "prompt",
+                  "text": "juliet ten",
+                  "position": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "t": 6581.5,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "entries": [],
+              "runningPromptId": "podmsg-J",
+              "runningText": "juliet ten",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        {
+          "t": 6583.1,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "hook_run_started",
+                "event_name": "user_prompt_submit",
+                "prompt_id": "podmsg-J",
+                "count": 1
+              },
+              "_meta": { "agentTimestampMs": 1790694056719 }
+            }
+          }
+        },
+        {
+          "t": 6610.7,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "hook_execution",
+                "event_name": "user_prompt_submit",
+                "prompt_id": "podmsg-J",
+                "runs": [
+                  {
+                    "name": "global/probe:user_prompt_submit[0].hooks[0]",
+                    "status": { "status": "success", "elapsed_ms": 22 }
+                  }
+                ]
+              },
+              "_meta": {
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-15",
+                "agentTimestampMs": 1790694056743
+              }
+            }
+          }
+        },
+        {
+          "t": 7156.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w1 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-18",
+                "agentTimestampMs": 1790694057293,
+                "promptId": "podmsg-J",
+                "streamStartMs": 1790694056786,
+                "turnStartMs": 1790694056777,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 1
+              }
+            }
+          }
+        },
+        {
+          "t": 7682.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w2 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-19",
+                "agentTimestampMs": 1790694057820,
+                "promptId": "podmsg-J",
+                "streamStartMs": 1790694056786,
+                "turnStartMs": 1790694056777,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 2
+              }
+            }
+          }
+        },
+        {
+          "t": 8184.7,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w3 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-20",
+                "agentTimestampMs": 1790694058321,
+                "promptId": "podmsg-J",
+                "streamStartMs": 1790694056786,
+                "turnStartMs": 1790694056777,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 3
+              }
+            }
+          }
+        },
+        {
+          "t": 8707.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": { "type": "text", "text": "w4 " }
+              },
+              "_meta": {
+                "totalTokens": 2283,
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-21",
+                "agentTimestampMs": 1790694058845,
+                "promptId": "podmsg-J",
+                "streamStartMs": 1790694056786,
+                "turnStartMs": 1790694056777,
+                "updateType": "AgentMessageChunk",
+                "chunkId": 4
+              }
+            }
+          }
+        },
+        {
+          "t": 8757.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": { "sessionUpdate": "response_completed" }
+            }
+          }
+        },
+        {
+          "t": 8814.7,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": { "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72", "entries": [] }
+          }
+        },
+        {
+          "t": 8814.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "update": {
+                "sessionUpdate": "turn_completed",
+                "prompt_id": "podmsg-J",
+                "stop_reason": "end_turn",
+                "elapsed_ms": 2230
+              },
+              "_meta": {
+                "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-24",
+                "agentTimestampMs": 1790694058948
+              }
+            }
+          }
+        },
+        {
+          "t": 8814.9,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session/prompt_complete",
+            "params": {
+              "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+              "promptId": "podmsg-J",
+              "stopReason": "end_turn",
+              "agentResult": null
+            }
+          }
+        },
+        {
+          "t": 8816,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "result": {
+              "stopReason": "end_turn",
+              "_meta": {
+                "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+                "requestId": "podmsg-J",
+                "promptId": "podmsg-J",
+                "totalTokens": 2262,
+                "modelId": "fake"
+              }
+            }
+          }
+        },
+        { "t": 10321.3, "dir": "mark", "mark": "end" }
+      ],
+      "recordedUpdates": [
+        {
+          "timestamp": 1790694051,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+            "update": {
+              "sessionUpdate": "hook_execution",
+              "event_name": "user_prompt_submit",
+              "prompt_id": "podmsg-H",
+              "runs": [
+                {
+                  "name": "global/probe:user_prompt_submit[0].hooks[0]",
+                  "status": { "status": "success", "elapsed_ms": 16 }
+                }
+              ]
+            },
+            "_meta": {
+              "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-2",
+              "agentTimestampMs": 1790694051378
+            }
+          }
+        },
+        {
+          "timestamp": 1790694051,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": { "type": "text", "text": "hotel eight" },
+              "_meta": { "modelId": "fake", "promptIndex": 0 }
+            },
+            "_meta": {
+              "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-3",
+              "agentTimestampMs": 1790694051378
+            }
+          }
+        },
+        {
+          "timestamp": 1790694053,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "w1 w2 w3 w4 " }
+            },
+            "_meta": {
+              "totalTokens": 2271,
+              "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-8",
+              "agentTimestampMs": 1790694053517,
+              "promptId": "podmsg-H",
+              "streamStartMs": 1790694051482,
+              "turnStartMs": 1790694051458,
+              "updateType": "AgentMessageChunk",
+              "chunkId": 4
+            }
+          }
+        },
+        {
+          "timestamp": 1790694053,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "podmsg-H",
+              "stop_reason": "end_turn",
+              "elapsed_ms": 2237
+            },
+            "_meta": {
+              "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-11",
+              "agentTimestampMs": 1790694053591
+            }
+          }
+        },
+        {
+          "timestamp": 1790694055,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+            "update": {
+              "sessionUpdate": "hook_execution",
+              "event_name": "user_prompt_submit",
+              "prompt_id": "podmsg-I",
+              "runs": [
+                {
+                  "name": "global/probe:user_prompt_submit[0].hooks[0]",
+                  "status": {
+                    "status": "failed",
+                    "error": "blocked: blocked by probe",
+                    "elapsed_ms": 18,
+                    "blocked": true
+                  }
+                }
+              ]
+            },
+            "_meta": {
+              "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-12",
+              "agentTimestampMs": 1790694055146
+            }
+          }
+        },
+        {
+          "timestamp": 1790694055,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+            "update": {
+              "sessionUpdate": "hook_annotation",
+              "message": "\u26a0 Prompt blocked by global/probe: blocked by probe"
+            },
+            "_meta": {
+              "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-13",
+              "agentTimestampMs": 1790694055146
+            }
+          }
+        },
+        {
+          "timestamp": 1790694055,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "podmsg-I",
+              "stop_reason": "cancelled",
+              "elapsed_ms": 85
+            },
+            "_meta": {
+              "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-14",
+              "agentTimestampMs": 1790694055210,
+              "cancellationCategory": "HookDenied",
+              "cancellationContext": {
+                "reason": "blocked by probe",
+                "hook_name": "global/probe:user_prompt_submit[0].hooks[0]"
+              }
+            }
+          }
+        },
+        {
+          "timestamp": 1790694056,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+            "update": {
+              "sessionUpdate": "hook_execution",
+              "event_name": "user_prompt_submit",
+              "prompt_id": "podmsg-J",
+              "runs": [
+                {
+                  "name": "global/probe:user_prompt_submit[0].hooks[0]",
+                  "status": { "status": "success", "elapsed_ms": 22 }
+                }
+              ]
+            },
+            "_meta": {
+              "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-15",
+              "agentTimestampMs": 1790694056743
+            }
+          }
+        },
+        {
+          "timestamp": 1790694056,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": { "type": "text", "text": "juliet ten" },
+              "_meta": { "modelId": "fake", "promptIndex": 1 }
+            },
+            "_meta": {
+              "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-16",
+              "agentTimestampMs": 1790694056746
+            }
+          }
+        },
+        {
+          "timestamp": 1790694058,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+            "update": {
+              "sessionUpdate": "agent_message_chunk",
+              "content": { "type": "text", "text": "w1 w2 w3 w4 " }
+            },
+            "_meta": {
+              "totalTokens": 2283,
+              "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-21",
+              "agentTimestampMs": 1790694058845,
+              "promptId": "podmsg-J",
+              "streamStartMs": 1790694056786,
+              "turnStartMs": 1790694056777,
+              "updateType": "AgentMessageChunk",
+              "chunkId": 4
+            }
+          }
+        },
+        {
+          "timestamp": 1790694058,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "podmsg-J",
+              "stop_reason": "end_turn",
+              "elapsed_ms": 2230
+            },
+            "_meta": {
+              "eventId": "01a0edae-cc27-78b1-a03d-4ac5d6cf4d72-24",
+              "agentTimestampMs": 1790694058948
+            }
+          }
+        }
+      ]
+    },
+    "providerFailure": {
+      "note": "The provider answers 402: queue ack, retry_state failed, turn_completed stop_reason error with the promptId, then a JSON-RPC error reply. The prompt is recorded.",
+      "frames": [
+        { "t": 463.9, "dir": "mark", "mark": "K 402" },
+        {
+          "t": 466.5,
+          "dir": "out",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "session/prompt",
+            "params": {
+              "sessionId": "01a0edb4-084c-7210-9063-bec94a6c9036",
+              "prompt": [{ "type": "text", "text": "kilo fail402" }],
+              "_meta": { "promptId": "podmsg-K" }
+            }
+          }
+        },
+        {
+          "t": 478,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0edb4-084c-7210-9063-bec94a6c9036",
+              "entries": [
+                {
+                  "id": "podmsg-K",
+                  "version": 0,
+                  "kind": "prompt",
+                  "text": "kilo fail402",
+                  "position": 0
+                }
+              ]
+            }
+          }
+        },
+        {
+          "t": 479.6,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": {
+              "sessionId": "01a0edb4-084c-7210-9063-bec94a6c9036",
+              "entries": [],
+              "runningPromptId": "podmsg-K",
+              "runningText": "kilo fail402",
+              "runningKind": "prompt"
+            }
+          }
+        },
+        {
+          "t": 604.5,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edb4-084c-7210-9063-bec94a6c9036",
+              "update": {
+                "sessionUpdate": "session_summary_generated",
+                "session_summary": "kilo fail402"
+              }
+            }
+          }
+        },
+        {
+          "t": 636.1,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edb4-084c-7210-9063-bec94a6c9036",
+              "update": {
+                "sessionUpdate": "retry_state",
+                "type": "failed",
+                "error_type": "api",
+                "message": "API error (status 402 Payment Required): payment_required: Grok Build usage balance exhausted"
+              },
+              "_meta": {
+                "eventId": "01a0edb4-084c-7210-9063-bec94a6c9036-4",
+                "agentTimestampMs": 1790694394218
+              }
+            }
+          }
+        },
+        {
+          "t": 699.8,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/queue/changed",
+            "params": { "sessionId": "01a0edb4-084c-7210-9063-bec94a6c9036", "entries": [] }
+          }
+        },
+        {
+          "t": 700.2,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session_notification",
+            "params": {
+              "sessionId": "01a0edb4-084c-7210-9063-bec94a6c9036",
+              "update": {
+                "sessionUpdate": "turn_completed",
+                "prompt_id": "podmsg-K",
+                "stop_reason": "error",
+                "agent_result": "API error (status 402 Payment Required): payment_required: Grok Build usage balance exhausted",
+                "elapsed_ms": 227
+              },
+              "_meta": {
+                "eventId": "01a0edb4-084c-7210-9063-bec94a6c9036-5",
+                "agentTimestampMs": 1790694394288
+              }
+            }
+          }
+        },
+        {
+          "t": 700.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "method": "_x.ai/session/prompt_complete",
+            "params": {
+              "sessionId": "01a0edb4-084c-7210-9063-bec94a6c9036",
+              "promptId": "podmsg-K",
+              "stopReason": "error",
+              "agentResult": "API error (status 402 Payment Required): payment_required: Grok Build usage balance exhausted"
+            }
+          }
+        },
+        {
+          "t": 703.4,
+          "dir": "in",
+          "frame": {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "error": {
+              "code": -32603,
+              "message": "Internal error",
+              "data": {
+                "message": "API error (status 402 Payment Required): payment_required: Grok Build usage balance exhausted",
+                "http_status": 402
+              }
+            }
+          }
+        },
+        { "t": 2210.5, "dir": "mark", "mark": "end" }
+      ],
+      "recordedUpdates": [
+        {
+          "timestamp": 1790694394,
+          "method": "session/update",
+          "params": {
+            "sessionId": "01a0edb4-084c-7210-9063-bec94a6c9036",
+            "update": {
+              "sessionUpdate": "user_message_chunk",
+              "content": { "type": "text", "text": "kilo fail402" },
+              "_meta": { "modelId": "fake", "promptIndex": 0 }
+            },
+            "_meta": {
+              "eventId": "01a0edb4-084c-7210-9063-bec94a6c9036-2",
+              "agentTimestampMs": 1790694394062
+            }
+          }
+        },
+        {
+          "timestamp": 1790694394,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0edb4-084c-7210-9063-bec94a6c9036",
+            "update": {
+              "sessionUpdate": "retry_state",
+              "type": "failed",
+              "error_type": "api",
+              "message": "API error (status 402 Payment Required): payment_required: Grok Build usage balance exhausted"
+            },
+            "_meta": {
+              "eventId": "01a0edb4-084c-7210-9063-bec94a6c9036-4",
+              "agentTimestampMs": 1790694394218
+            }
+          }
+        },
+        {
+          "timestamp": 1790694394,
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "01a0edb4-084c-7210-9063-bec94a6c9036",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "podmsg-K",
+              "stop_reason": "error",
+              "agent_result": "API error (status 402 Payment Required): payment_required: Grok Build usage balance exhausted",
+              "elapsed_ms": 227
+            },
+            "_meta": {
+              "eventId": "01a0edb4-084c-7210-9063-bec94a6c9036-5",
+              "agentTimestampMs": 1790694394288
+            }
+          }
+        }
+      ]
+    }
+  }
+}

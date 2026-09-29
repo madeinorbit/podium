@@ -1,0 +1,5 @@
+[492ms] created {
+[497ms]   msg_live-long: receipt accepted provenBy=protocol-ack epoch=1 item=- (+4 ms)
+[5787ms]   msg_live-long: entry named grok-user-msg_live-long (+5294 ms after the send)
+[120555ms]   long turn ended: errored {"class":"unknown","retryable":true,"detail":"grok ACP session/prompt did not answer within 120000ms"}
+[120555ms] live users: [ "grok-user-msg_live-long=\"verylong please\"" ]
