@@ -167,7 +167,8 @@ interface World {
        *  positively means the prompt did not land. */
       event?: TranscriptItem['event']
       /** WHERE the record sits in the harness's store: its segment (file) and
-       *  offset, stamped as the tailer stamps them. Absent ⇒ no cursor. */
+       *  offset, stamped as the tailer stamps them. Absent ⇒ the end of one
+       *  default segment, in echo order. */
       at?: { fileId: string; offset: number }
       /** How long BEFORE now the harness says it wrote the record; `null` ⇒ the
        *  record carries no timestamp at all. Default: written now. */
@@ -397,14 +398,16 @@ function makeWorld(
     echo: (sessionId, text, options) => {
       const record = (entry: EchoRecord): TranscriptItem => {
         const ago = entry.writtenAgoMs === undefined ? 0 : entry.writtenAgoMs
+        const id = ++nextId
+        // Every record the tailer emits carries a cursor. Unplaced records land
+        // at the end of one default segment, in the order they are echoed.
+        const at = entry.at ?? { fileId: 'transcript', offset: id }
         return {
-          id: `item-${++nextId}`,
+          id: `item-${id}`,
           role: entry.role ?? 'user',
           ...(ago === null ? {} : { ts: new Date(clock - ago).toISOString() }),
-          ...(entry.at
-            ? { cursor: encodeCursor({ fileId: entry.at.fileId, offset: entry.at.offset, uuid: null, sub: 0 }) }
-            : {}),
-          text,
+          cursor: encodeCursor({ fileId: at.fileId, offset: at.offset, uuid: null, sub: 0 }),
+          text: entry.text,
         }
       }
       const item: TranscriptItem = {
@@ -412,7 +415,7 @@ function makeWorld(
         text,
         ...(options?.event ? { event: options.event } : {}),
       }
-      const items = [item, ...(options?.then ?? []).map((entry) => ({ ...record(entry), text: entry.text }))]
+      const items = [item, ...(options?.then ?? []).map(record)]
       runtime.observe({
         type: 'transcriptDelta',
         sessionId,
