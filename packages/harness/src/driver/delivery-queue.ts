@@ -1,4 +1,4 @@
-import type { TranscriptItemRef } from '@podium/model'
+import { type HarnessRef, mergeHarnessRefs, type TranscriptItemRef } from '@podium/model'
 import type { DeliveryFailureCause } from '@podium/protocol/daemon'
 import type { AgentSessionHandle } from './driver.js'
 import type { RuntimeEventBody } from './events.js'
@@ -66,6 +66,16 @@ export function withDeliveryQueue(
   /** Entries a driver named before its row settled (POD-4774). */
   const namedEarly = new Map<string, TranscriptItemRef>()
   /**
+   * THE PROGRAM'S OWN IDS FOR A ROW NOT SETTLED YET (POD-4841): from its
+   * receipt and from anything named beside its entry. They ride on the row's
+   * outcome, whichever it is; learning one never moves the row.
+   */
+  const idsOf = new Map<string, HarnessRef>()
+  function learn(id: string, harnessRef: HarnessRef | undefined): void {
+    const merged = mergeHarnessRefs(idsOf.get(id), harnessRef)
+    if (merged) idsOf.set(id, merged)
+  }
+  /**
    * TYPED, AND HELD BY THE PROGRAM WITHOUT A RECORD YET (POD-4849): rows whose
    * receipt said `held`. Not delivered and not waiting: the next row may be
    * typed, a retract is too late, and the row settles on what the driver says
@@ -87,10 +97,13 @@ export function withDeliveryQueue(
     reason?: string,
     cause?: DeliveryFailureCause,
     transcriptItem?: TranscriptItemRef,
+    harnessRef?: HarnessRef,
   ) {
     if (finished.has(id)) return
     const named = outcome === 'delivered' ? (transcriptItem ?? namedEarly.get(id)) : undefined
+    const ids = mergeHarnessRefs(idsOf.get(id), harnessRef)
     namedEarly.delete(id)
+    idsOf.delete(id)
     unrecordedEarly.delete(id)
     held.delete(id)
     const event: Outcome = {
@@ -100,6 +113,7 @@ export function withDeliveryQueue(
       ...(reason ? { reason } : {}),
       ...(cause ? { cause } : {}),
       ...(named ? { transcriptItem: named } : {}),
+      ...(ids ? { harnessRef: ids } : {}),
     }
     finished.set(id, event)
     rows.delete(id)
@@ -111,19 +125,23 @@ export function withDeliveryQueue(
    * outcome — it never moves a row, only names the entry once — and the
    * `finished` replay carries it from here on.
    */
-  function name(id: string, transcriptItem: TranscriptItemRef): void {
+  function name(id: string, transcriptItem: TranscriptItemRef, harnessRef?: HarnessRef): void {
     if (held.has(id)) {
       // The record a held row waited for: this is its delivery.
-      settle(id, 'delivered', undefined, undefined, transcriptItem)
+      settle(id, 'delivered', undefined, undefined, transcriptItem, harnessRef)
       return
     }
     const prior = finished.get(id)
     if (!prior) {
-      if (rows.has(id)) namedEarly.set(id, transcriptItem)
+      if (rows.has(id)) {
+        namedEarly.set(id, transcriptItem)
+        learn(id, harnessRef)
+      }
       return
     }
     if (prior.outcome !== 'delivered' || prior.transcriptItem) return
-    const event: Outcome = { ...prior, transcriptItem }
+    const ids = mergeHarnessRefs(prior.harnessRef, harnessRef)
+    const event: Outcome = { ...prior, transcriptItem, ...(ids ? { harnessRef: ids } : {}) }
     finished.set(id, event)
     emit(event)
   }
@@ -149,14 +167,20 @@ export function withDeliveryQueue(
    * arms the late watch only after answering `unverified`, and the row
    * settles on that answer before any transcript read can resolve it.
    */
-  function proveLate(id: string, transcriptItem?: TranscriptItemRef): void {
+  function proveLate(
+    id: string,
+    transcriptItem?: TranscriptItemRef,
+    harnessRef?: HarnessRef,
+  ): void {
     const prior = finished.get(id)
     if (prior?.outcome !== 'failed' || prior.cause !== 'unconfirmed') return
+    const ids = mergeHarnessRefs(prior.harnessRef, harnessRef)
     const event: Outcome = {
       t: 'delivery',
       rowId: id,
       outcome: 'delivered',
       ...(transcriptItem ? { transcriptItem } : {}),
+      ...(ids ? { harnessRef: ids } : {}),
     }
     finished.set(id, event)
     emit(event)
@@ -252,9 +276,10 @@ export function withDeliveryQueue(
               delivery: 'when-ready',
               deliveryAttempt: true,
               signal: row.abort.signal,
-              onTranscriptItem: (item) => name(id, item),
+              onTranscriptItem: (item, harnessRef) => name(id, item, harnessRef),
               onUnrecorded: (reason) => unrecorded(id, reason),
-              onLateProof: ({ transcriptItem }) => proveLate(id, transcriptItem),
+              onLateProof: ({ transcriptItem, harnessRef }) =>
+                proveLate(id, transcriptItem, harnessRef),
             },
           )
           receipt = await row.inFlight
@@ -271,6 +296,7 @@ export function withDeliveryQueue(
           delete row.notRunningSince
         }
         if (receipt.outcome === 'accepted') {
+          learn(id, receipt.harnessRef)
           if (receipt.held && !receipt.transcriptItem && !namedEarly.has(id)) {
             // TAKEN, NOT RECORDED (POD-4849): typed, so never typed again and
             // never retractable, but not delivered until the driver says so.
@@ -362,17 +388,22 @@ export function withDeliveryQueue(
       // the same id (POD-4840).
       const turnId = input.id
       if (turnId === undefined) return send(input, options)
-      const delivered = (transcriptItem?: TranscriptItemRef) =>
+      // The program's ids ride along (POD-4841); those its receipt named
+      // reach the server on the receipt itself.
+      const delivered = (transcriptItem?: TranscriptItemRef, harnessRef?: HarnessRef) =>
         emit({
           t: 'delivery',
           rowId: turnId,
           outcome: 'delivered',
           ...(transcriptItem ? { transcriptItem } : {}),
+          ...(harnessRef?.length ? { harnessRef } : {}),
         })
       return send(input, {
         ...options,
         onTranscriptItem: options.onTranscriptItem ?? delivered,
-        onLateProof: options.onLateProof ?? (({ transcriptItem }) => delivered(transcriptItem)),
+        onLateProof:
+          options.onLateProof ??
+          (({ transcriptItem, harnessRef }) => delivered(transcriptItem, harnessRef)),
       })
     }
     // Durable delivery drains as when-ready, or cuts in as an interrupt.
@@ -444,6 +475,7 @@ export function withDeliveryQueue(
       rows.clear()
       held.clear()
       unrecordedEarly.clear()
+      idsOf.clear()
       return original()
     }
   }

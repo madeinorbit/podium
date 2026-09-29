@@ -2,7 +2,7 @@
 // surface's five governing rules and the core-vs-extended tier boundary.
 
 import type { Declared } from '../manifest.js'
-import type { SessionId, TranscriptItemRef } from '@podium/model'
+import type { HarnessRef, SessionId, TranscriptItemRef } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import type { RetractTooLate } from '@podium/protocol/daemon'
 
@@ -207,9 +207,11 @@ export interface SendOptions {
    * (codex's `turn/start`, opencode's 204). A driver that pairs the record
    * later calls this at most once, for an `accepted` receipt that did not
    * carry `transcriptItem`. The delivery queue turns it into a second
-   * `delivered` outcome naming the entry. Daemon-local; never crosses the wire.
+   * `delivered` outcome naming the entry. `harnessRef` is any id of the
+   * program's own the record carried for this message (POD-4841), added to
+   * those the receipt named. Daemon-local; never crosses the wire.
    */
-  onTranscriptItem?: (item: TranscriptItemRef) => void
+  onTranscriptItem?: (item: TranscriptItemRef, harnessRef?: HarnessRef) => void
   /**
    * A HELD MESSAGE THE PROGRAM WILL NOT RECORD ANY MORE (POD-4849).
    *
@@ -230,7 +232,11 @@ export interface SendOptions {
    * `delivered`. Never called for any other receipt. Daemon-local; never
    * crosses the wire.
    */
-  onLateProof?: (proof: { readonly transcriptItem?: TranscriptItemRef }) => void
+  onLateProof?: (proof: {
+    readonly transcriptItem?: TranscriptItemRef
+    /** The program's own ids the late record carried (POD-4841). */
+    readonly harnessRef?: HarnessRef
+  }) => void
   origin: InputOrigin
   delivery: TurnDelivery
   /**
@@ -351,6 +357,14 @@ export type TurnReceipt =
        * is never filled in by guessing.
        */
       transcriptItem?: TranscriptItemRef
+      /**
+       * THE PROGRAM'S OWN IDS FOR THIS SEND (POD-4841), as far as its answer
+       * named them: the turn it opened, the id it keeps the message under.
+       * Only ids the program gave for THIS message — a driver that cannot tell
+       * whether an id is this message's or another's leaves it out. A lookup
+       * key, never a proof: `provenBy` and `held` say what the receipt proves.
+       */
+      harnessRef?: HarnessRef
       /**
        * THE PROGRAM TOOK IT BUT HAS NOT RECORDED IT (POD-4819 §4, POD-4849).
        * `memory`: it holds the message in memory and can still drop it — a
