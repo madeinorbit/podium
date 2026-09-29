@@ -1,7 +1,8 @@
 # POD-4819 — Harness receipt proof (Phase B of POD-4720)
 
 Status: design for review, 2026-09-29, on `issue/4720-acknowledged-message-delivery-chain`.
-Revised after an independent first-principles review the same day (§11).
+Revised after an independent first-principles review the same day (§12), and split from
+Phases C and D (§11).
 
 ## 0. How to read this spec
 
@@ -21,9 +22,13 @@ Know, for every message and every agent program, whether the message reached the
 conversation. Every message ends as delivered, not delivered, or `unknown`; `unknown` only when
 neither can be known. Never a false yes, never a false no.
 
-Not in this phase: typing into a terminal, and never leaving text in the input box (Phase D,
-POD-4821); delivery modes and their time limits (Phase C, POD-4820); the daemon's durable
-storage (POD-4766 / POD-4777, designed by the operator; §9 lists only what this phase needs).
+**The line with the other phases:** Phase B reads and interprets what the agent program reports,
+and decides the status; it changes no byte we type. Phase D (POD-4821) controls what we write into
+a terminal and what sits in its input box. Phase C (POD-4820) decides how a message is sent
+(interrupt, steer, when idle). The test: *does it change what reaches the terminal, or when?* If
+yes, it is not Phase B. Phase B must give the right answer however well or badly a message is
+typed. What was designed here for other phases is handed over in §11. The daemon's durable storage
+is POD-4766 / POD-4777, designed by the operator; §9 lists only what this phase needs from it.
 
 ## 2. Words
 
@@ -37,8 +42,9 @@ storage (POD-4766 / POD-4777, designed by the operator; §9 lists only what this
   with an id and a status.
 - **Wrapped** — typed inside `[podium message <id> …] … [end podium message <id>]`
   (`apps/server/src/modules/messages/render.ts:135`), so our id is in the agent's own history.
-  **Unwrapped** (no id in the text): a person's chat (`render.ts:187-211`), the owner's first
-  prompt, automations, auto-continue's "continue" (POD-4846).
+  **Unwrapped** (no id in the text): a person's own words — their chat (`render.ts:187-211`) and
+  their first prompt. Automations and auto-continue's "continue" are unwrapped today (POD-4846) and
+  get the frame in POD-4868.
 - **Delivered** — in the agent's conversation history: the model reads it at its next step, and
   it survives a restart of the agent program.
 - **Foreign write** — any byte written into a terminal session that is not part of the message
@@ -129,6 +135,9 @@ send (`apps/daemon/src/runtime/terminal-driver.ts:1137-1146`; POD-4838).
 
 ### 5.3 Order plus text
 
+Needed only for a person's own words typed into a terminal agent (§2); everything else carries
+an id.
+
 **Idea.** The next prompt entry after our position is ours when nothing else can have produced
 it; the text only has to agree.
 
@@ -167,14 +176,11 @@ window; on closing, a `typed` or `accepted` message goes `unknown`. Wrapped mess
 late proof from the server's id match (`service.ts:2375-2396`), once that match is bound to its
 frame (§5.1).
 
-### 5.5 Typing lock (optional optimization, after the core works)
+### 5.5 Not in this phase
 
-The daemon may hold foreign writes to a session while one message is pasted and submitted, so a
-person's keystrokes cannot land inside it. The core never depends on it. The lease is released
-at whichever comes first: the typing finished plus a short settle, or a hard expiry of about
-1–2 s on its own timer, so a typing step that never finishes still releases it. Held writes are
-buffered with a size cap and flushed in order; a switch turns the lock off. A test pins the
-release when the typing step never settles.
+Preventing foreign writes while a message is typed (the typing lock), and never typing into a
+non-empty input box, are Phase D's (`docs/plans/pod-4821-phase-d-handoff.md`). Phase B only
+observes: the counter above.
 
 ## 6. Decided: a proven "no"
 
@@ -187,9 +193,9 @@ release when the typing step never settles.
 | N3 | The program keeps our id or gave us its own, says through its own protocol that no turn is open, and its history has no item with that id. Needed only where the program does not deduplicate (§3.8). | "No turn open" means it holds no copy. | `not-recorded` |
 | N4 | The program's process exited, and its history, read to the end after the exit, has nothing for the message after the position. | Nothing it held survives a resume. | `agent-exited` |
 
-A message left in a terminal's input box is Phase D's (POD-4821): Phase D clears it, proves the
-clear with an input fence (a probe written after our text, seen drawn after it in the same box,
-then removed), and reports `not-submitted`. A screen reading alone is never a "no".
+A fifth "no", `not-submitted`, comes from Phase D: when our text was left in a terminal's input
+box, Phase D clears it and proves the clear (`docs/plans/pod-4821-phase-d-handoff.md`). A screen
+reading alone is never a "no".
 
 These add to the existing causes for a message never handed over (POD-4778).
 
@@ -259,19 +265,24 @@ normal history re-read matches them by id (§5.1); order credit is not given acr
 | POD-4845 | Bug: low-priority mail stays `typed` | backlog |
 | POD-4846 | Every sender travels as a message | done |
 | POD-4849 | Bug: an interrupted Codex steer is reported delivered | backlog |
-| POD-4851 | Draft Sync unsupported (Phase D) | backlog |
-| POD-4853 | Hide auto-continue in chat | backlog |
+| POD-4868 | Automations and auto-continue wrapped (supersedes POD-4853) | running |
 | POD-4860 | Bug: a quoted id confirms another message (§5.1) | backlog |
 
 To file once this spec is approved: the status list with `accepted` and `failed → confirmed` on an exact id (§4); the foreign-write
 counter and the order rule (§5.3); N2–N4 as mechanisms (§6.1); the self-check alarm (§6.3).
-Each open row of §7 becomes its own issue once its facts are *run*. The typing lock (§5.5) comes
-after the counter works. Phase D gets the proven clear with an input fence (§6.1).
+Each open row of §7 becomes its own issue once its facts are *run*.
 
-Noted: Claude's own queue and "send now" as Claude's steer (Phase C). Upstream: the queued-prompt
-`prompt_id` behaviour may be worth reporting to Claude Code.
+Upstream: the queued-prompt `prompt_id` behaviour may be worth reporting to Claude Code.
 
-## 11. Review record
+## 11. Handed to other phases
+
+| To | What | Where |
+|---|---|---|
+| Phase D (POD-4821) | Only type into an empty input box; clear text left behind and prove the clear with an input fence (reported to B as `not-submitted`); what Escape, arrow-up and autocomplete put into the box; the typing lock as an optional, time-limited optimization; keep B's counter correct; Draft Sync unsupported (POD-4851, filed there) | `docs/plans/pod-4821-phase-d-handoff.md` |
+| Phase C (POD-4820) | Claude's own queue and "send now" as Claude's steer; Codex steer recorded at the next model call; OpenCode v2 and Grok steer candidates; the interrupt key refilling Claude's input box; one meaning of delivered for every mode, modes add details | `docs/plans/pod-4820-phase-c-handoff.md` |
+| Phase A (POD-4818) | Wrapping automations and auto-continue stays in B (POD-4868) because it shrinks B; a failed system send landing in a person's input box stays in B as a small fix (POD-4844) | this spec, §10 |
+
+## 12. Review record
 
 An independent first-principles review (Opus 5.5, 2026-09-29) of the previous version found, and
 this version fixes: a temporary refusal counted as a "no" (N1); order credit blind to prompts
