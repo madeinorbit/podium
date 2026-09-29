@@ -99,6 +99,9 @@ export interface SessionLifecycleDeps {
     reason: string,
     cause?: import('@podium/protocol/daemon').QueueDrainAbandonedReason,
   ): Promise<void>
+  /** The message is about to become this session's input: record the hand-off
+   *  and answer whether it may still be handed on (POD-4776). */
+  handOffQueuedMessage?(messageId: string, sessionId: SessionId): Promise<boolean>
   /** Advance the source intent only after queued input crosses into the PTY. */
   confirmQueuedMessageApplied?(messageId: string, sessionId: SessionId): Promise<void>
   /** Record which entry in the agent's history the message became (POD-4774). */

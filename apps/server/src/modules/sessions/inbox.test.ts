@@ -21,7 +21,12 @@ import {
 } from '../../harness-manifest'
 import { captureLogs } from '../../test-support/capture-logs'
 import { testClientPrincipal } from '../../test-support/client-principal'
-import { type InboxPrincipalReference, type QueuedInboxMessage, SessionInbox } from './inbox'
+import {
+  type InboxPrincipalReference,
+  MESSAGE_ENDED_REASON,
+  type QueuedInboxMessage,
+  SessionInbox,
+} from './inbox'
 import type { Session, SessionDurableState } from './session'
 
 const SID = asSessionId('session-target')
@@ -41,6 +46,8 @@ const agentPrincipal = (): InboxPrincipalReference => ({
 function harness(
   options: {
     authorizeAtDrain?: () => Promise<import('./inbox').InboxAuthorizationDecision>
+    /** The ledger's answer to a hand-off (POD-4776); omitted = no ledger. */
+    handingOn?: (input: { sourceMessageId: string; sessionId: SessionId }) => Promise<boolean>
     prepareSend?: () => Promise<void>
     owner?: typeof ALICE | null
     ownerOf?: () => Promise<typeof ALICE | null | undefined>
@@ -230,6 +237,7 @@ function harness(
     authorization: {
       authorizeAtDrain: options.authorizeAtDrain ?? (async () =>
         authorized ? ({ ok: true } as const) : ({ ok: false, reason: 'revoked' } as const)),
+      ...(options.handingOn ? { handingOn: options.handingOn } : {}),
       applied,
       injected,
       interrupted,
@@ -774,6 +782,50 @@ describe('SessionInbox authorization and identity', () => {
       principal: agentPrincipal(),
     })
     expect(held.applied).not.toHaveBeenCalled()
+  })
+
+  // POD-4776: a retract that finds no row cancels the held message; a push that
+  // read it as held a moment earlier must then write nothing the daemon types.
+  it.each([
+    ['an agent queue row', 'codex', 'queueText'],
+    ['a shell typed directly', 'shell', 'sendText'],
+  ] as const)('a message that ended before the hand-off gets no input: %s', async (_label, agentKind, verb) => {
+    const handingOn = vi.fn(async () => false)
+    const h = harness({ agentKind, handingOn, contractReceipts: [] })
+
+    const r = await h.inbox[verb]({
+      sessionId: SID,
+      text: 'retracted meanwhile',
+      sourceMessageId: 'msg_retracted',
+      principal: agentPrincipal(),
+    })
+
+    expect(handingOn).toHaveBeenCalledWith({ sourceMessageId: 'msg_retracted', sessionId: SID })
+    expect(r).toEqual({ ok: false, reason: MESSAGE_ENDED_REASON })
+    expect(h.rows).toEqual([])
+    expect(h.sent).toEqual([])
+    expect(h.contractCalls).toEqual([])
+  })
+
+  it('the hand-off is recorded before the queue row exists', async () => {
+    let rowsAtHandOff: number | undefined
+    const h = harness({
+      contractReceipts: [],
+      handingOn: async () => {
+        rowsAtHandOff = h.rows.length
+        return true
+      },
+    })
+
+    await h.inbox.queueText({
+      sessionId: SID,
+      text: 'on its way',
+      sourceMessageId: 'msg_handed',
+      principal: agentPrincipal(),
+    })
+
+    expect(rowsAtHandOff).toBe(0)
+    expect(h.rows.map((row) => row.id)).toEqual(['msg_handed'])
   })
 
   it('retracts a source message while the queued input is still held', async () => {

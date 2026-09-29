@@ -1450,6 +1450,7 @@ export class SessionRegistry {
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
     const queuedApplyHooks: {
+      handingOn?: (messageId: string, sessionId: SessionId) => Promise<boolean>
       applied?: (messageId: string, sessionId: SessionId) => Promise<void>
       injected?: (messageId: string, sessionId: SessionId) => Promise<void>
       unconfirmed?: (messageId: string, sessionId: SessionId, reason: string) => Promise<void>
@@ -1491,6 +1492,8 @@ export class SessionRegistry {
       now: () => this.now(),
       bus: this.bus,
       authorizeQueuedMessage: (messageId) => queuedMessageApply.authorize(messageId),
+      handOffQueuedMessage: async (messageId, sessionId) =>
+        (await queuedApplyHooks.handingOn?.(messageId, sessionId)) ?? true,
       rejectQueuedMessage: async (messageId, reason, cause) =>
         await queuedMessageApply.reject(messageId, reason, cause),
       confirmQueuedMessageApplied: (messageId, sessionId) =>
@@ -2162,6 +2165,8 @@ export class SessionRegistry {
       machineName: async (id) => (await machines.listMachines()).find((m) => m.id === id)?.name ?? id,
       now: () => new Date(this.now()).toISOString(),
     })
+    queuedApplyHooks.handingOn = async (messageId, sessionId) =>
+      await messagesSvc.onQueuedInputHandingOn(messageId, sessionId)
     queuedApplyHooks.applied = async (messageId, sessionId) =>
       await messagesSvc.onQueuedInputApplied(messageId, sessionId)
     queuedApplyHooks.injected = async (messageId, sessionId) =>

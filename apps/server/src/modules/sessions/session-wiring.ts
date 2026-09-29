@@ -423,6 +423,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     authorization: {
       authorizeAtDrain: (input) => life.authorizeQueuedInputAtApply(input),
+      handingOn: async ({ sourceMessageId, sessionId }) =>
+        (await deps.handOffQueuedMessage?.(sourceMessageId, sessionId)) ?? true,
       applied: async ({ sourceMessageId, sessionId }) => {
         const completion: Promise<void> | undefined =
           deps.confirmQueuedMessageApplied?.(sourceMessageId, sessionId)

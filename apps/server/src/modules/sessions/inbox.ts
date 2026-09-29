@@ -280,6 +280,14 @@ export interface InboxAuthorizationPort {
     sessionId: SessionId
     reason: string
   }): Promise<void>
+  /**
+   * A MESSAGE IS ABOUT TO BECOME THIS SESSION'S INPUT (POD-4776). Called
+   * immediately before its queue row is written, or before a shell is typed
+   * into: the ledger records the hand-off FIRST and answers whether the message
+   * may still be handed on. `false` = it ended meanwhile — a retract won the
+   * move — so no row is written and nothing is ever typed. Absent = no ledger.
+   */
+  handingOn?(input: { sourceMessageId: string; sessionId: SessionId }): Promise<boolean>
   /** The queued row has now crossed the real PTY boundary — and, where the
    *  transcript can witness it, has been seen to become a turn (POD-1100). */
   applied(input: { sourceMessageId: string; sessionId: SessionId }): Promise<void>
@@ -460,6 +468,9 @@ export interface InboxSendInput {
   sourceMessageId?: string
 }
 
+/** The refusal when the message a push carries ended before it was handed on. */
+export const MESSAGE_ENDED_REASON = 'message is no longer pending'
+
 const initialPromptQueueId = (sessionId: SessionId): string =>
   `${INITIAL_PROMPT_QUEUE_ID_PREFIX}${sessionId}`
 
@@ -627,6 +638,7 @@ export class SessionInbox {
       return { ok: false, reason: 'session changed during admission' }
     const currentRefusal = archivedSessionSendReason(session)
     if (currentRefusal) return { ok: false, reason: currentRefusal }
+    if (!(await this.mayHandOn(input))) return { ok: false, reason: MESSAGE_ENDED_REASON }
     this.sendShellText(session, input)
     return { ok: true }
   }
@@ -681,6 +693,7 @@ export class SessionInbox {
       return { ok: false, reason: 'session changed during admission' }
     const currentRefusal = archivedSessionSendReason(session)
     if (currentRefusal) return { ok: false, reason: currentRefusal }
+    if (!(await this.mayHandOn(input))) return { ok: false, reason: MESSAGE_ENDED_REASON }
     const abort = this.abortKeyFor(session)
     if (abort) {
       this.sendInput(session, abort, input.inputOrigin ?? 'controller', principal.attribution)
@@ -989,6 +1002,20 @@ export class SessionInbox {
     return abort.bytes
   }
 
+  /**
+   * THE HAND-OFF COMMITS BEFORE THE ROW EXISTS (POD-4776). A retract that finds
+   * no queue row cancels a message the server still holds; a push that read the
+   * message as held a moment earlier must not then write a row the daemon would
+   * type. So the ledger's move to handed-on is made here, after every refusal
+   * that would leave the message where it was, and a message that ended
+   * meanwhile gets no row. Input that carries no message has nothing to guard.
+   */
+  private async mayHandOn(input: InboxSendInput): Promise<boolean> {
+    const handingOn = this.deps.authorization.handingOn
+    if (!input.sourceMessageId || !handingOn) return true
+    return await handingOn({ sourceMessageId: input.sourceMessageId, sessionId: input.sessionId })
+  }
+
   async queueText(
     input: InboxSendInput & {
       mutationId?: MutationId
@@ -1036,6 +1063,7 @@ export class SessionInbox {
       return { ok: false, reason: 'session changed during admission' }
     const currentRefusal = archivedSessionSendReason(session)
     if (currentRefusal) return { ok: false, reason: currentRefusal }
+    if (!(await this.mayHandOn(input))) return { ok: false, reason: MESSAGE_ENDED_REASON }
     // ONE ID FROM THE SENDER TO THE DAEMON (POD-4763). A row that carries a
     // message is stored under THAT message's id, which is also the id the daemon
     // is handed and settles (`forwardContractRows`), so no hop mints its own. The

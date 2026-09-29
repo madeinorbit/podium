@@ -1639,6 +1639,52 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect((await svc.cancel(sent.message.id)).deliveryStatus).toBe('cancelled')
   })
 
+  // POD-4776: a push reads the message as held, a retract lands in the gap and
+  // cancels it (no queue row yet), and only then does the push reach the inbox.
+  // The inbox asks the ledger before writing the row; the retract's move won.
+  it('a retract that wins the move is never followed by a queue row', async () => {
+    let svcRef: MessageDeliveryService | undefined
+    const written: string[] = []
+    const { svc, store } = await harness([session({ sessionId: asSessionId('s1') })], {
+      queueText: async (i) => {
+        await svcRef!.cancel(i.sourceMessageId)
+        if (!(await svcRef!.onQueuedInputHandingOn(i.sourceMessageId, i.sessionId))) {
+          return { ok: false, reason: 'message is no longer pending' }
+        }
+        written.push(i.sourceMessageId)
+        return { ok: true, queued: true }
+      },
+    })
+    svcRef = svc
+
+    const sent = await svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: asSessionId('s1') }, body: 'changed my mind' },
+    )
+
+    expect(written).toEqual([])
+    expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('cancelled')
+  })
+
+  it('the hand-off moves a held message to dispatched, once, for one session', async () => {
+    const { svc, store } = await harness([session({ sessionId: asSessionId('s1') })], {
+      queueText: async () => ({ ok: false, reason: 'machine unreachable' }),
+    })
+    const sent = await svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: asSessionId('s1') }, body: 'held' },
+    )
+    expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('stored')
+
+    expect(await svc.onQueuedInputHandingOn(sent.message.id, asSessionId('s1'))).toBe(true)
+    const handed = await store.messages.getMessage(sent.message.id)
+    expect(handed).toMatchObject({ deliveryStatus: 'dispatched', deliveredTo: 's1' })
+    // The same row pushed again to the same session may go on; to another may not.
+    expect(await svc.onQueuedInputHandingOn(sent.message.id, asSessionId('s1'))).toBe(true)
+    expect(await svc.onQueuedInputHandingOn(sent.message.id, asSessionId('s2'))).toBe(false)
+    expect(await svc.onQueuedInputHandingOn('msg_00000000-0000-4000-8000-000000000000', asSessionId('s1'))).toBe(false)
+  })
+
   it('cancels the named held operator chat message for an interrupted session', async () => {
     const target = session({ sessionId: asSessionId('s1'), agentState: WORKING })
     const { svc, store } = await harness([target], { retractQueued: withdrawnByDaemon() })

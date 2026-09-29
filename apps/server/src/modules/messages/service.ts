@@ -1346,6 +1346,22 @@ export class MessageDeliveryService {
     return { ...r, disposition: okDisposition }
   }
 
+  /**
+   * SessionInbox calls this immediately before a message becomes `sessionId`'s
+   * input — before its queue row is written (POD-4776). The move to
+   * `dispatched` commits first, so a retract that already moved the held
+   * message to `cancelled` wins, and the answer `false` keeps its row from ever
+   * being written. A message already handed to this session (a repeat push of
+   * the same row) may go on; one that ended, or was handed elsewhere, may not.
+   */
+  async onQueuedInputHandingOn(messageId: string, sessionId: SessionId): Promise<boolean> {
+    const message = await this.deps.messages.getMessage(messageId)
+    if (!message) return false
+    if (message.deliveryStatus === 'stored') await this.markDispatched(message, sessionId)
+    const now = await this.deps.messages.getMessage(messageId)
+    return now !== null && isMessageHandedOn(now.deliveryStatus) && now.deliveredTo === sessionId
+  }
+
   /** SessionInbox calls this when the daemon settles a durable row as delivered:
    *  the driver took the turn. That settlement IS the delivery receipt, for every
    *  row — an operator's unwrapped line and enveloped mail alike [POD-4661]. A
