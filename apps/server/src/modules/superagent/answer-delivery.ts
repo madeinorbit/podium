@@ -8,14 +8,16 @@
  * Two modes:
  *  - menu-only (the MCP tool's contract): a session without a live pending
  *    AskUserQuestion menu is a refusal, never a stray keystroke;
- *  - with `textFallback` (the Tray's issues.answerQuestion): no live menu means
- *    the answer is delivered as a normal chat message via the durable
- *    resumeAndSend path (wakes a hibernated session, queues while starting).
+ *  - with `textFallback` (the Tray's issues.answerQuestion, prose interaction
+ *    answers): no live menu means the answer is the ANSWERER's own message
+ *    (POD-4846) — a person's words unwrapped, an agent's as its mail — stored,
+ *    with a delivery status, waking a parked session.
  *    A LIVE menu whose options can't be read or matched still fails closed —
  *    free text must never land on top of an open menu.
  */
 
 import type { SessionId, TranscriptItem } from '@podium/model'
+import { type MessageDeliveryService, senderFromInboxPrincipal } from '../messages/service'
 import type { AnswerChoice, InboxPrincipalReference } from '../sessions/inbox'
 
 /** The session shape the delivery gate reads (SessionMeta subset). */
@@ -34,23 +36,9 @@ export interface AnswerDeliveryDeps {
       skip?: boolean
       principal: InboxPrincipalReference
     }): Promise<{ ok: boolean; reason?: string }>
-    resumeAndSend(input: {
-      sessionId: SessionId
-      text: string
-      principal: InboxPrincipalReference
-    }): Promise<{ ok: boolean; reason?: string }>
-    /** The migrated send (POD-1761 W4, C4). Optional so the fixtures that wire
-     *  `resumeAndSend` alone stay on the legacy path — which is the flag-off
-     *  behaviour they were written to pin. */
-    receiptSend?(
-      via: 'wake',
-      input: {
-        sessionId: SessionId
-        text: string
-        principal: InboxPrincipalReference
-      },
-    ): { ok: boolean; reason?: string } | Promise<{ ok: boolean; reason?: string }>
   }
+  /** The text fallback's one send path (POD-4846). */
+  messages: Pick<MessageDeliveryService, 'send'>
   rpc: {
     readTranscript(input: {
       sessionId: SessionId
@@ -92,27 +80,26 @@ export async function deliverAnswerToSession(
     if (!input.textFallback) {
       return { ok: false, message: `no pending question (phase=${state?.phase ?? 'unknown'})` }
     }
-    // No live menu → the answer is an ordinary message; the wake path is the
-    // durable one (live sends now, parked/starting queues + wakes).
+    // No live menu → the answer is an ordinary message from whoever answered
+    // (POD-4846): a person's words unwrapped, an agent's as its mail. `wake`, so
+    // a parked session is resumed and a starting one gets it once it is up.
     //
     // NOTE THE PHASE READ ABOVE STAYS (POD-1761 W4, C4). It asks whether there
     // is a QUESTION ON SCREEN to answer natively — a question about what the
     // agent is showing, which no send receipt can answer and which decides
-    // between two different actions, not two deliveries. What the migration
-    // removes is the readiness guess INSIDE the send it falls back to.
-    const send = deps.sessions.receiptSend
-    const r = await (send
-      ? send('wake', {
-          sessionId,
-          text: answer,
-          principal: input.principal,
-        })
-      : deps.sessions.resumeAndSend({
-          sessionId,
-          text: answer,
-          principal: input.principal,
-        }))
-    return r.ok ? { ok: true, via: 'text' } : { ok: false, message: r.reason ?? 'send failed' }
+    // between two different actions, not two deliveries.
+    const r = await deps.messages.send(senderFromInboxPrincipal(input.principal), {
+      to: { kind: 'session', id: sessionId },
+      kind: 'message',
+      urgency: 'next-turn',
+      lifecycle: 'wake',
+      body: answer,
+    })
+    // Stored is delivered-to-come: a push the transport refused is the sweep's
+    // to retry. Only an answer that ended undelivered is a failure.
+    return r.disposition === 'dead_letter'
+      ? { ok: false, message: r.reason ?? 'send failed' }
+      : { ok: true, via: 'text' }
   }
   // The live prompt's options live in the transcript: the LAST
   // AskUserQuestion call carries them as structured toolInputJson (the same

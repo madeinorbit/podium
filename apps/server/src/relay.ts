@@ -2702,13 +2702,14 @@ export class SessionRegistry {
       // mailSend rides the unified substrate (#237) [spec:SP-34d7].
       sendMessage: async (from, input) => await messagesSvc.send(from, input),
       // Tray answer delivery (issue #53): the shared answer_question matching
-      // path, with text fallback — no live menu means the answer arrives as a
-      // normal chat message (resumeAndSend wakes a parked session).
+      // path, with text fallback — no live menu means the answer arrives as the
+      // answerer's own message, which wakes a parked session (POD-4846).
       answerSessionQuestion: async (sessionId, answer, caller) => {
         const r = await deliverAnswerToSession(
           {
             getSession: async (id) => await sessionsSvc.sessionById(id),
             sessions: sessionsSvc,
+            messages: messagesSvc,
             rpc: {
               readTranscript: async (input) =>
                 await rpc.readTranscript(input, {
@@ -3266,6 +3267,7 @@ export class SessionRegistry {
           {
             getSession: async (id) => await sessionsSvc.sessionById(id),
             sessions: sessionsSvc,
+            messages: messagesSvc,
             rpc: {
               readTranscript: async (readInput) =>
                 await rpc.readTranscript(readInput, { kind: 'system', id: 'interaction-answer' }),

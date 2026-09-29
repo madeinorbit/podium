@@ -332,6 +332,7 @@ export async function buildSuperagentTools(
           {
             getSession,
             sessions,
+            messages: modules.messages,
             rpc: {
               readTranscript: async (input) => await rpc.readTranscript(input, memoryReader),
             },
