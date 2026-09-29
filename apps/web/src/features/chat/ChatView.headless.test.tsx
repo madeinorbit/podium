@@ -7,6 +7,7 @@ import {
   type TranscriptItem,
 } from '@podium/model'
 import type { HeadlessActivityEvent, TurnPreviewMessage } from '@podium/protocol'
+import type { SuperagentTurnFailure } from '@podium/client-core/api'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -50,7 +51,7 @@ const sendTurn = vi.fn(async () => ({ threadId: 'global', podiumSessionId: 'h1' 
 const concierge = vi.fn(async () => ({ threadId: 'c1', podiumSessionId: 'h1', isNew: false }))
 const interruptTurn = vi.fn(async () => {})
 const sendText = vi.fn(async () => {})
-const latestTurnFailure = vi.fn(async () => null)
+const latestTurnFailure = vi.fn(async (): Promise<SuperagentTurnFailure | null> => null)
 
 const fakeTrpc = {
   sessions: {
