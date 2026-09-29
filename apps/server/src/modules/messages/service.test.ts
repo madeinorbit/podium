@@ -1789,7 +1789,9 @@ describe('clamp matrix (downgrade-never-reject, recorded) [spec:SP-34d7]', () =>
     expect(r.message.clampedFrom).toBeNull()
   })
 
-  it('system caps at next-turn + wait', async () => {
+  // A system sender may wake (POD-4846): the steward's session-parent notice
+  // resurrects a parked parent. It still never interrupts a running turn.
+  it('system caps at next-turn, and may wake', async () => {
     const { svc } = await harness([session({ sessionId: asSessionId('s1'), status: 'hibernated' })])
     const r = await svc.send(
       { kind: 'system' },
@@ -1801,11 +1803,10 @@ describe('clamp matrix (downgrade-never-reject, recorded) [spec:SP-34d7]', () =>
       },
     )
     expect(r.message.urgency).toBe('next-turn')
-    expect(r.message.lifecycle).toBe('wait')
-    expect(r.message.deliveryStatus).toBe('stored') // wait on a parked target
+    expect(r.message.lifecycle).toBe('wake')
     expect(JSON.parse(r.message.clampedFrom!)).toMatchObject({
       urgency: 'interrupt',
-      lifecycle: 'wake',
+      reasons: ['sender cap (system)'],
     })
   })
 
