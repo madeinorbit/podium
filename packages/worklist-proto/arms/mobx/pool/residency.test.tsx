@@ -301,13 +301,14 @@ describe('bootstrap', () => {
       ),
     )
     expect(members.size).toBeGreaterThan(0)
-    // A drawn spin-off's ⤷ tick reads its origin's label, so a RESIDENT
-    // origin the list hides gets an object too.
+    // A drawn spin-off's ⤷ tick reads its origin's cached in-memory read, so
+    // an origin the list hides gets an object too (a cold one is loading: the
+    // tick asked for it).
     const drawnSet = new Set(drawn)
     const origins = new Set(
       tracked(() =>
         drawn.flatMap((id) => {
-          const origin = pool.issue(id!)?.originId
+          const origin = pool.issue(id!)?.originRef
           return origin != null && !drawnSet.has(origin) ? [origin] : []
         }),
       ),

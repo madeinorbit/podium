@@ -292,14 +292,21 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
   /**
    * What the IN-MEMORY row gives (one read of it, which queues a cold row's
    * load): its decision facts for the roll-up (`state` says whether it is in
-   * memory) and its label for the view and a spin-off's origin tick. Cached,
-   * so a view or a composition re-running reads no row.
+   * memory), its label for the view and a spin-off's origin tick, and its
+   * origin. Cached, so a view or a composition re-running reads no row and
+   * resolves no relation.
    */
-  get loaded(): { readonly facts: OwnFacts; readonly label: Label } {
+  get loaded(): {
+    readonly facts: OwnFacts
+    readonly label: Label
+    /** `issue.discoveredFrom`, resolved by the engine: a known origin, or null. */
+    readonly originRef: string | null
+  } {
     const row = this.host.rollupInputs.loadedIssue(this.id)
     return {
       facts: ownFactsOf(row),
       label: labelOfRow(this.host.inputs, this.id, row === LOADING ? undefined : row),
+      originRef: originRefPartOf(this.host.inputs, this.id),
     }
   }
 
@@ -470,7 +477,7 @@ export class IssueModel extends EntityModel implements HeldIssue, IssueParts {
   }
 
   get originRef(): string | null {
-    return originRefPartOf(this.host.inputs, this.id)
+    return this.loaded.originRef
   }
 
   /** The origin while it is in memory: its own cached in-memory read answers, no table probe. */
