@@ -444,3 +444,16 @@ fn the_child_starts_in_the_cwd_directory() {
         work.to_str().unwrap()
     );
 }
+
+/// The other half of the unlink fix: the host still removes its OWN socket.
+/// (An identity taken with fstat on the listener names the socket's inode,
+/// not the file's, and matched nothing: no socket was ever removed.)
+#[test]
+fn exit_removes_its_own_socket() {
+    let dir = Scratch::new("own");
+    let sock = dir.path("h.sock");
+    create(&sock, &["--no-pty", "--linger-secs", "0"], &["true"]);
+    wait_until("the socket to be removed", Duration::from_secs(15), || {
+        !sock.exists()
+    });
+}

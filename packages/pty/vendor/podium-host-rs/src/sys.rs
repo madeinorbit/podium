@@ -172,10 +172,13 @@ pub fn file_id(meta: &std::fs::Metadata) -> (u64, u64) {
     (meta.dev(), meta.ino())
 }
 
-/// The identity of the socket this listener is bound to (fstat on the fd).
-pub fn socket_id(listener: &impl AsFd) -> Option<(u64, u64)> {
-    let st = rustix::fs::fstat(listener).ok()?;
-    Some((st.st_dev as u64, st.st_ino as u64))
+/// The identity of the socket file at `path`, read right after bind. Not an
+/// fstat of the listener: that names the socket's own inode, never the node
+/// on disk, so it would match nothing at exit.
+pub fn socket_id(path: &std::path::Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::FileTypeExt;
+    let m = std::fs::symlink_metadata(path).ok()?;
+    m.file_type().is_socket().then(|| file_id(&m))
 }
 
 /// Remove `path` only if it is still the socket we bound (same device and
@@ -291,14 +294,12 @@ pub enum Probe {
 /// whose accept queue is full answers EAGAIN at once, where a blocking
 /// connect (host.c, and this port before POD-4843 RS-4) would hang `create`.
 pub fn probe_socket(path: &std::path::Path) -> Probe {
-    use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType};
+    use rustix::net::{AddressFamily, SocketAddrUnix, SocketType};
     let attempt = || -> rustix::io::Result<()> {
-        let fd = rustix::net::socket_with(
-            AddressFamily::UNIX,
-            SocketType::STREAM,
-            SocketFlags::NONBLOCK | SocketFlags::CLOEXEC,
-            None,
-        )?;
+        // Plain socket, then the flags: macOS has no SOCK_NONBLOCK/SOCK_CLOEXEC.
+        let fd = rustix::net::socket(AddressFamily::UNIX, SocketType::STREAM, None)?;
+        rustix::io::fcntl_setfd(&fd, rustix::io::FdFlags::CLOEXEC)?;
+        rustix::io::ioctl_fionbio(&fd, true)?;
         rustix::net::connect(&fd, &SocketAddrUnix::new(path)?)
     };
     use rustix::io::Errno;

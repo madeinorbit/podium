@@ -179,7 +179,7 @@ fn spawn_child(opts: &CreateOpts, cwd: OwnedFd) -> (Child, File) {
 fn daemonize_then_run(opts: CreateOpts, listener: UnixListener, cwd: OwnedFd, ring: Ring) -> ! {
     // Identify the socket we bound, and name it absolutely: the host chdirs to
     // "/" and must not unlink someone else's socket at exit (POD-4842 C-4, C-6).
-    let sock_id = sys::socket_id(&listener);
+    let sock_id = sys::socket_id(Path::new(&opts.socket));
     let sock_path =
         std::path::absolute(&opts.socket).unwrap_or_else(|_| PathBuf::from(&opts.socket));
     // CLOEXEC on both ends: the child must not inherit the report pipe, or the
