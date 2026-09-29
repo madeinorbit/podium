@@ -1374,7 +1374,23 @@ describe('boot reconciliation for headless sessions', () => {
     registries.push(reborn)
     const replayed: TurnReq[] = []
     await attachHostDaemon(reborn, (message) => {
-      if (message.type === 'headlessTurnRequest') replayed.push(message)
+      // POD-4393 (9b1c0e65a/2824b653b): turns ride the driver-contract relay
+      // (runtimeSendRequest), not the retired headlessTurnRequest — the same
+      // capture the passing sibling below already uses.
+      if (message.type === 'runtimeSendRequest' || message.type === 'runtimeDurableSendRequest') {
+        replayed.push({
+          requestId: message.requestId,
+          turnId: message.turnId,
+          sessionId: message.sessionId,
+          accountId: (message.accountId ?? '') as AccountId,
+          requestDigest: message.requestDigest ?? '0'.repeat(64),
+          prompt: message.text,
+          ...(message.contextPrompt ? { contextPrompt: message.contextPrompt } : {}),
+          ...(message.systemPrompt ? { systemPrompt: message.systemPrompt } : {}),
+          ...(message.model ? { model: message.model } : {}),
+          ...(message.effort ? { effort: message.effort } : {}),
+        })
+      }
     })
     const repos = new RepoRegistry(reborn, store)
     const superagent = await SuperagentService.create(reborn.modules, repos, store)
@@ -1417,7 +1433,23 @@ describe('boot reconciliation for headless sessions', () => {
     registries.push(reborn)
     const replayed: TurnReq[] = []
     await attachHostDaemon(reborn, (message) => {
-      if (message.type === 'headlessTurnRequest') replayed.push(message)
+      // Same contract-relay capture as the test above (POD-4393): the wire
+      // carries model/prompt but not the harness identity, so agent/model
+      // survival is read off the durable pending payload below.
+      if (message.type === 'runtimeSendRequest' || message.type === 'runtimeDurableSendRequest') {
+        replayed.push({
+          requestId: message.requestId,
+          turnId: message.turnId,
+          sessionId: message.sessionId,
+          accountId: (message.accountId ?? '') as AccountId,
+          requestDigest: message.requestDigest ?? '0'.repeat(64),
+          prompt: message.text,
+          ...(message.contextPrompt ? { contextPrompt: message.contextPrompt } : {}),
+          ...(message.systemPrompt ? { systemPrompt: message.systemPrompt } : {}),
+          ...(message.model ? { model: message.model } : {}),
+          ...(message.effort ? { effort: message.effort } : {}),
+        })
+      }
     })
     const repos = new RepoRegistry(reborn, store)
     const superagent = await SuperagentService.create(reborn.modules, repos, store)
@@ -1426,6 +1458,11 @@ describe('boot reconciliation for headless sessions', () => {
 
     expect(replayed).toHaveLength(1)
     expect(replayed[0]).toMatchObject({
+      model: 'grok-4.5',
+      prompt: 'run on grok',
+    })
+    expect(await store.superagent.listPendingTurns()).toHaveLength(1)
+    expect((await store.superagent.listPendingTurns())[0]?.payload).toMatchObject({
       agent: 'grok',
       model: 'grok-4.5',
       prompt: 'run on grok',
@@ -1725,6 +1762,19 @@ describe('harness switch + effort (#199)', () => {
     expect(h.turnReqs[0]?.effort).toBe('high')
 
     const h2 = await harness()
+    // A fresh install's superagent role is seeded to a picked harness
+    // (0f3b49482: codex/gpt-5.6-luna/max), so an unpinned role no longer reads
+    // 'auto' and an auto input would follow the role to 'max'. Pin the whole
+    // backend (harness + model + effort) to isolate this test's unit — input
+    // filtering — from the seeding policy, which superagent-default.test.ts
+    // already pins. All four leaves matter: the seeder only skips a backend
+    // with opinions, so a model/effort-only pin still races it.
+    await setSuperagentHarness(h2, { harness: 'claude-code', model: 'auto', effort: 'auto' })
+    await h2.registry.sessionStore.settings.applyPreferencePatch(
+      firstAdminMemberId(),
+      { 'roles.superagent.model': 'auto', 'roles.superagent.effort': 'auto' },
+      new Date().toISOString(),
+    )
     await h2.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
