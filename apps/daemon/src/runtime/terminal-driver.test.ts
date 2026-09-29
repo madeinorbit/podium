@@ -1498,6 +1498,34 @@ describe('the echo floor', () => {
     expect((await receipt).outcome).toBe('unverified')
   })
 
+  it('credits the first record of a fresh launch, before any transcript was read', async () => {
+    // A fresh launch starts on an empty store, and some harnesses (Cursor) do
+    // not create the file until the first prompt — so no delta can say so.
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('grok', GROK).create(SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    const receipt = session.send({ text: 'yes' }, { origin: 'human', delivery: 'when-ready' })
+    await Promise.resolve()
+    world.echo(sessionId, 'yes', { reset: true, at: { fileId: FILE, offset: 0 }, writtenAgoMs: null })
+    expect(await receipt).toMatchObject({ outcome: 'accepted', transcriptItem: { id: 'item-1' } })
+  })
+
+  it('credits nothing unplaced in a resumed session before its transcript was read', async () => {
+    // A resume has history the driver has not seen. Its first re-read carries
+    // the old turns, and without timestamps nothing tells them from the new one.
+    const world = makeWorld()
+    const session = await world.runtime
+      .driverFor('grok', GROK)
+      .resume({ kind: 'grok-session', value: 'native-session' }, SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    const receipt = session.send({ text: 'yes' }, { origin: 'human', delivery: 'when-ready' })
+    await Promise.resolve()
+    world.echo(sessionId, 'yes', { reset: true, at: { fileId: FILE, offset: 0 }, writtenAgoMs: null })
+    expect((await receipt).outcome).toBe('unverified')
+  })
+
   it('credits any record when the transcript was empty at the start', async () => {
     const world = makeWorld()
     const session = await world.runtime.driverFor('grok', GROK).create(SPEC)
