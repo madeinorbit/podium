@@ -782,11 +782,11 @@ export class ConversationController {
         return turn
       }
       // The server has no record of it. One still on its way from this device
-      // (`sending`), or already "not sent", is the outbox's to settle; so is
-      // anything the outbox still holds, and a turn that moved while the read
-      // was out. One the device thought had gone was never stored: say so.
+      // (`sending`), or already "not sent", is the outbox's to settle, and so
+      // is a turn that moved while the read was out. One the device thought
+      // had gone — the server answered it, so the outbox let it go — was never
+      // stored: say so.
       if (turn.state !== was || (was !== 'queued' && was !== 'sent')) return turn
-      if (held.has(turn.deliveryId)) return turn
       changed = true
       return { ...turn, state: 'failed' as const, error: NOT_STORED }
     })
