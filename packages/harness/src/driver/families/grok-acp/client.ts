@@ -1,4 +1,6 @@
 /** A strict newline-delimited JSON-RPC client for `grok agent stdio`. */
+
+import { RequestNotSentError } from '../../errors.js'
 import {
   GROK_ACP_METHODS,
   type GrokAcpFrame,
@@ -9,7 +11,6 @@ import {
   GrokAcpRpcError,
   type GrokAcpRpcId,
 } from './protocol.js'
-import { RequestNotSentError } from '../../errors.js'
 
 export interface GrokAcpTransport {
   write(line: string): void
