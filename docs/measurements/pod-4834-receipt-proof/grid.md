@@ -9,7 +9,7 @@ Lanes: Claude terminal + SDK `claude-2.1.284/results.md` (POD-4862); Codex app-s
 `codex-0.155.0/results.md` (POD-4863, builds on POD-4835); Grok ACP `README.md` §Grok and
 `grok-acp-1.0.44/` (POD-4837); Grok terminal `grok-tui-1.0.44/results.md`, Cursor
 `cursor-agent-2026.07.23/results.md`, Pi `pi/results.md` (POD-4865); OpenCode HTTP v1, v2 and
-terminal (POD-4864, **still running** — its rows are pending).
+terminal `opencode-1.18.33/results.md` (POD-4864; v2 also on opencode2 beta-18866).
 
 Words as in the spec (`docs/plans/pod-4819-harness-receipt-proof.md` §4): **accepted** = the
 program has taken the message but it is not yet in its history; **confirmed** = it is in the
@@ -25,9 +25,10 @@ history the model is sent, so it survives a restart.
 | Codex · terminal 0.155.0 | No — the TUI mints its own `client_id` per submit, only in the rollout | Idle: rollout `task_started` +18–60 (no text, no id). Busy: nothing but a `history.jsonl` line (Enter) or nothing at all (Tab) | Rollout `item_completed` `UserMessage` (+189–384; Codex `client_id`, item id, `turn_id`) | `history.jsonl` (no id; written for lost messages, twice for an Escape re-submit, for box text Ctrl-C cleared). `UserPromptSubmit` (fires 8–38 ms before the record, carries the turn id). |
 | Grok · ACP 1.0.44 | **Yes** — `session/prompt` `_meta.promptId`; Grok uses it as the turn id on every update | `_x.ai/queue/changed` naming ours, +3–22 warm (+84–89 on a session's first prompt) | No live echo. `updates.jsonl` `user_message_chunk` (no `promptId`; `promptIndex`, event id), written after the hooks, before the model call; the driver (after POD-4837) binds it at the turn's first output (+375–473) | `hook_execution` (only when a hook is configured). The `session/prompt` reply (only at the end of the turn). |
 | Grok · terminal 1.0.44 | No — `--session-id` takes ours at session level only | Idle: `UserPromptSubmit` hook +42–270 (median 82), Grok's own new `promptId`. Busy: **nothing** until Grok runs it (+6–10 s after Enter) | `updates.jsonl` `user_message_chunk` (+115–464, median 218; `promptIndex`, event id; bound to `promptId` by the `hook_execution` record written right before it) | The hook (fired for a prompt a kill at +75 ms then lost). `prompt_history.jsonl`. Resume's `turn_completed interrupted` for a prompt that never reached the history. |
-| OpenCode · HTTP v1 1.18.33 | pending (POD-4864) | pending | pending | pending |
-| OpenCode · HTTP v2 1.18.33 / opencode2 beta-18866 | pending (POD-4864) | pending | pending | pending |
-| OpenCode · terminal 1.18.33 | pending (POD-4864) | pending | pending | pending |
+| OpenCode · HTTP v1 1.18.33 | **Yes** — `messageID` and text part `id` | None: a message is stored at once, idle or busy (no queue outside the history) | Text part row with our part id (warm +39–395; cold first prompt +2 202); `chat.message` hook carries our `messageID` | The 204 (a SIGKILL 67 ms after it lost the message, one run). The message row (existed ~2 s without text; survived a kill with no text). |
+| OpenCode · HTTP v2 1.18.33 | **Yes** — `id` on `POST /api/session/{id}/prompt` | 200 admission +24–105 warm (ours, `admittedSeq`), `session.next.prompt.admitted`; **durable** (survived SIGKILL at the 200) | `session.next.prompted` + `session_message` user row, our id (idle +66–105; queue: at turn end; steer: at step end) | `GET /api/session/{id}/message` lists it only after `prompted`. No `chat.message` hook for v2 prompts. |
+| OpenCode · HTTP v2 beta-18866 (`opencode2`) | **Yes** — `id` (body `{id, text, delivery}`, refused by 1.18.33) | 200 +24–68 (ours, no seq), `session.inbox.enqueued`; durable | `session.inbox.delivered` + user row (inbox row deleted) | User row `time.created` = delivery time, not admission |
+| OpenCode · terminal 1.18.33 | No — OpenCode mints every id | None separate: stored at once, even when the screen says QUEUED | User message row + text part (+27–227) | `prompt-history.jsonl` (no id, no time, skips repeats, kept a line whose text was lost). A text-less user row (a kill at ~35 ms left one; it never reaches the model). |
 | Cursor · terminal 2026.07.23 | No | `beforeSubmitPrompt` hook +282 (Cursor's `generation_id`, exact text) — also fires for a follow-up that never runs | **Not measurable**: Cursor cannot use a fake model (`--base-url` refused outside `agent-cli-local`); with no backend the transcript never gets a user record | — |
 | Pi | Not installed on this machine; nothing measured | | | |
 
@@ -41,7 +42,8 @@ history the model is sent, so it survives a restart.
 | Codex · terminal | Enter: held in memory, joins the running turn after the tool or text. Tab: next turn. Escape: held messages re-submitted as a new turn, nothing lost | Enter: `history.jsonl` only; Tab: nothing | +6–8 s here |
 | Grok · ACP | Listed in the queue behind the running prompt, runs after it | `queue/changed` (ours) | Next turn |
 | Grok · terminal | Held on screen only ("Queued · Enter to send now"); runs as a new turn. Send-now cancels the running turn and wraps the text in `chat_history` | none | Next turn (+6–10 s) |
-| OpenCode (all) | pending | | |
+| OpenCode · HTTP v1 / terminal | Stored at once; reaches the model at the next step of the running turn (+6–8 s here). After an interrupt it stays stored and **unanswered** until another prompt starts a turn | v1: hook + rows under our id; terminal: rows (OpenCode ids) | At the send |
+| OpenCode · HTTP v2 (both builds) | `delivery: queue` → promoted at turn end, new turn; `steer` → at the end of the running step. After an interrupt or restart a pending input is **not** run until another prompt arrives or its id is resent | 200 + admitted/enqueued event (ours) | At promotion (+6–8 s here) |
 
 ## 3. What the proof rules depend on
 
@@ -56,7 +58,10 @@ N4 nothing held survives a restart.
 | Codex · terminal | Two entries | Held and Tab-queued **lost** on kill; Ctrl-C quit puts them back in the input box joined by `\n`. N4 holds | Recorded | — | **No** when Tab-queued and Enter-held mix | As app-server | Leading/trailing whitespace trimmed; else exact |
 | Grok · ACP | **Not deduplicated by Grok**; the driver (POD-4837) finds the id in the history and does not resend | Replayed by `session/load`; the driver accepts from the history | 402: recorded, error reply | Blocking hook: `turn_completed cancelled` `HookDenied`, nothing written | Yes | — | — |
 | Grok · terminal | Two turns, never merged | Queued prompt **lost**; resume writes `turn_completed interrupted` for a dead prompt (must not count as recorded) and a synthetic system-reminder user entry; event ids restart at `-0` (not unique). N4 holds on `updates.jsonl` | Recorded; resent with the next prompt | Not run (blocking hook) | Yes | Task-completed auto-wake (`hideFromScrollback`, hook `promptId: task-completed-…`); `/loop` recorded as its expansion; in `chat_history` also the send-now wrapper, the compaction copy of the last prompt, `synthetic_reason` records | Exact, except tab → 4 spaces in the input box |
-| OpenCode (all) | pending | | | | | | |
+| OpenCode · HTTP v1 | Safe only with **both** ids fixed and the **same** text (records nothing new, a busy→idle blip). Different text **overwrites** the stored text; no part id → text added twice; an id from another session overwrites that session's text | Stored busy message survives a kill, unrun; idle kill 67 ms after the 204: lost. Resend of a stranded message runs it once | Recorded; `session.error` arrives later, never as the reply | 400/404: nothing recorded | Yes | — | Byte-exact |
+| OpenCode · HTTP v2 1.18.33 | **Deduplicated**: repeat returns the original admission; different text or another session's id → **409** (means *already recorded*, not a "no") | Admission survives SIGKILL, pending and unrun; a resend under the same id and text starts it. N3/N4 hold only if pending admissions (`session_input`, event log) are read | Recorded | 400/404: nothing recorded | — | — | Byte-exact |
+| OpenCode · HTTP v2 beta-18866 | Deduplicated; different text → 200 with the **original**; another session's id → 409 | As 1.18.33 (`session_inbox`) | — | 400/404: nothing recorded | — | — | Byte-exact |
+| OpenCode · terminal | Two user messages, never merged (`prompt-history.jsonl` drops the repeat) | Stored message survives a kill, unrun until the next prompt; a kill at ~35 ms left a text-less row (text lost) | Recorded | — | Yes (also keyboard vs HTTP 10 ms apart) | `/compact` (text-less user message), custom command (stored as its expanded template), crash half-records, messages sent over HTTP into the session | Typed exact; a paste gets a **trailing space** (a final newline becomes it) |
 
 ## 4. Position and time (spec §5.2)
 
@@ -65,7 +70,9 @@ N4 nothing held survives a restart.
 | Claude (both) | Transcript: yes | Set at creation, written up to ~800 ms later; `queued_command` carries its enqueue time; post-resume synthetics carry the resume time — so a record can sit after a saved position with a time before the saved time |
 | Codex (both) | Rollout: yes, also across resume, interrupt and `/compact`; `ordinal` per line | Write time, ms, monotonic in file order |
 | Grok (both) | `updates.jsonl`: yes. **`chat_history.jsonl`: no** — replaced by rename on cancel and resume, earlier lines rewritten, compaction 62 → 5 lines | `updates.jsonl`: whole seconds + `_meta.agentTimestampMs` (dispatch time); not in event-id order; `chat_history` has none |
-| OpenCode | pending | pending |
+| OpenCode v1 / terminal | SQLite rowid = insert order | `time.created` = when the server handled the request (ms), before the row write; the text part's time = its write |
+| OpenCode v2 1.18.33 | Per-session `seq` + replayable `GET /api/session/{id}/event?after=` | Admission time (user row `time_updated` = promotion) |
+| OpenCode v2 beta-18866 | `seq` on rows, no replayable event endpoint | User row = delivery time |
 
 ## 5. Findings that touch Podium's code (for the design session, not fixed here)
 
@@ -78,10 +85,14 @@ N4 nothing held survives a restart.
 - The Claude idle order in `README.md` (record ~100 ms before the hook) is contradicted by 17
   runs: the hook came first every time and the record usually after the model request (Claude
   lane, point 1).
+- OpenCode driver: the `opencode2` client's v2 body is refused by 1.18.33 (400 "Missing key
+  prompt"); its comment that an id from another session answers with that session's input did
+  not hold on either build (409) (OpenCode lane).
 
 ## 6. Still not run
 
-- **OpenCode**, all three transports (POD-4864 in progress).
+- OpenCode: attachments, auto-compaction, subagent notifications, permission prompts; each
+  kill case once.
 - **Cursor** past the submit: needs real credentials or the separate `agent-cli-local`.
 - **Pi**: not installed.
 - Claude: auto-compact, Desktop's queued-prompt merging (upstream #53670), any version but 2.1.284.
