@@ -361,6 +361,12 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       queueText: record('queueText'),
       interruptText: record('interruptText'),
       ...(receiptOpts ? { receiptSend } : {}),
+      // The queue as a session no daemon has picked up yet: a retract finds
+      // the row still the server's, withdraws it and says so (POD-4776).
+      retractQueuedMessage: async (_sessionId, sourceMessageId) => {
+        await svc.onQueuedInputWithdrawn(sourceMessageId)
+        return 'cancelled'
+      },
     },
     // Production wires both legacy-mirror seams; the #463 regression class and
     // the read-consumption semantics both run through them.
