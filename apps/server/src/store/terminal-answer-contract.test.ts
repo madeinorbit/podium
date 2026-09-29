@@ -1,4 +1,4 @@
-import { asThreadId, firstAdminMemberId, type SessionId } from '@podium/model'
+import { asThreadId, firstAdminMemberId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
@@ -28,10 +28,15 @@ describe('production terminal answer identity', () => {
       frames.push(msg)
       ingress = ingress.then(() => registry.gateway.routeDaemonFrame(store.hostMachineId, msg))
     }
-    const bridge = { pid: 789, write: (data: string) => writes.push(Buffer.from(data, 'base64').toString()) }
+    const transport = {
+      live: true,
+      // POD-4785 (c9283ef14): the terminal is handed at bind, never looked up
+      // via host.bridge. The driver answers only when the registration carries
+      // a live transport; the old bridge stub is ignored by the new port.
+      writeBase64: (dataBase64: string) => writes.push(Buffer.from(dataBase64, 'base64').toString('utf8')),
+    }
     const host = {
-      send, bridge: () => bridge, now: () => Date.now(),
-      durableLabel: (id: SessionId) => `answer-test-${id}`, scopeUnit: () => undefined,
+      send, now: () => Date.now(),
       trackedState: () => undefined, draftSyncing: () => false,
       readHistory: async () => ({ items: [], hasMore: false }),
       setTimer: (fn: () => void, delay: number) => setTimeout(fn, delay),
@@ -50,7 +55,7 @@ describe('production terminal answer identity', () => {
       await registry.gateway.routeDaemonFrame(store.hostMachineId, { type: 'bind', sessionId,
         cmd: 'claude', cwd: '/project', agentKind: 'claude-code', geometry: { cols: 80, rows: 24 },
         driverId: profile.driverId })
-      const handle = runtime.register({ sessionId, agentKind: 'claude-code', cwd: '/project', resume: null }, profile)
+      const handle = runtime.register({ sessionId, agentKind: 'claude-code', cwd: '/project', resume: null, terminal: transport }, profile)
       const observation = (transitionId: string, preview = true): AgentObservation => ({
         podiumSessionId: sessionId, provider: 'claude-code', providerSessionId: 'native',
         bindingVersion: 1, providerTurnId: null, providerPromptId: null, observerGeneration: 1,
