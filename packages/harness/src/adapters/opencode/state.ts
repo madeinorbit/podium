@@ -97,7 +97,17 @@ export function observeOpencodeState(opts: {
   onTranscriptItems?: (items: TranscriptItem[], reset: boolean) => void
 }): OpencodeStateObserver {
   const pollMs = opts.pollMs ?? POLL_MS
+  // STATE-PLANE recency: rows older than the observation's start drive the
+  // transcript plane only, never state (see pollOnce). Defaults to now so a
+  // late row cannot resurrect a turn that ended before this observer existed.
   const startedAtMs = opts.startedAtMs ?? Date.now()
+  // DISCOVERY floor: omitted startedAtMs is the adopt contract (the manifest
+  // documents it as "no floor"). Defaulting it to now would reintroduce a
+  // spawn-time freshness window that an adopted idle survivor — created long
+  // before the restart — can never match, leaving the observer permanently
+  // detached with no observations and no echo (POD-4794).
+  const discoverSinceMs =
+    opts.startedAtMs !== undefined ? opts.startedAtMs - FRESH_SESSION_MARGIN_MS : undefined
   let stopped = false
   let attached: OpencodeSessionRow | undefined
   let lastPartTime = 0
@@ -194,11 +204,7 @@ export function observeOpencodeState(opts: {
     const handle = getDb(rt)
     if (!handle) return
     try {
-      const candidates = rt.findOpencodeSessions(
-        handle,
-        opts.cwd,
-        startedAtMs - FRESH_SESSION_MARGIN_MS,
-      )
+      const candidates = rt.findOpencodeSessions(handle, opts.cwd, discoverSinceMs)
       if (candidates.length === 0) return
       const databasePath = databasePathFor(rt)
       if (!databasePath) {
@@ -355,6 +361,19 @@ export function observeOpencodeState(opts: {
     await tick()
   }
 
+  // A recorded resume that resolves nowhere must not pin the observer to a
+  // store row that will never appear (POD-4794): fall back to discovery
+  // rather than dying silent with no observations and no echo. Discovery
+  // retries on the stat cadence, so a store that appears late still binds.
+  let stopDiscovery: (() => void) | undefined
+  const startDiscovery = (): void => {
+    if (stopDiscovery || stopped) return
+    stopDiscovery = scheduleStatPoll(() => void discover(), {
+      statTick: opts.statTick,
+      pollMs,
+    })
+    void discover()
+  }
   if (opts.resumeValue) {
     void (async () => {
       const rt = await maybeLoadBundle()
@@ -363,20 +382,19 @@ export function observeOpencodeState(opts: {
       if (!handle) return
       try {
         const session = rt.getOpencodeSession(handle, opts.resumeValue ?? '')
-        if (session && !stopped) attach(session)
+        if (session && !stopped) {
+          attach(session)
+          return
+        }
       } catch {
         dropDb()
+        return
       }
+      startDiscovery()
     })()
+  } else {
+    startDiscovery()
   }
-
-  const stopDiscovery = opts.resumeValue
-    ? undefined
-    : scheduleStatPoll(() => void discover(), {
-        statTick: opts.statTick,
-        pollMs,
-      })
-  if (!opts.resumeValue) void discover()
 
   const stopPolling = scheduleStatPoll(() => void pollOnce(), {
     statTick: opts.statTick,

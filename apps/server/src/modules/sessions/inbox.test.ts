@@ -2245,6 +2245,69 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.applied).not.toHaveBeenCalled()
   })
 
+  it('settles a proven daemon failure for a direct send with no queue row as a visible ledger rejection [POD-4794]', async () => {
+    // A direct send (typed or held daemon-side under the ledger message id)
+    // has no durable queue row: the rowId names the LEDGER message. Dropping
+    // that report stranded the row queued forever on an idle session. The
+    // rejection keys on the reported id — downstream guards settle only a
+    // row that is still queued, so a stale id is a no-op rather than a loss.
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_direct_failed',
+      outcome: 'failed',
+      reason: 'the agent did not become ready before the delivery deadline',
+    })
+    expect(h.rejected).toEqual([
+      expect.objectContaining({
+        queueId: 'msg_direct_failed',
+        sourceMessageId: 'msg_direct_failed',
+        reason: 'the agent did not become ready before the delivery deadline',
+      }),
+    ])
+    expect(h.applied).not.toHaveBeenCalled()
+  })
+
+  it('applies a daemon delivered report for a direct send with no queue row [POD-4794]', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_direct_delivered', outcome: 'delivered' })
+    expect(h.applied).toHaveBeenCalledTimes(1)
+    expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_direct_delivered', sessionId: SID })
+    expect(h.rejected).toEqual([])
+  })
+
+  it('holds an unproven direct-send failure for echo/boundary instead of dead-lettering it [POD-4794]', async () => {
+    // POD-4802 applies with no queue row too: the bytes may have landed, so a
+    // rejection would stamp a delivered message as failed. The ledger row
+    // stays queued until the transcript echo or the turn boundary settles it.
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_direct_unproven',
+      outcome: 'failed',
+      reason: 'delivery could not be confirmed; check the transcript before retrying',
+      receipt: {
+        outcome: 'unverified',
+        deliveredAs: 'when-ready',
+        verificationWindowMs: 4800,
+        at: new Date().toISOString(),
+      },
+    })
+    expect(h.rejected).toEqual([])
+    expect(h.applied).not.toHaveBeenCalled()
+  })
+
+  it('ignores a dropped report for a direct send with no queue row [POD-4794]', async () => {
+    // An explicit retraction its holder ordered and already knows about:
+    // nothing to settle, and no ledger row to invent one for.
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_direct_dropped', outcome: 'dropped' })
+    expect(h.rejected).toEqual([])
+    expect(h.applied).not.toHaveBeenCalled()
+  })
+
   it('keeps an unproven write queued for echo/boundary instead of dead-lettering it', async () => {
     // POD-4802: the daemon typed the bytes but could not prove it (the inner
     // send answered `unverified`, attached as the delivery receipt), so the
