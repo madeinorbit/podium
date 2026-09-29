@@ -513,10 +513,17 @@ export function composerState(input: {
     session?.agentState?.phase === 'errored' && session.agentState.error?.retryable === false
       ? session.agentState.error
       : undefined
+  // POD-4800: `reconnecting` is transport state, not a stopped session. The
+  // server queues the send durably and forwards it when the daemon re-attaches,
+  // so the composer routes straight through (route `session`) instead of
+  // refusing with "Session is not running" exactly in the window the send must
+  // survive. The bubble then reads queued, never failed-or-nothing.
   const sendable =
     !archived &&
     !terminalError &&
-    (session?.status === 'live' || session?.status === 'starting')
+    (session?.status === 'live' ||
+      session?.status === 'starting' ||
+      session?.status === 'reconnecting')
   const canResume =
     !archived &&
     !terminalError &&
