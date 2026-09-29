@@ -366,7 +366,7 @@ export class Device {
       }
       this.socketFrames.set(frame.type ?? '?', (this.socketFrames.get(frame.type ?? '?') ?? 0) + 1)
       if (
-        (frame.type === 'feedDelta' || frame.type === 'metadataDelta') &&
+        frame.type === 'feedDelta' &&
         Array.isArray(frame.changes)
       ) {
         this.records.apply(frame.changes, frame.seq ?? this.records.cursor)
