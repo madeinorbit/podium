@@ -36,7 +36,7 @@ export {
 } from './cgroup.js'
 export { shellQuote } from './shell-quote.js'
 export { createAltScreenStripper } from './alt-screen-stripper.js'
-export { type ScreenReader, createHeadlessScreen } from './screen-model.js'
+export { type HeadlessScreen, type ScreenReader, createHeadlessScreen } from './screen-model.js'
 export { type ScreenMode, ScreenModeTracker } from './screen-mode.js'
 export {
   type ReopenInputs,

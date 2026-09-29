@@ -98,7 +98,7 @@ describe('reopening at a different size (DONE WHEN 4)', () => {
       `+${'-'.repeat(38)}+`,
     ]
     const viewer = screenAt(40)
-    viewer.write(snapshotFirstFrame('alternate', modelLines))
+    viewer.write(snapshotFirstFrame('alternate', modelLines.join('\r\n')))
     await flush(viewer)
     expect(rendered(viewer).slice(0, 3)).toEqual(modelLines)
     expect(viewer.buffer.active.type).toBe('alternate')

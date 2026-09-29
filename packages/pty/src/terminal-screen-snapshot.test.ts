@@ -8,7 +8,7 @@
 
 import { Terminal } from '@xterm/headless'
 import { describe, expect, it } from 'vitest'
-import { TerminalScreen } from './terminal-screen.js'
+import { snapshotFirstFrame, TerminalScreen } from './terminal-screen.js'
 
 const COLS = 40
 const ROWS = 8
@@ -120,5 +120,11 @@ describe('reopen snapshot is a faithful picture of the model (POD-4848)', () => 
     expect(body).not.toMatch(/\x1b\[\?/)
     expect(body).not.toMatch(/\x1b\]/)
     expect(body).toContain('hello')
+  })
+
+  it('the body keeps only paint: SGR, cursor moves, erases, text', () => {
+    const body = 'a\x1b[?1000hb\x1b]0;t\x07c\x1b[31md\x1b[2Ce\x1b[3Xf\x07g\x1bPq\x1b[1;1Hh'
+    const text = snapshotFirstFrame('normal', body).toString('utf8')
+    expect(text).toBe('\x1b[m\x1b[2J\x1b[Habc\x1b[31md\x1b[2Ce\x1b[3Xfgqh')
   })
 })

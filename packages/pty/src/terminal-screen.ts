@@ -26,25 +26,67 @@ import type { Geometry } from '@podium/model'
 import { createTitleScanner } from './osc-title.js'
 import { decideReopenScreen, type ReopenDecision } from './reopen-policy.js'
 import { type ScreenMode, ScreenModeTracker } from './screen-mode.js'
-import { createHeadlessScreen, type ScreenReader } from './screen-model.js'
+import { createHeadlessScreen, type HeadlessScreen, type ScreenReader } from './screen-model.js'
 
 /**
- * Serialise model rows into the bytes a fresh viewer renders as its first
- * frame. Pure: the method below reads the screen's own mode and lines and
- * calls this.
+ * What a snapshot body may carry: text, CR/LF/BS, and CSI SGR, cursor moves
+ * (A-D) and erase-characters (X) with plain numeric parameters. Anything else
+ * that starts with ESC, and any other C0 control, is dropped.
+ */
+const SNAPSHOT_KEEP = /\x1b\[[0-9;]*[mABCDX]/y
+const SNAPSHOT_ESCAPE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[^[\]])?/y
+
+function paintOnly(body: string): string {
+  let out = ''
+  let i = 0
+  while (i < body.length) {
+    const ch = body[i]!
+    if (ch === '\x1b') {
+      SNAPSHOT_KEEP.lastIndex = i
+      const keep = SNAPSHOT_KEEP.exec(body)
+      if (keep) {
+        out += keep[0]
+        i += keep[0].length
+        continue
+      }
+      SNAPSHOT_ESCAPE.lastIndex = i
+      i += SNAPSHOT_ESCAPE.exec(body)?.[0].length ?? 1
+      continue
+    }
+    const code = ch.charCodeAt(0)
+    if ((code < 0x20 && ch !== '\r' && ch !== '\n' && ch !== '\b') || code === 0x7f) {
+      i += 1
+      continue
+    }
+    out += ch
+    i += 1
+  }
+  return out
+}
+
+/**
+ * Frame a serialised model screen as the bytes a viewer renders as its
+ * repaint. Pure: the method below reads the screen's own mode and serialised
+ * active buffer and calls this.
+ *
+ * The body is the model's visible rows as SGR-coloured text with the cursor
+ * put back (POD-4848) — since POD-4723 it is the FINAL picture until the
+ * program writes again, so it must be faithful, not a plain-text placeholder.
+ * It is encoded UTF-8: every glyph above U+00FF (⏵, box drawing, CJK, emoji)
+ * survives.
  *
  * Alternate frames enter through leave-then-enter (`1049l 1049h`): on a
  * fresh viewer the leave is a no-op and the enter puts it on the canvas the
  * rows were drawn for; on a viewer stuck in a dead alternate buffer the
  * leave gets it out first, so a repeated snapshot can never double-save and
- * strand a later program exit. Rendered rows carrying a literal ESC cell are
- * stripped: the snapshot is a picture of the canvas, not a program.
+ * strand a later program exit. Both frames then reset the pen and home the
+ * cursor, which is what the body assumes. The body passes {@link paintOnly}:
+ * the snapshot is a picture of the canvas, never a program — no mode, buffer
+ * switch, OSC or other control survives.
  */
-export function snapshotFirstFrame(mode: ScreenMode, lines: string[]): Buffer {
-  const safe = lines.map((line) => line.replaceAll('\x1b', ''))
-  const body = safe.join('\r\n')
-  const prefix = mode === 'alternate' ? '\x1b[?1049l\x1b[?1049h\x1b[H' : '\x1b[2J\x1b[H'
-  return Buffer.from(prefix + body, 'latin1')
+export function snapshotFirstFrame(mode: ScreenMode, body: string): Buffer {
+  const prefix = mode === 'alternate' ? '\x1b[?1049l\x1b[?1049h\x1b[m\x1b[H' : '\x1b[m\x1b[2J\x1b[H'
+  return Buffer.from(prefix + paintOnly(body), 'utf8')
 }
 
 /** How much recent output the byte log keeps: several screens of a TUI. */
@@ -79,7 +121,7 @@ export interface TerminalScreenReopenOptions {
 }
 
 export class TerminalScreen {
-  private readonly screen: ScreenReader
+  private readonly screen: HeadlessScreen
   private readonly tracker = new ScreenModeTracker()
   private readonly titleScanner = createTitleScanner()
   private readonly decoder = new StringDecoder('utf8')
@@ -215,11 +257,11 @@ export class TerminalScreen {
   }
 
   /**
-   * Serialise model rows into the bytes a fresh viewer renders as its first
-   * frame — {@link snapshotFirstFrame} over this screen's own mode and lines.
+   * The bytes a returning viewer is repainted with — {@link snapshotFirstFrame}
+   * over this screen's own mode and serialised active buffer.
    */
   snapshotFirstFrame(): Buffer {
-    return snapshotFirstFrame(this.tracker.current, this.screen.lines(false))
+    return snapshotFirstFrame(this.tracker.current, this.screen.serialize())
   }
 
   /**

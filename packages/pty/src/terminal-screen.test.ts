@@ -44,7 +44,7 @@ describe('TerminalScreen per-session survival', () => {
     first.emit('\x1b[HAgent TUI frame')
     await screen.flush()
     expect(screen.mode).toBe('alternate')
-    const before = screen.snapshotFirstFrame().toString('latin1')
+    const before = screen.snapshotFirstFrame().toString('utf8')
     expect(before).toContain('Agent TUI frame')
 
     // Detach: the attachment is gone. Frames it emits afterwards never reach
@@ -54,7 +54,7 @@ describe('TerminalScreen per-session survival', () => {
     await screen.flush()
     expect(screen.mode).toBe('alternate')
     expect(screen.appliedSize).toEqual({ cols: 80, rows: 24 })
-    expect(screen.snapshotFirstFrame().toString('latin1')).toBe(before)
+    expect(screen.snapshotFirstFrame().toString('utf8')).toBe(before)
     // The byte log still ends at the live frame, not the stale bytes.
     expect(Buffer.from(screen.tailBytes(15)).toString('latin1')).toBe('Agent TUI frame')
 
@@ -66,7 +66,7 @@ describe('TerminalScreen per-session survival', () => {
     expect(screen.appliedSize).toEqual({ cols: 80, rows: 24 })
     second.emit(' + live update')
     await screen.flush()
-    const after = screen.snapshotFirstFrame().toString('latin1')
+    const after = screen.snapshotFirstFrame().toString('utf8')
     expect(after).toContain('Agent TUI frame')
     expect(after).toContain('live update')
     // Alternate reconstitutes from the model, never replays stale bytes.

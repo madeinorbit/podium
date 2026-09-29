@@ -60,7 +60,7 @@ describe('session screens survive detach and reattach', () => {
     expect(second.appliedSize).toEqual({ cols: 80, rows: 24 })
     trackSessionOutput(ctx, SESSION, Buffer.from(' + live', 'latin1'))
     await second.flush()
-    const snapshot = second.snapshotFirstFrame().toString('latin1')
+    const snapshot = second.snapshotFirstFrame().toString('utf8')
     expect(snapshot).toContain('Agent TUI frame')
     expect(snapshot).toContain('live')
   })
