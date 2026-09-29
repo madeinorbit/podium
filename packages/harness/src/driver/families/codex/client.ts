@@ -49,6 +49,7 @@ import {
   DELTA_NOTIFICATIONS,
   parseCodexNotification,
 } from './protocol.js'
+import { RequestNotSentError } from '../../errors.js'
 
 /**
  * The framed duplex transport, abstracted.
@@ -289,7 +290,7 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
   })
 
   const send = (frame: Record<string, unknown>): void => {
-    if (closed) throw new CodexProtocolError('codex client is closed')
+    if (closed) throw new RequestNotSentError('codex client is closed')
     config.transport.write(`${JSON.stringify({ jsonrpc: '2.0', ...frame })}\n`)
   }
 
@@ -299,7 +300,7 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
       // Sending this would hang forever AND poison the connection for the
       // handshake that follows.
       return Promise.reject(
-        new CodexProtocolError(
+        new RequestNotSentError(
           `codex app-server refuses '${method}' before the initialize handshake completes, and answers it with silence rather than an error — so this is refused here instead`,
         ),
       )

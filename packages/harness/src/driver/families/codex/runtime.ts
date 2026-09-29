@@ -82,7 +82,7 @@ import type {
 } from '../../capabilities.js'
 import { type ConfigureValueChecks, decideConfigure, noWhitespaceCheck } from '../../configure.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
-import type { ProcessEvent } from '../../errors.js'
+import { DeliveryUnprovenError, type ProcessEvent, wasNeverSent } from '../../errors.js'
 import {
   createRuntimeEventStream,
   type EventStreamStart,
@@ -1606,6 +1606,20 @@ export function createCodexRuntime(
       outcome: 'refused',
       refusal: { reason, ...(detail ? { detail } : {}) },
     })
+    /**
+     * A FAILED `turn/start` OR `turn/steer` IS A REFUSAL ONLY WHEN CODEX
+     * RECORDED NOTHING (POD-4839; POD-4819 §6.1 N2). Two cases prove that: a
+     * JSON-RPC error reply — measured on 0.155.0, four kinds, none of them
+     * recorded (POD-4834 S10) — and a request the client never wrote. A
+     * request written and then lost (the pipe died, the answer never came) may
+     * be in the rollout, so it is thrown: the caller reads it as unproven,
+     * never as a "no" that invites a resend Codex would run twice.
+     */
+    const refuseUnrecorded = (err: unknown, context: string): TurnReceipt => {
+      if (err instanceof CodexRpcError) return refuse('invalid_value', String(err))
+      if (wasNeverSent(err)) return refuse('not_running', String(err))
+      throw new DeliveryUnprovenError(context, err)
+    }
     const stageRefusal = (reason: Refusal['reason'], detail?: string): Refusal => ({
       reason,
       ...(detail ? { detail } : {}),
@@ -1808,7 +1822,7 @@ export function createCodexRuntime(
               }
             } catch (err) {
               if (!(err instanceof CodexRpcError && err.turnPreconditionFailed)) {
-                return refuse('not_running', String(err))
+                return refuseUnrecorded(err, 'codex turn/steer')
               }
               // The turn ended underneath us. Fall through to the queue, which
               // is what a steer with no turn to steer actually is.
@@ -1875,7 +1889,7 @@ export function createCodexRuntime(
         try {
           delivered = await deliver(session, input, options)
         } catch (err) {
-          return refuse('not_running', String(err))
+          return refuseUnrecorded(err, 'codex turn/start')
         }
         const { transcriptItem } = delivered
         return {
