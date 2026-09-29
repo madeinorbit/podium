@@ -29,11 +29,13 @@ describe('server-derived message ids', () => {
     expect(failureNoticeId('x')).not.toBe(spawnPromptMessageId(asSessionId('x')))
   })
 
-  it("the steward's notice ids are unchanged by the shared derivation", () => {
-    // Pinned from before the derivation moved here: a changed id would re-send
-    // every steward notice already stored under the old one.
-    expect(noticeMessageId('fact:1', asSessionId('s1'))).toBe(
-      'msg_cbdc6b42-3efb-525b-bea4-79bfad8369eb',
+  it("the steward's notice ids are pinned", () => {
+    // A changed derivation re-sends a notice whose send ran before the change
+    // and whose claim runs after it. POD-4846 changed it once, deliberately:
+    // the triggering event joined the key, because a notice became a kept
+    // message row and a fact claimed again must not reuse the first one's id.
+    expect(noticeMessageId('fact:1', asSessionId('s1'), 1)).toBe(
+      'msg_7d9afe52-b5b1-55e7-9e5f-968fd30650f6',
     )
   })
 })

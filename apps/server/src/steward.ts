@@ -6,7 +6,6 @@ import type {
   SessionMeta,
   UserId,
   IssueId,
-  MessageLifecycle,
 } from '@podium/model'
 import { asIssueId, asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
@@ -16,7 +15,7 @@ import { derivedMessageId } from './message-ids'
 import type { IssueService } from './modules/issues/service'
 import type { MessageDeliveryService } from './modules/messages/service'
 import type { SessionFacts } from './modules/sessions/facts'
-import type { SessionStore, Subscription } from './store'
+import type { MessageLifecycle, SessionStore, Subscription } from './store'
 import { NotificationArbiter } from './store/notification-facts'
 
 const log = createLogger('server:steward')
