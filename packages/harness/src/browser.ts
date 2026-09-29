@@ -213,8 +213,17 @@ export function markOf(kind: string, mark?: string | null | undefined): string {
  * login), and resurrecting the bundled copy would show a flow that machine
  * never offered. A field joins this list only when it was added to the wire
  * later, as optional.
+ *
+ * `provider` is DELIBERATELY absent here (POD-4542, POD-4859): an older
+ * daemon's row without a provider must stay without one so the one
+ * {@link providerOf} rule falls back to kind ('claude-code'), not to the
+ * bundled vendor ('anthropic'). Inheriting the bundled provider would
+ * defeat that rule and show a different provider for older daemons in the
+ * Accounts hub. `mark` inherits because its generic fallback cannot derive
+ * the arbitrary spellings ('CX', not 'CO'); `provider`'s fallback IS the
+ * kind, so absence is the correct state.
  */
-const INHERITABLE_WHEN_ABSENT = ['provider', 'mark'] as const
+const INHERITABLE_WHEN_ABSENT = ['mark'] as const
 
 export function resolveDescriptors(
   served: readonly HarnessDescriptorWire[],
