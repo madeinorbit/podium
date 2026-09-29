@@ -120,8 +120,13 @@ export async function gotoWorkspace(page: Page): Promise<void> {
     // Since f22417ba3 the sidebar has no `New <Agent> in <Repo>` chip: a task
     // opens the launch composer, and Launch with no prompt is the chip's old
     // draft spawn (the default agent, which the harness runs as keyecho).
-    await list.getByRole('button', { name: 'Start first task' }).first().click({ timeout: 15_000 })
-    await page.getByRole('button', { name: 'Start work' }).click({ timeout: 30_000 })
+    // Current builds open that composer on their own for an empty project
+    // ("Give <project> its first mission."), with no `Start first task` to click.
+    const startWork = page.getByRole('button', { name: 'Start work' })
+    if (!(await startWork.isVisible().catch(() => false))) {
+      await list.getByRole('button', { name: 'Start first task' }).first().click({ timeout: 15_000 })
+    }
+    await startWork.click({ timeout: 30_000 })
   }
   // Confirm the workspace loaded by waiting for the "New panel" button.
   await newPanelBtn.waitFor({ state: 'visible', timeout: 15_000 })
