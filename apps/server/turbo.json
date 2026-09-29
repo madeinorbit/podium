@@ -377,6 +377,7 @@
         "src/message-ids.test.ts",
         "src/message-ids.ts",
         "src/migrations/**",
+        "src/migrations/accepted-delivery-status.test.ts",
         "src/migrations/applied-mutations-retention-index.test.ts",
         "src/migrations/applier.test.ts",
         "src/migrations/backup.test.ts",
