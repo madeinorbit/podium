@@ -6,7 +6,8 @@
 
 import type { MessageRecordWire, SessionId } from '@podium/model'
 import type { OutboxChatSend } from '../engine/chat-send'
-import type { ConversationOutbox, ConversationRecords } from './controller'
+import type { SocketHub } from '../socket-transport/socket-hub'
+import type { ConversationConnection, ConversationOutbox, ConversationRecords } from './controller'
 
 interface StoreSource<S> {
   getSnapshot(): S
@@ -64,5 +65,17 @@ export function storeConversationOutbox(
   return {
     held: () => store.getSnapshot().chatSendsFor(sessionId),
     subscribe: (listener) => subscribeTo(store, (s) => s.outboxDeadLetters, listener),
+  }
+}
+
+/** The link to the server, from the socket hub: when it comes back up, the
+ *  conversation catches up on its own messages by id (POD-4811). */
+export function hubConnection(
+  hub: Pick<SocketHub, 'connectionHealth' | 'on'>,
+): ConversationConnection {
+  return {
+    connected: () => hub.connectionHealth().status !== 'down',
+    subscribe: (listener) =>
+      hub.on('connectionHealth', (health) => listener(health.status !== 'down')),
   }
 }

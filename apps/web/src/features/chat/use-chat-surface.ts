@@ -514,6 +514,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     sessionId,
     store: storeHandle,
     trpc,
+    hub,
     sendChat,
     chatSendsFor,
     discardChat,

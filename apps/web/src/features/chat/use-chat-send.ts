@@ -3,6 +3,7 @@ import {
   type ConversationController,
   type ConversationPendingTurn,
   type ConversationTranscript,
+  hubConnection,
   storeConversationOutbox,
   storeConversationRecords,
 } from '@podium/client-core/conversation'
@@ -61,6 +62,9 @@ export interface UseChatSendOptions {
     subscribe(listener: () => void): () => void
   }
   trpc: Store['trpc']
+  /** The socket hub, when the surface has one: back online is when the chat
+   *  catches up on its own messages by id (POD-4811). */
+  hub?: Store['hub']
   sendChat: Store['sendChat']
   chatSendsFor: Store['chatSendsFor']
   discardChat: Store['discardChat']
@@ -137,6 +141,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     sessionId,
     store,
     trpc,
+    hub,
     sendChat,
     chatSendsFor,
     discardChat,
@@ -319,6 +324,13 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
         : {
             records: storeConversationRecords(store, sessionId),
             outbox: storeConversationOutbox(store, sessionId),
+            lookupRecords: (ids: readonly string[]) =>
+              operationsRef.current.trpc.messages.records
+                .query({ ids: [...ids] })
+                .then((answer) => answer.records),
+            ...(typeof hub?.connectionHealth === 'function' && typeof hub.on === 'function'
+              ? { connection: hubConnection(hub) }
+              : {}),
           }),
       initialDraft,
       initialPending,

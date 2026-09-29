@@ -11,6 +11,7 @@ import {
 import {
   type ConversationPendingTurn,
   createConversationController,
+  hubConnection,
   nativeSessionCanInterrupt,
   storeConversationOutbox,
   storeConversationRecords,
@@ -247,6 +248,11 @@ export function SessionConversation({
         // (POD-4764) — not a poll of the ledger, and never its text.
         records: storeConversationRecords(storeHandle, sessionId),
         outbox: storeConversationOutbox(storeHandle, sessionId),
+        // Its own sends the feed no longer carries — it was away while they
+        // were confirmed — asked by id at start and on every reconnect (POD-4811).
+        lookupRecords: (ids) =>
+          trpc.messages.records.query({ ids: [...ids] }).then((answer) => answer.records),
+        connection: hubConnection(hub),
         initialDraft: draftSeed,
         // The messages the outbox still holds for this session come back as the
         // bubbles they were (POD-4762): still sending — the controller waits on
@@ -330,6 +336,7 @@ export function SessionConversation({
       transcriptController,
       trpc.messages,
       trpc.sessions,
+      hub,
     ],
   )
   const conversation = useSyncExternalStore(

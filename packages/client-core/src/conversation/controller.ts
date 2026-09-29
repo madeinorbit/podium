@@ -731,7 +731,9 @@ export class ConversationController {
     const ids = [...asked.keys()]
     const reads: Promise<readonly MessageRecordWire[]>[] = []
     for (let at = 0; at < ids.length; at += CATCH_UP_BATCH) {
-      reads.push(lookup(ids.slice(at, at + CATCH_UP_BATCH)))
+      const batch = ids.slice(at, at + CATCH_UP_BATCH)
+      // A read that throws before it starts failed like any other.
+      reads.push(Promise.resolve().then(() => lookup(batch)))
     }
     void Promise.all(reads)
       .then(

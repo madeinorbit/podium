@@ -14,6 +14,7 @@ import type {
   IssueType,
   IssueWire,
   MachineId,
+  MessageRecordWire,
   MutationId,
   SessionId,
   ThreadId,
@@ -102,6 +103,9 @@ interface MobileTrpcExtras {
     cancel: MutationProcedure<{ id: string }>
     /** The sender dismisses a failed chat message's notice (POD-4764). */
     dismissNotice: MutationProcedure<{ id: string }>
+    /** This person's own chat message records, by id, in one read — the
+     *  catch-up for sends the feed no longer carries (POD-4811). */
+    records: QueryProcedure<{ ids: string[] }, { records: MessageRecordWire[] }>
   }
   /**
    * THE BLOCKING-ASK ANSWER (POD-2414).
