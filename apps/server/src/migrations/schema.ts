@@ -2130,11 +2130,6 @@ export const messages = sqliteTable(
     attachmentsJson: text('attachments_json'),
     expiresAt: text('expires_at'),
     createdAt: text('created_at').notNull(),
-    // THE LEGACY DELIVERY COLUMN, kept only as a mirror of `delivery_status` so
-    // a one-release rollback reads rows it understands (expand-only, POD-4765).
-    // Written in the same statement as every `delivery_status` move and read by
-    // nothing current; the contract step drops it.
-    legacyStatus: text('status').default('queued').notNull(),
     // The delivery lifecycle [POD-4765]: `MessageDelivery` in @podium/model is
     // the table of allowed moves, and every write goes through the store's
     // guarded move. Only moves forward.
@@ -2198,32 +2193,11 @@ export const messages = sqliteTable(
     // drags every message body through the scan.
     index('idx_messages_from_session').on(table.fromSession),
     index('idx_messages_thread').on(table.threadId),
-    index('idx_messages_recipient').on(table.toKind, table.toId, table.legacyStatus),
-    index('idx_messages_recipient_order').on(
-      table.toKind,
-      table.toId,
-      table.legacyStatus,
-      table.createdAt,
-      table.id,
-    ),
-    index('idx_messages_queue_order').on(table.legacyStatus, table.createdAt, table.id),
-    index('idx_messages_expiry_explicit').on(table.legacyStatus, table.expiresAt, table.id),
-    index('idx_messages_expiry_implicit').on(
-      table.legacyStatus,
-      table.lifecycle,
-      table.expiresAt,
-      table.createdAt,
-      table.id,
-    ),
     check('messages_check_5', sql`from_kind IN ('operator','superagent','agent','system')`),
     check('messages_check_6', sql`to_kind IN ('issue','session','operator')`),
     check('messages_check_7', sql`kind IN ('message','ack','notification','question')`),
     check('messages_check_8', sql`urgency IN ('fyi','next-turn','interrupt')`),
     check('messages_check_9', sql`lifecycle IN ('wait','wake')`),
-    check(
-      'messages_check_10',
-      sql`status IN ('queued','delivered','read','dead_letter','expired','cancelled')`,
-    ),
     // A LITERAL, because this file may not value-import @podium/model (see the
     // header). `message-delivery-status.test.ts` holds it equal to
     // `MESSAGE_DELIVERY_STATUSES`, so the machine's states are what the CHECK
@@ -2232,7 +2206,8 @@ export const messages = sqliteTable(
       'messages_delivery_status',
       sql`delivery_status IN ('stored','dispatched','reached-machine','typing','typed','confirmed','cancelled','failed','expired','unknown')`,
     ),
-    // The delivery-status twins of the legacy recipient/queue-order indexes.
+    // A recipient's rows by where delivery stands, oldest first: the mailbox and
+    // pending-count reads.
     index('idx_messages_recipient_delivery').on(
       table.toKind,
       table.toId,
@@ -2240,6 +2215,7 @@ export const messages = sqliteTable(
       table.createdAt,
       table.id,
     ),
+    // Every row in one delivery status, oldest first: the queue scans.
     index('idx_messages_delivery_order').on(table.deliveryStatus, table.createdAt, table.id),
     // The janitor's expiry scans, over the rows the server still holds: a row
     // handed on cannot expire (POD-4765), so it must not sit at the head of
@@ -2265,7 +2241,7 @@ export const messageWakeCooldowns = sqliteTable('message_wake_cooldowns', {
 })
 
 /** Per-READER receipts [POD-1379] [spec:SP-b11e]: one row per (message, session that has seen
- *  it). `messages.status` stays the DELIVERY ledger (one pipeline per message);
+ *  it). `messages.delivery_status` stays the DELIVERY ledger (one pipeline per message);
  *  this table is the per-session "already in my context" ledger, so several
  *  agents on one issue each get the shared mailbox exactly once and no agent's
  *  read consumes a peer's unread status. */
