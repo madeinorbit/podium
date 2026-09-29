@@ -4,7 +4,7 @@ import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type APIRequestContext, expect, test } from '@playwright/test'
 import { harnessEnv } from '../harness-env'
-import { gotoWorkspace, newSession, openApp, RELAY } from './_harness'
+import { gotoWorkspace, newSession, openApp, openHome, RELAY } from './_harness'
 
 const HTTP = RELAY.replace(/^ws/, 'http')
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url)).replace(/\/$/, '')
@@ -197,6 +197,16 @@ test('chat issue references remain stable across issue updates', async ({
   // Wide: the workspace entry needs the open sidebar, which auto-folds below
   // 1600px (POD-1980). See the first test above.
   await page.setViewportSize({ width: 1700, height: 900 })
+  // The seeder mission's own issue — deliberately distinct from the ref-target
+  // title above so sidebar filters never confuse the two.
+  const seederTitle = `Seeder for chat stability ${stamp}`
+  // The chat session must NOT belong to the ref-target issue: marking the
+  // target done hibernates its sessions and reloads their feeds, which voids
+  // the stability handles below. Desktop spawns a dedicated mission session
+  // (its own issue, never updated here — same as transcript-loading case a);
+  // mobile keeps the legacy workspace path (not run by this task's lane).
+  let sessionId: string | null
+  let hook: { hookUrl: string; binding: Record<string, string> }
   if (isMobile) {
     // The WebKit project carries a phone UA, which normally redirects to the
     // separate Expo app. Keep this web-transcript boundary on the web surface.
@@ -206,21 +216,48 @@ test('chat issue references remain stable across issue updates', async ({
       timeout: 45_000,
     })
     await gotoWorkspace(page)
+    await newSession(page, 'Claude')
+    // Panel-deck selector: since the split-pane deck the panels are
+    // absolutely-positioned rectangles carrying data-panel-resident, not flex
+    // children of .flex.min-h-0 and not .absolute (same as transcript-loading).
+    sessionId = await page
+      .locator('div[data-session][data-panel-resident]:visible')
+      .first()
+      .getAttribute('data-session')
+    if (!sessionId) throw new Error('active harness session missing')
+    hook = await bindTranscript(sessionId, transcriptPath)
+    await page.getByRole('tab', { name: 'Chat', exact: true }).locator('visible=true').click()
   } else {
-    await openApp(page)
+    await openHome(page)
+    const releaseDialog = page.getByRole('dialog', { name: 'Development release proposal' })
+    if (await releaseDialog.isVisible().catch(() => false)) {
+      await releaseDialog.getByRole('button', { name: 'Hide' }).click()
+    }
+    const firstMission = page.getByRole('textbox', { name: 'What do you want to work on?' })
+    await firstMission.waitFor({ state: 'visible', timeout: 15_000 })
+    await firstMission.fill(seederTitle)
+    await page.getByRole('button', { name: 'Start work' }).click()
+    await page.locator('div[data-session][data-panel-resident]:visible').first().waitFor({
+      state: 'visible',
+      timeout: 20_000,
+    })
+    const activeId = await page
+      .locator('div[data-session][data-panel-resident]:visible')
+      .first()
+      .getAttribute('data-session')
+    expect(activeId).not.toBeNull()
+    sessionId = activeId
+    if (!sessionId) throw new Error('active harness session missing')
+    const chatToggle = page.getByRole('tab', { name: 'Chat', exact: true }).locator('visible=true')
+    const nativeToggle = page
+      .getByRole('tab', { name: /^(Native|CLI)$/ })
+      .locator('visible=true')
+    await expect(chatToggle).toBeVisible({ timeout: 15_000 })
+    await chatToggle.click()
+    await nativeToggle.click()
+    hook = await bindTranscript(sessionId, transcriptPath)
+    await chatToggle.click()
   }
-  await newSession(page, 'Claude')
-  // Panel-deck selector: since the split-pane deck the panels are
-  // absolutely-positioned rectangles carrying data-panel-resident, not flex
-  // children of .flex.min-h-0 and not .absolute (same as transcript-loading).
-  const sessionId = await page
-    .locator('div[data-session][data-panel-resident]:visible')
-    .first()
-    .getAttribute('data-session')
-  if (!sessionId) throw new Error('active harness session missing')
-  const hook = await bindTranscript(sessionId, transcriptPath)
-
-  await page.getByRole('tab', { name: 'Chat', exact: true }).locator('visible=true').click()
   const chatRef = page
     .locator(
       `[data-feed-scroller]:visible .transcript-row a.ref-link--issue[data-ref="${issue.displayRef}"]`,
@@ -255,6 +292,10 @@ test('chat issue references remain stable across issue updates', async ({
     selection?.addRange(range)
   })
 
+  // The chat session belongs to its own mission issue (see the setup above),
+  // never to the ref-target below: marking the target done must not hibernate
+  // the session under test or reload its feed (the stability handles below
+  // would void on any remount).
   await rpc(request, 'issues.update', { id: issue.id, patch: { stage: 'done' } })
   await expect(chatRef).toHaveAttribute('data-issue-stage', 'done')
   await expect(chatRef).toHaveAttribute('data-issue-availability', 'present')
@@ -358,8 +399,19 @@ test('chat issue references remain stable across issue updates', async ({
   await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
     timeout: 45_000,
   })
-  await gotoWorkspace(page)
-  await page.getByRole('tab', { name: 'Chat', exact: true }).locator('visible=true').click()
+  // The seeder session's panel restores on its own — never touch the sidebar
+  // here. The ref-target issue is the top work row (updated to review just
+  // above) but carries no session, so opening it lands on the issue page,
+  // which has no Chat tab. Just wait for the workspace and its Chat tab.
+  await page.locator('button[aria-label="New panel"]:visible').first().waitFor({
+    state: 'visible',
+    timeout: 15_000,
+  })
+  const reloadedChatTab = page
+    .getByRole('tab', { name: 'Chat', exact: true })
+    .locator('visible=true')
+  await expect(reloadedChatTab).toBeVisible({ timeout: 30_000 })
+  await reloadedChatTab.click()
   const reloadedRef = page
     .locator(
       `[data-feed-scroller]:visible .transcript-row a.ref-link--issue[data-ref="${issue.displayRef}"]`,
