@@ -55,6 +55,8 @@ function fakeIssues(
   resolveIssueForCwd?: (cwd: string) => string | null,
   /** Repo prefix for nice-id labels; absent = the real niceRef `#seq` fallback. */
   prefix?: string,
+  /** Issue ids the fake reports as soft-deleted: still readable (POD-4817). */
+  deletedIds?: Set<string>,
 ) {
   const byId = new Map([
     [ISSUE.id, ISSUE],
@@ -76,6 +78,7 @@ function fakeIssues(
       return {
         ...base,
         archived: archivedIds?.has(id) ?? false,
+        deletedAt: deletedIds?.has(id) ? 't' : null,
         ...(coord ? { coordinatorSessionId: coord } : {}),
       }
     },
@@ -86,6 +89,7 @@ function fakeIssues(
       return {
         ...base,
         archived: archivedIds?.has(id) ?? false,
+        deletedAt: deletedIds?.has(id) ? 't' : null,
         ...(coord ? { coordinatorSessionId: coord } : {}),
       }
     },
@@ -182,6 +186,8 @@ interface HarnessOpts {
   now?: () => string
   /** Issue ids the fake issues dep reports as archived (dead-letter path). */
   archivedIds?: Set<string>
+  /** Issue ids the fake issues dep reports as deleted (POD-4817). */
+  deletedIds?: Set<string>
   /** Bare coordinator session id per issue id (prefer-coordinator routing). */
   coordinatorByIssue?: Map<string, string>
   /** Reuse a prior harness's store — simulates a server restart (fresh
@@ -252,6 +258,7 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       opts?.coordinatorByIssue,
       opts?.issueForCwd,
       opts?.prefix,
+      opts?.deletedIds,
     ),
     sessions: {
       // The FLEET ENUMERATION, counted. POD-1653 removed the reader-scoped
@@ -4771,6 +4778,7 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
     (await h.svc.send(from, { to: { kind: 'session', id: to }, body: 'do the thing', lifecycle }))
       .message.id
   const archivedIds = new Set<string>()
+  const deletedIds = new Set<string>()
   const S1 = asSessionId('s1')
   /** Send to s1, bring the row to `status` the way production does, and check
    *  it got there: a fixture that silently stopped short would test nothing. */
@@ -4837,7 +4845,18 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
     'an issue message handed to a session deleted with that issue': {
       sessions: () => [sender(), session({ sessionId: S1, issueId: ISSUE.id, cwd: ISSUE.worktreePath })],
       ...removed('dispatched', { to: 'issue', endedIssueId: ISSUE.id }),
-      body: [`to #${ISSUE.seq} was not delivered: #${ISSUE.seq} is finished. Do not wait for a reply.`],
+      body: [`to #${ISSUE.seq} was not delivered: #${ISSUE.seq} was deleted. Do not wait for a reply.`],
+    },
+    'an issue message never handed on, its issue deleted': {
+      sessions: () => [sender()],
+      fail: async (h) => {
+        const id = (await h.svc.send(from, { to: { kind: 'issue', id: ISSUE.id }, body: 'ping' })).message.id
+        expect(await h.store.messages.getMessage(id)).toMatchObject({ deliveryStatus: 'stored' })
+        await h.svc.failMessagesToRemovedSessions([], { endedIssueId: ISSUE.id })
+        return id
+      },
+      repeat: async (h) => await h.svc.failMessagesToRemovedSessions([], { endedIssueId: ISSUE.id }),
+      body: [`to #${ISSUE.seq} was not delivered: #${ISSUE.seq} was deleted. Do not wait for a reply.`],
     },
     'a spawn prompt to a child that is deleted': {
       sessions: () => [sender(), session({ sessionId: asSessionId('child'), cwd: '/elsewhere' })],
@@ -4888,6 +4907,37 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
         'that session has ended.',
         `Send to #${ISSUE.seq} (\`podium issue mail send #${ISSUE.seq} …\`) to reach whoever works it now.`,
       ],
+    },
+    'target session archived, its issue deleted': {
+      sessions: () => [
+        sender(),
+        session({ sessionId: asSessionId('s1'), status: 'hibernated', issueId: ISSUE.id }),
+      ],
+      opts: { deletedIds },
+      fail: async (h, sessions) => {
+        const id = await sendTo(h, asSessionId('s1'))
+        sessions[1] = { ...sessions[1]!, archived: true }
+        deletedIds.add(ISSUE.id)
+        await h.svc.sweep()
+        deletedIds.delete(ISSUE.id)
+        return id
+      },
+      repeat: async (h) => await h.svc.sweep(),
+      body: ['that session has ended. Nobody else holds that conversation; do not wait for a reply.'],
+    },
+    'target issue deleted': {
+      sessions: () => [sender()],
+      opts: { deletedIds },
+      fail: async (h) => {
+        const r = await h.svc.send(from, { to: { kind: 'issue', id: ISSUE.id }, body: 'ping' })
+        expect(await h.store.messages.getMessage(r.message.id)).toMatchObject({ deliveryStatus: 'stored' })
+        deletedIds.add(ISSUE.id)
+        await h.svc.sweep()
+        deletedIds.delete(ISSUE.id)
+        return r.message.id
+      },
+      repeat: async (h) => await h.svc.sweep(),
+      body: [`to #${ISSUE.seq} was not delivered: #${ISSUE.seq} was deleted. Do not wait for a reply.`],
     },
     'target issue archived': {
       sessions: () => [sender()],
