@@ -195,8 +195,8 @@ describe('podium session CLI', () => {
 
   it('wake-send uses the durable resumeAndSend path', async () => {
     const c = client({ ok: true, queued: true })
-    await expect(runSessionCli(['send', 's1', '--text', 'continue', '--wake'], c)).resolves.toBe(
-      'queued for delivery',
+    await expect(runSessionCli(['send', 's1', '--text', 'continue', '--wake'], c)).resolves.toMatch(
+      /^queued for delivery as (msg_[0-9a-f-]{36}); if it cannot be delivered you will be told at your next turn — 'podium mail status \1' shows where it is$/,
     )
     expect(c.sessions.resumeAndSend.mutate).toHaveBeenCalledWith({
       mutationId: MESSAGE_ID,

@@ -16,7 +16,6 @@ import {
   asUserId,
   type IssueId,
   MESSAGE_HANDED_ON,
-  MESSAGE_ON_ITS_WAY,
   MESSAGE_PENDING,
   MessageDelivery,
   type MessageDeliveryStatus,
@@ -860,7 +859,7 @@ export class MessagesRepository {
    * whether it arrived — the forward timed out, or the machine reported that it
    * cannot prove the text landed (POD-4775). Never `failed`: the machine may
    * still type it, and a later report or the echo still moves it on. Guarded on
-   * the push it answers, like {@link markSendRefused}.
+   * the push it answers.
    */
   async markUnknown(
     id: string,
@@ -882,51 +881,41 @@ export class MessagesRepository {
    *
    * Abandonment reports are retryable and repeat across restarts; a repeat finds
    * the row already `failed` and changes nothing, which is how the caller emits
-   * exactly one transition per turn.
+   * exactly one transition — and stores at most one `notice` — per turn.
    */
   async markDeliveryAbandoned(
     id: string,
     deliveredTo: SessionId,
     at: string,
     reason: QueueDrainAbandonedReason,
+    notice?: MessageRow | null,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.move(id, 'failed', {
+    return await this.failWith(notice, async () => await this.move(id, 'failed', {
       set: {
         deadLetteredAt: at,
         deliveryDeferredAt: at,
         deliveryDeferredReason: reason,
         deliveredTo: sql`COALESCE(${messagesTable.deliveredTo}, ${deliveredTo})`,
       },
-    })
+    }))
   }
 
   /**
-   * → failed, because the driver REFUSED the push this row is on its way on and
-   * the refusal will not clear by waiting [POD-2298]. Guarded on the row still
-   * being handed to `deliveredTo`: a refusal answers that push, never a row that
-   * has since been confirmed, cancelled or aimed elsewhere.
-   *
-   * `reason` is deliberately the EXISTING abandonment vocabulary rather than the
-   * refusal's own: the wire enum stays three arms wide (widening it is a
-   * rolling-upgrade event, POD-2297) and the precise `RefusalReason` is already on
-   * the `message.receipt` event emitted beside this write.
+   * THE FAILURE AND ITS NOTICE ARE ONE WRITE (POD-4778). A message moves to
+   * `failed` at most once, and the notice telling its sender is stored in the
+   * same transaction, only when this call made the move. So a crash can never
+   * leave a failure nobody was told about, and a repeated failure report can
+   * never store a second notice. The notice is an ordinary `stored` message;
+   * the delivery path takes it from there, across restarts, once per id.
    */
-  async markSendRefused(
-    id: string,
-    deliveredTo: SessionId,
-    at: string,
-    reason: QueueDrainAbandonedReason,
+  private async failWith(
+    notice: MessageRow | null | undefined,
+    fail: () => Promise<MoveOutcome<MessageDeliveryStatus>>,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.move(id, 'failed', {
-      set: {
-        deadLetteredAt: at,
-        deliveryDeferredAt: at,
-        deliveryDeferredReason: reason,
-      },
-      where: [
-        eq(messagesTable.deliveredTo, deliveredTo),
-        inArray(messagesTable.deliveryStatus, [...MESSAGE_ON_ITS_WAY]),
-      ],
+    return await this.createOrJoinTransaction(async () => {
+      const outcome = await fail()
+      if (notice && moved(outcome)) await this.addMessage(notice)
+      return outcome
     })
   }
 
@@ -1090,7 +1079,7 @@ export class MessagesRepository {
 
   /** → failed: the target was gone before the message could land (issue
    *  closed/archived, session deleted with nowhere to re-route) [POD-834].
-   *  Terminal; the sender is told once.
+   *  Terminal; the sender is told once, by the `notice` stored with the move.
    *
    *  `cause` RECORDS WHY, FOR THE ROWS WHERE "GONE" IS NOT THE ANSWER [POD-2574].
    *  Without a cause a failure reads, downstream, as a vanished target — right
@@ -1102,12 +1091,13 @@ export class MessagesRepository {
     id: string,
     at: string,
     cause?: QueueDrainAbandonedReason,
+    notice?: MessageRow | null,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.move(id, 'failed', {
+    return await this.failWith(notice, async () => await this.move(id, 'failed', {
       set: cause
         ? { deadLetteredAt: at, deliveryDeferredAt: at, deliveryDeferredReason: cause }
         : { deadLetteredAt: at },
-    })
+    }))
   }
 
   /**

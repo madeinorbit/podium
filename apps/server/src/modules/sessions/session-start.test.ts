@@ -15,6 +15,7 @@ import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAgentCli } from '../../../../cli/src/agent-cli'
+import { failureNoticeId, spawnPromptMessageId } from '../../message-ids'
 import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
 import { attachHostDaemon } from '../../test-support/host-daemon'
@@ -561,4 +562,59 @@ describe('driver admission recovery diagnosis', () => {
       })
     },
   )
+})
+
+// POD-4778: a task from a parent session is that parent's message. When the
+// child's machine never types it, the parent — who is waiting on the child —
+// is told, through the same inbox → ledger path as any queued message.
+describe('SessionStart: a parent session spawns with a task', () => {
+  it("stores the task as the parent's message, and a failure tells the parent", async () => {
+    const { reg } = await makeRegistry()
+    const parent = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/proj' })
+    const child = await reg.modules.sessions.createSession({
+      agentKind: 'cursor',
+      cwd: '/proj',
+      initialPrompt: 'your task',
+      spawnedBy: `session:${parent.sessionId}`,
+    })
+    const promptId = spawnPromptMessageId(child.sessionId)
+    expect(child.promptMessageId).toBe(promptId)
+    expect(await reg.sessionStore.messages.getMessage(promptId)).toMatchObject({
+      fromKind: 'agent',
+      fromSession: parent.sessionId,
+      toKind: 'session',
+      toId: child.sessionId,
+      deliveryStatus: 'dispatched',
+      deliveredTo: child.sessionId,
+    })
+    const queued = await reg.sessionStore.sync.listQueuedMessages(child.sessionId)
+    expect(queued).toEqual([
+      expect.objectContaining({ id: promptId, sourceMessageId: promptId, inputOrigin: 'mail' }),
+    ])
+
+    await reg.modules.sessions.inbox.deliveryOutcome(child.sessionId, {
+      rowId: promptId,
+      outcome: 'failed',
+      reason: 'agent not accepting input',
+      cause: 'not-accepting-input',
+    })
+
+    expect((await reg.sessionStore.messages.getMessage(promptId))?.deliveryStatus).toBe('failed')
+    const notice = await reg.sessionStore.messages.getMessage(failureNoticeId(promptId))
+    expect(notice).toMatchObject({ toKind: 'session', toId: parent.sessionId, fromName: 'steward' })
+    expect(notice?.body).toContain(`the child session ${child.sessionId} has no task`)
+  })
+
+  it('a person’s spawn queues the task as plain input, with no message', async () => {
+    const { reg } = await makeRegistry()
+    const child = await reg.modules.sessions.createSession({
+      agentKind: 'cursor',
+      cwd: '/proj',
+      initialPrompt: 'your task',
+    })
+    expect(child.promptMessageId).toBeUndefined()
+    expect(await reg.sessionStore.messages.getMessage(spawnPromptMessageId(child.sessionId))).toBeNull()
+    const queued = await reg.sessionStore.sync.listQueuedMessages(child.sessionId)
+    expect(queued).toEqual([expect.objectContaining({ sourceMessageId: null })])
+  })
 })

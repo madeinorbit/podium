@@ -334,6 +334,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessionOwner: (sessionId) => ownership.sessionOwner(sessionId),
     setSessionDraft: (input) => bag.state.setDraft(input),
     queueInitialPrompt: (i) => bag.inbox.queueInitialPrompt(i),
+    ...(bag.deps.recordSpawnPrompt
+      ? { recordSpawnPrompt: (i) => bag.deps.recordSpawnPrompt!(i) }
+      : {}),
     emitSessionCreated: (payload) => bag.bus.emit('session.created', payload),
   })
   bag.headless = new HeadlessService({

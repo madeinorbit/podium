@@ -175,7 +175,6 @@ export interface EventMap {
    *  live membership and coordinator from the canonical issue id. */
   'issue.mailSent': { issueId: IssueId; seq: number }
   /** Durable refusal committed; sender notification is an asynchronous nudge. */
-  'message.deadLettered': { messageId: string; reason: string }
   /** The hub-reachability flag flipped (spec §2.3) — the conversation and issue
    *  mirrors rebroadcast their stale overlays on this. */
   'upstream.staleChanged': { stale: boolean }

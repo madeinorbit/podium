@@ -45,6 +45,7 @@ import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import type { SessionInputGatewayPort } from '../../gateway/daemon-ports'
 import { type HarnessInterrupt } from '../../harness-manifest'
+import { spawnPromptMessageId } from '../../message-ids'
 import { injectionPayload } from './paste'
 import type { ConfigureOutcome } from './runtime-gateway'
 import type { Session, SessionDurableState } from './session'
@@ -474,8 +475,16 @@ export const MESSAGE_ENDED_REASON = 'message is no longer pending'
 const initialPromptQueueId = (sessionId: SessionId): string =>
   `${INITIAL_PROMPT_QUEUE_ID_PREFIX}${sessionId}`
 
+/** The task a session was spawned with: under its fixed queue id, or — when a
+ *  session spawned it — as that spawner's message (POD-4778). */
 const isInitialPromptRow = (sessionId: SessionId, row: QueuedInboxMessage): boolean =>
-  row.id === initialPromptQueueId(sessionId)
+  row.id === initialPromptQueueId(sessionId) ||
+  row.sourceMessageId === spawnPromptMessageId(sessionId)
+
+/** Mail from an agent (or the system), not a person typing: its sender is told
+ *  by the ledger, its owner has nothing to act on, and its text never belongs
+ *  in a person's composer (POD-4778). */
+const sentByAgent = (row: QueuedInboxMessage): boolean => row.inputOrigin === 'mail'
 
 /** The one send refusal the server owns: an archived session is retired by a
  * person. Everything about what the agent is doing — a stored `errored` phase,
@@ -1350,7 +1359,9 @@ export class SessionInbox {
     await this.reportUnconfirmed(sessionId, row, reason)
   }
 
-  /** The ledger and the owner learn a row's fate is unknown — never a draft. */
+  /** The ledger learns a row's fate is unknown — never a draft — and the owner
+   *  does when a person sent it: an agent sender can ask `mail status`, and
+   *  the owner can do nothing about an agent's message (POD-4778). */
   private async reportUnconfirmed(
     sessionId: SessionId,
     row: QueuedInboxMessage,
@@ -1363,6 +1374,7 @@ export class SessionInbox {
         reason,
       })
     }
+    if (sentByAgent(row)) return
     const ownerUserId = await this.deps.ownerOf(sessionId)
     await this.deps.attention.promptFailed({
       ...(ownerUserId ? { ownerUserId } : {}),
@@ -1425,29 +1437,37 @@ export class SessionInbox {
         event.reason ?? "the agent's machine could not confirm delivery",
       )
     } else {
-      // The daemon says it was never typed: a real failure, told once, and
-      // the text goes back to an empty composer so nothing typed is lost.
+      // The daemon says it was never typed: a real failure, told once — to
+      // the sender by the ledger, and to the session's owner only when a person
+      // sent it or only a person can unblock the agent (POD-4778). A person's
+      // text goes back to an empty composer so nothing typed is lost; an
+      // agent's never lands in a person's box.
       const reason = event.reason ?? "the agent's machine could not deliver it"
-      const draft = this.deps.draftText?.(sessionId)
-      if (draft === undefined || draft === '' || draft === row.text) {
-        await this.deps.setSessionDraft?.({ sessionId, text: row.text })
+      const cause = event.cause === 'not-accepting-input' ? 'never-live' : 'delivery-failed'
+      if (!sentByAgent(row)) {
+        const draft = this.deps.draftText?.(sessionId)
+        if (draft === undefined || draft === '' || draft === row.text) {
+          await this.deps.setSessionDraft?.({ sessionId, text: row.text })
+        }
       }
       await this.deps.authorization.rejected({
         queueId: row.id,
         sourceMessageId: row.sourceMessageId,
         principal: row.principal,
         reason,
-        ...(event.cause === 'not-accepting-input' ? { cause: 'never-live' as const } : {}),
+        cause,
       })
-      const ownerUserId = await this.deps.ownerOf(sessionId)
-      await this.deps.attention.promptFailed({
-        ...(ownerUserId ? { ownerUserId } : {}),
-        sessionId,
-        text: row.text,
-        reason,
-        initialPrompt: isInitialPromptRow(sessionId, row),
-        unconfirmed: false,
-      })
+      if (!sentByAgent(row) || cause === 'never-live') {
+        const ownerUserId = await this.deps.ownerOf(sessionId)
+        await this.deps.attention.promptFailed({
+          ...(ownerUserId ? { ownerUserId } : {}),
+          sessionId,
+          text: row.text,
+          reason,
+          initialPrompt: isInitialPromptRow(sessionId, row),
+          unconfirmed: false,
+        })
+      }
     }
     if (event.outcome !== 'delivered') {
       await this.deps.queue.delete(row.id)
@@ -1571,7 +1591,7 @@ export class SessionInbox {
     if (!(await this.deps.queue.list(session.sessionId)).some((row) => row.id === head.id)) return
     this.reportedPromptFailures.add(head.id)
     const draft = this.deps.draftText?.(session.sessionId)
-    if (draft === undefined || draft === '' || draft === head.text) {
+    if (!sentByAgent(head) && (draft === undefined || draft === '' || draft === head.text)) {
       await this.deps.setSessionDraft?.({ sessionId: session.sessionId, text: head.text })
     }
     const ownerUserId = await this.deps.ownerOf(session.sessionId)

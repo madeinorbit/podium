@@ -87,6 +87,8 @@ export interface MessageGateDeps {
     machine?: string
     machineId?: MachineId
     accountId?: AccountId | null
+    /** The task prompt as the spawner's message, when it was queued as one. */
+    promptMessageId?: string
   }>
   /** Wait for the current daemon connection's first inventory before spawning. */
   awaitMachineInventory?(machineId: MachineId): Promise<void>
@@ -176,6 +178,9 @@ export interface MessageWire {
   deadLetteredAt: string | null
   deliveryDeferredAt: string | null
   deliveryDeferredReason: string | null
+  /** The notice that told the sender this message was not delivered, when one
+   *  was written with the failure (POD-4778). */
+  noticeId?: string
   /** A reply was requested [POD-835 §04b]: the recipient owes a response and the
    *  settle-nag will fire if none comes. Lets a reader see it must reply. */
   expectsResponse: boolean

@@ -57,6 +57,7 @@ import {
   asMachineId,
   asSessionId,
   firstAdminMemberId,
+  spawnedByParentSessionId,
   type IssueId,
   type MachineId,
   type SessionId,
@@ -108,6 +109,10 @@ export interface SessionSpawnResult {
   machine: string
   machineId: MachineId
   accountId: AccountId | null
+  /** The task prompt as its spawner's message, when a session spawned this one
+   *  and the prompt is queued rather than launched with the process (POD-4778):
+   *  the id the spawner checks with `podium mail status`. */
+  promptMessageId?: string
 }
 
 export interface SessionStartPorts {
@@ -159,11 +164,24 @@ export interface SessionStartPorts {
   sessionOwner(sessionId: SessionId): Promise<{ owner: UserId; grants: string[] } | undefined>
   /** Seed the non-argv creation prompt into the recoverable composer draft. */
   setSessionDraft?(input: { sessionId: SessionId; text: string }): Promise<void>
-  queueInitialPrompt(input: { sessionId: SessionId; text: string }): Promise<{
+  queueInitialPrompt(input: {
+    sessionId: SessionId
+    text: string
+    sourceMessageId?: string
+    inputOrigin?: 'mail'
+  }): Promise<{
     ok: boolean
     queued?: boolean
     reason?: string
   }>
+  /** Store the task prompt a session spawned another with as the spawner's
+   *  message to it, already handed to it (POD-4778). Answers its id. Absent =
+   *  no message ledger: the prompt is queued as plain input. */
+  recordSpawnPrompt?(input: {
+    parentSessionId: SessionId
+    sessionId: SessionId
+    text: string
+  }): Promise<string>
   emitSessionCreated(payload: {
     sessionId: SessionId
     agentKind: AgentKind
@@ -330,11 +348,25 @@ export class SessionStart {
       sessionId,
     })
     await preparedInstructions.commit()
+    // A TASK FROM A PARENT SESSION IS ITS MESSAGE (POD-4778): stored under a
+    // message id before it is queued, so its outcome settles that message and a
+    // failure reaches the parent rather than only the person who owns the child.
+    const parentSessionId = spawnedByParentSessionId(input.spawnedBy)
+    let promptMessageId: string | undefined
     if (taskPrompt !== undefined && !useArgv) {
+      promptMessageId =
+        parentSessionId && this.ports.recordSpawnPrompt
+          ? await this.ports.recordSpawnPrompt({
+              parentSessionId,
+              sessionId: spawned.sessionId,
+              text: taskPrompt,
+            })
+          : undefined
       await this.ports.setSessionDraft?.({ sessionId: spawned.sessionId, text: taskPrompt })
       const queued = await this.ports.queueInitialPrompt({
         sessionId: spawned.sessionId,
         text: taskPrompt,
+        ...(promptMessageId ? { sourceMessageId: promptMessageId, inputOrigin: 'mail' as const } : {}),
       })
       if (!queued.ok) {
         throw new Error(queued.reason ?? 'initial prompt could not be queued')
@@ -365,7 +397,7 @@ export class SessionStart {
         },
       })
     }
-    return spawned
+    return promptMessageId ? { ...spawned, promptMessageId } : spawned
   }
 
   async spawn(input: {

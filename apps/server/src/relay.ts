@@ -1451,9 +1451,19 @@ export class SessionRegistry {
     // ever invoked after construction completes.
     const queuedApplyHooks: {
       handingOn?: (messageId: string, sessionId: SessionId) => Promise<boolean>
+      spawnPrompt?: (input: {
+        parentSessionId: SessionId
+        sessionId: SessionId
+        text: string
+      }) => Promise<string>
       applied?: (messageId: string, sessionId: SessionId) => Promise<void>
       injected?: (messageId: string, sessionId: SessionId) => Promise<void>
       unconfirmed?: (messageId: string, sessionId: SessionId, reason: string) => Promise<void>
+      rejected?: (
+        messageId: string,
+        reason: string,
+        cause?: QueueDrainAbandonedReason,
+      ) => Promise<void>
       abandoned?: (input: {
         sessionId: SessionId
         turnIds: readonly string[]
@@ -1465,7 +1475,6 @@ export class SessionRegistry {
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,
-      events: this.store.events,
       authorize: mail.authorizeAtApply,
       applied: async (messageId, sessionId) => {
         const completion: Promise<void> | undefined = queuedApplyHooks.applied?.(messageId, sessionId)
@@ -1483,8 +1492,14 @@ export class SessionRegistry {
         )
         await completion
       },
-      bus: this.bus,
-      now: () => new Date(this.now()).toISOString(),
+      rejected: async (messageId, reason, cause) => {
+        const completion: Promise<void> | undefined = queuedApplyHooks.rejected?.(
+          messageId,
+          reason,
+          cause,
+        )
+        await completion
+      },
     })
     const sessionsSvc = new SessionLifecycle({
       durableLabelFor: (sessionId) => durableSessionLabel(sessionId, instanceId),
@@ -1494,6 +1509,10 @@ export class SessionRegistry {
       authorizeQueuedMessage: (messageId) => queuedMessageApply.authorize(messageId),
       handOffQueuedMessage: async (messageId, sessionId) =>
         (await queuedApplyHooks.handingOn?.(messageId, sessionId)) ?? true,
+      recordSpawnPrompt: async (input) => {
+        if (!queuedApplyHooks.spawnPrompt) throw new Error('the message ledger is not wired yet')
+        return await queuedApplyHooks.spawnPrompt(input)
+      },
       rejectQueuedMessage: async (messageId, reason, cause) =>
         await queuedMessageApply.reject(messageId, reason, cause),
       confirmQueuedMessageApplied: (messageId, sessionId) =>
@@ -2165,6 +2184,7 @@ export class SessionRegistry {
       machineName: async (id) => (await machines.listMachines()).find((m) => m.id === id)?.name ?? id,
       now: () => new Date(this.now()).toISOString(),
     })
+    queuedApplyHooks.spawnPrompt = async (input) => await messagesSvc.recordSpawnPrompt(input)
     queuedApplyHooks.handingOn = async (messageId, sessionId) =>
       await messagesSvc.onQueuedInputHandingOn(messageId, sessionId)
     queuedApplyHooks.applied = async (messageId, sessionId) =>
@@ -2173,6 +2193,8 @@ export class SessionRegistry {
       await messagesSvc.onQueuedInputInjected(messageId, sessionId)
     queuedApplyHooks.unconfirmed = async (messageId, sessionId, reason) =>
       await messagesSvc.onQueuedInputUnknown(messageId, sessionId, reason)
+    queuedApplyHooks.rejected = async (messageId, reason, cause) =>
+      await messagesSvc.rejectQueuedInput(messageId, reason, cause)
     queuedApplyHooks.abandoned = async ({ sessionId, turnIds, reason }) =>
       await messagesSvc.onQueueDrainAbandoned(sessionId, turnIds, reason)
     // A live busy send can be in the message ledger without a SessionInbox row.
@@ -2194,9 +2216,6 @@ export class SessionRegistry {
         }
       }
     }
-    this.bus.on('message.deadLettered', async ({ messageId, reason }) =>
-      await messagesSvc.notifyQueuedInputRejected(messageId, reason),
-    )
     // Event-complete delivery eligibility [spec:SP-c29e]: every durable session
     // or issue metadata transition lands here after commit. Session upserts cover
     // bind/live, resume-ref, attachment/CWD and draft changes; issue upserts cover

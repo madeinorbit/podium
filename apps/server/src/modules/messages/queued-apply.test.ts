@@ -25,89 +25,17 @@ describe('queued message completion', () => {
     await expect(apply[hook]('m1', asSessionId('s1'))).rejects.toBe(failure)
   })
 
-  it('propagates the exact rejected event write failure', async () => {
-    const failure = new Error('dead-letter event write failed')
-    const emit = vi.fn()
+  it('hands a rejection and its cause to the ledger, and propagates its failure', async () => {
+    const failure = new Error('failure write failed')
+    const rejected = vi.fn(async () => {
+      throw failure
+    })
     const apply = new QueuedMessageApply({
       ...({} as ConstructorParameters<typeof QueuedMessageApply>[0]),
-      messages: {
-        getMessage: async () => ({ id: 'm1', deliveryStatus: 'stored' }),
-        markDeadLetter: async () => ({ kind: 'applied' }),
-      } as unknown as ConstructorParameters<typeof QueuedMessageApply>[0]['messages'],
-      events: { appendEvent: async () => { throw failure } } as unknown as ConstructorParameters<typeof QueuedMessageApply>[0]['events'],
-      bus: { emit } as unknown as ConstructorParameters<typeof QueuedMessageApply>[0]['bus'],
-      now: () => '2026-09-07T00:00:00Z',
+      rejected,
     })
-    await expect(apply.reject('m1', 'revoked')).rejects.toBe(failure)
-    expect(emit).not.toHaveBeenCalled()
-  })
-})
-
-describe('reject stamps a cause for injected-but-unconfirmed rows [POD-4704]', () => {
-  function rejectHarness(row: { id: string; deliveryStatus: string; injectedAt: string | null }) {
-    const deadLetters: { id: string; at: string; cause: unknown }[] = []
-    const events: { kind: string; payload: unknown }[] = []
-    const emitted: { name: string; payload: unknown }[] = []
-    const apply = new QueuedMessageApply({
-      ...({} as ConstructorParameters<typeof QueuedMessageApply>[0]),
-      messages: {
-        getMessage: async () => row,
-        markDeadLetter: async (id: string, at: string, cause?: unknown) => {
-          deadLetters.push({ id, at, cause })
-          return { kind: 'applied' }
-        },
-      } as unknown as ConstructorParameters<typeof QueuedMessageApply>[0]['messages'],
-      events: {
-        appendEvent: async (event: { kind: string; payload: unknown }) => {
-          events.push(event)
-        },
-      } as unknown as ConstructorParameters<typeof QueuedMessageApply>[0]['events'],
-      bus: {
-        emit: (name: string, payload: unknown) => {
-          emitted.push({ name, payload })
-        },
-      } as unknown as ConstructorParameters<typeof QueuedMessageApply>[0]['bus'],
-      now: () => '2026-09-07T00:00:00Z',
-    })
-    return { apply, deadLetters, events, emitted }
-  }
-
-  it('stamps delivery-failed when the row was typed but never confirmed', async () => {
-    // The inbox settles a forwarded row as failed when the daemon never
-    // confirmed it. The session is alive; saying the target is gone would be
-    // the POD-4604 run 13 lie, so the dead letter carries the delivery cause.
-    const { apply, deadLetters, events } = rejectHarness({
-      id: 'm1',
-      deliveryStatus: 'dispatched',
-      injectedAt: '2026-09-07T00:00:00Z',
-    })
-    await apply.reject('m1', 'daemon could not confirm delivery')
-    expect(deadLetters).toEqual([
-      { id: 'm1', at: '2026-09-07T00:00:00Z', cause: 'delivery-failed' },
-    ])
-    // The free-text reason still rides the event payload and the sender notice
-    // path unchanged — only the ledger cause column is new.
-    expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({
-      kind: 'message.dead_letter',
-      payload: { reason: 'daemon could not confirm delivery' },
-    })
-  })
-
-  it('leaves a never-pushed row causeless so a vanished target still reads as one', async () => {
-    const { apply, deadLetters } = rejectHarness({ id: 'm2', deliveryStatus: 'stored', injectedAt: null })
-    await apply.reject('m2', 'session no longer exists')
-    expect(deadLetters).toEqual([{ id: 'm2', at: '2026-09-07T00:00:00Z', cause: undefined }])
-  })
-
-  it('keeps the cause the daemon named: not accepting input is never-live [POD-4775]', async () => {
-    const { apply, deadLetters } = rejectHarness({
-      id: 'm3',
-      deliveryStatus: 'dispatched',
-      injectedAt: '2026-09-07T00:00:00Z',
-    })
-    await apply.reject('m3', 'agent not accepting input', 'never-live')
-    expect(deadLetters).toEqual([{ id: 'm3', at: '2026-09-07T00:00:00Z', cause: 'never-live' }])
+    await expect(apply.reject('m1', 'not accepting input', 'never-live')).rejects.toBe(failure)
+    expect(rejected).toHaveBeenCalledWith('m1', 'not accepting input', 'never-live')
   })
 })
 

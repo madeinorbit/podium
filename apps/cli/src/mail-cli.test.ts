@@ -189,32 +189,59 @@ describe('podium mail CLI (argv shape)', () => {
     )
   })
 
-  it('[POD-854] an accepted send tells the sender to query mail status (never a bare success)', async () => {
-    const c = client({ send: { id: 'msg_9', ok: true, disposition: 'accepted' } })
-    const out = await runMailCli(
-      ['send', '--to', 's-abc', '--body', 'x', '--urgency', 'next-turn'],
-      c,
-    )
-    expect(out).toContain('accepted')
-    expect(out).toContain('podium mail status msg_9')
-  })
-
-  it('[POD-4661] a send handed on to the daemon points the sender at mail status', async () => {
+  it('[POD-4778] a send on its way says a failure will be told, and where to look meanwhile', async () => {
     const c = client({ send: { id: 'msg_7', ok: true, disposition: 'queued' } })
     const out = await runMailCli(
       ['send', '--to', 's-abc', '--body', 'x', '--urgency', 'next-turn'],
       c,
     )
-    expect(out).toContain('podium mail status msg_7')
+    expect(out).toBe(
+      'sent msg_7 (queued for the target’s next turn; if it cannot be delivered you will be ' +
+        "told at your next turn — 'podium mail status msg_7' shows where it is)",
+    )
   })
 
-  it('[POD-854] a blocking send confirmed delivered reports delivered', async () => {
+  it('[POD-4778] an older server’s word reads plainly, never as a blocking send', async () => {
+    const c = client({ send: { id: 'msg_9', ok: true, disposition: 'accepted' } })
+    const out = await runMailCli(['send', '--to', 's-abc', '--body', 'x'], c)
+    expect(out).not.toContain('accepted')
+    expect(out).toContain("'podium mail status msg_9' shows where it is")
+  })
+
+  it('a repeat of a send that already landed reports delivered, with nothing to wait for', async () => {
     const c = client({ send: { id: 'msg_9', ok: true, disposition: 'delivered' } })
     const out = await runMailCli(
       ['send', '--to', 's-abc', '--body', 'x', '--urgency', 'interrupt'],
       c,
     )
-    expect(out).toContain('delivered')
+    expect(out).toBe('sent msg_9 (delivered)')
+  })
+
+  it('[POD-4778] mail status names the notice that told the sender', async () => {
+    const out = await runMailCli(
+      ['status', 'msg_1'],
+      client({
+        status: {
+          ...WIRE,
+          status: 'dead_letter',
+          deliveryStatus: 'failed',
+          deliveryDeferredReason: 'never-live',
+          noticeId: 'msg_n',
+        },
+      }),
+    )
+    expect(out).toContain('status: failed — the agent was not accepting input')
+    expect(out).toContain('notified=msg_n')
+  })
+
+  it('[POD-4778] the inbox names the cause from the delivery status', async () => {
+    const c = client()
+    c.messages.inbox.mutate.mockResolvedValueOnce([
+      { ...WIRE, status: 'queued', deliveryStatus: 'failed', deliveryDeferredReason: 'teardown' },
+    ])
+    const out = await runMailCli(['inbox'], c)
+    expect(out).toContain('[failed]')
+    expect(out).toContain('torn down')
   })
 
   // `delivered` with NO recipient session is not the same fact as `delivered` to a
@@ -242,7 +269,7 @@ describe('podium mail CLI (argv shape)', () => {
     expect(out).toContain('status: dead_letter')
     // The sender is told what actually happened, and told it is over — the old
     // "still queued for retry" line described a wait that nothing was serving.
-    expect(out).toContain('never became ready within the deadline')
+    expect(out).toContain('the agent was not accepting input — never typed, not dropped')
     expect(out).not.toContain('still queued')
     expect(out).toContain('deferred-reason=never-live')
   })

@@ -261,5 +261,6 @@ async function spawnOnce(
     model: actualModel ?? null,
     effort: actualEffort ?? null,
     machine: spawned.machine ?? actualMachineId ?? null,
+    ...(spawned.promptMessageId ? { promptMessageId: spawned.promptMessageId } : {}),
   }
 }

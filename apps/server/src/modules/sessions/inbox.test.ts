@@ -19,6 +19,7 @@ import {
   harnessDisplayName,
   harnessInterrupt,
 } from '../../harness-manifest'
+import { spawnPromptMessageId } from '../../message-ids'
 import { captureLogs } from '../../test-support/capture-logs'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import {
@@ -2861,6 +2862,80 @@ describe('agent drain via the runtime contract', () => {
     ])
     expect(h.unconfirmed).not.toHaveBeenCalled()
     expect(h.promptFailed).toHaveBeenCalledWith(expect.objectContaining({ unconfirmed: false }))
+  })
+
+  // POD-4778: an agent's message is its sender's to hear about. The owner of
+  // the target is told only what a person can act on, and a person's composer
+  // never receives an agent's text.
+  it.each([
+    ['never typed', { outcome: 'failed' as const, reason: 'no', cause: undefined }, 'delivery-failed'],
+    ['unconfirmed', { outcome: 'failed' as const, reason: 'maybe', cause: 'unconfirmed' as const }, undefined],
+  ])("an agent's %s message leaves the owner and the draft alone", async (_label, event, cause) => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.queueText({
+      sessionId: SID,
+      text: 'from another agent',
+      sourceMessageId: 'msg_agent',
+      inputOrigin: 'mail',
+      principal: agentPrincipal(),
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_agent', ...event })
+    expect(h.promptFailed).not.toHaveBeenCalled()
+    expect(h.setSessionDraft).not.toHaveBeenCalled()
+    if (cause) {
+      expect(h.rejected).toEqual([expect.objectContaining({ sourceMessageId: 'msg_agent', cause })])
+    } else {
+      expect(h.unconfirmed).toHaveBeenCalledWith(expect.objectContaining({ sourceMessageId: 'msg_agent' }))
+    }
+  })
+
+  it("an agent's message to a target waiting on a person still tells the owner, without a draft", async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.queueText({
+      sessionId: SID,
+      text: 'from another agent',
+      sourceMessageId: 'msg_agent',
+      inputOrigin: 'mail',
+      principal: agentPrincipal(),
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_agent',
+      outcome: 'failed',
+      reason: 'agent not accepting input',
+      cause: 'not-accepting-input',
+    })
+    expect(h.promptFailed).toHaveBeenCalledOnce()
+    expect(h.setSessionDraft).not.toHaveBeenCalled()
+    expect(h.rejected).toEqual([expect.objectContaining({ cause: 'never-live' })])
+  })
+
+  it("a person's message that was never typed names its cause and goes back to the draft", async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.queueText({ sessionId: SID, text: 'mine', sourceMessageId: 'msg_mine' })
+    await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_mine', outcome: 'failed', reason: 'no' })
+    expect(h.rejected).toEqual([expect.objectContaining({ cause: 'delivery-failed' })])
+    expect(h.promptFailed).toHaveBeenCalledOnce()
+    expect(h.getDraft()).toBe('mine')
+  })
+
+  it("a parent's spawn prompt is the child's initial prompt", async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.queueInitialPrompt({
+      sessionId: SID,
+      text: 'your task',
+      sourceMessageId: spawnPromptMessageId(SID),
+      inputOrigin: 'mail',
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.rows.map((row) => row.id)).toEqual([spawnPromptMessageId(SID)])
+    expect(h.contractCalls).toEqual([expect.objectContaining({ initialPrompt: true })])
   })
 
   it('does not overwrite a newer human draft on delivery failure', async () => {

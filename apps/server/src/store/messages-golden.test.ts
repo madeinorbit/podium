@@ -154,71 +154,48 @@ describe('listPendingSenders — never executed before this file', () => {
 })
 
 // ---------------------------------------------------------------------------
-// A refusal corrects only the push it answers, and never walks a row back
+// A failure and the notice telling its sender are one write (POD-4778)
 // ---------------------------------------------------------------------------
 
-describe('markSendRefused — only a row still on its way to that session', () => {
-  const seed = async (): Promise<void> => {
-    // On its way to READER: handed on, nothing confirmed it yet.
-    await add({ id: 'on-its-way' })
-    await messages.markDispatched('on-its-way', READER, 't1')
-    // Handed on, then confirmed: the agent has it, a refusal is late evidence.
-    await add({ id: 'confirmed' })
-    await messages.markDispatched('confirmed', READER, 't1')
-    await messages.markDelivered('confirmed', String(READER), 't1')
-    // Never handed on: no push for a refusal to answer.
-    await add({ id: 'held', deliveredTo: READER })
-  }
+describe('markDeadLetter / markDeliveryAbandoned — the notice rides the move', () => {
+  const notice = (id: string): MessageRow =>
+    message({ id, fromKind: 'system', fromName: 'steward', toKind: 'session', toId: String(OTHER) })
 
-  it('fails the row on its way and refuses the confirmed and the held row', async () => {
-    await seed()
-    expect((await messages.markSendRefused('on-its-way', READER, 't2', 'teardown')).kind).toBe('applied')
-    expect(await messages.markSendRefused('confirmed', READER, 't2', 'teardown')).toEqual({
-      kind: 'refused',
-      current: 'confirmed',
-    })
-    expect(await messages.markSendRefused('held', READER, 't2', 'teardown')).toEqual({
-      kind: 'refused',
-      current: 'stored',
-    })
-
-    const dead = await back('on-its-way')
-    expect(dead?.deliveryStatus).toBe('failed')
-    expect(dead?.deadLetteredAt).toBe('t2')
-    // Both refusal routes leave the same two stamps, so one undelivered turn
-    // reads the same way whichever route reported it.
-    expect(dead?.deliveryDeferredAt).toBe('t2')
-    expect(dead?.deliveryDeferredReason).toBe('teardown')
-
-    // The confirmed row is untouched in every column the write would have set.
-    const untouched = await back('confirmed')
-    expect(untouched?.deliveryStatus).toBe('confirmed')
-    expect(untouched?.deadLetteredAt).toBeNull()
-    expect(untouched?.deliveryDeferredReason).toBeNull()
-  })
-
-  it('is scoped to the session the row was handed to', async () => {
-    await add({ id: 'on-its-way' })
-    await messages.markDispatched('on-its-way', READER, 't1')
-    // A refusal reported by a session this row was never handed to must not
-    // move it. `delivered_to = ?` is half the guard and is easy to drop.
-    expect(await messages.markSendRefused('on-its-way', OTHER, 't2', 'teardown')).toEqual({
-      kind: 'refused',
-      current: 'dispatched',
-    })
-    expect((await back('on-its-way'))?.deliveryStatus).toBe('dispatched')
-  })
-
-  it('a repeated refusal is already there and writes nothing', async () => {
-    await add({ id: 'on-its-way' })
-    await messages.markDispatched('on-its-way', READER, 't1')
-    await messages.markSendRefused('on-its-way', READER, 't2', 'teardown')
-    expect(await messages.markSendRefused('on-its-way', READER, 't3', 'delivery-failed')).toEqual({
+  it('stores the notice when the move applies, and nothing on a repeat', async () => {
+    await add({ id: 'gone' })
+    expect((await messages.markDeadLetter('gone', 't1', undefined, notice('ntf-gone'))).kind).toBe(
+      'applied',
+    )
+    expect((await back('ntf-gone'))?.deliveryStatus).toBe('stored')
+    expect(await messages.markDeadLetter('gone', 't2', undefined, notice('ntf-gone-2'))).toEqual({
       kind: 'already-there',
     })
-    const row = await back('on-its-way')
-    expect(row?.deadLetteredAt).toBe('t2')
-    expect(row?.deliveryDeferredReason).toBe('teardown')
+    expect(await back('ntf-gone-2')).toBeNull()
+  })
+
+  it('stores no notice when the move is refused', async () => {
+    await add({ id: 'confirmed' })
+    await messages.markDelivered('confirmed', String(READER), 't1')
+    expect(
+      await messages.markDeliveryAbandoned('confirmed', READER, 't2', 'teardown', notice('ntf-c')),
+    ).toEqual({ kind: 'refused', current: 'confirmed' })
+    expect(await back('ntf-c')).toBeNull()
+    expect((await back('confirmed'))?.deadLetteredAt).toBeNull()
+  })
+
+  it('a notice that cannot be stored takes the move back with it', async () => {
+    await add({ id: 'on-its-way' })
+    await messages.markDispatched('on-its-way', READER, 't1')
+    // A notice that is not `stored` is refused by the insert: the failure
+    // must not commit without it.
+    await expect(
+      messages.markDeliveryAbandoned('on-its-way', READER, 't2', 'teardown', {
+        ...notice('ntf-bad'),
+        deliveryStatus: 'confirmed',
+      }),
+    ).rejects.toThrow()
+    expect((await back('on-its-way'))?.deliveryStatus).toBe('dispatched')
+    expect((await back('on-its-way'))?.deadLetteredAt).toBeNull()
   })
 })
 

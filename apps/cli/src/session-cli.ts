@@ -1,4 +1,9 @@
-import { makeRelayIssueClient, newMessageId, repeatUntilAnswered } from '@podium/issue-client'
+import {
+  makeRelayIssueClient,
+  newMessageId,
+  pendingSendNote,
+  repeatUntilAnswered,
+} from '@podium/issue-client'
 // The tier-1/2/3 session read models. These were three hand-copies here
 // (`StatusWire`, `RecapWire`, `ReadWire` — inventory §2.1 #22) because
 // `apps/cli` cannot import `apps/server`; `@podium/model` is the shared L0 home
@@ -407,6 +412,7 @@ export async function runSessionCli(
 
   let result: SessionResult
   let action: string
+  let messageId: string | undefined
   if (command === 'send' || command === 'resume-and-send') {
     const text = args.text
     if (typeof text !== 'string' || text.length === 0) {
@@ -416,7 +422,8 @@ export async function runSessionCli(
     const wake = command === 'resume-and-send' || args.wake === true
     // The mutationId IS the message id (POD-4763): one for every attempt, so a
     // repeat after a relay timeout is the same message.
-    const request = { sessionId, text, mutationId: newMessageId() }
+    messageId = newMessageId()
+    const request = { sessionId, text, mutationId: messageId }
     const proc = wake ? client.sessions.resumeAndSend : client.sessions.sendText
     result = await repeatUntilAnswered(() => proc.mutate(request))
     action = wake ? 'resume-and-send' : 'send'
@@ -430,7 +437,8 @@ export async function runSessionCli(
   if (!result.ok) throw new SessionCliError(result.reason ?? `${action} was not accepted`)
   // Honest outcome (#834): `held` (issue-addressed with no live session) and
   // `spawning` are named; a plain session send resolves to delivered/queued.
-  const text =
+  // A send still on its way says what happens if it never arrives (POD-4778).
+  const outcome =
     result.disposition === 'held'
       ? 'held for the issue’s next session'
       : result.disposition === 'spawning'
@@ -440,6 +448,10 @@ export async function runSessionCli(
           : action === 'continue'
             ? 'continued'
             : 'sent'
+  const pending =
+    messageId !== undefined &&
+    (result.queued === true || ['held', 'spawning', 'queued'].includes(result.disposition ?? ''))
+  const text = pending ? `${outcome} as ${messageId}; ${pendingSendNote(messageId!)}` : outcome
   return args.json === true
     ? JSON.stringify({
         command: action,

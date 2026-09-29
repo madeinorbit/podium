@@ -236,37 +236,40 @@ function line(i: { seq: number; title: string; priority?: number; stage?: string
 }
 
 /**
+ * WHAT THE SENDER OF A STILL-PENDING MESSAGE NEEDS TO KNOW (POD-4778): it does
+ * not have to poll. A message that ends undelivered tells its sender at its
+ * next turn; `mail status` shows where it stands meanwhile. Every send verb —
+ * `mail send`, `issue mail send`, `session send`, `agent spawn --prompt` —
+ * says it the same way.
+ */
+export const pendingSendNote = (id: string): string =>
+  `if it cannot be delivered you will be told at your next turn — 'podium mail status ${id}' shows where it is`
+
+/**
  * The sender-facing outcome of a send, stated as what the LEDGER can actually
  * back (#834, POD-1663).
  *
- * This used to print "mail sent" for every non-held disposition, on the reading
- * that `queued` "needs no note". It does. Only `delivered` means the message is
- * confirmed in the recipient's context; `queued` and `accepted` mean the row is
- * durably captured and NOT yet confirmed, and a row can legitimately sit in
- * `queued` indefinitely — an fyi/oversized issue message renders as an inbox
- * POINTER, which is confirmed only by an inbox read that may never come.
- *
- * POD-1663 is what that costs: a coordinator read `status='queued'` as proof of
- * an outage, built a P1 and two wrong hypotheses on it, and briefed against
- * messages the recipients had already received. The verb has to distinguish
- * "captured" from "confirmed", and point at the command that resolves it.
+ * Only `delivered` means the message is confirmed in the recipient's context;
+ * anything else is durably captured and NOT yet confirmed, and a row can
+ * legitimately stay that way — an fyi/oversized issue message renders as an
+ * inbox POINTER, which is confirmed only by an inbox read that may never come.
+ * POD-1663 is what reading "queued" as an outage cost; the verb distinguishes
+ * "captured" from "confirmed" and says what happens if it never arrives.
  */
 export function mailSendOutcomeText(ref: string, id: string, disposition?: string): string {
-  const check = `check: podium mail status ${id}`
+  const told = pendingSendNote(id)
   switch (disposition) {
     case 'delivered':
       return `mail DELIVERED to ${ref} (${id}) — confirmed in the recipient’s context`
     case 'held':
-      return `mail QUEUED for ${ref} (${id}) — HELD for the issue’s next session (no live session right now); ${check}`
+      return `mail QUEUED for ${ref} (${id}) — HELD for the issue’s next session (no live session right now); ${told}`
     case 'spawning':
-      return `mail QUEUED for ${ref} (${id}) — waking a session to receive it; ${check}`
-    case 'accepted':
-      return `mail QUEUED for ${ref} (${id}) — durably captured, NOT yet confirmed (the confirm budget expired); ${check}`
+      return `mail QUEUED for ${ref} (${id}) — waking a session to receive it; ${told}`
     default:
       // `queued`, and anything a future disposition adds: captured, unconfirmed.
       // Defaulting to the weaker claim is the point — a new disposition must not
       // inherit "sent" by falling through.
-      return `mail QUEUED for ${ref} (${id}) — durably captured, NOT yet confirmed; ${check}`
+      return `mail QUEUED for ${ref} (${id}) — on its way, NOT yet confirmed; ${told}`
   }
 }
 

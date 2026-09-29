@@ -140,6 +140,32 @@ describe('podium agent spawn', () => {
     expect(first).toMatchObject({ requestId: REQUEST_ID })
   })
 
+  it('[POD-4778] a task queued as the caller’s message names it and what happens if it fails', async () => {
+    const c = client({
+      spawnAgent: {
+        ok: true,
+        sessionId: 'child1',
+        issueId: 'iss_a',
+        issueSeq: 228,
+        cwd: '/wt/a',
+        agentId: 'child1',
+        harness: 'cursor',
+        model: null,
+        effort: null,
+        machine: 'buildbox',
+        promptMessageId: 'msg_task',
+      },
+    })
+    const out = await runAgentCli(['spawn', '--issue', '#228', '--prompt', 'go'], c)
+    expect(out).toContain(
+      "  task:   msg_task — if it cannot be delivered you will be told at your next turn — 'podium mail status msg_task' shows where it is\n",
+    )
+    // Launched with the process instead: nothing to follow.
+    expect(await runAgentCli(['spawn', '--issue', '#228', '--prompt', 'go'], client())).not.toContain(
+      'task:',
+    )
+  })
+
   it('--new maps to newTitle (the deliberate issue-create path)', async () => {
     const c = client()
     await runAgentCli(['spawn', '--new', 'follow-up', '--repo', '/repo', '--prompt', 'go'], c)

@@ -16,7 +16,12 @@
 
 import type { ThreadId } from '@podium/model'
 import { deadLetterDeliveryLine, deadLetterSenderGloss } from '@podium/model'
-import { makeRelayIssueClient, newMessageId, repeatUntilAnswered } from '@podium/issue-client'
+import {
+  makeRelayIssueClient,
+  newMessageId,
+  pendingSendNote,
+  repeatUntilAnswered,
+} from '@podium/issue-client'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import {
   declareFlags,
@@ -158,6 +163,8 @@ interface MessageWire {
   deadLetteredAt?: string | null
   deliveryDeferredAt?: string | null
   deliveryDeferredReason?: string | null
+  /** The notice that told the sender it was not delivered (POD-4778). */
+  noticeId?: string
   expiresAt?: string | null
   // A reply was requested [POD-835] — the reader owes a response.
   expectsResponse?: boolean
@@ -179,24 +186,22 @@ function renderRow(m: MessageWire): string {
   // unconfirmed row (delivery-failed) is a delivery failure, not a vanished
   // target. The shared ledger line keeps every surface worded one way.
   const cause =
-    m.status === 'dead_letter' ? ` · ${deadLetterDeliveryLine(m.deliveryDeferredReason)}` : ''
+    statusOf(m) === 'failed' || statusOf(m) === 'dead_letter'
+      ? ` · ${deadLetterDeliveryLine(m.deliveryDeferredReason)}`
+      : ''
   return `${m.id} ${m.from} -> ${m.to} ${m.createdAt} [${flags.join(',')}]${cause}\n  ${m.body}`
 }
 
-/** The send disposition, worded for the sender (#834, [POD-854] blocking send).
- *  A blocking send (interrupt / next-turn) waits for the trustworthy outcome:
- *  `delivered` = CONFIRMED in the target's transcript; `accepted` = the budget
- *  expired with the row still queued (busy / composer-draft-held / lost echo) —
- *  durably captured, not yet confirmed, query `podium mail status`. `queued` = fyi
- *  landed for the next pause; `held` = no live session (delivers at the issue's
- *  next session); `spawning` = a session is being woken. Falls back to the legacy
- *  queued/delivered wording when a server predates the field. */
+/** The send disposition, worded for the sender (#834). A send answers at once
+ *  and the target's machine settles it later [POD-4661]: `queued` = on its way
+ *  to the target's next turn; `held` = no live session (delivers at the issue's
+ *  next session); `spawning` = a session is being woken; `delivered` = already
+ *  confirmed (a repeat of a send that landed). Anything else — an older
+ *  server's word — reads plainly. */
 function dispositionLabel(disposition: string | undefined, queued: boolean | undefined): string {
   switch (disposition) {
     case 'delivered':
       return 'delivered'
-    case 'accepted':
-      return 'accepted — not yet confirmed delivered'
     case 'queued':
       return 'queued for the target’s next turn'
     case 'held':
@@ -206,7 +211,7 @@ function dispositionLabel(disposition: string | undefined, queued: boolean | und
     case 'dead_letter':
       return 'dead-lettered'
     default:
-      return queued ? 'queued' : 'delivered'
+      return queued ? 'queued' : 'sent'
   }
 }
 
@@ -262,6 +267,7 @@ function renderLifecycle(m: MessageWire): string {
     m.deliveryDeferredAt ? `deferred=${m.deliveryDeferredAt}` : null,
     m.deliveryDeferredReason ? `deferred-reason=${m.deliveryDeferredReason}` : null,
     m.deliveredTo ? `to-session=${m.deliveredTo}` : null,
+    m.noticeId ? `notified=${m.noticeId}` : null,
   ].filter(Boolean)
   return [
     `${m.id} ${m.from} -> ${m.to}`,
@@ -332,17 +338,12 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
         dispositionLabel(r.disposition, r.queued),
         r.clamped ? 'downgraded to your authority cap' : null,
         r.expectsResponse ? 'response expected (pull-delivered)' : null,
-        // A handed-on send is never a bare success [POD-854]: point the sender at
-        // the ledger so they can see it flip to delivered (or dead-lettered). A
-        // send answers at once and the daemon confirms it later [POD-4661];
-        // `accepted` is what an older server says for the same state.
-        r.disposition === 'queued' || r.disposition === 'accepted'
-          ? `run 'podium mail status ${r.id}' to track it`
-          : null,
       ]
         .filter(Boolean)
         .join(', ')
-      return done(`sent ${r.id} (${note})`, r)
+      // Still on its way: a failure is pushed to the sender, so it need not poll.
+      const pending = r.disposition !== 'delivered' && r.disposition !== 'dead_letter'
+      return done(`sent ${r.id} (${note}${pending ? `; ${pendingSendNote(r.id)}` : ''})`, r)
     }
     case 'inbox': {
       const rows = (await client.messages.inbox.mutate(

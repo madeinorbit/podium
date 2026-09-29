@@ -1,13 +1,10 @@
 import {
-  isMessagePending,
   MessageDelivery,
   type SessionId,
   type TranscriptItemRef,
 } from '@podium/model'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { MessageRow } from '../../store'
-import { moved } from '../../store/messages'
-import type { EventBus } from '../bus'
 import type { MessageDeliveryDeps } from './service'
 
 /** Durable apply-time guard shared by the session inbox and message delivery. */
@@ -15,7 +12,6 @@ export class QueuedMessageApply {
   constructor(
     private readonly deps: {
       messages: MessageDeliveryDeps['messages']
-      events: MessageDeliveryDeps['events']
       authorize(
         message: MessageRow,
       ):
@@ -25,8 +21,7 @@ export class QueuedMessageApply {
       applied(messageId: string, sessionId: SessionId): Promise<void>
       injected(messageId: string, sessionId: SessionId): Promise<void>
       unconfirmed(messageId: string, sessionId: SessionId, reason: string): Promise<void>
-      bus: EventBus
-      now(): string
+      rejected(messageId: string, reason: string, cause?: QueueDrainAbandonedReason): Promise<void>
     },
   ) {}
 
@@ -72,41 +67,15 @@ export class QueuedMessageApply {
     await completion
   }
 
+  /** The inbox refused the row at apply time (no `cause`), or the daemon said
+   *  it was never typed (`cause`): the message fails and its sender is told,
+   *  in one write (POD-4778). */
   async reject(
     messageId: string,
     reason: string,
     knownCause?: QueueDrainAbandonedReason,
   ): Promise<void> {
-    const message = await this.deps.messages.getMessage(messageId)
-    if (!message || !isMessagePending(message.deliveryStatus)) return
-    const at = this.deps.now()
-    // A HANDED-ON ROW IS NOT A VANISHED TARGET [POD-4704]. The
-    // inbox settles a forwarded row as failed when the daemon never confirmed
-    // it — typed but cut off mid-turn, never applied — and lands here, as does
-    // a drain-time refusal of a row already queued behind it. Without a cause
-    // the ledger falls back to "target gone" about a session that is alive
-    // (POD-4604 run 13), so stamp `delivery-failed`: the delivery is what
-    // failed, not the target. Rows never pushed keep no cause, and downstream
-    // readers correctly read those as a vanished target.
-    // A cause the daemon named wins: `never-live` says the agent was not
-    // accepting input, which is exactly what the sender should read (POD-4775).
-    const cause =
-      knownCause ?? (message.deliveryStatus !== 'stored' ? 'delivery-failed' : undefined)
-    if (!moved(await this.deps.messages.markDeadLetter(message.id, at, cause))) return
-    await this.deps.events.appendEvent({
-      ts: at,
-      kind: 'message.dead_letter',
-      subject: message.id,
-      payload: {
-        messageId: message.id,
-        threadId: message.threadId,
-        fromKind: message.fromKind,
-        toKind: message.toKind,
-        ...(message.toId ? { toId: message.toId } : {}),
-        deliveryStatus: 'failed',
-        reason,
-      },
-    })
-    this.deps.bus.emit('message.deadLettered', { messageId, reason })
+    const completion: Promise<void> = this.deps.rejected(messageId, reason, knownCause)
+    await completion
   }
 }

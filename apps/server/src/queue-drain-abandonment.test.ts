@@ -313,8 +313,8 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
     const notice = (await store.messages.listQueued()).find(
       (m) => m.kind === 'notification' && m.body.includes(messageId),
     )
-    expect(notice?.body).toContain('could not be delivered')
-    expect(notice?.body).toContain('then failed to hand it to the agent')
+    expect(notice?.body).toContain('was not delivered')
+    expect(notice?.body).toContain("the target's machine could not hand it over; it was never typed")
     // Sent back to whoever sent the original, not broadcast at the session.
     expect(replyTo.kind).toBe('operator')
     expect(notice?.toKind).toBe(replyTo.kind)

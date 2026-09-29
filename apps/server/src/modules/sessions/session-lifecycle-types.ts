@@ -99,6 +99,13 @@ export interface SessionLifecycleDeps {
     reason: string,
     cause?: import('@podium/protocol/daemon').QueueDrainAbandonedReason,
   ): Promise<void>
+  /** Store a spawn's task prompt as the parent session's message to the child
+   *  (POD-4778); answers its id. */
+  recordSpawnPrompt?(input: {
+    parentSessionId: SessionId
+    sessionId: SessionId
+    text: string
+  }): Promise<string>
   /** The message is about to become this session's input: record the hand-off
    *  and answer whether it may still be handed on (POD-4776). */
   handOffQueuedMessage?(messageId: string, sessionId: SessionId): Promise<boolean>

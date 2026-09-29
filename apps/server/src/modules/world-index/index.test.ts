@@ -536,7 +536,7 @@ describe('world index committed facts', () => {
       await store.messages.addMessage(message({ id }))
       await store.messages.markDispatched(id, session, at)
       apply.mockClear()
-      if (transition === 'refuse') await store.messages.markSendRefused(id, session, at, 'teardown')
+      if (transition === 'refuse') await store.messages.markDeliveryAbandoned(id, session, at, 'teardown')
       else await store.messages.markRead(id, null, at)
       expect(apply).toHaveBeenCalledTimes(1)
       expect(index.reader.pendingCount({ kind: 'issue', id: 'iss_target' })).toBe(

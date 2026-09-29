@@ -29,7 +29,6 @@ import type { WorldIndexReader } from '../world-index'
 import { createLogger } from '@podium/logger'
 import {
   asThreadId,
-  deadLetterSenderGloss,
   isMessageHandedOn,
   isMessagePending,
   isSpawnedBy,
@@ -64,6 +63,7 @@ import {
 } from '@podium/protocol/daemon'
 import type { CommandPrincipal } from '../../command-principal'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
+import { failureNoticeId, spawnPromptMessageId } from '../../message-ids'
 import type {
   IssueMessageRow,
   MessageKind,
@@ -457,14 +457,29 @@ function capUrgency(requested: MessageUrgency, max: MessageUrgency): MessageUrge
   return URGENCY_ORDER.indexOf(requested) > URGENCY_ORDER.indexOf(max) ? max : requested
 }
 
-/** What the sender is told when the daemon reports it never typed their turn
- *  [POD-2132, POD-2202]. Written for the person holding the receipt, not for the
- *  driver: neither reason is anybody's fault and neither is a retry instruction. */
-const ABANDONED_REASON_TEXT: Record<QueueDrainAbandonedReason, string> = {
-  'never-live': 'the agent was not accepting input, so it was never typed',
-  teardown: 'the target session was torn down before it could be typed into',
-  'delivery-failed': 'the target session accepted it, then failed to hand it to the agent',
-}
+/**
+ * WHY A MESSAGE ENDED UNDELIVERED, in the terms its sender can act on
+ * (POD-4778). Each kind has one reason and one next step in the sender's
+ * notice; see {@link MessageDeliveryService.failureWords}.
+ *
+ *  - `session-gone`  the target session was deleted or archived.
+ *  - `issue-ended`   the target issue was closed, archived or deleted.
+ *  - `not-allowed`   the sender lost the authority to reach it (apply-time
+ *                    re-authorization, a refused wake placement).
+ *  - `never-typed`   the target's side gave up before typing it: `never-live`
+ *                    (not accepting input), `teardown` (stopped first),
+ *                    `delivery-failed` (the hand-off failed); `detail` names a
+ *                    refusal more precisely when there is one.
+ */
+export type SendFailure =
+  | { kind: 'session-gone' }
+  | { kind: 'issue-ended' }
+  | { kind: 'not-allowed' }
+  | { kind: 'never-typed'; cause: QueueDrainAbandonedReason; detail?: string }
+
+const SESSION_GONE: SendFailure = { kind: 'session-gone' }
+const ISSUE_ENDED: SendFailure = { kind: 'issue-ended' }
+const NOT_ALLOWED: SendFailure = { kind: 'not-allowed' }
 
 export class MessageDeliveryService {
   /** hop of the message that triggered the CURRENT turn per session — set at
@@ -916,46 +931,7 @@ export class MessageDeliveryService {
       )
     }
 
-    // Legacy mailbox mirror (same id, so `podium issue mail claim <id>` works
-    // on either surface).
-    // Belt-and-braces (#463): only mirror when toId is a REAL issue id — an
-    // unresolved ref must surface as an undeliverable message, never as a raw
-    // SQLite FOREIGN KEY error out of the mirror insert.
-    let legacy: IssueMessageRow | undefined
-    // The apply-time gate runs BEFORE the mirror, not only before delivery.
-    // Otherwise a caller who addressed the literal internal id of an issue
-    // beyond its human's visibility would land a row in that issue's legacy
-    // mailbox even though delivery later refuses it — a write into a workspace
-    // the principal cannot see, which is the injection §3.1.5 exists to prevent.
-    if (
-      message.toKind === 'issue' &&
-      toId &&
-      await issues.has(toId) &&
-      (await this.applyAuth(message)).ok
-    ) {
-      legacy = {
-        id,
-        // `toId` is polymorphic by `toKind` (see the MessageRow field's note), so
-        // the brand is recovered HERE, inside the branch that decides the id
-        // space — and only after `issues.has(toId)` confirms the row exists.
-        issueId: asIssueId(toId),
-        fromAuthor: await this.legacyAuthor(from),
-        body: input.body,
-        createdAt: message.createdAt,
-        status: 'unread',
-        claimedBy: null,
-        claimedAt: null,
-      }
-      // AFTER THE COMMIT, not inside the span [POD-3806]. Both mirrors are wired
-      // at the composition root to `funnel.run({ write })`, which opens its own
-      // store transaction. Under the async executor that
-      // transaction JOINS whatever span this send is running inside, as a
-      // savepoint, so firing it here made the span's next statement address a
-      // frame with an open child (refused) and left the mirror's savepoint to die
-      // when the span closed. Same shape as the lock bug (POD-3802).
-      const mirrored = legacy
-      afterCommit(() => this.deps.mirrorIssueMail?.(mirrored), 'legacy-mail-mirror')
-    }
+    const legacy = await this.mirrorToIssueMailbox(message, from)
 
     const outcome = await this.attemptDelivery(message)
     // A pushed row may already be in the SessionInbox FIFO with an exact
@@ -970,6 +946,55 @@ export class MessageDeliveryService {
       ...(position !== undefined ? { position } : {}),
       legacy,
     }
+  }
+
+  /**
+   * Legacy mailbox mirror (same id, so `podium issue mail claim <id>` works on
+   * either surface). Belt-and-braces (#463): only mirror when toId is a REAL
+   * issue id — an unresolved ref must surface as an undeliverable message,
+   * never as a raw SQLite FOREIGN KEY error out of the mirror insert.
+   *
+   * The apply-time gate runs BEFORE the mirror, not only before delivery.
+   * Otherwise a caller who addressed the literal internal id of an issue
+   * beyond its human's visibility would land a row in that issue's legacy
+   * mailbox even though delivery later refuses it — a write into a workspace
+   * the principal cannot see, which is the injection §3.1.5 exists to prevent.
+   */
+  private async mirrorToIssueMailbox(
+    message: MessageRow,
+    from: MessageSender,
+  ): Promise<IssueMessageRow | undefined> {
+    const toId = message.toId
+    if (
+      message.toKind !== 'issue' ||
+      !toId ||
+      !(await this.deps.issues.has(toId)) ||
+      !(await this.applyAuth(message)).ok
+    ) {
+      return undefined
+    }
+    const legacy: IssueMessageRow = {
+      id: message.id,
+      // `toId` is polymorphic by `toKind` (see the MessageRow field's note), so
+      // the brand is recovered HERE, inside the branch that decides the id
+      // space — and only after `issues.has(toId)` confirms the row exists.
+      issueId: asIssueId(toId),
+      fromAuthor: await this.legacyAuthor(from),
+      body: message.body,
+      createdAt: message.createdAt,
+      status: 'unread',
+      claimedBy: null,
+      claimedAt: null,
+    }
+    // AFTER THE COMMIT, not inside the span [POD-3806]. Both mirrors are wired
+    // at the composition root to `funnel.run({ write })`, which opens its own
+    // store transaction. Under the async executor that transaction JOINS
+    // whatever span this send is running inside, as a savepoint, so firing it
+    // here made the span's next statement address a frame with an open child
+    // (refused) and left the mirror's savepoint to die when the span closed.
+    // Same shape as the lock bug (POD-3802).
+    afterCommit(() => this.deps.mirrorIssueMail?.(legacy), 'legacy-mail-mirror')
+    return legacy
   }
 
   /**
@@ -1083,7 +1108,9 @@ export class MessageDeliveryService {
     // access before the drain is rejected here and surfaced to its sender —
     // not silently dropped, not applied.
     const auth = await this.applyAuth(message)
-    if (!auth.ok) return await this.deadLetter(message, auth.reason, { notifySender })
+    if (!auth.ok) {
+      return await this.deadLetter(message, auth.reason, { notifySender, failure: NOT_ALLOWED })
+    }
     if (message.toKind === 'operator') {
       // Escalation to the human: stays queued, kind-tagged for UI pickup (ledger
       // view). Its "delivery" is the operator reading their inbox, not a black hole.
@@ -1105,27 +1132,44 @@ export class MessageDeliveryService {
         // list). A session-addressed row records no issue to re-route to, so
         // dead-letter it: never silently queue to a session that will never exist
         // again — the 70 POD-279 losses included exactly this [POD-834 §05].
-        return await this.deadLetter(message, 'session no longer exists', { notifySender })
+        return await this.deadLetter(message, 'session no longer exists', {
+          notifySender,
+          failure: SESSION_GONE,
+        })
       }
       // An archived row remains addressable for history, but is retired for
       // delivery. Treat it as a terminal target before the wake path can queue
       // input and revive a hidden process.
       if (target.archived) {
-        return await this.deadLetter(message, 'session is archived', { notifySender })
+        return await this.deadLetter(message, 'session is archived', {
+          notifySender,
+          failure: SESSION_GONE,
+        })
       }
     } else {
       const issue = await this.deps.issues.get(message.toId ?? '')
-      if (!issue) return await this.deadLetter(message, 'issue no longer exists', { notifySender })
+      if (!issue) {
+        return await this.deadLetter(message, 'issue no longer exists', {
+          notifySender,
+          failure: ISSUE_ENDED,
+        })
+      }
       // A closed-and-archived issue is GONE — no future session will prime on it,
       // so holding is a black hole. Dead-letter it [POD-834 §05]. A merely open
       // (or done-but-live) issue with no session is HELD, below.
       if (issue.archived)
-        return await this.deadLetter(message, `issue #${issue.seq} is archived`, { notifySender })
+        return await this.deadLetter(message, `issue #${issue.seq} is archived`, {
+          notifySender,
+          failure: ISSUE_ENDED,
+        })
       // A closed issue is terminal even when it has not reached the archive
       // lifecycle yet. In particular, a queued wake must not resurrect a
       // session after the close reaper has stopped it.
       if (isIssueClosed(issue))
-        return await this.deadLetter(message, `issue #${issue.seq} is closed`, { notifySender })
+        return await this.deadLetter(message, `issue #${issue.seq} is closed`, {
+          notifySender,
+          failure: ISSUE_ENDED,
+        })
       // The narrow read applies `isIssueMember` BEFORE the reader-scoped
       // projection is built (POD-1639) — the same predicate `sessionsForIssue`
       // applied after it, so the set is unchanged. The post-filter that used to
@@ -1347,6 +1391,75 @@ export class MessageDeliveryService {
   }
 
   /**
+   * THE TASK A SESSION SPAWNED ANOTHER WITH IS ITS MESSAGE (POD-4778).
+   *
+   * Stored from the parent to the child under an id derived from the child, so
+   * the parent can follow it with `mail status` and its outcome settles like
+   * any message's: the inbox's settlement confirms it, and a failure tells the
+   * parent — the one who needs the child to have its task — in the same write.
+   * It is stored ALREADY handed to the child, in one transaction: the child's
+   * queue is the one delivery it has, and a held row would be pushed a second
+   * time by the delivery sweep. A repeat (a retried start) stores nothing new.
+   */
+  async recordSpawnPrompt(input: {
+    parentSessionId: SessionId
+    sessionId: SessionId
+    text: string
+  }): Promise<string> {
+    const id = spawnPromptMessageId(input.sessionId)
+    const parent = await this.deps.sessions.sessionById(input.parentSessionId)
+    const parentIssue = this.issueForSession(parent)
+    const from: MessageSender = {
+      kind: 'agent',
+      sessionId: input.parentSessionId,
+      ...(parentIssue ? { issueId: parentIssue } : {}),
+    }
+    const authority = await this.authorityOf(from)
+    const at = this.deps.now()
+    const prompt: MessageRow = {
+      id,
+      threadId: asThreadId(id),
+      inReplyTo: null,
+      fromKind: 'agent',
+      fromSession: input.parentSessionId,
+      fromName: null,
+      fromIssue: parentIssue,
+      attribution: authority.attribution,
+      delegationRef: authority.delegationRef,
+      toKind: 'session',
+      toId: input.sessionId,
+      kind: 'message',
+      urgency: 'next-turn',
+      lifecycle: 'wait',
+      body: input.text,
+      expiresAt: null,
+      createdAt: at,
+      deliveryStatus: 'stored',
+      deliveredAt: null,
+      deliveredTo: null,
+      ackedBy: null,
+      hop: 0,
+      clampedFrom: null,
+      remindedAt: null,
+      factKey: null,
+      factTarget: null,
+      expectsResponse: false,
+    }
+    const write = async (): Promise<boolean> => {
+      if (!(await this.deps.messages.addMessage(prompt))) return false
+      await this.deps.messages.markDispatched(id, input.sessionId, at)
+      return true
+    }
+    if (!(this.deps.transact ? await this.deps.transact(write) : await write())) return id
+    await this.emitTransition(prompt, 'message.queued')
+    await this.emitTransition(
+      { ...prompt, deliveryStatus: 'dispatched', deliveredTo: input.sessionId, injectedAt: at },
+      'message.injected',
+    )
+    return id
+  }
+
+  /**
    * SessionInbox calls this immediately before a message becomes `sessionId`'s
    * input — before its queue row is written (POD-4776). The move to
    * `dispatched` commits first, so a retract that already moved the held
@@ -1434,7 +1547,7 @@ export class MessageDeliveryService {
    * delivered and nothing on this side will deliver it: the row
    * goes TERMINAL (`failed`), which is what takes it out of `countPending`,
    * off the retry sweep, and out of a blocked sender's `waitFor`. The sender is
-   * told once, the way any dead-letter tells them — being told nothing is the
+   * told once, by the notice stored with the move — being told nothing is the
    * defect this closes.
    *
    * DIRECT TURNS ONLY. A direct turn is a driver-local FIFO entry the daemon
@@ -1465,7 +1578,15 @@ export class MessageDeliveryService {
       const message = await this.deps.messages.getMessage(messageId)
       if (!message || !isMessagePending(message.deliveryStatus)) continue
       if (await this.deps.sessions.hasQueuedMessage?.(sessionId, messageId)) continue
-      if (!moved(await this.deps.messages.markDeliveryAbandoned(messageId, sessionId, at, reason))) continue
+      const notice = await this.failureNotice(message, { kind: 'never-typed', cause: reason })
+      const outcome = await this.deps.messages.markDeliveryAbandoned(
+        messageId,
+        sessionId,
+        at,
+        reason,
+        notice,
+      )
+      if (!moved(outcome)) continue
       const abandoned: MessageRow = {
         ...message,
         deliveryStatus: 'failed',
@@ -1479,7 +1600,7 @@ export class MessageDeliveryService {
         retryable: false,
         deliveryConfirmed: false,
       })
-      await this.notifyDeadLetter(message, ABANDONED_REASON_TEXT[reason])
+      await this.noticeStored(notice)
     }
   }
 
@@ -1990,9 +2111,11 @@ export class MessageDeliveryService {
       receipt.refusal.reason === 'unsupported' &&
       message.attachments?.length
     ) {
-      await this.deadLetter(message, receipt.refusal.detail ?? 'file attachments are unsupported', {
+      const detail = receipt.refusal.detail ?? 'file attachments are unsupported'
+      await this.deadLetter(message, detail, {
         cause: 'delivery-failed',
         notifySender: message.fromKind !== 'operator',
+        failure: { kind: 'never-typed', cause: 'delivery-failed', detail },
       })
     }
   }
@@ -2099,11 +2222,17 @@ export class MessageDeliveryService {
     }
   }
 
-  /** Dead-letter a message whose target was gone [POD-834 §05]: mark it terminal,
-   *  ledger the transition, and — for a row discovered gone LATER (sweep), when
-   *  the sender isn't watching a synchronous return — tell the sender once. A
-   *  send-time dead-letter skips the notice (the sender gets the outcome inline).
-   *  Returns the `dead_letter` disposition for the delivery path.
+  /** Dead-letter a message that cannot be delivered [POD-834 §05]: mark it
+   *  terminal, ledger the transition, and — for a row discovered undeliverable
+   *  LATER (sweep, apply, a daemon report), when the sender isn't watching a
+   *  synchronous return — tell the sender once. A send-time dead-letter skips
+   *  the notice (the sender gets the outcome inline). Returns the `dead_letter`
+   *  disposition for the delivery path.
+   *
+   *  THE NOTICE IS WRITTEN WITH THE MOVE (POD-4778): built first from reads
+   *  only, then stored in the same transaction as the move to `failed`, and
+   *  only if this call made it. A crash cannot lose it and a repeat cannot
+   *  double it; the delivery path takes it from there.
    *
    *  A HANDED-ON ROW IS NOT A VANISHED TARGET [POD-4704]. A row the server
    *  handed on but never saw confirmed (dispatched or further, not stored)
@@ -2116,11 +2245,12 @@ export class MessageDeliveryService {
   private async deadLetter(
     message: MessageRow,
     reason: string,
-    opts?: { notifySender?: boolean; cause?: QueueDrainAbandonedReason },
+    opts: { notifySender?: boolean; cause?: QueueDrainAbandonedReason; failure: SendFailure },
   ): Promise<DeliveryOutcome> {
     const at = this.deps.now()
-    const cause = opts?.cause ?? (message.deliveryStatus !== 'stored' ? 'delivery-failed' : undefined)
-    if (moved(await this.deps.messages.markDeadLetter(message.id, at, cause))) {
+    const cause = opts.cause ?? (message.deliveryStatus !== 'stored' ? 'delivery-failed' : undefined)
+    const notice = opts.notifySender ? await this.failureNotice(message, opts.failure) : null
+    if (moved(await this.deps.messages.markDeadLetter(message.id, at, cause, notice))) {
       await this.emitTransition(
         {
           ...message,
@@ -2129,50 +2259,158 @@ export class MessageDeliveryService {
           ...(cause ? { deliveryDeferredAt: at, deliveryDeferredReason: cause } : {}),
         },
         'message.dead_letter',
-        // The event names WHY [POD-3226]. The row records only when, and the
-        // sender's notice is best-effort; without this, most dead-letter events
-        // on a live instance said nothing about the cause.
+        // The event names WHY [POD-3226]. The row records only when; without
+        // this, most dead-letter events on a live instance said nothing about
+        // the cause.
         { reason },
       )
-      // AN INJECTED-BUT-UNCONFIRMED NOTICE IS NOT A VANISHED TARGET [POD-4704].
-      // When the cause was inferred from the row having been typed
-      // (injectedAt set, no explicit opts.cause), the free-text reason is the
-      // sweep's "session no longer exists" about a session that is alive
-      // (POD-4604 run 13). The steward notice must say the delivery failed,
-      // never that the target vanished — the shared gloss keeps it worded one
-      // way with the CLI and the web ledger. An explicit cause keeps its own
-      // accurate detail (e.g. attachment refusal).
-      if (opts?.notifySender) {
-        const inferredUnconfirmed = opts?.cause === undefined && cause === 'delivery-failed'
-        await this.notifyDeadLetter(
-          message,
-          inferredUnconfirmed ? deadLetterSenderGloss('delivery-failed') : reason,
-        )
-      }
+      await this.noticeStored(notice)
     }
     return { ok: false, reason: `dead-lettered: ${reason}`, disposition: 'dead_letter' }
   }
 
-  /** Tell the sender, exactly once, that their message could not be delivered —
-   *  routed back to the sender principal like a reply. Never for a system/steward
-   *  sender (no one to tell, and it would loop). */
-  private async notifyDeadLetter(message: MessageRow, reason: string): Promise<void> {
-    if (message.fromKind === 'system') return
+  /**
+   * THE NOTICE A SENDER GETS WHEN ITS MESSAGE ENDED UNDELIVERED (POD-4778), or
+   * null when there is nobody to tell: a system/steward sender (no one to tell,
+   * and it would loop). Routed back like a reply — the sending session if it
+   * still exists, else its issue, else the operator for a person's own
+   * message. Reads only; the caller stores it with the failure.
+   */
+  private async failureNotice(message: MessageRow, failure: SendFailure): Promise<MessageRow | null> {
+    if (message.fromKind === 'system') return null
     const to = await this.replyTarget(message)
-    try {
-      await this.send(
-        { kind: 'system', name: 'steward' },
-        {
-          to,
-          kind: 'notification',
-          urgency: 'next-turn',
-          lifecycle: 'wait',
-          body:
-            `Your message ${message.id} could not be delivered — ${reason}. ` +
-            `It was dead-lettered (not dropped); it stays readable in the ledger.`,
-        },
-      )
-    } catch {}
+    const { reason, action } = await this.failureWords(message, failure)
+    const from: MessageSender = { kind: 'system', name: 'steward' }
+    const authority = await this.authorityOf(from)
+    const id = failureNoticeId(message.id)
+    return {
+      id,
+      threadId: asThreadId(id),
+      inReplyTo: null,
+      fromKind: 'system',
+      fromSession: null,
+      fromName: 'steward',
+      fromIssue: null,
+      attribution: authority.attribution,
+      delegationRef: authority.delegationRef,
+      toKind: to.kind,
+      toId: to.kind === 'operator' ? null : (to.id ?? null),
+      kind: 'notification',
+      urgency: 'next-turn',
+      lifecycle: 'wait',
+      body: `Your message ${message.id} to ${await this.targetLabel(message)} was not delivered: ${reason}. ${action}`,
+      expiresAt: null,
+      createdAt: this.deps.now(),
+      deliveryStatus: 'stored',
+      deliveredAt: null,
+      deliveredTo: null,
+      ackedBy: null,
+      hop: 0,
+      clampedFrom: null,
+      remindedAt: null,
+      factKey: null,
+      factTarget: null,
+      expectsResponse: false,
+    }
+  }
+
+  /**
+   * THE REASON AND THE ONE NEXT STEP, per failure (POD-4778 §2). A notice an
+   * agent cannot act on is noise, so each names what is still worth doing:
+   * reach whoever works the target's issue now, send it again (safe only when
+   * it was never typed), or stop waiting for a reply.
+   */
+  private async failureWords(
+    message: MessageRow,
+    failure: SendFailure,
+  ): Promise<{ reason: string; action: string }> {
+    const words = await (async (): Promise<{ reason: string; action: string }> => {
+      switch (failure.kind) {
+        case 'session-gone':
+          return { reason: 'that session has ended', action: await this.reachIssueInstead(message) }
+        case 'issue-ended': {
+          const issue = message.toId ? await this.deps.issues.getMeta(message.toId) : undefined
+          const ref = issue ? await this.deps.issues.niceRef(issue) : 'that issue'
+          return { reason: `${ref} is finished`, action: 'Do not wait for a reply.' }
+        }
+        case 'not-allowed':
+          return {
+            reason: 'you are no longer allowed to reach it',
+            action: 'Do not resend; do not wait for a reply.',
+          }
+        case 'never-typed':
+          switch (failure.cause) {
+            case 'never-live':
+              return {
+                reason:
+                  'the target is waiting on a person and was not accepting input; it was never typed, and its owner has been told',
+                action: 'Sending it again later is safe; nothing is waiting in its queue.',
+              }
+            case 'teardown':
+              return {
+                reason: 'the session was stopped before it was typed; it never saw it',
+                action: await this.reachIssueInstead(message),
+              }
+            case 'delivery-failed':
+              return failure.detail
+                ? {
+                    reason: `${failure.detail}; it was never typed`,
+                    action: 'Sending it again without what was refused is safe.',
+                  }
+                : {
+                    reason: "the target's machine could not hand it over; it was never typed",
+                    action: 'Sending it again is safe.',
+                  }
+          }
+      }
+    })()
+    // A spawn prompt that never arrived leaves a child with nothing to do: the
+    // one step that helps is giving it the task, or stopping it.
+    if (message.toKind === 'session' && message.toId && message.id === spawnPromptMessageId(asSessionId(message.toId))) {
+      return {
+        reason: `${words.reason}; the child session ${message.toId} has no task`,
+        action: `Send the task with \`podium session send ${message.toId}\` or stop it.`,
+      }
+    }
+    return words
+  }
+
+  /** Who a message was addressed to, as its sender would name it. */
+  private async targetLabel(message: MessageRow): Promise<string> {
+    if (message.toKind === 'issue') {
+      const issue = message.toId ? await this.deps.issues.getMeta(message.toId) : undefined
+      return issue ? await this.deps.issues.niceRef(issue) : `issue ${message.toId}`
+    }
+    if (message.toKind === 'session') return `session ${message.toId}`
+    return 'the operator'
+  }
+
+  /** The next step when the target session is gone: its issue, if still open,
+   *  reaches whoever works it now. Otherwise nobody holds that conversation. */
+  private async reachIssueInstead(message: MessageRow): Promise<string> {
+    const issueId =
+      message.toKind === 'issue'
+        ? message.toId
+        : this.issueForSession(
+            message.toId ? await this.deps.sessions.sessionById(asSessionId(message.toId)) : undefined,
+          )
+    const issue = issueId ? await this.deps.issues.get(issueId) : undefined
+    if (issue && !issue.archived && !isIssueClosed(issue)) {
+      const ref = await this.deps.issues.niceRef(issue)
+      return `Send to ${ref} (\`podium issue mail send ${ref} …\`) to reach whoever works it now.`
+    }
+    return 'Nobody else holds that conversation; do not wait for a reply.'
+  }
+
+  /** A notice just stored with a failure: ledgered like any send, mirrored into
+   *  the issue mailbox when addressed to one, and offered to delivery now.
+   *  A restart before this runs loses nothing: delivery finds the stored row. */
+  private async noticeStored(notice: MessageRow | null): Promise<void> {
+    if (!notice) return
+    await this.emitTransition(notice, 'message.queued')
+    await this.mirrorToIssueMailbox(notice, { kind: 'system', name: 'steward' })
+    const target = this.deliveryTargetOf(notice)
+    if (target) await this.queueDeliveryTarget(target)
   }
 
   /**
@@ -2247,7 +2485,10 @@ export class MessageDeliveryService {
     if (!port) return null
     const decision = await port(message, machineId)
     if (decision === 'allowed') return null
-    return await this.deadLetter(message, WAKE_PLACEMENT_DENIED_REASON, { notifySender })
+    return await this.deadLetter(message, WAKE_PLACEMENT_DENIED_REASON, {
+      notifySender,
+      failure: NOT_ALLOWED,
+    })
   }
 
   /**
@@ -2260,25 +2501,24 @@ export class MessageDeliveryService {
     return await this.applyAuth(message)
   }
 
-  async notifyQueuedInputRejected(messageId: string, reason: string): Promise<void> {
+  /**
+   * The session inbox refused or failed a queued row (POD-4778): its apply-time
+   * re-authorization refused it (no `cause`: the sender may no longer reach
+   * it), or the daemon said it was never typed (`cause`). The row fails and
+   * its sender is told once, in the same write.
+   */
+  async rejectQueuedInput(
+    messageId: string,
+    reason: string,
+    cause?: QueueDrainAbandonedReason,
+  ): Promise<void> {
     const message = await this.deps.messages.getMessage(messageId)
-    if (message?.deliveryStatus !== 'failed') return
-    // A handed-on row the inbox fails is stamped with a cause by
-    // QueuedMessageApply [POD-4704] — `never-live` when the daemon said the
-    // agent was not accepting input (POD-4775), `delivery-failed` otherwise —
-    // while the free-text reason can still say "session no longer exists"
-    // about a session that is alive. The notice must never say the target
-    // vanished: the shared gloss words the cause, so the notice, the CLI and
-    // the ledger say the same thing.
-    const cause = message.deliveryDeferredReason
-    await this.notifyDeadLetter(message, cause ? deadLetterSenderGloss(cause) : reason)
-  }
-
-  async rejectQueuedInput(messageId: string, reason: string): Promise<void> {
-    const message = await this.deps.messages.getMessage(messageId)
-    if (message && isMessagePending(message.deliveryStatus)) {
-      await this.deadLetter(message, reason, { notifySender: true })
-    }
+    if (!message || !isMessagePending(message.deliveryStatus)) return
+    await this.deadLetter(message, reason, {
+      notifySender: true,
+      ...(cause ? { cause } : {}),
+      failure: cause ? { kind: 'never-typed', cause } : NOT_ALLOWED,
+    })
   }
 
   private async authorityOf(from: MessageSender): Promise<{

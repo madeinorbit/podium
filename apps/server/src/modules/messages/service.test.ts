@@ -26,8 +26,10 @@ import type { IssueService } from '../issues/service'
 import type { QueuedRetract } from '../sessions/inbox'
 import { SPAWN_BUDGET_PER_DAY, WAKE_COOLDOWN_MS } from './brakes'
 import { MessageGate } from './gate'
+import { MailAccess } from './handlers/context'
 import { INLINE_BODY_MAX, sanitizeBody, TURN_CLOSE_RULE } from './render'
 import { seedMessage } from '../../test-support/seed-message'
+import { failureNoticeId, spawnPromptMessageId } from '../../message-ids'
 import {
   HOP_LIMIT,
   MessageDeliveryService,
@@ -1161,10 +1163,10 @@ describe('dead-letter cause for injected-but-unconfirmed rows [POD-4704]', () =>
     expect(row.deliveryDeferredReason).toBeNull()
   })
 
-  it('[POD-4704] steward notice says delivery failed, never target gone, for an unconfirmed send', async () => {
-    // sX sends; s1 is the live target so the row is typed (injected) but
-    // never confirmed. A later dead-letter with the sweep's "session no
-    // longer exists" must tell sX the delivery failed — s1 is still alive.
+  it('[POD-4704] a daemon failure tells the sender the hand-off failed, never that the target is gone', async () => {
+    // sX sends; s1 is the live target so the row is handed on but never
+    // confirmed. The daemon then says it was never typed: the inbox names that
+    // cause, and sX reads that the hand-off failed — s1 is still alive.
     const senderSession = session({ sessionId: asSessionId('sX'), cwd: '/wt/b' })
     const targetSession = session({ sessionId: asSessionId('s1'), cwd: '/wt/a' })
     const { svc, store } = await harness([senderSession, targetSession])
@@ -1173,62 +1175,36 @@ describe('dead-letter cause for injected-but-unconfirmed rows [POD-4704]', () =>
       { to: { kind: 'issue', id: ISSUE.id }, body: 'typed but never confirmed' },
     )
     expect(r.message.injectedAt).not.toBeNull()
-    await svc.rejectQueuedInput(r.message.id, 'session no longer exists')
+    await svc.rejectQueuedInput(r.message.id, 'session no longer exists', 'delivery-failed')
     const notices = (await store.messages
       .listMessagesFor({ kind: 'session', id: asSessionId('sX') }))
       .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
     expect(notices).toHaveLength(1)
-    expect(notices[0]!.body).toContain('delivery failed')
-    expect(notices[0]!.body).not.toMatch(/target (was )?gone/)
+    expect(notices[0]!.body).toContain("the target's machine could not hand it over; it was never typed")
+    expect(notices[0]!.body).toContain('Sending it again is safe.')
+    expect(notices[0]!.body).not.toMatch(/target (was )?gone|has ended/)
     expect(notices[0]!.body).not.toContain('session no longer exists')
   })
 
-  it('[POD-4704] steward notice keeps target-gone wording for a never-pushed row', async () => {
+  it('an apply-time refusal tells the sender it may no longer reach the target', async () => {
     const senderSession = session({ sessionId: asSessionId('sX'), cwd: '/wt/b' })
     const { svc, store } = await harness([senderSession])
     const r = await svc.send(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'held, never pushed' },
     )
-    expect(r.message.injectedAt).toBeNull()
-    await svc.rejectQueuedInput(r.message.id, 'issue no longer exists')
+    await svc.rejectQueuedInput(r.message.id, 'revoked')
     const notices = (await store.messages
       .listMessagesFor({ kind: 'session', id: asSessionId('sX') }))
       .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
     expect(notices).toHaveLength(1)
-    expect(notices[0]!.body).toContain('issue no longer exists')
-    expect(notices[0]!.body).not.toContain('delivery failed')
-  })
-
-  it('[POD-4704] inbox-reject notice says delivery failed for a stamped unconfirmed row', async () => {
-    // The QueuedMessageApply path stamps delivery-failed then emits
-    // message.deadLettered; relay routes it to notifyQueuedInputRejected with
-    // the daemon's free-text reason. The notice must still say the delivery
-    // failed, never that the target vanished.
-    const senderSession = session({ sessionId: asSessionId('sX'), cwd: '/wt/b' })
-    const targetSession = session({ sessionId: asSessionId('s1'), cwd: '/wt/a' })
-    const { svc, store } = await harness([senderSession, targetSession])
-    const r = await svc.send(
-      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
-      { to: { kind: 'issue', id: ISSUE.id }, body: 'typed but never confirmed' },
-    )
-    expect(r.message.injectedAt).not.toBeNull()
-    // Stamp the cause the way QueuedMessageApply.reject does, without sending
-    // the sweep notice yet — then exercise the bus-notify path alone.
-    await store.messages.markDeadLetter(r.message.id, '2026-09-13T18:00:00.000Z', 'delivery-failed')
-    await svc.notifyQueuedInputRejected(r.message.id, 'session no longer exists')
-    const notices = (await store.messages
-      .listMessagesFor({ kind: 'session', id: asSessionId('sX') }))
-      .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
-    expect(notices).toHaveLength(1)
-    expect(notices[0]!.body).toContain('delivery failed')
-    expect(notices[0]!.body).not.toContain('session no longer exists')
+    expect(notices[0]!.body).toContain('you are no longer allowed to reach it')
+    expect(notices[0]!.body).toContain('Do not resend; do not wait for a reply.')
   })
 
   it('[POD-4775] a daemon "agent not accepting input" failure reads as exactly that', async () => {
-    // The daemon's stuck-composer failure is stamped never-live by
-    // QueuedMessageApply. The sender must read that the agent was not
-    // accepting input — never "target was gone", never a delivery deadline.
+    // The daemon's stuck-composer failure arrives as never-live. The sender
+    // must read that the target waits on a person — never "target gone".
     const senderSession = session({ sessionId: asSessionId('sX'), cwd: '/wt/b' })
     const targetSession = session({ sessionId: asSessionId('s1'), cwd: '/wt/a' })
     const { svc, store } = await harness([senderSession, targetSession])
@@ -1236,14 +1212,14 @@ describe('dead-letter cause for injected-but-unconfirmed rows [POD-4704]', () =>
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'never typed' },
     )
-    await store.messages.markDeadLetter(r.message.id, '2026-09-13T18:00:00.000Z', 'never-live')
-    await svc.notifyQueuedInputRejected(r.message.id, 'agent not accepting input')
+    await svc.rejectQueuedInput(r.message.id, 'agent not accepting input', 'never-live')
     const notices = (
       await store.messages.listMessagesFor({ kind: 'session', id: asSessionId('sX') })
     ).filter((m) => m.kind === 'notification' && m.fromKind === 'system')
     expect(notices).toHaveLength(1)
-    expect(notices[0]!.body).toContain('the agent was not accepting input')
-    expect(notices[0]!.body).not.toMatch(/target (was )?gone|deadline|typed but/)
+    expect(notices[0]!.body).toContain('the target is waiting on a person and was not accepting input')
+    expect(notices[0]!.body).toContain('Sending it again later is safe')
+    expect(notices[0]!.body).not.toMatch(/target (was )?gone|deadline|has ended/)
   })
 })
 
@@ -3314,7 +3290,10 @@ describe('synchronous send disposition [POD-834 §04b]', () => {
       .listMessagesFor({ kind: 'session', id: asSessionId('sX') }))
       .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
     expect(notices).toHaveLength(1)
-    expect(notices[0]!.body).toContain('could not be delivered')
+    expect(notices[0]!.body).toBe(
+      `Your message ${r.message.id} to #${ISSUE.seq} was not delivered: ` +
+        `#${ISSUE.seq} is finished. Do not wait for a reply.`,
+    )
   })
 })
 
@@ -3717,7 +3696,7 @@ describe('best-effort acks/notifications [POD-853]', () => {
       .listMessagesFor({ kind: 'session', id: asSessionId('sX') }))
       .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
     expect(notices).toHaveLength(1)
-    expect(notices[0]!.body).toContain('the agent was not accepting input')
+    expect(notices[0]!.body).toContain('the target is waiting on a person and was not accepting input')
   })
 })
 
@@ -4756,5 +4735,266 @@ describe('one message per id [POD-4763]', () => {
 
     expect(queued.map((q) => q.sourceMessageId)).toEqual([ID])
     expect(b).toEqual(a)
+  })
+})
+
+describe('an undelivered message tells its sender once, across restarts (POD-4778)', () => {
+  const SENDER = asSessionId('sX')
+  const from = { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: SENDER } as const
+  const noticesTo = async (store: SessionStore, id: SessionId): Promise<MessageRow[]> =>
+    (await store.messages.listMessagesFor({ kind: 'session', id })).filter(
+      (m) => m.kind === 'notification' && m.fromKind === 'system',
+    )
+  type Harness = Awaited<ReturnType<typeof harness>>
+  interface Outcome {
+    sessions: () => SessionMeta[]
+    opts?: HarnessOpts
+    /** Make the message fail; answers its id. */
+    fail(h: Harness, sessions: SessionMeta[]): Promise<string>
+    /** Report the same failure again, as a restarted peer would. */
+    repeat(h: Harness, id: string): Promise<void>
+    body: string[]
+  }
+  const sender = () => session({ sessionId: SENDER, cwd: '/wt/b' })
+  const sendTo = async (h: Harness, to: SessionId, lifecycle: 'wait' | 'wake' = 'wait') =>
+    (await h.svc.send(from, { to: { kind: 'session', id: to }, body: 'do the thing', lifecycle }))
+      .message.id
+  const archivedIds = new Set<string>()
+
+  const outcomes: Record<string, Outcome> = {
+    'target session removed': {
+      sessions: () => [sender(), session({ sessionId: asSessionId('s1'), status: 'hibernated' })],
+      fail: async (h, sessions) => {
+        const id = await sendTo(h, asSessionId('s1'))
+        sessions.splice(sessions.findIndex((s) => s.sessionId === 's1'), 1)
+        await h.svc.sweep()
+        return id
+      },
+      repeat: async (h) => await h.svc.sweep(),
+      body: [
+        'to session s1 was not delivered: that session has ended.',
+        'Nobody else holds that conversation; do not wait for a reply.',
+      ],
+    },
+    'target session archived, its issue still open': {
+      sessions: () => [
+        sender(),
+        session({ sessionId: asSessionId('s1'), status: 'hibernated', issueId: ISSUE.id }),
+      ],
+      fail: async (h, sessions) => {
+        const id = await sendTo(h, asSessionId('s1'))
+        sessions[1] = { ...sessions[1]!, archived: true }
+        await h.svc.sweep()
+        return id
+      },
+      repeat: async (h) => await h.svc.sweep(),
+      body: [
+        'that session has ended.',
+        `Send to #${ISSUE.seq} (\`podium issue mail send #${ISSUE.seq} …\`) to reach whoever works it now.`,
+      ],
+    },
+    'target issue archived': {
+      sessions: () => [sender()],
+      opts: { archivedIds },
+      fail: async (h) => {
+        archivedIds.delete(ISSUE.id)
+        const r = await h.svc.send(from, { to: { kind: 'issue', id: ISSUE.id }, body: 'ping' })
+        archivedIds.add(ISSUE.id)
+        await h.svc.sweep()
+        return r.message.id
+      },
+      repeat: async (h) => await h.svc.sweep(),
+      body: [`to #${ISSUE.seq} was not delivered: #${ISSUE.seq} is finished. Do not wait for a reply.`],
+    },
+    'session stopped before it was typed': {
+      sessions: () => [sender(), session({ sessionId: asSessionId('s1') })],
+      fail: async (h) => {
+        const id = await sendTo(h, asSessionId('s1'))
+        await h.svc.onQueueDrainAbandoned(asSessionId('s1'), [id], 'teardown')
+        return id
+      },
+      repeat: async (h, id) =>
+        await h.svc.onQueueDrainAbandoned(asSessionId('s1'), [id], 'teardown'),
+      body: ['the session was stopped before it was typed; it never saw it.'],
+    },
+    'the sender may no longer reach it': {
+      sessions: () => [sender(), session({ sessionId: asSessionId('s1') })],
+      fail: async (h) => {
+        const id = await sendTo(h, asSessionId('s1'))
+        await h.svc.rejectQueuedInput(id, 'revoked')
+        return id
+      },
+      repeat: async (h, id) => await h.svc.rejectQueuedInput(id, 'revoked'),
+      body: ['you are no longer allowed to reach it. Do not resend; do not wait for a reply.'],
+    },
+    'the target waits on a person': {
+      sessions: () => [sender(), session({ sessionId: asSessionId('s1') })],
+      fail: async (h) => {
+        const id = await sendTo(h, asSessionId('s1'))
+        await h.svc.rejectQueuedInput(id, 'not accepting input', 'never-live')
+        return id
+      },
+      repeat: async (h, id) => await h.svc.rejectQueuedInput(id, 'not accepting input', 'never-live'),
+      body: [
+        'the target is waiting on a person and was not accepting input; it was never typed, and its owner has been told.',
+        'Sending it again later is safe; nothing is waiting in its queue.',
+      ],
+    },
+    'the hand-off failed': {
+      sessions: () => [sender(), session({ sessionId: asSessionId('s1') })],
+      fail: async (h) => {
+        const id = await sendTo(h, asSessionId('s1'))
+        await h.svc.rejectQueuedInput(id, 'could not deliver', 'delivery-failed')
+        return id
+      },
+      repeat: async (h, id) => await h.svc.rejectQueuedInput(id, 'could not deliver', 'delivery-failed'),
+      body: ["the target's machine could not hand it over; it was never typed. Sending it again is safe."],
+    },
+    'a spawn prompt reaches the parent': {
+      sessions: () => [sender(), session({ sessionId: asSessionId('child') })],
+      fail: async (h) => {
+        const id = await h.svc.recordSpawnPrompt({
+          parentSessionId: SENDER,
+          sessionId: asSessionId('child'),
+          text: 'your task',
+        })
+        await h.svc.rejectQueuedInput(id, 'not accepting input', 'never-live')
+        return id
+      },
+      repeat: async (h, id) => await h.svc.rejectQueuedInput(id, 'not accepting input', 'never-live'),
+      body: [
+        'to session child was not delivered: the target is waiting on a person',
+        'the child session child has no task.',
+        'Send the task with `podium session send child` or stop it.',
+      ],
+    },
+  }
+
+  it.each(Object.keys(outcomes))('%s: one notice, stored with the failure, delivered once', async (name) => {
+    const outcome = outcomes[name]!
+    const sessions = outcome.sessions()
+    const h1 = await harness(sessions, outcome.opts)
+    const id = await outcome.fail(h1, sessions)
+    // The server stops here: whatever had not run yet never runs.
+    h1.svc.dispose()
+
+    expect((await h1.store.messages.getMessage(id))?.deliveryStatus).toBe('failed')
+    const stored = await noticesTo(h1.store, SENDER)
+    expect(stored.map((m) => m.id)).toEqual([failureNoticeId(id)])
+    expect(stored[0]!.body).toContain(`Your message ${id} `)
+    for (const words of outcome.body) expect(stored[0]!.body).toContain(words)
+
+    // Restarted: the same failure reported again adds nothing, and the stored
+    // notice is delivered by the ordinary startup walk.
+    const h2 = await harness(sessions, { ...outcome.opts, store: h1.store })
+    await outcome.repeat(h2, id)
+    await h2.svc.reconcileQueued()
+    await h2.svc.flushDeliveryTriggers()
+    h2.svc.dispose()
+    // Restarted again: nothing is pushed twice.
+    const h3 = await harness(sessions, { ...outcome.opts, store: h1.store })
+    await h3.svc.reconcileQueued()
+    await h3.svc.flushDeliveryTriggers()
+    h3.svc.dispose()
+
+    const pushes = [...h1.queued, ...h2.queued, ...h3.queued].filter(
+      (q) => q.sourceMessageId === failureNoticeId(id),
+    )
+    expect(pushes.map((q) => q.sessionId)).toEqual([SENDER])
+    expect((await noticesTo(h1.store, SENDER)).map((m) => m.id)).toEqual([failureNoticeId(id)])
+    expect((await h1.store.messages.getMessage(failureNoticeId(id)))?.deliveryStatus).toBe(
+      'dispatched',
+    )
+  })
+
+  it('a send that fails at send time is answered inline, with no notice', async () => {
+    const h = await harness([sender()])
+    const r = await h.svc.send(from, { to: { kind: 'session', id: 'gone' }, body: 'x' })
+    expect(r.disposition).toBe('dead_letter')
+    expect(await h.store.messages.getMessage(failureNoticeId(r.message.id))).toBeNull()
+  })
+
+  it('unknown, cancelled and late failures of a delivered message tell nobody', async () => {
+    const h = await harness([sender(), session({ sessionId: asSessionId('s1') })])
+    const unknown = await sendTo(h, asSessionId('s1'))
+    await h.svc.onQueuedInputUnknown(unknown, asSessionId('s1'), 'the forward timed out')
+    expect((await h.store.messages.getMessage(unknown))?.deliveryStatus).toBe('unknown')
+
+    // Held for an issue with no session, then withdrawn.
+    const idle = await harness([sender()], { store: h.store })
+    const held = (
+      await idle.svc.send(from, { to: { kind: 'issue', id: ISSUE.id }, body: 'never mind' })
+    ).message.id
+    await idle.svc.cancel(held)
+    expect((await h.store.messages.getMessage(held))?.deliveryStatus).toBe('cancelled')
+
+    const delivered = await sendTo(h, asSessionId('s1'))
+    await h.svc.onQueuedInputApplied(delivered, asSessionId('s1'))
+    await h.svc.rejectQueuedInput(delivered, 'late', 'delivery-failed')
+    expect((await h.store.messages.getMessage(delivered))?.deliveryStatus).toBe('confirmed')
+
+    for (const id of [unknown, held, delivered]) {
+      expect(await h.store.messages.getMessage(failureNoticeId(id))).toBeNull()
+    }
+    expect(await noticesTo(h.store, SENDER)).toEqual([])
+  })
+
+  it("a person's own message tells the operator, never an agent", async () => {
+    const h = await harness([session({ sessionId: asSessionId('s1') })])
+    const id = (
+      await h.svc.send({ kind: 'operator' }, { to: { kind: 'session', id: asSessionId('s1') }, body: 'hi' })
+    ).message.id
+    await h.svc.rejectQueuedInput(id, 'could not deliver', 'delivery-failed')
+    const notice = await h.store.messages.getMessage(failureNoticeId(id))
+    expect(notice).toMatchObject({ toKind: 'operator', toId: null })
+  })
+
+  it('the ledger view names the notice that told the sender', async () => {
+    const h = await harness([sender(), session({ sessionId: asSessionId('s1') })])
+    const failed = await sendTo(h, asSessionId('s1'))
+    await h.svc.rejectQueuedInput(failed, 'could not deliver', 'delivery-failed')
+    const onItsWay = await sendTo(h, asSessionId('s1'))
+    const access = new MailAccess({ issues: fakeIssues(), messages: h.svc } as never)
+    expect(await access.wire((await h.store.messages.getMessage(failed))!)).toMatchObject({
+      deliveryStatus: 'failed',
+      noticeId: failureNoticeId(failed),
+    })
+    expect(await access.wire((await h.store.messages.getMessage(onItsWay))!)).not.toHaveProperty(
+      'noticeId',
+    )
+  })
+
+  it('the spawn prompt is the parent’s message, already handed to the child', async () => {
+    const h = await harness([sender(), session({ sessionId: asSessionId('child') })])
+    const id = await h.svc.recordSpawnPrompt({
+      parentSessionId: SENDER,
+      sessionId: asSessionId('child'),
+      text: 'your task',
+    })
+    expect(id).toBe(spawnPromptMessageId(asSessionId('child')))
+    expect(id).toMatch(/^msg_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    expect(await h.store.messages.getMessage(id)).toMatchObject({
+      fromKind: 'agent',
+      fromSession: SENDER,
+      toKind: 'session',
+      toId: 'child',
+      body: 'your task',
+      deliveryStatus: 'dispatched',
+      deliveredTo: 'child',
+    })
+    // The delivery sweep never pushes it a second time beside the queued prompt.
+    await h.svc.sweep()
+    expect(h.queued).toEqual([])
+    // A retried start stores nothing new.
+    expect(
+      await h.svc.recordSpawnPrompt({
+        parentSessionId: SENDER,
+        sessionId: asSessionId('child'),
+        text: 'your task',
+      }),
+    ).toBe(id)
+    // Its settlement confirms it like any message.
+    await h.svc.onQueuedInputApplied(id, asSessionId('child'))
+    expect((await h.store.messages.getMessage(id))?.deliveryStatus).toBe('confirmed')
   })
 })

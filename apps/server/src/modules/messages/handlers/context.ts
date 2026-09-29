@@ -42,6 +42,7 @@ import { type Capability, checkIssueAccess } from '../../../issue-authz'
 import type { MessageRow } from '../../../store'
 import { legacyMessageStatus } from '../../../store/messages'
 import { withReadScope } from '../../../store/executor/read-scope'
+import { failureNoticeId } from '../../../message-ids'
 import type { MessageGateDeps, MessageWire } from '../gate'
 import type { MessageDeliveryDeps } from '../service'
 
@@ -349,6 +350,8 @@ export class MailAccess {
 
   async wire(m: MessageRow): Promise<MessageWire> {
     const issues = this.deps.issues
+    const notice =
+      m.deliveryStatus === 'failed' ? await this.deps.messages.message(failureNoticeId(m.id)) : null
     const label = async (kind: string, issueId: IssueId | null, sessionId: SessionId | null): Promise<string> => {
       if (kind === 'agent' || kind === 'issue') {
         if (issueId) {
@@ -397,6 +400,7 @@ export class MailAccess {
       deadLetteredAt: m.deadLetteredAt ?? null,
       deliveryDeferredAt: m.deliveryDeferredAt ?? null,
       deliveryDeferredReason: m.deliveryDeferredReason ?? null,
+      ...(notice ? { noticeId: notice.id } : {}),
       expectsResponse: m.expectsResponse ?? false,
     }
   }

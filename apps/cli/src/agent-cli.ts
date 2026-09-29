@@ -16,7 +16,12 @@
  * (curated name slot); distinct from `--new "title"` which names the ISSUE.
  */
 
-import { makeRelayIssueClient, newRequestId, repeatUntilAnswered } from '@podium/issue-client'
+import {
+  makeRelayIssueClient,
+  newRequestId,
+  pendingSendNote,
+  repeatUntilAnswered,
+} from '@podium/issue-client'
 import type { SessionId, IssueId } from '@podium/model'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { flagTable } from './argv'
@@ -143,10 +148,15 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
         model: string | null
         effort: string | null
         machine: string | null
+        /** The task as this caller's message to the child (POD-4778). */
+        promptMessageId?: string
       }
       return done(
         `spawned ${r.agentId} on issue #${r.issueSeq} (${r.cwd})\n` +
           `  harness=${r.harness} model=${r.model ?? 'default'} effort=${r.effort ?? 'default'} machine=${r.machine ?? 'unknown'}\n` +
+          (r.promptMessageId
+            ? `  task:   ${r.promptMessageId} — ${pendingSendNote(r.promptMessageId)}\n`
+            : '') +
           `  drive:  podium mail send --to ${r.sessionId} --body "…"\n` +
           `  await:  podium agent await ${r.sessionId}`,
         r,

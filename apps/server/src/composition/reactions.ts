@@ -265,29 +265,6 @@ export const REACTIONS = [
       'Acts only on the existing session binding and never stamps or impersonates a human.',
   },
   {
-    id: 'messages.dead-letter-nudge',
-    description: 'Notify the original sender after a durable queued message is refused at apply.',
-    trigger: 'message.deadLettered',
-    durability: 'in-memory',
-    replay: {
-      mode: 'none',
-      reason:
-        'The durable dead-letter row remains visible; the sender nudge is best-effort and is not replayed after restart.',
-    },
-    idempotency: { key: 'message id', duplicatePolicy: 'deduplicate' },
-    ordering: 'After the guarded queued-to-dead-letter transition for that message.',
-    retry: 'Best-effort drop; the durable ledger row is the restart-visible failure record.',
-    failureOwner: 'message delivery service',
-    observability: {
-      registry: true,
-      events: ['message.deadLettered', 'message.dead_letter'],
-      metrics: ['message dead letters'],
-    },
-    principal: delegated(),
-    scopeInvariant:
-      'Routes only to the persisted sender attribution and never to an ambient operator.',
-  },
-  {
     id: 'messages.eligibility',
     description: 'Re-evaluate durable queued deliveries after session or issue metadata commits.',
     trigger: 'oplog.appended',

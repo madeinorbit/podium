@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { createLogger } from '@podium/logger'
 import type {
   IssueComment,
@@ -13,12 +12,12 @@ import {
   asIssueId,
   asMutationId,
   asSessionId,
-  MESSAGE_ID_PREFIX,
   spawnedByParentSessionId,
 } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import { type SystemCommandPrincipal, systemPrincipal } from './command-principal'
 import { preferIssueCoordinator, sessionsForIssue } from './issue-util'
+import { derivedMessageId } from './message-ids'
 import type { IssueService } from './modules/issues/service'
 import type { SessionFacts } from './modules/sessions/facts'
 import type { SessionStore, Subscription } from './store'
@@ -37,11 +36,7 @@ const log = createLogger('server:steward')
  * Shaped like a sender-minted message id (a UUID laid out from a hash).
  */
 export function noticeMessageId(factKey: string, sessionId: SessionId): MutationId {
-  const h = createHash('sha256').update(`${factKey}\u0000${sessionId}`).digest('hex')
-  const variant = ((Number.parseInt(h.charAt(16), 16) & 0x3) | 0x8).toString(16)
-  return asMutationId(
-    `${MESSAGE_ID_PREFIX}${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`,
-  )
+  return asMutationId(derivedMessageId(`${factKey}\u0000${sessionId}`))
 }
 
 /** One row read back from the durable event log (`podium_events`). */
