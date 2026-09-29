@@ -83,6 +83,16 @@ const fakeTrpc = {
     // doesn't asynchronously flip effectiveMode mid-test.
     get: { query: vi.fn(async () => ({ roles: { coding: { startScreen: storeStartScreen } } })) },
   },
+  sessions: {
+    // A resolving history read (POD-4719, 8006facb): re-activation now
+    // supersedes a still-pending first read via the controller's read serial,
+    // so two concurrent reads race. The controller only attaches its live
+    // subscription on a read that WINS — a failing read that loses attaches
+    // nothing, and two failing reads leave chat unsubscribed. An empty but
+    // successful page keeps the warm-toggle's 2-subscribe/1-unsubscribe
+    // lifecycle intact.
+    transcriptRead: { query: vi.fn(async () => ({ items: [], hasMore: false })) },
+  },
 }
 
 // Stable fn identities across renders (real Zustand selectors are memoized) so
