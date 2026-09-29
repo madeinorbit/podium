@@ -109,11 +109,26 @@ import { cursorOf, DELIVERY_TARGET_PAGE_LIMIT, type DeliveryTarget } from './tar
 
 /** Chain depth past which lifecycle clamps to wait (brake 3). */
 export const HOP_LIMIT = 5
-/** Extracts every podium-message id an echoed transcript turn carries — the
- *  server-rendered envelope frames the body with `[podium message <id> …]` and
- *  `[end podium message <id>]`, so a user turn that pasted a delivered message
- *  reflects the id back verbatim (transcript-echo confirmation, [POD-834]). */
-export const ECHO_ID_RE = /\bpodium message (msg_[0-9a-f-]+)\b/gi
+/**
+ * The id of the podium message a user transcript entry IS, or null
+ * (transcript-echo confirmation, [POD-834]). The server-rendered frame opens
+ * with `[podium message <id> · ` and closes with `[end podium message <id>]`,
+ * and the entry counts only when that closing line ends it and the same id's
+ * head starts a line above it (the drivers put attachment paths ahead of the
+ * text, one per line).
+ *
+ * ONLY THE ENTRY'S OWN FRAME (POD-4860). Bodies are not escaped, so a mail that
+ * quotes another mail's frame carries that id inside its own; every quoted id
+ * sits above the outer closing line and never counts. An id anywhere else — a
+ * person mentioning a frame, or a frame followed by more words — proves nothing.
+ */
+function echoedFrameId(text: string): string | null {
+  const entry = text.trimEnd()
+  const id = /\[end podium message (msg_[0-9a-f-]+)\]$/i.exec(entry)?.[1]
+  if (!id) return null
+  const head = `[podium message ${id} · `
+  return entry.startsWith(head) || entry.includes(`\n${head}`) ? id : null
+}
 
 /**
  * The L1 principal projection of a sender, for the policy functions in
@@ -2386,24 +2401,21 @@ export class MessageDeliveryService {
       // Only a user turn echoes a pasted prompt; assistant/tool text quoting the
       // id must never self-confirm a message the agent merely referenced.
       if (item.role !== 'user' || !item.text) continue
-      ECHO_ID_RE.lastIndex = 0
-      for (const m of item.text.matchAll(ECHO_ID_RE)) {
-        const id = m[1]
-        if (!id) continue
-        const row = await this.deps.messages.getMessage(id)
-        // `unknown` included: the echo is exactly the proof it was waiting for.
-        if (!row || !isMessageHandedOn(row.deliveryStatus)) continue
-        // Confirm ONLY a push WE made to THIS session. A row we never handed on
-        // (still stored — e.g. a HELD issue message with no live session, or
-        // one waiting for a boundary) has deliveredTo null; some OTHER session's
-        // transcript merely quoting its id (an operator pasting it into a
-        // different agent) must NOT flip it delivered-to-the-wrong-place and
-        // silently strand the real target — the exact silent-drop class this
-        // branch kills [POD-834 review]. A hand-off always sets deliveredTo, so
-        // requiring the push target to match closes the loophole.
-        if (row.deliveredTo !== sessionId) continue
-        await this.markDelivered(row, sessionId, 'echo')
-      }
+      const id = echoedFrameId(item.text)
+      if (!id) continue
+      const row = await this.deps.messages.getMessage(id)
+      // `unknown` included: the echo is exactly the proof it was waiting for.
+      if (!row || !isMessageHandedOn(row.deliveryStatus)) continue
+      // Confirm ONLY a push WE made to THIS session. A row we never handed on
+      // (still stored — e.g. a HELD issue message with no live session, or
+      // one waiting for a boundary) has deliveredTo null; some OTHER session's
+      // transcript merely quoting its id (an operator pasting it into a
+      // different agent) must NOT flip it delivered-to-the-wrong-place and
+      // silently strand the real target — the exact silent-drop class this
+      // branch kills [POD-834 review]. A hand-off always sets deliveredTo, so
+      // requiring the push target to match closes the loophole.
+      if (row.deliveredTo !== sessionId) continue
+      await this.markDelivered(row, sessionId, 'echo')
     }
   }
 

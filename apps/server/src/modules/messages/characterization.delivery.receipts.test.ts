@@ -134,7 +134,12 @@ describe('flag-on delivery: an unconfirmed row is unknown, never a retry (R2)', 
 
     // Unproven, not failed — so the ordinary confirmation path is still open
     // and still the thing that settles the row.
-    await h.svc.onTranscriptDelta(target, [{ role: 'user', text: `[podium message ${r.id} · from x]\necho me\n[end podium message ${r.id}]` }])
+    await h.svc.onTranscriptDelta(target, [
+      {
+        role: 'user',
+        text: `[podium message ${r.id} · from x]\necho me\n[end podium message ${r.id}]`,
+      },
+    ])
     const delivered = (await h.svc.message(r.id))!
     expect(delivered.deliveryStatus).toBe('confirmed')
     expect(
