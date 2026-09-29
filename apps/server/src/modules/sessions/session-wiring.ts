@@ -498,6 +498,14 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         )
         await completion
       },
+      harnessIds: async ({ messageId, sessionId, harnessRef }) => {
+        const completion: Promise<void> | undefined = deps.keepQueuedMessageHarnessIds?.(
+          messageId,
+          sessionId,
+          harnessRef,
+        )
+        await completion
+      },
     },
     attention: {
       stateChanged: (input) => bag.bus.emit('session.stateChanged', input),

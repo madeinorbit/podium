@@ -233,6 +233,26 @@ describe('podium mail CLI (argv shape)', () => {
     expect(out).toContain('notified=msg_n')
   })
 
+  it("[POD-4841] mail status shows the entry and the agent program's own ids", async () => {
+    const status = {
+      ...WIRE,
+      deliveredTo: 'ses_1',
+      transcriptItem: { id: 'entry-1' },
+      harnessRef: [
+        { kind: 'codex-turn', id: 'turn-1' },
+        { kind: 'codex-client-message', id: 'msg_1' },
+      ],
+    }
+    const out = await runMailCli(['status', 'msg_1'], client({ status }))
+    expect(out).toContain('entry=entry-1')
+    expect(out).toContain('program-ids=codex-turn:turn-1,codex-client-message:msg_1')
+    const json = JSON.parse(await runMailCli(['status', 'msg_1', '--json'], client({ status })))
+    expect(json.data).toMatchObject({
+      transcriptItem: status.transcriptItem,
+      harnessRef: status.harnessRef,
+    })
+  })
+
   it('[POD-4778] the inbox names the cause from the delivery status', async () => {
     const c = client()
     c.messages.inbox.mutate.mockResolvedValueOnce([

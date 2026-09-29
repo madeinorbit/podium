@@ -5270,6 +5270,25 @@ describe('an undelivered message tells its sender once, across restarts (POD-477
     )
   })
 
+  it("the ledger view and `mail status` show the entry and the program's own ids (POD-4841)", async () => {
+    const h = await harness([sender(), session({ sessionId: asSessionId('s1') })])
+    const id = await sendTo(h, asSessionId('s1'))
+    await h.svc.onQueuedInputApplied(id, asSessionId('s1'))
+    await h.store.messages.nameTranscriptItem(id, asSessionId('s1'), { id: 'entry-1' })
+    const harnessRef = [{ kind: 'codex-turn', id: 'turn-1' }]
+    await h.store.messages.recordHarnessRef(id, asSessionId('s1'), harnessRef)
+    const access = new MailAccess({ issues: fakeIssues(), messages: h.svc } as never)
+    expect(await access.wire((await h.store.messages.getMessage(id))!)).toMatchObject({
+      deliveryStatus: 'confirmed',
+      transcriptItem: { id: 'entry-1' },
+      harnessRef,
+    })
+    const bare = await sendTo(h, asSessionId('s1'))
+    const wire = await access.wire((await h.store.messages.getMessage(bare))!)
+    expect(wire).not.toHaveProperty('transcriptItem')
+    expect(wire).not.toHaveProperty('harnessRef')
+  })
+
   it('the spawn prompt is the parent’s message, already handed to the child', async () => {
     const h = await harness([sender(), session({ sessionId: asSessionId('child') })])
     const id = await h.svc.recordSpawnPrompt({

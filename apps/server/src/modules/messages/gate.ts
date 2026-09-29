@@ -30,6 +30,8 @@ import type {
   MachineId,
   AccountId,
   ThreadId,
+  HarnessRefEntry,
+  TranscriptItemRef,
 } from '@podium/model'
 import { type MessageDeliveryStatus, spawnedByParentSessionId } from '@podium/model'
 import type { Capability } from '../../issue-authz'
@@ -175,6 +177,12 @@ export interface MessageWire {
   /** The notice that told the sender this message was not delivered, when one
    *  was written with the failure (POD-4778). */
   noticeId?: string
+  /** The entry in the recipient agent's history this message became, once
+   *  its machine named it (POD-4774). */
+  transcriptItem?: TranscriptItemRef
+  /** The recipient agent program's own ids for this message (POD-4841): how
+   *  to find it in that program's history. */
+  harnessRef?: HarnessRefEntry[]
   /** A reply was requested [POD-835 §04b]: the recipient owes a response and the
    *  settle-nag will fire if none comes. Lets a reader see it must reply. */
   expectsResponse: boolean

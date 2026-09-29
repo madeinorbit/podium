@@ -15,7 +15,7 @@ import type {
   WorkState,
   MachineId,
 } from '@podium/model'
-import type { AgentKind, TranscriptItemRef, UserId } from '@podium/model'
+import type { AgentKind, HarnessRef, TranscriptItemRef, UserId } from '@podium/model'
 import type {
   MetadataChange,
   SubscriptionRegistry,
@@ -139,6 +139,12 @@ export interface SessionLifecycleDeps {
     messageId: string,
     sessionId: SessionId,
     transcriptItem: TranscriptItemRef,
+  ): Promise<void>
+  /** Keep the agent program's own ids for the message (POD-4841). */
+  keepQueuedMessageHarnessIds?(
+    messageId: string,
+    sessionId: SessionId,
+    harnessRef: HarnessRef,
   ): Promise<void>
   /** Record that the queued input's bytes reached the CLI, which is short of
    *  delivery: the agent takes it at its own turn boundary (POD-1242). */

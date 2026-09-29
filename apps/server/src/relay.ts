@@ -1559,6 +1559,8 @@ export class SessionRegistry {
       },
       nameQueuedMessageEntry: (messageId, sessionId, transcriptItem) =>
         queuedMessageApply.named(messageId, sessionId, transcriptItem),
+      keepQueuedMessageHarnessIds: (messageId, sessionId, harnessRef) =>
+        queuedMessageApply.harnessIds(messageId, sessionId, harnessRef),
       noteQueuedMessageInjected: (messageId, sessionId) =>
         queuedMessageApply.injected(messageId, sessionId),
       noteQueuedMessageUnconfirmed: (messageId, sessionId, reason) =>

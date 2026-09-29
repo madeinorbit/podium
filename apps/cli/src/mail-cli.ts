@@ -164,6 +164,10 @@ interface MessageWire {
   deliveryDeferredReason?: string | null
   /** The notice that told the sender it was not delivered (POD-4778). */
   noticeId?: string
+  /** The entry in the recipient agent's history it became (POD-4774). */
+  transcriptItem?: { id: string; cursor?: string }
+  /** The recipient agent program's own ids for it (POD-4841). */
+  harnessRef?: { kind: string; id: string }[]
   expiresAt?: string | null
   // A reply was requested [POD-835] — the reader owes a response.
   expectsResponse?: boolean
@@ -252,6 +256,10 @@ function renderLifecycle(m: MessageWire): string {
     m.deliveryDeferredReason ? `deferred-reason=${m.deliveryDeferredReason}` : null,
     m.deliveredTo ? `to-session=${m.deliveredTo}` : null,
     m.noticeId ? `notified=${m.noticeId}` : null,
+    m.transcriptItem ? `entry=${m.transcriptItem.id}` : null,
+    m.harnessRef?.length
+      ? `program-ids=${m.harnessRef.map((ref) => `${ref.kind}:${ref.id}`).join(',')}`
+      : null,
   ].filter(Boolean)
   return [
     `${m.id} ${m.from} -> ${m.to}`,
