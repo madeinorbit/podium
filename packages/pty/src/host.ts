@@ -66,7 +66,13 @@ export const HostFrame = {
   ERR: 0x8f,
 } as const
 
-export const HostErr = { NOT_WRITER: 1, NO_PTY: 2, BAD_FRAME: 3, EXITED: 4 } as const
+/**
+ * ERR codes. INPUT_FULL comes only from the Rust host (POD-4791): it caps the
+ * input queue toward a child that is not reading and refuses a WRITE past it,
+ * where the C host queues without limit. An ERR that refuses a WRITE may carry
+ * that write's u32 id after the message (the Rust host always sends it).
+ */
+export const HostErr = { NOT_WRITER: 1, NO_PTY: 2, BAD_FRAME: 3, EXITED: 4, INPUT_FULL: 5 } as const
 
 /** `fromSeq` meaning "from the tail: replay nothing". */
 export const HOST_TAIL = 0xffff_ffff_ffff_ffffn
@@ -331,6 +337,18 @@ export class HostConnection {
         const code = p.readUInt16BE(0)
         const n = p.readUInt32BE(2)
         const err = new HostError(code, p.subarray(6, 6 + n).toString('utf8'))
+        // A refused WRITE names itself: reject exactly that write. Without the
+        // id, an ERR is matched to the oldest pending request, which is wrong
+        // when writes the host accepted are still pending (queued, WRITTEN not
+        // yet sent) or a resize is outstanding.
+        if (p.length >= 6 + n + 4) {
+          const id = p.readUInt32BE(6 + n)
+          const i = this.pendingWrites.findIndex((w) => w.id === id)
+          if (i >= 0) {
+            ;(this.pendingWrites.splice(i, 1)[0] as PendingWrite).reject(err)
+            return
+          }
+        }
         const req = this.pending.shift()
         if (req) req.reject(err)
         else if (this.pendingWrites.length) (this.pendingWrites.shift() as PendingWrite).reject(err)
@@ -758,6 +776,8 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
   // delivering DATA (reading is allowed); only writes stop landing.
   let leaseLost = false
   let warnedLeaselessWrite = false
+  // One warning per stretch of refused input, not one per keystroke.
+  let warnedInputFull = false
   conn.onLeaseLost(() => {
     leaseLost = true
     log.warn('podium-host revoked our writer lease — another writer stole it', {
@@ -799,19 +819,36 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
       exitCb = cb
     },
     write(data) {
-      conn.write(data).catch((err) => {
-        // A write that lands nowhere must never be silent once the lease is
-        // known gone: after a steal this attachment still reads, so without
-        // this the session looks live and swallows input. Logged once — the
-        // lease never comes back without a reattach.
-        if (leaseLost && !warnedLeaselessWrite) {
-          warnedLeaselessWrite = true
-          log.warn('podium-host dropped input: this attachment no longer holds the writer lease', {
-            label: opts.label,
-            err: err instanceof Error ? err.message : String(err),
-          })
-        }
-      })
+      conn.write(data).then(
+        () => {
+          warnedInputFull = false
+        },
+        (err) => {
+          // The Rust host refuses input once its queue toward the program is
+          // full: the program has stopped reading. Say so once, by label; the
+          // input is dropped, since queueing more would not reach it either.
+          if (err instanceof HostError && err.code === HostErr.INPUT_FULL) {
+            if (!warnedInputFull) {
+              warnedInputFull = true
+              log.warn('podium-host dropped input: the program is not reading its input', {
+                label: opts.label,
+              })
+            }
+            return
+          }
+          // A write that lands nowhere must never be silent once the lease is
+          // known gone: after a steal this attachment still reads, so without
+          // this the session looks live and swallows input. Logged once — the
+          // lease never comes back without a reattach.
+          if (leaseLost && !warnedLeaselessWrite) {
+            warnedLeaselessWrite = true
+            log.warn('podium-host dropped input: this attachment no longer holds the writer lease', {
+              label: opts.label,
+              err: err instanceof Error ? err.message : String(err),
+            })
+          }
+        },
+      )
     },
     // Unused: the attachment's own `resize` below answers the caller instead.
     resize() {},

@@ -275,6 +275,11 @@ impl Host {
         proto::err(self.clients[ci].out.tail(), code, msg);
     }
 
+    /// Refuse a WRITE: the ERR names the write it answers.
+    fn refuse_write(&mut self, ci: usize, code: u16, msg: &str, write_id: u32) {
+        proto::err_write(self.clients[ci].out.tail(), code, msg, write_id);
+    }
+
     fn handle_hello(&mut self, ci: usize, writer: bool, from: u64) {
         let ws = self.read_winsize().unwrap_or(self.ws);
         let (low, high) = (self.ring.low(), self.ring.high());
@@ -351,20 +356,25 @@ impl Host {
             Request::Write { .. } | Request::Resize { .. } | Request::Signal(_) | Request::Kill
         );
         if needs_lease && !is_writer {
-            return self.refuse(ci, proto::ERR_NOT_WRITER, "not the writer");
+            return match req {
+                Request::Write { id, .. } => {
+                    self.refuse_write(ci, proto::ERR_NOT_WRITER, "not the writer", id)
+                }
+                _ => self.refuse(ci, proto::ERR_NOT_WRITER, "not the writer"),
+            };
         }
         match req {
             Request::Hello { writer, from } => self.handle_hello(ci, writer, from),
             Request::Write { id, data } => {
                 if self.child_exited || self.io.is_none() {
-                    return self.refuse(ci, proto::ERR_EXITED, "child exited");
+                    return self.refuse_write(ci, proto::ERR_EXITED, "child exited", id);
                 }
                 let cost = data.len() + proto::WRITE_OVERHEAD;
                 if self.wq_cost + cost > proto::MAX_INPUT_QUEUE && !self.wq.is_empty() {
                     // The child is not reading its input. Refuse rather than
                     // queue without limit (host.c does: POD-4842 C-3); an
                     // empty queue always takes one write, however large.
-                    return self.refuse(ci, proto::ERR_INPUT_FULL, "input queue full");
+                    return self.refuse_write(ci, proto::ERR_INPUT_FULL, "input queue full", id);
                 }
                 self.wq_cost += cost;
                 self.wq.push_back(PendingWrite {

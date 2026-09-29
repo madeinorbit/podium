@@ -239,13 +239,29 @@ fn writes_to_a_child_that_does_not_read_are_bounded_and_refused() {
         p.extend_from_slice(&chunk);
         w.send(&frame(C_WRITE, &p)); // 8 MiB in all
     }
-    let mut refused = 0;
+    // Each refusal names its write: u16 code, u32 len, message, u32 write id.
+    let mut refused = Vec::new();
     while let Some((ty, p)) = w.next(Duration::from_millis(1500)) {
         if ty == H_ERR && u16::from_be_bytes([p[0], p[1]]) == 5 {
-            refused += 1;
+            let n = u32::from_be_bytes(p[2..6].try_into().unwrap()) as usize;
+            assert_eq!(&p[6..6 + n], b"input queue full");
+            refused.push(u32::from_be_bytes(p[6 + n..10 + n].try_into().unwrap()));
         }
     }
-    assert!(refused >= 20, "only {refused} of 32 writes were refused");
+    assert!(
+        refused.len() >= 20,
+        "only {} of 32 writes were refused",
+        refused.len()
+    );
+    assert!(
+        refused.windows(2).all(|p| p[0] < p[1]),
+        "each refusal names a different write, in order: {refused:?}"
+    );
+    assert!(
+        refused[0] >= 3,
+        "a write the queue had room for was refused: {refused:?}"
+    );
+    assert!(refused.iter().all(|&id| id < 32));
     let grew = status_kb(pid, "VmHWM").saturating_sub(before);
     assert!(
         grew < 8 * 1024,

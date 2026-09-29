@@ -117,6 +117,19 @@ pub fn err(out: &mut Vec<u8>, code: u16, msg: &str) {
         .bytes(msg.as_bytes());
 }
 
+/// Queue an ERR frame that refuses a WRITE: the same layout plus the write's
+/// `u32 id` after the message, so the client rejects exactly that write. An
+/// ERR carries no id otherwise, and a client matching it to the oldest
+/// pending request would reject the wrong one. Older clients read only up to
+/// the message and ignore the trailing bytes. Rust port only (host.c sends no id).
+pub fn err_write(out: &mut Vec<u8>, code: u16, msg: &str, write_id: u32) {
+    Frame::begin(out, H_ERR)
+        .u16(code)
+        .u32(msg.len() as u32)
+        .bytes(msg.as_bytes())
+        .u32(write_id);
+}
+
 /// What the front of an input buffer holds.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Next {
@@ -248,6 +261,18 @@ mod tests {
         assert_eq!(rd_u16(&b[5..]), 1);
         assert_eq!(rd_u32(&b[7..]), 14);
         assert_eq!(&b[11..], b"not the writer");
+    }
+
+    #[test]
+    fn a_refused_write_carries_its_id_after_the_message() {
+        let mut b = Vec::new();
+        err_write(&mut b, ERR_INPUT_FULL, "input queue full", 0xDEADBEEF);
+        assert_eq!(rd_u32(&b) as usize, b.len() - 4);
+        assert_eq!(rd_u16(&b[5..]), ERR_INPUT_FULL);
+        assert_eq!(rd_u32(&b[7..]), 16);
+        assert_eq!(&b[11..27], b"input queue full");
+        assert_eq!(rd_u32(&b[27..]), 0xDEADBEEF);
+        assert_eq!(b.len(), 31);
     }
 
     #[test]
