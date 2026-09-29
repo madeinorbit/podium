@@ -68,20 +68,27 @@ export const deliversUnwrapped = (sender: MailSenderPrincipal, kind: string): bo
   isHumanPrincipal(sender) && kind !== 'question'
 
 /**
- * Wake-cooldown and spawn-budget exemption.
+ * Wake-cooldown exemption. The spawn budget has none: it applies to every sender.
  *
- * DECISION: the exemptions attach to **any human principal**, not only at admin
- * grade. The brakes exist to stop an unattended loop — an agent re-waking a peer
- * every second, or a spawn loop fork-bombing the host with full PTY sessions. A
- * person at a keyboard is not that failure mode, and a member who has to wait out
- * a ten-minute cooldown before messaging their own agent twice would experience
- * the brake as a bug. Admin grade governs what you may reach (§3.2), not how fast
- * you may type.
+ * DECISION: the exemption attaches to **any human principal**, not only at admin
+ * grade. The cooldown exists to stop an unattended loop — an agent re-waking a
+ * peer every second. A person at a keyboard is not that failure mode, and a
+ * member who has to wait out a ten-minute cooldown before messaging their own
+ * agent twice would experience the brake as a bug. Admin grade governs what you
+ * may reach (§3.2), not how fast you may type.
+ *
+ * AND TO THE SERVER'S OWN NOTICES (POD-4846). A system sender's wake is decided
+ * by the server from a fact it has already deduplicated — the steward wakes a
+ * parent once per child until the parent observes it — so it is not a loop
+ * either. The cooldown's answer, clamping the wake to wait at send, would hold
+ * that notice until a parked parent's next run: never, for a parent that parked
+ * again inside the window.
  *
  * A superagent is NOT exempt: it is "you, automated" (readiness §3.1.6 S1) and is
- * exactly the unattended loop the brakes were written for.
+ * exactly the unattended loop the cooldown was written for.
  */
-export const exemptFromBrakes = (sender: MailSenderPrincipal): boolean => isHumanPrincipal(sender)
+export const exemptFromWakeCooldown = (sender: MailSenderPrincipal): boolean =>
+  isHumanPrincipal(sender) || sender.kind === 'system'
 
 /**
  * The brake bucket key.

@@ -348,7 +348,7 @@ export {
 } from './mail/contracts'
 export {
   deliversUnwrapped,
-  exemptFromBrakes,
+  exemptFromWakeCooldown,
   isHumanPrincipal,
   type MailSenderPrincipal,
   operatorAddressee,

@@ -15,7 +15,7 @@ import { asSessionId, type UserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   deliversUnwrapped,
-  exemptFromBrakes,
+  exemptFromWakeCooldown,
   isHumanPrincipal,
   type MailSenderPrincipal,
   operatorAddressee,
@@ -60,19 +60,22 @@ describe('the unwrapped byte-faithful body belongs to a PERSON, not to a grade',
   })
 })
 
-describe('the wake-cooldown and spawn-budget exemptions attach to a human', () => {
+describe('the wake-cooldown exemption attaches to a human and to the server', () => {
   it('exempts a human, and a second human', () => {
-    expect(exemptFromBrakes(human(ada))).toBe(true)
-    expect(exemptFromBrakes(human(bo))).toBe(true)
+    expect(exemptFromWakeCooldown(human(ada))).toBe(true)
+    expect(exemptFromWakeCooldown(human(bo))).toBe(true)
   })
 
   it('does NOT exempt the superagent — it is exactly the unattended loop the brakes exist for', () => {
-    expect(exemptFromBrakes(superagent(ada))).toBe(false)
+    expect(exemptFromWakeCooldown(superagent(ada))).toBe(false)
   })
 
-  it('does not exempt an agent or a system job', () => {
-    expect(exemptFromBrakes(agent('s1'))).toBe(false)
-    expect(exemptFromBrakes(system('steward'))).toBe(false)
+  it('does not exempt an agent', () => {
+    expect(exemptFromWakeCooldown(agent('s1'))).toBe(false)
+  })
+
+  it("exempts the server's own notices, whose wakes it has already deduplicated (POD-4846)", () => {
+    expect(exemptFromWakeCooldown(system('steward'))).toBe(true)
   })
 })
 
