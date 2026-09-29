@@ -157,6 +157,27 @@ export class SessionClientPlane {
       })
   }
 
+  /**
+   * Re-send a NEVER-BOUND headless session's establish frame (POD-4827
+   * review 2) — the attach-time half the turn path must not do itself.
+   *
+   * DELIBERATELY NOT AWAITED, like `rebindHeadless` above: re-issued on
+   * every daemon connect, so a missed establish self-heals on the next
+   * attach. Bound sessions never reach here; the reconciler routes them to
+   * the rebind arm instead.
+   */
+  reestablishHeadless(session: Session): void {
+    if (!session.headless || session.resume?.value) return
+    void this.ports.headless
+      .reestablishHeadless(session.sessionId)
+      .catch((error: unknown) => {
+        log.warn('headless re-establish failed', {
+          sessionId: session.sessionId,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+      })
+  }
+
   /** Route a control message to the daemon that owns `machineId` (modules/machines);
    *  queued if that machine is briefly offline. Kept as a property so Session
    *  toDaemon closures and every internal call site bind through one seam. */

@@ -22,7 +22,8 @@
  *   4. PARK ARCHIVED SURVIVORS **BEFORE** the probe fan-out, so an archived
  *      'reconnecting' row is parked rather than reattached (POD-108)
  *   5. probe survivors for reattach, view-priority first then most-recent
- *   6. re-establish headless transcript tails
+  *   6. re-establish headless sessions: bound tails rebind, never-bound
+  *      sessions re-send their establish frame
  *
  * Step 4 before step 5 is the one a reader is most likely to "tidy" and the one
  * that silently resurrects archived sessions if reversed.
@@ -62,6 +63,10 @@ export interface MachineReconcilerPorts {
   viewTiers(sessionIds: Session['sessionId'][]): Map<Session['sessionId'], number>
   /** Headless sessions have no PTY; re-establish their daemon-side tails. */
   rebindHeadless(session: Session): void
+  /** A never-bound headless session has no tail to rebind — re-send its
+   *  establish frame so the freshly attached daemon holds it before any
+   *  turn is sent. */
+  reestablishHeadless(session: Session): void
   markVolatileSessionDirty(sessionId: Session['sessionId'], fields: SessionVolatileField[]): void
   /** Durable write for a row this module repaired [POD-1953]. */
   /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
@@ -152,12 +157,21 @@ export class SessionMachineReconciler {
       this.ports.toMachine(machineId, message)
     }
 
-    // Headless sessions have no PTY to reattach; instead re-establish their
-    // daemon-side transcript tails (fire-and-forget — re-issued on every daemon
-    // connect, so a missed bind self-heals on the next attach).
+    // Headless sessions have no PTY to reattach. Bound ones (the harness
+    // reported its resume id) re-establish their daemon-side transcript
+    // tails; NEVER-BOUND ones have no tail to rebind, so re-send their
+    // establish frame instead — a daemon restart between establish and first
+    // turn wiped the handle, and without this the first turn would retry
+    // `not_running` against a daemon that can never answer (POD-4827).
+    // Both arms are fire-and-forget — re-issued on every daemon connect, so
+    // a missed bind self-heals on the next attach.
     for (const s of this.ports.sessions()) {
-      if (s.machineId !== machineId || !s.headless || !s.resume?.value) continue
-      this.ports.rebindHeadless(s)
+      if (s.machineId !== machineId || !s.headless) continue
+      if (s.resume?.value) {
+        this.ports.rebindHeadless(s)
+        continue
+      }
+      this.ports.reestablishHeadless(s)
     }
   }
 
@@ -329,7 +343,9 @@ export class SessionMachineReconciler {
     for (const s of this.ports.sessions()) {
       if (s.machineId !== machineId) continue
       // Headless sessions stay 'live' across daemon restarts — no PTY bridge to
-      // lose; their tails re-establish via rebindHeadless on the next attach.
+      // lose; bound tails re-establish via rebindHeadless and never-bound
+      // sessions re-send their establish frame (reestablishHeadless) on the
+      // next attach.
       if (s.headless) continue
       if (s.markReconnecting()) changed.push(s)
     }

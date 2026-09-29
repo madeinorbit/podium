@@ -21,6 +21,7 @@ import type {
   HeadlessTurnEvent,
   LiveServerMessage,
   ServerMessage,
+  SessionBindingSpawnInstruction,
 } from '@podium/protocol'
 import type {
   ControlMessage,
@@ -223,32 +224,88 @@ export class HeadlessService {
     // instruction is required" (POD-4806).
     const observationLease = await this.deps.fenceObservation(session)
     try {
-      this.deps.toMachine(machineId, {
-        type: 'spawn',
-        sessionId,
-        durableLabel: this.deps.durableLabelFor(sessionId),
-        agentKind: input.agentKind,
-        cwd: input.cwd,
-        geometry: this.deps.defaultGeometry(),
-        binding: authored.binding,
-        ...(observationLease
-          ? {
-              observationGeneration: observationLease.observationGeneration,
-              observationBindingVersion: observationLease.bindingVersion,
-              observationProviderSessionId: observationLease.providerSessionId,
-              ...(observationLease.checkpoint
-                ? { observationCheckpoint: observationLease.checkpoint }
-                : {}),
-            }
-          : {}),
-        ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
-        ...(input.effort && input.effort !== 'auto' ? { effort: input.effort } : {}),
-        requestedDriverId: 'headless',
-      })
+      this.deps.toMachine(machineId, this.spawnFrameFor(session, authored.binding, observationLease))
     } catch {
       // Establishment is best-effort; the turn path reports the failure.
     }
     return { sessionId }
+  }
+
+  /**
+   * THE ONE headless establish-frame builder (POD-4827). The create path and
+   * the re-establish path below must send byte-identical frames for one
+   * session — the daemon dedupes the binding on transition id, so a second
+   * spelling would fork the binding the turn path retries against. Read the
+   * launch identity off the ROW (never the create input), so a re-send after a
+   * daemon restart carries the same session id, principal, model and effort
+   * the first send did.
+   */
+  private spawnFrameFor(
+    session: Session,
+    binding: SessionBindingSpawnInstruction,
+    observationLease: ObservationLeaseRecord | undefined,
+  ): ControlMessage {
+    return {
+      type: 'spawn',
+      sessionId: session.sessionId,
+      durableLabel: this.deps.durableLabelFor(session.sessionId),
+      agentKind: session.agentKind,
+      cwd: session.cwd,
+      geometry: this.deps.defaultGeometry(),
+      binding,
+      ...(observationLease
+        ? {
+            observationGeneration: observationLease.observationGeneration,
+            observationBindingVersion: observationLease.bindingVersion,
+            observationProviderSessionId: observationLease.providerSessionId,
+            ...(observationLease.checkpoint
+              ? { observationCheckpoint: observationLease.checkpoint }
+              : {}),
+          }
+        : {}),
+      ...(session.model && session.model !== 'auto' ? { model: session.model } : {}),
+      ...(session.effort && session.effort !== 'auto' ? { effort: session.effort } : {}),
+      requestedDriverId: 'headless',
+    }
+  }
+
+  /**
+   * Re-send the establish frame for a headless session the daemon does not
+   * hold (POD-4827 review 2).
+   *
+   * The trigger is the daemon (re)attaching, never a turn: the reconciler
+   * calls this on every attach for each of that machine's NEVER-BOUND
+   * headless sessions (bound ones re-establish through the reattach/rebind
+   * arm instead), so a daemon restart between establish and first turn heals
+   * before any turn is sent. A daemon restart wipes the in-memory headless
+   * handle (headless sessions hold no server journal), and the establish
+   * frame is fire-and-forget — without this the first turn would retry
+   * `not_running` against a daemon that can never answer. Re-sending the
+   * frame built by THE ONE builder heals it: the daemon's binding store
+   * dedupes on the transition id (no second binding), and the contract
+   * create re-registers the session (or reports `already exists` when the
+   * handle survived after all — equally fine). Deliberately NOT awaited by
+   * the caller, exactly like the rebind arm: re-issued on every daemon
+   * connect, so a missed establish self-heals on the next attach.
+   */
+  async reestablishHeadless(sessionId: SessionId): Promise<void> {
+    const session = this.deps.getSession(sessionId)
+    if (!session?.headless) return
+    if (session.resume?.value) return
+    try {
+      const binding = authorSpawnBinding({
+        sessionId,
+        principal: { kind: 'user', userId: session.ownerUserId },
+        ...(session.issueId ? { issueId: session.issueId } : {}),
+      }).binding
+      const observationLease = await this.deps.fenceObservation(session)
+      this.deps.toMachine(
+        session.machineId,
+        this.spawnFrameFor(session, binding, observationLease),
+      )
+    } catch {
+      // Establishment is best-effort; the ladder retry reports the outcome.
+    }
   }
 
   /** Read immutable launch identity for deterministic headless replay. */
@@ -473,6 +530,11 @@ export class HeadlessService {
         // the session is not (yet) behind the contract. Every other refusal
         // (digest/account/tool-policy/busy/unsupported) is a verdict, not a
         // transport gap — retrying would rerun a fenced turn.
+        //
+        // NO TURN-TIME RE-ESTABLISH (POD-4827 review 2): re-sending the spawn
+        // frame here would be the server retrying for the daemon. The daemon
+        // (re)attaching re-establishes never-bound sessions before any turn
+        // is sent; the ladder retry below then lands on a contract session.
         if (reason === 'not_running') {
           return { ok: false, error: detail, retryable: true }
         }

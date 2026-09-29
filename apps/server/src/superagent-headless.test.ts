@@ -810,7 +810,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
 })
 
 describe('sendTurn (headless harness turns)', () => {
-  it('cleans up an ordinary durable turn with the empty generic-account sentinel', async () => {
+  it('cleans up an ordinary durable turn with the resolved harness account', async () => {
     const h = await harness()
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
@@ -818,7 +818,15 @@ describe('sendTurn (headless harness turns)', () => {
       text: 'ordinary turn',
     })
     const request = h.turnReqs[0]!
-    expect(request.accountId).toBe('')
+    // The turn carries the session's resolved harness account (POD-4827): an
+    // empty account mints a digest the real daemon refuses as invalid_value,
+    // so the fake daemon's acceptance here only means something with an
+    // account behind it.
+    const meta = (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === request.sessionId,
+    )
+    expect(meta?.accountId).toMatch(/^native:/)
+    expect(request.accountId).toBe(meta?.accountId)
 
     h.resolveTurn(request, { harnessSessionId: 'ordinary-harness' })
     await h.settle()
@@ -829,7 +837,7 @@ describe('sendTurn (headless harness turns)', () => {
       sessionId: request.sessionId,
       turnId: request.turnId,
       requestDigest: request.requestDigest,
-      accountId: asAccountId(''),
+      accountId: meta?.accountId,
     })
   })
 

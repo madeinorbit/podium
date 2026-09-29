@@ -147,6 +147,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     viewTiers: (sessionIds) => computePriorities([...bag.clients.values()], sessionIds),
     rebindHeadless: (session) => bag.rebindHeadless(session),
+    reestablishHeadless: (session) => bag.reestablishHeadless(session),
     markVolatileSessionDirty: (sessionId, fields) =>
       bag.repository.markVolatileSessionDirty(sessionId, fields),
     write: (session, mutate) => bag.repository.write(session, mutate),
