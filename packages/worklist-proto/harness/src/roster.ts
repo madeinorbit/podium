@@ -23,14 +23,16 @@
  */
 
 import { mobxPoolArm } from '../../arms/mobx/pool/arm'
+import { writableMobxPoolArm } from '../../arms/mobx/pool/write/arm'
 import type { ArmHandle, CheckableArm } from '../../shared/src/arm'
 import type { RowSourceMode } from '../../shared/src/row-source'
 import type { ScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../shared/src/slice-types'
+import type { WriteTransport } from '../../shared/src/write-contract'
 import type { CountResult } from './count-harness'
 import type { FixtureCorpus } from './fixture/index'
 import type { RowViews } from './oracle/index'
-import type { WorkKind } from './scale-check'
+import type { WorkAllowance } from './scale-check'
 
 /**
  * One arm's named exceptions. Every member names the issue that removes it
@@ -40,13 +42,15 @@ export interface RosterAllowances {
   /**
    * POD-4746 — known violations of the work-per-change check
    * (`work-per-change.test.tsx`): per issue that fixes them, the scenarios
-   * and counts that grow with the data. The check still reports them; an
-   * allowed count that passes fails the suite.
+   * and counts that grow with the data, each SIZED (POD-4825,
+   * `scale-check.ts`): the derivations whose walks may grow
+   * (`{ methodology, kind: 'elements', parts }`, the `elementsBy` keys), or
+   * the most the count may exceed its bound by (`{ methodology, kind,
+   * excess }`). A new walk in any other derivation, or a larger excess, still
+   * fails. The check still reports them; an allowed count that passes fails
+   * the suite.
    */
-  readonly work?: readonly {
-    readonly issue: string
-    readonly steps: readonly { readonly methodology: string; readonly kind: WorkKind }[]
-  }[]
+  readonly work?: readonly WorkAllowance[]
   /**
    * Rows the oracle changed that may stay undrawn. Called only when the
    * exact-commit fence failed; returns the rows it accepts and THROWS when
@@ -82,6 +86,13 @@ export interface RosterArm {
   mode: RowSourceMode
   /** The arm must be checkable: `shared/src/gen/check.ts` runs every roster arm (POD-4556). */
   armFor(ctx: ScenarioEngine): CheckableArm
+  /**
+   * POD-4825 — the same arm with its write layer, sending through
+   * `transport`: the arm that owns optimism. The work check and the census
+   * run it too, idle and with pending edits (`writable-arm.ts`), on the same
+   * feed as `armFor`.
+   */
+  writable?(transport: WriteTransport): CheckableArm
   /** Named exceptions, each removed by the issue it names (above). */
   allowances?: RosterAllowances
 }
@@ -94,5 +105,6 @@ export const ROUND_THREE_ARMS: readonly RosterArm[] = [
     folder: 'mobx',
     mode: 'overlaid',
     armFor: () => mobxPoolArm,
+    writable: (transport) => writableMobxPoolArm(transport),
   },
 ]

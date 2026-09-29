@@ -9,6 +9,7 @@ import {
   growthSeries,
   growthShortfalls,
   growthVerdicts,
+  plantCaught,
   runGrowth,
 } from './growth'
 import { type RunOutput, SCENARIOS, type ScenarioName } from './records'
@@ -31,6 +32,8 @@ interface Shape {
   switchLeak?: number
   /** Round r adds r × jitter to every value (so the round spread is 3 × jitter). */
   jitter?: number
+  /** POD-4825: per cell, round r adds `noise[cell][r]` to its cold start and walls. */
+  noise?: Partial<Record<CellName, readonly number[]>>
 }
 
 const flat = (value: number): Record<CellName, number> => ({
@@ -47,12 +50,13 @@ function cellRun(arm: string, cell: CellName, round: number, shape: Shape): RunO
     ...(plant ? { plant } : {}),
   })
   const bump = round * (shape.jitter ?? 0)
+  const noise = shape.noise?.[cell]?.[round] ?? 0
   const engine = cell === 'h10a1' ? 200 : cell === 'h1a4' ? 90 : 40
   run.cell = cell
   for (const record of run.records) {
     record.cell = cell
     if (record.scenario === 'coldBootstrap') {
-      record.actionMs = shape.cold[cell] + bump
+      record.actionMs = shape.cold[cell] + bump + noise
       record.heapBefore = { usedSize: engine * MB, totalSize: 0 }
       record.heapAfter = { usedSize: (engine + shape.armHeap[cell] + bump) * MB, totalSize: 0 }
       record.lifecycle = { phases: { engineMs: engine * 10 }, midParity: null, survivors: [] }
@@ -65,7 +69,7 @@ function cellRun(arm: string, cell: CellName, round: number, shape: Shape): RunO
       }
       record.lifecycle = { phases: {}, midParity: null, survivors: [] }
     } else {
-      record.actionMs = shape.wall[cell] + bump
+      record.actionMs = shape.wall[cell] + bump + noise
     }
   }
   return run
@@ -133,16 +137,43 @@ describe('history x10: retained heap and cold start stay flat within the round s
     expect(pick(v, 'noop', 'history flat', 'arm heap MB')?.pass).toBe(true)
   })
 
-  it('passes growth inside the spread of repeated runs, fails growth past it', () => {
-    const inside: Shape = { ...FLAT_ARM, cold: { h1a1: 120, h10a1: 120.1, h1a4: 120 } }
-    expect(
-      pick(verdictsOf({ noop: FLOOR, mobx: inside }), 'mobx', 'history flat', 'cold start ms')
-        ?.pass,
-    ).toBe(true)
-    const past: Shape = { ...FLAT_ARM, cold: { h1a1: 120, h10a1: 121, h1a4: 120 } }
+  it('judges a time check by the paired round growth: inside its t bound passes, past it fails', () => {
+    // Round growths (grown_r − base_r) of 1, −2, 3, 0 over the cells' 4 ms:
+    // sd √(13/3) = 2.082, so the tolerance is t(0.99, 3) × 2.082 / √4 = 4.727.
+    const noise = { h1a1: [0, 2, 0, 1], h10a1: [1, 0, 3, 1] } as const
+    const inside: Shape = { ...FLAT_ARM, noise, cold: { h1a1: 120, h10a1: 124, h1a4: 120 } }
+    const passing = pick(
+      verdictsOf({ noop: FLOOR, mobx: inside }),
+      'mobx',
+      'history flat',
+      'cold start ms',
+    )
+    expect(passing?.tolerance).toBeCloseTo((4.541 * Math.sqrt(13 / 3)) / 2, 3)
+    expect(passing).toMatchObject({ kind: 'time', pass: true })
+    const past: Shape = { ...FLAT_ARM, noise, cold: { h1a1: 120, h10a1: 126, h1a4: 120 } }
     expect(
       pick(verdictsOf({ noop: FLOOR, mobx: past }), 'mobx', 'history flat', 'cold start ms')?.pass,
     ).toBe(false)
+  })
+
+  it('fails a doubled cold start that the spread of round medians passed', () => {
+    // The flatblock shape (POD-4747's matrix): one slow round in each cell.
+    // Base rounds 768/639/660/597 (the MobX pool's h1a1 cold start); grown
+    // doubles it with a slow first round. The spread of round medians (700)
+    // put the bound above the doubling; the paired bound does not.
+    const slow: Shape = {
+      ...FLAT_ARM,
+      jitter: 0,
+      cold: { h1a1: 0, h10a1: 0, h1a4: 0 },
+      noise: { h1a1: [767.9, 638.6, 660.4, 596.7], h10a1: [1950, 1250, 1300, 1310] },
+    }
+    const v = pick(verdictsOf({ noop: FLOOR, mobx: slow }), 'mobx', 'history flat', 'cold start ms')
+    expect(v?.base).toBeCloseTo(649.5, 6)
+    expect(v?.grown).toBeCloseTo(1305, 6)
+    const spreadBound = v!.base + Math.max(767.9 - 596.7, 1950 - 1250)
+    expect(v!.grown).toBeLessThan(spreadBound)
+    expect(v).toMatchObject({ kind: 'time', pass: false })
+    expect(v?.blind).toBeUndefined()
   })
 
   it('reports the booted page (the engine) and never counts it as an arm', () => {
@@ -186,6 +217,56 @@ describe('active x4: heap and cold start at most linear, per-change walls flat',
     })
     const own = verdictsOf({ noop: FLOOR, mobx: armUp })
     expect(pick(own, 'mobx', 'active flat', 'rename ms over floor')?.pass).toBe(false)
+  })
+})
+
+describe('what a time check can see (POD-4825)', () => {
+  it('prints a wall whose noise hides a doubling of the arm’s own time as blind, never flat', () => {
+    // The arm's own time over the floor is 3.2 ms; rounds move it by ±4 ms.
+    const noisy: Shape = {
+      ...FLAT_ARM,
+      wall: flat(4.2),
+      jitter: 0,
+      noise: { h1a1: [4, -3, 1, -2], h10a1: [-2, 4, -1, 3] },
+    }
+    const v = pick(
+      verdictsOf({ noop: { ...FLOOR, jitter: 0 }, mobx: noisy }),
+      'mobx',
+      'history flat',
+      'rename ms over floor',
+    )
+    expect(v).toMatchObject({ kind: 'time', pass: true })
+    expect(v?.tolerance).toBeGreaterThan(v!.base)
+    // At this noise a doubling of 2.7 ms shows after about thirty rounds.
+    expect(v?.blind?.roundsToSee).toBeGreaterThan(4)
+    expect(v?.blind?.roundsToSee).toBeLessThan(100)
+  })
+
+  it('catches the planted slow arm: double:<ms> fails its walls and its cold start', () => {
+    // `noop+double:30`: 30 ms per change and per build at h1a1, 60 at a grown
+    // cell, over the floor, with the flatblock floor's round noise.
+    const noise = { h1a1: [4, -3, 2, -1], h10a1: [-2, 5, -4, 3], h1a4: [3, 1, -3, -2] } as const
+    const double: Shape = {
+      ...FLOOR,
+      jitter: 0,
+      noise,
+      cold: { h1a1: 70, h10a1: 100, h1a4: 100 },
+      wall: { h1a1: 31, h10a1: 61, h1a4: 61 },
+    }
+    const v = verdictsOf({ noop: { ...FLOOR, jitter: 0 }, 'noop+double:30': double })
+    for (const check of ['history flat', 'active flat'] as const) {
+      expect(pick(v, 'noop+double:30', check, 'rename ms over floor')).toMatchObject({
+        role: 'plant',
+        kind: 'time',
+        pass: false,
+      })
+    }
+    expect(pick(v, 'noop+double:30', 'history flat', 'cold start ms')?.pass).toBe(false)
+    expect(plantCaught(v, 'noop+double:30')).toBe(true)
+    // The same plant without the doubling is not caught.
+    const constant: Shape = { ...double, cold: flat(70), wall: flat(31) }
+    const c = verdictsOf({ noop: { ...FLOOR, jitter: 0 }, 'noop+double:30': constant })
+    expect(plantCaught(c, 'noop+double:30')).toBe(false)
   })
 })
 
@@ -253,9 +334,23 @@ describe('runGrowth over a matrix directory', () => {
     expect(out).toContain('arms failing a check: mobx')
   })
 
-  it('says so when a plant passes every history check', () => {
+  it('says so when a plant passes every check it must fail', () => {
     const lines: string[] = []
     expect(runGrowth([write({ noop: FLOOR, 'noop+hold:1': FLOOR })], (l) => lines.push(l))).toBe(1)
-    expect(lines).toContain('PLANT NOT CAUGHT: noop+hold:1 passes every history check')
+    expect(lines).toContain('PLANT NOT CAUGHT: noop+hold:1 passes every check it must fail')
+  })
+
+  it('reports the engine and gates on it only with --engine-gate (POD-4825)', () => {
+    // The fixture's booted page grows 40 -> 200 MB at history x10 (every arm's).
+    const dir = write({ noop: FLOOR, mobx: FLAT_ARM })
+    const off: string[] = []
+    expect(runGrowth([dir], (l) => off.push(l))).toBe(0)
+    expect(off.find((l) => l.startsWith('engine gate:'))).toMatch(
+      /^engine gate: off .*engine history flat engine heap MB/,
+    )
+    const on: string[] = []
+    expect(runGrowth([dir, '--engine-gate'], (l) => on.push(l))).toBe(1)
+    expect(on.find((l) => l.startsWith('engine gate:'))).toMatch(/^engine gate: ON/)
+    expect(on).toContain('arms failing a check: none')
   })
 })

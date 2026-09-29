@@ -119,7 +119,7 @@ const CELL_VIEWPORT = { width: 1600, height: 7400 }
 
 /** The arms held to the oracle in check mode; the control (whole-list redraw)
  *  and the no-op page (draws nothing) exist to fail it and are reported only. */
-const CANDIDATE_ARMS = new Set<ArmName>(['hand', 'mobx'])
+const CANDIDATE_ARMS = new Set<ArmName>(['hand', 'mobx', 'mobx-write', 'mobx-pending'])
 
 /** The floor draws its boot snapshot forever: parity is reported, not enforced, unless `--strict-parity`. */
 const PARITY_EXEMPT = new Set<ArmName>(['noop'])

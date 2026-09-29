@@ -82,7 +82,7 @@ import {
   writeStageMove,
   writeTitleRename,
 } from '../../shared/src/scenarios'
-import type { SliceLocals } from '../../shared/src/slice-types'
+import type { SliceLocals, SliceSnapshot } from '../../shared/src/slice-types'
 import {
   ancestorCount,
   burstReadBudget,
@@ -445,6 +445,11 @@ export async function runFenceStep(
   ctx: ScenarioEngine,
   flush: () => void,
   entry: FenceScenario,
+  /**
+   * POD-4825: the oracle's list as this arm must show it — the arm's own
+   * pending edits laid over it (`writable-arm.ts`, `withPendingTitles`).
+   */
+  options: { expected?: (oracle: SliceSnapshot) => SliceSnapshot } = {},
 ): Promise<FenceStep> {
   const step = `${entry.methodology} ${entry.scenario}`
   const readsBudget = entry.readsBudget(ctx)
@@ -486,7 +491,10 @@ export async function runFenceStep(
       if (hooks !== null) await insideArm(() => hooks.settleLoads())
       settledAt = feeds.rowReads()
     },
-    expected: () => snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)),
+    expected: () => {
+      const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
+      return options.expected === undefined ? oracle : options.expected(oracle)
+    },
     views: () => rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
   })
   // LOAD ISOLATION (G2): a load pending now, or one that landed after the

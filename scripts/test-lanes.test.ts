@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  filesNotRun,
   LANES,
   laneCommand,
   planFiles,
@@ -42,6 +43,27 @@ describe('test lanes', () => {
     })
     expect(runnerFor('tests/e2e/relay.e2e.test.ts')).toEqual({ kind: 'vitest', lane: 'e2e' })
     expect(runnerFor('packages/sync/src/span.ts')).toHaveProperty('error')
+    // POD-4825: the node lane excludes these; the package config runs them.
+    expect(
+      runnerFor('packages/worklist-proto/harness/native/mobx-pool-fence.native.test.tsx'),
+    ).toEqual({ kind: 'vitest', lane: 'worklist-native' })
+    expect(runnerFor('packages/worklist-proto/harness/src/fences.test.tsx')).toEqual({
+      kind: 'vitest',
+      lane: 'node',
+    })
+  })
+
+  it('names every file a run was asked for and did not run (POD-4825)', () => {
+    const named = ['/r/a.test.ts', '/r/b.native.test.tsx', '/r/c.test.ts']
+    const report = { testResults: [{ name: '/r/a.test.ts' }, { name: '/r/c.test.ts' }] }
+    expect(filesNotRun(named, report)).toEqual(['/r/b.native.test.tsx'])
+    expect(
+      filesNotRun(named, {
+        testResults: [...report.testResults, { name: '/r/b.native.test.tsx' }],
+      }),
+    ).toEqual([])
+    // No report is no evidence: every file counts as not run.
+    expect(filesNotRun(named, null)).toEqual(named)
   })
 
   it('groups files per runner with filters relative to the lane cwd', () => {

@@ -254,7 +254,7 @@ export interface RowView extends Readonly<SliceRow> {
    * reference arm, round two). Not an oracle field: `sliceRowOf` drops it.
    * Inputs: residency of the lazy relations' targets.
    */
-   readonly loading?: true
+  readonly loading?: true
 }
 
 /**
@@ -297,6 +297,75 @@ type _RowViewFieldsExhaustive = Exclude<keyof RowView, RowViewField> extends nev
 const _rowViewFieldsExhaustive: _RowViewFieldsExhaustive = true
 type _RowViewFieldsNoExtras = Exclude<RowViewField, keyof RowView> extends never ? true : never
 const _rowViewFieldsNoExtras: _RowViewFieldsNoExtras = true
+
+/**
+ * POD-4825 — the fields a row DRAWS: its text (`displayRef`, `title`,
+ * `phase`, the flags and progress, the origin tick) and its looks (selected,
+ * pinned, snoozed band, closed or dismissed fold, the recency and working
+ * stamps, loading). A row component reads these and nothing else, and the
+ * exact-commit oracle expects a row to redraw exactly when one of them
+ * changes. Declared once here for every arm and the oracle.
+ */
+export const ROW_DISPLAYED_FIELDS = [
+  'displayRef',
+  'title',
+  'phase',
+  'progressDone',
+  'progressTotal',
+  'working',
+  'asking',
+  'originTick',
+  'selected',
+  'pinned',
+  'band',
+  'closed',
+  'dismissed',
+  'activityAt',
+  'workingSince',
+  'loading',
+] as const satisfies readonly RowViewField[]
+
+/**
+ * POD-4825 — the fields a row does NOT draw: its identity (`id`) and what
+ * only PLACES it (its group `repoKey`; the order keys `sortKey`, `createdAt`,
+ * `seq`; the fold's `foldAt`). A change to one moves the row in the list (the
+ * lane redraws), never the row itself.
+ */
+export const ROW_PLACEMENT_FIELDS = [
+  'id',
+  'repoKey',
+  'sortKey',
+  'createdAt',
+  'seq',
+  'foldAt',
+] as const satisfies readonly RowViewField[]
+
+export type RowDisplayedField = (typeof ROW_DISPLAYED_FIELDS)[number]
+
+// Every RowView field is displayed or placement, never both (typecheck here).
+type _SplitExhaustive =
+  Exclude<RowViewField, RowDisplayedField | (typeof ROW_PLACEMENT_FIELDS)[number]> extends never
+    ? true
+    : never
+const _splitExhaustive: _SplitExhaustive = true
+type _SplitDisjoint =
+  Extract<RowDisplayedField, (typeof ROW_PLACEMENT_FIELDS)[number]> extends never ? true : never
+const _splitDisjoint: _SplitDisjoint = true
+
+/**
+ * Whether a row must redraw between two views of it: a DISPLAYED field
+ * differs (POD-4825). The values are primitives, `undefined`, or the plain
+ * `originTick` object, compared by content.
+ */
+export function displayChanged(before: RowView, after: RowView): boolean {
+  return ROW_DISPLAYED_FIELDS.some((field) => {
+    const a: unknown = before[field]
+    const b: unknown = after[field]
+    if (a === b) return false
+    if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return true
+    return JSON.stringify(a) !== JSON.stringify(b)
+  })
+}
 
 // -----------------------------------------------------------------------------
 // Seats: which graph members count toward a row (read side)

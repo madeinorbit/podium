@@ -105,6 +105,15 @@ export const LANES: Record<string, Lane> = {
     admission: 'focused',
     summary: '@podium/mobile under node',
   },
+  // POD-4825: the worklist prototype's React Native suites. The node lane
+  // excludes `harness/native/**` (Flow-typed `react-native` source); the
+  // package config aliases it to `react-native-web`.
+  'worklist-native': {
+    cwd: 'packages/worklist-proto',
+    command: bunVitest('vitest.config.ts'),
+    admission: 'focused',
+    summary: '@podium/worklist-proto harness/native suites (react-native -> react-native-web)',
+  },
   scripts: {
     cwd: 'scripts',
     command: bunVitest('vitest.config.ts'),
@@ -174,6 +183,13 @@ export function runnerFor(path: string): FileRunner | { error: string } {
   if (top === 'apps' && second === 'web') return { kind: 'vitest', lane: 'web' }
   if (top === 'apps' && second === 'mobile') return { kind: 'vitest', lane: 'mobile' }
   if (top === 'tests' && second === 'e2e') return { kind: 'vitest', lane: 'e2e' }
+  if (
+    top === 'packages' &&
+    second === 'worklist-proto' &&
+    parts[2] === 'harness' &&
+    parts[3] === 'native'
+  )
+    return { kind: 'vitest', lane: 'worklist-native' }
   if (/\.integration\.test\./.test(path)) return { kind: 'vitest', lane: 'integration' }
   if (/\.acceptance\.test\./.test(path)) return { kind: 'vitest', lane: 'acceptance' }
   return { kind: 'vitest', lane: 'node' }
@@ -231,4 +247,19 @@ export function planFiles(files: string[], root: string): { plans: FilePlan[]; e
 /** URL-based, not `import.meta.dir`: this module is also loaded by vitest, where that is undefined. */
 export function repositoryRoot(): string {
   return fileURLToPath(new URL('..', import.meta.url))
+}
+
+/**
+ * POD-4825 — the named files a vitest run did not run: every file in `named`
+ * (absolute) with no entry in the run's JSON report (`testResults[].name`,
+ * absolute). A lane's config can exclude a file its filter names, and vitest
+ * then runs the rest and exits 0 (six named, three ran).
+ */
+export function filesNotRun(named: readonly string[], report: unknown): string[] {
+  const results = (report as { testResults?: { name?: unknown }[] } | null)?.testResults
+  if (!Array.isArray(results)) return [...named]
+  const ran = new Set(
+    results.map((result) => result.name).filter((name) => typeof name === 'string'),
+  )
+  return named.filter((file) => !ran.has(file))
 }

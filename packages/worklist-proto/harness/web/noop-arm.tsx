@@ -42,6 +42,13 @@
  * retained heap grows with history, and history x10 must fail the growth
  * test while the plain floor passes it.
  *
+ * DOUBLING PLANT (POD-4825, the growth test's time checks' can-say-NO
+ * proof): `double:<ms>` busy-waits `ms` inside `create` and inside every
+ * feed/locals notification on the base cell (`h1a1`, or any `?scale=` page)
+ * and `2 × ms` on a grown cell: an arm whose build and changes cost twice as
+ * much once the workspace grows. Its cold start and walls must fail the
+ * growth test's time checks.
+ *
  * THE FLOOR'S ROWS (POD-4747). The rows the floor draws are the oracle's
  * over the boot store, derived ONCE when the page boots (`noopFrozenRows`,
  * untimed, like the fixture and the engine), never inside `create`: the
@@ -67,6 +74,7 @@ import type { ScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../shared/src/slice-types'
 import type { ArmStats, RowSourceEvent } from '../../shared/src/stats'
 import { localsOfEngine } from '../src/engine-locals'
+import { cellLabel, GROWTH_CELLS } from '../src/fixture/index'
 import { oracleSnapshot, rowViewsFromStore } from '../src/oracle/index'
 import { firstWindowRows } from './entrylib'
 
@@ -98,23 +106,35 @@ function zeroStats(): ArmStats {
 }
 
 export type NoopPlant = {
-  kind: 'sync' | 'late' | 'walk' | 'build' | 'leak' | 'retain' | 'hold'
+  kind: 'sync' | 'late' | 'walk' | 'build' | 'leak' | 'retain' | 'hold' | 'double'
   ms: number
 } | null
 
-const PLANT_KINDS = new Set(['sync', 'late', 'walk', 'build', 'leak', 'retain', 'hold'])
+const PLANT_KINDS = new Set(['sync', 'late', 'walk', 'build', 'leak', 'retain', 'hold', 'double'])
 
-/** `?plant=sync:<ms>` / `late:<ms>` / `walk:<passes>` / `build:<ms>` / `leak:<mb>` / `retain:1` / `hold:1`; null when absent. */
+/** `?plant=sync:<ms>` / `late:<ms>` / `walk:<passes>` / `build:<ms>` / `leak:<mb>` / `retain:1` / `hold:1` / `double:<ms>`; null when absent. */
 export function readPlant(): NoopPlant {
   const raw = new URLSearchParams(window.location.search).get('plant')
   if (raw === null) return null
   const [kind, ms] = raw.split(':')
   if (!PLANT_KINDS.has(kind ?? '') || !Number.isFinite(Number(ms))) {
     throw new Error(
-      `[noop] bad plant ${raw} (want sync:<ms>, late:<ms>, walk:<passes>, build:<ms>, leak:<mb>, retain:1 or hold:1)`,
+      `[noop] bad plant ${raw} (want sync:<ms>, late:<ms>, walk:<passes>, build:<ms>, leak:<mb>, retain:1, hold:1 or double:<ms>)`,
     )
   }
-  return { kind: kind as NonNullable<NoopPlant>['kind'], ms: Number(ms) }
+  const plant = { kind: kind as NonNullable<NoopPlant>['kind'], ms: Number(ms) }
+  // POD-4825: `double:<ms>` costs twice as much on a grown cell page.
+  const cell = new URLSearchParams(window.location.search).get('cell')
+  const grown = cell !== null && cell !== cellLabel(GROWTH_CELLS.base)
+  return plant.kind === 'double' && grown ? { ...plant, ms: 2 * plant.ms } : plant
+}
+
+/** Busy-wait `ms` (planted work). */
+function spin(ms: number): void {
+  const until = performance.now() + ms
+  while (performance.now() < until) {
+    // planted synchronous work
+  }
 }
 
 /** `leak:<mb>`: an `mb` MB block on the V8 heap (a packed array of doubles). */
@@ -145,12 +165,7 @@ export function noopFrozenRows(boot: ScenarioEngine): NoopFrozen {
 export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant, frozenRows: NoopFrozen): Arm {
   return {
     create(source, locals): ArmHandle {
-      if (plant?.kind === 'build') {
-        const until = performance.now() + plant.ms
-        while (performance.now() < until) {
-          // planted construction work
-        }
-      }
+      if (plant?.kind === 'build' || plant?.kind === 'double') spin(plant.ms)
       let block = plant?.kind === 'leak' ? heapBlock(plant.ms) : null
       // `hold:1`: one object per known issue, kept for the handle's life.
       let held: Array<{ id: string }> | null =
@@ -176,11 +191,8 @@ export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant, frozenRows: N
           }
           // Observable, so the walk cannot be optimised away.
           ;(globalThis as { __noopWalked?: number }).__noopWalked = sink
-        } else if (plant.kind === 'sync') {
-          const until = performance.now() + plant.ms
-          while (performance.now() < until) {
-            // planted synchronous work
-          }
+        } else if (plant.kind === 'sync' || plant.kind === 'double') {
+          spin(plant.ms)
         } else {
           setTimeout(() => redraw(), plant.ms)
         }

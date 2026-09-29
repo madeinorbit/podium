@@ -2,8 +2,10 @@
  * POD-4565 (Ma1), POD-4756 — the pool's native row: its own issue, typed as
  * the `RowView` it implements, and nothing else (L1b), an `observer` reading
  * the issue's row fields directly, for the reasons in `../react/row.tsx`. It
- * reads every field: the drawn ones as text, the rest in its accessibility
- * state and label and its style (a native view has no data attributes).
+ * reads the fields a row draws (`ROW_DISPLAYED_FIELDS`) and no other: its
+ * text, and its looks in its accessibility state and label and its style (a
+ * native view has no data attributes). The placement fields (group, order
+ * keys, fold time) are never read here (POD-4825).
  */
 
 import { observer } from 'mobx-react-lite'
@@ -26,9 +28,6 @@ export const PoolNativeRow = observer(function PoolNativeRow({ row }: RowProps):
       accessibilityLabel={[
         `${row.displayRef} ${row.title}`,
         ...flags,
-        `group ${row.repoKey}`,
-        `order ${row.sortKey ?? '-'} ${row.createdAt} ${row.seq}`,
-        `folded ${row.foldAt}`,
         `active ${row.activityAt}`,
         row.originTick === null ? '' : `from ${row.originTick.ref}`,
       ].join(', ')}

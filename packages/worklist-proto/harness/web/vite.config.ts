@@ -71,6 +71,9 @@ export default defineConfig({
         control: entry('control'),
         hand: entry('hand'),
         mobx: entry('mobx'),
+        // POD-4825: the MobX pool with its write layer, idle and with pending edits.
+        'mobx-write': entry('mobx-write'),
+        'mobx-pending': entry('mobx-pending'),
         // POD-4558: the instrument floor (an arm that does nothing).
         noop: entry('noop'),
       },

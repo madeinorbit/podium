@@ -5,7 +5,7 @@
  */
 import type { ProtoParity, ProtoScenarioResult } from '../web/entrylib'
 
-export const ARMS = ['control', 'hand', 'mobx', 'noop'] as const
+export const ARMS = ['control', 'hand', 'mobx', 'mobx-write', 'mobx-pending', 'noop'] as const
 export type ArmName = (typeof ARMS)[number]
 export type Scale = 1 | 2 | 4
 /** The hot-path changes: one page load per run, the default scenario set. */

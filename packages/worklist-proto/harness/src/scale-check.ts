@@ -23,6 +23,15 @@
  * by three times its 1x size). No per-scenario number is typed in. A failing
  * elements count names the derivations whose walks grew (`elementsBy`).
  *
+ * A KNOWN VIOLATION is a named allowance (`RosterAllowances.work`), SIZED
+ * (POD-4825): each step names either the derivations whose walks may grow
+ * (`parts`, `elements` only) or the most its count may exceed the bound by
+ * (`excess`). A step covers a failing verdict only inside that size: with
+ * `parts`, every OTHER part must grow by at most the neighbourhood on its
+ * own, so a new walk in another derivation still fails; with `excess`, the
+ * count must not exceed the bound by more. `applyWorkAllowances` is the one
+ * place they are applied.
+ *
  * It replaces the fixed per-scenario reads budgets (POD-4557/POD-4609) and
  * G3's wall-clock slope budget. Walls stay a measurement (L5b), not a gate
  * on this question.
@@ -56,6 +65,11 @@ export interface ScaleVerdict {
    * four): where a failing count comes from. Empty for the other kinds.
    */
   parts: [string, number, number][]
+  /**
+   * POD-4825 — for `elements`: every part whose distinct elements grew, and
+   * by how much (4x − 1x). Empty for the other kinds.
+   */
+  growthBy: Record<string, number>
   at1x: number
   at4x: number
   neighbourhood1x: number
@@ -95,6 +109,16 @@ function grownParts(one: WorkCell, four: WorkCell): [string, number, number][] {
     .slice(0, 4)
 }
 
+/** Every part whose distinct elements grew from 1x to 4x, by how much. */
+function growthByPart(one: WorkCell, four: WorkCell): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [part, at4x] of Object.entries(four.elementsBy)) {
+    const growth = at4x - (one.elementsBy[part] ?? 0)
+    if (growth > 0) out[part] = growth
+  }
+  return out
+}
+
 /** Compare the same scenarios at 1x and 4x, count by count. Throws when the scales ran different scenarios. */
 export function scaleVerdicts(
   at1x: readonly ScaleCell[],
@@ -115,6 +139,7 @@ export function scaleVerdicts(
         scenario: one.scenario,
         kind,
         parts: kind === 'elements' ? grownParts(one.work, four.work) : [],
+        growthBy: kind === 'elements' ? growthByPart(one.work, four.work) : {},
         at1x: one.work[kind],
         at4x: four.work[kind],
         neighbourhood1x: one.neighbourhood,
@@ -184,4 +209,117 @@ export function assertScaleInvariant(verdicts: readonly ScaleVerdict[]): void {
 /** A result's call sites, for naming where a count came from (tracing mounts). */
 export function describeSites(result: CountResult): string {
   return (result.workSites ?? []).map(([site, count]) => `    ${count}\t${site}`).join('\n')
+}
+
+/**
+ * POD-4825 — one step of a named work allowance, sized: the derivations whose
+ * walks may grow (`parts`, for `elements`), or the most the count may exceed
+ * its bound by (`excess`).
+ */
+export type WorkAllowanceStep =
+  | { readonly methodology: string; readonly kind: 'elements'; readonly parts: readonly string[] }
+  | { readonly methodology: string; readonly kind: WorkKind; readonly excess: number }
+
+/** A roster arm's known work violations, per issue that fixes them. */
+export interface WorkAllowance {
+  readonly issue: string
+  readonly steps: readonly WorkAllowanceStep[]
+}
+
+const stepOf = (step: WorkAllowanceStep): string => `${step.methodology} ${step.kind}`
+
+/**
+ * Why `verdict` is outside `step`'s size, or null when the step covers it.
+ * A step for another scenario or count never covers it.
+ */
+export function outsideAllowance(step: WorkAllowanceStep, verdict: ScaleVerdict): string | null {
+  if (step.methodology !== verdict.methodology || step.kind !== verdict.kind)
+    return `not ${stepOf(step)}`
+  if ('excess' in step) {
+    return verdict.excess <= step.excess
+      ? null
+      : `over by ${verdict.excess}, past the allowed ${step.excess}`
+  }
+  const allowed = new Set(step.parts)
+  const others = Object.entries(verdict.growthBy)
+    .filter(([part, growth]) => !allowed.has(part) && growth > verdict.neighbourhood4x)
+    .sort((a, b) => b[1] - a[1])
+  return others.length === 0
+    ? null
+    : `outside the allowed [${step.parts.join(', ')}]: ${others
+        .map(([part, growth]) => `${part} +${growth}`)
+        .join(', ')} (bound ${verdict.neighbourhood4x} per part)`
+}
+
+/**
+ * The allowances applied to one arm's verdicts: `unexplained`, the failing
+ * verdicts no step covers (each with why, when a step for it exists), and
+ * `stale`, the steps whose count passes now (a fix takes its allowance with
+ * it). Throws for a malformed step: `parts` on a count other than `elements`,
+ * an empty `parts`, or a negative `excess`.
+ */
+export function applyWorkAllowances(
+  verdicts: readonly ScaleVerdict[],
+  allowances: readonly WorkAllowance[],
+): { unexplained: { verdict: ScaleVerdict; why: string[] }[]; stale: string[]; applied: string[] } {
+  for (const allowance of allowances)
+    for (const step of allowance.steps) {
+      const bad =
+        'excess' in step ? !(step.excess >= 0) : step.kind !== 'elements' || step.parts.length === 0
+      if (bad)
+        throw new Error(`[scale] ${allowance.issue}: malformed allowance ${JSON.stringify(step)}`)
+    }
+  const failing = scaleFailures(verdicts)
+  const unexplained: { verdict: ScaleVerdict; why: string[] }[] = []
+  const applied: string[] = []
+  for (const verdict of failing) {
+    const why: string[] = []
+    let covered = false
+    for (const allowance of allowances)
+      for (const step of allowance.steps) {
+        if (step.methodology !== verdict.methodology || step.kind !== verdict.kind) continue
+        const outside = outsideAllowance(step, verdict)
+        if (outside === null) {
+          covered = true
+          applied.push(`${allowance.issue}: ${stepOf(step)}`)
+        } else why.push(`${allowance.issue}'s allowance: ${outside}`)
+      }
+    if (!covered) unexplained.push({ verdict, why })
+  }
+  const stale = allowances.flatMap((allowance) =>
+    allowance.steps
+      .filter(
+        (step) =>
+          !failing.some(
+            (verdict) => verdict.methodology === step.methodology && verdict.kind === step.kind,
+          ),
+      )
+      .map((step) => `${allowance.issue}'s allowance for ${stepOf(step)} passes now: delete it`),
+  )
+  return { unexplained, stale, applied }
+}
+
+/**
+ * THE check with the arm's named allowances: throws naming every failing
+ * count no allowance covers (and why each allowance for it does not), then
+ * every stale allowance.
+ */
+export function assertScaleInvariantWith(
+  verdicts: readonly ScaleVerdict[],
+  allowances: readonly WorkAllowance[],
+): string[] {
+  const { unexplained, stale, applied } = applyWorkAllowances(verdicts, allowances)
+  if (unexplained.length > 0) {
+    throw new Error(
+      `[scale] ${unexplained.length} count(s) grew with the data beyond the changed items' neighbourhood:\n` +
+        unexplained
+          .map(
+            ({ verdict, why }) =>
+              `  ${describeVerdict(verdict)}${why.map((line) => `\n      ${line}`).join('')}`,
+          )
+          .join('\n'),
+    )
+  }
+  if (stale.length > 0) throw new Error(`[scale] ${stale.join('; ')}`)
+  return applied
 }

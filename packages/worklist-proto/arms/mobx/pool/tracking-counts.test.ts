@@ -48,8 +48,8 @@
  * the list (`PoolList`: the pinned ids, each lane's keys, row ids and closed
  * ids, unfolded), each header in the window (`PoolGroupHeader`), and per row
  * its slot (`PoolRowSlot`: the model, else its residence), its shell
- * (`PoolRowView`: `model.inMemory`) and its row (`PoolRow`, POD-4756: every
- * row field, read off the issue). The window is the first 20 rows in list
+ * (`PoolRowView`: `model.inMemory`) and its row (`PoolRow`, POD-4756: its id and every
+ * field it draws, `ROW_DISPLAYED_FIELDS`, read off the issue; POD-4825). The window is the first 20 rows in list
  * order, with the headers among them. A cold row in it queues a load that
  * never lands here (the load window never closes): what is counted is the
  * paint before loads.
@@ -63,6 +63,16 @@
  *     bun run test:file -- packages/worklist-proto/arms/mobx/pool/tracking-counts.test.ts
  *
  * rewrites the file from the measured counts (and still checks nothing else).
+ *
+ * THE WRITE LAYER (POD-4825). The same census runs twice more on the arm that
+ * owns optimism (`writableMobxPoolArm`, the pool built with its
+ * `PendingOverlay`): `write-idle` (the layer attached, nothing pending) and
+ * `write-pending` (title edits on the last rows of the paint window queued in
+ * the kernel outbox, re-applied at creation by the layer's `bootstrap`,
+ * never receipted: `harness/src/writable-arm.ts`). Their counts are keyed
+ * `write-idle.<scale>x.*` and `write-pending.<scale>x.*` in the same
+ * baseline; the bare pool keeps its `<scale>x.*` keys. The layer's own
+ * construction and its bootstrap are charged to `create`.
  *
  * PLANTS (proven red, restored with cp; POD-4748): one extra computed
  * declared on every issue object (then `IssueNode`, now `IssueModel`), and one
@@ -83,10 +93,21 @@ import {
   phaseMethod,
   startCensus,
 } from '../../../harness/src/mobx-census'
-import { legacyDerivationFromStore, visibleIssueRows } from '../../../harness/src/oracle/index'
+import {
+  legacyDerivationFromStore,
+  snapshotFromStore,
+  visibleIssueRows,
+} from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
+import {
+  PENDING_TITLE_EDITS,
+  pendingTitleEditsOn,
+  silentTransport,
+  WRITE_VARIANTS,
+  type WriteVariant,
+} from '../../../harness/src/writable-arm'
 import { createReadFence } from '../../../shared/src/instrument/reads'
-import { ROW_VIEW_FIELDS } from '../../../shared/src/row-view'
+import { ROW_DISPLAYED_FIELDS } from '../../../shared/src/row-view'
 import { type FixtureScale, startScenarioEngine } from '../../../shared/src/scenarios'
 import { coldByRule, type EntityName, SCHEMA, tableColdContext } from '../../../shared/src/schema'
 import { mobxPoolArm } from './arm'
@@ -94,6 +115,7 @@ import { installMobxWarnTrap } from './mobx-trap'
 import { MobxPool } from './pool'
 import { PoolRelations } from './relations'
 import { VisibleCollection } from './worklist/visible'
+import { type WritableMobxPoolHandle, writableMobxPoolArm } from './write/arm'
 
 installMobxWarnTrap()
 
@@ -226,7 +248,9 @@ function paintWindow(pool: MobxPool): () => void {
       stops.push(
         autorun(
           () => {
-            if (model.inMemory) for (const field of ROW_VIEW_FIELDS) void model[field]
+            if (!model.inMemory) return
+            void model.id
+            for (const field of ROW_DISPLAYED_FIELDS) void model[field]
           },
           { name: `paint.row.${id}` },
         ),
@@ -323,7 +347,17 @@ interface ScaleCounts {
   report: unknown
 }
 
-async function measure(scale: FixtureScale): Promise<ScaleCounts> {
+/** The arm measured: the bare pool, or the pool with its write layer (see the module note). */
+type Variant = 'pool' | WriteVariant
+
+/** A variant's key prefix: `1x`, `write-idle.1x`, `write-pending.1x`. */
+const keyOf = (variant: Variant, scale: FixtureScale): string =>
+  variant === 'pool' ? `${scale}x` : `write-${variant}.${scale}x`
+
+/** The pool never auto-hydrates here: the load window never closes. */
+const NEVER_LOAD = { schedule: () => () => {} } as const
+
+async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCounts> {
   const ctx = await startScenarioEngine(scale)
   const feeds = openFenceFeeds(ctx, 'overlaid')
   const facts = rowFacts(ctx, feeds)
@@ -338,14 +372,40 @@ async function measure(scale: FixtureScale): Promise<ScaleCounts> {
     },
   })
   const unwrap = wrapPhases(census)
-  let handle: ReturnType<typeof mobxPoolArm.create> | null = null
+  // The pending variant's outbox, read off the feed before anything is counted.
+  const pending =
+    variant === 'pending'
+      ? pendingTitleEditsOn(
+          feeds.rows.source.snapshot('issue'),
+          snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)).order,
+          () => false,
+          WINDOW_ROWS,
+          parityLocals(ctx).coarseNow,
+        )
+      : null
+  const transport = silentTransport(pending?.queued ?? [])
+  let handle: { pool: MobxPool; dispose(): void } | null = null
   let stopPaint: (() => void) | null = null
   try {
     census.enter('create')
-    handle = mobxPoolArm.create(reads.wrapSource(feeds.rows.source), feeds.locals.source, reads, {
-      schedule: () => () => {},
-    })
+    const source = reads.wrapSource(feeds.rows.source)
+    handle =
+      variant === 'pool'
+        ? mobxPoolArm.create(source, feeds.locals.source, reads, NEVER_LOAD)
+        : (writableMobxPoolArm(transport, NEVER_LOAD).create(
+            source,
+            feeds.locals.source,
+            reads,
+          ) as WritableMobxPoolHandle)
     census.exit()
+    if (pending !== null) {
+      const { write } = handle as WritableMobxPoolHandle
+      const shown = [...pending.titles.keys()].filter(
+        (id) => write.pendingDisplay('issue', id) !== undefined,
+      )
+      expect(shown, 'the queued edits are pending after create').toHaveLength(PENDING_TITLE_EDITS)
+    }
+    expect(transport.sent, 'the write layer re-applies the outbox without sending').toEqual([])
     const startup = checkpoint(census.snapshot(), facts)
     census.enter('firstPaint')
     stopPaint = paintWindow(handle.pool)
@@ -359,7 +419,8 @@ async function measure(scale: FixtureScale): Promise<ScaleCounts> {
       ['firstPaint', paint.counts],
       ['phases', phases],
     ] as const) {
-      for (const [key, value] of Object.entries(set)) counts[`${scale}x.${prefix}.${key}`] = value
+      for (const [key, value] of Object.entries(set))
+        counts[`${keyOf(variant, scale)}.${prefix}.${key}`] = value
     }
     return {
       counts,
@@ -375,7 +436,8 @@ async function measure(scale: FixtureScale): Promise<ScaleCounts> {
         startup: startup,
         firstPaint: paint,
         phases,
-        pendingLoadsAfterPaint: handle.pendingLoads(),
+        pendingLoadsAfterPaint: handle.pool.pendingLoads(),
+        pendingEdits: pending === null ? [] : [...pending.titles.keys()],
       },
     }
   } finally {
@@ -422,20 +484,26 @@ const measured: Record<string, number> = {}
 const reports: Record<string, unknown> = {}
 
 describe('MobX pool tracking objects (POD-4748)', () => {
-  for (const scale of [1, 4] as const) {
-    it(`at ${scale}x: startup and first-paint counts equal the baseline`, async () => {
-      const result = await measure(scale)
-      Object.assign(measured, result.counts)
-      reports[`${scale}x`] = result.report
-      writeResult(`mobx-pool-tracking-counts-${scale}x`, result.report)
-      if (UPDATE !== undefined) return
-      const problems = compare(result.counts, readBaseline(), `${scale}x`)
-      expect(
-        problems,
-        `${problems.join('\n')}\n\nA change that moves these counts updates the baseline in the same commit:\n  POD_TRACKING_COUNTS_UPDATE="POD-<n>: <why>" bun run test:file -- <this file>`,
-      ).toEqual([])
-    }, 300_000)
-  }
+  for (const variant of ['pool', ...WRITE_VARIANTS] as const)
+    for (const scale of [1, 4] as const) {
+      const key = keyOf(variant, scale)
+      const arm = variant === 'pool' ? '' : ` with the write layer (${variant})`
+      it(`at ${scale}x${arm}: startup and first-paint counts equal the baseline`, async () => {
+        const result = await measure(scale, variant)
+        Object.assign(measured, result.counts)
+        reports[key] = result.report
+        writeResult(
+          `mobx-pool-tracking-counts-${variant === 'pool' ? '' : `write-${variant}-`}${scale}x`,
+          result.report,
+        )
+        if (UPDATE !== undefined) return
+        const problems = compare(result.counts, readBaseline(), key)
+        expect(
+          problems,
+          `${problems.join('\n')}\n\nA change that moves these counts updates the baseline in the same commit:\n  POD_TRACKING_COUNTS_UPDATE="POD-<n>: <why>" bun run test:file -- <this file>`,
+        ).toEqual([])
+      }, 300_000)
+    }
 
   it.runIf(UPDATE !== undefined)('writes the baseline (POD_TRACKING_COUNTS_UPDATE)', () => {
     const match = /^(POD-\d+):\s*(.{10,})$/.exec(UPDATE ?? '')

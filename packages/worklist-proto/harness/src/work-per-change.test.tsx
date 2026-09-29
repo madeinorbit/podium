@@ -21,6 +21,12 @@
  * both scales. It must fail on rows and on elements (never weakened: if it goes
  * green, the check is blind).
  *
+ * THE ARM THAT OWNS OPTIMISM (POD-4825). A roster arm with a write layer
+ * (`RosterArm.writable`) runs twice more, on the same feed: the layer idle, and
+ * with pending title edits queued in the outbox at creation, which stay
+ * pending through every step (`writable-arm.ts`). Parity is then held to the
+ * oracle with those titles laid over it. Same check, same allowances.
+ *
  * `POD_WORK_TRACE=1` names the call sites behind each count (slow).
  */
 
@@ -34,20 +40,38 @@ import {
   type ScenarioEngine,
   startScenarioEngine,
 } from '../../shared/src/scenarios'
+import type { SliceSnapshot } from '../../shared/src/slice-types'
 import { mountArmForCounts } from './count-harness'
-import { FENCE_SCENARIOS, openFenceFeeds, runFenceStep } from './fence-scenarios'
+import {
+  FENCE_SCENARIOS,
+  type FenceFeeds,
+  openFenceFeeds,
+  parityLocals,
+  runFenceStep,
+} from './fence-scenarios'
 import { legacyControlArmFor } from './legacy-control/arm'
-import { ROUND_THREE_ARMS } from './roster'
+import { snapshotFromStore } from './oracle/index'
+import { ROUND_THREE_ARMS, type RosterAllowances, type RosterArm } from './roster'
 import {
   assertScaleInvariant,
+  assertScaleInvariantWith,
   describeCells,
   describeSites,
   type ScaleCell,
-  type ScaleVerdict,
   scaleCell,
   scaleFailures,
   scaleVerdicts,
 } from './scale-check'
+import {
+  PENDING_TITLE_EDITS,
+  PENDING_WINDOW_ROWS,
+  pendingTitleEditsOn,
+  silentTransport,
+  targetIds,
+  WRITE_VARIANTS,
+  type WriteVariant,
+  withPendingTitles,
+} from './writable-arm'
 
 const TRACE = process.env.POD_WORK_TRACE === '1'
 
@@ -56,22 +80,38 @@ const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
   ? process.cwd()
   : join(process.cwd(), 'packages', 'worklist-proto')
 
+/** The arm one engine mounts, and what it must show: its own pending edits over the oracle. */
+interface CellArm {
+  arm: Arm
+  expected?: (oracle: SliceSnapshot) => SliceSnapshot
+  /** Runs after the last step, before unmount (the pending edits are still pending). */
+  after?: (handle: unknown) => void
+}
+type ArmBuilder = (ctx: ScenarioEngine, feeds: FenceFeeds) => CellArm
+
 /** Every fence scenario on one engine at `scale`, work counted. Parity must hold. */
 async function cellsAt(
   scale: FixtureScale,
   mode: RowSourceMode,
-  armFor: (ctx: ScenarioEngine) => Arm,
+  build: ArmBuilder,
   scenarios = FENCE_SCENARIOS,
 ): Promise<ScaleCell[]> {
   const ctx = await startScenarioEngine(scale)
   const feeds = openFenceFeeds(ctx, mode)
-  const mounted = mountArmForCounts(armFor(ctx), feeds.rows.source, feeds.locals, {
+  const built = build(ctx, feeds)
+  const mounted = mountArmForCounts(built.arm, feeds.rows.source, feeds.locals, {
     work: TRACE ? 'trace' : true,
   })
   try {
     const cells: ScaleCell[] = []
     for (const entry of scenarios) {
-      const step = await runFenceStep(mounted, ctx, feeds.flush, entry)
+      const step = await runFenceStep(
+        mounted,
+        ctx,
+        feeds.flush,
+        entry,
+        built.expected === undefined ? {} : { expected: built.expected },
+      )
       const { result } = step
       expect(result.parity, `${scale}x ${result.methodology}: ${result.parityDiff ?? ''}`).toBe(
         true,
@@ -84,6 +124,7 @@ async function cellsAt(
       }
       cells.push(cell)
     }
+    built.after?.(mounted.handle)
     return cells
   } finally {
     mounted.unmount()
@@ -98,41 +139,103 @@ function writeCells(name: string, body: object): void {
   writeFileSync(join(dir, name), `${JSON.stringify(body, null, 2)}\n`)
 }
 
+/**
+ * The writable arm in one variant (POD-4825): idle, or with pending title
+ * edits queued at creation. The pending edits must still be pending after
+ * the last step, and the arm never sends.
+ */
+function writableBuilder(entry: RosterArm, variant: WriteVariant): ArmBuilder {
+  const writable = entry.writable
+  if (writable === undefined) throw new Error(`${entry.name} has no write layer`)
+  return (ctx, feeds) => {
+    if (variant === 'idle') {
+      const transport = silentTransport()
+      return {
+        arm: writable(transport),
+        after: () => expect(transport.sent, 'the idle layer sends nothing').toEqual([]),
+      }
+    }
+    const excluded = targetIds(ctx.targets)
+    const { queued, titles } = pendingTitleEditsOn(
+      feeds.rows.source.snapshot('issue'),
+      snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)).order,
+      (id) => excluded.has(id),
+      PENDING_WINDOW_ROWS,
+      parityLocals(ctx).coarseNow,
+    )
+    const transport = silentTransport(queued)
+    return {
+      arm: writable(transport),
+      expected: (oracle) => withPendingTitles(oracle, titles),
+      after: (handle) => {
+        const write = (handle as { write: { pendingDisplay(kind: 'issue', id: string): unknown } })
+          .write
+        const still = [...titles.keys()].filter(
+          (id) => write.pendingDisplay('issue', id) !== undefined,
+        )
+        expect(still, 'every pending edit is still pending after the last step').toHaveLength(
+          PENDING_TITLE_EDITS,
+        )
+        expect(transport.sent, 'bootstrap re-applies the outbox without re-sending').toEqual([])
+      },
+    }
+  }
+}
+
+/** THE check on one arm, with its named allowances; the cells go to `work-<file>.json`. */
+async function checkWork(
+  name: string,
+  file: string,
+  mode: RowSourceMode,
+  build: ArmBuilder,
+  allowances: RosterAllowances | undefined,
+): Promise<void> {
+  const at1x = await cellsAt(1, mode, build)
+  const at4x = await cellsAt(4, mode, build)
+  const verdicts = scaleVerdicts(at1x, at4x)
+  const known = allowances?.work ?? []
+  writeCells(`work-${file}.json`, { at1x, at4x, verdicts, allowed: known })
+  console.info(`[work] ${name}\n${describeCells(at1x, at4x)}`)
+  // Not vacuous: the counters see the arm's work.
+  expect(at1x.some((cell) => cell.work.derivations > 0 && cell.work.elements > 0)).toBe(true)
+  // Every failing count inside a sized allowance, and no allowance stale.
+  const applied = assertScaleInvariantWith(verdicts, known)
+  if (applied.length > 0) console.info(`[work] ${name}: allowances applied: ${applied.join('; ')}`)
+}
+
 for (const entry of ROUND_THREE_ARMS) {
   describe(`work per change: ${entry.name}`, () => {
     it('does the same work at 1x and 4x, or more by at most the changed items’ neighbourhood', async () => {
-      const at1x = await cellsAt(1, entry.mode, entry.armFor)
-      const at4x = await cellsAt(4, entry.mode, entry.armFor)
-      const verdicts = scaleVerdicts(at1x, at4x)
-      const known = entry.allowances?.work ?? []
-      const covers = (verdict: ScaleVerdict) => (step: { methodology: string; kind: string }) =>
-        step.methodology === verdict.methodology && step.kind === verdict.kind
-      const isKnown = (verdict: ScaleVerdict): boolean =>
-        known.some((allowance) => allowance.steps.some(covers(verdict)))
-      writeCells(`work-${entry.folder}.json`, { at1x, at4x, verdicts, allowed: known })
-      console.info(`[work] ${entry.name}\n${describeCells(at1x, at4x)}`)
-      // Not vacuous: the counters see the arm's work.
-      expect(at1x.some((cell) => cell.work.derivations > 0 && cell.work.elements > 0)).toBe(true)
-      assertScaleInvariant(verdicts.filter((verdict) => !isKnown(verdict)))
-      // A fixed violation takes its allowance with it.
-      const failing = scaleFailures(verdicts)
-      for (const allowance of known) {
-        for (const step of allowance.steps) {
-          expect(
-            failing.some((verdict) => covers(verdict)(step)),
-            `${allowance.issue}'s allowance for ${step.methodology} ${step.kind} passes now: delete it`,
-          ).toBe(true)
-        }
-      }
+      await checkWork(
+        entry.name,
+        entry.folder,
+        entry.mode,
+        (ctx) => ({ arm: entry.armFor(ctx) }),
+        entry.allowances,
+      )
     }, 1_200_000)
   })
+  if (entry.writable === undefined) continue
+  for (const variant of WRITE_VARIANTS) {
+    describe(`work per change: ${entry.name} with its write layer (${variant})`, () => {
+      it('does the same work at 1x and 4x, or more by at most the changed items’ neighbourhood', async () => {
+        await checkWork(
+          `${entry.name} + write layer (${variant})`,
+          `${entry.folder}-write-${variant}`,
+          entry.mode,
+          writableBuilder(entry, variant),
+          entry.allowances,
+        )
+      }, 1_200_000)
+    })
+  }
 }
 
 describe('work per change: legacy control (the NO)', () => {
   it('fails: its reads and walks grow with the corpus on every step', async () => {
-    const armFor = (ctx: ScenarioEngine) => legacyControlArmFor(ctx.engine)
-    const at1x = await cellsAt(1, 'overlaid', armFor)
-    const at4x = await cellsAt(4, 'overlaid', armFor)
+    const build = (ctx: ScenarioEngine) => ({ arm: legacyControlArmFor(ctx.engine) })
+    const at1x = await cellsAt(1, 'overlaid', build)
+    const at4x = await cellsAt(4, 'overlaid', build)
     const verdicts = scaleVerdicts(at1x, at4x)
     writeCells('work-control.json', { at1x, at4x, verdicts })
     console.info(`[work] legacy control\n${describeCells(at1x, at4x)}`)

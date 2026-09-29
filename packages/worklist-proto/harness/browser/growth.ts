@@ -6,15 +6,34 @@
  *
  * - HISTORY x10 at constant active work (`h1a1` → `h10a1`): the arm's retained
  *   heap and its cold start stay FLAT. Flat means the growth is within the
- *   noise of repeated runs: the tolerance of each check is the larger spread
- *   (max − min) of the per-round medians of the two cells it compares, read
- *   from the matrix's own rounds, never a constant.
+ *   noise of repeated runs, read from the matrix's own rounds, never a
+ *   constant (TOLERANCES, below).
  * - ACTIVE x4 at constant history (`h1a1` → `h1a4`): retained heap and cold
  *   start grow AT MOST LINEARLY (grown <= 4 × base + tolerance), and the
  *   per-change walls stay FLAT. A wall is judged as the arm's time above the
  *   no-op floor's in the same round (the floor carries the kernel write and
  *   the feed, the same for every arm). The floor's own wall is the kernel's
  *   and is reported under `engine`.
+ *
+ * TOLERANCES (POD-4825). A HEAP check's tolerance is the larger spread
+ * (max − min) of the two cells' round medians: a forced-GC heap barely moves
+ * between rounds (hundredths of a MB), so that spread is already sharp. A
+ * TIME check (cold start, every wall) is paired by round: round r's growth is
+ * `grown_r − factor × base_r` (for a wall, each side above the floor's same
+ * round), and the tolerance is the one-sided {@link TIME_CONFIDENCE} Student-t
+ * bound on the mean of those growths, `t × sd / √rounds`. The spread of round
+ * medians it replaces only widens as rounds are added and was set by the one
+ * slow round of each cell (cold start 493 ms on a 652 ms base; walls 30–200
+ * ms on an arm's own 0.2–7 ms): no doubling could fail it. The paired bound
+ * shrinks with every round, and round effects both cells share cancel.
+ *
+ * WHAT A CHECK CAN SEE. A time check whose tolerance is at least `factor ×
+ * base` cannot tell a doubling of the arm's own time from noise: its pass
+ * is printed `blind`, never `flat`, with the rounds a matrix would need
+ * (at this noise) to see one. A blind check never fails; it is not evidence
+ * of flatness either. The planted slow arm (`noop+double:<ms>`: `ms` per
+ * change and per build on the base cell, twice that on a grown one) must
+ * fail a time check, or the summary says the plant was not caught.
  * - A PRINCIPAL SWITCH is REPORTED, not judged: the heap a switch leaves
  *   against the heap a cold build leaves. The two pages differ by more than
  *   the arm (the floor's switched page holds 2.2 MB LESS than its cold page
@@ -32,19 +51,26 @@
  * A planted arm (`noop+hold:1`: one object per known issue) must fail the
  * history axis, or the summary says the plant was not caught.
  *
+ * THE ENGINE GATE (POD-4825, off today). The booted page grows with history
+ * by spec until the memory cutoff lands (21 → 97 MB at history x10), so the
+ * `engine` rows are printed and never decide the exit code. `--engine-gate`
+ * makes them a gate: an engine check that fails exits 1 like an arm's. The
+ * memory-cutoff work turns it on.
+ *
  * Refuses (exit 2) a directory that is not a complete `--cells` matrix: every
  * planned (round, arm, cell) run ok, every (arm, cell, scenario) at rounds ×
  * samples, one machine, one runtime SHA, at least three rounds (a tolerance
  * needs repeats), and the base cell with at least one grown cell. Exit 1
- * when an arm (not the engine, not a plant, not a report) fails a check, or a plant passes
- * every history check; 0 otherwise.
+ * when an arm (not a plant, not a report; the engine only with
+ * `--engine-gate`) fails a check, or a plant passes every check it must fail;
+ * 0 otherwise.
  *
  *   bun --conditions=@podium/source packages/worklist-proto/harness/browser/matrix.ts --host flatblock \
  *     --arms noop,control,mobx,noop+hold:1 --cells h1a1,h10a1,h1a4 --rounds 4 --samples 5 \
  *     --scenarios heartbeat,visibleHeartbeat,rename,stagemove,clock,click,coldBootstrap,principalSwitch \
  *     --tag growth
  *   bun --conditions=@podium/source packages/worklist-proto/harness/browser/growth.ts \
- *     packages/worklist-proto/harness/browser/results/growth [--json out.json]
+ *     packages/worklist-proto/harness/browser/results/growth [--json out.json] [--engine-gate]
  */
 import { writeFileSync } from 'node:fs'
 import { basename } from 'node:path'
@@ -55,6 +81,65 @@ import { loadRuns } from './summarize'
 
 /** A tolerance is a spread of repeated runs: fewer rounds than this have none worth the name. */
 export const MIN_ROUNDS = 3
+
+/**
+ * POD-4825: the one-sided confidence of a time check's bound. A matrix judges
+ * about fourteen time checks per arm; at 99 % a truly flat arm fails one by
+ * chance in roughly one run of eight, at 95 % in every other run.
+ */
+export const TIME_CONFIDENCE = 0.99
+
+/** One-sided 99 % quantiles of Student's t by degrees of freedom (1–30); beyond, the normal's. */
+const T99: readonly number[] = [
+  31.821, 6.965, 4.541, 3.747, 3.365, 3.143, 2.998, 2.896, 2.821, 2.764, 2.7181, 2.681, 2.65, 2.624,
+  2.602, 2.583, 2.567, 2.552, 2.539, 2.528, 2.518, 2.508, 2.5, 2.492, 2.485, 2.479, 2.473, 2.467,
+  2.462, 2.457,
+]
+
+/** The one-sided {@link TIME_CONFIDENCE} quantile of Student's t with `df` degrees of freedom. */
+export function tQuantile(df: number): number {
+  if (!Number.isInteger(df) || df < 1)
+    throw new Error(`[growth] t quantile needs df >= 1 (got ${df})`)
+  return T99[df - 1] ?? 2.326
+}
+
+function sampleSd(values: readonly number[]): number {
+  const mean = values.reduce((sum, v) => sum + v, 0) / values.length
+  return Math.sqrt(values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1))
+}
+
+/**
+ * A time check's tolerance: the one-sided t bound on the mean of the paired
+ * round growths `grown_r − factor × base_r` (see TOLERANCES in the module note).
+ */
+export function pairedTolerance(
+  base: readonly number[],
+  grown: readonly number[],
+  factor: number,
+): number {
+  if (base.length !== grown.length || base.length < 2) {
+    throw new Error(
+      `[growth] a paired tolerance needs the same rounds on both cells, at least two (got ${base.length} and ${grown.length})`,
+    )
+  }
+  const growth = grown.map((g, r) => g - factor * (base[r] as number))
+  return (tQuantile(growth.length - 1) * sampleSd(growth)) / Math.sqrt(growth.length)
+}
+
+/**
+ * The rounds a paired time check needs, at the noise it saw, before its
+ * tolerance drops under `margin` (the growth it must see); null past 1000.
+ */
+export function roundsToSee(
+  base: readonly number[],
+  grown: readonly number[],
+  factor: number,
+  margin: number,
+): number | null {
+  const sd = sampleSd(grown.map((g, r) => g - factor * (base[r] as number)))
+  for (let n = 2; n <= 1000; n += 1) if ((tQuantile(n - 1) * sd) / Math.sqrt(n) < margin) return n
+  return null
+}
 
 const BASE = cellLabel(GROWTH_CELLS.base)
 const HISTORY = cellLabel(GROWTH_CELLS.history10)
@@ -153,13 +238,27 @@ export interface GrowthVerdict {
   to: string
   base: number
   grown: number
-  /** The larger spread of the two cells' round medians. */
+  /**
+   * A heap check's: the larger spread of the two cells' round medians. A
+   * time check's: the paired t bound (TOLERANCES in the module note).
+   */
   tolerance: number
   /** What `grown` may reach. */
   bound: number
   pass: boolean
-  /** `engine` rows, plants and reports are printed; only arms decide the exit code. */
+  /**
+   * `engine` rows, plants and reports are printed; arms decide the exit code
+   * (and the engine too, with `--engine-gate`).
+   */
   role: 'arm' | 'engine' | 'plant' | 'report'
+  /** POD-4825: `time` checks are paired by round; `heap` checks read the spread. */
+  kind: 'heap' | 'time'
+  /**
+   * A time check that cannot see a doubling (`tolerance >= factor × base`):
+   * the rounds it would need at this noise (null: none within 1000). Absent
+   * on heap checks and on time checks that can see one.
+   */
+  blind?: { roundsToSee: number | null }
 }
 
 const roleOf = (label: string): GrowthVerdict['role'] => (label.includes('+') ? 'plant' : 'arm')
@@ -181,12 +280,21 @@ export function growthVerdicts(series: Series[]): GrowthVerdict[] {
     metric: string,
     from: string,
     to: string,
-    base: { median: number; spread: number },
-    grown: { median: number; spread: number },
+    base: { median: number; spread: number; roundMedians: number[] },
+    grown: { median: number; spread: number; roundMedians: number[] },
     factor: number,
   ): void => {
-    const tolerance = Math.max(base.spread, grown.spread)
+    const kind: GrowthVerdict['kind'] = / ms( |$)/.test(metric) ? 'time' : 'heap'
+    const tolerance =
+      kind === 'heap'
+        ? Math.max(base.spread, grown.spread)
+        : pairedTolerance(base.roundMedians, grown.roundMedians, factor)
     const bound = factor * base.median + tolerance
+    const margin = factor * Math.abs(base.median)
+    const blind =
+      kind === 'time' && tolerance >= margin
+        ? { roundsToSee: roundsToSee(base.roundMedians, grown.roundMedians, factor, margin) }
+        : undefined
     out.push({
       label,
       check,
@@ -199,6 +307,8 @@ export function growthVerdicts(series: Series[]): GrowthVerdict[] {
       bound,
       pass: grown.median <= bound,
       role,
+      kind,
+      ...(blind === undefined ? {} : { blind }),
     })
   }
   /** The arm's time above the floor's, round by round (same cell, same round). */
@@ -210,6 +320,7 @@ export function growthVerdicts(series: Series[]): GrowthVerdict[] {
     return {
       median: median(perRound),
       spread: Math.max(...perRound) - Math.min(...perRound),
+      roundMedians: perRound,
     }
   }
   const walls = SCENARIOS.map((scenario) => `${scenario} ms`)
@@ -234,7 +345,8 @@ export function growthVerdicts(series: Series[]): GrowthVerdict[] {
           const grown = find(label, to, metric)
           // The floor's wall is the kernel write and the feed: the engine's.
           if (base && grown) judge(label, 'engine', wallCheck, metric, BASE, to, base, grown, 1)
-        } else if (role === 'arm') {
+        } else {
+          // Arms, and plants (a slow plant must fail a wall: POD-4825).
           const base = excess(label, BASE, metric)
           const grown = excess(label, to, metric)
           if (base && grown)
@@ -315,7 +427,12 @@ const f = (v: number, digits = 2): string => v.toFixed(digits)
 export function runGrowth(argv: string[], print: (line: string) => void): number {
   const jsonIndex = argv.indexOf('--json')
   const jsonOut = jsonIndex >= 0 ? argv[jsonIndex + 1] : undefined
-  const paths = argv.filter((_, i) => jsonIndex < 0 || (i !== jsonIndex && i !== jsonIndex + 1))
+  // POD-4825: the engine rows decide the exit code only when asked (off today).
+  const engineGate = argv.includes('--engine-gate')
+  const paths = argv.filter(
+    (arg, i) =>
+      arg !== '--engine-gate' && (jsonIndex < 0 || (i !== jsonIndex && i !== jsonIndex + 1)),
+  )
   const { ok, okFiles, failed, plans } = loadRuns(paths)
   for (const { path, run } of failed)
     print(`FAILED RUN (listed, not summarised): ${path} — ${run.failures.join('; ')}`)
@@ -356,11 +473,13 @@ export function runGrowth(argv: string[], print: (line: string) => void): number
   for (const v of verdicts) {
     const ratio = v.base !== 0 ? f(v.grown / v.base) : '—'
     const word = v.pass
-      ? v.check === 'active linear'
-        ? 'linear'
-        : v.check === 'switch vs cold'
-          ? 'at or below'
-          : 'flat'
+      ? v.blind !== undefined
+        ? `blind (sees a doubling at ${v.blind.roundsToSee ?? '>1000'} rounds)`
+        : v.check === 'active linear'
+          ? 'linear'
+          : v.check === 'switch vs cold'
+            ? 'at or below'
+            : 'flat'
       : v.check === 'active linear'
         ? 'SUPERLINEAR'
         : v.check === 'switch vs cold'
@@ -372,22 +491,48 @@ export function runGrowth(argv: string[], print: (line: string) => void): number
     )
   }
   const armFailures = verdicts.filter((v) => v.role === 'arm' && !v.pass)
+  const engineFailures = verdicts.filter((v) => v.role === 'engine' && !v.pass)
   const uncaught = [
     ...new Set(verdicts.filter((v) => v.role === 'plant').map((v) => v.label)),
-  ].filter((plant) =>
-    verdicts.every((v) => v.label !== plant || v.check !== 'history flat' || v.pass),
-  )
+  ].filter((plant) => !plantCaught(verdicts, plant))
+  const blind = verdicts.filter((v) => v.role === 'arm' && v.blind !== undefined)
   print('')
-  for (const plant of uncaught) print(`PLANT NOT CAUGHT: ${plant} passes every history check`)
+  for (const plant of uncaught) print(`PLANT NOT CAUGHT: ${plant} passes every check it must fail`)
+  if (blind.length > 0)
+    print(
+      `cannot see a doubling (noise above the arm's own time; not evidence of flatness): ${blind
+        .map((v) => `${v.label} ${v.check} ${v.metric}`)
+        .join('; ')}`,
+    )
   print(
     `arms failing a check: ${[...new Set(armFailures.map((v) => v.label))].join(', ') || 'none'}`,
+  )
+  print(
+    `engine gate: ${engineGate ? 'ON' : 'off (reported only; --engine-gate)'}; engine checks failing: ` +
+      `${engineFailures.map((v) => `${v.label} ${v.check} ${v.metric}`).join('; ') || 'none'}`,
   )
   if (jsonOut !== undefined)
     writeFileSync(
       jsonOut,
-      JSON.stringify({ runtimeSha: ok[0]?.runtimeSha, series, verdicts }, null, 2),
+      JSON.stringify({ runtimeSha: ok[0]?.runtimeSha, engineGate, series, verdicts }, null, 2),
     )
-  return armFailures.length > 0 || uncaught.length > 0 ? 1 : 0
+  const gated = armFailures.length > 0 || (engineGate && engineFailures.length > 0)
+  return gated || uncaught.length > 0 ? 1 : 0
+}
+
+/**
+ * A plant is caught when it fails a check its kind must fail: `hold:<n>`
+ * (memory that grows with history) a history check; `double:<ms>` (time that
+ * doubles on a grown cell) any time check; any other plant any history check.
+ */
+export function plantCaught(verdicts: readonly GrowthVerdict[], plant: string): boolean {
+  const kind = plant.split('+')[1]?.split(':')[0]
+  return verdicts.some(
+    (v) =>
+      v.label === plant &&
+      !v.pass &&
+      (kind === 'double' ? v.kind === 'time' : v.check === 'history flat'),
+  )
 }
 
 if (import.meta.main) process.exitCode = runGrowth(process.argv.slice(2), console.log)

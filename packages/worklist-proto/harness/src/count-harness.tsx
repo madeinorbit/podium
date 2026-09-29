@@ -43,6 +43,7 @@ import {
   withCommitLog,
   withCommitLogAsync,
 } from '../../shared/src/row-shell'
+import { displayChanged } from '../../shared/src/row-view'
 import type { LocalsKey, SliceSnapshot } from '../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../shared/src/stats'
 import type { RowViews } from './oracle/row-views'
@@ -368,9 +369,11 @@ function firstDiff(actual: SliceSnapshot, expected: SliceSnapshot): string | nul
 }
 
 /**
- * Rows present in both oracle states: which changed view, and which the arm
- * redrew (committed, or remounted). A row entering or leaving the list mounts
- * or unmounts; neither is a redraw, and neither is compared.
+ * Rows present in both oracle states: which changed what they DRAW
+ * (`displayChanged`: a field of `ROW_DISPLAYED_FIELDS`, POD-4825; a change to
+ * a placement field only moves the row), and which the arm redrew
+ * (committed, or remounted). A row entering or leaving the list mounts or
+ * unmounts; neither is a redraw, and neither is compared.
  */
 function changedViews(
   before: RowViews,
@@ -382,7 +385,9 @@ function changedViews(
   const remounted: string[] = []
   for (const id of Object.keys(before)) {
     if (!(id in after)) continue
-    if (!isDeepStrictEqual(before[id], after[id])) changed.push(id)
+    const was = before[id]
+    const now = after[id]
+    if (was !== undefined && now !== undefined && displayChanged(was, now)) changed.push(id)
     if ((log.mounts.get(id) ?? 0) > 0 && !log.counts.has(id)) remounted.push(id)
   }
   const both = new Set(Object.keys(before).filter((id) => id in after))

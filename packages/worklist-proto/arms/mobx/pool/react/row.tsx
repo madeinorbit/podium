@@ -4,11 +4,12 @@
  * capability rule, `RowShell`), and it is an `observer`: it reads the issue's
  * row fields directly, each a cached value of the issue (`models.ts`), so it
  * redraws exactly when a field it reads changes, and no row view object is
- * built. It reads EVERY field of the row: the drawn ones as text, the
- * placement and stamps as data attributes (what a stylesheet keys the
- * pinned, snoozed and folded looks and the recency stamp on), so "the fields
- * it shows" is the whole `RowView`, the exact-commit fence's oracle.
- * Declared once at module scope.
+ * built. It reads the fields a row DRAWS (`ROW_DISPLAYED_FIELDS`,
+ * `shared/src/row-view.ts`) and no other: its text, and its looks as data
+ * attributes (what a stylesheet keys the selected, pinned, snoozed and
+ * folded looks and the recency and working stamps on). The fields that only
+ * place the row (its group, order keys and fold time) move it in the list and
+ * are never read here (POD-4825). Declared once at module scope.
  */
 
 import { observer } from 'mobx-react-lite'
@@ -24,11 +25,6 @@ export const PoolRow = observer(function PoolRow({ row }: RowProps): ReactElemen
       data-pinned={row.pinned ? 'true' : 'false'}
       data-closed={row.closed ? 'true' : 'false'}
       data-dismissed={row.dismissed ? 'true' : 'false'}
-      data-repo={row.repoKey}
-      data-sort-key={row.sortKey ?? ''}
-      data-created-at={row.createdAt}
-      data-seq={row.seq}
-      data-fold-at={row.foldAt}
       data-activity-at={row.activityAt}
       data-working-since={row.workingSince ?? ''}
       data-loading={row.loading === true ? 'true' : 'false'}

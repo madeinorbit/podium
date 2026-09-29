@@ -44,6 +44,18 @@ describe('browser entries mount the round-three pools', () => {
     expect(graph, 'the pool arm').toContain(join(PACKAGE_DIR, 'arms/mobx/pool/arm.ts'))
   })
 
+  it('mobx-write and mobx-pending resolve to the pool with its write layer (POD-4825)', () => {
+    for (const name of ['mobx-write', 'mobx-pending']) {
+      const graph = moduleGraphOf(join(PACKAGE_DIR, `harness/web/entries/${name}.ts`))
+      expect(graph, `${name}: the writable arm`).toContain(
+        join(PACKAGE_DIR, 'arms/mobx/pool/write/arm.ts'),
+      )
+      expect(graph, `${name}: its overlay`).toContain(
+        join(PACKAGE_DIR, 'arms/mobx/pool/write/overlay.ts'),
+      )
+    }
+  })
+
   it('hand web entry resolves to the pool arm, never the round-two arm', () => {
     // By module, not by spelling: this is the page that mounted `handArm`
     // (the round-two `HandStore`) while the matrix timed it as the

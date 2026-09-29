@@ -120,7 +120,7 @@
 import { issueActivityAt, MARK_READ_ON_VIEW_MS } from '@podium/client-core/engine'
 import { activityAfterRead } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model'
-import type { Arm, ArmHandle } from '../../shared/src/arm'
+import type { Arm, ArmHandle, RowSource } from '../../shared/src/arm'
 import type { LocalsSourceHandle } from '../../shared/src/locals-source'
 import {
   type CommitLog,
@@ -465,7 +465,7 @@ export interface MountPageOptions {
   arm: string
   /** The arm over one engine: the page builds it at boot and again, over a
    *  fresh engine, on a principal switch (`rebuild`). */
-  createArm: (boot: ScenarioEngine) => Arm
+  createArm: (boot: ScenarioEngine, source: RowSource) => Arm
   boot: ScenarioEngine
   scale: 1 | 2 | 4
   /** POD-4747: the two-axis cell label (`readPageCorpus`); null or absent on a `?scale=` page. */
@@ -478,6 +478,13 @@ export interface MountPageOptions {
   scriptAt: number
   /** The arm's named parity allowance (POD-4572); none by default. */
   parityAllowance?: PageParityAllowance
+  /**
+   * POD-4825: the oracle's list as the arm must show it, with the arm's own
+   * pending edits laid over it (`harness/src/writable-arm.ts`); the oracle
+   * itself by default. Read at every parity check (a principal switch
+   * rebuilds the arm, and its edits, over the new engine).
+   */
+  expected?: (oracle: SliceSnapshot) => SliceSnapshot
 }
 
 export function readScale(): 1 | 2 | 4 {
@@ -558,7 +565,7 @@ export function mountPage(options: MountPageOptions): void {
   // No closure below reads `options`, and `boot`/`engine` move to the new
   // runtime on a principal switch: nothing on the page keeps the old one
   // alive, so the switch's retained heap is the arm's, not the harness's.
-  const { createArm, scale, counts, runtimeSha, el, scriptAt, parityAllowance } = options
+  const { createArm, scale, counts, runtimeSha, el, scriptAt, parityAllowance, expected } = options
   const cell = options.cell ?? null
   const windowRows = firstWindowRows()
   const armName = options.arm
@@ -607,7 +614,7 @@ export function mountPage(options: MountPageOptions): void {
     // The locals channel is the ENGINE's (POD-4608): a click and a tick are
     // engine writes, and every arm hears them here.
     const locals = createEngineLocals(over.engine)
-    const handle = createArm(over).create(source.source, locals.source)
+    const handle = createArm(over, source.source).create(source.source, locals.source)
     // Round-two stores predate the channel (they read `locals.get()` once and
     // are driven by `setSelection` / `setCoarseNow`): the page bridges it.
     const roundTwo = (
@@ -1048,7 +1055,8 @@ export function mountPage(options: MountPageOptions): void {
   /** The arm's output against the oracle's over the live engine, untimed. */
   function parityNow(): ProtoParity {
     const armSnapshot = live().handle.snapshot()
-    const raw = oracleSnapshot(live().boot.engine.getSnapshot())
+    const oracleNow = oracleSnapshot(live().boot.engine.getSnapshot())
+    const raw = expected === undefined ? oracleNow : expected(oracleNow)
     const patched = parityAllowance?.accept(
       installedCorpus ?? live().boot.corpus,
       live().handle,
