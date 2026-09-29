@@ -140,9 +140,9 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     expect(await service.apply(command)).toMatchObject({ status: 'applied' })
     expect((await store.messages.getMessage(message.id))?.deliveryStatus).toBe('expired')
     expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
-    const events = (await store.events.listEventsSince(0)).filter(
-      (event) => event.kind === 'message.expired',
-    )
+    const events = (await store.events
+      .listEventsSince(0))
+      .filter((event) => event.kind === 'message.expired')
     expect(events).toHaveLength(1)
     expect(events[0]?.payload).toMatchObject({
       deliveredTo: 'sess_previous',
@@ -293,9 +293,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
   })
 
   it('[POD-925] issue auto-archive revalidates via issues seam at apply', async () => {
-    const tryAutoArchiveObserved = vi.fn(
-      async (): Promise<'applied' | 'precondition' | 'not-due'> => 'applied',
-    )
+    const tryAutoArchiveObserved = vi.fn(async (): Promise<'applied' | 'precondition' | 'not-due'> => 'applied')
     service = new MaintenanceService(
       store,
       {
@@ -640,9 +638,7 @@ describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
 
   it('a worktree freed between propose and apply is `precondition`, not an error', async () => {
     tryWorktreeGcObserved.mockResolvedValueOnce({ outcome: 'precondition' })
-    expect(
-      await service.apply(await command({ worktreePath: '/r/.worktrees/gone' })),
-    ).toMatchObject({
+    expect(await service.apply(await command({ worktreePath: '/r/.worktrees/gone' }))).toMatchObject({
       status: 'stale',
       reason: 'precondition',
     })
@@ -650,9 +646,7 @@ describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
 
   it('says not-due when the close is younger than the window', async () => {
     tryWorktreeGcObserved.mockResolvedValueOnce({ outcome: 'not-due' })
-    expect(
-      await service.apply(await command({ closedAt: '2026-07-17T00:00:00.000Z' })),
-    ).toMatchObject({
+    expect(await service.apply(await command({ closedAt: '2026-07-17T00:00:00.000Z' }))).toMatchObject({
       status: 'stale',
       reason: 'not-due',
     })
@@ -674,7 +668,7 @@ describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
 
   it('refuses a run key that does not describe its own observation', async () => {
     expect(
-      await service.apply({ ...(await command()), runKey: 'worktree-gc/somebody-elses-key' }),
+      await service.apply({ ...await command(), runKey: 'worktree-gc/somebody-elses-key' }),
     ).toMatchObject({ status: 'stale', reason: 'invalid-run-key' })
     expect(tryWorktreeGcObserved).not.toHaveBeenCalled()
   })
