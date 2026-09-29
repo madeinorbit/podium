@@ -27,7 +27,11 @@ describe('mobile transcript feed', () => {
     ])
 
     expect(model.rows.map((row) => row.kind)).toEqual(['envelope'])
-    expect(model.rows[0]?.envelope).toMatchObject({ id: 'msg_c', from: 'system:auto-continue', body: 'continue' })
+    expect(model.rows[0]?.envelope).toMatchObject({
+      id: 'msg_c',
+      from: 'system:auto-continue',
+      body: 'continue',
+    })
   })
 
   it('spends space at turn boundaries and binds work inside the exchange', () => {
