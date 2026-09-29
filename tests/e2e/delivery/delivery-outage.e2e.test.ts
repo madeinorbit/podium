@@ -128,14 +128,14 @@ const KNOWN: Record<string, Known> = {
     may: SCREEN_ECHO,
     until: 'POD-4775 (server stores and forwards, never decides on machine state) / POD-4777',
   },
-  // The server marks the row `cancelled` at once. Either the sender's bubble
-  // never learns it (it stays "queued" while the other device shows nothing),
-  // or — when the cancel loses the race to the daemon's queue — the message is
-  // typed anyway and still says `cancelled`.
+  // The server marks the row `cancelled` at once. Since POD-4764 every device
+  // learns it from the synced record, so no screen lies about it any more.
+  // What is left is the race: when the cancel loses to the daemon's queue, the
+  // message is typed anyway and the row still says `cancelled`.
   'device-retract-queued': {
-    must: [['screen-lies', 'status-lies']],
-    may: SCREEN_ECHO,
-    until: 'POD-4776 (retract answered by the daemon) / POD-4764',
+    must: [],
+    may: ['status-lies'],
+    until: 'POD-4776 (retract answered by the daemon)',
   },
   // The server says `cancelled` before the daemon agreed; the agent has it.
   'device-retract-typing': {
