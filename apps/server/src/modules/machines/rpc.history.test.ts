@@ -80,6 +80,22 @@ describe('single Store transcript read path', () => {
     expect(memory.readTranscriptFromLake).toHaveBeenCalled()
   })
 
+  it('marks an empty offline page with the machine name instead of a silent empty (POD-4808 half 1)', async () => {
+    const { rpc, memory } = setup({ online: false })
+    memory.readTranscriptFromLake.mockResolvedValue(undefined)
+    const page = await rpc.readTranscript(input, reader)
+    expect(page.items).toEqual([])
+    expect(page.hasMore).toBe(false)
+    expect(page.offline).toEqual({ machineName: 'machine' })
+  })
+
+  it('marks a lake-served offline page with the machine name so the chat can show the machine is offline (POD-4808 half 2)', async () => {
+    const { rpc } = setup({ online: false })
+    const page = await rpc.readTranscript(input, reader)
+    expect(page.items).toEqual([lakeRow])
+    expect(page.offline).toEqual({ machineName: 'machine' })
+  })
+
   it('passes archive anchors through to the serving source', async () => {
     const { rpc, memory, toMachine, answerDaemon } = setup()
     answerDaemon([daemonRow])
