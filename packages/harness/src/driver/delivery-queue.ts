@@ -41,6 +41,9 @@ export function withDeliveryQueue(
   emit: (event: RuntimeEventBody) => void,
   ready: () => boolean = () => true,
   alive: () => boolean = () => true,
+  /** Reports whether the driver knows a turn is open, even when the folded
+   *  phase momentarily reads idle. Absent means phase-only (other families). */
+  turnOpen: () => boolean = () => false,
 ): AgentSessionHandle {
   type Row = {
     input: TurnInput
@@ -181,6 +184,20 @@ export function withDeliveryQueue(
             'previous delivery could not be confirmed; check the transcript before retrying',
             'unconfirmed',
           )
+          continue
+        }
+        // AN OPEN TURN HOLDS ROUTINE ROWS (POD-4869), even when the folded
+        // phase momentarily reads idle. Some harnesses accept keystrokes
+        // mid-turn into their own queue (Claude's queued_command, later
+        // absorbed_mid_turn), so a phase of idle while a turn is open means
+        // "the daemon cannot see the turn", never "nothing is running":
+        // typing a routine row then opens a separate prompt instead of joining
+        // the digest. The row waits for the turn boundary with no deadline —
+        // the same rule as a `working` phase: it is durable on the server and
+        // retractable while it waits. Non-coalescable rows (urgent,
+        // expect-response, interrupt) are exempt and type as today, in order.
+        if (turnOpen() && isCoalescable(row)) {
+          await pause(200)
           continue
         }
         let receipt: TurnReceipt

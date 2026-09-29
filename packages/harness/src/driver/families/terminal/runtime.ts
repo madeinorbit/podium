@@ -2386,6 +2386,11 @@ export function createTerminalRuntime(
       (event) => emit(session, event, new Date(host.now()).toISOString(), 'live'),
       deliveryReady,
       () => !session.disposed,
+      // The driver's own turn-open fact (POD-4869): an emitted `started`
+      // without its close. The queue holds routine rows on it even when the
+      // folded phase momentarily reads idle, so mid-turn routine mail waits
+      // for the boundary and goes out as one digest.
+      () => session.epochOpen,
     )
   }
 

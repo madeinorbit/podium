@@ -526,6 +526,89 @@ describe('durable row delivery', () => {
       expect(f.emit.mock.calls.every(([event]) => event.outcome === 'delivered')).toBe(true)
     })
   })
+
+  // POD-4869: an open turn holds routine rows even when the folded phase
+  // momentarily reads idle (a harness that queues mid-turn input itself gives
+  // the daemon no busy phase to see). They wait for the boundary and go out
+  // as one digest; urgent rows are exempt and type as today.
+  describe('POD-4869 open-turn gate', () => {
+    const fixture = () => {
+      vi.useFakeTimers()
+      let phase = 'working'
+      let turnIsOpen = false
+      const send = vi.fn(async (_input: { text: string }, _options?: unknown) => ({
+        outcome: 'accepted',
+        turnEpoch: 1,
+        deliveredAs: 'when-ready',
+        provenBy: 'protocol-ack',
+        at: new Date().toISOString(),
+      }))
+      const emit = vi.fn()
+      const handle = withDeliveryQueue(
+        {
+          send,
+          state: async () => ({ phase }),
+          lease: { state: async () => null },
+        } as unknown as AgentSessionHandle,
+        emit,
+        () => true,
+        () => true,
+        () => turnIsOpen,
+      )
+      return {
+        handle,
+        send,
+        emit,
+        ready: () => {
+          phase = 'idle'
+        },
+        setOpen: (open: boolean) => {
+          turnIsOpen = open
+        },
+      }
+    }
+    it('holds spaced routine rows through an open turn read as idle, then digests as one', async () => {
+      const f = fixture()
+      f.ready()
+      f.setOpen(true)
+      const options = { origin: 'mail', delivery: 'when-ready' } as const
+      for (let i = 0; i < 4; i++) {
+        await f.handle.send(
+          { id: `r${i}`, rowId: `r${i}`, text: `note ${i}`, coalescable: true },
+          options,
+        )
+        await vi.advanceTimersByTimeAsync(1500)
+      }
+      // Nothing typed while the turn is open, however far apart the rows land.
+      expect(f.send).not.toHaveBeenCalled()
+      expect(f.emit).not.toHaveBeenCalled()
+      f.setOpen(false)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(f.send).toHaveBeenCalledTimes(1)
+      const typed = String(f.send.mock.calls[0]![0].text)
+      for (let i = 0; i < 4; i++) expect(typed).toContain(`note ${i}`)
+      expect(f.emit.mock.calls.map(([event]) => event)).toEqual(
+        Array.from({ length: 4 }, (_, i) => ({ t: 'delivery', rowId: `r${i}`, outcome: 'delivered' })),
+      )
+    })
+    it('types an urgent row at once while the turn is open', async () => {
+      const f = fixture()
+      f.ready()
+      f.setOpen(true)
+      await f.handle.send(
+        { rowId: 'urgent', text: 'now' },
+        { origin: 'mail', delivery: 'when-ready' },
+      )
+      await vi.advanceTimersByTimeAsync(500)
+      expect(f.send).toHaveBeenCalledTimes(1)
+      expect(String(f.send.mock.calls[0]![0].text)).toBe('now')
+      expect(f.emit).toHaveBeenCalledExactlyOnceWith({
+        t: 'delivery',
+        rowId: 'urgent',
+        outcome: 'delivered',
+      })
+    })
+  })
 })
 
 describe('interrupt rows (POD-4795)', () => {
