@@ -924,7 +924,7 @@ describe('mountSession size triggers', () => {
     // by the server whoever sent it, and a controller change reconciles
     // against that record.
     withResizeObserver()
-    withFittableAddon()
+    const proposal = withResizableAddon()
     const { hub, calls, attached, state } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
@@ -936,6 +936,9 @@ describe('mountSession size triggers', () => {
       attached()
       state(80, 24, 'spectator')
       calls.asks.length = 0
+      // A box that measures differently now, with no box event to say so — the
+      // role change is the only thing that could state it, and it must not.
+      proposal.set(120, 40)
       state(80, 24, 'controller')
       state(80, 24, 'spectator')
       expect(calls.asks).toEqual([])
