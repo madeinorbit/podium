@@ -6,6 +6,13 @@ at `124f91387`. Evidence: code (cited `path:line`), the installed Claude Code 2.
 (`codex app-server generate-ts`). **Measure** marks a claim that POD-4834 must confirm on the
 real CLIs before anything relies on it.
 
+**Run, not read.** A fact about an agent program counts only when it was observed on the real
+CLI: the fake model server logs what reached the model, hooks and protocol frames are logged,
+the history file is read in file order. Reading code, a binary or docs gives a candidate, marked
+**read**. Every cell in §4 is either *run* (with its evidence under
+`docs/measurements/pod-4834-receipt-proof/`) or *read*, and nothing is implemented on a *read*
+cell. POD-4834 turns every *read* cell into a *run* cell.
+
 ## 1. Goal and scope
 
 Know, for every message and every agent program, whether the message reached the agent's
@@ -96,7 +103,7 @@ gives no separate `accepted` signal, the message goes from `typed` straight to `
 
 | Program | `accepted` | `confirmed` | Matched by | Notes |
 |---|---|---|---|---|
-| Claude Code | `UserPromptSubmit` hook, which carries `prompt_id`. Today it is used as full proof. Idle agent: it runs just before the model call. Busy agent: it runs at Enter while the prompt only waits in Claude's queue, and its `prompt_id` is the *running* turn's. No hook of the 33 Claude knows fires when a prompt is sent to the model (2.1.284 binary; **measure**). | The transcript is the "sent to the model" signal. Idle agent, or a queued prompt run after the turn ends: a `user` record (after a `queue-operation` `dequeue`). Busy agent, prompt taken into the running turn: a `queued_command` attachment (`packages/harness/src/adapters/claude-code/transcript.ts:417-445`) followed by `queue-operation` `remove` (`absorbed_mid_turn`), both written just before the next model request. | Wrapped: our id in the text (server, `apps/server/src/modules/messages/service.ts:2269-2299`). Chat: today an exact text hash; planned §5.3. The hook's `prompt_id` joins hook and record for an idle submit only. | Idle submit: hook and record arrive within about a second (POD-692: hook 0.15–0.5 s after Enter). |
+| Claude Code (*run*, 2.1.284) | Idle: the `user` record (+71 ms after Enter) and `UserPromptSubmit` (+167 ms) with the same new `prompt_id`. Busy: `queue-operation` `enqueue` in the history (+15 ms, with the text) and `UserPromptSubmit` at Enter carrying the **running** turn's `prompt_id` — a queued prompt has no id of its own. No hook fires when a prompt is sent to the model: of the six hooks the run had on, only `PostToolBatch` fired just before the request that carried a queued prompt, without the prompt (the other 27 hook events: *read*, 2.1.284 binary). | Idle: the `user` record; the model request follows about 200 ms after the hook. Taken into the running turn at a tool boundary: `queue-operation` `remove` (`absorbed_mid_turn`), then a `queued_command` attachment written at that moment (its `timestamp` is the Enter time, it has `source_uuid`, no `promptId`); the prompt reaches the model inside the next request's tool result. Run after the turn ends: `dequeue`, then a `user` record with a new `promptId`, and **no** `UserPromptSubmit` for it. | Wrapped: our id in the text (server, `apps/server/src/modules/messages/service.ts:2269-2299`). Chat: today an exact text hash; planned §5.3. `prompt_id` joins hook and record for an idle submit only; a queued prompt is matched by text and order. | Evidence: `docs/measurements/pod-4834-receipt-proof/README.md`. |
 | Codex CLI | None today. Its `UserPromptSubmit` hook is installed (`packages/harness/src/adapters/codex/instrumentation.ts:126-133`) and carries Codex's `turn_id`, but is not used as proof (**measure**, POD-4834). | Rollout user record (up to 5.7 s after Enter in POD-692). | Wrapped: our id. Chat: text today; order plus text planned. | |
 | Grok CLI | None today. Its hook is installed (`packages/harness/src/adapters/grok/instrumentation.ts:66-80`), not used as proof (**measure**). | Transcript user entry. | As Codex CLI. | First turn is typed as raw keys. |
 | Cursor, OpenCode TUI, Pi | None: no hook payloads. | Transcript user entry. | As Codex CLI. | Cursor cannot be pointed at a fake model server; measure what is possible. |
@@ -158,13 +165,13 @@ else submitted anything in between. The text then only has to agree.
   interrupt markers (Claude, Codex `turn_aborted`, OpenCode), empty image or file markers. A
   "first user entry after our position" can therefore be one of these.
 
-**What makes it knowable:**
+**What makes it knowable (the core — it only observes, it never blocks anything):**
 
 1. **Input log.** One ordered, per-session log on the daemon, directly under the terminal write
    call, recording every write with its origin (message id, draft, answer, key, person) and every
    Enter. It only has to cover the time a message is open.
-2. **One gate.** Draft Sync and message typing never interleave: Draft Sync does not write while a
-   message is being typed, and a message is typed only after Draft Sync has finished its clear.
+2. **Draft Sync is gone** (POD-4851, operator decision 2026-09-29), so no second Podium writer
+   types into the input box.
 3. **Entry kinds.** The history readers mark entries nobody typed (compaction summary, slash
    command, interrupt marker, empty marker, a queued prompt of kind task-notification), and
    matching looks only at *prompt* entries.
@@ -190,6 +197,20 @@ tolerate what the program changes (whitespace, placeholders) because it only has
 identify; a merged draft is reported as *merged* instead of `unverified`. **Why text is still
 checked:** it is what catches a gap in the log or in the entry kinds. Order alone would credit
 the wrong entry silently.
+
+**Optional optimization: a typing lock.** Because every write passes through the daemon (above),
+the daemon can hold other writes to a session while one message is pasted and submitted, so a
+person's keystrokes can never land inside it. It is an optimization only: the core above decides
+correctly without it, and it can never stop anything from working.
+
+- It is a lease with a hard expiry (about 1–2 s, measured per program), released by its own timer,
+  never by the typing finishing; a hung typing still releases it.
+- Held writes (a person's keystrokes, answers, keys) are buffered with a size cap and written in
+  order at release; an overflow releases early.
+- It covers only the paste, the Enter and a short settle, never the wait for proof.
+- A switch turns it off; with it off, or on the abduco fallback, the core still applies.
+- Tests: a typing call that never settles still releases the lease at its expiry and flushes the
+  held input; the next message is typed after that.
 
 One more thing seen while reading, **to verify** before anything is filed: Claude's origin list
 (`packages/harness/src/adapters/claude-code/state-provider.ts:389-393, 540-543`) is fed only by
@@ -313,12 +334,12 @@ matches them with §5. Without them, a message typed before a crash stays `unkno
 
 ## 11. Facts found during this design
 
-- **Claude's own queue** (2.1.284 binary, **measure**): a prompt entered while a turn runs waits
-  in Claude's queue; `UserPromptSubmit` runs at Enter; a `queue-operation` record (no uuid) is
-  written then, and a `queued_command` attachment (with `source_uuid`) when the running turn takes
-  it in after tool results. `ctrl+x ctrl+s` / `ctrl+enter` ("send now") moves running tools to the
-  background and delivers without stopping the turn. Escape can pull queued prompts back into the
-  input box. This is native steer for Claude (Phase C).
+- **Claude's own queue** (*run* on 2.1.284, see §4): a prompt entered while a turn runs waits in
+  Claude's queue; `UserPromptSubmit` runs at Enter with the running turn's `prompt_id`; a
+  `queue-operation` `enqueue` is written then, and a `queued_command` attachment when the running
+  turn takes it in at a tool boundary. *Read* only, not yet run: `ctrl+x ctrl+s` /
+  `ctrl+enter` ("send now") moves running tools to the background and delivers without stopping
+  the turn, and Escape can pull queued prompts back into the input box. This is native steer for Claude (Phase C).
 - **System sends** were typed without a message record (steward nudges, automations,
   auto-continue, some superagent sends, the old issue-mail nudge). POD-4846 is moving them onto
   messages; its first part (steward nudges) landed at `124f91387`.
@@ -356,8 +377,8 @@ To file once this spec is approved:
    driver sets `accepted` / `confirmed` as §4 says; the chat and `mail status` show `accepted` as
    "the agent has it, waiting for its next step".
 2. **Input log and order plus text** — §5.3: the per-session input log under the terminal
-   write call; Draft Sync and message typing through one gate; entry kinds in the history
-   readers; the matching rule. Replaces Claude's origin list if the suspected mis-credit is
+   write call; entry kinds in the history readers; the matching rule. The typing lock is a
+   separate, later issue, only as an optimization. Replaces Claude's origin list if the suspected mis-credit is
    confirmed.
 3. **Proven no** — §7: causes N1–N5 on the status and in the sender's notice; N5 uses the
    verified clear from Phase D.
