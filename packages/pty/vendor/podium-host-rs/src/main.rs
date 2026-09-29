@@ -173,6 +173,10 @@ fn spawn_child(opts: &CreateOpts, cwd: &OsStr) -> Child {
 /// Double-fork into the background; the original process waits for the
 /// daemonized host to report "started" (or an error) and exits accordingly.
 fn daemonize_then_run(opts: CreateOpts, listener: UnixListener, cwd: &OsStr) -> ! {
+    // Identify the socket we bound, and name it absolutely: the host chdirs to
+    // "/" and must not unlink someone else's socket at exit (POD-4842 C-4, C-6).
+    let sock_id = sys::socket_id(&listener);
+    let sock_path = std::path::absolute(&opts.socket).unwrap_or_else(|_| PathBuf::from(&opts.socket));
     // CLOEXEC on both ends: the child must not inherit the report pipe, or the
     // original process would wait for EOF until the whole session ended.
     let (report_r, report_w) = io::pipe().unwrap_or_else(|e| die!("pipe: {}", sys::strerror(&e)));
@@ -191,7 +195,7 @@ fn daemonize_then_run(opts: CreateOpts, listener: UnixListener, cwd: &OsStr) -> 
             } else {
                 err.write_all(&msg)
             };
-            let _ = fs::remove_file(&opts.socket);
+            sys::remove_own_socket(&sock_path, sock_id);
             process::exit(1);
         }
         sys::Forked::Child => {}
@@ -235,7 +239,8 @@ fn daemonize_then_run(opts: CreateOpts, listener: UnixListener, cwd: &OsStr) -> 
     drop((devnull, saved_err, report_w));
     let ring = Ring::new(opts.ring_bytes);
     Host::new(
-        PathBuf::from(&opts.socket),
+        sock_path,
+        sock_id,
         listener,
         sig_fd,
         child,
@@ -255,6 +260,9 @@ fn main() {
             );
         }
         Ok(Command::Create(opts)) => {
+            // Before the host opens anything of its own: nothing this process
+            // inherited may reach the child (POD-4842 C-7).
+            sys::cloexec_inherited_fds();
             let cwd = OsStr::from_bytes(opts.cwd.as_deref().unwrap_or(b".")).to_owned();
             // Opened only to refuse a bad --cwd up front, as host.c does; the
             // child changes into it by path.

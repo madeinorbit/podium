@@ -62,6 +62,8 @@ struct Client {
     exit_owed: bool,
     /// Flush `out`, then close (DETACH, or a protocol error).
     closing: bool,
+    /// Its output queue passed the limit: close at once, without flushing.
+    overflowed: bool,
     /// Data cursor into the ring.
     next_seq: u64,
     /// Partial frames.
@@ -98,7 +100,11 @@ pub struct Child {
 }
 
 pub struct Host {
+    /// Absolute, so the unlink at exit still names it after chdir("/").
     sock_path: PathBuf,
+    /// Device and inode of the socket we bound: the unlink at exit removes
+    /// the path only while it is still ours.
+    sock_id: Option<(u64, u64)>,
     listener: UnixListener,
     sig_fd: File,
     /// None once the output is drained and closed.
@@ -120,6 +126,8 @@ pub struct Host {
     /// Id of the client holding the lease.
     writer: Option<u32>,
     wq: VecDeque<PendingWrite>,
+    /// What `wq` holds: bytes not yet written plus WRITE_OVERHEAD per entry.
+    wq_cost: usize,
 
     kill_deadline: Option<Instant>,
     kill_requested: bool,
@@ -131,6 +139,7 @@ pub struct Host {
 impl Host {
     pub fn new(
         sock_path: PathBuf,
+        sock_id: Option<(u64, u64)>,
         listener: UnixListener,
         sig_fd: File,
         child: Child,
@@ -139,6 +148,7 @@ impl Host {
     ) -> Host {
         let mut h = Host {
             sock_path,
+            sock_id,
             listener,
             sig_fd,
             io: Some(child.io),
@@ -154,6 +164,7 @@ impl Host {
             next_client_id: 0,
             writer: None,
             wq: VecDeque::new(),
+            wq_cost: 0,
             kill_deadline: None,
             kill_requested: false,
             linger_deadline: None,
@@ -164,6 +175,11 @@ impl Host {
             h.ws = ws;
         }
         h
+    }
+
+    /// The most a client's output queue may hold: a whole ring replay plus slack.
+    fn out_limit(&self) -> usize {
+        self.ring.size() + proto::MAX_OUTBUF_SLACK
     }
 
     fn idx(&self, id: u32) -> Option<usize> {
@@ -226,6 +242,7 @@ impl Host {
             writer: false,
             exit_owed: false,
             closing: false,
+            overflowed: false,
             next_seq: 0,
             input: Vec::new(),
             out: Outbox::default(),
@@ -342,6 +359,14 @@ impl Host {
                 if self.child_exited || self.io.is_none() {
                     return self.refuse(ci, proto::ERR_EXITED, "child exited");
                 }
+                let cost = data.len() + proto::WRITE_OVERHEAD;
+                if self.wq_cost + cost > proto::MAX_INPUT_QUEUE && !self.wq.is_empty() {
+                    // The child is not reading its input. Refuse rather than
+                    // queue without limit (host.c does: POD-4842 C-3); an
+                    // empty queue always takes one write, however large.
+                    return self.refuse(ci, proto::ERR_INPUT_FULL, "input queue full");
+                }
+                self.wq_cost += cost;
                 self.wq.push_back(PendingWrite {
                     client_id: self.clients[ci].id,
                     write_id: id,
@@ -404,6 +429,16 @@ impl Host {
                 // Independent of the client's live cursor; touches the child in no way.
                 let (low, high) = (self.ring.low(), self.ring.high());
                 let from = high.saturating_sub(tail as u64).max(low);
+                // Refuse a replay that would push the queue past the limit
+                // BEFORE copying (host.c copies first: pipelined REPLAYs grow
+                // it by a ring each, POD-4842 C-2). A client asking for that
+                // is not reading; it is dropped.
+                let frames = (high - from).div_ceil(proto::DATA_CHUNK as u64) as usize + 2;
+                let queued = self.clients[ci].out.len() + (high - from) as usize + frames * 13;
+                if queued > self.out_limit() {
+                    self.clients[ci].overflowed = true;
+                    return;
+                }
                 let out = self.clients[ci].out.tail();
                 Frame::begin(out, proto::H_REPLAYING).u64(from);
                 let mut seq = from;
@@ -451,7 +486,13 @@ impl Host {
                 Next::Frame { ty, total } => {
                     self.handle_frame(ci, ty, &input[used + 5..used + total]);
                     used += total;
-                    if self.clients[ci].closing {
+                    let c = &mut self.clients[ci];
+                    // Checked per frame, not once per read: one read can carry
+                    // thousands of pipelined requests.
+                    if c.out.len() > self.ring.size() + proto::MAX_OUTBUF_SLACK {
+                        c.overflowed = true;
+                    }
+                    if c.closing || c.overflowed {
                         break;
                     }
                 }
@@ -467,7 +508,7 @@ impl Host {
         match (&c.stream).read(&mut self.scratch) {
             Ok(0) => {}
             Ok(n) => {
-                if !c.closing {
+                if !c.closing && !c.overflowed {
                     // draining after DETACH/error: further input is ignored
                     c.input.extend_from_slice(&self.scratch[..n]);
                     self.client_parse(ci);
@@ -558,6 +599,7 @@ impl Host {
             return; // dropping ChildIo closed both fds
         }
         self.wq.clear();
+        self.wq_cost = 0;
         self.announce_exit_if_ready();
     }
 
@@ -572,6 +614,9 @@ impl Host {
                         return;
                     }
                 }
+                // Draining after the child exited: a signal must not cut the
+                // drain short and drop output (host.c does; a note in POD-4842).
+                Err(e) if drain_all && e.kind() == io::ErrorKind::Interrupted => {}
                 Err(e) if is_transient(&e) => {
                     if drain_all {
                         self.close_io();
@@ -590,12 +635,16 @@ impl Host {
         while let (Some(w), Some(io)) = (self.wq.front_mut(), &self.io) {
             if w.off < w.data.len() {
                 match io.input().write(&w.data[w.off..]) {
-                    Ok(n) => w.off += n,
+                    Ok(n) => {
+                        w.off += n;
+                        self.wq_cost -= n;
+                    }
                     Err(e) if is_transient(&e) => return,
                     Err(_) => {
                         // The child's input side is gone; the ack is that
                         // nothing more can be written.
                         for x in self.wq.iter_mut() {
+                            self.wq_cost -= x.data.len() - x.off;
                             x.data.truncate(x.off);
                         }
                     }
@@ -606,6 +655,7 @@ impl Host {
                 }
             }
             let w = self.wq.pop_front().expect("front exists");
+            self.wq_cost -= proto::WRITE_OVERHEAD;
             if w.client_id != 0
                 && let Some(ci) = self.idx(w.client_id)
             {
@@ -650,7 +700,7 @@ impl Host {
     }
 
     fn cleanup_and_exit(&self) -> ! {
-        let _ = std::fs::remove_file(&self.sock_path);
+        sys::remove_own_socket(&self.sock_path, self.sock_id);
         std::process::exit(0)
     }
 
@@ -681,7 +731,7 @@ impl Host {
         }
         let first_client = fds.len();
         for c in &self.clients {
-            let read = if c.closing {
+            let read = if c.closing || c.overflowed {
                 PollFlags::empty()
             } else {
                 PollFlags::IN
@@ -769,13 +819,15 @@ impl Host {
                 if revs.intersects(PollFlags::IN | PollFlags::HUP) && !self.client_read(ci) {
                     continue;
                 }
+                if self.clients[ci].overflowed {
+                    self.client_close(ci); // no flush: its queue is the problem
+                    continue;
+                }
                 if self.client_wants_out(&self.clients[ci]) && !self.client_write(ci) {
                     continue;
                 }
                 let c = &self.clients[ci];
-                if (c.closing && c.out.is_empty())
-                    || c.out.len() > self.ring.size() + proto::MAX_OUTBUF_SLACK
-                {
+                if (c.closing && c.out.is_empty()) || c.overflowed || c.out.len() > self.out_limit() {
                     self.client_close(ci);
                 }
             }

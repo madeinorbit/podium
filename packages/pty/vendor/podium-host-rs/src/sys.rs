@@ -116,8 +116,74 @@ extern "C" fn on_signal(signo: libc::c_int) {
     }
     let b = signo as u8;
     // SAFETY: write(2) is async-signal-safe; the fd is the self-pipe's write
-    // end, open (and nonblocking) for the life of the process.
-    unsafe { libc::write(SIG_PIPE_W.load(Ordering::Relaxed), (&raw const b).cast(), 1) };
+    // end, open (and nonblocking) for the life of the process. errno is saved
+    // and restored: a failed write (EAGAIN on a full pipe) must not replace
+    // the errno of the syscall this signal interrupted.
+    unsafe {
+        let errno = errno_location();
+        let saved = *errno;
+        libc::write(SIG_PIPE_W.load(Ordering::Relaxed), (&raw const b).cast(), 1);
+        *errno = saved;
+    }
+}
+
+#[cfg(target_os = "linux")]
+unsafe fn errno_location() -> *mut libc::c_int {
+    // SAFETY: always returns this thread's errno slot.
+    unsafe { libc::__errno_location() }
+}
+#[cfg(target_os = "macos")]
+unsafe fn errno_location() -> *mut libc::c_int {
+    // SAFETY: always returns this thread's errno slot.
+    unsafe { libc::__error() }
+}
+
+/// Mark every file descriptor above stderr that this process INHERITED
+/// close-on-exec, so none of them reaches the child (host.c lets them
+/// through: POD-4842 C-7). Call before the host opens anything of its own.
+pub fn cloexec_inherited_fds() {
+    let dir = if cfg!(target_os = "linux") { "/proc/self/fd" } else { "/dev/fd" };
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let fds: Vec<libc::c_int> = entries
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+        .filter(|&fd| fd > 2)
+        .collect(); // the listing's own fd is closed once `entries` is consumed
+    for fd in fds {
+        // SAFETY: F_SETFD on an integer fd touches no memory; an fd that is
+        // not open (the listing's own) just fails with EBADF.
+        unsafe {
+            let flags = libc::fcntl(fd, libc::F_GETFD);
+            if flags >= 0 {
+                libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
+            }
+        }
+    }
+}
+
+/// The identity of a file at a path: device and inode.
+pub fn file_id(meta: &std::fs::Metadata) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+    (meta.dev(), meta.ino())
+}
+
+/// The identity of the socket this listener is bound to (fstat on the fd).
+pub fn socket_id(listener: &impl AsFd) -> Option<(u64, u64)> {
+    let st = rustix::fs::fstat(listener).ok()?;
+    Some((st.st_dev as u64, st.st_ino as u64))
+}
+
+/// Remove `path` only if it is still the socket we bound (same device and
+/// inode). host.c unlinks by path, so a host exiting after its path was
+/// re-bound by another host deletes the other host's socket (POD-4842 C-4).
+pub fn remove_own_socket(path: &std::path::Path, id: Option<(u64, u64)>) {
+    use std::os::unix::fs::FileTypeExt;
+    let Some(id) = id else { return };
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_socket() && file_id(&m) == id => {
+            let _ = std::fs::remove_file(path);
+        }
+        _ => {}
+    }
 }
 
 /// Route SIGCHLD/SIGTERM/SIGINT/SIGHUP into a self-pipe (returns its read

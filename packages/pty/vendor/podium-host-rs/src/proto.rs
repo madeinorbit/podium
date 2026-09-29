@@ -34,6 +34,10 @@ pub const ERR_NOT_WRITER: u16 = 1;
 pub const ERR_NO_PTY: u16 = 2;
 pub const ERR_BAD_FRAME: u16 = 3;
 pub const ERR_EXITED: u16 = 4;
+/// Rust port only: a WRITE refused because the input queue toward the child is
+/// full (the child is not reading its input). host.c queues without a limit
+/// (POD-4842 C-3); the connection survives this error.
+pub const ERR_INPUT_FULL: u16 = 5;
 
 pub const MODE_WRITER: u8 = 1;
 pub const MODE_READER: u8 = 2;
@@ -46,6 +50,12 @@ pub const MAX_FRAME: u32 = 1 << 20;
 pub const DATA_CHUNK: usize = 32 * 1024;
 /// A client whose control queue holds more than a whole ring replay plus this is not reading.
 pub const MAX_OUTBUF_SLACK: usize = 1 << 20;
+/// Bytes (plus [`WRITE_OVERHEAD`] per write) the input queue toward the child
+/// may hold; a WRITE beyond it is refused with ERR_INPUT_FULL.
+pub const MAX_INPUT_QUEUE: usize = 1 << 20;
+/// What one queued write costs besides its bytes, so a flood of empty WRITEs
+/// is bounded too.
+pub const WRITE_OVERHEAD: usize = 64;
 /// `fromSeq` meaning "tail only".
 pub const TAIL_ONLY: u64 = u64::MAX;
 
