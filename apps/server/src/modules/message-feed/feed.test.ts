@@ -33,7 +33,7 @@ import type { SessionStore } from '../../store'
 import { afterCommit, applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import type { MessageRow, SessionRow } from '../../store/types'
 import { openTestStore } from '../../test-support/open-test-store'
-import { MessageFeedPublisher } from './feed'
+import { isLiveConversation, MessageFeedPublisher } from './feed'
 
 const S1 = asSessionId('ses_one')
 const S2 = asSessionId('ses_two')
@@ -364,6 +364,18 @@ describe('the chat message feed', () => {
 })
 
 describe('a session that ends takes its confirmed window off the feed (POD-4814)', () => {
+  it('counts a session as a live conversation until it exits, is archived, deleted or purged', () => {
+    const live = { status: 'live', archived: false, deletedAt: null } as const
+    expect(isLiveConversation(live)).toBe(true)
+    for (const status of ['starting', 'reconnecting', 'hibernated'] as const) {
+      expect(isLiveConversation({ ...live, status })).toBe(true)
+    }
+    expect(isLiveConversation({ ...live, status: 'exited' })).toBe(false)
+    expect(isLiveConversation({ ...live, archived: true })).toBe(false)
+    expect(isLiveConversation({ ...live, deletedAt: 't' })).toBe(false)
+    expect(isLiveConversation(undefined)).toBe(false)
+  })
+
   it('drops the window when the session exits, and keeps its open and failed messages', async () => {
     const { store, ledger, move, ids } = await harness()
     await confirm(store, 'msg_s1a')
