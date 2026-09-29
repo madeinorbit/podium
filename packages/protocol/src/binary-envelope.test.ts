@@ -144,6 +144,61 @@ describe('binary envelope v1', () => {
       ),
     ).toThrow()
   })
+  it('still parses an old-shape daemon output frame without adding fields', () => {
+    const oldMetadata = { v: 1, type: 'ptyOutput', sessionId: 'session-1', sourceFrames: 2 }
+    const payload = Uint8Array.of(0x00, 0xff, 0x1b)
+    const decoded = decodeEnvelope(jsonEnvelope(oldMetadata, payload), DaemonPtyOutputMetadata)
+    expect(decoded.metadata).toEqual(oldMetadata)
+    expect(decoded.payload).toEqual(payload)
+  })
+  it.each(['reset', 'cut'])('parses a %s picture with exact payload bytes', (reason) => {
+    const picture = {
+      v: 1,
+      type: 'ptyPicture',
+      sessionId: 'session-1',
+      reason,
+      cols: 120,
+      rows: 40,
+      future: true,
+    }
+    const payload = Uint8Array.of(0x1b, 0x63, 0xff, 0x00)
+    const frame = jsonEnvelope(picture, payload)
+    const decoded = decodeEnvelope(frame, DaemonPtyOutputMetadata)
+    expect(decoded.metadata).toEqual(picture)
+    expect(decoded.metadata).not.toHaveProperty('sourceFrames')
+    expect(decoded.payload).toEqual(payload)
+    expect(decoded.payload.buffer).toBe(frame.buffer)
+    expect(() => decodeEnvelope(frame, PtyOutputBinaryMetadata)).toThrow()
+  })
+  it.each([
+    { reason: undefined },
+    { reason: 'unknown' },
+    { cols: undefined },
+    { cols: 0 },
+    { cols: -1 },
+    { cols: 1.5 },
+    { rows: undefined },
+    { rows: 0 },
+    { rows: -1 },
+    { rows: 1.5 },
+    { sessionId: undefined },
+    { v: 2 },
+  ])('rejects malformed picture metadata: %j', (invalid) => {
+    expect(() =>
+      decodeEnvelope(
+        jsonEnvelope({
+          v: 1,
+          type: 'ptyPicture',
+          sessionId: 'session-1',
+          reason: 'reset',
+          cols: 120,
+          rows: 40,
+          ...invalid,
+        }),
+        DaemonPtyOutputMetadata,
+      ),
+    ).toThrow()
+  })
   it('retains additive daemon output metadata fields', () => {
     const daemonMetadata = {
       v: 1 as const,

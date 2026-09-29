@@ -117,6 +117,7 @@ describe('daemon connection credential state machine', () => {
     )
     await state.start()
     expect(hello?.caps).toContain(CAP_TERMINAL_OUTPUT_BINARY_V1)
+    expect(hello?.caps).toContain('terminal.picture.v1')
     expect(hello).toMatchObject({
       type: 'peerHello',
       peerRole: 'machine',

@@ -273,6 +273,22 @@ describe('the daemon socket speaks the permanent envelope', () => {
     })
   })
 
+  it.each([
+    { caps: ['terminal.picture.v1', CAP_TERMINAL_OUTPUT_BINARY_V1], accepted: ['terminal.picture.v1', CAP_TERMINAL_OUTPUT_BINARY_V1] },
+    { caps: ['terminal.picture.v1'], accepted: [] },
+    { caps: [CAP_TERMINAL_OUTPUT_BINARY_V1], accepted: [CAP_TERMINAL_OUTPUT_BINARY_V1] },
+    { caps: ['terminal.picture.v1', CAP_TERMINAL_INPUT_BINARY_V1], accepted: [CAP_TERMINAL_INPUT_BINARY_V1] },
+    { caps: [], accepted: [] },
+  ])('negotiates pictures only with binary output: %j', async ({ caps, accepted }) => {
+    const { reg, ws } = await authenticatedSocket(caps)
+    try {
+      expect(JSON.parse(ws.sent[0]!)).toMatchObject({ type: 'peerHelloOk', caps: accepted })
+      expect(ws.terminate).not.toHaveBeenCalled()
+    } finally {
+      await reg.store.close()
+    }
+  })
+
   it('authenticates an envelope hello carrying a machine token', async () => {
     const reg = await registryWithMachine()
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')

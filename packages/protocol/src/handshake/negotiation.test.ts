@@ -33,6 +33,23 @@ describe('version negotiation (ADR 5 D3.1)', () => {
 })
 
 describe('capability negotiation (ADR 5 D3.3)', () => {
+  const picture = 'terminal.picture.v1'
+  const binary = 'terminal.output.binary.v1'
+  it.each([
+    { offered: [picture, binary], supported: [picture, binary], accepted: [picture, binary] },
+    { offered: [binary, picture], supported: [picture, binary], accepted: [binary, picture] },
+    { offered: [picture], supported: [picture, binary], accepted: [] },
+    { offered: [picture, binary], supported: [picture], accepted: [] },
+    { offered: [picture], supported: [picture], accepted: [] },
+    { offered: [picture, binary], supported: [binary], accepted: [binary] },
+    { offered: [binary], supported: [picture, binary], accepted: [binary] },
+    { offered: [picture, 'terminal.input.binary.v1'], supported: [picture, 'terminal.input.binary.v1'], accepted: ['terminal.input.binary.v1'] },
+  ])('requires negotiated binary output for pictures: %j', ({ offered, supported, accepted }) => {
+    const result = negotiateCapabilities(offered, supported)
+    expect(result.accepted).toEqual(accepted)
+    expect(result.ignored).toEqual(offered.filter((cap) => !accepted.includes(cap)))
+  })
+
   it('returns the intersection, never the offer echoed back', () => {
     const result = negotiateCapabilities(['metadataDelta', 'somethingElse'], ['metadataDelta'])
     expect(result.accepted).toEqual(['metadataDelta'])
