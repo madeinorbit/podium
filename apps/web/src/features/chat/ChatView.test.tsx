@@ -75,7 +75,7 @@ const fakeTrpc = {
     uploadImage: { mutate: vi.fn(async () => ({ path: '/x' })) },
   },
   messages: {
-    cancel: { mutate: vi.fn(async () => ({ status: 'cancelled' })) },
+    cancel: { mutate: vi.fn(async () => ({ deliveryStatus: 'cancelled' })) },
     dismissNotice: { mutate: vi.fn(async () => ({ ok: true, dismissed: true })) },
   },
 }
@@ -1011,7 +1011,7 @@ describe('ChatView composer', () => {
     fakeTrpc.messages.cancel.mutate.mockImplementationOnce(async () => {
       // The agent's machine agreed; the feed lets the record go.
       setFakeStore({ messageRecords: [] })
-      return { status: 'cancelled', deliveryStatus: 'cancelled' }
+      return { deliveryStatus: 'cancelled' }
     })
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
