@@ -246,3 +246,72 @@ describe('the history entry a delivered opencode send became', () => {
     }
   })
 })
+
+describe("OpenCode's own ids for our message (POD-4841)", () => {
+  it('names the message id and the text part id the prompt is stored under', async () => {
+    const host = makeOpencodeTestHost()
+    const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
+    try {
+      const handle = await runtime.driver.create(spec())
+      const receipt = await handle.send(
+        { id: 'msg_direct', text: 'direct' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      expect(receipt).toMatchObject({
+        outcome: 'accepted',
+        harnessRef: [
+          { kind: 'opencode-message', id: 'msg_direct' },
+          { kind: 'opencode-part', id: 'prt_000000000000direct' },
+        ],
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it("carries them on a durable row's delivered outcome", async () => {
+    const host = makeOpencodeTestHost()
+    const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
+    try {
+      const handle = await runtime.driver.create(spec())
+      const events = collect(handle)
+      await handle.send(
+        { id: 'msg_row', rowId: 'msg_row', text: 'row' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      await expect.poll(() => deliveries(events).length).toBe(1)
+      expect(deliveries(events)[0]).toMatchObject({
+        rowId: 'msg_row',
+        outcome: 'delivered',
+        harnessRef: [
+          { kind: 'opencode-message', id: 'msg_row' },
+          { kind: 'opencode-part', id: 'prt_000000000000row' },
+        ],
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('names the hashed message id an id OpenCode cannot take becomes', async () => {
+    const host = makeOpencodeTestHost()
+    const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
+    try {
+      const handle = await runtime.driver.create(spec())
+      const receipt = await handle.send(
+        { id: 'notice:4720:7', text: 'hashed' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      const stored = rows(host, handle).at(-1)?.info.id
+      expect(stored).toMatch(/^msg_[0-9a-f]{32}$/)
+      expect(receipt).toMatchObject({
+        harnessRef: [
+          { kind: 'opencode-message', id: stored },
+          { kind: 'opencode-part', id: `prt_000000000000${stored!.slice('msg_'.length)}` },
+        ],
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+})
