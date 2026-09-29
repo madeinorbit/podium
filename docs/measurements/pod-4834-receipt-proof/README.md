@@ -24,14 +24,17 @@ Times are milliseconds after the prompt's Enter.
 
 | Scenario | Prompt | Transcript, in file order | `UserPromptSubmit` | Reached the model |
 |---|---|---|---|---|
-| Idle | ALPHA | `user` record, `promptId` P1, +71 | +167, `prompt_id` **P1** | request #2, +371 |
+| Idle | ALPHA | `user` record, `promptId` P1; its `timestamp` field says +71, but that is its creation time — see the correction below | +167, `prompt_id` **P1** | request #2, +371 |
 | Busy in a tool (BETA running, P2) | GAMMA | `queue-operation enqueue` (content = text) at +18; after the tool: `user` tool_result, `queue-operation remove` reason `absorbed_mid_turn`, then the `queued_command` attachment (its `timestamp` = Enter time, `source_uuid` set, no `promptId`) at about +5 900 | +43, `prompt_id` **P2 — the running turn's** | the next request after the tool, inside the `tool_result` content as `<system-reminder> The user sent a new message while you were working: …` (rerun ZETA/ETA, full request bodies in `rerun-eta-requests.json`: request #3 at +5 600 after ETA's Enter; request #2 did not contain ETA. The first run logged no full bodies, so GAMMA's route rests on the rerun.) |
 | Busy streaming text, no tool (DELTA running, P3) | EPSILON | `queue-operation enqueue` at +15; after DELTA ends: `queue-operation dequeue`, then a `user` record with a **new** `promptId` P4 at +7 176 | +43, `prompt_id` **P3 — the running turn's**; **none** fires with P4 | request #9, +7 212, as a new turn; the next `Stop` carries P4 |
 
 What this settles for Claude's terminal UI:
 
 - An idle submit has one id end to end: the `user` record and the hook carry the same new
-  `prompt_id`; the record is written about 100 ms before the hook, the model request follows.
+  `prompt_id`. **Correction (POD-4862, 17 runs):** the hook comes first every time (median +85 ms)
+  and the record is usually *written* after the model request (median +240 ms). This run sorted
+  records by their `timestamp` field, which is set when the record is created, not when it is
+  written; a SIGKILL at +200 / +286 ms left a prompt the model had seen with no record at all.
 - `prompt_id` / `promptId` is a **turn** id. A prompt entered while Claude is busy gets no turn id
   of its own at Enter: the hook fires then with the running turn's `prompt_id`, and its payload
   has no id for the prompt itself (fields: `session_id`, `transcript_path`, `cwd`,
