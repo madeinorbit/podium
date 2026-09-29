@@ -105,7 +105,10 @@ describe('an interrupt is the interrupt mode of one durable row (POD-4795)', () 
     await h.svc.onQueuedInputApplied(id, TARGET)
     await h.svc.onQueuedInputApplied(id, TARGET)
 
-    expect(await h.svc.message(id)).toMatchObject({ deliveryStatus: 'confirmed', deliveredTo: TARGET })
+    expect(await h.svc.message(id)).toMatchObject({
+      deliveryStatus: 'confirmed',
+      deliveredTo: TARGET,
+    })
     expect(await transitions(h, 'message.delivered', id)).toHaveLength(1)
     // The sweep never pushes a handed-on row again: the row IS the delivery.
     await h.svc.sweep()
@@ -130,28 +133,28 @@ describe('an interrupt is the interrupt mode of one durable row (POD-4795)', () 
 })
 
 describe('a send with files is a durable row like any other (POD-4795)', () => {
-  it.each(['next-turn', 'interrupt'] as const)(
-    'hands a %s send with files to the queue with its files',
-    async (urgency) => {
-      const h = await liveTarget()
-      const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
-        to: TARGET,
-        body: 'here is the screenshot',
-        attachments: [SHOT],
-        urgency,
-      })) as { id: string }
+  it.each([
+    'next-turn',
+    'interrupt',
+  ] as const)('hands a %s send with files to the queue with its files', async (urgency) => {
+    const h = await liveTarget()
+    const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
+      to: TARGET,
+      body: 'here is the screenshot',
+      attachments: [SHOT],
+      urgency,
+    })) as { id: string }
 
-      expect((await h.svc.message(r.id))!.deliveryStatus).toBe('dispatched')
-      expect(h.pushes).toEqual([
-        expect.objectContaining({
-          fn: urgency === 'interrupt' ? 'interruptText' : 'queueText',
-          attachments: [SHOT],
-        }),
-      ])
-      expect(h.receiptsSeen.map((seen) => seen.receipt.outcome)).toEqual(['queued'])
-      expect(await notices(h)).toEqual([])
-    },
-  )
+    expect((await h.svc.message(r.id))!.deliveryStatus).toBe('dispatched')
+    expect(h.pushes).toEqual([
+      expect.objectContaining({
+        fn: urgency === 'interrupt' ? 'interruptText' : 'queueText',
+        attachments: [SHOT],
+      }),
+    ])
+    expect(h.receiptsSeen.map((seen) => seen.receipt.outcome)).toEqual(['queued'])
+    expect(await notices(h)).toEqual([])
+  })
 
   it('ends an attachment send refused before anything was stamped [POD-2574]', async () => {
     // THE ONE SYNCHRONOUS REFUSAL THAT MUST NOT STAY QUEUED. A session with no
@@ -159,7 +162,9 @@ describe('a send with files is a durable row like any other (POD-4795)', () => {
     // sweep a row it can only refuse again, for the same reason, forever.
     // `unsupported` is a capability, not a moment.
     const h = await mailHarness({
-      receipts: { answer: () => refused('unsupported', 'this agent cannot accept file attachments') },
+      receipts: {
+        answer: () => refused('unsupported', 'this agent cannot accept file attachments'),
+      },
     })
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: TARGET, issueId: iss.id, status: 'starting' })

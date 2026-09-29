@@ -385,7 +385,11 @@ describe('interrupt rows (POD-4795)', () => {
       'type older one as when-ready',
       'type older two as when-ready',
     ])
-    expect(f.emit.mock.calls.map(([event]) => event.rowId)).toEqual(['urgent', 'older-1', 'older-2'])
+    expect(f.emit.mock.calls.map(([event]) => event.rowId)).toEqual([
+      'urgent',
+      'older-1',
+      'older-2',
+    ])
   })
 
   it('keeps interrupts in arrival order among themselves', async () => {

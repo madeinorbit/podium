@@ -52,9 +52,9 @@ type QueuedMessageRow = Awaited<ReturnType<SyncRepository['listQueuedMessages']>
  *  column, from refs already checked against the session; a value that no
  *  longer decodes is reported, and the row goes on as text alone rather than
  *  blocking the session's whole queue. */
-function storedQueueAttachments(
-  json: string | null,
-): { attachments?: readonly RuntimeAttachmentRef[] } {
+function storedQueueAttachments(json: string | null): {
+  attachments?: readonly RuntimeAttachmentRef[]
+} {
   if (json === null) return {}
   try {
     const parsed = RuntimeAttachmentRef.array().safeParse(JSON.parse(json))

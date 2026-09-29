@@ -31,7 +31,12 @@ function sender(overrides: Partial<ReceiptSenderPorts> = {}) {
 afterEach(() => vi.restoreAllMocks())
 
 describe('detached receipt reconciliation', () => {
-  const branches: Array<{ name: string; via: ReceiptSendVia; input?: Partial<ReceiptSendInput>; ports?: Partial<ReceiptSenderPorts> }> = [
+  const branches: Array<{
+    name: string
+    via: ReceiptSendVia
+    input?: Partial<ReceiptSendInput>
+    ports?: Partial<ReceiptSenderPorts>
+  }> = [
     { name: 'durable queue acceptance', via: 'queue' },
     { name: 'interrupt row acceptance', via: 'interrupt' },
     { name: 'durable queue refusal', via: 'queue', ports: { queue: { enqueue: async () => ({ ok: false, reason: 'not_running' }) } } },
@@ -64,9 +69,18 @@ describe('detached receipt reconciliation', () => {
   it('reports synchronous reconciliation throws without rejecting queue admission', async () => {
     const report = vi.spyOn(console, 'error').mockImplementation(() => {})
     const failure = new Error('synchronous reconciliation failure')
-    expect(await sender().send('queue', {
-      sessionId: asSessionId('receipt-target'), text: 'body',
-    }, () => { throw failure })).toEqual({ ok: true, queued: true, position: 1 })
+    expect(
+      await sender().send(
+        'queue',
+        {
+          sessionId: asSessionId('receipt-target'),
+          text: 'body',
+        },
+        () => {
+          throw failure
+        },
+      ),
+    ).toEqual({ ok: true, queued: true, position: 1 })
     await new Promise<void>((resolve) => setImmediate(resolve))
     expect(report).toHaveBeenCalledWith('[receipt-send] reconciliation failed', expect.objectContaining({
       operationId: expect.any(String), error: failure,

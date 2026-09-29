@@ -1336,7 +1336,10 @@ describe('oracle: continue (the errored-agent retry)', () => {
     })
 
     expect(await o.call.sessions.continue({ sessionId })).toEqual({ ok: true })
-    await waitFor(() => durableSends(o.daemon, sessionId).length > 0, 'the continue row to be handed on')
+    await waitFor(
+      () => durableSends(o.daemon, sessionId).length > 0,
+      'the continue row to be handed on',
+    )
     expect(durableSends(o.daemon, sessionId)).toEqual([
       expect.objectContaining({
         text: 'continue',

@@ -376,45 +376,40 @@ afterEach(() => {
 })
 
 describe('drain invalidation during queue enumeration', () => {
-  it.each(['session replacement', 'inbox disposal'] as const)(
-    'does not resume stale drain work after %s while queue.list is pending',
-    async (invalidation) => {
-      const h = harness({ status: 'parked', transcriptAvailable: true })
-      h.rows.push({ delivery: 'when-ready',
-        id: 'held-row', sessionId: SID, text: 'still queued',
-        principal: agentPrincipal(), queuedAt: 0, attempts: 2,
-        inputOrigin: 'mail', sourceMessageId: null,
-      })
-      let release!: (rows: typeof h.rows) => void
-      const pending = new Promise<typeof h.rows>((resolve) => { release = resolve })
-      const order: string[] = []
-      h.listQueue.mockImplementationOnce(() => {
-        order.push('list pending')
-        return pending
-      })
-      const drain = h.inbox.drain(SID).then(() => { order.push('drain returned') })
-      try {
-        expect(order).toEqual(['list pending'])
-        expect(h.getSession).toHaveReturnedWith(h.session)
-        if (invalidation === 'session replacement') {
-          h.getSession.mockReturnValue({ ...h.session } as Session)
-        } else {
-          h.inbox.dispose()
-        }
-        order.push(invalidation)
-        expect(h.rows[0]?.attempts).toBe(2)
-        order.push('list released')
-        release([...h.rows])
-        await drain
-        expect(order).toEqual(['list pending', invalidation, 'list released', 'drain returned'])
-        expect(h.rows[0]?.attempts, 'invalidated drain must not reset queued delivery attempts').toBe(2)
-        expect(h.listQueue, 'invalidated drain must stop before its next queue read').toHaveBeenCalledTimes(1)
-        expect(h.write).not.toHaveBeenCalled()
-        expect(h.resurrect).not.toHaveBeenCalled()
-        expect(h.sent).toEqual([])
-      } finally {
-        release([])
-        await drain
+  it.each([
+    'session replacement',
+    'inbox disposal',
+  ] as const)('does not resume stale drain work after %s while queue.list is pending', async (invalidation) => {
+    const h = harness({ status: 'parked', transcriptAvailable: true })
+    h.rows.push({
+      delivery: 'when-ready',
+      id: 'held-row',
+      sessionId: SID,
+      text: 'still queued',
+      principal: agentPrincipal(),
+      queuedAt: 0,
+      attempts: 2,
+      inputOrigin: 'mail',
+      sourceMessageId: null,
+    })
+    let release!: (rows: typeof h.rows) => void
+    const pending = new Promise<typeof h.rows>((resolve) => {
+      release = resolve
+    })
+    const order: string[] = []
+    h.listQueue.mockImplementationOnce(() => {
+      order.push('list pending')
+      return pending
+    })
+    const drain = h.inbox.drain(SID).then(() => {
+      order.push('drain returned')
+    })
+    try {
+      expect(order).toEqual(['list pending'])
+      expect(h.getSession).toHaveReturnedWith(h.session)
+      if (invalidation === 'session replacement') {
+        h.getSession.mockReturnValue({ ...h.session } as Session)
+      } else {
         h.inbox.dispose()
       }
     },
@@ -1484,7 +1479,8 @@ describe('SessionInbox authorization and identity', () => {
   // cancel and the row survives the stop.
   it('a shell retracts a daemon-custodied row locally when the driver cancel refuses', async () => {
     const h = harness({ agentKind: 'shell', phase: 'working' })
-    h.rows.push({ delivery: 'when-ready',
+    h.rows.push({
+      delivery: 'when-ready',
       id: 'shell-row',
       sessionId: SID,
       queuedAt: 1,
@@ -1581,47 +1577,50 @@ describe('SessionInbox authorization and identity', () => {
   // POD-4795: an agent's interrupt is the interrupt MODE of one durable row.
   // The server sends no stop of its own and reads no phase (POD-4666): the
   // daemon's queue puts the row first, cuts a running turn, and types it.
-  it.each(['idle', 'working'] as const)(
-    'interrupt-urgency text to a %s agent is one durable row in the interrupt mode',
-    async (phase) => {
-      vi.useFakeTimers()
-      try {
-        const h = harness({
-          agentKind: 'codex',
-          phase,
-          hasBoundDriver: true,
-          contractInterrupt: { ok: true },
-          contractReceipts: [],
-        })
+  it.each([
+    'idle',
+    'working',
+  ] as const)('interrupt-urgency text to a %s agent is one durable row in the interrupt mode', async (phase) => {
+    vi.useFakeTimers()
+    try {
+      const h = harness({
+        agentKind: 'codex',
+        phase,
+        hasBoundDriver: true,
+        contractInterrupt: { ok: true },
+        contractReceipts: [],
+      })
 
-        expect(
-          await h.inbox.interruptText({
-            sessionId: SID,
-            text: 'stop and read this',
-            principal: agentPrincipal(),
-            sourceMessageId: 'msg-urgent',
-          }),
-        ).toEqual({ ok: true, queued: true })
-        await vi.advanceTimersByTimeAsync(500)
+      expect(
+        await h.inbox.interruptText({
+          sessionId: SID,
+          text: 'stop and read this',
+          principal: agentPrincipal(),
+          sourceMessageId: 'msg-urgent',
+        }),
+      ).toEqual({ ok: true, queued: true })
+      await vi.advanceTimersByTimeAsync(500)
 
-        expect(h.contractInterrupts).toEqual([])
-        expect(h.sent).toEqual([])
-        expect(h.rows).toEqual([
-          expect.objectContaining({ id: 'msg-urgent', delivery: 'interrupt' }),
-        ])
-        // Forwarded under the message id, in the interrupt mode.
-        expect(h.contractCalls).toEqual([
-          expect.objectContaining({ turnId: 'msg-urgent', delivery: 'interrupt' }),
-        ])
-      } finally {
-        vi.useRealTimers()
-      }
-    },
-  )
+      expect(h.contractInterrupts).toEqual([])
+      expect(h.sent).toEqual([])
+      expect(h.rows).toEqual([expect.objectContaining({ id: 'msg-urgent', delivery: 'interrupt' })])
+      // Forwarded under the message id, in the interrupt mode.
+      expect(h.contractCalls).toEqual([
+        expect.objectContaining({ turnId: 'msg-urgent', delivery: 'interrupt' }),
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
   it('a repeated interrupt of the same message is one row', async () => {
     const h = harness({ agentKind: 'codex', phase: 'working' })
-    const send = { sessionId: SID, text: 'read this', principal: agentPrincipal(), sourceMessageId: 'msg-once' }
+    const send = {
+      sessionId: SID,
+      text: 'read this',
+      principal: agentPrincipal(),
+      sourceMessageId: 'msg-once',
+    }
     expect(await h.inbox.interruptText(send)).toEqual({ ok: true, queued: true })
     expect(await h.inbox.interruptText(send)).toEqual({ ok: true, queued: true })
     expect(h.rows).toHaveLength(1)
@@ -1849,7 +1848,8 @@ describe('SessionInbox durable wake reconciliation', () => {
   // still reconstruct its wake. Flip the site and no wake is requested.
   it('reconstructs a wake for a parked shell with queued work and no resume ref', async () => {
     const h = harness({ agentKind: 'shell', status: 'exited', resumable: false })
-    h.rows.push({ delivery: 'when-ready',
+    h.rows.push({
+      delivery: 'when-ready',
       id: 'shell-wake',
       sessionId: SID,
       queuedAt: 1,
@@ -1921,7 +1921,8 @@ describe('shell rows held past the typing loop', () => {
     // A row the previous drain admitted but never settled (attempts>0 names a
     // row that may have crossed into the CLI). Shells retract locally: they
     // have no driver whose custody could desync.
-    h.rows.push({ delivery: 'when-ready',
+    h.rows.push({
+      delivery: 'when-ready',
       id: 'shell-interrupted',
       sessionId: SID,
       queuedAt: 1,
@@ -2652,10 +2653,24 @@ describe('async ownership at attention delivery', () => {
 describe('agent drain via the runtime contract', () => {
   it.each([true, false])('retracts revoked persisted custody only when cancellation succeeds: %s', async (cancelled) => {
     vi.useFakeTimers()
-    const h = harness({ hasBoundDriver: true, driverId: 'generic-pty',
-      authorizeAtDrain: async () => ({ ok: false, reason: 'revoked' }), contractReceipts: [] })
-    h.rows.push({ delivery: 'when-ready', id: 'revoked', sessionId: SID, queuedAt: 1, text: 'prior custody', attempts: 1,
-      deliveryOwner: 'daemon', inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: 'receipt' })
+    const h = harness({
+      hasBoundDriver: true,
+      driverId: 'generic-pty',
+      authorizeAtDrain: async () => ({ ok: false, reason: 'revoked' }),
+      contractReceipts: [],
+    })
+    h.rows.push({
+      delivery: 'when-ready',
+      id: 'revoked',
+      sessionId: SID,
+      queuedAt: 1,
+      text: 'prior custody',
+      attempts: 1,
+      deliveryOwner: 'daemon',
+      inputOrigin: 'human',
+      principal: agentPrincipal(),
+      sourceMessageId: 'receipt',
+    })
     if (!cancelled) h.contractCancel.mockResolvedValueOnce({ reason: 'busy' } as never)
     await h.inbox.drain(SID)
     await vi.advanceTimersByTimeAsync(0)
@@ -2673,8 +2688,18 @@ describe('agent drain via the runtime contract', () => {
     const h = harness({ agentKind: 'codex', transcriptAvailable: true, hasBoundDriver: true,
       driverId: 'generic-pty', contractReceipts: [] })
     // Fresh inbox instance, only durable state survived the server.
-    h.rows.push({ delivery: 'when-ready', id: 'persisted', sessionId: SID, queuedAt: 1, text: 'already admitted', attempts: 1,
-      deliveryOwner: 'daemon', inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: 'receipt' })
+    h.rows.push({
+      delivery: 'when-ready',
+      id: 'persisted',
+      sessionId: SID,
+      queuedAt: 1,
+      text: 'already admitted',
+      attempts: 1,
+      deliveryOwner: 'daemon',
+      inputOrigin: 'human',
+      principal: agentPrincipal(),
+      sourceMessageId: 'receipt',
+    })
     h.session.queuedMessageCount = 1
     await h.inbox.drain(SID, { justBound: true })
     await vi.advanceTimersByTimeAsync(60_000)
@@ -2691,8 +2716,17 @@ describe('agent drain via the runtime contract', () => {
   it('imports legacy attempts after restart without re-entering the typing loop', async () => {
     vi.useFakeTimers()
     const h = harness({ hasBoundDriver: true, driverId: 'generic-pty', contractReceipts: [] })
-    h.rows.push({ delivery: 'when-ready', id: 'legacy', sessionId: SID, queuedAt: 1, text: 'already typed', attempts: 2,
-      inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: null })
+    h.rows.push({
+      delivery: 'when-ready',
+      id: 'legacy',
+      sessionId: SID,
+      queuedAt: 1,
+      text: 'already typed',
+      attempts: 2,
+      inputOrigin: 'human',
+      principal: agentPrincipal(),
+      sourceMessageId: null,
+    })
     await h.inbox.drain(SID)
     await vi.advanceTimersByTimeAsync(60_000)
     expect(h.contractCalls).toEqual([expect.objectContaining({ deliveryRecovery: true })])

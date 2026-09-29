@@ -161,42 +161,49 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
   it('answers with the queue’s own receipt, at once', async () => {
     const { s } = sender(true)
     const receipts: string[] = []
-    await s.send('interrupt', { sessionId: asSessionId('s1'), text: 'stop and do this' }, (receipt) => {
-      receipts.push(receipt.outcome)
-    })
+    await s.send(
+      'interrupt',
+      { sessionId: asSessionId('s1'), text: 'stop and do this' },
+      (receipt) => {
+        receipts.push(receipt.outcome)
+      },
+    )
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(receipts).toEqual(['queued'])
   })
 
-  it.each([false, true])(
-    'refuses an archived session before the contract=%s send seam',
-    async (onContract) => {
-      const { s, rows, legacy } = sender(onContract, { archive: 'session is archived' })
-      for (const via of ['now', 'queue', 'interrupt', 'wake'] as const) {
-        expect(await s.send(via, { sessionId: asSessionId('s1'), text: 'do not revive' })).toEqual({
-          ok: false,
-          reason: 'session is archived',
-        })
-      }
-      expect(rows).toEqual([])
-      expect(legacy).toEqual([])
-    },
-  )
+  it.each([
+    false,
+    true,
+  ])('refuses an archived session before the contract=%s send seam', async (onContract) => {
+    const { s, rows, legacy } = sender(onContract, { archive: 'session is archived' })
+    for (const via of ['now', 'queue', 'interrupt', 'wake'] as const) {
+      expect(await s.send(via, { sessionId: asSessionId('s1'), text: 'do not revive' })).toEqual({
+        ok: false,
+        reason: 'session is archived',
+      })
+    }
+    expect(rows).toEqual([])
+    expect(legacy).toEqual([])
+  })
 
-  it.each(['now', 'queue', 'interrupt'] as const)(
-    'stores staged refs on the %s row with the text',
-    async (via) => {
-      const { s, rows } = sender(true)
-      expect(
-        await s.send(via, {
-          sessionId: asSessionId('s1'),
-          text: 'describe it',
-          attachments: [attachment],
-        }),
-      ).toMatchObject({ ok: true, queued: true })
-      expect(rows).toEqual([expect.objectContaining({ text: 'describe it', attachments: [attachment] })])
-    },
-  )
+  it.each([
+    'now',
+    'queue',
+    'interrupt',
+  ] as const)('stores staged refs on the %s row with the text', async (via) => {
+    const { s, rows } = sender(true)
+    expect(
+      await s.send(via, {
+        sessionId: asSessionId('s1'),
+        text: 'describe it',
+        attachments: [attachment],
+      }),
+    ).toMatchObject({ ok: true, queued: true })
+    expect(rows).toEqual([
+      expect.objectContaining({ text: 'describe it', attachments: [attachment] }),
+    ])
+  })
 
   it('refuses a staged ref on the off-contract arm instead of dropping it into legacy text', async () => {
     const receipts: string[] = []
@@ -262,7 +269,10 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
     }
     expect(rows).toEqual([
       expect.objectContaining({ mutationId: 'fact-key-queue', sourceMessageId: 'msg-queue' }),
-      expect.objectContaining({ mutationId: 'fact-key-interrupt', sourceMessageId: 'msg-interrupt' }),
+      expect.objectContaining({
+        mutationId: 'fact-key-interrupt',
+        sourceMessageId: 'msg-interrupt',
+      }),
     ])
   })
 

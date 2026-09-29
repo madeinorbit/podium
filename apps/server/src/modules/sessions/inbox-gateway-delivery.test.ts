@@ -299,7 +299,8 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
   it('(a) a queued row with a spent attempt budget forwards exactly once and never retries', async () => {
     const h = harness()
     // Left by the old loop: typed three times, never confirmed.
-    h.rows.push({ delivery: 'when-ready',
+    h.rows.push({
+      delivery: 'when-ready',
       id: 'old-row',
       sessionId: SID,
       queuedAt: 1,
@@ -453,7 +454,8 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
         ? acceptedReceipt()
         : { outcome: 'refused', refusal: { reason: 'not_running', detail: 'session is not behind the runtime contract' } },
     })
-    h.rows.push({ delivery: 'when-ready',
+    h.rows.push({
+      delivery: 'when-ready',
       id: 'held-row',
       sessionId: SID,
       queuedAt: 1,
