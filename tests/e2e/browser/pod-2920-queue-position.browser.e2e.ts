@@ -44,7 +44,8 @@ type LedgerRow = {
   injectedAt?: string | null
 }
 
-const ARM: Arm = process.env.PODIUM_E2E_QUEUE_POSITION_ARM === 'parent' ? 'parent' : 'fix'
+const ARM: Arm =
+  process.env.PODIUM_E2E_QUEUE_POSITION_ARM === 'parent' ? 'parent' : 'fix'
 const DRIVERS: Driver[] = [
   { kind: 'codex', label: 'codex-headless' },
   { kind: 'claude-code', label: 'claude-pty' },
@@ -65,7 +66,10 @@ async function rpc<T>(
   return body.result?.data as T
 }
 
-async function fixtureSession(request: APIRequestContext, driver: Driver): Promise<SessionWire> {
+async function fixtureSession(
+  request: APIRequestContext,
+  driver: Driver,
+): Promise<SessionWire> {
   let found: SessionWire | undefined
   await expect
     .poll(
@@ -124,7 +128,10 @@ async function openSession(page: Page, sessionId: string): Promise<void> {
   })
 }
 
-async function ledgerRows(request: APIRequestContext, sessionId: string): Promise<LedgerRow[]> {
+async function ledgerRows(
+  request: APIRequestContext,
+  sessionId: string,
+): Promise<LedgerRow[]> {
   return rpc<LedgerRow[]>(request, 'messages.ledger', {
     sessionId,
     limit: 100,
@@ -150,7 +157,8 @@ async function rowCaption(page: Page, marker: string): Promise<string> {
 async function sendFromCaller(page: Page, marker: string): Promise<SendReceipt> {
   const responsePromise = page.waitForResponse(
     (response) =>
-      response.request().method() === 'POST' && response.url().includes('/trpc/sessions.sendText'),
+      response.request().method() === 'POST' &&
+      response.url().includes('/trpc/sessions.sendText'),
     { timeout: 30_000 },
   )
   const composer = page.getByRole('textbox', { name: 'Message the agent…' })
@@ -197,10 +205,7 @@ async function waitForDelivered(
   return delivered
 }
 
-test.skip(
-  process.env.PODIUM_E2E_QUEUE_POSITION !== '1',
-  'requires the POD-2920 production queue fixture',
-)
+test.skip(process.env.PODIUM_E2E_QUEUE_POSITION !== '1', 'requires the POD-2920 production queue fixture')
 test.skip(({ isMobile }) => isMobile, 'desktop chat-panel test')
 test.setTimeout(360_000)
 
@@ -231,7 +236,10 @@ test('A1b queue position reaches the caller on two real drivers', async ({ page,
 
     const beforeReloadCaption = await rowCaption(page, marker)
     const queued = await expect
-      .poll(() => ledgerRow(request, session.sessionId, marker), { timeout: 20_000 })
+      .poll(
+        () => ledgerRow(request, session.sessionId, marker),
+        { timeout: 20_000 },
+      )
       .not.toBeUndefined()
     void queued
     const beforeReload = await ledgerRow(request, session.sessionId, marker)
@@ -274,7 +282,10 @@ test('A1b queue position reaches the caller on two real drivers', async ({ page,
   }
 
   expect(readings).toHaveLength(2)
-  expect(readings.map((reading) => reading.driver)).toEqual(['codex-headless', 'claude-pty'])
+  expect(readings.map((reading) => reading.driver)).toEqual([
+    'codex-headless',
+    'claude-pty',
+  ])
   if (ARM === 'parent') {
     expect(readings.every((reading) => reading.receiptPosition === null)).toBe(true)
     expect(readings.every((reading) => reading.reloadPosition === null)).toBe(true)
