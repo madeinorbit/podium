@@ -2,312 +2,253 @@ import { describe, expect, it } from 'vitest'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../store/cursor-codec.js'
 import { grokRecordToItems } from './transcript.js'
 
+// One `updates.jsonl` line as Grok 1.0.44 writes it (shapes from real sessions
+// and docs/measurements/pod-4834-receipt-proof/grok-tui-1.0.44/).
+const SESSION = '01a0edee-690d-73c0-bba4-6a60e8bc0ebb'
+let event = 0
+function line(update: Record<string, unknown>, meta: Record<string, unknown> = {}) {
+  event += 1
+  return {
+    timestamp: 1790698265,
+    method:
+      typeof update.sessionUpdate === 'string' && update.sessionUpdate.endsWith('_chunk')
+        ? 'session/update'
+        : '_x.ai/session/update',
+    params: {
+      sessionId: SESSION,
+      update,
+      _meta: { eventId: `${SESSION}-${event}`, agentTimestampMs: 1790698265166, ...meta },
+    },
+  }
+}
+const at = new Date(1790698265166).toISOString()
+
+function call(name: string, rawInput: Record<string, unknown>, id = `call-${name}`) {
+  return line({
+    sessionUpdate: 'tool_call',
+    toolCallId: id,
+    title: name,
+    rawInput,
+    _meta: { 'x.ai/tool': { version: 1, name, kind: 'other', namespace: 'grok_build' } },
+  })
+}
+
 describe('grokRecordToItems', () => {
-  it('maps Grok chat history user and assistant records to transcript items', () => {
+  it("maps a prompt and a reply, dated by Grok's event time", () => {
     expect(
-      grokRecordToItems({
-        type: 'user',
-        timestamp: '2026-06-15T10:00:00.000Z',
-        content: [{ type: 'text', text: 'hello' }],
-      }),
-    ).toEqual([
-      {
-        id: SYNTHESIZED_ITEM_ID_PREFIX,
-        role: 'user',
-        ts: '2026-06-15T10:00:00.000Z',
-        text: 'hello',
-      },
-    ])
-
-    expect(
-      grokRecordToItems({
-        type: 'assistant',
-        id: 'assistant-1',
-        timestamp: '2026-06-15T10:00:01.000Z',
-        content: 'hi there',
-      }),
-    ).toEqual([
-      {
-        id: 'assistant-1',
-        role: 'assistant',
-        ts: '2026-06-15T10:00:01.000Z',
-        text: 'hi there',
-        // A text-only assistant record is the terminal reply — the same
-        // answer:true Claude/Codex/Pi/OpenCode carry, so it renders ANSWER.
-        // [POD-4809]
-        answer: true,
-      },
-    ])
-  })
-
-  it('filters Grok internal context while preserving attachment tags and tool activity', () => {
-    expect(
-      grokRecordToItems({
-        type: 'reasoning',
-        encrypted_content: 'opaque',
-        status: 'complete',
-      }),
-    ).toEqual([])
-
-    expect(grokRecordToItems({ type: 'system', content: 'system prompt' })).toEqual([])
-
-    // Grok's own injected turns wear role 'user'. The system_reminder one is
-    // written at session creation, so leaving it in would make an untouched
-    // session open on a skill listing posing as the user's first message.
-    for (const reason of ['system_reminder', 'project_instructions', 'task_completed']) {
-      expect(
-        grokRecordToItems({
-          type: 'user',
-          id: `synthetic-${reason}`,
-          synthetic_reason: reason,
-          content: [{ type: 'text', text: '<system-reminder>skills…</system-reminder>' }],
+      grokRecordToItems(
+        line({
+          sessionUpdate: 'user_message_chunk',
+          content: { type: 'text', text: 'hello' },
+          _meta: { modelId: 'fake', promptIndex: 0 },
         }),
-      ).toEqual([])
-    }
+      ),
+    ).toEqual([{ id: SYNTHESIZED_ITEM_ID_PREFIX, role: 'user', ts: at, text: 'hello' }])
 
     expect(
-      grokRecordToItems({
-        type: 'user',
-        id: 'internal-context',
-        content: '<user_info>runtime details</user_info>\n<rules>hidden rules</rules>',
-      }),
+      grokRecordToItems(
+        line(
+          { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi there ' } },
+          { promptId: '179a1a36-3d91-443a-ae16-06aa06e2f29d', chunkId: 3 },
+        ),
+      ),
+    ).toEqual([{ id: SYNTHESIZED_ITEM_ID_PREFIX, role: 'assistant', ts: at, text: 'hi there' }])
+  })
+
+  it('leaves out what nobody typed and what is not conversation', () => {
+    // A finished background task wakes Grok with a prompt of its own.
+    expect(
+      grokRecordToItems(
+        line({
+          sessionUpdate: 'user_message_chunk',
+          content: {
+            type: 'text',
+            text: '<system-reminder>\nBackground task done\n</system-reminder>',
+          },
+          _meta: { modelId: 'fake', promptIndex: 7, hideFromScrollback: true },
+        }),
+      ),
     ).toEqual([])
-
-    expect(
-      grokRecordToItems({
-        type: 'user',
-        id: 'tagged-query',
-        content: '<user_query>Reply exactly PODIUM_GROK_CHAT_OK.</user_query>',
-      }),
-    ).toEqual([
+    for (const update of [
+      { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'thinking' } },
       {
-        id: 'tagged-query',
-        role: 'user',
-        text: 'Reply exactly PODIUM_GROK_CHAT_OK.',
+        sessionUpdate: 'hook_execution',
+        event_name: 'user_prompt_submit',
+        prompt_id: 'p1',
+        runs: [],
       },
-    ])
+      // A resume writes this for a turn that died; it names the dead prompt
+      // but is not its entry.
+      { sessionUpdate: 'turn_completed', prompt_id: 'p1', stop_reason: 'interrupted' },
+      { sessionUpdate: 'compaction_checkpoint' },
+      { sessionUpdate: 'background_tasks', tasks: [] },
+    ]) {
+      expect(grokRecordToItems(line(update))).toEqual([])
+    }
+    // chat_history.jsonl records are not read at all.
+    expect(grokRecordToItems({ type: 'user', content: '<user_query>\nhi\n</user_query>' })).toEqual(
+      [],
+    )
+    expect(grokRecordToItems({ type: 'assistant', content: 'hi' })).toEqual([])
+  })
 
+  it('keeps an attachment as a tag', () => {
     expect(
-      grokRecordToItems({
-        type: 'user',
-        id: 'user-2',
-        content: [
-          { type: 'text', text: 'inspect this' },
-          { type: 'image', source: { title: 'screenshot.png' } },
-          { type: 'document', source: { title: 'notes.md' } },
-        ],
-      }),
+      grokRecordToItems(
+        line({
+          sessionUpdate: 'user_message_chunk',
+          content: { type: 'image', mimeType: 'image/png' },
+        }),
+      ),
     ).toEqual([
-      {
-        id: 'user-2',
-        role: 'user',
-        text: 'inspect this',
-        tags: [{ kind: 'image' }, { kind: 'file', label: 'notes.md' }],
-      },
-    ])
-
-    expect(
-      grokRecordToItems({
-        type: 'assistant',
-        id: 'assistant-2',
-        content: [
-          { type: 'text', text: 'checking' },
-          { type: 'tool_use', id: 'tool-1', name: 'Read', input: { file_path: 'src/app.ts' } },
-        ],
-      }),
-    ).toEqual([
-      { id: 'assistant-2', role: 'assistant', text: 'checking' },
-      {
-        id: 'tool-1',
-        role: 'tool',
-        text: '',
-        toolName: 'Read',
-        toolInput: 'src/app.ts',
-        toolPaths: ['src/app.ts'],
-        toolUseId: 'tool-1',
-      },
-    ])
-
-    expect(
-      grokRecordToItems({
-        type: 'tool_result',
-        tool_use_id: 'tool-1',
-        content: [{ type: 'text', text: 'file contents' }],
-      }),
-    ).toEqual([
-      {
-        id: 'tool-1:out',
-        role: 'tool',
-        text: '',
-        toolResult: 'file contents',
-        toolUseId: 'tool-1',
-      },
+      { id: SYNTHESIZED_ITEM_ID_PREFIX, role: 'user', ts: at, text: '', tags: [{ kind: 'image' }] },
     ])
   })
 
-  it('recovers Grok assistant.tool_calls and names the command or file', () => {
-    const items = grokRecordToItems({
-      type: 'assistant',
-      content: "I'll check what's already on the board.",
-      tool_calls: [
-        {
-          id: 'call-1d7d7f3e-a2af-456b-abac-f2dc5d8f6e79-0',
-          name: 'run_terminal_command',
-          arguments:
-            '{"command":"podium issue prime","description":"Prime current issue and ready work"}',
-        },
-      ],
-    })
-    expect(items).toEqual([
+  it('names the command of a shell call and pairs its result', () => {
+    expect(
+      grokRecordToItems(
+        call(
+          'run_terminal_command',
+          { command: 'podium issue prime', description: 'Prime current issue and ready work' },
+          'call-1d7d7f3e-0',
+        ),
+      ),
+    ).toEqual([
       {
-        id: SYNTHESIZED_ITEM_ID_PREFIX,
-        role: 'assistant',
-        text: "I'll check what's already on the board.",
-      },
-      {
-        id: 'call-1d7d7f3e-a2af-456b-abac-f2dc5d8f6e79-0',
+        id: 'call-1d7d7f3e-0',
         role: 'tool',
+        ts: at,
         text: '',
         toolName: 'Bash',
         toolInput: 'podium issue prime',
         toolTitle: 'Prime current issue and ready work',
-        toolUseId: 'call-1d7d7f3e-a2af-456b-abac-f2dc5d8f6e79-0',
+        toolUseId: 'call-1d7d7f3e-0',
+      },
+    ])
+    // A retitling update without a final status is not a result.
+    expect(
+      grokRecordToItems(
+        line({
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'call-1d7d7f3e-0',
+          title: 'Execute `podium issue prime`',
+        }),
+      ),
+    ).toEqual([])
+    expect(
+      grokRecordToItems(
+        line({
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'call-1d7d7f3e-0',
+          status: 'completed',
+          content: [{ type: 'content', content: { type: 'text', text: 'Usage: podium issue\n' } }],
+          rawOutput: {
+            type: 'Bash',
+            output_for_prompt: 'exit: 0\nUsage: podium issue\n',
+            exit_code: 0,
+          },
+        }),
+      ),
+    ).toEqual([
+      {
+        id: 'call-1d7d7f3e-0:out',
+        role: 'tool',
+        ts: at,
+        text: '',
+        toolResult: 'exit: 0\nUsage: podium issue',
+        toolUseId: 'call-1d7d7f3e-0',
       },
     ])
   })
 
-  it('maps Grok file, search, and edit calls onto the shared display names', () => {
-    const items = grokRecordToItems({
-      type: 'assistant',
-      content: '',
-      tool_calls: [
-        {
-          id: 'call-read',
-          name: 'read_file',
-          arguments: '{"target_file":"/repo/apps/web/src/ChatView.tsx","limit":80}',
-        },
-        {
-          id: 'call-grep',
-          name: 'grep',
-          arguments: '{"pattern":"Ran a tool","glob":"*.{ts,tsx}"}',
-        },
-        {
-          id: 'call-edit',
-          name: 'search_replace',
-          arguments:
-            '{"file_path":"/repo/packages/transcript/src/grok.ts","old_string":"a","new_string":"b"}',
-        },
-      ],
-    })
-    expect(items).toHaveLength(3)
-    expect(items[0]).toEqual({
-      id: 'call-read',
-      role: 'tool',
-      text: '',
+  it('maps file, search and edit calls onto the shared display names', () => {
+    expect(
+      grokRecordToItems(
+        call('read_file', { target_file: '/repo/apps/web/src/ChatView.tsx', limit: 80 }),
+      )[0],
+    ).toMatchObject({
       toolName: 'Read',
       toolInput: '/repo/apps/web/src/ChatView.tsx',
       toolPaths: ['/repo/apps/web/src/ChatView.tsx'],
-      toolUseId: 'call-read',
     })
-    expect(items[1]).toEqual({
-      id: 'call-grep',
-      role: 'tool',
-      text: '',
+    expect(
+      grokRecordToItems(call('grep', { pattern: 'Ran a tool', glob: '*.{ts,tsx}' }))[0],
+    ).toMatchObject({
       toolName: 'Grep',
       toolInput: 'Ran a tool',
-      toolUseId: 'call-grep',
     })
-    expect(items[2]).toMatchObject({
-      id: 'call-edit',
-      role: 'tool',
-      text: '',
+    const edit = grokRecordToItems(
+      call('search_replace', { file_path: '/repo/src/grok.ts', old_string: 'a', new_string: 'b' }),
+    )[0]
+    expect(edit).toMatchObject({
       toolName: 'Edit',
-      toolInput: '/repo/packages/transcript/src/grok.ts',
-      toolPaths: ['/repo/packages/transcript/src/grok.ts'],
-      toolUseId: 'call-edit',
+      toolInput: '/repo/src/grok.ts',
+      toolPaths: ['/repo/src/grok.ts'],
     })
-    expect(JSON.parse(items[2]?.toolInputJson ?? '{}')).toMatchObject({
+    expect(JSON.parse(edit?.toolInputJson ?? '{}')).toMatchObject({
       kind: 'file-edit',
-      path: '/repo/packages/transcript/src/grok.ts',
+      path: '/repo/src/grok.ts',
       mode: 'replace',
     })
   })
 
-  it('pairs a later tool_result to the recovered call by tool_call_id', () => {
-    const call = grokRecordToItems({
-      type: 'assistant',
-      content: '',
-      tool_calls: [
+  it('reads the text a tool gave the model, whatever shape its output has', () => {
+    const result = (rawOutput: unknown, content: unknown = null, status = 'completed') =>
+      grokRecordToItems(
+        line({ sessionUpdate: 'tool_call_update', toolCallId: 'c1', status, content, rawOutput }),
+      )[0]?.toolResult
+    // An edit shows a diff; the model got a sentence.
+    expect(
+      result(
         {
-          id: 'call-shell',
-          name: 'run_terminal_command',
-          arguments: '{"command":"podium issue dep-add --help","description":"Show dep-add help"}',
+          type: 'SearchReplace',
+          EditsApplied: {
+            tool_output_for_prompt: 'The file /repo/a.ts has been updated successfully.',
+          },
         },
-      ],
-    })
-    const result = grokRecordToItems({
-      type: 'tool_result',
-      tool_call_id: 'call-shell',
-      content: 'exit: 0\nUsage: podium issue dep-add\n'.repeat(12),
-    })
-    expect(call[0]).toMatchObject({
-      toolName: 'Bash',
-      toolInput: 'podium issue dep-add --help',
-      toolUseId: 'call-shell',
-    })
-    expect(result[0]).toMatchObject({
-      role: 'tool',
-      toolUseId: 'call-shell',
-      toolResult: expect.stringMatching(/^exit: 0\n/),
-    })
-    expect(result[0]?.toolName).toBeUndefined()
+        [{ type: 'diff', path: '/repo/a.ts', oldText: 'a', newText: 'b' }],
+      ),
+    ).toBe('The file /repo/a.ts has been updated successfully.')
+    expect(
+      result({ type: 'ReadFile', FileContent: { content: '1→x' } }, [
+        { type: 'content', content: { type: 'text', text: '1→x' } },
+      ]),
+    ).toBe('1→x')
+    expect(result({ type: 'ListDir', Content: { content: '- /repo/\n  - a.ts' } })).toBe(
+      '- /repo/\n  - a.ts',
+    )
+    expect(result({ type: 'TaskOutput', Result: { output: 'done\n', task_id: 't1' } })).toBe('done')
+    expect(result({ type: 'Todo', TodosUpdated: { summary_for_prompt: '2 open' } })).toBe('2 open')
+    expect(
+      result(
+        null,
+        [{ type: 'content', content: { type: 'text', text: 'Hook denied: read your mail' } }],
+        'failed',
+      ),
+    ).toBe('Hook denied: read your mail')
+    // Nothing to show, nothing emitted.
+    expect(result({ type: 'Monitor', taskId: 't1' })).toBeUndefined()
   })
 
   it('carries AskUserQuestion structure so the chat can render the card', () => {
-    const items = grokRecordToItems({
-      type: 'assistant',
-      content: '',
-      tool_calls: [
-        {
-          id: 'call-ask',
-          name: 'ask_user_question',
-          arguments: JSON.stringify({
-            questions: [
-              {
-                question: 'Reload the running server?',
-                options: [
-                  { label: 'Reload', description: 'Pick up the parser fix' },
-                  { label: 'Wait', description: 'Leave it until later' },
-                ],
-              },
+    const items = grokRecordToItems(
+      call('ask_user_question', {
+        questions: [
+          {
+            question: 'Reload the running server?',
+            options: [
+              { label: 'Reload', description: 'Pick up the parser fix' },
+              { label: 'Wait', description: 'Leave it until later' },
             ],
-          }),
-        },
-      ],
-    })
+          },
+        ],
+      }),
+    )
     expect(items[0]).toMatchObject({
       toolName: 'AskUserQuestion',
       toolInput: 'Reload the running server?',
-      toolUseId: 'call-ask',
     })
     expect(JSON.parse(items[0]?.toolInputJson ?? '{}').questions[0].options).toHaveLength(2)
-  })
-
-  it('does not double-emit a call that already arrived as a content block', () => {
-    const items = grokRecordToItems({
-      type: 'assistant',
-      content: [
-        { type: 'tool_use', id: 'tool-1', name: 'Read', input: { file_path: 'src/app.ts' } },
-      ],
-      tool_calls: [
-        {
-          id: 'tool-1',
-          name: 'read_file',
-          arguments: '{"target_file":"src/app.ts"}',
-        },
-      ],
-    })
-    expect(items).toHaveLength(1)
-    expect(items[0]).toMatchObject({ toolName: 'Read', toolUseId: 'tool-1' })
   })
 })

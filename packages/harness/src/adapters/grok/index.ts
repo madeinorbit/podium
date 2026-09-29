@@ -3,7 +3,7 @@ import { basename, join } from 'node:path'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { grokStateProvider, observeGrokState } from './state-provider.js'
 import { grokInstrumentation, grokSessionPaths } from './instrumentation.js'
-import { locateGrokChatHistory } from './state-locate.js'
+import { locateGrokTranscript } from './state-locate.js'
 import { withStateChannel } from '../../agent-state/types.js'
 import { createGrokConversationProvider } from './discovery.js'
 import { composeAgentInstructions } from '../../instructions.js'
@@ -240,10 +240,11 @@ export const grokManifest: AgentManifest = {
       driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
       acceptCorrelation: { 'transcript-echo': transcriptEchoAcceptCorrelation },
-      // `chat_history.jsonl` records carry NO time field (checked against real
-      // sessions, 2026-09-29) — the reader's `timestamp`/`created_at` fallbacks
-      // never fire on them. The echo proof rests on position alone (POD-4838).
-      transcriptTimestamps: 'absent',
+      // The reader dates each `updates.jsonl` entry by `_meta.agentTimestampMs`,
+      // Grok's event time in ms (a prompt's: its dispatch, never before the
+      // send). Measured on 1.0.44 (POD-4865); POD-4875 moved the reader here
+      // from `chat_history.jsonl`, which has no time field at all.
+      transcriptTimestamps: { resolutionMs: 1 },
     },
     // ACP is the preferred Grok mechanism for a logged-in harness: it preserves
     // subscription auth while providing receipts, permission asks, interrupt,
@@ -408,12 +409,12 @@ export const grokManifest: AgentManifest = {
             sessionId: grokSessionId,
             ...(input.homeDir ? { homeDir: input.homeDir } : {}),
           })
-          host.tailFile(derived.chatHistoryPath)
+          host.tailFile(derived.updatesPath)
           const generation = ++authorityGeneration
           let lookupInFlight = false
           let lookupRequested = false
           let authorityResolved = false
-          let tailedPath = derived.chatHistoryPath
+          let tailedPath = derived.updatesPath
           const locateAuthority = (): void => {
             if (stopped || generation !== authorityGeneration || authorityResolved) return
             if (lookupInFlight) {
@@ -421,7 +422,7 @@ export const grokManifest: AgentManifest = {
               return
             }
             lookupInFlight = true
-            void locateGrokChatHistory({
+            void locateGrokTranscript({
               cwd: input.cwd,
               sessionId: grokSessionId,
               ...(input.pathHint ? { pathHint: input.pathHint } : {}),

@@ -1,53 +1,79 @@
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
-import { toolInputPreview } from '../claude-code/transcript.js'
-import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
-import type { HarnessRuntimeObservation } from '../../transcript-types.js'
-import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
-import { locateGrokChatHistory } from './state-locate.js'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
+import type { HarnessRuntimeObservation } from '../../transcript-types.js'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
+import { toolInputPreview } from '../claude-code/transcript.js'
+import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
+import { locateGrokTranscript } from './state-locate.js'
 
-/** Normalize one Grok chat_history.jsonl record into Podium chat transcript items. */
+/**
+ * Normalize one Grok `updates.jsonl` record into Podium chat transcript items.
+ *
+ * WHY `updates.jsonl` AND NOT `chat_history.jsonl` (POD-4875). Measured on
+ * grok 1.0.44's terminal UI (POD-4865,
+ * docs/measurements/pod-4834-receipt-proof/grok-tui-1.0.44/results.md): Grok
+ * replaces `chat_history.jsonl` by rename on every cancel and resume, rewrites
+ * its earlier lines on new prompts (old tool results become `[Tool result
+ * omitted — too old]`) and on compaction (62 → 5 lines), and a compaction
+ * re-adds an old prompt as a new-looking user record. A byte position in it
+ * means nothing, and entries vanish and reappear. `updates.jsonl` stayed
+ * append-only through compaction, cancels, send-now, `kill -9`, SIGTERM and
+ * resumes, and its `user_message_chunk` was the one record whose presence
+ * decided whether a prompt survived a kill and reached the model.
+ *
+ * What becomes an item, one record at a time:
+ *   - `user_message_chunk` → the prompt entry, the text as typed. Not when
+ *     `_meta.hideFromScrollback`: that is Grok waking itself after a background
+ *     task, a `<system-reminder>` nobody typed.
+ *   - `agent_message_chunk` → the reply. The terminal writes each text segment
+ *     whole, as one record (real sessions: never two in a row).
+ *   - `tool_call` → the call; a `tool_call_update` that ends it → its result.
+ *   - everything else — reasoning, hooks, turn ends, background-task and
+ *     compaction bookkeeping — is not part of the conversation view. In
+ *     particular `turn_completed interrupted`, which a resume writes for a turn
+ *     that died, names the dead prompt's id but is not its entry.
+ *
+ * Times come from `_meta.agentTimestampMs`, Grok's event time in ms (for a
+ * prompt: when Grok dispatched it, later than the send when it waited in
+ * Grok's queue). The record's own `timestamp` is whole seconds and is not used.
+ *
+ * Ids are the record's position (the cursor the store stamps), except tool
+ * items, which keep Grok's call id. They stay the same however the file is
+ * read. Grok's own `promptId` is not on the chunk: it is on the
+ * `hook_execution user_prompt_submit` record written just before it, which a
+ * windowed read can cut off, so it is not folded into the id.
+ */
 export function grokRecordToItems(record: unknown): TranscriptItem[] {
-  if (!isRecord(record)) return []
-  const kind = normalizeName(stringField(record, 'type') ?? stringField(record, 'role'))
-  if (!kind || kind === 'reasoning') return []
-  // Grok marks its own injected turns with synthetic_reason (system_reminder,
-  // project_instructions, task_completed). They wear role 'user' but nobody
-  // typed them, and the first is written into chat_history at session creation —
-  // so without this an untouched session opens on an 8KB skill listing posing as
-  // the user's first message. Same call as Claude Code's isMeta turns. [POD-386]
-  if (stringField(record, 'synthetic_reason')) return []
-
-  const ts =
-    stringField(record, 'timestamp') ??
-    stringField(record, 'created_at') ??
-    stringField(record, 'createdAt')
-  const message = recordField(record, 'message')
-  const content = record.content ?? message?.content
-
-  switch (kind) {
-    case 'user':
-    case 'user_message':
-      return messageItems(record, 'user', content, ts)
-    case 'assistant':
-    case 'assistant_message':
-      return messageItems(record, 'assistant', content, ts)
-    case 'system':
-    case 'system_message':
-      // Grok stores its full injected system prompt in chat_history.jsonl. That
-      // is useful for export/debugging, but chat mode should mirror the user-visible conversation.
-      return []
-    case 'tool':
-    case 'tool_use':
-    case 'tool_call': {
-      const call = toolCallItem(record, ts)
-      if (call) return [call]
-      const result = toolResultItem(record, ts)
-      return result ? [result] : []
+  const params = recordField(record, 'params')
+  const update = recordField(params, 'update')
+  if (!params || !update) return []
+  const ts = eventTime(recordField(params, '_meta'))
+  switch (stringField(update, 'sessionUpdate')) {
+    case 'user_message_chunk': {
+      if (recordField(update, '_meta')?.hideFromScrollback === true) return []
+      const { text, tags } = contentBlock(update.content)
+      if (!text && tags.length === 0) return []
+      return [
+        {
+          id: SYNTHESIZED_ITEM_ID_PREFIX,
+          role: 'user',
+          ...(ts ? { ts } : {}),
+          text,
+          ...(tags.length > 0 ? { tags } : {}),
+        },
+      ]
     }
-    case 'tool_result':
-    case 'tool_call_result': {
-      const result = toolResultItem(record, ts)
+    case 'agent_message_chunk': {
+      const { text } = contentBlock(update.content)
+      if (!text) return []
+      return [{ id: SYNTHESIZED_ITEM_ID_PREFIX, role: 'assistant', ...(ts ? { ts } : {}), text }]
+    }
+    case 'tool_call': {
+      const call = toolCallItem(update, ts)
+      return call ? [call] : []
+    }
+    case 'tool_call_update': {
+      const result = toolResultItem(update, ts)
       return result ? [result] : []
     }
     default:
@@ -55,143 +81,44 @@ export function grokRecordToItems(record: unknown): TranscriptItem[] {
   }
 }
 
-function messageItems(
-  record: Record<string, unknown>,
-  role: 'user' | 'assistant',
-  content: unknown,
-  ts: string | undefined,
-): TranscriptItem[] {
-  const parts = contentParts(content, ts)
-  const text = role === 'user' ? userVisibleText(parts.text) : parts.text
-  const items: TranscriptItem[] = []
-  // Grok's live format puts calls on `assistant.tool_calls`, not in content
-  // blocks. Older fixtures (and a few Claude-shaped records) still use
-  // `tool_use` parts, which contentParts already emitted above — skip dupes.
-  const toolItems =
-    role === 'assistant'
-      ? (() => {
-          const seen = new Set(
-            parts.extraItems.flatMap((item) => (item.toolUseId ? [item.toolUseId] : [])),
-          )
-          return assistantToolCallItems(record, ts).filter(
-            (item) => !item.toolUseId || !seen.has(item.toolUseId),
-          )
-        })()
-      : []
-  // What the grammar knows at emit time about finality: narration shares its
-  // record with the calls it introduces (`tool_calls`, or `tool_use` parts
-  // already in extraItems), while the terminal reply is text alone. The same
-  // marker Claude (stop_reason), Codex (phase), Pi (stopReason) and OpenCode
-  // (finish) carry: without it every Grok reply renders as PROCESS while
-  // theirs render ANSWER. [POD-4809]
-  const hasTools =
-    parts.extraItems.length > 0 ||
-    toolItems.length > 0 ||
-    (Array.isArray(record.tool_calls) && record.tool_calls.length > 0)
-  if (text || parts.tags.length > 0) {
-    items.push({
-      id: baseId(record),
-      role,
-      ...(ts ? { ts } : {}),
-      text,
-      ...(parts.tags.length > 0 ? { tags: parts.tags } : {}),
-      ...(role === 'assistant' && text && !hasTools ? { answer: true as const } : {}),
-    })
-  }
-  items.push(...parts.extraItems)
-  items.push(...toolItems)
-  const recordId = stringField(record, 'id') ?? stringField(record, 'uuid')
-  return items.map((item, sub) =>
-    recordId && item.id.startsWith(SYNTHESIZED_ITEM_ID_PREFIX)
-      ? { ...item, id: `${recordId}:${sub}` }
-      : item,
-  )
+/** `_meta.agentTimestampMs` as an ISO instant, or undefined. */
+function eventTime(meta: Record<string, unknown> | undefined): string | undefined {
+  const ms = meta?.agentTimestampMs
+  if (typeof ms !== 'number' || !Number.isFinite(ms)) return undefined
+  const date = new Date(ms)
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
 }
 
-function assistantToolCallItems(
-  record: Record<string, unknown>,
-  ts: string | undefined,
-): TranscriptItem[] {
-  if (!Array.isArray(record.tool_calls)) return []
-  const items: TranscriptItem[] = []
-  for (const call of record.tool_calls) {
-    if (!isRecord(call)) continue
-    const item = toolCallItem(call, ts)
-    if (item) items.push(item)
+/** One ACP content block: its text, or a tag for an attachment. */
+function contentBlock(content: unknown): { text: string; tags: TranscriptTag[] } {
+  if (typeof content === 'string') return { text: content.trim(), tags: [] }
+  if (!isRecord(content)) return { text: '', tags: [] }
+  switch (normalizeName(stringField(content, 'type'))) {
+    case 'image':
+      return { text: '', tags: [{ kind: 'image' }] }
+    case 'resource':
+    case 'resource_link':
+    case 'document':
+    case 'file':
+      return { text: '', tags: [{ kind: 'file', ...tagLabel(content) }] }
+    default:
+      return { text: (stringField(content, 'text') ?? '').trim(), tags: [] }
   }
-  return items
-}
-
-function contentParts(
-  content: unknown,
-  ts: string | undefined,
-): { text: string; tags: TranscriptTag[]; extraItems: TranscriptItem[] } {
-  const textParts: string[] = []
-  const tags: TranscriptTag[] = []
-  const extraItems: TranscriptItem[] = []
-
-  const visit = (part: unknown): void => {
-    if (typeof part === 'string') {
-      textParts.push(part)
-      return
-    }
-    if (!isRecord(part)) return
-    const kind = normalizeName(stringField(part, 'type'))
-    if (kind === 'text' || kind === 'markdown') {
-      const text = stringField(part, 'text') ?? stringField(part, 'content')
-      if (text) textParts.push(text)
-      return
-    }
-    if (kind === 'image') {
-      tags.push({ kind: 'image' })
-      return
-    }
-    if (kind === 'document' || kind === 'file') {
-      tags.push({ kind: 'file', ...tagLabel(part) })
-      return
-    }
-    if (kind === 'tool_use' || kind === 'tool_call') {
-      const item = toolCallItem(part, ts)
-      if (item) extraItems.push(item)
-      return
-    }
-    if (kind === 'tool_result' || kind === 'tool_call_result') {
-      const item = toolResultItem(part, ts)
-      if (item) extraItems.push(item)
-      return
-    }
-    const text = stringField(part, 'text')
-    if (text) textParts.push(text)
-  }
-
-  if (Array.isArray(content)) {
-    for (const part of content) visit(part)
-  } else {
-    visit(content)
-  }
-
-  return { text: textParts.join('\n').trim(), tags, extraItems }
 }
 
 function toolCallItem(
-  record: Record<string, unknown>,
+  update: Record<string, unknown>,
   ts: string | undefined,
 ): TranscriptItem | undefined {
+  const toolUseId = stringField(update, 'toolCallId')
+  // `_meta["x.ai/tool"].name` is Grok's wire name; `title` repeats it on the
+  // call record (a later update retitles it for display).
   const wireName =
-    stringField(record, 'name') ??
-    stringField(record, 'tool_name') ??
-    stringField(record, 'toolName')
-  if (!wireName) return undefined
-  const rawInput = record.input ?? record.arguments ?? record.args
-  const display = grokToolDisplay(wireName, parseGrokArgs(rawInput))
-  const toolUseId =
-    stringField(record, 'id') ??
-    stringField(record, 'uuid') ??
-    stringField(record, 'tool_use_id') ??
-    stringField(record, 'tool_call_id') ??
-    stringField(record, 'call_id')
+    stringField(recordField(update._meta, 'x.ai/tool'), 'name') ?? stringField(update, 'title')
+  if (!toolUseId || !wireName) return undefined
+  const display = grokToolDisplay(wireName, parseGrokArgs(update.rawInput))
   return {
-    id: toolUseId ?? SYNTHESIZED_ITEM_ID_PREFIX,
+    id: toolUseId,
     role: 'tool',
     ...(ts ? { ts } : {}),
     text: '',
@@ -200,8 +127,69 @@ function toolCallItem(
     ...(display.toolTitle ? { toolTitle: display.toolTitle } : {}),
     ...(display.toolPaths?.length ? { toolPaths: display.toolPaths } : {}),
     ...(display.toolInputJson ? { toolInputJson: display.toolInputJson } : {}),
-    ...(toolUseId ? { toolUseId } : {}),
+    toolUseId,
   }
+}
+
+/**
+ * The result of a call, from the update that ends it (`completed` or
+ * `failed`); updates without a final status only retitle the call.
+ *
+ * The text is what the model was given where Grok records it (a shell
+ * command's `rawOutput.output_for_prompt`, an edit's or a todo update's
+ * `…for_prompt`), else the display content, else the few `rawOutput` shapes
+ * that carry no display content (a directory listing, a background task's
+ * output); checked against the tool results of 29 real Grok sessions
+ * (2026-09-29). No text, no item — the same as an empty result before.
+ */
+function toolResultItem(
+  update: Record<string, unknown>,
+  ts: string | undefined,
+): TranscriptItem | undefined {
+  const status = stringField(update, 'status')
+  if (status !== 'completed' && status !== 'failed') return undefined
+  const toolUseId = stringField(update, 'toolCallId')
+  if (!toolUseId) return undefined
+  const raw = recordField(update, 'rawOutput')
+  const text = (
+    stringField(raw, 'output_for_prompt') ??
+    variantForPrompt(raw) ??
+    displayText(update.content) ??
+    stringField(recordField(raw, 'Content'), 'content') ??
+    stringField(recordField(raw, 'Result'), 'output') ??
+    stringField(recordField(raw, 'Result'), 'message') ??
+    ''
+  ).trim()
+  if (!text) return undefined
+  return {
+    id: `${toolUseId}:out`,
+    role: 'tool',
+    ...(ts ? { ts } : {}),
+    text: '',
+    toolResult: truncate(text, 2000),
+    toolUseId,
+  }
+}
+
+/** The model-facing text a tool's output variant carries (`EditsApplied`,
+ *  `TodosUpdated`, …), when it carries one. */
+function variantForPrompt(raw: Record<string, unknown> | undefined): string | undefined {
+  for (const value of Object.values(raw ?? {})) {
+    const text =
+      stringField(value, 'tool_output_for_prompt') ?? stringField(value, 'summary_for_prompt')
+    if (text) return text
+  }
+  return undefined
+}
+
+/** The text of a tool update's display content (`[{type:'content', content:{text}}]`). */
+function displayText(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return undefined
+  const parts = content.flatMap((part) => {
+    const text = stringField(recordField(part, 'content'), 'text')
+    return text ? [text] : []
+  })
+  return parts.length > 0 ? parts.join('\n') : undefined
 }
 
 interface GrokToolDisplay {
@@ -371,69 +359,6 @@ function askQuestionPreview(input: unknown): string {
   return question ? truncate(question, 160) : 'AskUserQuestion'
 }
 
-function toolResultItem(
-  record: Record<string, unknown>,
-  ts: string | undefined,
-): TranscriptItem | undefined {
-  const resultText = contentText(record.result ?? record.output ?? record.content)
-  if (!resultText) return undefined
-  const toolUseId =
-    stringField(record, 'tool_use_id') ??
-    stringField(record, 'tool_call_id') ??
-    stringField(record, 'call_id')
-  return {
-    id:
-      stringField(record, 'id') ??
-      stringField(record, 'uuid') ??
-      (toolUseId ? `${toolUseId}:out` : SYNTHESIZED_ITEM_ID_PREFIX),
-    role: 'tool',
-    ...(ts ? { ts } : {}),
-    text: '',
-    toolResult: truncate(resultText, 2000),
-    ...(toolUseId ? { toolUseId } : {}),
-  }
-}
-
-function userVisibleText(text: string): string {
-  const userQuery = taggedContent(text, 'user_query')
-  if (userQuery !== undefined) return userQuery.trim()
-  if (isInjectedGrokContext(text)) return ''
-  return text
-}
-
-function taggedContent(text: string, tag: string): string | undefined {
-  const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i').exec(text)
-  return match?.[1]
-}
-
-function isInjectedGrokContext(text: string): boolean {
-  // Grok writes the reminder tag hyphenated (`<system-reminder>`); keep the
-  // underscore spelling too so older transcripts stay covered.
-  return /<(user_info|rules|agent_skills|mcp_file_system|system[_-]reminder)(>|\s)/i.test(text)
-}
-
-function contentText(content: unknown): string {
-  if (typeof content === 'string') return content.trim()
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === 'string') return part
-        if (isRecord(part)) {
-          if (typeof part.text === 'string') return part.text
-          if (typeof part.content === 'string') return part.content
-        }
-        return ''
-      })
-      .filter(Boolean)
-      .join('\n')
-      .trim()
-  }
-  if (isRecord(content)) {
-    return (stringField(content, 'text') ?? stringField(content, 'content') ?? '').trim()
-  }
-  return ''
-}
-
 function tagLabel(record: Record<string, unknown>): { label: string } | Record<string, never> {
   const source = recordField(record, 'source')
   const label =
@@ -444,10 +369,6 @@ function tagLabel(record: Record<string, unknown>): { label: string } | Record<s
     stringField(source, 'name') ??
     stringField(source, 'path')
   return label ? { label } : {}
-}
-
-function baseId(record: Record<string, unknown>): string {
-  return stringField(record, 'id') ?? stringField(record, 'uuid') ?? SYNTHESIZED_ITEM_ID_PREFIX
 }
 
 function truncate(s: string, max: number): string {
@@ -478,16 +399,14 @@ function stringField(value: unknown, key: string): string | undefined {
 }
 
 /**
- * Grok: the model id, wherever this record carries it. Declared as this
- * harness's `recordRuntime` in its transcript section.
+ * Grok: the model the prompt was sent to, from a `user_message_chunk`'s
+ * `_meta.modelId` (the only `updates.jsonl` record that carries it). Declared
+ * as this harness's `recordRuntime` in its transcript section.
  */
 export function grokRuntime(record: unknown): HarnessRuntimeObservation {
-  if (!isRecord(record)) return {}
-  const message = isRecord(record.message) ? record.message : undefined
-  const model =
-    stringField(record, 'model_id') ??
-    stringField(record, 'model') ??
-    (message ? (stringField(message, 'model_id') ?? stringField(message, 'model')) : undefined)
+  const update = recordField(recordField(record, 'params'), 'update')
+  if (stringField(update, 'sessionUpdate') !== 'user_message_chunk') return {}
+  const model = stringField(recordField(update, '_meta'), 'modelId')
   return model ? { model } : {}
 }
 
@@ -496,12 +415,11 @@ export function grokRuntime(record: unknown): HarnessRuntimeObservation {
 // authoritative transcript definition for this harness (spec §4).
 // ---------------------------------------------------------------------------
 
-
 export async function grokChainPaths(input: TranscriptSourceInput): Promise<string[]> {
   if (!input.resumeValue) return []
   // Locate, don't derive: Grok buckets by the creation-time cwd, while
   // session.cwd is the current worktree (docs/spec/conversation-registry.md §3.3).
-  const path = await locateGrokChatHistory({
+  const path = await locateGrokTranscript({
     cwd: input.cwd,
     sessionId: input.resumeValue,
     ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),

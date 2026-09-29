@@ -3,11 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { grokSessionPaths } from './instrumentation.js'
-import { locateGrokChatHistory, locateGrokSessionPaths } from './state-locate.js'
+import { locateGrokTranscript, locateGrokSessionPaths } from './state-locate.js'
 
 // The wrong-bucket bug: Grok buckets sessions by the cwd the conversation was
 // CREATED under, while session.cwd is the current worktree. The locator must
-// find chat_history.jsonl regardless of the current cwd.
+// find the session's updates.jsonl regardless of the current cwd.
 describe('locateGrokSessionPaths', () => {
   async function seedHome(): Promise<string> {
     return mkdtemp(join(tmpdir(), 'podium-grok-locate-'))
@@ -16,11 +16,11 @@ describe('locateGrokSessionPaths', () => {
     const paths = grokSessionPaths({ cwd, sessionId: id, homeDir: home })
     await mkdir(paths.sessionDir, { recursive: true })
     await writeFile(paths.summaryPath, JSON.stringify({ info: { id, cwd } }))
-    await writeFile(paths.chatHistoryPath, `${JSON.stringify({ type: 'user', content: 'hello' })}\n`)
-    return paths.chatHistoryPath
+    await writeFile(paths.updatesPath, '')
+    return paths.updatesPath
   }
 
-  it('prefers the current product transcript authority over a legacy chat_history', async () => {
+  it('prefers the current product transcript authority over the session updates.jsonl', async () => {
     const home = await seedHome()
     await seedSession(home, '/repo/main', 'sess-current')
     const transcriptRoot = join(home, 'product-transcripts')
@@ -29,7 +29,7 @@ describe('locateGrokSessionPaths', () => {
     await writeFile(current, `${JSON.stringify({ type: 'user', content: 'current' })}\n`)
 
     expect(
-      await locateGrokChatHistory({
+      await locateGrokTranscript({
         cwd: '/repo/main',
         sessionId: 'sess-current',
         homeDir: home,
@@ -45,7 +45,7 @@ describe('locateGrokSessionPaths', () => {
     await mkdir(join(transcriptRoot, 'recorded'), { recursive: true })
     await writeFile(current, `${JSON.stringify({ type: 'assistant', content: 'recorded' })}\n`)
     expect(
-      await locateGrokChatHistory({
+      await locateGrokTranscript({
         cwd: '/repo/main',
         sessionId: 'sess-recorded',
         pathHint: current,
@@ -62,7 +62,7 @@ describe('locateGrokSessionPaths', () => {
     const escaped = join(transcriptRoot, 'sess-traversal.jsonl')
     await writeFile(escaped, '{}\n')
     expect(
-      await locateGrokChatHistory({
+      await locateGrokTranscript({
         cwd: '/repo/main',
         sessionId: 'sess-traversal',
         pathHint: transcriptRoot + '/project/../sess-traversal.jsonl',
@@ -80,7 +80,7 @@ describe('locateGrokSessionPaths', () => {
     await mkdir(join(home, 'outside'), { recursive: true })
     await writeFile(outside, '{}\n')
     expect(
-      await locateGrokChatHistory({
+      await locateGrokTranscript({
         cwd: '/repo/main',
         sessionId: 'sess-outside',
         pathHint: outside,
@@ -100,7 +100,7 @@ describe('locateGrokSessionPaths', () => {
     await writeFile(outside, '{}\n')
     await symlink(outside, join(project, 'sess-symlink.jsonl'))
     expect(
-      await locateGrokChatHistory({
+      await locateGrokTranscript({
         cwd: '/repo/main',
         sessionId: 'sess-symlink',
         homeDir: home,
@@ -113,7 +113,7 @@ describe('locateGrokSessionPaths', () => {
     const home = await seedHome()
     const path = await seedSession(home, '/repo/main', 'sess-1')
     expect(
-      await locateGrokChatHistory({ cwd: '/repo/main', sessionId: 'sess-1', homeDir: home }),
+      await locateGrokTranscript({ cwd: '/repo/main', sessionId: 'sess-1', homeDir: home }),
     ).toBe(path)
   })
 
@@ -122,7 +122,7 @@ describe('locateGrokSessionPaths', () => {
     // Stored under the git root; Podium's session.cwd is the worktree.
     const path = await seedSession(home, '/repo', 'sess-2')
     expect(
-      await locateGrokChatHistory({
+      await locateGrokTranscript({
         cwd: '/repo/.worktrees/issue-912-unread-indicators',
         sessionId: 'sess-2',
         homeDir: home,
@@ -134,7 +134,7 @@ describe('locateGrokSessionPaths', () => {
     const home = await seedHome()
     const path = await seedSession(home, '/gone/worktree', 'sess-3')
     expect(
-      await locateGrokChatHistory({ cwd: '/somewhere/else', sessionId: 'sess-3', homeDir: home }),
+      await locateGrokTranscript({ cwd: '/somewhere/else', sessionId: 'sess-3', homeDir: home }),
     ).toBe(path)
   })
 
@@ -145,7 +145,7 @@ describe('locateGrokSessionPaths', () => {
     const past = new Date(Date.now() - 60_000)
     await utimes(older, past, past)
     expect(
-      await locateGrokChatHistory({ cwd: '/c', sessionId: 'sess-4', homeDir: home }),
+      await locateGrokTranscript({ cwd: '/c', sessionId: 'sess-4', homeDir: home }),
     ).toBe(newer)
   })
 
@@ -154,7 +154,7 @@ describe('locateGrokSessionPaths', () => {
     const real = await seedSession(home, '/origin', 'sess-hint')
     const hint = grokSessionPaths({ cwd: '/origin', sessionId: 'sess-hint', homeDir: home }).summaryPath
     expect(
-      await locateGrokChatHistory({
+      await locateGrokTranscript({
         cwd: '/elsewhere',
         sessionId: 'sess-hint',
         pathHint: hint,
@@ -162,7 +162,7 @@ describe('locateGrokSessionPaths', () => {
       }),
     ).toBe(real)
     expect(
-      await locateGrokChatHistory({
+      await locateGrokTranscript({
         cwd: '/elsewhere',
         sessionId: 'sess-hint',
         pathHint: join(home, 'no', 'longer', 'there', 'summary.json'),
@@ -181,7 +181,7 @@ describe('locateGrokSessionPaths', () => {
       homeDir: home,
     }).summaryPath
     expect(
-      await locateGrokChatHistory({
+      await locateGrokTranscript({
         cwd: '/elsewhere',
         sessionId: 'sess-hint2',
         pathHint: impostor,
@@ -189,7 +189,7 @@ describe('locateGrokSessionPaths', () => {
       }),
     ).toBe(real)
     expect(
-      await locateGrokChatHistory({
+      await locateGrokTranscript({
         cwd: '/elsewhere',
         sessionId: 'sess-hint2',
         pathHint: hint,
@@ -205,7 +205,7 @@ describe('locateGrokSessionPaths', () => {
     ).toBeNull()
     await seedSession(home, '/x', 'other')
     expect(
-      await locateGrokChatHistory({ cwd: '/x', sessionId: 'missing', homeDir: home }),
+      await locateGrokTranscript({ cwd: '/x', sessionId: 'missing', homeDir: home }),
     ).toBeNull()
   })
 })

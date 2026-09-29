@@ -18,7 +18,7 @@ const mocked = vi.hoisted(() => ({
 
 vi.mock('./state-locate.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./state-locate.js')>()
-  return { ...actual, locateGrokChatHistory: mocked.locate }
+  return { ...actual, locateGrokTranscript: mocked.locate }
 })
 
 vi.mock('./state-provider.js', async (importOriginal) => {

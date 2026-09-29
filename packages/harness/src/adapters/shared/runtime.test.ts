@@ -44,10 +44,14 @@ describe('per-harness runtime readers', () => {
     expect(observed).toEqual({ model: 'claude-opus-4-8', effort: 'medium' })
   })
 
-  it('reads the Grok model id from either the record or its message', () => {
-    expect(grokRuntime({ model_id: 'grok-4.5' })).toEqual({ model: 'grok-4.5' })
-    expect(grokRuntime({ message: { model: 'grok-4.5-fast' } })).toEqual({ model: 'grok-4.5-fast' })
-    expect(grokRuntime({ message: {} })).toEqual({})
+  it('reads the Grok model id from the prompt chunk in updates.jsonl', () => {
+    const line = (update: object) => ({ method: 'session/update', params: { update } })
+    expect(
+      grokRuntime(line({ sessionUpdate: 'user_message_chunk', _meta: { modelId: 'grok-4.5' } })),
+    ).toEqual({ model: 'grok-4.5' })
+    expect(grokRuntime(line({ sessionUpdate: 'user_message_chunk', _meta: {} }))).toEqual({})
+    // chat_history.jsonl's fields are no longer read (POD-4875).
+    expect(grokRuntime({ model_id: 'grok-4.5' })).toEqual({})
   })
 
   /** Each reader answers for ITS OWN harness only — no reader infers a fact from

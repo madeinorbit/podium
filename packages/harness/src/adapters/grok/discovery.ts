@@ -1,8 +1,8 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
+import { grokRecordToItems } from '../../adapters/grok/transcript.js'
 import {
-  contentToText,
   dateField,
   isRecord,
   mapConversationRole,
@@ -93,9 +93,11 @@ async function listGrokSummaryFiles(sessionsRoot: string): Promise<ConversationP
       if (!sessionDir.isDirectory()) continue
       const sessionPath = join(workspacePath, sessionDir.name)
       const summaryPath = join(sessionPath, 'summary.json')
-      const chatHistoryPath = join(sessionPath, 'chat_history.jsonl')
-      if (await pathExists(summaryPath) && (await pathExists(chatHistoryPath))) {
-        files.push({ path: chatHistoryPath })
+      // The conversation is `updates.jsonl`, the file Grok only appends to;
+      // this path is what the server mirrors and later reads (POD-4875).
+      const updatesPath = join(sessionPath, 'updates.jsonl')
+      if ((await pathExists(summaryPath)) && (await pathExists(updatesPath))) {
+        files.push({ path: updatesPath })
       }
     }
   }
@@ -174,10 +176,7 @@ async function summarizeGrokSummary(
     compactText(stringField(summary, 'session_summary')) ??
     compactText(stringField(summary, 'generated_title'))
   const sessionDir = dirname(file)
-  const relatedPaths = await existingPaths([
-    join(sessionDir, 'summary.json'),
-    join(sessionDir, 'updates.jsonl'),
-  ])
+  const relatedPaths = await existingPaths([join(sessionDir, 'summary.json')])
 
   return {
     id,
@@ -237,43 +236,22 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
   }
 }
 
+/** The conversation as the chat shows it: the same reader, one message per item. */
 function grokMessages(records: unknown[]): AgentConversationMessage[] {
   const messages: AgentConversationMessage[] = []
-
   for (const record of records) {
-    if (!isRecord(record)) continue
-    const role = grokRole(record)
-    if (!role) continue
-    const content = contentToText(record.content) || contentToText(record.message)
-    if (!content) continue
-    messages.push({
-      role,
-      content,
-      createdAt: dateField(record, 'timestamp') ?? dateField(record, 'created_at'),
-      raw: record,
-    })
+    for (const item of grokRecordToItems(record)) {
+      const content = item.text || item.toolResult || item.toolInput
+      if (!content) continue
+      messages.push({
+        role: mapConversationRole(item.role),
+        content,
+        createdAt: item.ts ? new Date(item.ts) : undefined,
+        raw: record,
+      })
+    }
   }
-
   return messages
-}
-
-function grokRole(record: Record<string, unknown>): AgentConversationMessage['role'] | undefined {
-  const explicit = stringField(record, 'role')
-  if (explicit) return mapConversationRole(explicit)
-
-  switch (stringField(record, 'type')) {
-    case 'user':
-      return 'user'
-    case 'assistant':
-      return 'assistant'
-    case 'system':
-      return 'system'
-    case 'tool':
-    case 'tool_result':
-      return 'tool'
-    default:
-      return undefined
-  }
 }
 
 function gitMetadata(summary: Record<string, unknown>): AgentConversationSummary['git'] {

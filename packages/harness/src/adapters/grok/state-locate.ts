@@ -72,7 +72,12 @@ export async function locateGrokSessionPaths(opts: {
   return candidates[0]?.paths ?? null
 }
 
-export async function locateGrokChatHistory(opts: {
+/**
+ * The file Podium reads as this session's conversation: `updates.jsonl`, the
+ * one Grok only appends to (POD-4875; `chat_history.jsonl` is rewritten, see
+ * `./transcript.ts`). The product transcript root's copy wins when present.
+ */
+export async function locateGrokTranscript(opts: {
   cwd: string
   sessionId: string
   pathHint?: string
@@ -82,8 +87,8 @@ export async function locateGrokChatHistory(opts: {
   const authority = await locateCurrentTranscript(opts)
   if (authority) return authority
   const paths = await locateGrokSessionPaths(opts)
-  if (!paths || !(await isFile(paths.chatHistoryPath))) return null
-  return paths.chatHistoryPath
+  if (!paths || !(await isFile(paths.updatesPath))) return null
+  return paths.updatesPath
 }
 
 /** Grok 0.2.118+ writes the chat authority outside its account HOME. */

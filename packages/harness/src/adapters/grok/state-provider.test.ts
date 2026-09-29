@@ -2316,7 +2316,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
 
       await waitFor(() => observations.length === 1)
       expect(onResumeValue).toHaveBeenCalledWith(candidate)
-      expect(tailFile).toHaveBeenCalledWith(paths.chatHistoryPath)
+      expect(tailFile).toHaveBeenCalledWith(paths.updatesPath)
       expect(observations[0]).toMatchObject({
         provenance: 'bootstrap',
         providerSessionId: candidate,
@@ -2399,8 +2399,8 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       await waitFor(() => observations.length === 1)
       expect(onResumeValue).toHaveBeenCalledWith(oldSessionId)
       expect(onResumeValue).not.toHaveBeenCalledWith(candidate)
-      expect(tailFile).toHaveBeenCalledWith(oldPaths.chatHistoryPath)
-      expect(tailFile).not.toHaveBeenCalledWith(candidatePaths.chatHistoryPath)
+      expect(tailFile).toHaveBeenCalledWith(oldPaths.updatesPath)
+      expect(tailFile).not.toHaveBeenCalledWith(candidatePaths.updatesPath)
       expect(observations[0]).toMatchObject({
         provenance: 'bootstrap',
         providerSessionId: oldSessionId,

@@ -530,9 +530,19 @@ describe('agent manifest registry', () => {
       }),
     ).toEqual({ model: 'gpt-5.7-codex', effort: 'high' })
 
-    expect(transcriptRuntimeReaderFor('grok')?.({ model_id: 'grok-4.5' })).toEqual({
-      model: 'grok-4.5',
-    })
+    // Grok's updates.jsonl names the model on the prompt's chunk (POD-4875).
+    expect(
+      transcriptRuntimeReaderFor('grok')?.({
+        method: 'session/update',
+        params: {
+          update: {
+            sessionUpdate: 'user_message_chunk',
+            content: { type: 'text', text: 'hi' },
+            _meta: { modelId: 'grok-4.5' },
+          },
+        },
+      }),
+    ).toEqual({ model: 'grok-4.5' })
 
     // Declared unsupported (SQLite rows, not native records) and unknown ⇒ no
     // reader at all, rather than another harness's parser standing in.
