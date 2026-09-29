@@ -45,11 +45,11 @@ async function offlineHarness() {
         registry.gateway.routeDaemonFrame(host, {
           type: 'runtimeSnapshotResult',
           requestId: req.requestId,
-          sessionId: req.sessionId,
+          sessionId: req.sessionId as never,
           result: {
             snapshot: {
               binding: {
-                sessionId: req.sessionId,
+                sessionId: req.sessionId as never,
                 driver: 'headless',
                 family: 'server',
                 harness: 'claude-code',
@@ -75,7 +75,7 @@ async function offlineHarness() {
         registry.gateway.routeDaemonFrame(host, {
           type: 'transcriptReadResult',
           requestId: req.requestId,
-          sessionId: req.sessionId,
+          sessionId: req.sessionId as never,
           items: [],
           hasMore: false,
         }),

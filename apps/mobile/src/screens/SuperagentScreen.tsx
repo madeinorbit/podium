@@ -305,12 +305,13 @@ export function SuperagentScreen() {
         const userText =
           prev && prev.role === 'user' && typeof prev.content === 'string' ? prev.content : ''
         if (!userText) return
-        setError(last.content)
+        const reason = last.content as string
+        setError(reason)
         setPendingTurns((prevPending) => {
           if (prevPending.some((t) => t.text.trim() === userText.trim())) return prevPending
           return [
             ...prevPending,
-            { id: `restored:${Date.now()}`, text: userText, wire: userText, failed: last.content },
+            { id: `restored:${Date.now()}`, text: userText, wire: userText, failed: reason },
           ]
         })
       })
