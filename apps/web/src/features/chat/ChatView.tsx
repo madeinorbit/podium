@@ -396,6 +396,7 @@ export function ChatView({
             overlay={chat.headless ? chat.headlessTurn.overlay : null}
             turnPreview={chat.turnPreview}
             activity={chat.activity}
+            offlineMachineName={chat.offlineMachineName}
             attribution={chat.attribution}
             expandRuns={chat.expandRuns}
             // Per-message Quote (POD-376): the feed builds the blockquote, the

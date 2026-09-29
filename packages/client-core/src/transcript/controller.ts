@@ -9,6 +9,11 @@ export interface TranscriptPage {
   head?: string
   tail?: string
   hasMore: boolean
+  /** The session's machine is offline; this page is the best the server could
+   *  do without it (POD-4808). Present even when items are present (mirrored
+   *  history) so a live-looking session still names its machine, and present
+   *  on an empty page so it does not read as "done". */
+  offline?: { machineName: string }
 }
 
 export interface TranscriptReadRequest {
@@ -95,6 +100,10 @@ export interface TranscriptState {
   subscriptionHealthy: boolean
   freshness: TranscriptFreshness
   offlineAsOf: number | null
+  /** The session's machine is offline as of the last authority read (POD-4808).
+   *  Null when the machine is online. Distinct from offlineAsOf, which is the
+   *  CLIENT's own replica fallback when the server is unreachable. */
+  offlineMachineName: string | null
 }
 
 export interface TranscriptRefreshOptions {
@@ -268,6 +277,7 @@ export class TranscriptController {
       subscriptionHealthy: false,
       freshness: null,
       offlineAsOf: null,
+      offlineMachineName: null,
     }
   }
 
@@ -353,6 +363,7 @@ export class TranscriptController {
         freshness:
           this.state.freshness === null ? null : page.items.length > 0 ? 'rendering' : 'saved',
         offlineAsOf: null,
+        offlineMachineName: page.offline?.machineName ?? null,
       })
       if (items.length > 0) this.options.cache?.write(this.options.sessionId, items)
       // Stream catch-up anchors on the newest NATIVE item cursor (POD-4300:
@@ -390,6 +401,10 @@ export class TranscriptController {
       throw error
     }
     if (!this.accepts(generation, serial)) return false
+    const offlineMachineName = page.offline?.machineName ?? null
+    if (offlineMachineName !== this.state.offlineMachineName) {
+      this.patch({ offlineMachineName })
+    }
     const remote = page.items.at(-1)
     if (!remote) {
       if (this.state.items.length > 0) this.patch({ freshness: 'saved' })
