@@ -47,6 +47,10 @@ async function fleet(
   const ids = [MACHINE, ...Array.from({ length: size - 1 }, (_, i) => asMachineId(`peer-${i}`))]
   for (const id of ids) {
     await store.machines.upsertMachine({
+      // POD-4142 (34aa06cf2): capability needs an assigned daemon, not just
+      // an attached one — without assignment the row reads 'no-daemon' and
+      // the login condition is undefined instead of 'logged-out'.
+      assignment: { server: false, agentExecution: true },
       id,
       name: `name-of-${id}`,
       hostname: `${id}.local`,
