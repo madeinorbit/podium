@@ -34,10 +34,13 @@ Not in this phase:
   `when-ready` and `interrupt` today (`packages/harness/src/driver/delivery-queue.ts`).
 - **Sender** — a person (chat), an agent (mail), or the system (steward, automations,
   auto-continue, notices). The sender is not a mode: agent mail is typed `when-ready` like chat.
-- **Wrapped message** — every message not written by a person is typed inside
+- **Wrapped message** — a message is typed inside
   `[podium message <id> …] … [end podium message <id>]`
   (`apps/server/src/modules/messages/render.ts:135`), so our id lands in the agent's own history.
-  A person's chat is typed as is, without our id (a deliberate decision, `render.ts:187-211`).
+  **Unwrapped** (typed as is, no id in the text): a person's chat (a deliberate decision,
+  `render.ts:187-211`), the owner's first prompt, automations (typed on the owner's behalf) and
+  auto-continue's "continue" (POD-4846, `packages/commands` `deliversUnwrapped`). Since POD-4846
+  every sender, unwrapped or not, travels as a message with an id and a status.
 - **Agent program** — the harness: Claude Code, Codex, Grok, OpenCode, Cursor, Pi, driven either
   through a terminal (PTY) or through a protocol (Claude SDK stream-json, Codex app-server,
   OpenCode HTTP v1/v2, Grok ACP).
@@ -113,7 +116,7 @@ gives no separate `accepted` signal, the message goes from `typed` straight to `
 | Program | `accepted` | `confirmed` | Matched by | Issue |
 |---|---|---|---|---|
 | Codex app-server | `turn/start` reply (or `turn/steer` reply for a steer). A steer is recorded only at Codex's next model call: acknowledged and then interrupted before that call, it is dropped silently (measured, POD-4835; POD-4849). | `userMessage` item (`item/started` / `item/completed`). | Our id — `clientUserMessageId` on `turn/start` and `turn/steer`, echoed as `clientId` on the item (landed at `b8ec41b27`; available since Codex 0.136); the turn id from the reply as the fallback. Codex does not dedupe a repeated id: a second send is a second turn, so never resending stays our job. `thread/read` returns items with `clientId` on a fresh app-server, so N3 (§7) works after a restart. | POD-4835 |
-| Claude SDK (stream-json) | Done (POD-4836, 981074bd9): `accepted` only on the CLI's own `command_lifecycle` queued/started frame carrying our uuid (~60 ms after the write, measured on claude 2.1.282/2.1.284). The `--replay-user-messages` echo is only a fallback: the CLI holds it until the model's first output. | The transcript record under our uuid. | Our id: the uuid derived from the message id (`claude-sdk/message-uuid.ts`). A repeated uuid is skipped by the CLI (not recorded, no model call). | POD-4836 |
+| Claude SDK (stream-json) (*run*) | Done (POD-4836, 981074bd9): `accepted` only on the CLI's own `command_lifecycle` queued/started frame carrying our uuid (~60 ms after the write, measured on claude 2.1.282/2.1.284). The `--replay-user-messages` echo is only a fallback: the CLI holds it until the model's first output. | The transcript record under our uuid. | Our id: the uuid derived from the message id (`claude-sdk/message-uuid.ts`). A repeated uuid is skipped by the CLI (not recorded, no model call), also after `--resume`; Codex, by contrast, records a repeat twice. Evidence: `claude-sdk/__fixtures__/user-message-ack.json`. | POD-4836 |
 | OpenCode v1 | `prompt_async` 204. | The stored user message part carrying our id (`message.part.updated`). | Our id (`packages/harness/src/driver/families/opencode/runtime.ts:346-354`). | — |
 | OpenCode v2 | The admission reply: OpenCode stored the input under our id; a repeat returns the original (POD-4813). Sent with `delivery: 'queue'`, so a busy session holds it until its turn ends (`packages/harness/src/driver/families/opencode2/client.ts:128-150`). | Today the admission is treated as confirmed. Strictly: when the input enters the conversation — at once if the session was idle; for a busy session, a history read or an event naming it (**measure**). | Our id. | — |
 | Grok ACP | Not the `session/prompt` reply, which only comes at the end of the turn. But Grok sends, in-band and before its echo, `_x.ai/session/update` `hook_execution` for `user_prompt_submit` with Grok's `prompt_id` (seen in Grok 1.0.x session logs; whether it comes when no hook is configured: **measure**), and `x.ai/queue/changed` (`runningPromptId`, `entries`), which Grok's own headless client uses as its prompt acknowledgement (1.0.44 binary; our client only logs it, `grok-acp/client.ts:74-79`; **measure**). Today `accepted` is returned at once (`packages/harness/src/driver/families/grok-acp/runtime.ts:1307-1364`). | Grok's `user_message_chunk` echo (its event id). Whether the echo means "stored" is **measure**. Today a made-up entry is named after 5 s (`runtime.ts:471-485`). | Planned: our id as `_meta.promptId` on `session/prompt` — Grok's docs say a client may supply its own and then owns its uniqueness (**measure**). The embedded ACP crate (0.10.4) also has `messageId` on the request, unused in every frame seen. Today: echo text. Our fixture is from Grok 0.2.118; 1.0.44 is installed. | POD-4837 |
@@ -134,9 +137,11 @@ the text. Exact, survives a restart, and is found even when the text was merged 
 Codex `turn/start` returns a turn id; its user item belongs to that turn. Exact while we keep
 the id (POD-4841).
 
-### 5.3 Order plus text (a person's chat on a terminal agent)
+### 5.3 Order plus text (unwrapped messages on a terminal agent)
 
-The only case with no id anywhere. Today it is matched by an exact hash of the text, so any
+The only case with no id anywhere: a person's chat, the owner's first prompt, automations and
+auto-continue (§2) typed into a terminal agent. Auto-continue's "continue" repeats the same short
+text by design. Today it is matched by an exact hash of the text, so any
 change fails (a draft merged in, whitespace, a harness rewrite), and two identical short texts
 ("yes", "yes") cannot be told apart.
 
@@ -341,8 +346,8 @@ matches them with §5. Without them, a message typed before a crash stays `unkno
   `ctrl+enter` ("send now") moves running tools to the background and delivers without stopping
   the turn, and Escape can pull queued prompts back into the input box. This is native steer for Claude (Phase C).
 - **System sends** were typed without a message record (steward nudges, automations,
-  auto-continue, some superagent sends, the old issue-mail nudge). POD-4846 is moving them onto
-  messages; its first part (steward nudges) landed at `124f91387`.
+  auto-continue, some superagent sends, the old issue-mail nudge, the owner's first prompt).
+  POD-4846 moved all of them onto messages (landed through `846de64e8`).
 - **A failed system send landed in the person's input box** — POD-4844.
 - **Low-priority issue mail under 6000 characters** is typed in full but stops at `typed` —
   POD-4845.
