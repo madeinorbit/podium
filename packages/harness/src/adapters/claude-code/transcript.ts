@@ -1,15 +1,15 @@
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
+import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
+import type { HarnessRuntimeObservation } from '../../transcript-types.js'
 // The cursor codec is shared pure identity infrastructure (spec rule 8):
 // grammars mark provisional ids with its prefix, the reader's stampCursors
 // replaces them with cursors. The leaf is mechanism-free — importing it is not
 // importing the Store. No reader behaviour is imported.
 import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
-import type { HarnessRuntimeObservation } from '../../transcript-types.js'
-import { locateClaudeSessionFile } from './state-locate.js'
-import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
 import { safeToolCommandJson } from '../shared/tool-command.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 import { claudeToolEffects } from '../shared/tool-effects.js'
+import { locateClaudeSessionFile } from './state-locate.js'
 
 /**
  * Normalize one Claude Code transcript JSONL record into render-oriented
@@ -272,7 +272,9 @@ function claudeUserNote(
   const text =
     typeof content === 'string'
       ? content
-      : blocks.flatMap((b) => (b?.type === 'text' && typeof b.text === 'string' ? [b.text] : [])).join('\n')
+      : blocks
+          .flatMap((b) => (b?.type === 'text' && typeof b.text === 'string' ? [b.text] : []))
+          .join('\n')
   if (r.isCompactSummary === true) return text.trim()
   if (COMMAND_RECORD_RE.test(text)) {
     const tag = (name: string) =>
@@ -284,10 +286,8 @@ function claudeUserNote(
   return undefined
 }
 
-const COMMAND_RECORD_RE =
-  /^\s*(?:<command-(name|message|args)>[\s\S]*?<\/command-\1>\s*)+$/
-const COMMAND_OUTPUT_RE =
-  /^\s*<local-command-(stdout|stderr)>([\s\S]*)<\/local-command-\1>\s*$/
+const COMMAND_RECORD_RE = /^\s*(?:<command-(name|message|args)>[\s\S]*?<\/command-\1>\s*)+$/
+const COMMAND_OUTPUT_RE = /^\s*<local-command-(stdout|stderr)>([\s\S]*)<\/local-command-\1>\s*$/
 // biome-ignore lint/suspicious/noControlCharactersInRegex: the escape codes are the point
 const ANSI_ESCAPE_RE = /\u001b\[[0-9;]*[A-Za-z]/g
 
