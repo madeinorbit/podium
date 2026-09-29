@@ -503,6 +503,16 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const canInterrupt = headless
     ? headlessConversationCanInterrupt(superThread !== undefined, headlessTurn.turnRunning)
     : nativeSessionCanInterrupt(session?.status)
+  // The socket's liveness, read per render (POD-4799). Hub flaps do not
+  // re-render this view, so this can lag the socket by a render — the same
+  // staleness the send route already accepts, and in the same direction: a
+  // wake takes the direct POST while this reads up, the held outbox path
+  // while it reads down. Absent (tests) reads up, like the live send path
+  // that never gated on it either.
+  const connected =
+    typeof hub?.connectionHealth === 'function'
+      ? hub.connectionHealth().status !== 'down'
+      : true
 
   const send = useChatSend({
     sessionId,
@@ -521,6 +531,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     compact,
     active,
     composer,
+    connected,
     ownThreadIds,
     blocks,
     session,

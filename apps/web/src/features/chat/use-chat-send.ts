@@ -70,6 +70,11 @@ export interface UseChatSendOptions {
   compact: boolean
   active: boolean
   composer: Pick<ComposerState, 'sendable' | 'canResume' | 'refusalReason'>
+  /** The socket transport's liveness, read per render. An ended session wakes
+   *  with a direct `resumeAndSend` POST while this is true (the wake must not
+   *  wait behind the durable queue's store commit and drain); while false the
+   *  send stays on the held outbox path and goes out on reconnect. */
+  connected: boolean
   ownThreadIds: ReadonlySet<string> | undefined
   blocks: readonly ChatBlock[]
   session:
@@ -140,6 +145,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     compact,
     active,
     composer,
+    connected,
     ownThreadIds,
     blocks,
     session,
@@ -218,6 +224,30 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
           return { state: 'sent' }
         }
         case 'resume':
+          // A wake while online goes out as one direct POST (POD-4799), the
+          // way a live send already does: the durable outbox's store commit
+          // and drain sit in the replica's own transaction domain, so a wake
+          // queued there waits behind bulk sync applies and unrelated entries
+          // — measured at ~23 s in the field — while the server wakes the
+          // session within milliseconds of being asked. The turn's stable
+          // delivery id rides as the mutation id, so a retry after a lost
+          // response dedupes server-side instead of sending twice. Offline the
+          // send stays on the held outbox path and goes out on reconnect.
+          if (connected) {
+            const result = await trpc.sessions.resumeAndSend.mutate({
+              sessionId,
+              text: turn.wire,
+              mutationId: turn.deliveryId,
+            })
+            assertSendAccepted(result)
+            if (result.disposition === 'queued') {
+              return {
+                state: 'queued',
+                ...(result.position !== undefined ? { position: result.position } : {}),
+              }
+            }
+            return { state: 'sent' }
+          }
           await resumeAndSend(sessionId, turn.wire, asMutationId(turn.deliveryId))
           return { state: 'queued' }
       }
@@ -234,6 +264,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       clearAttachedSession,
       trpc,
       resumeAndSend,
+      connected,
     ],
   )
 

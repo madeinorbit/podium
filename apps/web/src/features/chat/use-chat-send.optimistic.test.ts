@@ -59,6 +59,7 @@ function opts(
     compact: false,
     active: true,
     composer: { sendable: true, canResume: false },
+    connected: true,
     ownThreadIds: undefined,
     blocks: [],
     session: {

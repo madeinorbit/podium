@@ -30,6 +30,9 @@ const fakeHub = {
     this.subscribes.push({ sessionId, since, cb })
     return () => {}
   },
+  connectionHealth(): { status: 'ok' | 'down'; rttMs: number | null; since: number } {
+    return { status: hubHealth, rttMs: 1, since: 0 }
+  },
   // ChatView calls these on the hub indirectly via SessionConnection only in
   // native mode; the chat path doesn't, so stubs suffice.
 }
@@ -54,6 +57,19 @@ const fakeTrpc = {
           position?: number
         }> => ({
           disposition: 'delivered',
+        }),
+      ),
+    },
+    resumeAndSend: {
+      mutate: vi.fn(
+        async (): Promise<{
+          ok?: boolean
+          disposition: string
+          reason?: string
+          queued?: boolean
+          position?: number
+        }> => ({
+          disposition: 'queued',
         }),
       ),
     },
@@ -83,6 +99,7 @@ const storeActions = {
 let storeSessions: SessionMeta[] = []
 let storeDrafts: Record<string, string> = {}
 let storeExitKind: 'evicted' | 'removed' | undefined
+let hubHealth: 'ok' | 'down' = 'ok'
 const fakeUiValues = new Map<string, string>()
 const fakeUiListeners = new Set<() => void>()
 const fakeUiState = {
@@ -196,6 +213,7 @@ beforeEach(() => {
   storeSessions = [meta({})]
   storeDrafts = {}
   storeExitKind = undefined
+  hubHealth = 'ok'
   fakeUiValues.clear()
   fakeUiListeners.clear()
   container = document.createElement('div')
@@ -712,6 +730,83 @@ describe('ChatView composer', () => {
     expect(failed?.textContent).toContain('machine unreachable')
   })
 
+  it('wakes an ended session at once: Enter on a hibernated chat POSTs resumeAndSend within a second', async () => {
+    // POD-4799. A send to an ended session waited ~23 s in the client before
+    // the wake POST went out: the store action queued it through the durable
+    // outbox, whose store commit and drain sit in the replica's own
+    // transaction domain. While online the wake is one direct POST in the
+    // tap's own async chain — through the same textarea-Enter entry point the
+    // real UI uses, under fake timers so a timer-gated path cannot pass.
+    storeSessions = [meta({ status: 'hibernated', resumable: true })]
+    storeDrafts = { s1: 'wake the agent' }
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    if (!textarea) return
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        textarea.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+        )
+        await vi.advanceTimersByTimeAsync(1_000)
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    await flush()
+
+    // Exactly once, carrying the turn's stable delivery id as the mutation
+    // id — a retry after a lost response dedupes server-side instead of
+    // waking (and messaging) twice.
+    expect(fakeTrpc.sessions.resumeAndSend.mutate).toHaveBeenCalledTimes(1)
+    expect(fakeTrpc.sessions.resumeAndSend.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: asSessionId('s1'),
+        text: 'wake the agent',
+        mutationId: expect.stringMatching(/^msg_/),
+      }),
+    )
+    expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
+    expect(storeActions.resumeAndSend).not.toHaveBeenCalled()
+  })
+
+  it('holds an ended-session send on the outbox while offline instead of failing it', async () => {
+    // POD-4799. The direct wake POST is the ONLINE path: with the socket down
+    // the send stays on the durable outbox path and goes out on reconnect,
+    // instead of failing in the operator's hand.
+    hubHealth = 'down'
+    storeSessions = [meta({ status: 'hibernated', resumable: true })]
+    storeDrafts = { s1: 'wake the agent later' }
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    if (!textarea) return
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+      await Promise.resolve()
+    })
+    await flush()
+
+    expect(storeActions.resumeAndSend).toHaveBeenCalledTimes(1)
+    expect(storeActions.resumeAndSend).toHaveBeenCalledWith(
+      asSessionId('s1'),
+      'wake the agent later',
+      expect.stringMatching(/^msg_/),
+    )
+    expect(fakeTrpc.sessions.resumeAndSend.mutate).not.toHaveBeenCalled()
+  })
+
   it('restores a queued chat message from the durable ledger after refresh', async () => {
     fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
       {
@@ -887,11 +982,17 @@ describe('ChatView composer', () => {
           )
           expect(storeActions.resumeAndSend).not.toHaveBeenCalled()
         } else {
-          expect(storeActions.resumeAndSend).toHaveBeenCalledWith(
-            asSessionId('s1'),
-            failedRow.body,
-            expect.stringMatching(/^msg_/),
+          // POD-4799: while online a retry into a parked session wakes with
+          // one direct POST (exactly once, under the turn's stable id), not
+          // through the store's durable queue.
+          expect(fakeTrpc.sessions.resumeAndSend.mutate).toHaveBeenCalledWith(
+            expect.objectContaining({
+              sessionId: asSessionId('s1'),
+              text: failedRow.body,
+              mutationId: expect.stringMatching(/^msg_/),
+            }),
           )
+          expect(storeActions.resumeAndSend).not.toHaveBeenCalled()
           expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
         }
       },
@@ -1271,11 +1372,17 @@ describe('ChatView sending into a hibernated session', () => {
     await flush()
     await submit()
 
-    expect(storeActions.resumeAndSend).toHaveBeenCalledWith(
-      asSessionId('s1'),
-      'pick this back up',
-      expect.any(String),
+    // POD-4799: while online the wake is one direct POST — exactly once, under
+    // the turn's stable id — not a trip through the store's durable queue.
+    expect(fakeTrpc.sessions.resumeAndSend.mutate).toHaveBeenCalledTimes(1)
+    expect(fakeTrpc.sessions.resumeAndSend.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: asSessionId('s1'),
+        text: 'pick this back up',
+        mutationId: expect.stringMatching(/^msg_/),
+      }),
     )
+    expect(storeActions.resumeAndSend).not.toHaveBeenCalled()
     // The live path is not the parked path.
     expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
     // The mode is pinned to chat as part of the send, so the parked→live flip

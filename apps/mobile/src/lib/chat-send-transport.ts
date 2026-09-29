@@ -15,9 +15,12 @@
  *   durable, nothing scheduled, nothing to wait out. The server still orders
  *   it behind its own durable queue when one exists, so two rapid taps land
  *   in order.
- * - `outbox`: the session is parked (wake path, unchanged), or the transport
- *   is down. Offline taps keep today's held behaviour — the message queues
- *   and goes out on reconnect — instead of failing in the operator's hand.
+ * - `outbox`: the session is parked and the transport is down, or the session
+ *   is live and the transport is down. Offline taps keep today's held
+ *   behaviour — the message queues and goes out on reconnect — instead of
+ *   failing in the operator's hand. (A parked session while ONLINE does not
+ *   take this arm's store path: the composer sends one direct `resumeAndSend`
+ *   mutate so the wake does not wait behind the durable queue — POD-4799.)
  * - `refused`: the composer itself says the session cannot take text. Failing
  *   here, with the composer's own reason, instead of queueing a send the
  *   server would dead-letter and park behind a recovery banner.

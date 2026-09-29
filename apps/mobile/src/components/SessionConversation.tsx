@@ -270,6 +270,26 @@ export function SessionConversation({
                 return queuedDeliveryOf(result) ?? { state: 'sent' }
               }
               if (transport.kind === 'refused') throw new Error(transport.reason)
+              const route = sendRouteRef.current
+              if (route.canResume && route.connected) {
+                // AT ONCE, WHILE PARKED (POD-4799). A wake queued through the
+                // durable outbox waits behind that queue's store commit and
+                // drain — measured at ~23 s in the field while the server wakes
+                // the session within milliseconds of being asked — so an online
+                // wake is one `resumeAndSend` mutate in this tap's own async
+                // chain, the way a live send already is. The turn's stable
+                // delivery id rides as the mutation id, so a retry after a lost
+                // response dedupes server-side instead of sending twice.
+                // Offline the send stays on the held outbox path and goes out
+                // on reconnect.
+                const result = await trpc.sessions.resumeAndSend.mutate({
+                  sessionId,
+                  text: turn.wire,
+                  mutationId: asMutationId(turn.deliveryId),
+                })
+                assertSendAccepted(result)
+                return queuedDeliveryOf(result) ?? { state: 'sent' }
+              }
               await store.resumeAndSend(sessionId, turn.wire, asMutationId(turn.deliveryId))
             }
             return { state: 'queued' }
