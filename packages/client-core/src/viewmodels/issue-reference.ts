@@ -34,9 +34,30 @@ export interface IssueReferenceModel {
   accessibleLabel: string
 }
 
+/** The canonical ref a row names.
+ *
+ * Prefers a real `displayRef` (`POD-17`) when the row carries one, falls back
+ * to `prefix` + `seq` for rows that carry a prefix but no displayRef (legacy
+ * and mock payloads) or whose displayRef is itself the `#seq` fallback, and
+ * only then falls back to `#seq` for truly prefix-less rows.
+ *
+ * `issueDisplayRef` alone is `displayRef ?? '#seq'` and never consults
+ * `prefix`, so a merged replica row carrying `prefix: 'POD'` (legacy wire)
+ * beside `displayRef: '#17'` (view derived from a missing repo prefix,
+ * POD-4731) projected `#17` while the lookup keyed it `POD-17` — the chip
+ * matched for stage but announced the fallback. Preferring the pair keeps the
+ * label on the resolvers' own matching rule. A real displayRef still wins over
+ * a stale legacy prefix (prefix-change case: view says `NEW-17`, legacy still
+ * says `POD`), because only the fallback shape (`#…` or absent) defers. */
+export function canonicalIssueRef(issue: Pick<IssueReferenceSource, 'prefix' | 'displayRef' | 'seq'>): string {
+  if (issue.displayRef && !issue.displayRef.startsWith('#')) return issue.displayRef
+  if (issue.prefix) return `${issue.prefix}-${issue.seq}`
+  return issueDisplayRef(issue)
+}
+
 /** Project a visible issue row into the canonical compact-reference model. */
 export function issueReferenceModel(issue: IssueReferenceSource): IssueReferenceModel {
-  const ref = issueDisplayRef(issue)
+  const ref = canonicalIssueRef(issue)
   if (issue.deletedAt) {
     return {
       ref,

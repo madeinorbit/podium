@@ -1,6 +1,7 @@
 import {
   type IssueReferenceModel,
   type IssueReferenceSource,
+  canonicalIssueRef,
   issueReferenceModel,
 } from '@podium/client-core/viewmodels'
 import { parseAnyRef } from '@podium/protocol'
@@ -25,19 +26,19 @@ function refKey(token: string): string {
 /**
  * The same key, derived from the issue side.
  *
- * `issueDisplayRef` is `displayRef ?? '#seq'` — it does not consult `prefix`, so
- * a row carrying `prefix` but no `displayRef` (legacy and mock payloads) keys
- * itself `#4` while its anchor keys `POD-4`, and the chip goes unavailable for
- * an issue `resolveIssueReference` matches happily on prefix + seq. Preferring
- * the pair puts the lookup back on the resolvers' own matching rule.
+ * Keyed on the same canonical ref the model announces (`canonicalIssueRef`),
+ * normalised through `refKey` so a zero-padded anchor (`POD-013`) still meets
+ * its row (`POD-13`). A real `displayRef` wins over a stale legacy prefix
+ * (prefix-change case); a `#seq` fallback defers to `prefix` (POD-4731: merged
+ * replica row with legacy `POD` beside view-derived `#17`); truly prefix-less
+ * rows key `#seq` and only meet `#seq` anchors.
  *
  * The signature below reads through here too. Two fallbacks for one key is how
  * they drift apart, and a drift means a cached map surviving a change it should
  * have been rebuilt for.
  */
 function issueKey(issue: IssueReferenceSource): string {
-  if (issue.prefix) return `${issue.prefix}-${issue.seq}`
-  return refKey(issueReferenceModel(issue).ref)
+  return refKey(canonicalIssueRef(issue))
 }
 
 /** Build the live presentation index without making rendered Markdown depend on it. */
