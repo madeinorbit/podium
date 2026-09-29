@@ -1,0 +1,30 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "fake": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "fake",
+      "options": {
+        "baseURL": "http://127.0.0.1:47864/v1",
+        "apiKey": "dummy-not-a-key"
+      },
+      "models": {
+        "fake": {
+          "name": "fake",
+          "tool_call": true
+        }
+      }
+    }
+  },
+  "model": "fake/fake",
+  "small_model": "fake/fake",
+  "autoupdate": false,
+  "share": "disabled",
+  "permission": {
+    "bash": "allow",
+    "edit": "allow"
+  },
+  "enabled_providers": [
+    "fake"
+  ]
+}

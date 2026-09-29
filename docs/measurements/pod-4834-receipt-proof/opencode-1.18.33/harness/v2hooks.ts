@@ -1,0 +1,20 @@
+// Does a v2 prompt fire plugin hooks once the plugin is loaded by a v1 call on the same directory?
+import { Api, dbWatch, hookMap, log, modelMap, newId, setOut, sleep, SP, sse, startServer, tail, WORK } from './lib.ts'
+setOut(process.argv[2])
+const stop = new AbortController()
+tail(`${SP}/logs/hooks.jsonl`, 'hook', stop.signal, hookMap); tail(`${SP}/logs/model.jsonl`, 'model', stop.signal, modelMap)
+const server = await startServer(process.env.OC_BIN ?? 'opencode', 47868, 'v2hooks')
+const api = new Api('http://127.0.0.1:47868')
+sse(`http://127.0.0.1:47868/event?directory=${encodeURIComponent(WORK)}`, 'v1-event', stop.signal)
+await api.call('GET', '/session', undefined, 'v1-touch')
+await sleep(1500)
+const sid = (await api.call('POST', '/api/session', { title: 'v2 hooks', location: { directory: WORK } }, 'create')).json.data.id
+sse(`http://127.0.0.1:47868/api/session/${sid}/event?after=0`, 'sess-event', stop.signal)
+await sleep(300)
+const id = newId(); log('mark', { name: 'H.send', id })
+await api.call('POST', `/api/session/${sid}/prompt`, process.env.V2SHAPE === 'beta' ? { id, text: 'V2H hooks probe', delivery: 'queue' } : { id, prompt: { text: 'V2H hooks probe' }, delivery: 'queue' }, 'H')
+await sleep(6000)
+await api.call('GET', `/session/${sid}/message`, undefined, 'v1-read-of-v2-session')
+await api.call('GET', `/api/session/${sid}/message?order=asc`, undefined, 'v2-read')
+log('mark', { name: 'H.end' })
+stop.abort(); server.kill('SIGTERM'); await sleep(300); process.exit(0)
