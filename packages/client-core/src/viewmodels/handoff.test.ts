@@ -61,7 +61,16 @@ describe('Handoff transcript context', () => {
     expect(
       selectLatestPromptSession([
         session('older', { lastInputAt: '2026-09-01T09:00:00.000Z' }),
-        session('shell', { agentKind: 'shell', lastInputAt: '2026-09-01T12:00:00.000Z' }),
+        // A shell carries no transcript flag (abc97c94e stamped the helper's
+        // blanket `transcriptAvailable: true` onto it from birth, so this case
+        // could never pass: the server omits the flag when there is no
+        // transcript (sessions/session.ts) and the fallback excludes shells
+        // (defaultChatCapable), which is what makes 'newer' win here.
+        session('shell', {
+          agentKind: 'shell',
+          lastInputAt: '2026-09-01T12:00:00.000Z',
+          transcriptAvailable: undefined,
+        }),
         session('newer', { lastInputAt: '2026-09-01T11:00:00.000Z' }),
       ])?.sessionId,
     ).toBe('newer')
