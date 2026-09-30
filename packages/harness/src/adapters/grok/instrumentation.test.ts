@@ -1,8 +1,13 @@
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { grokInstrumentation, grokSessionPaths } from './instrumentation.js'
+import {
+  ensurePodiumGrokHooks,
+  grokInstrumentation,
+  grokSessionPaths,
+  PODIUM_GROK_HOOK_COMMAND,
+} from './instrumentation.js'
 
 const tmpDirs: string[] = []
 afterEach(async () => {
@@ -79,5 +84,33 @@ describe('grokInstrumentation.payloadCodec', () => {
     expect(installed.args).toEqual([])
     expect(installed.env?.PODIUM_GROK_HOOK_URL).toBe('http://127.0.0.1:1/hooks/s1')
     expect(installed.degradedReason).toBeUndefined()
+    const doc = JSON.parse(await readFile(join(home, '.grok', 'hooks', 'podium.json'), 'utf8'))
+    expect(doc.hooks.StopCancelled).toEqual([
+      { hooks: [{ type: 'command', command: PODIUM_GROK_HOOK_COMMAND, timeout: 5 }] },
+    ])
+  })
+
+  it('refreshes an older install with StopCancelled while preserving other handlers', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-cancel-install-'))
+    tmpDirs.push(home)
+    const hooksDir = join(home, '.grok', 'hooks')
+    await mkdir(hooksDir, { recursive: true })
+    const path = join(hooksDir, 'podium.json')
+    const foreign = { hooks: [{ type: 'command', command: 'other-observer' }] }
+    await writeFile(path, JSON.stringify({ hooks: { Stop: [foreign] } }))
+
+    await expect(ensurePodiumGrokHooks({ homeDir: home })).resolves.toMatchObject({
+      installed: true,
+      changed: true,
+    })
+    const doc = JSON.parse(await readFile(path, 'utf8'))
+    expect(doc.hooks.Stop[0]).toEqual(foreign)
+    expect(doc.hooks.StopCancelled).toEqual([
+      { hooks: [{ type: 'command', command: PODIUM_GROK_HOOK_COMMAND, timeout: 5 }] },
+    ])
+    await expect(ensurePodiumGrokHooks({ homeDir: home })).resolves.toMatchObject({
+      installed: true,
+      changed: false,
+    })
   })
 })
