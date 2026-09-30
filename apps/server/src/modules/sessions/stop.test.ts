@@ -156,7 +156,7 @@ describe('stopSession [spec:SP-9904]', () => {
       })
       await bindLive(reg, sessionId, '/r', status === 'hibernated')
       const at = '2026-09-30T01:40:00.000Z'
-      const stateEvent = (seq: number, change: Record<string, unknown>): RuntimeEvent => ({
+      const stateEvent = (seq: number, change: Record<string, unknown>): Extract<RuntimeEvent, { t: 'state' }> => ({
         t: 'state', change, at, provenance: 'live',
         cursor: { segmentId: 'stopped-child', components: { seq } },
         observerGeneration: 1, turnEpoch: 1,
@@ -176,7 +176,7 @@ describe('stopSession [spec:SP-9904]', () => {
       const effects = vi.fn()
       reg.bus.on('session.stateChanged', effects)
 
-      const delayed: RuntimeEvent = {
+      const delayed: Extract<RuntimeEvent, { t: 'state' }> = {
         ...stateEvent(2, { kind: 'turn_completed', verdict: { kind: 'done' } }),
         provenance,
         ...(provenance === 'bootstrap' ? {
