@@ -8,8 +8,8 @@ import {
 } from '@podium/model'
 import { encodeCursor } from '@podium/harness/browser'
 import { claudePromptTextMatches, transcriptRecordMapperFor } from '@podium/harness'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import measured283 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.283-gate-on.jsonl?raw'
+import measured285 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.285-gate-on-boundaries.jsonl?raw'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -686,12 +686,8 @@ describe('ChatView composer', () => {
   it.each(['2.1.283', '2.1.285'])(
     'shows Claude %s pasted content once, without recorder tags, after confirmation',
     async (version) => {
-      const suffix = version === '2.1.285' ? '-boundaries' : ''
-      const path = fileURLToPath(new URL(
-        `../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-${version}-gate-on${suffix}.jsonl`,
-        import.meta.url,
-      ))
-      const measured = readFileSync(path, 'utf8').trim().split('\n')
+      const raw = version === '2.1.283' ? measured283 : measured285
+      const measured = raw.trim().split('\n')
         .map((line) => JSON.parse(line) as {
           case: string; input: string; record: { uuid: string; message: { content: string } }
         }).find((row) => row.case === 'mixed-inline')
