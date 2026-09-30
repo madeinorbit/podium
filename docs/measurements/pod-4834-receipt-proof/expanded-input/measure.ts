@@ -8,6 +8,7 @@ import { cases, bytes, sha } from './matrix.ts'
 
 const [lane, selected] = process.argv.slice(2)
 const lanes = ['codex-app-server', 'opencode-v1', 'opencode-v2', 'opencode2-v2', 'grok-acp', 'codex-terminal', 'opencode-terminal', 'opencode2-terminal', 'grok-terminal']
+lanes.push(...['codex', 'opencode', 'opencode2', 'grok'].map(p => `${p}-terminal-paced`))
 if (!lanes.includes(lane!)) throw new Error(`Lane must be one of ${lanes}`)
 const out = resolve(import.meta.dir, lane!)
 mkdirSync(out, { recursive: true })
@@ -46,7 +47,8 @@ const run = { lane, version, commandPath, startedAt: new Date().toISOString(), r
   env, config: lane!.startsWith('opencode') ? ocConfig : readFileSync(`${home}/${lane!.startsWith('codex') ? '.codex' : '.grok'}/config.toml`, 'utf8'),
   tty: '180x45, independent tmux server; new terminal process for every case',
   methods: ['paste: tmux paste-buffer -r -p, exact input bytes including LF and CR',
-    'typed: tmux send-keys -l, unbracketed literal byte burst; 650ms pause then Enter; programs may detect bursts as paste'],
+    'typed: tmux send-keys -l, unbracketed literal byte burst; 650ms pause then Enter; programs may detect bursts as paste',
+    'typed-paced: unbracketed literal bytes in 256-character chunks, 40ms between writes; 650ms pause then Enter'],
 }
 writeFileSync(`${out}/run.json`, JSON.stringify(run, null, 2) + '\n')
 writeFileSync(`${import.meta.dir}/input-cases.jsonl`, cases.map(c => JSON.stringify({ ...c, bodyBytes: bytes(c.body), textBytes: bytes(c.text), sha256: sha(c.text) })).join('\n') + '\n')
@@ -180,16 +182,23 @@ async function http(method: string, path: string, body?: any) {
   return data
 }
 try {
-  const terminal = lane!.endsWith('terminal')
+  const terminal = lane!.includes('terminal')
   let client: ReturnType<typeof rpc> | undefined
   async function launchTerminal(label: string) {
     const args = lane!.startsWith('grok') ? ['-m', 'fake', '--always-approve', '--trust']
+      : lane!.startsWith('opencode2') ? ['--standalone', '--auto']
       : lane!.startsWith('opencode') ? ['--port', String(appPort), '--hostname', '127.0.0.1', '--model', 'fake/fake'] : []
     const command = `cd ${quote(work)} && exec env -i ${Object.entries(env).map(([k, v]) => `${k}=${quote(v)}`).join(' ')} ${quote(commandPath)} ${args.map(quote).join(' ')}`
-    tmux('new-session', '-d', '-s', 'measure', '-x', '180', '-y', '45', command)
+    tmux('new-session', '-d', '-s', 'measure', '-x', '180', '-y', '45', 'sleep 600')
+    tmux('set-option', '-t', 'measure', 'remain-on-exit', 'on')
+    tmux('respawn-pane', '-k', '-t', 'measure', command)
     // Wait for the input editor; a screen capture is diagnostic evidence only.
     const ready = await until(() => {
       const screen = tmux('capture-pane', '-p', '-t', 'measure')
+      if (tmux('display-message', '-p', '-t', 'measure', '#{pane_dead}').trim() === '1') {
+        appendFileSync(`${out}/screens.txt`, `PROCESS EXIT ${label}\n${screen}\n`)
+        throw new Error(`Terminal exited: ${screen.trim().slice(0, 600)}`)
+      }
       if (lane!.startsWith('codex')) return /context left|fake|OpenAI Codex/.test(screen)
       if (lane!.startsWith('grok')) return /fake|Type a message|Grok/.test(screen)
       return /Ask anything|Build|fake/.test(screen)
@@ -210,7 +219,7 @@ try {
     logChild(program, 'program')
     if (!await until(async () => { try { return (await fetch(`http://127.0.0.1:${appPort}/api/health`, { headers: auth, signal: AbortSignal.timeout(2000) })).ok } catch { return false } }, 45000)) throw new Error('OpenCode server not ready')
   }
-  for (const method of terminal ? ['paste', 'typed'] : ['protocol']) {
+  for (const method of terminal ? lane!.endsWith('-paced') ? ['typed-paced'] : ['paste', 'typed'] : ['protocol']) {
     for (const c of cases.filter(c => !selected || c.name.includes(selected))) {
       const label = `${method}/${c.name}`
       if (terminal) await launchTerminal(label)
@@ -224,6 +233,11 @@ try {
             writeFileSync(`${root}/paste.txt`, c.text)
             tmux('load-buffer', '-b', 'input', `${root}/paste.txt`)
             tmux('paste-buffer', '-r', '-p', '-b', 'input', '-t', 'measure')
+          } else if (method === 'typed-paced') {
+            for (let i = 0; i < c.text.length; i += 256) {
+              tmux('send-keys', '-t', 'measure', '-l', c.text.slice(i, i + 256))
+              await sleep(40)
+            }
           } else tmux('send-keys', '-t', 'measure', '-l', c.text)
           await sleep(650)
           tmux('send-keys', '-t', 'measure', 'Enter')

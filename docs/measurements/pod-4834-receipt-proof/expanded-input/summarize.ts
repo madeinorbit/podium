@@ -63,12 +63,12 @@ for (const lane of lanes) {
       exactBodyStored: texts.some(t => t.includes(input.body)),
       exactTextStored: texts.some(t => t === input.text),
       currentTextRuleMatches: texts.some(t => textMatches(lane, input.text, t)),
-      protocolIdStored: lane.endsWith('terminal') ? null : native.some(r => r.id === input.id),
+      protocolIdStored: lane.includes('terminal') ? null : native.some(r => r.id === input.id),
       modelExactBody: modelTexts.some(t => t.includes(input.body)),
       modelContainsStored: texts.map(t => modelTexts.some(m => m.includes(t))),
       otherRecords: native.filter(r => r.kind !== 'prompt').map(r => ({ source: r.source, position: r.position, kind: r.kind, id: r.id,
         texts: r.texts.map((t: string) => ({ bytes: bytes(t), sha256: sha(t), first: t.slice(0, 70), last: t.slice(-70) })) })),
-      error: o.error, status: o.status,
+      error: o.error, status: o.status, extraEnterAt: o.extraEnterAt,
     }
   })
   writeFileSync(`${base}/summary.jsonl`, summaries.map(s => JSON.stringify(s)).join('\n') + '\n')
