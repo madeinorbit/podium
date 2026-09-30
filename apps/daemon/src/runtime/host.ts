@@ -41,36 +41,11 @@ import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
 import { stageRuntimeAttachment } from './attachment-staging'
 import { reportHarnessProbe } from '../harness-version-reporting'
-import type {
-  TerminalHostPorts,
-  TerminalTransport,
-} from '@podium/harness/driver/host'
+import type { TerminalHostPorts } from '@podium/harness/driver/host'
 import { installTerminalInstrumentation } from '@podium/harness/driver/host'
 import { terminalInstrumentationSectionsFor } from './registry'
 import { driverTiming } from './driver-timing'
-import type { Terminal } from '../terminal/terminal.js'
-import { MESSAGE_WRITE } from '../terminal/foreign-writes.js'
-
-/**
- * Adapt one daemon Terminal to the driver's narrow transport port.
- *
- * pid is deliberately absent: answer ownership uses object identity plus the
- * observer generation/bindingVersion fences, and resource/binding identity is
- * resolved per session by the host. A parked surface reports live=false and
- * drops writes, exactly as Terminal does.
- */
-export function adaptTerminal(terminal: Terminal | undefined): TerminalTransport | undefined {
-  if (!terminal) return undefined
-  return {
-    get live() {
-      return terminal.live
-    },
-    // Only a turn's own typing carries MESSAGE_WRITE past the foreign-write
-    // counter; every other driver write is counted (POD-4888, spec §5.3).
-    writeBase64: (dataBase64, role) =>
-      terminal.writeBase64(dataBase64, role === 'message' ? MESSAGE_WRITE : undefined),
-  }
-}
+import { adaptTerminal } from '../terminal/transport.js'
 
 /**
  * Adapt one daemon context into the driver's host port.

@@ -17,6 +17,7 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { createTerminalRuntime, type TerminalHarnessProfile } from '../../driver/families/terminal/runtime.js'
 import type { TerminalTransport } from '../../driver/families/terminal/host-ports.js'
+import type { TerminalWriteRole } from '../../driver/families/terminal/injection.js'
 import { createMemoryDriverSlots } from '../../driver/testing/driver-slots.js'
 import { declaredValue } from '../../transcript-types.js'
 import { harnessInterrupt, harnessNeedsSubmitVerification, harnessUsesRawFirstTurn, manifestFor } from '../../registry.js'
@@ -162,12 +163,17 @@ describe('adopt rebinding delivers mail (POD-4794 defect 1)', () => {
       db.prepare(`UPDATE session SET time_updated = ? WHERE id = ?`).run(nowMs, 'ses_adopt')
       db.close()
     }
+    // The daemon's foreign-write counter over a podium-host surface (POD-4888):
+    // the message's own writes pass, so its entry is credited by order.
+    let foreign = 0
+    const marks = new Map<string, number>()
     const ensureTransport = (sessionId: SessionId): TerminalTransport => {
       let t = transports.get(sessionId)
       if (!t) {
         t = {
           live: true,
-          writeBase64: (dataBase64: string) => {
+          writeBase64: (dataBase64: string, role?: TerminalWriteRole) => {
+            if (role !== 'message') foreign += 1
             const text = Buffer.from(dataBase64, 'base64').toString('utf8')
             written.push(text)
             const pasted = pastedText(text)
@@ -181,6 +187,12 @@ describe('adopt rebinding delivers mail (POD-4794 defect 1)', () => {
 
     runtime = createTerminalRuntime(
       {
+        foreignWrites: {
+          count: () => foreign,
+          orderTrustworthy: () => true,
+          markTyping: (_sessionId, turnId) => void marks.set(turnId, foreign),
+          typingMark: (_sessionId, turnId) => marks.get(turnId),
+        },
         installInstrumentation: async () => ({ args: [] }),
         stageAttachment: async ({ source }) => ({
           id: 'a1',

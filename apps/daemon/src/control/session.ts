@@ -39,6 +39,7 @@ import {
   WriterLeaseRefusedError,
 } from '@podium/process/durable'
 import { Terminal } from '../terminal/terminal.js'
+import { adaptTerminal } from '../terminal/transport.js'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
@@ -947,17 +948,8 @@ function requireTerminalHandle(
   }
   // REFRESH THE HANDED TERMINAL (POD-4785): the entry's surface may have been
   // replaced (reattach, steal) without a new bind carrying it, so push the
-  // current one. Inline adapt avoids a runtime/host import cycle.
-  const current = ctx.sessions.get(msg.sessionId)?.terminal
-  ctx.agentRuntime?.setTerminal?.(
-    msg.sessionId,
-    current
-      ? {
-          live: current.live,
-          writeBase64: (dataBase64: string) => current.writeBase64(dataBase64),
-        }
-      : undefined,
-  )
+  // current one.
+  ctx.agentRuntime?.setTerminal?.(msg.sessionId, adaptTerminal(ctx.sessions.get(msg.sessionId)?.terminal))
 }
 
 /** Bind before publishing success, including historical rows with no driver ID.
@@ -1012,14 +1004,7 @@ async function bindDriver(
         ? { bindingVersion: msg.observationBindingVersion }
         : {}),
       rebind,
-      ...(bindTerminal
-        ? {
-            terminal: {
-              live: bindTerminal.live,
-              writeBase64: (dataBase64: string) => bindTerminal.writeBase64(dataBase64),
-            },
-          }
-        : {}),
+      ...(bindTerminal ? { terminal: adaptTerminal(bindTerminal) } : {}),
     },
     profile,
   )

@@ -25,7 +25,7 @@
 /**
  * The tag a message's OWN writes carry — its paste, its Enter and its submit
  * retries — so the counter lets them through uncounted. Exported to the one
- * caller that types messages (`runtime/host.ts`, the harness terminal
+ * caller that types messages (`terminal/transport.ts`, the harness terminal
  * driver's transport); the write guard
  * test pins that nothing else uses it.
  */

@@ -280,8 +280,14 @@ describe.each([
     f.emit(promoted)
     await flush()
     expect(f.deliveries()).toHaveLength(2)
+    // The named entry is one the chat is shown. History is a Store read over
+    // OpenCode's database on dev/mw (POD-4781), which this fixture does not
+    // have, so the live item stream is where the naming must agree.
     expect(
-      (await f.handle.transcript.history({ limit: 200 })).items.some((item) => item.id === f.entry),
+      f.events.some(
+        (event) =>
+          event.t === 'item' && event.item.kind === 'complete' && event.item.item.id === f.entry,
+      ),
     ).toBe(true)
   })
 

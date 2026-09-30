@@ -566,7 +566,7 @@ describe("Grok's own history names the entry by the same id", () => {
       )
       // The load's replay, as the resumed driver shows it.
       const replayed = userItems(
-        await shownItems(resumed, undefined, (items) => userItems(items).length > 0),
+        await shownItems(resumed, 'bootstrap', (items) => userItems(items).length > 0),
       )
       expect(replayed.map((item) => [item.id, item.text])).toEqual([['grok-user-msg_kept', 'kept']])
     } finally {

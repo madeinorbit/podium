@@ -52,8 +52,8 @@ const INVENTORY: Record<string, Sink> = {
   'runtime/opencode-attach.ts: for (const data of buffered) started.write(data)': 'terminal',
   'runtime/opencode-attach.ts: terminal.write(data)': 'terminal',
   // The harness terminal driver's only way in: its TerminalTransport, adapted
-  // here onto the session's Terminal (POD-4785).
-  "runtime/host.ts: terminal.writeBase64(dataBase64, role === 'message' ? MESSAGE_WRITE : undefined),":
+  // onto the session's Terminal in one place (POD-4785).
+  "terminal/transport.ts: terminal.writeBase64(dataBase64, role === 'message' ? MESSAGE_WRITE : undefined),":
     'terminal',
   'composer-sync.ts: if (this.ownsScreen) this.screen.write(data)': 'screen emulator',
   'terminal-screen-observer.ts: if (ownsScreen) screenReader.write(data)': 'screen emulator',
@@ -128,7 +128,7 @@ describe('terminal write guard (POD-4888)', () => {
       if (!isProduction(rel)) continue
       if (readFileSync(path, 'utf8').includes('MESSAGE_WRITE')) users.push(rel)
     }
-    expect(users.sort()).toEqual(['runtime/host.ts', 'terminal/foreign-writes.ts'])
+    expect(users.sort()).toEqual(['terminal/foreign-writes.ts', 'terminal/transport.ts'])
   })
 
   it('the pattern sees a write the inventory has never heard of', () => {

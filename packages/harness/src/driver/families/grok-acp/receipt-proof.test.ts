@@ -1,7 +1,8 @@
 /** Receipt proof from the Grok 1.0.44 frames measured in POD-4837. */
-import type { HarnessRef, SessionId, TranscriptItemRef } from '@podium/model'
+import type { HarnessRef, SessionId, TranscriptItem, TranscriptItemRef } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
+import type { RuntimeEvent } from '../../host.js'
 import type { SessionSpec } from '../../session-spec.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
 import promptAck from './__fixtures__/prompt-ack.json' with { type: 'json' }
@@ -168,6 +169,37 @@ async function send(
   return { sent, named, unrecorded, proofs }
 }
 
+
+/**
+ * The completed items the chat is shown, as the driver emits them from the
+ * start of the session. `transcript.history` is a Store read on dev/mw
+ * (POD-4782), so the live item stream is where the naming must agree.
+ * Collects until `enough` holds, or gives up after `ms`.
+ */
+async function shownItems(
+  handle: { events(after: 'bootstrap'): AsyncIterable<RuntimeEvent> },
+  enough: (items: readonly TranscriptItem[]) => boolean,
+  ms = 2_000,
+): Promise<TranscriptItem[]> {
+  const items: TranscriptItem[] = []
+  const iterator = handle.events('bootstrap')[Symbol.asyncIterator]()
+  const deadline = Date.now() + ms
+  try {
+    while (!enough(items) && Date.now() < deadline) {
+      const next = await Promise.race([
+        iterator.next(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), deadline - Date.now())),
+      ])
+      if (next === null || next.done) break
+      const event = next.value
+      if (event.t === 'item' && event.item.kind === 'complete') items.push(event.item.item)
+    }
+  } finally {
+    void iterator.return?.()
+  }
+  return items
+}
+
 describe('Grok ACP confirms only from its recorded prompt', () => {
   const allowed = scenario('userPromptSubmitHook')
   const allowedId = 'podmsg-H'
@@ -209,9 +241,7 @@ describe('Grok ACP confirms only from its recorded prompt', () => {
       w.receive(frame)
       expect(result.named).toEqual([])
       expect(
-        (await handle.transcript.history({ limit: 100 })).items.filter(
-          (item) => item.role === 'user',
-        ),
+        (await shownItems(handle, () => false, 200)).filter((item) => item.role === 'user'),
       ).toEqual([])
     } finally {
       w.runtime.dispose()
@@ -240,7 +270,9 @@ describe('Grok ACP confirms only from its recorded prompt', () => {
             harnessRef: [{ kind: 'grok-prompt', id: allowedId }],
           },
         ])
-      expect((await handle.transcript.history({ limit: 100 })).items).toContainEqual(
+      expect(
+        await shownItems(handle, (items) => items.some((item) => item.role === 'user')),
+      ).toContainEqual(
         expect.objectContaining({
           role: 'user',
           id: `grok-user-${allowedId}`,
