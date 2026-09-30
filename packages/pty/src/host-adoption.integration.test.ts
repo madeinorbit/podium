@@ -1,5 +1,11 @@
 /**
- * A C HOST AN OLDER DAEMON STARTED IS STILL ADOPTED (POD-4986).
+ * HOSTS AN OLDER DAEMON STARTED ARE STILL ADOPTED (POD-4986).
+ *
+ * Hosts are found by their SOCKET, never by the binary that runs them, so an
+ * update changes nothing for a session that is already running. Two cases:
+ * a C host (below), and a Rust host started from the install path an older
+ * build used, `podium-host-rs`, before the Rust host was renamed plain
+ * `podium-host` — even after the update has deleted that file.
  *
  * The C podium-host is gone from the tree, the build and the release; the
  * Rust host is the only one a new spawn selects. Sessions that were already
@@ -18,7 +24,7 @@
  * Integration lane (real processes, real ptys); never the unit lane.
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readlinkSync, rmSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readlinkSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -172,3 +178,103 @@ describe.skipIf(!haveCHost)('a running C host is adopted, never spawned (POD-498
     60_000,
   )
 })
+
+describe.skipIf(process.platform !== 'linux' || resolveHostBin() === undefined)(
+  'a Rust host started as podium-host-rs survives the rename to podium-host (POD-4986)',
+  () => {
+    let root = ''
+    const saved: Record<string, string | undefined> = {}
+    const pids: number[] = []
+    const rustHost = resolveHostBin() as string
+
+    beforeAll(() => {
+      root = mkdtempSync(join(tmpdir().length < 20 ? tmpdir() : '/tmp', 'pr-'))
+      for (const k of ['PODIUM_STATE_DIR', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_NO_SCOPE', 'PODIUM_HOST_BIN', 'PODIUM_HOME']) {
+        saved[k] = process.env[k]
+      }
+      process.env.PODIUM_STATE_DIR = join(root, 'st')
+      process.env.PODIUM_HOST_SOCKET_DIR = join(root, 's')
+      process.env.PODIUM_NO_SCOPE = '1'
+      delete process.env.PODIUM_HOST_BIN
+      mkdirSync(hostSocketDir(), { recursive: true, mode: 0o700 })
+    })
+
+    afterAll(() => {
+      for (const pid of pids) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {
+          // already gone
+        }
+      }
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+      resolveHostBin({ fresh: true })
+      if (root) rmSync(root, { recursive: true, force: true })
+    })
+
+    it('adopts the old-named host after the update removed its binary, and spawns on podium-host', async () => {
+      // The older install: the Rust host shipped as <install>/podium-host-rs.
+      const oldInstall = join(root, 'old')
+      mkdirSync(oldInstall)
+      const oldBin = join(oldInstall, 'podium-host-rs')
+      copyFileSync(rustHost, oldBin)
+      const r = spawnSync(
+        oldBin,
+        hostCreateArgs({ socketPath: hostSocketPath('rs-old'), cwd: root, cmd: '/bin/cat', cols: 90, rows: 30 }),
+        { encoding: 'utf8', env: process.env },
+      )
+      expect(r.status, r.stderr).toBe(0)
+
+      // The update: a new install ships plain podium-host; the old file is gone.
+      const newInstall = join(root, 'new')
+      mkdirSync(newInstall)
+      copyFileSync(rustHost, join(newInstall, 'podium-host'))
+      rmSync(oldInstall, { recursive: true, force: true })
+      process.env.PODIUM_HOME = newInstall
+      expect(resolveHostBin({ fresh: true })).toBe(join(newInstall, 'podium-host'))
+
+      const durable = createDurableProcess()
+      const located = await durable.locate('rs-old', process.env, { waitMs: 2000 })
+      expect(located?.adapter.kind).toBe('host')
+      const found = await located?.adapter.attach({
+        label: 'rs-old',
+        socketPath: located.socketPath,
+        requireLease: true,
+        lastKnownGeometry: { cols: 80, rows: 24 },
+      })
+      const old = found?.attachment as HostDurableAttachment
+      const w = await old.ready
+      pids.push(w.hostPid)
+      try {
+        // Still the process the old binary started (the kernel marks the
+        // unlinked executable), still the Rust screen host, lease granted.
+        expect(readlinkSync(`/proc/${w.hostPid}/exe`)).toMatch(/\/old\/podium-host-rs( \(deleted\))?$/)
+        expect(w.screen).toBe(true)
+        expect(w.lease).toBe(true)
+        expect({ cols: w.cols, rows: w.rows }).toEqual({ cols: 90, rows: 30 })
+        let out = ''
+        old.onFrame((f) => {
+          out += Buffer.from(f.data).toString('utf8')
+        })
+        old.writeBytes(Buffer.from('after the rename\r'))
+        await waitFor(() => out.includes('after the rename'), 'the old-named host to echo through cat')
+
+        // A new session runs the new name.
+        const s = (await durable.spawn({ label: 'rs-new', cmd: '/bin/cat', cols: 80, rows: 24, cwd: root })) as HostDurableAttachment
+        const nw = await s.ready
+        pids.push(nw.hostPid)
+        expect(readlinkSync(`/proc/${nw.hostPid}/exe`)).toBe(join(newInstall, 'podium-host'))
+        expect(await durable.list()).toEqual(expect.arrayContaining(['rs-old', 'rs-new']))
+        s.dispose()
+      } finally {
+        old.dispose()
+        await durable.kill('rs-old')
+        await durable.kill('rs-new')
+      }
+      await waitFor(() => !existsSync(hostSocketPath('rs-old')), 'the old-named host to exit')
+    }, 60_000)
+  },
+)

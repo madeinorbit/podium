@@ -19,8 +19,12 @@ import { fileURLToPath } from 'node:url'
 import { stateDir } from '@podium/runtime/config'
 
 /**
- * abduco binary resolution — podium ships abduco rather than demanding a system
- * install. Order:
+ * abduco binary resolution — the ATTACH CLIENT for abduco sessions an older
+ * Podium started. Nothing spawns on abduco any more (POD-4986): podium-host is
+ * the only host a new session uses. Running abduco sessions are still adopted,
+ * and attaching one needs this binary, so podium ships it (embedded in a
+ * release, built from vendor/abduco in a checkout) until a native client of
+ * abduco's socket protocol replaces it. Order:
  *   1. $PODIUM_ABDUCO — explicit binary path; if it doesn't run, resolution FAILS
  *      (no silent fallback past operator intent).
  *   2. `abduco` on PATH (distro package).
