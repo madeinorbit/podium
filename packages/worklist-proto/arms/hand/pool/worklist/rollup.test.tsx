@@ -656,7 +656,9 @@ describe('row roll-ups (Hb3)', () => {
     expect(correct.oracleAfter.progressTotal, 'the change moves the oracle').not.toBe(
       correct.oracleBefore.progressTotal,
     )
-    expect(correct.feedRowReadsInStep, 'the cold read is a counted feed read').toBeGreaterThan(0)
+    // POD-5024: the cold read is the declared summary, never a full peek, so
+    // no feed read — the change moves the parent via the `coldRow` delta.
+    expect(correct.feedRowReadsInStep, 'the cold read is the summary, no feed read').toBe(0)
 
     const planted = await coldProgressRun(true)
     expect(planted.parent).toBe(correct.parent)
