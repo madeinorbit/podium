@@ -39,7 +39,7 @@ import {
   WriterLeaseRefusedError,
 } from '@podium/process/durable'
 import { Terminal } from '../terminal/terminal.js'
-import { adaptTerminal } from '../terminal/transport.js'
+import { adaptTerminal } from '../runtime/terminal-transport.js'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionBindingTransitionOutcome } from '../binding-store'

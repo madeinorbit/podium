@@ -45,7 +45,7 @@ import type { TerminalHostPorts } from '@podium/harness/driver/host'
 import { installTerminalInstrumentation } from '@podium/harness/driver/host'
 import { terminalInstrumentationSectionsFor } from './registry'
 import { driverTiming } from './driver-timing'
-import { adaptTerminal } from '../terminal/transport.js'
+import { adaptTerminal } from './terminal-transport.js'
 
 /**
  * Adapt one daemon context into the driver's host port.

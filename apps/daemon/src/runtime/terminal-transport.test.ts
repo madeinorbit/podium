@@ -2,8 +2,8 @@ import { asSessionId } from '@podium/model'
 import type { DurableAttachment } from '@podium/process/durable'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../session/registry.js'
-import { Terminal } from './terminal.js'
-import { adaptTerminal } from './transport.js'
+import { Terminal } from '../terminal/terminal.js'
+import { adaptTerminal } from './terminal-transport.js'
 
 const SESSION = asSessionId('terminal-transport')
 
