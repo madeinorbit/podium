@@ -143,6 +143,19 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
           pool.settleLoads?.()
         })
         expect(pool.pendingLoads?.() ?? 0, `${scenario}: no pending loads`).toBe(0)
+        // Counts first, as runCountScenario takes them (POD-4825): the parity
+        // snapshots below recompute row fields nothing observes, and must not
+        // be charged to the change.
+        const countsOf = (stats: typeof armMounted.handle.stats) => ({
+          rowsDerived: stats.rowsDerived,
+          rollupsDerived: stats.rollupsDerived,
+          indexUpdates: stats.indexUpdates,
+          notifications: stats.notifications,
+        })
+        const armRows = armMounted.log.total()
+        const controlRows = controlMounted.log.total()
+        const armStats = countsOf(armMounted.handle.stats)
+        const controlStats = countsOf(controlMounted.handle.stats)
         const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
         expect(
           diffSnapshots(armMounted.handle.snapshot(), oracle),
@@ -152,43 +165,31 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
           diffSnapshots(controlMounted.handle.snapshot(), oracle),
           `${scenario}: control parity beside the arm`,
         ).toBeNull()
-        const armRows = armMounted.log.total()
-        const controlRows = controlMounted.log.total()
         const soloArmCounts = scenario === 'heartbeat' ? soloArmHeartbeat : soloArmClick
         const soloControlCounts = scenario === 'heartbeat' ? soloControlHeartbeat : soloControlClick
         expect(armRows, `${scenario}: arm rows co == solo`).toBe(soloArmCounts.rows)
         expect(
-          armMounted.handle.stats.rowsDerived,
+          armStats.rowsDerived,
           `${scenario}: arm rowsDerived co == solo`,
         ).toBe(soloArmCounts.stats.rowsDerived)
         expect(
-          armMounted.handle.stats.rollupsDerived,
+          armStats.rollupsDerived,
           `${scenario}: arm rollupsDerived co == solo`,
         ).toBe(soloArmCounts.stats.rollupsDerived)
         expect(controlRows, `${scenario}: control rows co == solo`).toBe(soloControlCounts.rows)
         expect(
-          controlMounted.handle.stats.rowsDerived,
+          controlStats.rowsDerived,
           `${scenario}: control rowsDerived co == solo`,
         ).toBe(soloControlCounts.stats.rowsDerived)
         expect(
-          controlMounted.handle.stats.rollupsDerived,
+          controlStats.rollupsDerived,
           `${scenario}: control rollupsDerived co == solo`,
         ).toBe(soloControlCounts.stats.rollupsDerived)
         co[scenario] = {
           armRows,
-          armStats: {
-            rowsDerived: armMounted.handle.stats.rowsDerived,
-            rollupsDerived: armMounted.handle.stats.rollupsDerived,
-            indexUpdates: armMounted.handle.stats.indexUpdates,
-            notifications: armMounted.handle.stats.notifications,
-          },
+          armStats,
           controlRows,
-          controlStats: {
-            rowsDerived: controlMounted.handle.stats.rowsDerived,
-            rollupsDerived: controlMounted.handle.stats.rollupsDerived,
-            indexUpdates: controlMounted.handle.stats.indexUpdates,
-            notifications: controlMounted.handle.stats.notifications,
-          },
+          controlStats,
         }
       } finally {
         armMounted.unmount()
