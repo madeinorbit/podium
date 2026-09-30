@@ -426,7 +426,7 @@ describe('MessagingService', () => {
       }])
       expect(h.sendTurn).toHaveBeenCalledTimes(1)
     } finally {
-      h.service.dispose()
+      h.service.stop()
     }
   })
 
