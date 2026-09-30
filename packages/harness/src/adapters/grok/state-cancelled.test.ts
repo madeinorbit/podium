@@ -23,10 +23,10 @@ function evidence<T>(path: string): T[] {
 }
 
 type Hook = { ev: string; payload: Record<string, unknown> }
-type ObservedRecord = {
+type WatchedFile = {
   at: number
   file: string
-  rec: Record<string, unknown> & {
+  rec?: Record<string, unknown> & {
     type?: string
     outcome?: string
     cancellation_context?: { trigger?: string }
@@ -40,6 +40,7 @@ type ObservedRecord = {
     }
   }
 }
+type ObservedRecord = WatchedFile & { rec: NonNullable<WatchedFile['rec']> }
 
 const hooks = evidence<Hook>('raw/hooks.jsonl')
 const cancelledHooks = hooks.filter((hook) => hook.ev === 'StopCancelled')
@@ -49,7 +50,9 @@ const promptId = cancelled.promptId as string
 const submitted = hooks.find(
   (hook) => hook.ev === 'UserPromptSubmit' && hook.payload.promptId === promptId,
 )!.payload
-const observed = evidence<ObservedRecord>('raw/session-files-observed.jsonl')
+const observed = evidence<WatchedFile>('raw/session-files-observed.jsonl').filter(
+  (row): row is ObservedRecord => row.rec !== undefined,
+)
 const completions = observed.filter(
   (row) =>
     row.file.endsWith('/updates.jsonl') &&
