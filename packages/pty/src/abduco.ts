@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync, readdirSync, statSync, unlinkSync } from 'node:fs'
+import { readdirSync, statSync, unlinkSync } from 'node:fs'
 import { userInfo } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'

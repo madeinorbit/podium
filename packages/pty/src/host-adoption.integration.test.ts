@@ -189,7 +189,13 @@ describe.skipIf(process.platform !== 'linux' || resolveHostBin() === undefined)(
 
     beforeAll(() => {
       root = mkdtempSync(join(tmpdir().length < 20 ? tmpdir() : '/tmp', 'pr-'))
-      for (const k of ['PODIUM_STATE_DIR', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_NO_SCOPE', 'PODIUM_HOST_BIN', 'PODIUM_HOME']) {
+      for (const k of [
+        'PODIUM_STATE_DIR',
+        'PODIUM_HOST_SOCKET_DIR',
+        'PODIUM_NO_SCOPE',
+        'PODIUM_HOST_BIN',
+        'PODIUM_HOME',
+      ]) {
         saved[k] = process.env[k]
       }
       process.env.PODIUM_STATE_DIR = join(root, 'st')
@@ -223,7 +229,13 @@ describe.skipIf(process.platform !== 'linux' || resolveHostBin() === undefined)(
       copyFileSync(rustHost, oldBin)
       const r = spawnSync(
         oldBin,
-        hostCreateArgs({ socketPath: hostSocketPath('rs-old'), cwd: root, cmd: '/bin/cat', cols: 90, rows: 30 }),
+        hostCreateArgs({
+          socketPath: hostSocketPath('rs-old'),
+          cwd: root,
+          cmd: '/bin/cat',
+          cols: 90,
+          rows: 30,
+        }),
         { encoding: 'utf8', env: process.env },
       )
       expect(r.status, r.stderr).toBe(0)
@@ -251,7 +263,9 @@ describe.skipIf(process.platform !== 'linux' || resolveHostBin() === undefined)(
       try {
         // Still the process the old binary started (the kernel marks the
         // unlinked executable), still the Rust screen host, lease granted.
-        expect(readlinkSync(`/proc/${w.hostPid}/exe`)).toMatch(/\/old\/podium-host-rs( \(deleted\))?$/)
+        expect(readlinkSync(`/proc/${w.hostPid}/exe`)).toMatch(
+          /\/old\/podium-host-rs( \(deleted\))?$/,
+        )
         expect(w.screen).toBe(true)
         expect(w.lease).toBe(true)
         expect({ cols: w.cols, rows: w.rows }).toEqual({ cols: 90, rows: 30 })
@@ -260,10 +274,19 @@ describe.skipIf(process.platform !== 'linux' || resolveHostBin() === undefined)(
           out += Buffer.from(f.data).toString('utf8')
         })
         old.writeBytes(Buffer.from('after the rename\r'))
-        await waitFor(() => out.includes('after the rename'), 'the old-named host to echo through cat')
+        await waitFor(
+          () => out.includes('after the rename'),
+          'the old-named host to echo through cat',
+        )
 
         // A new session runs the new name.
-        const s = (await durable.spawn({ label: 'rs-new', cmd: '/bin/cat', cols: 80, rows: 24, cwd: root })) as HostDurableAttachment
+        const s = (await durable.spawn({
+          label: 'rs-new',
+          cmd: '/bin/cat',
+          cols: 80,
+          rows: 24,
+          cwd: root,
+        })) as HostDurableAttachment
         const nw = await s.ready
         pids.push(nw.hostPid)
         expect(readlinkSync(`/proc/${nw.hostPid}/exe`)).toBe(join(newInstall, 'podium-host'))

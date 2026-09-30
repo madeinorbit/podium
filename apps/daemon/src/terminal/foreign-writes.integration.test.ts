@@ -31,7 +31,12 @@ const hasHost = resolveHostBin() !== undefined
 /** The abduco client adoption attaches with (vendored, built on first use). */
 const hasAbducoClient = isAbducoAvailable()
 
-const ENV_KEYS = ['PODIUM_STATE_DIR', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_NO_SCOPE', 'ABDUCO_SOCKET_DIR']
+const ENV_KEYS = [
+  'PODIUM_STATE_DIR',
+  'PODIUM_HOST_SOCKET_DIR',
+  'PODIUM_NO_SCOPE',
+  'ABDUCO_SOCKET_DIR',
+]
 const saved: Record<string, string | undefined> = {}
 let root = ''
 /** abduco's socket path must fit sun_path (107 bytes), so its root stays short. */
@@ -170,9 +175,10 @@ describe.skipIf(!hasHost)('the foreign-write counter over a real podium-host (PO
       })
       const located = await createDurableProcess().locate(label, process.env, { waitMs: 5000 })
       expect(located?.adapter.kind).toBe('abduco')
-      const { attachment } = await located!.adapter.attach({
+      if (!located) throw new Error('the abduco session was not located')
+      const { attachment } = await located.adapter.attach({
         label,
-        socketPath: located!.socketPath,
+        socketPath: located.socketPath,
         lastKnownGeometry: { cols: 80, rows: 24 },
       })
       attachments.push(attachment)

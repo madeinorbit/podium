@@ -13,10 +13,23 @@ describe('systemd scope argv', () => {
         budget: { memoryHighBytes: 900, memoryMaxBytes: 1000, tasksMax: 64 },
       }),
     ).toEqual([
-      '--user', '--scope', '--collect', '--quiet', '--slice=podium-sessions.slice',
-      '--property=CPUWeight=50', '--property=IOWeight=100', '--property=MemoryHigh=900',
-      '--property=MemoryMax=1000', '--property=TasksMax=64', '--property=OOMPolicy=continue',
-      '--unit=podium-1.scope', '--', 'podium-host', 'create', '--socket', '/s',
+      '--user',
+      '--scope',
+      '--collect',
+      '--quiet',
+      '--slice=podium-sessions.slice',
+      '--property=CPUWeight=50',
+      '--property=IOWeight=100',
+      '--property=MemoryHigh=900',
+      '--property=MemoryMax=1000',
+      '--property=TasksMax=64',
+      '--property=OOMPolicy=continue',
+      '--unit=podium-1.scope',
+      '--',
+      'podium-host',
+      'create',
+      '--socket',
+      '/s',
     ])
   })
   it('pins agent scopes to the batch scheduling tier (POD-598)', () => {
@@ -31,7 +44,6 @@ describe('systemd scope argv', () => {
     ])
   })
 })
-
 
 describe('userRuntimeDir', () => {
   it('prefers XDG_RUNTIME_DIR when the environment provides it', () => {

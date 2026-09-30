@@ -685,9 +685,11 @@ describe('long instance durable sockets', () => {
       process.env.PODIUM_HOST_SOCKET_DIR = join(socketTestRoot, 'hosts')
       process.env.PODIUM_NO_SCOPE = '1'
       applyInstanceRuntimeEnv(instanceId, process.env, stateDir)
-      expect(process.env.ABDUCO_SOCKET_DIR).toMatch(/^\/tmp\/pd-[A-Za-z0-9_-]{10}$/)
-      expect(process.env.ABDUCO_SOCKET_DIR).toBe(instanceSocketRuntimeDir(instanceId, stateDir))
-      pinnedAbducoRoot = process.env.ABDUCO_SOCKET_DIR
+      // Read back through a widened type: TS narrowed it to undefined at the delete.
+      const pinned = process.env.ABDUCO_SOCKET_DIR as string | undefined
+      expect(pinned).toMatch(/^\/tmp\/pd-[A-Za-z0-9_-]{10}$/)
+      expect(pinned).toBe(instanceSocketRuntimeDir(instanceId, stateDir))
+      pinnedAbducoRoot = pinned
       label = durableSessionLabel(sessionId, instanceId)
 
       // What an older Podium's spawn left running, created the way it did: the

@@ -185,9 +185,9 @@ describe('the abduco adapter adopts, and never creates (POD-4986)', () => {
     const adapter = abducoAdoptionAdapter()
     expect(adapter.kind).toBe('abduco')
     const label = 'podium-pab-never'
-    await expect(
-      adapter.spawn({ label, cmd: '/bin/cat', cols: 80, rows: 24 }),
-    ).rejects.toThrow(/adopted, never created/)
+    await expect(adapter.spawn({ label, cmd: '/bin/cat', cols: 80, rows: 24 })).rejects.toThrow(
+      /adopted, never created/,
+    )
     await expect(adapter.spawnHeadless({ label, cmd: '/bin/cat' })).rejects.toThrow(
       /adopted, never created/,
     )
@@ -200,101 +200,104 @@ describe('the abduco adapter adopts, and never creates (POD-4986)', () => {
   })
 })
 
-describe.skipIf(!hasCompiler)('a running abduco session is adopted (needs a C compiler to build abduco)', () => {
-  it('locates, attaches size-neutrally, round-trips bytes through cat, lists and kills it', async () => {
-    expect(bin).toBeDefined()
-    const label = `podium-pab-${process.pid}-cat`
-    const socket = await createOnAbduco(label, '/bin/cat')
-    const durable = createDurableProcess()
-
-    const located = await durable.locate(label, probeEnv(), { waitMs: 2000 })
-    expect(located?.adapter.kind).toBe('abduco')
-    expect(located?.socketPath).toBe(socket)
-    // The daemon asks for the lease on every headed attach; abduco has none to
-    // grant, so the attach goes ahead without it.
-    const found = await located?.adapter.attach({
-      label,
-      socketPath: located.socketPath,
-      requireLease: true,
-      lastKnownGeometry: { cols: 80, rows: 24 },
-    })
-    expect(found?.cmd).toBe(`abduco -a ${socket}`)
-    const attachment = found?.attachment as DurableAttachment
-    try {
-      let out = ''
-      attachment.onFrame((f) => {
-        out += Buffer.from(f.data).toString('utf8')
-      })
-      await wait(500) // the attach client takes its pty out of canonical mode
-      attachment.writeBytes(Buffer.from('still abduco\r'))
-      // At least twice: the program's tty echo and cat's own copy. An echo by
-      // the attach pty alone, with nothing reaching cat, says it once.
-      await waitFor(
-        () => occurrences(out, 'still abduco') >= 2,
-        'cat to echo through the adopted master',
-      )
-
-      expect(await durable.has(label)).toBe(true)
-      expect(await durable.list()).toContain(label)
-      expect(durable.hasMasterSync(label, probeEnv())).toBe(true)
-    } finally {
-      attachment.dispose()
-    }
-
-    // The master outlives its client, as it outlived the daemon that created it.
-    await wait(300)
-    expect(await durable.has(label)).toBe(true)
-
-    const master = masterPid(label)
-    await durable.kill(label)
-    await waitFor(() => !existsSync(socket), 'the master to exit and unlink its socket')
-    await waitFor(() => !pidAlive(master), 'the master process to end')
-    expect(await durable.has(label)).toBe(false)
-    expect(await durable.list()).not.toContain(label)
-  }, 30_000)
-
-  it.skipIf(process.platform !== 'linux' || resolveHostBin() === undefined)(
-    'a new spawn goes to podium-host beside an adopted abduco session, and the census lists both',
-    async () => {
-      const abLabel = `podium-pab-${process.pid}-beside`
-      const hostLabel = `podium-pab-${process.pid}-host`
-      const socket = await createOnAbduco(abLabel, '/bin/cat')
+describe.skipIf(!hasCompiler)(
+  'a running abduco session is adopted (needs a C compiler to build abduco)',
+  () => {
+    it('locates, attaches size-neutrally, round-trips bytes through cat, lists and kills it', async () => {
+      expect(bin).toBeDefined()
+      const label = `podium-pab-${process.pid}-cat`
+      const socket = await createOnAbduco(label, '/bin/cat')
       const durable = createDurableProcess()
-      const s = (await durable.spawn({
-        label: hostLabel,
-        cmd: '/bin/cat',
-        cols: 80,
-        rows: 24,
-        cwd: root,
-      })) as HostDurableAttachment
-      const w = await s.ready
-      const exe = readlinkSync(`/proc/${w.hostPid}/exe`)
-      hostPids.push({ pid: w.hostPid, exe })
-      try {
-        // The Rust podium-host, by what it reports — never by its file name.
-        expect(hostBinFeatures(exe)).toBe(2)
-        expect(existsSync(hostSocketPath(hostLabel))).toBe(true)
-        // Nothing was created on abduco for the new label.
-        expect(abducoSocketPath(hostLabel, probeEnv())).toBeUndefined()
 
-        expect((await durable.locate(hostLabel, probeEnv()))?.adapter.kind).toBe('host')
-        const adopted = await durable.locate(abLabel, probeEnv())
-        expect(adopted?.adapter.kind).toBe('abduco')
-        expect(adopted?.socketPath).toBe(socket)
-        expect(await durable.list()).toEqual(expect.arrayContaining([abLabel, hostLabel]))
-        expect(await durable.has(abLabel)).toBe(true)
-        expect(await durable.has(hostLabel)).toBe(true)
+      const located = await durable.locate(label, probeEnv(), { waitMs: 2000 })
+      expect(located?.adapter.kind).toBe('abduco')
+      expect(located?.socketPath).toBe(socket)
+      // The daemon asks for the lease on every headed attach; abduco has none to
+      // grant, so the attach goes ahead without it.
+      const found = await located?.adapter.attach({
+        label,
+        socketPath: located.socketPath,
+        requireLease: true,
+        lastKnownGeometry: { cols: 80, rows: 24 },
+      })
+      expect(found?.cmd).toBe(`abduco -a ${socket}`)
+      const attachment = found?.attachment as DurableAttachment
+      try {
+        let out = ''
+        attachment.onFrame((f) => {
+          out += Buffer.from(f.data).toString('utf8')
+        })
+        await wait(500) // the attach client takes its pty out of canonical mode
+        attachment.writeBytes(Buffer.from('still abduco\r'))
+        // At least twice: the program's tty echo and cat's own copy. An echo by
+        // the attach pty alone, with nothing reaching cat, says it once.
+        await waitFor(
+          () => occurrences(out, 'still abduco') >= 2,
+          'cat to echo through the adopted master',
+        )
+
+        expect(await durable.has(label)).toBe(true)
+        expect(await durable.list()).toContain(label)
+        expect(durable.hasMasterSync(label, probeEnv())).toBe(true)
       } finally {
-        s.dispose()
-        await durable.kill(hostLabel)
-        await durable.kill(abLabel)
+        attachment.dispose()
       }
-      await waitFor(() => !existsSync(socket), 'the adopted master to exit')
-      await waitFor(() => !existsSync(hostSocketPath(hostLabel)), 'the host to exit')
-    },
-    60_000,
-  )
-})
+
+      // The master outlives its client, as it outlived the daemon that created it.
+      await wait(300)
+      expect(await durable.has(label)).toBe(true)
+
+      const master = masterPid(label)
+      await durable.kill(label)
+      await waitFor(() => !existsSync(socket), 'the master to exit and unlink its socket')
+      await waitFor(() => !pidAlive(master), 'the master process to end')
+      expect(await durable.has(label)).toBe(false)
+      expect(await durable.list()).not.toContain(label)
+    }, 30_000)
+
+    it.skipIf(process.platform !== 'linux' || resolveHostBin() === undefined)(
+      'a new spawn goes to podium-host beside an adopted abduco session, and the census lists both',
+      async () => {
+        const abLabel = `podium-pab-${process.pid}-beside`
+        const hostLabel = `podium-pab-${process.pid}-host`
+        const socket = await createOnAbduco(abLabel, '/bin/cat')
+        const durable = createDurableProcess()
+        const s = (await durable.spawn({
+          label: hostLabel,
+          cmd: '/bin/cat',
+          cols: 80,
+          rows: 24,
+          cwd: root,
+        })) as HostDurableAttachment
+        const w = await s.ready
+        const exe = readlinkSync(`/proc/${w.hostPid}/exe`)
+        hostPids.push({ pid: w.hostPid, exe })
+        try {
+          // The Rust podium-host, by what it reports — never by its file name.
+          expect(hostBinFeatures(exe)).toBe(2)
+          expect(existsSync(hostSocketPath(hostLabel))).toBe(true)
+          // Nothing was created on abduco for the new label.
+          expect(abducoSocketPath(hostLabel, probeEnv())).toBeUndefined()
+
+          expect((await durable.locate(hostLabel, probeEnv()))?.adapter.kind).toBe('host')
+          const adopted = await durable.locate(abLabel, probeEnv())
+          expect(adopted?.adapter.kind).toBe('abduco')
+          expect(adopted?.socketPath).toBe(socket)
+          expect(await durable.list()).toEqual(expect.arrayContaining([abLabel, hostLabel]))
+          expect(await durable.has(abLabel)).toBe(true)
+          expect(await durable.has(hostLabel)).toBe(true)
+        } finally {
+          s.dispose()
+          await durable.kill(hostLabel)
+          await durable.kill(abLabel)
+        }
+        await waitFor(() => !existsSync(socket), 'the adopted master to exit')
+        await waitFor(() => !existsSync(hostSocketPath(hostLabel)), 'the host to exit')
+      },
+      60_000,
+    )
+  },
+)
 
 describe.skipIf(!hasCompiler)('abduco integration (needs a C compiler to build abduco)', () => {
   // Resource-sensitive under concurrent suite load (abduco + many PTYs); one retry.
@@ -397,62 +400,65 @@ describe.skipIf(!hasCompiler)('abduco integration (needs a C compiler to build a
   }, 15000)
 })
 
-describe.skipIf(!hasCompiler)('abduco input-fidelity parity (needs a C compiler to build abduco)', () => {
-  // The byte sequences that matter for agent control — including 0x1c (Ctrl-\),
-  // abduco's DEFAULT detach key, which must arrive because we remap it to 0xff.
-  const SAMPLES: Record<string, string> = {
-    ctrlC: '03',
-    ctrlBackslash: '1c',
-    altX: '1b78', // ESC + 'x'  (Meta-x)
-    upArrow: '1b5b41', // ESC [ A
-    utf8: 'c3a9', // 'é'
-  }
-
-  async function received(via: 'abduco' | 'direct', hex: string): Promise<string> {
-    const bytes = Buffer.from(hex, 'hex')
-    let out = ''
-    let session: DurableAttachment
-    let label = ''
-    if (via === 'abduco') {
-      label = `podium-abfid-${process.pid}-${hex}`
-      await killAbducoSession(label)
-      // Adopted the way the daemon now attaches: size-neutral (`-N`), so the
-      // detach-key remap is proven on the argv the adoption path runs.
-      const socketPath = await createOnAbduco(label, bunBin, [HEX_FIXTURE])
-      session = attachAbducoAgent({
-        label,
-        socketPath,
-        sizeNeutral: true,
-        fallbackGeometry: { cols: 80, rows: 24 },
-        backend: bunPty,
-      })
-      await wait(300) // the attach client takes its pty out of canonical mode
-    } else {
-      session = spawnAgent({ cmd: bunBin, args: [HEX_FIXTURE], cols: 80, rows: 24 }, bunPty)
+describe.skipIf(!hasCompiler)(
+  'abduco input-fidelity parity (needs a C compiler to build abduco)',
+  () => {
+    // The byte sequences that matter for agent control — including 0x1c (Ctrl-\),
+    // abduco's DEFAULT detach key, which must arrive because we remap it to 0xff.
+    const SAMPLES: Record<string, string> = {
+      ctrlC: '03',
+      ctrlBackslash: '1c',
+      altX: '1b78', // ESC + 'x'  (Meta-x)
+      upArrow: '1b5b41', // ESC [ A
+      utf8: 'c3a9', // 'é'
     }
-    session.onFrame((f) => {
-      out += Buffer.from(f.data).toString('utf8')
-    })
-    // Probe with a non-control byte first so setRawMode is live before Ctrl-C (0x03).
-    session.write(Buffer.from([0x61]).toString('base64')) // 'a'
-    const probeStart = Date.now()
-    while (!out.includes('<61>') && Date.now() - probeStart < 5000) await wait(25)
-    out = ''
-    session.write(bytes.toString('base64'))
-    const start = Date.now()
-    while (!out.includes(hex) && Date.now() - start < 5000) await wait(25)
-    session.dispose()
-    if (via === 'abduco') await killAbducoSession(label)
-    const m = out.match(/<([0-9a-f]*)>/g)
-    return (m ?? []).join('')
-  }
 
-  for (const [name, hex] of Object.entries(SAMPLES)) {
-    it(`delivers ${name} (${hex}) through an adopted abduco session identically to direct Bun.Terminal`, async () => {
-      const direct = await received('direct', hex)
-      const abduco = await received('abduco', hex)
-      expect(direct).toContain(hex) // sanity: direct path delivers the bytes
-      expect(abduco).toContain(hex) // PARITY: abduco delivers the same bytes
-    }, 15000)
-  }
-})
+    async function received(via: 'abduco' | 'direct', hex: string): Promise<string> {
+      const bytes = Buffer.from(hex, 'hex')
+      let out = ''
+      let session: DurableAttachment
+      let label = ''
+      if (via === 'abduco') {
+        label = `podium-abfid-${process.pid}-${hex}`
+        await killAbducoSession(label)
+        // Adopted the way the daemon now attaches: size-neutral (`-N`), so the
+        // detach-key remap is proven on the argv the adoption path runs.
+        const socketPath = await createOnAbduco(label, bunBin, [HEX_FIXTURE])
+        session = attachAbducoAgent({
+          label,
+          socketPath,
+          sizeNeutral: true,
+          fallbackGeometry: { cols: 80, rows: 24 },
+          backend: bunPty,
+        })
+        await wait(300) // the attach client takes its pty out of canonical mode
+      } else {
+        session = spawnAgent({ cmd: bunBin, args: [HEX_FIXTURE], cols: 80, rows: 24 }, bunPty)
+      }
+      session.onFrame((f) => {
+        out += Buffer.from(f.data).toString('utf8')
+      })
+      // Probe with a non-control byte first so setRawMode is live before Ctrl-C (0x03).
+      session.write(Buffer.from([0x61]).toString('base64')) // 'a'
+      const probeStart = Date.now()
+      while (!out.includes('<61>') && Date.now() - probeStart < 5000) await wait(25)
+      out = ''
+      session.write(bytes.toString('base64'))
+      const start = Date.now()
+      while (!out.includes(hex) && Date.now() - start < 5000) await wait(25)
+      session.dispose()
+      if (via === 'abduco') await killAbducoSession(label)
+      const m = out.match(/<([0-9a-f]*)>/g)
+      return (m ?? []).join('')
+    }
+
+    for (const [name, hex] of Object.entries(SAMPLES)) {
+      it(`delivers ${name} (${hex}) through an adopted abduco session identically to direct Bun.Terminal`, async () => {
+        const direct = await received('direct', hex)
+        const abduco = await received('abduco', hex)
+        expect(direct).toContain(hex) // sanity: direct path delivers the bytes
+        expect(abduco).toContain(hex) // PARITY: abduco delivers the same bytes
+      }, 15000)
+    }
+  },
+)

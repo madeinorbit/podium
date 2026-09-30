@@ -62,7 +62,9 @@ describe('abduco sessions after abduco stopped being a spawn backend', () => {
     await expect(adapter.spawn({ label: 'x', cmd: 'sh', cols: 80, rows: 24 })).rejects.toThrow(
       /adopted, never created/,
     )
-    await expect(adapter.spawnHeadless({ label: 'x', cmd: 'sh' })).rejects.toThrow(/adopted, never created/)
+    await expect(adapter.spawnHeadless({ label: 'x', cmd: 'sh' })).rejects.toThrow(
+      /adopted, never created/,
+    )
     await expect(adapter.attachHeadless({ label: 'x' })).rejects.toThrow(/adopted, never created/)
     // Spawns always go to the host.
     expect(createDurableProcess().primary.kind).toBe('host')

@@ -1303,7 +1303,8 @@ describe('warm-parking', () => {
       // The probe is DELIBERATELY the real one: the session-owned scope over
       // the host durable, so the socket-dir read under test is the
       // production path, not an injection. Only the reclaim is recorded.
-      const scope = createSessionClientScope(hostDurable, homeDir ? { homeDir } : undefined)!
+      const scope = createSessionClientScope(hostDurable, homeDir ? { homeDir } : undefined)
+      if (!scope) throw new Error('a durable process always yields a client scope')
       const clients: ClientProcessOwner = {
         spawnClient: (opts) => scope.spawnClient(opts),
         reclaimClient: async (label) => {
@@ -1412,7 +1413,8 @@ describe('warm-parking', () => {
       const reclaimed: string[] = []
       // The real session-owned scope over the daemon's durable object, whose
       // probe reaches the abduco adoption adapter. Only the reclaim is recorded.
-      const scope = createSessionClientScope(hostDurable, homeDir ? { homeDir } : undefined)!
+      const scope = createSessionClientScope(hostDurable, homeDir ? { homeDir } : undefined)
+      if (!scope) throw new Error('a durable process always yields a client scope')
       const clients: ClientProcessOwner = {
         spawnClient: (opts) => scope.spawnClient(opts),
         reclaimClient: async (label) => {
