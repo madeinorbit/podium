@@ -189,15 +189,18 @@ export function visibleOrderOf(pool: MobxPool): readonly string[] {
  * those are loaded and the rows read again until a window installs nothing,
  * as a reader that waits out its loading state would see them.
  *
- * Settling reads are harness-only. A row gone from the feed (its load never
- * lands) is simply absent from the rows, rather than failing the snapshot.
+ * Rows are read in L1b rank order (as the old `worklist.order` walk did), so
+ * `rowsById` keeps rank-ordered keys; the order itself comes from the group
+ * lanes. Settling reads are harness-only. A row gone from the feed (its load
+ * never lands) is simply absent from the rows, rather than failing the
+ * snapshot.
  */
 export function snapshotPool(pool: MobxPool): SliceSnapshot {
   for (let round = 0; ; round += 1) {
     const snapshot = tracked(() => {
       const layout = pool.groups.layout
       const rowsById: SliceSnapshot['rowsById'] = {}
-      for (const id of layoutIds(layout)) {
+      for (const id of visibleOrderOf(pool)) {
         const view = rowViewOf(pool.issue(id))
         if (view === undefined) {
           pool.resident('issue', id)
