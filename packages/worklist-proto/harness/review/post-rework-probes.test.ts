@@ -21,7 +21,7 @@
 
 import { autorun } from 'mobx'
 import { describe, expect, it } from 'vitest'
-import { installMobxWarnTrap } from '../mobx-trap'
+import { installMobxWarnTrap } from '../src/mobx-trap'
 import type { MobxPool } from '../../arms/mobx/pool/pool'
 import { Residency, type Schedule } from '../../arms/mobx/pool/residency'
 import { ROW_DISPLAYED_FIELDS } from '../../shared/src/row-view'

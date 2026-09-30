@@ -22,7 +22,7 @@ import {
   validateStructure,
 } from '../../../shared/src/schema'
 import type { RowRecord } from '../../../shared/src/stats'
-import { diffRelations } from '../../../../harness/src/adapters/mobx-rebuild'
+import { diffRelations } from '../../../harness/src/adapters/mobx-rebuild'
 import { tracked } from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { MobxPool } from './pool'

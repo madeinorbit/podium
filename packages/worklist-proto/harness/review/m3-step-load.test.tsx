@@ -43,7 +43,7 @@ import {
   harnessMobxPoolArm,
   tracked,
 } from '../src/adapters/mobx-pool'
-import { installMobxWarnTrap } from '../mobx-trap'
+import { installMobxWarnTrap } from '../src/mobx-trap'
 import type { Schedule } from '../../arms/mobx/pool/residency'
 import type { CheckableArm } from '../../shared/src/arm'
 import { startScenarioEngine } from '../../shared/src/scenarios'
