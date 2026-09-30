@@ -27,14 +27,17 @@ import {
   asUserId,
   UNADDRESSABLE_SEND_REASON,
 } from '@podium/model'
+import type { EntityRecord } from '@podium/sync/replica'
 import { createElement, Profiler, act, useSyncExternalStore } from 'react'
-import { render } from '@testing-library/react'
+import { act as testingAct, render } from '@testing-library/react'
 import { createSlicePublisher } from '../viewmodels/slices/publish'
+import { worklistSlice } from '../viewmodels/slices/worklist/published'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import { asClientPrincipal } from '../principal'
 import { issueViewModelsFromReplica } from '../replica/issue-view-models'
-import { createReplica, memoryStorage, type StorageApi } from '../replica/replica'
+import { createKernelReplica, createSideCache } from '../replica/kernel'
+import { createReplica, memoryStorage, type Replica, type StorageApi } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
 import { type Router, routeDefaults, type RouterWindow, SIDEBAR_COLLAPSED_KEY, SUPERAGENT_MODE_KEY } from '../ui-state'
 import { allTabIds, leafPaneIds } from '../viewmodels'
@@ -252,6 +255,7 @@ function makeEngine(
     api?: unknown
     hub?: FakeHub
     storage?: StorageApi
+    replica?: Replica
     spawnConfirmGraceMs?: number
     workspacePruneGraceMs?: number
     draftSendDebounceMs?: number
@@ -270,7 +274,7 @@ function makeEngine(
     api: (opts.api ?? makeApi()) as PodiumClientApi,
     onFatalError: (m) => fatals.push(m),
     notices: { error: (m) => errors.push(m), info: () => {} },
-    createReplicaFn: () => createReplica({ storage: opts.storage ?? memoryStorage() }),
+    createReplicaFn: () => opts.replica ?? createReplica({ storage: opts.storage ?? memoryStorage() }),
     routerWindow: rw.win,
     createHub: () => hub as unknown as SocketHub,
     ...(opts.spawnConfirmGraceMs !== undefined
@@ -2898,6 +2902,120 @@ describe('coarse clock (POD-331)', () => {
       expect(engine.getSnapshot()).toBe(afterDispose)
     } finally {
       vi.useRealTimers()
+    }
+  })
+})
+
+describe('mounted worklist rescopes (POD-4722)', () => {
+  it('publishes every grown-scope row before synchronous readers derive, including after restart', async () => {
+    const at = '2026-09-30T12:00:00.000Z'
+    const recordsFor = (ids: string[]): EntityRecord[] => ids.flatMap((id, index) => {
+      const projection = {
+        id,
+        seq: index + 1,
+        title: id,
+        description: { value: '' },
+        stage: 'in_progress',
+        createdAt: at,
+        updatedAt: at,
+        archived: false,
+        priority: 2,
+        type: 'task',
+        intentOrigin: 'human',
+        audience: 'human',
+        isDraftVessel: false,
+      } as unknown as IssueProjection
+      const issue = {
+        ...projection,
+        description: '',
+        repoPath: KNOWN_REPO.path,
+        origin: 'human',
+        draft: false,
+        pinned: false,
+        needsHuman: false,
+        blocked: false,
+        ready: true,
+        deps: [],
+        dependents: [],
+        labels: [],
+        comments: [],
+        blockedByNotes: [],
+        readAt: null,
+      } as unknown as IssueWire
+      return [
+        { entity: 'issue', entityId: id, value: issue, provenance: { seq: 1 } },
+        { entity: 'issueProjection', entityId: id, value: projection, provenance: { seq: 1 } },
+      ]
+    })
+    let records = recordsFor(['iss_1'])
+    const replica = createKernelReplica({
+      cache: {
+        readCursor: () => ({ seq: 1 }),
+        readEntities: () => records,
+        read: (entity, entityId) => records.find((r) => r.entity === entity && r.entityId === entityId),
+        durability: () => 'durable',
+      },
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+    const { engine } = makeEngine({
+      replica,
+      coarseClock: { now: () => Date.parse(at), subscribe: () => () => {} },
+    })
+    // Start before mounting: the cache used to subscribe only at the first
+    // worklist derive, after the replica binding had already subscribed.
+    engine.start()
+    await settle()
+    const publisher = createSlicePublisher(engine.getSnapshot)
+    const read = () => publisher.read(worklistSlice)
+    const idsOf = () =>
+      read().work.flatMap((row) => row.kind === 'issue' ? [row.issue.id] : []).sort()
+    function WorklistReader() {
+      const slice = useSyncExternalStore(engine.subscribe, read)
+      return createElement(
+        'ul',
+        null,
+        slice.work.flatMap((row) => row.kind === 'issue'
+          ? [createElement('li', { key: row.issue.id }, row.issue.id)]
+          : []),
+      )
+    }
+    const root = render(createElement(WorklistReader))
+    const renderedIds = () => root.queryAllByRole('listitem').map((row) => row.textContent).sort()
+    const publications: string[][] = []
+    const off = engine.subscribe(() => publications.push(idsOf()))
+    try {
+      expect(renderedIds()).toEqual(['iss_1'])
+      for (const ids of [['iss_1', 'iss_2'], ['iss_1'], ['iss_1', 'iss_2', 'iss_3']]) {
+        publications.length = 0
+        testingAct(() => {
+          // Simulate the kernel's atomic install, then notify through the real
+          // facade. No unrelated change or healing refresh may repair the list.
+          records = recordsFor(ids)
+          replica.onKernelEvent({
+            type: 'bootstrap-installed',
+            cause: 'rescope',
+            snapshotSeq: 2,
+            entityCount: records.length,
+            bufferedFramesApplied: 0,
+          })
+        })
+        expect(engine.getSnapshot().issueProjections.map((row) => row.id)).toEqual(ids)
+        expect(publications).toEqual([ids])
+        expect(renderedIds()).toEqual(ids)
+        expect(idsOf()).toEqual(ids)
+        if (ids.length === 1) {
+          // Reversible teardown must preserve the cache's subscription order.
+          await testingAct(async () => {
+            engine.dispose()
+            engine.start()
+            await settle()
+          })
+        }
+      }
+    } finally {
+      off()
+      root.unmount()
+      engine.destroy()
     }
   })
 })

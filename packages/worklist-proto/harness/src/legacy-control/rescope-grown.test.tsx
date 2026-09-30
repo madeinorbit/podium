@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * POD-4715 — the control page's grown state holds half the rows.
+ * POD-4715 / POD-4722 — the mounted control holds every grown-scope row.
  *
  * Staged exactly as the browser page stages it (`prepareRescope` +
  * `stageScope` + `fireRescope` in `harness/web/entrylib.ts`, over
@@ -10,15 +10,12 @@
  * - `holds the full 2x visible set with the list mounted`: with the page's
  *   untimed heal (`healGrownDerivation`, for POD-4722) the mounted control
  *   reaches the full 2x visible set (1,464 rows), and its grown-state oracle
- *   equals the oracle of a pristine engine stagedidentically but never
- *   mounted (the no-op page's oracle). Fails at the tip without the heal
- *   (735 of 1,464).
- * - `pins the unhealed app behaviour (POD-4722)`: without the heal the
- *   mounted control holds 735 rows — the current app's real behaviour after
- *   a growth rescope (a synchronous legacy derive inside the facade cascade
- *   runs before the issue-view cache invalidates, and the partial list is
- *   pinned under the grown store). Asserts the real value, not it.fails;
- *   when POD-4722 is fixed this test is expected to change.
+ *   equals the oracle of a pristine engine staged identically but never
+ *   mounted (the no-op page's oracle).
+ * - Without the heal the mounted control must also hold the full visible set.
+ *   Before POD-4722, a synchronous derive inside the facade cascade ran before
+ *   issue-view cache invalidation and pinned 735 of 1,464 rows under the grown
+ *   store. This assertion guards the production fix without a healing refresh.
  */
 
 import { act } from 'react'
@@ -46,7 +43,7 @@ function canonical(value: unknown): string {
 
 /** A mounted control page at the grown state. `heal` mirrors the page's
  *  untimed `healGrownDerivation` (a discovery refresh answering the staged
- *  repos, then settled); without it the page reads the POD-4722 stale state.
+ *  repos, then settled); without it this directly guards the POD-4722 fix.
  */
 async function grownControlPage(heal: boolean): Promise<{
   ctx: ScenarioEngine
@@ -141,7 +138,7 @@ describe('control rescope grown state (POD-4715)', () => {
     }
   }, 300_000)
 
-  it('pins the unhealed app behaviour (POD-4722): 735 rows without the heal', async () => {
+  it('holds the full 2x visible set with the list mounted without the heal (POD-4722)', async () => {
     const page = await grownControlPage(false)
     try {
       const armRows = Object.keys(page.snapshot.rowsById).length
@@ -149,13 +146,11 @@ describe('control rescope grown state (POD-4715)', () => {
       console.info(
         `[4715] control grown unhealed: arm=${armRows} oracle=${oracleRows} truth=${page.truthRows}`,
       )
-      // Mid-run parity is self-referential (arm and oracle read the same
-      // store) and passes either way.
+      // Arm/oracle parity alone is self-referential: both read the same store.
+      // The independent corpus truth must also match the mounted row count.
       expect(diffSnapshots(page.snapshot, page.oracle)).toBeNull()
-      // The current app's real behaviour after a growth rescope: the stale
-      // partial list. Fails at 1,464 while POD-4722 is open.
-      expect(armRows).toBe(735)
-      expect(oracleRows).toBe(735)
+      expect(armRows).toBe(page.truthRows)
+      expect(oracleRows).toBe(page.truthRows)
     } finally {
       await page.cleanup()
     }

@@ -70,6 +70,7 @@ import { bindSwitchTraceUi } from '../perf/switch-trace'
 import { hasDomWindow } from '../platform-globals'
 import type { ClientPrincipal } from '../principal'
 import { createReadPositionClient, type ReadPositionPort } from '../read-position'
+import { initializeIssueViewCache } from '../replica/issue-view-cache'
 import type { Replica } from '../replica/replica'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { NotificationSounder } from '../sound/notification-sounds'
@@ -417,6 +418,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // the hub's first changesSince; entity hydration happens async in start().
     this.replica = init.createReplicaFn(init.principal)
     bindStoreStatsOwner(this.replica, this)
+    // Store subscribers can derive synchronously inside a replica notification.
+    // Invalidate their shared issue views before the binding publishes new rows,
+    // or a growth rescope can pin old-scope models under the new Store snapshot.
+    initializeIssueViewCache(this.replica)
     this.replicaBinding = createReplicaBinding({ replica: this.replica })
     this.visibility = init.visibility ?? domVisibility()
     this.hub = createEngineHub({

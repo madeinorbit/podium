@@ -164,6 +164,12 @@ function storeFor(replica: Replica): IssueViewsStore {
   return store
 }
 
+/** Register invalidation before the runtime's store binding can publish to
+ *  synchronous readers. This only subscribes; snapshots and models stay lazy. */
+export function initializeIssueViewCache(replica: Replica): void {
+  storeFor(replica)
+}
+
 function deriveSnapshot(
   replica: Replica,
   previous: CachedIssueViewsSnapshot | null,
