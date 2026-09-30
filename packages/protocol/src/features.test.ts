@@ -119,6 +119,12 @@ describe('FEATURES registry', () => {
           visibility: 'edge',
         },
         {
+          id: 'mobx-sidebar',
+          name: 'Sidebar MobX pilot',
+          description: 'Request the sidebar data-layer pilot on this device. Reload to apply.',
+          visibility: 'hidden',
+        },
+        {
           id: 'command-palette',
           name: 'Cmd+K search',
           description:

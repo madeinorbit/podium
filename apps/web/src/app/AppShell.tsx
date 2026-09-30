@@ -48,6 +48,7 @@ import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { onReconnect } from '@/lib/on-reconnect'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
+import { initializeSidebarDataLayer, sidebarDataLayer } from '@/lib/sidebar-data-layer'
 import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
 import { useFileDropGuard } from '@/lib/use-file-drop-guard'
@@ -448,6 +449,10 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     }),
     shallowEqual,
   )
+  // The principal-bound device-local UI collection is hydrated now. Latch the
+  // module's startup choice before mounting any worklist reader; never subscribe
+  // to this key or choose a different hook under a mounted sidebar.
+  initializeSidebarDataLayer(uiState)
   const view = useStoreSelector((s) => s.view)
   const setView = useStoreSelector((s) => s.setView)
   const sync = useSyncExternalStore(syncProgress.subscribe, syncProgress.getSnapshot)
@@ -972,7 +977,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
           data-issue-colored={effectiveHex ? 'true' : 'false'}
           style={issueStyle}
         >
-          <TopBar revealing={revealingChrome} />
+          <TopBar revealing={revealingChrome} sidebarLayer={sidebarDataLayer()} />
           <WarmSyncStatus store={syncProgress} />
           <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
             {/* The work list is persistent chrome: it stays mounted in every mode,
