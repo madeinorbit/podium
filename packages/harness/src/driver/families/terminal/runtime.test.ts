@@ -5512,6 +5512,111 @@ describe('terminal receipts from the history (POD-4905)', () => {
     ['opencode', 'TUI S1 ALPHA idle', 'TUI S5 IOTA same text twice'],
   ]
 
+  describe.each(['2.1.283', '2.1.285'])('Claude %s pasted content (POD-4982)', (version) => {
+    function measured(name: string) {
+      const suffix = version === '2.1.285' ? '-boundaries' : ''
+      const rows = readFileSync(
+        join(LANES, `../pod-4982-claude-pasted-content/claude-${version}-gate-on${suffix}.jsonl`),
+        'utf8',
+      ).trim().split('\n').map((line) => JSON.parse(line) as {
+        case: string
+        input: string
+        record: { uuid: string; message: { content: string } }
+      })
+      const row = rows.find((row) => row.case === name)
+      if (!row) throw new Error(`missing measured prompt ${version}/${name}`)
+      expect(row.record.message.content).toContain('<pasted_content id=')
+      const toItems = transcriptRecordMapperFor('claude-code')
+      if (!toItems) throw new Error('no Claude reader')
+      const items = toItems(row.record).map((item, sub) => ({
+        ...item,
+        cursor: encodeCursor({ fileId: `paste-${version}`, offset: 100, uuid: item.id, sub }),
+      }))
+      return { ...row, items }
+    }
+
+    async function pastedSession(world: World) {
+      const seed: TranscriptItem = {
+        id: 'before-paste', role: 'user', text: 'previous prompt',
+        cursor: encodeCursor({ fileId: `paste-${version}`, offset: 0, uuid: null, sub: 0 }),
+      }
+      return laneSession(world, 'claude-code', [seed], 1)
+    }
+
+    it('confirms measured pasted content mail by frame after a foreign write', async () => {
+      const world = makeWorld()
+      const row = measured('framed-mail')
+      const { handle, sessionId } = await pastedSession(world)
+      const id = 'msg_4982a'
+      let submitted = 0
+      world.onSubmit(sessionId, (text) => {
+        // Control: the real send was armed, pasted our bytes, and submitted.
+        submitted += 1
+        expect(text).toBe(row.input)
+        expect(world.host.foreignWrites?.typingMark(sessionId, id)).toBe(0)
+        // Order credit is unavailable; only this entry's own frame can prove it.
+        world.transportFor(sessionId).writeBase64(Buffer.from('x').toString('base64'))
+        post(world, sessionId, row.items)
+      })
+      const receipt = await handle.send(
+        { id, text: row.input }, { origin: 'mail', delivery: 'when-ready' },
+      )
+      expect(submitted).toBe(1)
+      expect(world.written[1]).toBe('\r')
+      expect(receipt).toMatchObject({
+        outcome: 'accepted', provenBy: 'transcript-echo',
+        transcriptItem: { id: row.record.uuid, cursor: row.items[0]?.cursor },
+      })
+      world.runtime.dispose()
+    })
+
+    it.each(['multiline-323', 'mixed-inline', 'mixed-two-pastes'])(
+      'credits measured pasted content %s by order with its original item id',
+      async (name) => {
+        const world = makeWorld()
+        const row = measured(name)
+        const { handle, sessionId } = await pastedSession(world)
+        const id = 'msg-human-paste'
+        let submitted = 0
+        world.onSubmit(sessionId, (text) => {
+          submitted += 1
+          expect(text).toBe(row.input)
+          expect(world.host.foreignWrites?.typingMark(sessionId, id)).toBe(0)
+          post(world, sessionId, row.items)
+        })
+        const receipt = await handle.send(
+          { id, text: row.input }, { origin: 'human', delivery: 'when-ready' },
+        )
+        expect(submitted).toBe(1)
+        expect(world.written[1]).toBe('\r')
+        expect(receipt).toMatchObject({
+          outcome: 'accepted', provenBy: 'transcript-echo',
+          transcriptItem: { id: row.record.uuid },
+        })
+        world.runtime.dispose()
+      },
+    )
+
+    it('gives measured pasted content no order credit after a foreign write', async () => {
+      const world = makeWorld()
+      const row = measured('multiline-323')
+      const { handle, sessionId } = await pastedSession(world)
+      let submitted = 0
+      world.onSubmit(sessionId, (text) => {
+        submitted += 1
+        expect(text).toBe(row.input)
+        world.transportFor(sessionId).writeBase64(Buffer.from('x').toString('base64'))
+        post(world, sessionId, row.items)
+      })
+      const receipt = await handle.send(
+        { id: 'msg-foreign-paste', text: row.input }, { origin: 'human', delivery: 'when-ready' },
+      )
+      expect(submitted).toBe(1)
+      expect(receipt.outcome).toBe('unverified')
+      world.runtime.dispose()
+    })
+  })
+
   describe.each(LANE_PROMPTS)('%s', (lane, idle, twice) => {
     it("confirms an idle person's message by order, naming its entry", async () => {
       const world = makeWorld()
