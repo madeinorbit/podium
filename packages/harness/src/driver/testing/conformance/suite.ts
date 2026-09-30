@@ -406,7 +406,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         expect(CORE_PRIMITIVES.length).toBeGreaterThan(0)
       })
 
-      it('claims `unverified` ONLY where the family permits it', () => {
+      it('claims `unverified` ONLY where the driver is entitled to it', () => {
         const { driver } = setup()
         // The check lives in an exported function so the "corpus has teeth"
         // tests can drive it with a dishonest driver and watch it refuse. An
@@ -889,10 +889,11 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         // outcome exists is that the old code retried an unprovable submit up to
         // twice and reported success. `unverified` must reach the caller as
         // itself — not silently upgraded to `accepted`, not downgraded to
-        // `refused` — and the driver must not have opened a turn behind it.
+        // `refused`. OpenCode v1 can start a turn while its text part remains
+        // unproven; that epoch is not receipt proof (POD-4834).
         expect(receipt.deliveredAs).toBeTruthy()
         const after = await session.snapshot()
-        expect(after.turnEpoch).toBe(0)
+        if (driver.id !== 'opencode-server') expect(after.turnEpoch).toBe(0)
         // DIRECTLY, not by inference. The epoch assertion above only refutes a
         // retry that OPENS A TURN; a terminal driver can re-type a prompt with
         // no epoch moving anywhere, which is precisely what the mechanism this
