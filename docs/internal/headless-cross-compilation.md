@@ -16,16 +16,19 @@ the compiled daemon embedded abduco and the C podium-host, because a compiled
 executable had neither `abduco.c` nor `host.c` on disk to compile at runtime, and
 both helpers were built by the host's own `cc`. So the release workflow ran
 x64 on one runner and arm64 on another, and Darwin was not published at all.
-Both helpers are gone (POD-4986): the one native helper a bundle carries now is the
-Rust podium-host, shipped as its own file `podium-host` beside `podium-cli`, not
-embedded.
+Since POD-4986 the process host is the Rust podium-host, shipped as its own file
+`podium-host` beside `podium-cli`, not embedded; the C host is gone. abduco stays
+embedded, but only as an **attach client**: nothing spawns on abduco any more, and the
+daemon keeps it solely to adopt (re-attach) the sessions an older release started on
+abduco, which a customer who upgrades keeps running.
 
-Two tools remove that constraint:
+Three tools remove that constraint:
 
 | Tool | What it does | Where it is used |
 |---|---|---|
 | `cargo zigbuild` (linking through the pinned `zig`) | cross-builds the Rust podium-host for every target from Linux | `scripts/rust-host-cross.ts` |
-| `rcodesign` | replaces Bun's linker signature with identifier `podium` + the five JIT entitlement keys; ad-hoc signs the Darwin `podium-host` | `scripts/build-bun.ts`, `scripts/rust-host-cross.ts` |
+| `zig cc` | cross-compiles `abduco.c` (the attach client) for every target from Linux | `scripts/abduco-cross.ts` |
+| `rcodesign` | replaces Bun's linker signature with identifier `podium` + the five JIT entitlement keys; ad-hoc signs the Darwin `podium-host` and abduco attach client | `scripts/build-bun.ts`, `scripts/rust-host-cross.ts`, `scripts/abduco-cross.ts` |
 
 ## The podium-host helper
 
@@ -84,6 +87,37 @@ A/B built linux-aarch64 the old native way beside the cross build and ran both o
 ARM hardware to confirm the static helper behaves like the glibc one. It passed on
 the 2026-09-21 release and was retired (POD-4789).
 
+## The abduco attach client
+
+The abduco attach client is kept only to adopt sessions started by older releases.
+`scripts/abduco-cross.ts` builds it from `packages/pty/vendor/abduco/abduco.c` — the
+same vendored source a dev machine builds on first need (`packages/pty/src/abduco-bin.ts`)
+— with the same four targets, a static musl Linux link and an ad-hoc rcodesign signature
+on Darwin. `build-bun.ts` copies the target's build to the fixed path
+`dist-bun/abduco.bin`, the compiled CLI embeds it through `scripts/embedded-abduco.ts`
+(`with { type: 'file' }`), and it materializes into `<state>/bin/abduco` on first start,
+behind the instance state claim.
+
+The cache is content-addressed on the source hash, durable and outside the checkout the
+same way as the Rust host's:
+
+```
+~/.cache/podium/abduco/<projectKey>/<platform>-<sha256(abduco.c)[0:16]>
+```
+
+`bun scripts/abduco-cross.ts --print-cache-dir` prints it, `PODIUM_ABDUCO_CACHE_DIR`
+overrides it (CI pins `dist-bun/abduco-cache`, cached on
+`hashFiles('packages/pty/vendor/abduco/abduco.c')`), and by hand:
+
+```sh
+bun scripts/abduco-cross.ts                              # all four
+bun scripts/abduco-cross.ts --platform=darwin-aarch64 --force
+```
+
+zig's Darwin libc headers omit `<util.h>`, so the build writes a small declaration shim
+for forkpty/openpty/login_tty into the cache's include dir; the x86_64 Darwin link needs
+`-Wl,-headerpad,0x8000` for the signature, as the Rust host does.
+
 ## The Darwin signature
 
 `rcodesign` contributes the entitlements, not the signature. `bun build
@@ -119,9 +153,10 @@ bun scripts/package-headless.ts --target=bun-darwin-arm64     # cross, from Linu
 ```
 
 A native `package:headless` (no `--target`, e.g. the desktop `stage-sidecar`) builds the
-Rust host with plain `cargo build` for this machine: it needs rustup and the system linker
-(rustc links through `cc`), and the host it ships is glibc-linked, not the static musl
-binary a `--target` build produces. Only `--target` builds are free of a C toolchain.
+Rust host with plain `cargo build` for this machine and the abduco attach client with the
+host's `cc`: it needs rustup and a C toolchain, and the host it ships is glibc-linked, not
+the static musl binary a `--target` build produces. `--target` builds need no C
+compiler: zig does both links.
 
 `release:prepare` is THE release entry, and the CI release job and the
 development publisher both run it — the publisher spawns `scripts/release.ts
@@ -142,11 +177,11 @@ run and can be inspected side by side. A plain host build still writes to
 `dist-bun/` exactly as before.
 
 **One target per invocation, and the builds are sequenced.** The compiled binary
-used to embed its helpers through a static `with { type: 'file' }` import of a fixed
-path (`dist-bun/abduco.bin`), so two targets building at once would race to leave the
-wrong architecture's helper there; nothing is embedded since POD-4986, but
-`prepareHeadlessCross` still walks the platforms in order and builds the client apps
-once so all four bundles pack byte-identical web assets.
+embeds the abduco attach client through a static `with { type: 'file' }` import of a
+fixed path (`dist-bun/abduco.bin`), so two targets building at once would race to leave
+the wrong architecture's client there. `prepareHeadlessCross` walks the platforms in
+order and builds the client apps once so all four bundles pack byte-identical web
+assets.
 
 ## Checking what was built
 
@@ -175,13 +210,16 @@ itself. This catches
 a stale or wrong directory being packaged, partial/corrupt copies, and bytes changed
 between build and packaging; it does **not** prove the build itself is correct, because
 a broken build can agree with its own captured identity. The tarball gate still verifies
-both sites' exact-file manifests and refuses to run without `--source-commit <sha>`, so
-an omitted input can never read as a green. It asks `file` of the shipped
-`podium-host` as well as of `podium-cli`: the right format and architecture,
-statically linked on Linux, ad-hoc signed with identifier `podium-host` and sealing
-its bytes on Darwin. A bundle without it fails, and so does one that carries a retired
-helper — a loose `abduco` or C `podium-host`, or either one's identifying strings inside
-`podium-cli` or `podium-host`.
+both sites' exact-file manifests and refuses to run without `--source-commit <sha>` and
+either `--abduco <reference>` or an explicit `--no-abduco-identity`, so an omitted input
+can never read as a green. It asks `file` of the shipped `podium-host` as well as of
+`podium-cli`: the right format and architecture, statically linked on Linux, ad-hoc
+signed with identifier `podium-host` and sealing its bytes on Darwin. The retired C host
+shares that name, so it is refused by CONTENT: its `version` printf format
+(`podium-host %s features=%d`) may appear neither inside `podium-cli` nor in
+`podium-host`. The embedded abduco attach client must be the reference build for this
+platform, verbatim, exactly once, with the other architecture's copy absent; a loose
+`abduco` or a staging `*.bin` in the bundle is refused.
 
 And a fourth script exists to check the checker:
 `prove-headless-assertions-can-fail.sh` breaks a real bundle and
@@ -193,12 +231,15 @@ check had never been exercised by anything: signing an already-signed binary
 preserves its entitlements, so the "empty entitlements" mutation had been
 mutating nothing.
 
-The cases: hello-world stub · Linux ELF as the Darwin payload · signature
-stripped · byte flipped inside the sealed region · empty entitlements · raw Bun
-output never re-signed · archive root not `headless/` · `VERSION` removed · Rust
-host removed · **the Linux Rust host in the Darwin bundle** · a loose abduco beside
-the Rust host · abduco embedded in the CLI · the C podium-host embedded in the CLI ·
-`systemd/` removed · stub `web/index.html` · `NOTICE` missing.
+The cases: hello-world stub · Linux ELF as the Darwin payload · **the Linux abduco
+embedded in the Darwin binary** · the wrong platform's abduco reference supplied ·
+signature stripped · byte flipped inside the sealed region · empty entitlements · all
+JIT entitlements false · raw Bun output never re-signed · reference abduco deleted ·
+archive root not `headless/` · `VERSION` removed · no `--abduco` flag · Rust host
+removed · **the Linux Rust host in the Darwin bundle** (when a Linux tarball is passed,
+as the release does) · a loose abduco beside the Rust host · the C podium-host embedded
+in the CLI · the C podium-host shipped as `podium-host` · `systemd/` removed · stub
+`web/index.html` · the web provenance cases · `NOTICE` missing.
 Plus a positive control, without which a gate that rejected *everything* would
 score a perfect set. The last three are the production-layout checks: a gate
 that only required what the spike happened to emit would have accepted them.
@@ -215,8 +256,9 @@ way:
   version of it originally swapped the reference helper the gate was given, so the
   gate rejected its own input and the one check the matrix collapse most threatens —
   does this bundle carry the right platform's helper? — was never exercised per
-  release at all. The Rust host case copies the Linux `podium-host` into the Darwin
-  bundle for that reason.
+  release at all. It overwrites the embedded Darwin abduco with the Linux one inside
+  the shipped binary (`scripts/embed-wrong-abduco.py`), and the Rust host case copies
+  the Linux `podium-host` into the Darwin bundle, for that reason.
 
 Every file operation in the harness is checked, and each mutated tree is deleted
 as soon as it is packed. A bundle tree is ~250 MB; keeping one per case put ~3 GB
@@ -228,8 +270,10 @@ instead of stopping.
 ### Executing what can be executed
 
 `smoke-headless-bundle.sh` runs a bundle whose platform matches the machine: the
-binary starts and agrees with the bundle's `VERSION`, and the shipped `podium-host`
-runs and hosts a detached session that outlives its starter.
+binary starts and agrees with the bundle's `VERSION`; the embedded abduco attach client
+materializes behind the instance state claim, runs, and lists a detached abduco session
+started the way an older release started one; and the shipped `podium-host` runs, is not
+the C host (`features=1`), and hosts a detached session that outlives its starter.
 The release job runs it on `linux-x86_64` **before** publishing. The published
 smoke also runs that bundle, but only after publication — which is too late to
 stop a bad one.
@@ -249,14 +293,14 @@ build-time stand-in for the JIT failure.
 Versions are pinned ONCE, in `mise.toml` at the repo root. CI installs from it
 (`jdx/mise-action`), dev machines install from it (`mise install`), and
 `resolveZig`/`resolveRcodesign` (scripts/tool-pins.ts, shared by rust-host-cross.ts,
-tunnel-cross.ts and build-bun.ts, which uses only `resolveRcodesign`)
+tunnel-cross.ts, abduco-cross.ts and build-bun.ts, which uses only `resolveRcodesign`)
 refuse a tool whose `--version` disagrees with the pin —
 `PODIUM_SKIP_TOOL_PIN_CHECK=1` waives that for deliberate experiments.
 
 | Where | Needs | How |
 |---|---|---|
 | CI release job | zig, rcodesign, cargo-zigbuild; the crate's Rust | `jdx/mise-action` reading `mise.toml`; `mise install rust` in `packages/pty/vendor/podium-host` |
-| CI published-smoke | rcodesign | same (it opens Darwin bundles it cannot execute; no helpers are rebuilt) |
+| CI published-smoke | zig, rcodesign | same (it opens Darwin bundles it cannot execute, and rebuilds the reference abduco attach clients it checks them against) |
 | The dev host (ludovico) | zig, rcodesign, cargo-zigbuild; the crate's Rust | `mise install` (root and crate); or PATH / `PODIUM_ZIG` / `PODIUM_RCODESIGN` (still pin-checked) |
 | Any release host | pigz (optional at build time) | `mise install` (conda backend), package manager, or `PODIUM_PIGZ`; falls back to gzip |
 

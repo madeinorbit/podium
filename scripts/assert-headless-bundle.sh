@@ -129,9 +129,9 @@ stray="$(echo "$listing" | awk -F/ '{print $1}' | sort -u | grep -vx 'headless' 
 [ -z "$stray" ] || fail "tarball has entries outside headless/: $stray"
 # The abduco attach client ships EMBEDDED in podium-cli and materializes on first start,
 # and the build's `.bin` staging files belong in dist-bun/, never in the bundle. A loose
-# abduco or `*.bin` is a build that packed the wrong thing. podium-host is refused by
+# abduco or `*.bin` at the bundle root is a build that packed the wrong thing. podium-host is refused by
 # CONTENT below, never by name: the Rust host and the retired C host share it.
-loose="$(grep -E '(^|/)abduco$|\.bin$' <<<"$listing" || true)"
+loose="$(grep -E '^headless/(abduco|[^/]*\.bin)$' <<<"$listing" || true)"
 [ -z "$loose" ] || fail "tarball ships a loose abduco or staging .bin: $loose"
 pass "archive root is headless/ and carries the production file set"
 

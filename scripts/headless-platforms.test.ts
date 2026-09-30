@@ -17,10 +17,10 @@ import { RUST_HOST_TARGETS, rustHostCachePath } from './rust-host-cross'
 
 /**
  * The four platform names are spoken by six things — the Rust host cache, the
- * abduco attach-client cache, the bun --compile target table, the release asset names, the manifest keys and the
- * CLI's own host derivation. These tests exist because
- * a mismatch between any two of them is invisible until a machine asks for an
- * update and is told its platform was never published.
+ * abduco attach-client cache, the bun --compile target table, the release asset
+ * names, the manifest keys and the CLI's own host derivation. These tests exist
+ * because a mismatch between any two of them is invisible until a machine asks for
+ * an update and is told its platform was never published.
  */
 describe('the headless platform set', () => {
   it('ships exactly the four platforms a release publishes', () => {

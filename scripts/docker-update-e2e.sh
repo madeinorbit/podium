@@ -1794,8 +1794,8 @@ shells_live() {
       '[$ids[] as $id|any(.[];.sessionId==$id and .status=="live")]|all' >/dev/null
 }
 # One line per running process host in the container: `<pid>\t<cmdline>`. A host is
-# `podium-host create --socket <dir>/<label>.sock …` (a C host or a `podium-host-rs` an
-# older release started matches too), and the label ends in `-<session id>`, so the
+# `podium-host create --socket <dir>/<label>.sock …` (a C host, or a Rust host an older
+# release installed under another file name, matches too), and the label ends in `-<session id>`, so the
 # socket path in the argv names the session. The host daemonizes without exec, so its
 # argv is what it was started with. Read from /proc because the clean container ships no
 # pgrep.
