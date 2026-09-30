@@ -453,6 +453,12 @@ describe('the entry is named by our id once Grok recorded the prompt', () => {
           if (step.value.t === 'delivery') return step.value
         }
       }
+      expect(await next()).toMatchObject({
+        t: 'delivery',
+        rowId: 'msg_row',
+        outcome: 'accepted',
+        held: 'memory',
+      })
       const outcome = next()
       expect(await settled(outcome)).toBe(false)
       server.streamAgentText(['on it'])
