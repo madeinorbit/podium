@@ -410,6 +410,10 @@ export function agentLoginCondition<M extends HandoffMachine>(
  * A banner/panel/chip that reads only `online` never shows for a frozen
  * daemon (measured 107 s past the grace, chip blue, no banner).
  *
+ * This describes an existing terminal, including one retained after execution
+ * was unassigned. Fleet presence must read `online` separately; new session
+ * placement rejects an unassigned daemon through `structuralRejection`.
+ *
  * Explicit `false` only: absent availability (old fixtures) means unknown,
  * not offline, so existing `online:true` fixtures keep meaning online.
  */

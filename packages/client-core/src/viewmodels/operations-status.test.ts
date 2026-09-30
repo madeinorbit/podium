@@ -101,6 +101,82 @@ describe('visibleFleetOperations', () => {
     expect(fleet.machines[1]?.load).toBeNull()
   })
 
+  it('counts a connected server-only host online without presenting execution as offline', () => {
+    const serverOnly = machine('server-only', {
+      serviceAssignment: { server: true, agentExecution: false },
+      availability: { epoch: 'test', server: true, daemon: false, supervisor: true },
+    })
+    const fleet = visibleFleetOperations({
+      machines: [serverOnly],
+      hosts: [],
+      // An answer retained from before execution was disabled cannot be ready.
+      capacityReadings: { [serverOnly.id]: { state: 'ready', value: breakdown } },
+    })
+
+    expect(fleet.onlineCount).toBe(1)
+    expect(fleet.usableCount).toBe(0)
+    expect(fleet.fleetLabel).toBe('1 of 1 visible machine online')
+    expect(fleet.machines[0]).toMatchObject({
+      online: true,
+      availability: 'incapable',
+      statusLabel: 'online · agent execution disabled',
+      capacityDetail: 'unavailable',
+      capacityLabel: 'Agent execution disabled',
+    })
+  })
+
+  it('separates supervisor presence from an assigned daemon loss and clears capacity offline on reattach', () => {
+    const assigned = machine('agent-host')
+    const readings = { [assigned.id]: { state: 'ready' as const, value: breakdown } }
+    const disconnected = visibleFleetOperations({
+      machines: [{
+        ...assigned,
+        availability: { epoch: 'test', server: false, daemon: false, supervisor: true },
+      }],
+      hosts: [],
+      capacityReadings: readings,
+      nowMs: Date.parse('2026-08-31T00:05:01.000Z'),
+    })
+
+    expect(disconnected.onlineCount).toBe(1)
+    expect(disconnected.machines[0]).toMatchObject({
+      online: true,
+      statusLabel: 'online · daemon offline',
+      capacityDetail: 'offline',
+      capacityLabel: 'Offline · sampled 5m ago',
+    })
+
+    const reattached = visibleFleetOperations({
+      machines: [assigned],
+      hosts: [],
+      capacityReadings: readings,
+    })
+    expect(reattached.machines[0]).toMatchObject({
+      online: true,
+      statusLabel: 'online',
+      capacityDetail: 'ready',
+    })
+  })
+
+  it('keeps a disconnected server-only host offline even though execution is unassigned', () => {
+    const fleet = visibleFleetOperations({
+      machines: [machine('server-only', {
+        online: false,
+        serviceAssignment: { server: true, agentExecution: false },
+        availability: { epoch: 'test', server: false, daemon: false, supervisor: false },
+      })],
+      hosts: [],
+    })
+
+    expect(fleet.onlineCount).toBe(0)
+    expect(fleet.machines[0]).toMatchObject({
+      online: false,
+      statusLabel: 'offline',
+      capacityDetail: 'offline',
+      capacityLabel: 'Offline',
+    })
+  })
+
   it('labels an old capacity answer stale with its sample time', () => {
     const owned = machine('owned')
     const fleet = visibleFleetOperations({

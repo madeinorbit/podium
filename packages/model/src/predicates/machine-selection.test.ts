@@ -5,6 +5,7 @@ import {
   agentCapabilityRejection,
   agentCapabilityRejectionForSelection,
   agentLoginCondition,
+  isMachineOfflineForLiveTerminal,
   machinesForAgent,
   machinesForRepoOrClone,
   machineByRef,
@@ -38,6 +39,32 @@ const agent = (state: 'in' | 'out' | 'unknown', installed: boolean | null = true
   login: { state },
 })
 const issue = { branch: 'issue/1-x', worktreePath: '/a/.worktrees/x' }
+
+describe('fleet presence versus session execution', () => {
+  it('refuses a connected server-only host as a session target while existing terminals remain unreachable', () => {
+    const serverOnly = {
+      id: 'server-only',
+      online: true,
+      serviceAssignment: { server: true, agentExecution: false },
+      availability: { daemon: false },
+    }
+
+    expect(agentCapabilityRejection(serverOnly, 'shell')).toBe('no-daemon')
+    // Disabling execution can leave historical sessions, whose live terminal
+    // still needs a daemon even though the supervisor is present.
+    expect(isMachineOfflineForLiveTerminal(serverOnly)).toBe(true)
+  })
+
+  it('keeps an assigned daemon offline until it reconnects to its present supervisor', () => {
+    const assigned = { id: 'agent-host', online: true, ...daemonFacts }
+    const disconnected = { ...assigned, availability: { daemon: false } }
+
+    expect(agentCapabilityRejection(disconnected, 'shell')).toBe('offline')
+    expect(isMachineOfflineForLiveTerminal(disconnected)).toBe(true)
+    expect(agentCapabilityRejection(assigned, 'shell')).toBeUndefined()
+    expect(isMachineOfflineForLiveTerminal(assigned)).toBe(false)
+  })
+})
 
 describe('agent machine capability', () => {
   const repo = {
