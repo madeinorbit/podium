@@ -482,6 +482,17 @@ export interface GenOptions {
    */
   forcePendingRemote?: boolean
   /**
+   * Start with a new working session on a visible human root followed by a
+   * heartbeat for that session. Activity-plant runs need an observable
+   * session-activity change in every seed: random heartbeats can touch only
+   * hidden rows or non-retained seats that never reach `activityAt`, so the
+   * caching plant never diverges. A fresh working session is retained (open
+   * finish) on a visible row, and its heartbeat stamps a new max, so the
+   * plant hides a visible change. Requires at least two steps (four with
+   * `forcePendingRemote`).
+   */
+  forceSessionHeartbeat?: boolean
+  /**
    * POD-4574 (Mc2) — which fields generated edits may set. Default all three.
    * The Mc2 gate uses title + mark-read only: a pending stage moves progress
    * roll-ups, which the write oracle (titles overlaid on the kernel snapshot)
@@ -1105,6 +1116,28 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
     out.push(
       { kind: 'edit', handle: edit.handle, id: issue.id, patch: { title } },
       { kind: 'remoteOnPending', handle: edit.handle, value: `Theirs ${model.mint('r')}` },
+    )
+  }
+  if (opts.forceSessionHeartbeat === true) {
+    const need = opts.forcePendingRemote === true ? 4 : 2
+    if (steps < need) {
+      throw new Error('[gen] a forced session heartbeat needs two steps (four with a pending remote)')
+    }
+    const issue = pick(
+      model.hot.map((id) => model.issues.get(id)!).filter((m) =>
+        model.present(m.id) && !m.archived && m.audience === 'human' &&
+        m.parentId === null && !m.draft && ACTIVE_STAGES.has(m.stage),
+      ),
+    )
+    if (issue === undefined) throw new Error('[gen] no visible human root for a session heartbeat')
+    const sessionId = model.mint('s-g')
+    model.sessions.set(sessionId, { id: sessionId, issueId: issue.id, phase: 'working', offer: false })
+    issue.sessions.add(sessionId)
+    model.hotSessions.push(sessionId)
+    model.allSessions.push(sessionId)
+    out.push(
+      { kind: 'newSession', sessionId, issueId: issue.id, phase: 'working' },
+      { kind: 'heartbeat', sessionId },
     )
   }
   if ((w['shapes'] ?? 0) > 0) {

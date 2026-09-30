@@ -79,6 +79,24 @@ describe('gen', () => {
     expect(() => gen(1, 200, {}, { forcePendingRemote: true, editFields: ['readAt'] })).toThrow(/title edits/)
   })
 
+  it('forces an observable session heartbeat in every requested seed', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const changes = gen(seed, 200, {}, { forceSessionHeartbeat: true })
+      expect(changes).toHaveLength(200)
+      expect(gen(seed, 200, {}, { forceSessionHeartbeat: true })).toEqual(changes)
+      expect(gen(seed, 200, {}, { forceSessionHeartbeat: false })).toEqual(gen(seed, 200))
+      const [fresh, beat] = changes
+      expect(fresh?.kind).toBe('newSession')
+      expect(beat?.kind).toBe('heartbeat')
+      if (fresh?.kind !== 'newSession' || beat?.kind !== 'heartbeat') {
+        throw new Error('missing heartbeat prefix')
+      }
+      expect(beat.sessionId).toBe(fresh.sessionId)
+      expect(fresh.phase).toBe('working')
+    }
+    expect(() => gen(1, 1, {}, { forceSessionHeartbeat: true })).toThrow(/two steps/)
+  })
+
   it('emits each audit §3.3 shape in its defining pattern', () => {
     const changes = gen(1, 3000)
     const tagged = (shape: string): Change[] => changes.filter((c) => 'shape' in c && c.shape === shape)

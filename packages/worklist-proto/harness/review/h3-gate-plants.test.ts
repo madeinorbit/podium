@@ -43,10 +43,14 @@
  * never the proof. Every plant must still be caught on at least 4 of the 5
  * seeds (asserted per plant).
  *
- * INERT RECORD. `activity` on seed 1: missed by both checks, proven inert
- * by the differential (planted and clean whole views equal at every step).
- * Reason: that sequence has no session change after a read, so the caching
- * plant never diverges. Generator coverage, filed as POD-4681.
+ * `activity` is the exception (this issue, same class as POD-5002 and
+ * POD-4741): every seed starts with a new working session on a visible human
+ * root followed by a heartbeat for that session (`forceSessionHeartbeat`),
+ * so the caching plant hides a visible `activityAt` move in every seed; the
+ * run must then be EXERCISED (the plant returned a stale value) and CAUGHT
+ * by the full-view check. An exercised seed that is not caught is a real
+ * hand blind spot. The old inert record (seeds 1-3 never fired: no session
+ * change after a read) is retired by the forced prefix.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -116,7 +120,7 @@ function diffViews(pool: HandPool, want: Map<string, RowView>): string[] {
 
 // ----------------------------------------------------------- the checks
 
-type Plant = (pool: HandPool) => void
+type Plant = (pool: HandPool, exercised?: () => void) => void
 
 /** Every resident issue's whole LIVE view, settling loads first (as the full-view check does). */
 function liveViews(handle: HarnessHandPoolHandle): Map<string, RowView> {
@@ -365,12 +369,19 @@ const PLANTS: Record<string, Plant> = {
       for (const link of engine.links.values()) if (link.spec.to === entity) link.buckets.delete(id)
     }
   },
-  activity(pool) {
+  activity(pool, exercised?: () => void) {
     const inputs = pool.inputs as { sessionActivity: (id: string) => number | null }
-    const original = inputs.sessionActivity
+    const original = inputs.sessionActivity.bind(inputs)
     const cache = new Map<string, number | null>()
     inputs.sessionActivity = (id) => {
-      if (cache.has(id)) return cache.get(id) as number | null
+      if (cache.has(id)) {
+        const cached = cache.get(id) as number | null
+        // EXERCISED only when the plant hides a change: the cached value
+        // differs from the live one. A plain cache hit with no underlying
+        // change returns what the clean arm would, so it does not count.
+        if (cached !== original(id)) exercised?.()
+        return cached
+      }
       const value = original(id)
       cache.set(id, value)
       return value
@@ -427,6 +438,52 @@ describe(`the hand gate's reach (${SEEDS.length} seeds x ${STEPS} steps, rebuild
   }, 3_600_000)
 
   for (const [name, plant] of Object.entries(PLANTS)) {
+    if (name === 'activity') {
+      // POD-5026 (same class as POD-5002 and POD-4741): every seed starts
+      // with a new working session on a visible human root plus a heartbeat
+      // for it (`forceSessionHeartbeat`), so the caching plant hides a
+      // visible `activityAt` move in every seed; the run must then be
+      // EXERCISED (a stale return) and CAUGHT by the full-view check. The
+      // stock check stays blind by design (`sliceRowOf` drops `activityAt`).
+      // An exercised seed that is not caught is a real hand blind spot.
+      it(`plant activity: forced heartbeat exercises the plant, then the full-view check catches it`, async () => {
+        const cells: {
+          seed: number
+          stockExercised: number
+          stock: Outcome
+          fullExercised: number
+          full: Outcome
+        }[] = []
+        for (const seed of SEEDS) {
+          const sequence = gen(seed, STEPS, {}, { forceSessionHeartbeat: true })
+          let stockExercised = 0
+          const stockPlant: Plant = (pool) =>
+            plant(pool, () => {
+              stockExercised += 1
+            })
+          const stock = await outcome(seed, gated(stockPlant, false), sequence)
+          let fullExercised = 0
+          const fullPlant: Plant = (pool) =>
+            plant(pool, () => {
+              fullExercised += 1
+            })
+          const full = await outcome(seed, gated(fullPlant, true), sequence)
+          cells.push({ seed, stockExercised, stock, fullExercised, full })
+        }
+        report(`[h3-gate] plant activity ${JSON.stringify(cells)}`)
+        for (const cell of cells) {
+          console.info(
+            `[plant activity] seed ${cell.seed}: stockExercised=${cell.stockExercised} stockCaught=${cell.stock.caught} fullExercised=${cell.fullExercised} fullCaught=${cell.full.caught} by=${cell.full.by} step=${cell.full.step}`,
+          )
+          expect(cell.stockExercised, `activity seed ${cell.seed}: plant was EXERCISED (stock)`).toBeGreaterThan(0)
+          expect(cell.stock.caught, `activity seed ${cell.seed}: stock stays blind by design`).toBe(false)
+          expect(cell.fullExercised, `activity seed ${cell.seed}: plant was EXERCISED (full)`).toBeGreaterThan(0)
+          expect(cell.full.caught, `activity seed ${cell.seed}: plant was caught (full)`).toBe(true)
+          expect(cell.full.by, `activity seed ${cell.seed}: caught by the full-view check`).toBe('views')
+        }
+      }, 3_600_000)
+      continue
+    }
     it(`plant ${name}: the stock checks, then the full-view check on any seed they miss`, async () => {
       const rows = []
       for (const seed of SEEDS) {
