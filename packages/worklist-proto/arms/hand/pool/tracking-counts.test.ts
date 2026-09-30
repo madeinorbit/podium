@@ -6,10 +6,11 @@
  * WHAT IS COUNTED. The pool is created on the scenario feed as the arm
  * creates it (`handPoolArm.create`, one `replace`), then a first paint of a
  * 20-row window is read. A hand census (`harness/src/hand-census.ts`) traps
- * the graph's own class, so every cell built (`CellGraph.cell`), every cell
- * body run (`CellGraph.run`) and every subscription
- * (`HandPool.subscribe…`) is seen as it happens; nothing asks the pool what
- * it built. Two checkpoints, per scale (1x, 4x):
+ * the graph's own class, so every cell built (`CellGraph.cell`) and every
+ * cell body run (`CellGraph.run`) is seen as it happens; subscriptions are
+ * read off the pool's public listener maps at each checkpoint
+ * (`hand-census.ts` says why they are not trapped). Nothing else asks the
+ * pool what it built. Two checkpoints, per scale (1x, 4x):
  *
  * - `startup`: after `create` returns (bootstrap done, nothing drawn);
  * - `firstPaint`: after the window's watchers first ran.
@@ -214,6 +215,7 @@ function paintWindow(pool: HandPool): () => void {
 /** The numbers of one checkpoint: gated counts and, apart, per-row ratios for reading. */
 function checkpoint(
   snapshot: HandCensusSnapshot,
+  pool: HandPool,
   facts: RowFacts,
 ): { counts: Record<string, number>; perVisibleRow: Record<string, number> } {
   const counts: Record<string, number> = { visibleRows: facts.visibleRows }
@@ -229,9 +231,26 @@ function checkpoint(
     if (facts.coldIssues.has(entry.id)) add('coldIssues.cells')
     if (facts.coldSessions.has(entry.id)) add('coldSessions.cells')
   }
-  for (const [kind, taken] of Object.entries(snapshot.subscriptions)) add(`subs.${kind}`, taken)
+  // Subscriptions, read off the pool's public listener maps (see
+  // `hand-census.ts`): nothing unsubscribed before a checkpoint, so taken
+  // and live agree here; both are gated.
+  const sum = (sets: ReadonlyMap<string, ReadonlySet<unknown>>): number => {
+    let total = 0
+    for (const set of sets.values()) total += set.size
+    return total
+  }
+  const subs = {
+    row: sum(pool.listeners),
+    group: sum(pool.groupListeners),
+    groups: pool.groupsListeners.size,
+    order: pool.orderListeners.size,
+    ids: pool.idsListeners.size,
+  }
   let liveSubs = 0
-  for (const taken of Object.values(snapshot.liveSubscriptions)) liveSubs += taken
+  for (const [kind, taken] of Object.entries(subs)) {
+    if (taken !== 0) counts[`subs.${kind}`] = taken
+    liveSubs += taken
+  }
   counts['subs.live'] = liveSubs
   const perRow = (key: string) => Math.round(((counts[key] ?? 0) / facts.visibleRows) * 100) / 100
   return {
@@ -254,8 +273,6 @@ function phaseCounts(snapshot: HandCensusSnapshot): Record<string, number> {
   for (const [phase, work] of Object.entries(snapshot.phases)) {
     put(`${phase}.cellsBuilt`, work.cellsBuilt)
     put(`${phase}.cellRuns`, work.cellRuns)
-    put(`${phase}.subscribed`, work.subscribed)
-    put(`${phase}.unsubscribed`, work.unsubscribed)
   }
   return counts
 }
@@ -321,12 +338,12 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
       census.snapshot().entries.length,
       'the census traps the pool’s cells from outside',
     ).toBeGreaterThan(0)
-    const startup = checkpoint(census.snapshot(), facts)
+    const startup = checkpoint(census.snapshot(), (handle as HandPoolHandle).pool, facts)
     census.enter('firstPaint')
     stopPaint = paintWindow((handle as HandPoolHandle).pool)
     census.exit()
     const final = census.snapshot()
-    const paint = checkpoint(final, facts)
+    const paint = checkpoint(final, (handle as HandPoolHandle).pool, facts)
     const phases = phaseCounts(final)
     const counts: Record<string, number> = {}
     for (const [prefix, set] of [

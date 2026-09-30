@@ -8,25 +8,25 @@
  * through `CellGraph.run` (private, reached by name as the work meter
  * reaches it), so wrapping it counts every run; every cell goes through
  * `CellGraph.dispose`, so wrapping it sees every death (a collected part, a
- * removed row, the pool's disposal). Subscriptions are wrapped the same way
- * on `HandPool.prototype` (`subscribe`, `subscribeIds`, `subscribeOrder`,
- * `subscribeGroups`, `subscribeGroup`): each call is one subscriber, each
- * returned unsubscribe ends it (once: a second call is the pool's own
- * no-op). The wraps are installed by `startHandCensus` and removed by
- * `stop`; cells built outside a census are never seen.
+ * removed row, the pool's disposal). The wraps are installed by
+ * `startHandCensus` and removed by `stop`; cells built outside a census are
+ * never seen. Subscriptions are NOT trapped: the pool's subscribe methods
+ * are instance properties, not prototype methods, so there is nothing to
+ * wrap from outside — the test reads the pool's public listener maps at each
+ * checkpoint instead (`pool.listeners`, `pool.groupListeners`,
+ * `pool.groupsListeners`, `pool.orderListeners`, `pool.idsListeners`).
  *
  * A cell's NAME is its kind and owner: `view:<id>`, `own:<id>`,
  * `member:<id>`, `rankOf:<id>`, `placement:<id>`, `activity:<id>`,
  * `rollup:<part>:<id>`, `ids:issue`. The snapshot splits each name at its
  * last colon (the part before, the id after) and reports whether the cell is
  * still live. Phases are the caller's: `enter(label)` / `exit()` keep a
- * stack, and every creation, run and subscription is charged to the label on
+ * stack, and every creation and run is charged to the label on
  * top. `handPhaseMethod` wraps a pool method as a phase from outside, as
  * `phaseMethod` does for the MobX pool.
  */
 
 import { CellGraph } from '../../arms/hand/pool/cells'
-import { HandPool } from '../../arms/hand/pool/pool'
 
 /** Work one phase did. */
 export interface HandPhaseWork {
@@ -34,10 +34,6 @@ export interface HandPhaseWork {
   cellsBuilt: number
   /** Cell bodies run (`CellGraph.run`, first runs included). */
   cellRuns: number
-  /** Subscriptions taken (row, group, groups, order and id-list watchers). */
-  subscribed: number
-  /** Subscriptions ended. */
-  unsubscribed: number
 }
 
 export interface HandCensusEntry {
@@ -55,10 +51,6 @@ export interface HandCensusEntry {
 
 export interface HandCensusSnapshot {
   readonly entries: readonly HandCensusEntry[]
-  /** Subscriptions taken, per kind (`row`, `group`, `groups`, `order`, `ids`). */
-  readonly subscriptions: Readonly<Record<string, number>>
-  /** Subscriptions still live, per kind. */
-  readonly liveSubscriptions: Readonly<Record<string, number>>
   readonly phases: Readonly<Record<string, HandPhaseWork>>
 }
 
@@ -77,7 +69,7 @@ export interface HandCensus {
 export const HAND_OUTSIDE_PHASES = '(no phase)'
 
 function emptyWork(): HandPhaseWork {
-  return { cellsBuilt: 0, cellRuns: 0, subscribed: 0, unsubscribed: 0 }
+  return { cellsBuilt: 0, cellRuns: 0 }
 }
 
 function splitName(name: string): { part: string; id: string | null } {
@@ -91,15 +83,13 @@ type AnyMethod = (...args: never[]) => unknown
 let active: HandCensus | null = null
 
 /**
- * Start a hand census. Wraps `CellGraph.cell` / `run` / `dispose` and the
- * pool's subscribe methods; every wrap is removed by `stop`.
+ * Start a hand census. Wraps `CellGraph.cell` / `run` / `dispose`; every
+ * wrap is removed by `stop`.
  */
 export function startHandCensus(): HandCensus {
   if (active !== null) throw new Error('[hand-census] a census is already running')
   const entries: HandCensusEntry[] = []
   const byCell = new Map<object, HandCensusEntry>()
-  const subscribedByKind: Record<string, number> = {}
-  const liveByKind: Record<string, number> = {}
   const phases = new Map<string, HandPhaseWork>()
   const stack: string[] = [HAND_OUTSIDE_PHASES]
   const top = (): string => stack[stack.length - 1]!
@@ -153,32 +143,6 @@ export function startHandCensus(): HandCensus {
     return gone
   })
 
-  // Every subscription, and its end (once: the pool's own double-call no-ops).
-  const watch = (method: string, kind: string): void => {
-    wrap(HandPool.prototype as unknown as object, method, (original) => {
-      const taken = (...args: never[]): unknown => {
-        const release = original(...args) as () => void
-        subscribedByKind[kind] = (subscribedByKind[kind] ?? 0) + 1
-        liveByKind[kind] = (liveByKind[kind] ?? 0) + 1
-        work(top()).subscribed += 1
-        let ended = false
-        return () => {
-          if (ended) return
-          ended = true
-          release()
-          liveByKind[kind] = (liveByKind[kind] ?? 1) - 1
-          work(top()).unsubscribed += 1
-        }
-      }
-      return taken
-    })
-  }
-  watch('subscribe', 'row')
-  watch('subscribeGroup', 'group')
-  watch('subscribeGroups', 'groups')
-  watch('subscribeOrder', 'order')
-  watch('subscribeIds', 'ids')
-
   let stopped = false
   const census: HandCensus = {
     enter(label) {
@@ -200,8 +164,6 @@ export function startHandCensus(): HandCensus {
       return {
         // Frozen: later disposals must not rewrite an earlier checkpoint.
         entries: entries.map((entry) => ({ ...entry })),
-        subscriptions: { ...subscribedByKind },
-        liveSubscriptions: { ...liveByKind },
         phases: copy,
       }
     },
