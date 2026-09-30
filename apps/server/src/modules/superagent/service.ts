@@ -135,10 +135,9 @@ export const TURN_DISPATCH_MAX_ATTEMPTS = 6
 const dispatchBackoffMs = (attempt: number): number => Math.min(30_000, 1000 * 2 ** (attempt - 1))
 
 /**
- * Grace on top of the harness timeout before the reaper calls a pending turn
- * dead. The daemon's own transport timeout is `timeoutMs + 10s`, so anything
- * still pending this long after it was written has lost its result — the server
- * restarted mid-turn, or the daemon died without reporting.
+ * Grace on top of the harness timeout before an orphaned pending turn ends
+ * unknown. Closing the result wait cannot prove whether the agent received
+ * the message or is still running it.
  */
 export const TURN_REAP_GRACE_MS = 120_000
 /** How often the reaper sweeps. Injectable for tests. */
@@ -1044,7 +1043,7 @@ export class SuperagentService {
   }
 
   /**
-   * Fail pending turns that have outlived any possible result (POD-782).
+   * End orphaned pending turns with an unknown outcome (POD-782, POD-4923).
    *
    * A pending row is the ONLY thing that keeps a thread in-flight, and its
    * result arrives over a promise held by one server process. Kill that process
@@ -1052,9 +1051,10 @@ export class SuperagentService {
    * flagged forever, the composer stays shut, and `clear`/`restart` both refuse
    * because they check the same flag. Nothing swept those rows.
    *
-   * The daemon's own transport timeout is `timeoutMs + 10s`, so a row older than
-   * the harness budget plus a grace has demonstrably lost its answer. Rows this
-   * process is actively driving are skipped — their promise is still live.
+   * A row older than the harness budget plus a grace has no result available
+   * to this process. That is not evidence that the agent never received it or
+   * will not answer later. Rows this process is actively driving are skipped —
+   * their promise is still live.
    */
   private async reapStaleTurns(): Promise<void> {
     // SINGLE-FLIGHT (POD-3258). The reaper reads the pending turns and finishes
@@ -1062,7 +1062,7 @@ export class SuperagentService {
     // are what stop a turn being reaped twice — both of which are only written
     // once `finishPendingTurn` has run. An overlapping pass reading the list
     // before that lands would see the same turn still pending and still
-    // undispatched, and would report it lost a second time to a caller who has
+    // undispatched, and would emit a second outcome notice to a caller who has
     // already been told. Skipped, not queued: staleness is measured against
     // wall-clock age, so a dropped tick reaps the same turns one interval later.
     if (this.reaping) return
@@ -1084,7 +1084,8 @@ export class SuperagentService {
       if (!Number.isFinite(age) || age < budget) continue
       await this.finishPendingTurn(pending, {
         ok: false,
-        error: 'the turn was lost — its harness never reported a result. Send it again.',
+        deliveryStatus: 'unknown',
+        error: "The turn's outcome is unknown — no result was reported within its time budget. The agent may have received the message and may still answer.",
       })
     }
   }
