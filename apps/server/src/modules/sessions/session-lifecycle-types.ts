@@ -97,7 +97,7 @@ export interface SessionLifecycleDeps {
   rejectQueuedMessage?(
     messageId: string,
     reason: string,
-    cause?: import('@podium/protocol/daemon').QueueDrainAbandonedReason,
+    cause?: import('@podium/protocol/daemon').MessageFailedCause,
   ): Promise<void>
   /** Fail every message still waiting for these sessions, with its sender's
    *  notice, inside the caller's transaction (POD-4816). `endedIssueId`: the
@@ -134,6 +134,14 @@ export interface SessionLifecycleDeps {
   /** The daemon proved late that a message it had reported unconfirmed
    *  landed (POD-4840): `unknown` → `confirmed`, nothing else moves. */
   confirmQueuedMessageLate?(messageId: string, sessionId: SessionId): Promise<void>
+  /** The daemon proved late that a message it had reported unconfirmed is not
+   *  in the agent's conversation (POD-4887): → `failed` with that cause. */
+  failQueuedMessageLate?(
+    messageId: string,
+    sessionId: SessionId,
+    reason: string,
+    cause: import('@podium/model').NotInConversationCause,
+  ): Promise<void>
   /** The agent program took the message and has not recorded it yet
    *  (POD-4886): → `accepted`, forward only, with how it holds it. */
   noteQueuedMessageAccepted?(

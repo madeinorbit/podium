@@ -27,7 +27,11 @@ import {
   mergeHarnessRefs,
   type TranscriptItemRef,
 } from '@podium/model'
-import { type QueueDrainAbandonedReason, RuntimeAttachmentRef } from '@podium/protocol/daemon'
+import {
+  type MessageFailedCause,
+  type QueueDrainAbandonedReason,
+  RuntimeAttachmentRef,
+} from '@podium/protocol/daemon'
 import {
   and,
   asc,
@@ -1202,7 +1206,7 @@ export class MessagesRepository {
   async markDeadLetter(
     id: string,
     at: string,
-    cause?: QueueDrainAbandonedReason,
+    cause?: MessageFailedCause,
     notice?: MessageRow | null,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     return await this.failWith(

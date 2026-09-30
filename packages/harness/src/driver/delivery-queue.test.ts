@@ -1077,6 +1077,174 @@ describe('late proof of an unconfirmed row (POD-4840)', () => {
   })
 })
 
+/**
+ * THE PROGRAM'S OWN "NO" (POD-4887; POD-4819 §6.1 N2b, N3, N4). A driver that
+ * proves from the program's own evidence that a typed message is not in its
+ * conversation passes the cause with `onUnrecorded`; the row ends `failed`
+ * with it — safe to resend — never `unknown`. Without one, nothing changes.
+ */
+describe("the program's own proven \"no\" (POD-4887)", () => {
+  type Unrecorded = (reason: string, proof?: 'dropped-by-agent' | 'not-recorded' | 'agent-exited') => void
+  type LateProof = (seen: { transcriptItem?: { id: string } }) => void
+  const fixture = (receipt: Record<string, unknown>) => {
+    vi.useFakeTimers()
+    const unrecorded = new Map<string, Unrecorded | undefined>()
+    const proofs = new Map<string, LateProof | undefined>()
+    let early: ((unrecorded: Unrecorded) => void) | undefined
+    const send = vi.fn(
+      async (
+        input: { text: string },
+        options?: { onUnrecorded?: Unrecorded; onLateProof?: LateProof },
+      ) => {
+        unrecorded.set(input.text, options?.onUnrecorded)
+        proofs.set(input.text, options?.onLateProof)
+        if (options?.onUnrecorded) early?.(options.onUnrecorded)
+        return { deliveredAs: 'when-ready', at: new Date().toISOString(), ...receipt }
+      },
+    )
+    const emit = vi.fn()
+    const handle = withDeliveryQueue(
+      {
+        send,
+        state: async () => ({ phase: 'idle' }),
+        lease: { state: async () => null },
+        binding: {},
+      } as unknown as AgentSessionHandle,
+      emit,
+    )
+    return {
+      handle,
+      events: () => emit.mock.calls.map(([event]) => event),
+      settlements: () =>
+        emit.mock.calls.map(([event]) => event).filter((event) => event.outcome !== 'accepted'),
+      disprove: (text: string, ...args: Parameters<Unrecorded>) => unrecorded.get(text)?.(...args),
+      prove: (text: string, seen: Parameters<LateProof>[0]) => proofs.get(text)?.(seen),
+      beforeReceipt: (act: (unrecorded: Unrecorded) => void) => {
+        early = act
+      },
+    }
+  }
+  const options = { origin: 'human', delivery: 'when-ready' } as const
+  const heldReceipt = {
+    outcome: 'accepted',
+    turnEpoch: 1,
+    provenBy: 'transcript-echo',
+    held: 'memory',
+  }
+  const unverified = { outcome: 'unverified', verificationWindowMs: 4800 }
+
+  it('fails a held row with the cause the program proved', async () => {
+    const f = fixture(heldReceipt)
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    f.disprove('a', 'dropped by a hook', 'dropped-by-agent')
+    f.disprove('a', 'the session ended before the harness recorded it')
+    expect(f.settlements()).toEqual([
+      {
+        t: 'delivery',
+        rowId: 'row',
+        outcome: 'failed',
+        reason: 'dropped by a hook',
+        cause: 'dropped-by-agent',
+      },
+    ])
+  })
+
+  it('takes a proof that came before an unverified receipt: failed, never unknown', async () => {
+    const f = fixture(unverified)
+    f.beforeReceipt((unrecorded) => unrecorded('blocked by a hook', 'dropped-by-agent'))
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.settlements()).toEqual([
+      {
+        t: 'delivery',
+        rowId: 'row',
+        outcome: 'failed',
+        reason: 'blocked by a hook',
+        cause: 'dropped-by-agent',
+      },
+    ])
+  })
+
+  it('takes a proof that came before a held receipt', async () => {
+    const f = fixture(heldReceipt)
+    f.beforeReceipt((unrecorded) => unrecorded('the program exited', 'agent-exited'))
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.settlements()).toEqual([
+      { t: 'delivery', rowId: 'row', outcome: 'failed', reason: 'the program exited', cause: 'agent-exited' },
+    ])
+  })
+
+  it('moves an unconfirmed row to a late "no" once, and nothing moves it after', async () => {
+    const f = fixture(unverified)
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    const unconfirmed = {
+      t: 'delivery',
+      rowId: 'row',
+      outcome: 'failed',
+      reason: 'delivery could not be confirmed; check the transcript before retrying',
+      cause: 'unconfirmed',
+    }
+    expect(f.settlements()).toEqual([unconfirmed])
+    f.disprove('a', 'the program exited without it', 'agent-exited')
+    const exited = { ...unconfirmed, reason: 'the program exited without it', cause: 'agent-exited' }
+    expect(f.settlements()).toEqual([unconfirmed, exited])
+    // `failed` stays final: a second "no" or a late record moves nothing.
+    f.disprove('a', 'again', 'not-recorded')
+    f.prove('a', { transcriptItem: { id: 'entry-late' } })
+    expect(f.settlements()).toEqual([unconfirmed, exited])
+    // A repeated admission replays the proven "no".
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    expect(f.events().at(-1)).toEqual(exited)
+  })
+
+  it('a "no" without proof after an unverified receipt changes nothing', async () => {
+    const f = fixture(unverified)
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    const before = f.settlements()
+    f.disprove('a', 'the watch closed')
+    expect(f.settlements()).toEqual(before)
+  })
+
+  it('never fails a durable hold, even with a proof', async () => {
+    const f = fixture({ ...heldReceipt, held: 'durable' })
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    f.disprove('a', 'the program exited', 'agent-exited')
+    expect(f.settlements()).toEqual([])
+  })
+
+  it('a row refused before typing keeps its refusal', async () => {
+    const f = fixture({ outcome: 'refused', refusal: { reason: 'staging_failed', detail: 'no upload' } })
+    await f.handle.send({ rowId: 'row', text: 'a' }, options)
+    await vi.advanceTimersByTimeAsync(0)
+    f.disprove('a', 'the program exited', 'agent-exited')
+    expect(f.settlements()).toEqual([
+      { t: 'delivery', rowId: 'row', outcome: 'failed', reason: 'no upload' },
+    ])
+  })
+
+  it("fails a direct send under its turn id only on a proof", async () => {
+    const f = fixture(unverified)
+    await f.handle.send({ id: 'msg_direct', text: 'a' }, options)
+    f.disprove('a', 'the watch closed')
+    expect(f.events()).toEqual([])
+    f.disprove('a', 'the program exited without it', 'agent-exited')
+    expect(f.events()).toEqual([
+      {
+        t: 'delivery',
+        rowId: 'msg_direct',
+        outcome: 'failed',
+        reason: 'the program exited without it',
+        cause: 'agent-exited',
+      },
+    ])
+  })
+})
+
 describe('a refusal is a proven "no" (POD-4839)', () => {
   const fixture = (refusal: { reason: string; detail?: string }) => {
     vi.useFakeTimers()

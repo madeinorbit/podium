@@ -147,6 +147,7 @@ async function send(
   const request = prompt(name, id)
   const named: { item: TranscriptItemRef; harnessRef?: HarnessRef }[] = []
   const unrecorded: string[] = []
+  const proofs: (string | undefined)[] = []
   const sent = handle.send(
     { id, text: request.prompt[0]!.text },
     {
@@ -155,13 +156,14 @@ async function send(
       onTranscriptItem: (item, harnessRef) => {
         named.push({ item, harnessRef })
       },
-      onUnrecorded: (reason) => {
+      onUnrecorded: (reason, proof) => {
         unrecorded.push(reason)
+        proofs.push(proof)
       },
     },
   )
   await expect.poll(() => w.prompts.length).toBeGreaterThan(0)
-  return { sent, named, unrecorded }
+  return { sent, named, unrecorded, proofs }
 }
 
 describe('Grok ACP confirms only from its recorded prompt', () => {
@@ -321,6 +323,9 @@ describe('Grok ACP confirms only from its recorded prompt', () => {
       for (const frame of denied) w.receive(frame)
       await result.sent
       expect(result.unrecorded).toEqual(['dropped by a Grok hook'])
+      // Grok's own record of the drop: a proven "no", safe to resend (POD-4887,
+      // POD-4819 §6.1 N2b), never `unknown`.
+      expect(result.proofs).toEqual(['dropped-by-agent'])
       expect(result.named).toEqual([])
       w.receive(denied.at(-1)!)
       expect(result.unrecorded).toHaveLength(1)

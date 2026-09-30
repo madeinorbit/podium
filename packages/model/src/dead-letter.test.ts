@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { deadLetterDeliveryLine, deadLetterSenderGloss } from './dead-letter'
+import {
+  deadLetterDeliveryLine,
+  deadLetterSenderGloss,
+  isNotInConversationCause,
+  NOT_IN_CONVERSATION_CAUSES,
+} from './dead-letter'
 
 describe('shared dead-letter wording [POD-4704]', () => {
   it('says delivery failed, never target gone, for an injected-but-unconfirmed row', () => {
@@ -28,6 +33,23 @@ describe('shared dead-letter wording [POD-4704]', () => {
     for (const cause of ['never-live', 'teardown', 'delivery-failed', null]) {
       expect(deadLetterSenderGloss(cause)).not.toMatch(/typed but/)
     }
+  })
+
+  it('words a proven "not in the conversation" as not delivered and safe to resend [POD-4887]', () => {
+    expect(deadLetterDeliveryLine('dropped-by-agent')).toBe('not delivered · the agent dropped it')
+    expect(deadLetterDeliveryLine('not-recorded')).toBe(
+      'not delivered · the agent did not record it',
+    )
+    expect(deadLetterDeliveryLine('agent-exited')).toBe(
+      'not delivered · the agent exited without it',
+    )
+    for (const cause of NOT_IN_CONVERSATION_CAUSES) {
+      expect(isNotInConversationCause(cause)).toBe(true)
+      expect(deadLetterSenderGloss(cause)).toContain('not in its conversation, safe to resend')
+      expect(deadLetterSenderGloss(cause)).not.toMatch(/target (was )?gone|never typed/)
+    }
+    expect(isNotInConversationCause('unconfirmed')).toBe(false)
+    expect(isNotInConversationCause(undefined)).toBe(false)
   })
 
   it('keeps teardown worded as before', () => {
