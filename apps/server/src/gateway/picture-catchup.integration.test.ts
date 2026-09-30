@@ -48,7 +48,9 @@ async function connectViewer(
   cookieHeader: string,
   sessionId: SessionId,
 ): Promise<Viewer> {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/client?cap=sync.http.v1`, { headers: { Cookie: cookieHeader } })
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/client?cap=sync.http.v1`, {
+    headers: { Cookie: cookieHeader },
+  })
   const payloads: string[] = []
   const json: ServerMessage[] = []
   ws.on('message', (raw, isBinary) => {
@@ -79,7 +81,8 @@ async function connectViewer(
   await until(
     () => json.some((m) => m.type === 'attached' && m.sessionId === sessionId),
     10_000,
-    () => `no attached; got ${JSON.stringify(json.map((m) => ('outcome' in m ? `${m.type}:${m.outcome}` : m.type)))}`,
+    () =>
+      `no attached; got ${JSON.stringify(json.map((m) => ('outcome' in m ? `${m.type}:${m.outcome}` : m.type)))}`,
   )
   return { ws, payloads, json, text: () => payloads.join('') }
 }
@@ -133,7 +136,10 @@ describe('viewer catch-up through a real server', () => {
     handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     machineId = handle.registry.modules.machines.hostMachineId
     cookieHeader = (
-      await loginTestClient({ origin: `http://127.0.0.1:${handle.port}`, password: CLIENT_PASSWORD })
+      await loginTestClient({
+        origin: `http://127.0.0.1:${handle.port}`,
+        password: CLIENT_PASSWORD,
+      })
     ).cookieHeader
     await attachHostDaemon(handle.registry, (msg: ControlMessage) => {
       toDaemon.push(msg)

@@ -22,13 +22,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import {
-  mkdtempSync,
-  readFileSync,
-  readlinkSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -149,7 +143,8 @@ async function viewer(port: number, cookie: string, sessionId: SessionId) {
     if (msg.type === 'attached' && msg.sessionId === sessionId) {
       screen = new TerminalScreen({ cols: msg.geometry.cols, rows: msg.geometry.rows })
     }
-    if (msg.type === 'geometry' && msg.sessionId === sessionId) screen?.setAppliedSize(msg.cols, msg.rows)
+    if (msg.type === 'geometry' && msg.sessionId === sessionId)
+      screen?.setAppliedSize(msg.cols, msg.rows)
   })
   await new Promise<void>((resolve, reject) => {
     ws.once('open', () => resolve())
@@ -174,7 +169,11 @@ async function viewer(port: number, cookie: string, sessionId: SessionId) {
     () =>
       `never attached: ${JSON.stringify(
         events.map((e) =>
-          e.kind === 'bytes' ? 'bytes' : 'outcome' in e.msg ? `${e.msg.type}:${e.msg.outcome}` : e.msg.type,
+          e.kind === 'bytes'
+            ? 'bytes'
+            : 'outcome' in e.msg
+              ? `${e.msg.type}:${e.msg.outcome}`
+              : e.msg.type,
         ),
       )}`,
   )
@@ -191,7 +190,9 @@ async function viewer(port: number, cookie: string, sessionId: SessionId) {
     payloads: () => events.flatMap((e) => (e.kind === 'bytes' ? [e.data] : [])),
     /** Pictures this viewer was served: payloads that start with RIS. */
     pictures: () =>
-      events.flatMap((e, i) => (e.kind === 'bytes' && e.data[0] === 0x1b && e.data[1] === 0x63 ? [i] : [])),
+      events.flatMap((e, i) =>
+        e.kind === 'bytes' && e.data[0] === 0x1b && e.data[1] === 0x63 ? [i] : [],
+      ),
     async text(): Promise<string> {
       await screen?.flush()
       return trimmed(screen?.lines(false) ?? [])
@@ -505,7 +506,10 @@ describe.skipIf(RUST_HOST === undefined)('viewer catch-up from host pictures (re
         () => 'C host never completed its live paint',
       )
       first.close()
-      await until(() => sessionOf(sid).terminal.controllerId === null, () => 'first viewer never detached')
+      await until(
+        () => sessionOf(sid).terminal.controllerId === null,
+        () => 'first viewer never detached',
+      )
       const v = await viewer(port, cookie, sid)
       await new Promise((r) => setTimeout(r, 100))
       expect(v.payloads()).toEqual([])

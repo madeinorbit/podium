@@ -84,7 +84,8 @@ function world(opts: { accepted: boolean }) {
       order.push(m.type)
     },
     outputScheduler: {
-      enqueue: (_id: unknown, data: Uint8Array) => scheduled.push(`data:${Buffer.from(data).toString('latin1')}`),
+      enqueue: (_id: unknown, data: Uint8Array) =>
+        scheduled.push(`data:${Buffer.from(data).toString('latin1')}`),
       enqueuePicture: (_id: unknown, p: AgentPicture) =>
         scheduled.push(`picture:${p.reason}:${Buffer.from(p.bytes).toString('latin1')}`),
       flushNow: vi.fn(),
@@ -93,13 +94,15 @@ function world(opts: { accepted: boolean }) {
       priorityOf: () => 1,
     },
     observers: {
-      onFrame: (_id: unknown, data: Uint8Array) => observed.push(Buffer.from(data).toString('latin1')),
+      onFrame: (_id: unknown, data: Uint8Array) =>
+        observed.push(Buffer.from(data).toString('latin1')),
       onResize: () => {},
       clearSession: () => {},
     },
     composerEngine: {
       has: () => true,
-      onData: (_id: unknown, data: Uint8Array) => composed.push(Buffer.from(data).toString('latin1')),
+      onData: (_id: unknown, data: Uint8Array) =>
+        composed.push(Buffer.from(data).toString('latin1')),
       onResize: () => {},
       detach: () => {},
     },
@@ -207,7 +210,10 @@ describe('bind and request', () => {
 })
 
 describe('a redraw on a picture session', () => {
-  it.each(['normal', 'alternate'] as const)('a C host on a picture-capable link gets no %s replay or snapshot', async (mode) => {
+  it.each([
+    'normal',
+    'alternate',
+  ] as const)('a C host on a picture-capable link gets no %s replay or snapshot', async (mode) => {
     const w = world({ accepted: true })
     const host = hostAttachment({ screen: false, atTail: true })
     wireBridge(w.ctx, SESSION, host.attachment, 'claude-code', 'label')
@@ -226,7 +232,12 @@ describe('a redraw on a picture session', () => {
     const w = world({ accepted: true })
     const host = hostAttachment({ screen: false, atTail: true })
     wireBridge(w.ctx, SESSION, host.attachment, 'claude-code', 'label')
-    sessionHandlers.redraw(w.ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true, hard: true })
+    sessionHandlers.redraw(w.ctx, {
+      type: 'redraw',
+      sessionId: SESSION,
+      replayRequired: true,
+      hard: true,
+    })
     expect(host.raw.writeBytes).toHaveBeenCalledOnce()
     expect([...(host.raw.writeBytes.mock.calls[0]?.[0] as Uint8Array)]).toEqual([0x0c])
     expect(host.raw.replay).not.toHaveBeenCalled()

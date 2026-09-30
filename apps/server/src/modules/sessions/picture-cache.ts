@@ -132,7 +132,11 @@ export class PictureCache {
       seq = chunk.seq
     }
     reader.pos += bytes
-    return { kind: 'bytes', seq, bytes: parts.length === 1 ? (parts[0] as Buffer) : Buffer.concat(parts, bytes) }
+    return {
+      kind: 'bytes',
+      seq,
+      bytes: parts.length === 1 ? (parts[0] as Buffer) : Buffer.concat(parts, bytes),
+    }
   }
 
   /**

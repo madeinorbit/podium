@@ -117,7 +117,10 @@ const attachedOf = (v: Viewer) =>
   v.sent.find((m): m is Extract<ServerMessage, { type: 'attached' }> => m.type === 'attached')
 
 describe('picture-only catch-up (SPEC v4 B3, H6 accept)', () => {
-  it.each(['normal', 'alternate'] as const)('a session without pictures attaches to live %s bytes only and never asks for a repaint', (mode) => {
+  it.each([
+    'normal',
+    'alternate',
+  ] as const)('a session without pictures attaches to live %s bytes only and never asks for a repaint', (mode) => {
     const { t, toDaemon } = terminal()
     t.setPictures(false)
     t.acceptOutput(bytes(`${mode === 'alternate' ? '\x1b[?1049h' : ''}HISTORY`), 1)
@@ -456,7 +459,9 @@ describe('bounds: the tail cap, the detach, the stale-owed nudge', () => {
     t.attachClient(v)
     expect(redraws(toDaemon)).toEqual([])
     vi.advanceTimersByTime(1000)
-    expect(redraws(toDaemon)).toEqual([{ type: 'redraw', sessionId: SESSION, replayRequired: true }])
+    expect(redraws(toDaemon)).toEqual([
+      { type: 'redraw', sessionId: SESSION, replayRequired: true },
+    ])
     vi.advanceTimersByTime(500)
     expect(redraws(toDaemon)).toHaveLength(1)
     vi.advanceTimersByTime(500)
