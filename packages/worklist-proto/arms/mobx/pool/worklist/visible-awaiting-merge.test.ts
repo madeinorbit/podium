@@ -84,13 +84,13 @@ function mergeChild(ctx: ScenarioEngine, parentId: string, id: string, closedMsA
     upsert(ctx, 'issue', id, {
       ...wire,
       ...common,
-      seq: (wire['seq'] as number) + 0.5,
+      seq: ctx.corpus.issues.length + 901,
       title: `Synthetic awaiting-merge child ${id}`,
     })
     upsert(ctx, 'issueProjection', id, {
       ...projection,
       ...common,
-      seq: (projection['seq'] as number) ?? (wire['seq'] as number) + 0.5,
+      seq: ctx.corpus.issues.length + 901,
       title: `Synthetic awaiting-merge child ${id}`,
     })
   })
