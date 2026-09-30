@@ -69,6 +69,7 @@ describe('sidebar measurement boundary', () => {
       done()
     })
     fireEvent.keyDown(screen.getByText('Row'), { key: 'Enter' })
+    fireEvent.click(screen.getByText('Row'), { detail: 0 })
     at = 300
     paints.splice(0).forEach((done) => {
       done()
