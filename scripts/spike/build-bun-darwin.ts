@@ -174,13 +174,9 @@ function main(): void {
   }
 
   const tarball = `${out}/podium-headless-spike-${platformDir(target)}.tar.gz`
-  execFileSync(
-    'tar',
-    ['-czf', tarball, '-C', out, 'headless', 'podium', 'podium.unsigned'],
-    {
-      stdio: 'inherit',
-    },
-  )
+  execFileSync('tar', ['-czf', tarball, '-C', out, 'headless', 'podium', 'podium.unsigned'], {
+    stdio: 'inherit',
+  })
 
   console.log(`[spike] binary  -> ${signed}`)
   console.log(`[spike] unsigned copy -> ${unsigned}`)

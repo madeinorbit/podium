@@ -12,13 +12,14 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { addSink, type LogRecord } from '@podium/logger'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   ensureSourceRustHost,
   HOST_FEATURES,
   hostBinFeatures,
-  resolveHostBin,
   RUST_HOST_BINARY,
+  resolveHostBin,
   sourceRustHostCacheDir,
   vendoredRustHostSourceHash,
 } from './host-bin.js'
@@ -54,6 +55,24 @@ function fakeForeign(path: string): string {
   return path
 }
 
+/** Every log record `level` emits from here on, as one searchable text. */
+function captureLogs(level: 'warn' | 'error'): { text: () => string } {
+  const records: LogRecord[] = []
+  const restore = addSink({ name: `host-bin-test-${level}`, write: (r) => records.push(r) })
+  restores.push(restore)
+  return {
+    text: () =>
+      records
+        .filter((r) => r.level === level)
+        .map((r) => r.msg)
+        .join('\n'),
+  }
+}
+const restores: Array<() => void> = []
+afterEach(() => {
+  for (const restore of restores.splice(0)) restore()
+})
+
 const ENV_KEYS = [
   'PODIUM_STATE_DIR',
   'PODIUM_HOST_BIN',
@@ -82,7 +101,6 @@ function useScratchEnv(): { root: () => string } {
       else process.env[key] = value
     }
     resolveHostBin({ fresh: true })
-    vi.restoreAllMocks()
     rmSync(root, { recursive: true, force: true })
   })
   return { root: () => root }
@@ -91,7 +109,10 @@ function useScratchEnv(): { root: () => string } {
 /** Publish a fake host where the source rung looks for the vendored crate's build. */
 function publishSourceHost(features: number): string {
   const hash = vendoredRustHostSourceHash() as string
-  return fakeHost(join(sourceRustHostCacheDir() as string, hash.slice(0, 16), RUST_HOST_BINARY), features)
+  return fakeHost(
+    join(sourceRustHostCacheDir() as string, hash.slice(0, 16), RUST_HOST_BINARY),
+    features,
+  )
 }
 
 describe('Rust host resolution (POD-4986)', () => {
@@ -126,10 +147,10 @@ describe('Rust host resolution (POD-4986)', () => {
   it('refuses an explicit C host (feature 1) with no fallback', () => {
     fakeHost(payload(), 2)
     publishSourceHost(2)
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = captureLogs('error')
     process.env.PODIUM_HOST_BIN = fakeHost(join(root(), 'explicit-c'), 1)
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
-    expect(error.mock.calls.flat().join('\n')).toMatch(/feature level 2\. Refusing to fall back/)
+    expect(error.text()).toMatch(/feature level 2\. Refusing to fall back/)
   })
 
   it('honors an explicit Rust host', () => {
@@ -139,7 +160,6 @@ describe('Rust host resolution (POD-4986)', () => {
 
   it('does not hide an invalid explicit override behind the shipped host', () => {
     fakeHost(payload(), 2)
-    vi.spyOn(console, 'error').mockImplementation(() => {})
     process.env.PODIUM_HOST_BIN = join(root(), 'missing')
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
     process.env.PODIUM_HOST_BIN = fakeForeign(join(root(), 'foreign'))
@@ -149,10 +169,9 @@ describe('Rust host resolution (POD-4986)', () => {
 
   it('fails LOUDLY when there is no payload host and nothing can build one', () => {
     process.env.PATH = join(root(), 'empty-path')
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const error = captureLogs('error')
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
-    const said = error.mock.calls.flat().join('\n')
+    const said = error.text()
     expect(said).toContain(`${payload()} does not exist`)
     expect(said).toMatch(/neither rustup nor cargo runs here/)
     expect(said).toMatch(/refuses to start sessions/)
@@ -160,15 +179,14 @@ describe('Rust host resolution (POD-4986)', () => {
 
   it('fails loudly when the build cache cannot be created', () => {
     process.env.PODIUM_RUST_HOST_BUILD_DIR = '/proc/self/no-such-dir/build'
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = captureLogs('error')
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
-    expect(error.mock.calls.flat().join('\n')).toMatch(/cannot create \/proc\/self\/no-such-dir\/build/)
+    expect(error.text()).toMatch(/cannot create \/proc\/self\/no-such-dir\/build/)
   })
 
   it('memoizes; { fresh: true } re-resolves', () => {
     const first = fakeHost(payload(), 2)
     expect(resolveHostBin({ fresh: true })).toBe(first)
-    vi.spyOn(console, 'error').mockImplementation(() => {})
     process.env.PODIUM_HOST_BIN = join(root(), 'missing')
     expect(resolveHostBin()).toBe(first)
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
@@ -214,7 +232,6 @@ describe('the source build (fake crate, fake cargo)', () => {
 
   it('builds once, publishes by source hash, then reuses', () => {
     const { crate, log } = fakeToolchain()
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const hash = vendoredRustHostSourceHash(crate) as string
     const dir = join(root(), 'build', hash.slice(0, 16))
     expect(ensureSourceRustHost(crate)).toEqual({ bin: join(dir, RUST_HOST_BINARY), built: true })
@@ -229,7 +246,6 @@ describe('the source build (fake crate, fake cargo)', () => {
 
   it('a source change builds again, under the new hash', () => {
     const { crate, log } = fakeToolchain()
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const first = ensureSourceRustHost(crate)
     writeFileSync(join(crate, 'src', 'main.rs'), 'fn main() { /* changed */ }\n')
     const second = ensureSourceRustHost(crate)
@@ -240,7 +256,6 @@ describe('the source build (fake crate, fake cargo)', () => {
 
   it('a published binary that is not a feature-2 host is rebuilt', () => {
     const { crate, log } = fakeToolchain()
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const first = ensureSourceRustHost(crate)?.bin as string
     fakeForeign(first)
     expect(ensureSourceRustHost(crate)?.built).toBe(true)
@@ -251,7 +266,10 @@ describe('the source build (fake crate, fake cargo)', () => {
   it('concurrent builders serialize — exactly one builds, both get the binary', async () => {
     const { crate, log } = fakeToolchain()
     const body = `const r = A.ensureSourceRustHost(${JSON.stringify(crate)}); console.log(JSON.stringify(r ?? null))`
-    const dirs = [mkdtempSync(join(PKG_ROOT, '.host-child-')), mkdtempSync(join(PKG_ROOT, '.host-child-'))]
+    const dirs = [
+      mkdtempSync(join(PKG_ROOT, '.host-child-')),
+      mkdtempSync(join(PKG_ROOT, '.host-child-')),
+    ]
     try {
       const results = await Promise.all(
         dirs.map(
@@ -276,7 +294,12 @@ describe('the source build (fake crate, fake cargo)', () => {
             }),
         ),
       )
-      const bin = join(root(), 'build', (vendoredRustHostSourceHash(crate) as string).slice(0, 16), RUST_HOST_BINARY)
+      const bin = join(
+        root(),
+        'build',
+        (vendoredRustHostSourceHash(crate) as string).slice(0, 16),
+        RUST_HOST_BINARY,
+      )
       expect(results.every((r) => r?.bin === bin)).toBe(true)
       expect(results.filter((r) => r?.built === true)).toHaveLength(1)
       expect(builds(log)).toBe(1)
@@ -287,15 +310,21 @@ describe('the source build (fake crate, fake cargo)', () => {
 
   it('a failing build says why and publishes nothing', () => {
     const { crate } = fakeToolchain()
-    writeFileSync(join(root(), 'bin', 'cargo'), '#!/bin/sh\n[ "$1" = "--version" ] && exit 0\necho "error[E0000]: boom" >&2\nexit 101\n')
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    writeFileSync(
+      join(root(), 'bin', 'cargo'),
+      '#!/bin/sh\n[ "$1" = "--version" ] && exit 0\necho "error[E0000]: boom" >&2\nexit 101\n',
+    )
+    const error = captureLogs('error')
     expect(ensureSourceRustHost(crate)).toBeUndefined()
-    expect(existsSync(join(root(), 'build', (vendoredRustHostSourceHash(crate) as string).slice(0, 16)))).toBe(false)
+    expect(
+      existsSync(join(root(), 'build', (vendoredRustHostSourceHash(crate) as string).slice(0, 16))),
+    ).toBe(false)
     // resolveHostBin reports the vendored crate's failure the same way.
     process.env.PODIUM_RUST_HOST_BUILD_DIR = join(root(), 'build2')
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
-    expect(error.mock.calls.flat().join('\n')).toMatch(/the source build failed: cargo build --release --locked failed:\nerror\[E0000\]: boom/)
+    expect(error.text()).toMatch(
+      /the source build failed: cargo build --release --locked failed:\nerror\[E0000\]: boom/,
+    )
   })
 })
 

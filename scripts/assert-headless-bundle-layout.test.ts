@@ -26,14 +26,14 @@ import { delimiter, dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  beginFreshClientPackagingSession,
+  type FreshClientPackagingSession,
+  packageHeadlessForFreshClients,
+} from './build-bun'
+import {
   assertNoCallerSuppliedClientRootDigest,
   clientBuildRootDigest,
 } from './client-build-root-digest'
-import {
-  beginFreshClientPackagingSession,
-  packageHeadlessForFreshClients,
-  type FreshClientPackagingSession,
-} from './build-bun'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 
@@ -225,19 +225,21 @@ describe('assert-headless-bundle production layout', () => {
     expect(failLine).toMatch(/podium-host-rs.*not executable/)
   })
 
-  it.each(['abduco', 'podium-host', 'abduco.bin', 'podium-host.bin'])(
-    'refuses a bundle that ships the retired %s helper beside the Rust host',
-    (helper) => {
-      const root = scratch()
-      const headless = join(root, 'headless')
-      writeProductionTree(headless)
-      writeFileSync(join(headless, helper), '#!/bin/sh\necho retired\n')
-      chmodSync(join(headless, helper), 0o755)
-      const { status, failLine } = runGate(pack(root))
-      expect(status).not.toBe(0)
-      expect(failLine).toMatch(/ships a retired abduco\/C podium-host helper/)
-    },
-  )
+  it.each([
+    'abduco',
+    'podium-host',
+    'abduco.bin',
+    'podium-host.bin',
+  ])('refuses a bundle that ships the retired %s helper beside the Rust host', (helper) => {
+    const root = scratch()
+    const headless = join(root, 'headless')
+    writeProductionTree(headless)
+    writeFileSync(join(headless, helper), '#!/bin/sh\necho retired\n')
+    chmodSync(join(headless, helper), 0o755)
+    const { status, failLine } = runGate(pack(root))
+    expect(status).not.toBe(0)
+    expect(failLine).toMatch(/ships a retired abduco\/C podium-host helper/)
+  })
 
   it('refuses an empty client inventory consistently with the shipped-bytes verifier', () => {
     const clients = scratch()
@@ -483,13 +485,7 @@ describe('assert-headless-bundle production layout', () => {
     const tarball = pack(root)
     const result = spawnSync(
       'bash',
-      [
-        'scripts/assert-headless-bundle.sh',
-        tarball,
-        'linux-x86_64',
-        '--source-commit',
-        'fffffff',
-      ],
+      ['scripts/assert-headless-bundle.sh', tarball, 'linux-x86_64', '--source-commit', 'fffffff'],
       { encoding: 'utf8', cwd: repoRoot },
     )
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`

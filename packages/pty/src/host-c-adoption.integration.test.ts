@@ -23,7 +23,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createDurableProcess } from './durable-process.js'
-import { type HostDurableAttachment, hostCreateArgs, hostSocketDir, hostSocketPath } from './host.js'
+import {
+  type HostDurableAttachment,
+  hostCreateArgs,
+  hostSocketDir,
+  hostSocketPath,
+} from './host.js'
 import { hostBinFeatures, resolveHostBin } from './host-bin.js'
 
 const C_HOST = process.env.PODIUM_TEST_C_HOST_BIN
@@ -46,7 +51,12 @@ describe.skipIf(!haveCHost)('a running C host is adopted, never spawned (POD-498
   beforeAll(() => {
     // A private SHORT socket root: never the live hosts under the runtime dir.
     root = mkdtempSync(join(tmpdir().length < 20 ? tmpdir() : '/tmp', 'pc-'))
-    for (const k of ['PODIUM_STATE_DIR', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_NO_SCOPE', 'PODIUM_HOST_BIN']) {
+    for (const k of [
+      'PODIUM_STATE_DIR',
+      'PODIUM_HOST_SOCKET_DIR',
+      'PODIUM_NO_SCOPE',
+      'PODIUM_HOST_BIN',
+    ]) {
       saved[k] = process.env[k]
     }
     process.env.PODIUM_STATE_DIR = join(root, 'st')
@@ -77,7 +87,13 @@ describe.skipIf(!haveCHost)('a running C host is adopted, never spawned (POD-498
   function createOnCHost(label: string): void {
     const r = spawnSync(
       C_HOST as string,
-      hostCreateArgs({ socketPath: hostSocketPath(label), cwd: root, cmd: '/bin/cat', cols: 90, rows: 30 }),
+      hostCreateArgs({
+        socketPath: hostSocketPath(label),
+        cwd: root,
+        cmd: '/bin/cat',
+        cols: 90,
+        rows: 30,
+      }),
       { encoding: 'utf8', env: process.env },
     )
     expect(r.status, r.stderr).toBe(0)
@@ -121,7 +137,10 @@ describe.skipIf(!haveCHost)('a running C host is adopted, never spawned (POD-498
     }
 
     await durable.kill(label)
-    await waitFor(() => !existsSync(hostSocketPath(label)), 'the C host to exit and unlink its socket')
+    await waitFor(
+      () => !existsSync(hostSocketPath(label)),
+      'the C host to exit and unlink its socket',
+    )
     expect(await durable.has(label)).toBe(false)
   }, 30_000)
 

@@ -25,18 +25,15 @@ export function directPtyDurableForTests(): DurableProcess {
     if (opts.cols === undefined || opts.rows === undefined) {
       throw new Error(`${NOT_DURABLE}: a pty spawn needs geometry (label '${opts.label}')`)
     }
-    const session = spawnAgent(
-      {
-        cmd: opts.cmd,
-        cols: opts.cols,
-        rows: opts.rows,
-        ...(opts.args ? { args: opts.args } : {}),
-        ...(opts.cwd ? { cwd: opts.cwd } : {}),
-        ...(opts.env ? { env: opts.env } : {}),
-        ...(opts.stripEnv ? { stripEnv: opts.stripEnv } : {}),
-      },
-      ...(opts.backend ? [opts.backend] : []),
-    )
+    const session = spawnAgent({
+      cmd: opts.cmd,
+      cols: opts.cols,
+      rows: opts.rows,
+      ...(opts.args ? { args: opts.args } : {}),
+      ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      ...(opts.env ? { env: opts.env } : {}),
+      ...(opts.stripEnv ? { stripEnv: opts.stripEnv } : {}),
+    })
     live.set(opts.label, session)
     session.onExit(() => {
       if (live.get(opts.label) === session) live.delete(opts.label)

@@ -9,27 +9,28 @@
  * Run by `codex-socket-removed.integration.test.ts` as
  * `<bun> --conditions=@podium/source <this file>` with GEN1_* env set.
  */
+
+import { manifestFor } from '@podium/harness'
 import {
+  type CodexJournalEntry,
   codexEngineFacts,
   createCodexEngineHost,
-  type CodexJournalEntry,
 } from '@podium/harness/driver/host'
-import { createDurableProcess } from '@podium/process/durable'
-import { manifestFor } from '@podium/harness'
 import type { SessionId } from '@podium/model'
+import { createDurableProcess } from '@podium/process/durable'
 import { stageRuntimeAttachment } from '../runtime/attachment-staging.js'
 import { composeEngineEnv, dialEngineSocket, engineSocketRoot } from '../runtime/host.js'
+import { SERVER_GRACEFUL_EXIT_MS } from '../runtime/server-teardown-budget.js'
 import { createSessionEngineScope } from '../session/engines.js'
 import { SessionRegistry } from '../session/registry.js'
-import { SERVER_GRACEFUL_EXIT_MS } from '../runtime/server-teardown-budget.js'
 
 const sessionId = process.env.GEN1_SESSION as SessionId
 const workdir = process.env.GEN1_WORKDIR as string
 const facts = codexEngineFacts(manifestFor('codex')!)
-const sessionEngines = createSessionEngineScope(
-  createDurableProcess(),
-  { sessions: new SessionRegistry(), socketRoot: engineSocketRoot },
-)
+const sessionEngines = createSessionEngineScope(createDurableProcess(), {
+  sessions: new SessionRegistry(),
+  socketRoot: engineSocketRoot,
+})
 const host = createCodexEngineHost({
   facts,
   engines: sessionEngines.ownerFor<CodexJournalEntry>(facts.journalNamespace),

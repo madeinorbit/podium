@@ -2106,7 +2106,7 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
       serverUrl: `ws://localhost:${port}`,
       machineToken: 'test',
       agentRelay: { port: 0 },
-      backend: 'host',
+      backend: 'host' as const,
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind: unknown, opts: { cwd: string }) => ({
         cmd: process.execPath,

@@ -1,9 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:net'
 import { join } from 'node:path'
+import { asSessionId } from '@podium/model'
 import { durableInstanceComponent, durableSessionLabel } from '@podium/runtime/instance'
 import { unixSocketPathFits } from '@podium/runtime/unix-socket'
-import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { hostSocketDir, hostSocketPath, liveHostSocket } from './host.js'
 
@@ -16,7 +16,10 @@ import { hostSocketDir, hostSocketPath, liveHostSocket } from './host.js'
  */
 describe('the host socket directory of a named instance', () => {
   const RUNTIME = '/run/user/1000'
-  const env = (instance: string): NodeJS.ProcessEnv => ({ PODIUM_INSTANCE: instance, XDG_RUNTIME_DIR: RUNTIME })
+  const env = (instance: string): NodeJS.ProcessEnv => ({
+    PODIUM_INSTANCE: instance,
+    XDG_RUNTIME_DIR: RUNTIME,
+  })
   const savedRuntime = process.env.XDG_RUNTIME_DIR
   let root = ''
   let server: Server | undefined

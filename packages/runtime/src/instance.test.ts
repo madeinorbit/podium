@@ -5,11 +5,11 @@ import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   applyInstanceRuntimeEnv,
-  assertLinuxUnixSocketPath,
   assertInstanceStateIdentity,
+  assertLinuxUnixSocketPath,
   DEFAULT_INSTANCE_ID,
-  defaultInstancePorts,
   DURABLE_INSTANCE_COMPONENT_BYTES,
+  defaultInstancePorts,
   durableInstanceComponent,
   durableSessionLabel,
   ensureInstanceStateIdentity,
@@ -110,7 +110,9 @@ describe('Unix socket byte budget', () => {
     // Budgeted for the retired abduco socket; changing it now would rename every
     // named instance's durable labels and orphan their running hosts (POD-4986).
     expect(DURABLE_INSTANCE_COMPONENT_BYTES).toBe(17)
-    expect(durableSessionLabel(sessionId, 'i'.repeat(17))).toBe(`podium-${'i'.repeat(17)}-${sessionId}`)
+    expect(durableSessionLabel(sessionId, 'i'.repeat(17))).toBe(
+      `podium-${'i'.repeat(17)}-${sessionId}`,
+    )
   })
 
   it('keeps short instance labels readable and hashes longer ids deterministically', () => {

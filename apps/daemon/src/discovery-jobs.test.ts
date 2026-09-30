@@ -1,8 +1,8 @@
-import { asSessionId } from '@podium/model'
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ConversationDiscoveryCache } from '@podium/harness'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { openIndexCache, runIndexRefreshJob, runMemoryBreakdownJob } from './discovery-jobs.js'
 
@@ -24,7 +24,14 @@ function fakeProc(
 describe('runMemoryBreakdownJob', () => {
   it('attributes a labelled process subtree to its session', () => {
     const root = mkdtempSync(join(tmpdir(), 'proc-'))
-    fakeProc(root, 100, 1, 'podium-host-rs', 'podium-host-rs create --socket /run/hosts/podium-S1.sock -- claude', 50)
+    fakeProc(
+      root,
+      100,
+      1,
+      'podium-host-rs',
+      'podium-host-rs create --socket /run/hosts/podium-S1.sock -- claude',
+      50,
+    )
     fakeProc(root, 101, 100, 'claude', 'claude --foo', 200)
     const out = runMemoryBreakdownJob({
       sessions: [{ sessionId: asSessionId('S1'), label: 'podium-S1', pid: 100 }],

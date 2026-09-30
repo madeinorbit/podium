@@ -4,7 +4,11 @@
  */
 
 import type { SessionId } from '@podium/model'
-import type { DurableSpawnOptions, DurableAttachment, DurableProcess } from '@podium/process/durable'
+import type {
+  DurableAttachment,
+  DurableProcess,
+  DurableSpawnOptions,
+} from '@podium/process/durable'
 import type { DaemonContext } from '../control/context'
 import { Terminal, type TerminalKind } from '../terminal/terminal.js'
 import { SessionRegistry } from './registry.js'

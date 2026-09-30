@@ -1,6 +1,6 @@
 import { readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
 import { userInfo } from 'node:os'
+import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import {
   DEFAULT_INSTANCE_ID,

@@ -16,7 +16,10 @@ import {
 import { userInfo } from 'node:os'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createLogger } from '@podium/logger'
 import { resolveInstallDir } from '@podium/runtime/config'
+
+const log = createLogger('pty:host-bin')
 
 /**
  * podium-host resolution for new spawns. The Rust host is the only podium-host
@@ -101,7 +104,8 @@ function buildHome(): string | undefined {
 export function sourceRustHostCacheDir(): string | undefined {
   const override = process.env.PODIUM_RUST_HOST_BUILD_DIR?.trim()
   if (override) return override
-  const cache = process.env.XDG_CACHE_HOME || (buildHome() ? join(buildHome() as string, '.cache') : undefined)
+  const cache =
+    process.env.XDG_CACHE_HOME || (buildHome() ? join(buildHome() as string, '.cache') : undefined)
   return cache ? join(cache, 'podium', 'podium-host-rs-src') : undefined
 }
 
@@ -161,7 +165,11 @@ let lastSourceBuildError: string | undefined
  */
 function cargoBuild(crate: string, targetDir: string): string | undefined {
   const home = buildHome()
-  const env: NodeJS.ProcessEnv = { ...process.env, CARGO_TARGET_DIR: targetDir, ...(home ? { HOME: home } : {}) }
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    CARGO_TARGET_DIR: targetDir,
+    ...(home ? { HOME: home } : {}),
+  }
   const channel = toolchainChannel(crate)
   const argv: [string, string[]] | undefined =
     channel && runsTool('rustup', env)
@@ -170,7 +178,8 @@ function cargoBuild(crate: string, targetDir: string): string | undefined {
         ? ['cargo', ['build', '--release', '--locked']]
         : undefined
   if (!argv) {
-    lastSourceBuildError = 'neither rustup nor cargo runs here (install the crate toolchain: mise install in packages/pty/vendor/podium-host-rs)'
+    lastSourceBuildError =
+      'neither rustup nor cargo runs here (install the crate toolchain: mise install in packages/pty/vendor/podium-host-rs)'
     return undefined
   }
   try {
@@ -277,7 +286,7 @@ export function ensureSourceRustHost(
   try {
     const won = publishedSourceHost(root, hash)
     if (won) return { bin: won, built: false }
-    console.warn(`[podium] building the Rust podium-host from ${crate} (first use of this source)`)
+    log.warn('building the Rust podium-host from source (first use of this source)', { crate })
     const built = cargoBuild(crate, join(root, 'target'))
     if (!built) return undefined
     mkdirSync(staging, { recursive: true })
@@ -319,8 +328,8 @@ function locate(): string | undefined {
   const explicit = process.env.PODIUM_HOST_BIN
   if (explicit) {
     if (hostBinFeatures(explicit) >= HOST_FEATURES) return explicit
-    console.error(
-      `[podium] PODIUM_HOST_BIN=${explicit} does not run as a podium-host at feature level ${HOST_FEATURES}. Refusing to fall back — unset it or point it at a Rust podium-host build.`,
+    log.error(
+      `PODIUM_HOST_BIN=${explicit} does not run as a podium-host at feature level ${HOST_FEATURES}. Refusing to fall back — unset it or point it at a Rust podium-host build.`,
     )
     return undefined
   }
@@ -335,8 +344,8 @@ function locate(): string | undefined {
   const sourceState = vendoredRustHostSourceHash()
     ? `the source build failed: ${lastSourceBuildError ?? 'unknown error'}`
     : 'this is not a source checkout, so there is nothing to build'
-  console.error(
-    `[podium] no podium-host: ${payloadState}, and ${sourceState}. This daemon refuses to start sessions until a Rust podium-host is available (reinstall Podium, or set PODIUM_HOST_BIN).`,
+  log.error(
+    `no podium-host: ${payloadState}, and ${sourceState}. This daemon refuses to start sessions until a Rust podium-host is available (reinstall Podium, or set PODIUM_HOST_BIN).`,
   )
   return undefined
 }
