@@ -10,6 +10,7 @@ const [lane, selected] = process.argv.slice(2)
 const lanes = ['codex-app-server', 'opencode-v1', 'opencode-v2', 'opencode2-v2', 'grok-acp', 'codex-terminal', 'opencode-terminal', 'opencode2-terminal', 'grok-terminal']
 lanes.push(...['codex', 'opencode', 'opencode2', 'grok'].map(p => `${p}-terminal-paced`))
 lanes.push('codex-terminal-raw')
+lanes.push(...['codex', 'opencode', 'opencode2'].map(p => `${p}-terminal-initial`))
 if (!lanes.includes(lane!)) throw new Error(`Lane must be one of ${lanes}`)
 const out = resolve(import.meta.dir, lane!)
 mkdirSync(out, { recursive: true })
@@ -51,6 +52,7 @@ const run = { lane, version, commandPath, startedAt: new Date().toISOString(), r
     'typed: tmux send-keys -l, unbracketed literal bytes in 256-character chunks, 40ms between writes; 650ms pause then Enter',
     'typed-paced: unbracketed literal bytes in 256-character chunks, 40ms between writes; 650ms pause then Enter',
     'typed-buffer: tmux paste-buffer -r WITHOUT -p: unbracketed literal byte stream, no escape wrappers; programs can detect a fast burst as paste'],
+  initial: 'Additional storage probe: literal startup prompt argument (--prompt for OpenCode). This bypasses the keyboard editor and is reported separately.',
   editorDrain: 'Unbracketed input waits for its final marker in the fresh editor before Enter (up to max(60s, 5ms per byte)); pending input is not a storage result.',
 }
 writeFileSync(`${out}/run.json`, JSON.stringify(run, null, 2) + '\n')
@@ -218,14 +220,17 @@ async function http(method: string, path: string, body?: any) {
 try {
   const terminal = lane!.includes('terminal')
   let client: ReturnType<typeof rpc> | undefined
-  async function launchTerminal(label: string) {
+  async function launchTerminal(label: string, initial?: string) {
     const args = lane!.startsWith('grok') ? ['-m', 'fake', '--always-approve', '--trust']
       : lane!.startsWith('opencode2') ? ['--standalone', '--auto']
       : lane!.startsWith('opencode') ? ['--port', String(appPort), '--hostname', '127.0.0.1', '--model', 'fake/fake'] : []
+    if (initial !== undefined) args.push(...(lane!.startsWith('opencode') ? ['--prompt', initial] : [initial]))
     const command = `cd ${quote(work)} && exec env -i ${Object.entries(env).map(([k, v]) => `${k}=${quote(v)}`).join(' ')} ${quote(commandPath)} ${args.map(quote).join(' ')}`
+    // A script avoids tmux's command-message size limit for a 100 KiB argv prompt.
+    writeFileSync(`${root}/launch.sh`, command + '\n')
     tmux('new-session', '-d', '-s', 'measure', '-x', '180', '-y', '45', 'sleep 600')
     tmux('set-option', '-t', 'measure', 'remain-on-exit', 'on')
-    tmux('respawn-pane', '-k', '-t', 'measure', command)
+    tmux('respawn-pane', '-k', '-t', 'measure', `sh ${quote(`${root}/launch.sh`)}`)
     // Wait for the input editor; a screen capture is diagnostic evidence only.
     const ready = await until(() => {
       const screen = tmux('capture-pane', '-p', '-t', 'measure')
@@ -257,16 +262,21 @@ try {
     logChild(program, 'program')
     if (!await until(async () => { try { return (await fetch(`http://127.0.0.1:${appPort}/api/health`, { headers: auth, signal: AbortSignal.timeout(2000) })).ok } catch { return false } }, 45000)) throw new Error('OpenCode server not ready')
   }
-  for (const method of terminal ? lane!.endsWith('-raw') ? ['typed-buffer'] : lane!.endsWith('-paced') ? ['typed-paced'] : ['paste', 'typed'] : ['protocol']) {
+  for (const method of terminal ? lane!.endsWith('-initial') ? ['initial-argument'] : lane!.endsWith('-raw') ? ['typed-buffer'] : lane!.endsWith('-paced') ? ['typed-paced'] : ['paste', 'typed'] : ['protocol']) {
     for (const c of cases.filter(c => !selected || c.name.includes(selected))) {
       const label = `${method}/${c.name}`
-      if (terminal) await launchTerminal(label)
-      const before = history(), modelBefore = modelRows().length
+      const initialBefore = method === 'initial-argument' ? history() : undefined
+      const initialModelBefore = method === 'initial-argument' ? modelRows().length : undefined
+      if (terminal) await launchTerminal(label, method === 'initial-argument' ? c.text : undefined)
+      const before = initialBefore ?? history(), modelBefore = initialModelBefore ?? modelRows().length
       const sentAt = Date.now()
       let extraEnterAt: number | undefined, editorDrainedAt: number | undefined, editorDrainComplete: boolean | undefined
       let sessionId: string | undefined, protocolId: string | undefined, status: any, error: string | undefined
       try {
         if (terminal) {
+          if (method === 'initial-argument') {
+            status = await until(() => history().filter(r => r.kind === 'prompt').length > before.filter(r => r.kind === 'prompt').length, 45000)
+          } else {
           if (method === 'paste' || method === 'typed-buffer') {
             writeFileSync(`${root}/paste.txt`, c.text)
             tmux('load-buffer', '-b', 'input', `${root}/paste.txt`)
@@ -291,6 +301,7 @@ try {
             extraEnterAt = Date.now()
             tmux('send-keys', '-t', 'measure', 'Enter')
             status = await until(() => history().filter(r => r.kind === 'prompt').length > before.filter(r => r.kind === 'prompt').length, 10000)
+          }
           }
           // Wait for records/model calls to settle; detect splitting, never just take the first record.
           let last = '', stable = 0
