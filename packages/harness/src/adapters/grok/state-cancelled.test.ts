@@ -22,6 +22,11 @@ function evidence<T>(path: string): T[] {
     .map((line) => JSON.parse(line))
 }
 
+function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error('Missing required Grok evidence')
+  return value
+}
+
 type Hook = { ev: string; payload: Record<string, unknown> }
 type WatchedFile = {
   at: number
@@ -44,12 +49,12 @@ type ObservedRecord = WatchedFile & { rec: NonNullable<WatchedFile['rec']> }
 
 const hooks = evidence<Hook>('raw/hooks.jsonl')
 const cancelledHooks = hooks.filter((hook) => hook.ev === 'StopCancelled')
-const cancelled = cancelledHooks[0]!.payload
+const cancelled = required(cancelledHooks[0]).payload
 const sessionId = cancelled.sessionId as string
 const promptId = cancelled.promptId as string
-const submitted = hooks.find(
-  (hook) => hook.ev === 'UserPromptSubmit' && hook.payload.promptId === promptId,
-)!.payload
+const submitted = required(
+  hooks.find((hook) => hook.ev === 'UserPromptSubmit' && hook.payload.promptId === promptId),
+).payload
 const observed = evidence<WatchedFile>('raw/session-files-observed.jsonl').filter(
   (row): row is ObservedRecord => row.rec !== undefined,
 )
@@ -58,7 +63,7 @@ const completions = observed.filter(
     row.file.endsWith('/updates.jsonl') &&
     row.rec.params?.update.sessionUpdate === 'turn_completed',
 )
-const cancelRecord = completions.find((row) => row.rec.params?.update.prompt_id === promptId)!
+const cancelRecord = required(completions.find((row) => row.rec.params?.update.prompt_id === promptId))
 const tmpDirs: string[] = []
 
 afterEach(async () => {
@@ -155,10 +160,10 @@ describe('Grok StopCancelled from the recorded terminal run', () => {
     }
     try {
       await vi.waitFor(() => expect(observations).toHaveLength(1))
-      accept(observations[0]!)
+      accept(required(observations[0]))
       expect(observer.onHookPayload?.(submitted)).toBe(true)
       await vi.waitFor(() => expect(observations).toHaveLength(2))
-      accept(observations[1]!)
+      accept(required(observations[1]))
       expect(observer.onHookPayload?.(cancelled)).toBe(true)
       await vi.waitFor(() => expect(observations).toHaveLength(3))
       expect(observations[2]).toMatchObject({
@@ -168,20 +173,22 @@ describe('Grok StopCancelled from the recorded terminal run', () => {
         nextPhase: 'idle',
         state: { idle: { kind: 'interrupted' } },
       })
-      accept(observations[2]!)
+      accept(required(observations[2]))
 
       // The file follows the hook promptly, rather than being a second turn end.
-      const nextPrompt = observed.find(
-        (row) =>
-          row.at > cancelRecord.at && row.rec.params?.update.event_name === 'user_prompt_submit',
-      )!
+      const nextPrompt = required(
+        observed.find(
+          (row) =>
+            row.at > cancelRecord.at && row.rec.params?.update.event_name === 'user_prompt_submit',
+        ),
+      )
       await appendFile(
         paths.updatesPath,
-        [cancelRecord.rec, nextPrompt.rec].map((record) => JSON.stringify(record) + '\n').join(''),
+        [cancelRecord.rec, nextPrompt.rec].map((record) => `${JSON.stringify(record)}\n`).join(''),
       )
       await vi.waitFor(() => expect(observations).toHaveLength(4))
       expect(observations[3]).toMatchObject({ transitionKind: 'turn_opened', nextPhase: 'working' })
-      accept(observations[3]!)
+      accept(required(observations[3]))
       expect(observer.onHookPayload?.(cancelled)).toBe(true)
       expect(observations).toHaveLength(4)
     } finally {
@@ -206,7 +213,7 @@ describe('Grok StopCancelled from the recorded terminal run', () => {
       inode: '2',
     }
     expect(causal.observeHook({ ...submitted, promptId: 'newer-prompt' }, segment)).toBe(true)
-    const opened = observations[0]!
+    const opened = required(observations[0])
     causal.acknowledge({
       type: 'agentObservationAck',
       sessionId: asSessionId('podium-cancelled-late'),
@@ -249,7 +256,7 @@ describe('Grok StopCancelled from the recorded terminal run', () => {
       inode: '2',
     }
     expect(causal.observeHook(submitted, segment)).toBe(true)
-    const opened = observations[0]!
+    const opened = required(observations[0])
     causal.acknowledge({
       type: 'agentObservationAck',
       sessionId: asSessionId('podium-cancelled-unbound'),
@@ -272,7 +279,7 @@ describe('Grok StopCancelled from the recorded terminal run', () => {
     // Pair in each file's order. Resume records were sometimes seen first in
     // updates.jsonl; pairing by the next wall-clock record invents 17 s delays.
     const deltas = ends.map((end, index) => {
-      const completion = completions[index]!
+      const completion = required(completions[index])
       expect(completion.rec.params?.update.stop_reason).toBe(
         end.rec.outcome === 'completed' ? 'end_turn' : end.rec.outcome,
       )
@@ -285,7 +292,7 @@ describe('Grok StopCancelled from the recorded terminal run', () => {
     )
     expect(sendNowIndex).toBeGreaterThanOrEqual(0)
     expect(deltas[sendNowIndex]).toBe(335)
-    const sendNow = completions[sendNowIndex]!
+    const sendNow = required(completions[sendNowIndex])
     expect(
       hooks.some(
         (hook) =>

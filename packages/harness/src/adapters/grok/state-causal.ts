@@ -243,9 +243,9 @@ export class GrokCausalObserver {
     this.apply(record, false)
   }
 
-  /** The terminal itself can cancel a turn; bind the report to its promptId.
-   * Turn-end hooks can arrive after the next prompt, so neither the interrupt
-   * flag nor the report's arrival time can identify the turn (POD-4865). */
+  /** Bind terminal-issued cancellations to their promptId (POD-4865).
+   * An older report cannot close a newer turn, and a terminal cancel needs
+   * no Podium interrupt flag. */
   private observeCancelledHook(payload: unknown, segment?: GrokSegmentIdentity): boolean {
     if (!isHookRecord(payload)) return false
     const promptId = nativeId(payload, ['promptId', 'prompt_id'])
