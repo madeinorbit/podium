@@ -15,6 +15,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { EngineBindUnrecoverable } from '../engine-supervision.js'
 import { isDriverRefusal } from '../../errors.js'
 import { asSessionId } from '@podium/model'
@@ -279,6 +283,7 @@ function fakePorts(hooks: {
       username: 'podium',
       secret: 'journalled-secret',
       workdir: '/tmp',
+      databasePath: '/original-home/opencode.db',
       process: { key: opencodeScopeLabel(FLAVOR, SESSION), pid: 4242 },
       seq: 7,
       turnEpoch: 2,
@@ -328,6 +333,7 @@ function fakePorts(hooks: {
         })
         expect(endpoint.baseUrl).toBe(journalled.baseUrl)
         expect(endpoint.password).toBe(journalled.secret)
+        expect(endpoint.databasePath).toBe(journalled.databasePath)
         expect(spawned).toHaveLength(0)
       } finally {
         fetch.mockRestore()
@@ -343,6 +349,7 @@ function fakePorts(hooks: {
         expect(endpoint?.baseUrl).toBe(journalled.baseUrl)
         expect(endpoint?.password).toBe(journalled.secret)
         expect(endpoint?.process.key).toBe(opencodeScopeLabel(FLAVOR, SESSION))
+        expect(endpoint?.databasePath).toBe(journalled.databasePath)
       } finally {
         fetch.mockRestore()
       }
@@ -380,25 +387,36 @@ function fakePorts(hooks: {
     })
 
     it('the host EXITED frame records the real status for the daemon', async () => {
+      const directory = mkdtempSync(join(tmpdir(), 'opencode-host-exit-'))
+      const databasePath = join(directory, 'history.db')
+      const db = openDatabase(databasePath)
+      db.exec('CREATE TABLE message (id TEXT, session_id TEXT, data TEXT, time_updated INTEGER)')
+      db.exec('CREATE TABLE part (id TEXT, session_id TEXT, message_id TEXT, data TEXT, time_created INTEGER, time_updated INTEGER)')
+      db.close()
       const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
       const { session, exits } = fakeEngineSession({ childPid: 4242 })
       const host = engineHost({
         checkVersion: async () => null,
         freePort: async () => 41234,
+        buildEnv: () => ({ OPENCODE_DB: 'history.db' }),
         ...fakePorts({ startEngine: async () => session }),
       })
       try {
         const endpoint = await host.launch({
           sessionId: SESSION,
-          workdir: '/tmp',
+          workdir: directory,
           secret: 'secret',
           username: 'podium',
         })
         expect(endpoint.engineExit?.()).toBeUndefined()
+        expect(endpoint.databasePath).toBe(databasePath)
+        expect(await endpoint.readHistoryAfterExit?.('ses_exit')).toBeUndefined()
         for (const fire of exits) fire(3, 0)
         expect(endpoint.engineExit?.()).toEqual({ code: 3, signal: 0 })
+        expect(await endpoint.readHistoryAfterExit?.('ses_exit')).toEqual([])
       } finally {
         fetch.mockRestore()
+        rmSync(directory, { recursive: true, force: true })
       }
     })
   })

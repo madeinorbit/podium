@@ -68,6 +68,34 @@ export function stampOpencodeItems(
   return out
 }
 
+/** Complete v1 history for an exit proof. The display source below intentionally
+ * caps its tail and hides read failures; neither behavior can prove absence.
+ * Keep raw message/part ids so a caller can match both ids before stamping. */
+export function readOpencodePromptHistory(input: {
+  sessionId: string
+  homeDir?: string
+  databasePath?: string
+}): OpencodeMessagePartRow[] | undefined {
+  const db = openOpencodeDb(input.homeDir, input.databasePath)
+  if (!db) return undefined
+  try {
+    // SQLite LIMIT -1 removes the normal 8000-part display cap.
+    const rows = loadOpencodeTranscriptTail(db, input.sessionId, -1)
+    for (const row of rows) {
+      for (const raw of [row.messageData, row.partData]) {
+        const record: unknown = JSON.parse(raw)
+        if (typeof record !== 'object' || record === null || Array.isArray(record))
+          return undefined
+      }
+    }
+    return rows
+  } catch {
+    return undefined
+  } finally {
+    db.close()
+  }
+}
+
 /**
  * Source for opencode. opencode stores transcript "parts" in SQLite ordered by
  * `(time_updated ASC, id ASC)`. A single session's parts are bounded (≤8000, the

@@ -75,7 +75,7 @@ async function fixture(waitMs = 10_000) {
   }
   return {
     handle, server, host, sessionID, db, read, acknowledged, record,
-    deliveries: () => events.filter((event) => event.t === 'delivery'),
+    events, deliveries: () => events.filter((event) => event.t === 'delivery'),
     async die(observed = true) {
       await acknowledged
       exited = observed
@@ -95,25 +95,20 @@ describe('v1 exit proof from the final local history', () => {
     expect(measured.status).toBe(204)
     expect(measured.part).toBeNull()
     const f = await fixture()
-    const lost = vi.fn()
-    const late = vi.fn()
     try {
-      await f.handle.send(input, { ...options, onUnrecorded: lost, onLateProof: late })
+      await f.handle.send(input, options)
       await f.acknowledged
       if (rowSurvives) f.record(false)
       await f.die()
       await expect.poll(() => f.deliveries()).toMatchObject([{ outcome: 'failed', cause: 'agent-exited' }])
-      expect(lost).toHaveBeenCalledExactlyOnceWith('the agent program exited without recording it', 'agent-exited')
-      expect(late).not.toHaveBeenCalled()
       expect(f.read).toHaveBeenCalledExactlyOnceWith(f.sessionID)
     } finally { f.cleanup() }
   })
 
   it('names the stored text part after SIGKILL even when it lies beyond the normal 8000-part tail', async () => {
     const f = await fixture()
-    const lost = vi.fn()
     try {
-      await f.handle.send(input, { ...options, onUnrecorded: lost })
+      await f.handle.send(input, options)
       await f.acknowledged
       f.record(true)
       f.db.exec('BEGIN')
@@ -130,16 +125,14 @@ describe('v1 exit proof from the final local history', () => {
         transcriptItem: { id: deltaItemIdForPart(f.sessionID, part.id), cursor: expect.any(String) },
         harnessRef: [{ kind: 'opencode-message', id: messageID }, { kind: 'opencode-part', id: part.id }],
       }])
-      expect(lost).not.toHaveBeenCalled()
       expect(f.host.bindings.recorded(f.handle.binding.sessionId)?.databasePath).toBe(f.handle.binding.workdir + '/opencode.db')
     } finally { f.cleanup() }
   })
 
   it.each([false, true])('settles a late post-exit proof after the receipt became unverified; text survives: %s', async (textSurvives) => {
     const f = await fixture(30)
-    const lost = vi.fn()
     try {
-      await f.handle.send(input, { ...options, onUnrecorded: lost })
+      await f.handle.send(input, options)
       await expect.poll(() => f.deliveries()).toMatchObject([{ outcome: 'failed', cause: 'unconfirmed' }])
       if (textSurvives) f.record(true)
       await f.die()
@@ -147,7 +140,9 @@ describe('v1 exit proof from the final local history', () => {
       expect(f.deliveries()[1]).toMatchObject(textSurvives
         ? { outcome: 'delivered', transcriptItem: { id: deltaItemIdForPart(f.sessionID, part.id) } }
         : { outcome: 'failed', cause: 'agent-exited' })
-      expect(lost).toHaveBeenCalledTimes(textSurvives ? 0 : 1)
+      const proofIndex = f.events.findLastIndex((event) => event.t === 'delivery')
+      const exitIndex = f.events.findIndex((event) => event.t === 'process' && event.ev.ev === 'exited')
+      expect(proofIndex).toBeLessThan(exitIndex)
     } finally { f.cleanup() }
   })
 
@@ -164,9 +159,8 @@ describe('v1 exit proof from the final local history', () => {
 
   it.each(['missing-file', 'broken-schema', 'invalid-json'] as const)('leaves an unreadable store unconfirmed: %s', async (kind) => {
     const f = await fixture(30)
-    const lost = vi.fn()
     try {
-      await f.handle.send(input, { ...options, onUnrecorded: lost })
+      await f.handle.send(input, options)
       await expect.poll(() => f.deliveries()).toMatchObject([{ outcome: 'failed', cause: 'unconfirmed' }])
       if (kind === 'missing-file') rmSync(join(f.handle.binding.workdir, 'opencode.db'))
       if (kind === 'broken-schema') f.db.exec('DROP TABLE part')
@@ -176,21 +170,36 @@ describe('v1 exit proof from the final local history', () => {
       }
       await f.die()
       expect(f.deliveries()).toMatchObject([{ outcome: 'failed', cause: 'unconfirmed' }])
-      expect(lost).not.toHaveBeenCalled()
       expect(f.read).toHaveBeenCalledOnce()
     } finally { f.cleanup() }
   })
 
   it('does not infer an exit proof from HTTP and SSE failure alone', async () => {
     const f = await fixture(30)
-    const lost = vi.fn()
     try {
-      await f.handle.send(input, { ...options, onUnrecorded: lost })
+      await f.handle.send(input, options)
       await expect.poll(() => f.deliveries()).toMatchObject([{ outcome: 'failed', cause: 'unconfirmed' }])
       await f.die(false)
       expect(f.read).not.toHaveBeenCalled()
-      expect(lost).not.toHaveBeenCalled()
       expect(f.deliveries()).toHaveLength(1)
+    } finally { f.cleanup() }
+  })
+
+  it('calls a direct sender once, then leaves its disproved watch closed', async () => {
+    const f = await fixture()
+    const lost = vi.fn()
+    const late = vi.fn()
+    const named = vi.fn()
+    try {
+      const sent = f.handle.send({ ...input, rowId: undefined }, { ...options, onUnrecorded: lost, onLateProof: late, onTranscriptItem: named })
+      await f.die()
+      expect(await sent).toMatchObject({ outcome: 'unverified' })
+      expect(lost).toHaveBeenCalledExactlyOnceWith('the agent program exited without recording it', 'agent-exited')
+      f.record(true)
+      await new Promise<void>((resolve) => setTimeout(resolve, 20))
+      expect(lost).toHaveBeenCalledOnce()
+      expect(late).not.toHaveBeenCalled()
+      expect(named).not.toHaveBeenCalled()
     } finally { f.cleanup() }
   })
 })

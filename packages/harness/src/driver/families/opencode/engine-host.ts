@@ -61,6 +61,7 @@
 
 import { randomBytes } from 'node:crypto'
 import { createServer } from 'node:net'
+import { join, resolve } from 'node:path'
 import { createLogger } from '@podium/logger'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
@@ -89,6 +90,8 @@ import type {
   SessionEngineOwner,
 } from '../engine-supervision.js'
 import { bindingRecordsOf, EngineBindUnrecoverable } from '../engine-supervision.js'
+import { opencodeDbPath } from '../../../opencode/db.js'
+import { readOpencodePromptHistory } from '../../../store/sources/sqlite.js'
 
 const log = createLogger('harness:opencode-engine-host')
 
@@ -576,6 +579,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
     pid: number | undefined
     scopeUnit: string | undefined
     held: HeldEngine | undefined
+    databasePath?: string
   }): OpencodeServerEndpoint => ({
     baseUrl: input.baseUrl,
     username,
@@ -636,6 +640,12 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
       }),
     /** The host's EXITED frame, when the engine has reported its own exit. */
     engineExit: () => input.held?.exit ?? engines.get(input.sessionId)?.exit,
+    ...(input.databasePath ? { databasePath: input.databasePath } : {}),
+    readHistoryAfterExit: (sessionId) => {
+      if (!input.databasePath || !(input.held?.exit ?? engines.get(input.sessionId)?.exit))
+        return undefined
+      return readOpencodePromptHistory({ sessionId, databasePath: input.databasePath })
+    },
   })
 
   return {
@@ -702,6 +712,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
             pid: held.childPid ?? previous.process.pid,
             scopeUnit: scopeFor(input.sessionId, label),
             held,
+            ...(previous.databasePath ? { databasePath: previous.databasePath } : {}),
           })
         }
         // The server answers but no host holds it — a host crash orphaned it.
@@ -718,6 +729,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
           pid: previous.process.pid,
           scopeUnit: previous.process.scopeUnit,
           held: undefined,
+          ...(previous.databasePath ? { databasePath: previous.databasePath } : {}),
         })
       }
 
@@ -736,6 +748,12 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
       // RULE 2: the secret is HERE. It appears in `serveArgv` nowhere, and this
       // is the assertion `opencode-server.test.ts` pins.
       env.OPENCODE_SERVER_PASSWORD = input.secret
+      const dataHome = env.XDG_DATA_HOME ?? process.env.XDG_DATA_HOME
+      const databasePath = resolve(
+        input.workdir,
+        env.OPENCODE_DB ?? process.env.OPENCODE_DB ??
+          (dataHome ? join(dataHome, 'opencode', 'opencode.db') : opencodeDbPath(env.HOME ?? deps.homeDir)),
+      )
       // opencode only publishes `question.asked` when its question tool is on,
       // and a driver that maps question interactions but never receives one is
       // a feature that exists only in the type system.
@@ -819,6 +837,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
         pid: held.childPid,
         scopeUnit: scopeFor(input.sessionId, label),
         held,
+        databasePath,
       })
     },
 
@@ -881,6 +900,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
         pid: held?.childPid ?? entry.process.pid,
         scopeUnit: held ? scopeFor(binding.sessionId, label) : entry.process.scopeUnit,
         held,
+        ...(entry.databasePath ? { databasePath: entry.databasePath } : {}),
       })
     },
 

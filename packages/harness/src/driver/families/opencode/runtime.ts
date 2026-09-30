@@ -51,6 +51,8 @@ import type {
   TranscriptItemRef,
 } from '@podium/model'
 import { transcriptItemRefOf } from '@podium/model'
+import { stampOpencodeItems } from '../../../store/sources/sqlite.js'
+import type { OpencodeMessagePartRow } from '../../../transcript-types.js'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type {
   QueueDrainAbandonedReason,
@@ -178,6 +180,13 @@ export interface OpencodeServerEndpoint {
    * while the engine is alive or when no host holds it.
    */
   engineExit?(): { code: number; signal: number } | undefined
+  /** The actual store selected by the engine's spawn environment, journalled
+   * so adoption reads the same store even if the daemon's environment changes. */
+  databasePath?: string
+  /** Complete local v1 history, after the host observed EXITED. An unreadable
+   * or unidentified store is undefined, never an empty history. */
+  readHistoryAfterExit?(sessionId: OpencodeSessionId):
+    readonly OpencodeMessagePartRow[] | undefined | Promise<readonly OpencodeMessagePartRow[] | undefined>
 }
 
 /** What the driver needs from whoever owns processes and disks. */
@@ -295,6 +304,7 @@ export interface OpencodeJournalEntry {
   username: string
   secret: string
   workdir: string
+  databasePath?: string
   /**
    * THE SESSION'S MODEL POLICY, because a resume that drops it CHANGES THE
    * AGENT (POD-2775, review 3).
@@ -432,6 +442,8 @@ interface PromptRecordWaiter {
   late?: boolean
   wake?: () => void
   cancel?: () => void
+  onUnrecorded?: SendOptions['onUnrecorded']
+  unrecorded?: boolean
   /** The turn it belongs to; dropped when that turn is fenced. */
   epoch?: number
 }
@@ -625,6 +637,7 @@ export function createOpencodeRuntime(
       username: session.endpoint.username,
       secret: session.endpoint.password,
       workdir: session.spec.workdir,
+      ...(session.endpoint.databasePath ? { databasePath: session.endpoint.databasePath } : {}),
       model: session.spec.model,
       process: session.binding.process,
       seq: session.seq,
@@ -1012,7 +1025,11 @@ export function createOpencodeRuntime(
   }
 
   /** Arm a send's record watch before its prompt can be recorded. */
-  function armPromptRecord(session: DriverSession, ids: PromptIds): PromptRecordWaiter {
+  function armPromptRecord(
+    session: DriverSession,
+    ids: PromptIds,
+    options?: Pick<SendOptions, 'onUnrecorded'>,
+  ): PromptRecordWaiter {
     const waiter: PromptRecordWaiter = {
       messageID: ids.messageID,
       textPartId: ids.textPartId,
@@ -1023,6 +1040,7 @@ export function createOpencodeRuntime(
           : []),
       ],
       ...(session.client.pendingPrompts ? { durable: true } : {}),
+      ...(options?.onUnrecorded ? { onUnrecorded: options.onUnrecorded } : {}),
     }
     session.promptRecords.add(waiter)
     return waiter
@@ -1036,7 +1054,7 @@ export function createOpencodeRuntime(
     waiter: PromptRecordWaiter,
     signal?: AbortSignal,
   ): Promise<TranscriptItemRef | undefined> {
-    if (waiter.seen || session.disposed || signal?.aborted)
+    if (waiter.seen || waiter.unrecorded || session.disposed || signal?.aborted)
       return Promise.resolve(waiter.seen)
     return new Promise((resolve) => {
       let settled = false
@@ -1071,7 +1089,7 @@ export function createOpencodeRuntime(
     onProof: SendOptions['onLateProof'],
     signal?: AbortSignal,
   ): void {
-    if (!onProof || session.disposed || signal?.aborted) {
+    if ((!onProof && !waiter.onUnrecorded) || waiter.unrecorded || session.disposed || signal?.aborted) {
       session.promptRecords.delete(waiter)
       return
     }
@@ -1088,7 +1106,7 @@ export function createOpencodeRuntime(
       cancel()
       // The queue settles unverified after send() returns. Publish proof on
       // the next task so even a deadline race cannot arrive before settlement.
-      setTimeout(() => onProof({ transcriptItem, harnessRef }), 0)
+      if (onProof) setTimeout(() => onProof({ transcriptItem, harnessRef }), 0)
     }
     signal?.addEventListener('abort', cancel, { once: true })
     if (waiter.seen) waiter.onItem(waiter.seen, waiter.harnessRef)
@@ -1173,6 +1191,41 @@ export function createOpencodeRuntime(
       session.promptRecordRefresh = undefined
     })
     return session.promptRecordRefresh
+  }
+
+  /** N4 requires the process owner's EXITED fact, then a complete local read.
+   * HTTP/SSE failure cannot prove an exit, and v2 admissions survive one. */
+  async function settleExitedPromptRecords(session: DriverSession): Promise<void> {
+    if (session.client.pendingPrompts || !session.endpoint.engineExit?.()) return
+    const open = [...session.promptRecords].filter((waiter) => !waiter.seen)
+    if (!open.length) return
+    let rows: readonly OpencodeMessagePartRow[] | undefined
+    try {
+      rows = await session.endpoint.readHistoryAfterExit?.(session.opencodeSessionId)
+    } catch {
+      return
+    }
+    if (!rows || session.disposed) return
+    for (const row of rows) {
+      if (
+        row.sessionId !== session.opencodeSessionId ||
+        !open.some((waiter) => waiter.messageID === row.messageId && waiter.textPartId === row.partId)
+      )
+        continue
+      // The shared mapper emits a user prompt only for a stored text part.
+      const items = stampOpencodeItems([row], session.opencodeSessionId)
+      creditPromptRecord(session, row.messageId, row.partId, items)
+    }
+    for (const waiter of open) {
+      if (waiter.seen || !session.promptRecords.delete(waiter)) continue
+      waiter.unrecorded = true
+      waiter.cancel?.()
+      waiter.onUnrecorded?.('the agent program exited without recording it', 'agent-exited')
+      waiter.wake?.()
+    }
+    // Late proof is deferred until the receipt settles. Let that publication
+    // finish before an exit observer tears down the delivery queue.
+    await sleep(0)
   }
 
   /** Recheck after lost SSE edges and restarts. This timer only reads proof;
@@ -1401,6 +1454,11 @@ export function createOpencodeRuntime(
          */
         if (!(await serverIsGone(session))) continue
         if (session.disposed) return
+        session.serverGone = true
+        // Finish receipt proof before publishing the exit: its consumer may
+        // immediately release this handle and cancel every remaining watch.
+        await settleExitedPromptRecords(session)
+        if (session.disposed) return
         const at = iso()
         const ev: ProcessEvent = {
           ev: 'exited',
@@ -1420,9 +1478,6 @@ export function createOpencodeRuntime(
          * holds a `queued` receipt that POD-2291 made the ledger's last word.
          * Waiting for a teardown that may never come is how they vanished.
          */
-        // Ordered before the report so nothing racing this can slip a fresh
-        // turn into a queue that is already being given up.
-        session.serverGone = true
         abandonQueue(session, 'teardown')
         return
       }
@@ -1773,7 +1828,7 @@ export function createOpencodeRuntime(
       const next = session.queue.shift()
       if (!next) return
       const ids = promptIdsFor(next.input, session)
-      const record = armPromptRecord(session, ids)
+      const record = armPromptRecord(session, ids, next.options)
       try {
         const admission = await deliver(session, next.input, ids, next.options.origin)
         if (!session.client.pendingPrompts) {
@@ -2040,7 +2095,7 @@ export function createOpencodeRuntime(
          */
         if (session.disposed || session.serverGone) return refuse('not_running')
 
-        const record = armPromptRecord(session, ids)
+        const record = armPromptRecord(session, ids, options)
         let admission: OpencodePromptAdmission
         try {
           admission = await deliver(session, input, ids, options.origin)

@@ -124,6 +124,7 @@ async function fixture(lane: string, label = 'S1', file?: string) {
     return json({ data: { id: sessionID } })
   })
   let client: OpencodeClient
+  const readHistoryAfterExit = vi.fn(() => [])
   const host: OpencodeRuntimeHost = {
     driverId: 'opencode2-server',
     launch: async () => ({
@@ -134,6 +135,8 @@ async function fixture(lane: string, label = 'S1', file?: string) {
       stop: async () => {},
       kill: async () => {},
       resources: () => undefined,
+      engineExit: () => dead ? { code: 0, signal: 9 } : undefined,
+      readHistoryAfterExit,
     }),
     adopt: async () => undefined,
     stageAttachment: async () => {
@@ -202,6 +205,7 @@ async function fixture(lane: string, label = 'S1', file?: string) {
     events,
     deliveries,
     fetch,
+    readHistoryAfterExit,
     prompts,
     emit,
     promote,
@@ -366,6 +370,7 @@ describe.each([
     await vi.advanceTimersByTimeAsync(30_000)
     expect(f.events.some((event) => event.t === 'process' && event.ev.ev === 'exited')).toBe(true)
     expect(f.deliveries()).toMatchObject([{ outcome: 'accepted', held: 'durable' }])
+    expect(f.readHistoryAfterExit).not.toHaveBeenCalled()
   })
 
   it('rechecks history when the promotion event is lost', async () => {
