@@ -50,7 +50,6 @@ import { compareRank, type RowRank } from '../../../../shared/src/row-view'
 import type { SliceGroup, SliceOrder } from '../../../../shared/src/slice-types'
 import type { OwnPart } from '../views'
 import { SortedLanes } from './sorted-lanes'
-import type { VisibleCounters } from './visible'
 
 /** Where one visible row goes (R-GROUP), before selection. */
 export interface Placement {
@@ -182,7 +181,6 @@ export interface GroupsHost {
   selectedId(): string | null
   /** TRACKED: `SliceLocals.selectedIssueWasFolded`. */
   foldLatch(): boolean
-  readonly counters: VisibleCounters
 }
 
 /** What one visible row files: its placement and its rank. */
@@ -333,25 +331,21 @@ export class WorklistGroups {
   /**
    * File one row: its placement and rank while it is visible, undefined when
    * it is not (hidden, unknown or released). Inside an action (the filing
-   * reaction's effect). Moves the row alone in each list it leaves or enters
-   * (`counters.groupRuns` counts the filings, `counters.groupElements` the
-   * lanes they changed), never the visible count.
+   * reaction's effect). Moves the row alone in each list it leaves or enters,
+   * never the visible count.
    */
   file(id: string, filing: Filing | undefined): void {
     const placement = filing?.placement
     const rank = filing?.rank
     const group = placement !== undefined && !placement.pinned ? placement.repoKey : undefined
-    let moved = this.pinned.file(id, placement?.pinned === true ? PINNED : undefined, rank)
-    moved += this.members.file(id, group, rank)
-    moved += this.open.file(id, placement?.closed === false ? group : undefined, rank)
-    moved += this.closed.file(
+    this.pinned.file(id, placement?.pinned === true ? PINNED : undefined, rank)
+    this.members.file(id, group, rank)
+    this.open.file(id, placement?.closed === false ? group : undefined, rank)
+    this.closed.file(
       id,
       placement?.closed === true ? group : undefined,
       placement === undefined || rank === undefined ? undefined : { foldMs: placement.foldMs, rank },
     )
-    const counters = this.host.counters
-    counters.groupRuns += 1
-    counters.groupElements += moved
   }
 
   /** The pinned ids in rank order (the PINNED section): a copy of the maintained list. */

@@ -121,7 +121,7 @@ describe('the relation engine updates its sets in place (M3 §7, G4)', () => {
     })
     const locals = settableLocals({ selectedIssueId: null, coarseNow: Date.parse(T0) })
     const reads = createReadFence({ enabled: true })
-    const pool = new MobxPool(reads, locals.source.get())
+    const pool = new MobxPool(locals.source.get())
     const source = reads.wrapSource(replay.source)
     pool.apply({
       type: 'replace',

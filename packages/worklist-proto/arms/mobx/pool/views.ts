@@ -152,12 +152,6 @@ export interface ViewInputs {
    * `activityAt` takes (`rows.ts:98-116`).
    */
   retainedSeats(id: string): readonly string[]
-  /**
-   * The explicit seats (`issue.sessions`) as the relation yields them: every
-   * id counts as a read, as `many()` yields do. No part reads it; the seat
-   * list below is the read.
-   */
-  seats(id: string): Iterable<string>
   /** The maintained SORTED seat list itself, returned without iterating it. */
   seatList(id: string): readonly string[]
   /** The selection local: `selectedIssueId === id`. */

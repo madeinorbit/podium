@@ -112,7 +112,7 @@ function loadable(entity: EntityName): entity is LoadableEntity {
 
 export interface ResidencyOptions {
   readonly schema: ModelSchema
-  /** The pool's hot tables, read side (fenced: reads counted). */
+  /** The pool's hot tables, read side. */
   readonly hot: { readonly [E in EntityName]: { get(id: string): unknown } }
   readonly load: LoadRow
   /** The slice clock (`coarseNow`): what an `unlessShown` rule's deadlines are read against. */
@@ -151,22 +151,6 @@ export interface LaneReader {
 }
 
 /** What residency did since the last `reset()`. */
-export interface ResidencyCounters {
-  /** Registry writes: a cold row registered, relinked or forgotten. */
-  coldWrites: number
-  /** Distinct rows queued for a load. */
-  requests: number
-  /** Load windows closed (one action each). */
-  batches: number
-  /** Rows the load window installed (a first access, or a warm asked for). */
-  hydrated: number
-  /**
-   * Rows warmed because the row they inherit from stopped being cold, or a
-   * member can keep them shown: installed from the publication at hand, or
-   * asked for (then the window installs them, counted in `hydrated` too).
-   */
-  warmed: number
-}
 
 const realSchedule: Schedule = (run, ms) => {
   const timer = setTimeout(run, ms)
@@ -174,13 +158,6 @@ const realSchedule: Schedule = (run, ms) => {
 }
 
 export class Residency {
-  readonly counters: ResidencyCounters = {
-    coldWrites: 0,
-    requests: 0,
-    batches: 0,
-    hydrated: 0,
-    warmed: 0,
-  }
   readonly windowMs: number
   private readonly schema: ModelSchema
   private readonly hot: ResidencyOptions['hot']
@@ -418,7 +395,6 @@ export class Residency {
     }
     if (ids.has(id)) return false
     ids.add(id)
-    this.counters.requests += 1
     if (this.cancel === null) {
       this.cancel = this.schedule(() => {
         this.cancel = null
@@ -446,7 +422,6 @@ export class Residency {
     const batch: [LoadableEntity, string][] = []
     for (const [entity, ids] of this.queue) for (const id of ids) batch.push([entity, id])
     this.queue.clear()
-    if (batch.length > 0) this.counters.batches += 1
     return batch
   }
 
@@ -518,7 +493,6 @@ export class Residency {
     if (entity === 'issue') target.volatile?.removeIssueRead(id)
     target.relations?.changed(entity, id, undefined, undefined)
     out.cold += 1
-    this.counters.coldWrites += 1
   }
 
   /**
@@ -537,7 +511,6 @@ export class Residency {
       if (value === undefined) continue
       this.unregister(entity, id)
       put(target, entity, id, value, out)
-      this.counters.hydrated += 1
       installed.push([entity, id])
     }
     // After the whole batch: a dependent that landed with its target is no
@@ -744,9 +717,8 @@ export class Residency {
     if (row !== undefined) {
       this.unregister(entity, id)
       put(target, entity, id, row, out)
-      this.counters.warmed += 1
-    } else if (this.request(entity as LoadableEntity, id)) {
-      this.counters.warmed += 1
+    } else {
+      this.request(entity as LoadableEntity, id)
     }
     for (const inheritor of this.inheritors.get(entity) ?? []) {
       const ids = this.dependents.get(inheritor)?.get(id)
@@ -816,7 +788,6 @@ export class Residency {
     if (entity === 'issue') target.volatile?.setIssueRead(id, value)
     target.relations?.changed(entity, id, undefined, value)
     out.cold += 1
-    this.counters.coldWrites += 1
   }
 
   /**

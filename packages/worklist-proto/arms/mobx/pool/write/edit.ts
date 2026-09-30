@@ -278,8 +278,8 @@ export function createMobxWriteApi(
       const txId = asMutationId(crypto.randomUUID())
       // One action (W1.5): capture prior from the current display (older
       // pending or server, W1.3), append, and paint. Reading the borrowed
-      // rows here matches the pool's own ingest, which reads its fenced
-      // tables inside its action.
+      // rows here matches the pool's own ingest, which reads its tables
+      // inside its action.
       runInAction(() => {
         const shown = shownInMemory(kind, id)
         const prior: Record<string, unknown> = {}

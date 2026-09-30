@@ -266,7 +266,7 @@ describe('bootstrap', () => {
       )
       all[name] = (all[name] ?? 0) + 1
     })
-    const eager = new MobxPool(DISABLED_READ_FENCE, {
+    const eager = new MobxPool({
       selectedIssueId: null,
       coarseNow: corpus.fixedNow,
     })

@@ -88,7 +88,7 @@ function rig(rows: RowRecord[], options: { fence?: boolean; schema?: ModelSchema
     worktrees: rows.filter((row) => row.kind === 'worktree'),
   })
   const locals = settableLocals({ selectedIssueId: null, coarseNow: Date.parse(T0) })
-  const pool = new MobxPool(DISABLED_READ_FENCE, locals.source.get(), options.schema)
+  const pool = new MobxPool(locals.source.get(), options.schema)
   const source = replay.source
   pool.apply({
     type: 'replace',

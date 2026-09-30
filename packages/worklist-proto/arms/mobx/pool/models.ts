@@ -28,8 +28,8 @@
  * with no row: an issue's own checkout that no scan reported). A collection
  * answers a `LazyCollection`: its members in memory, as objects, and how
  * many are loading; each subset it declares is a collection of its own
- * (`worktree.sessions.issueless`). They read through the pool's fenced
- * relations. Part functions do not navigate objects: the rebuild runs them
+ * (`worktree.sessions.issueless`). They read through the pool's
+ * relation reader. Part functions do not navigate objects: the rebuild runs them
  * over plain maps, where there are none, so they read the same typed names
  * by id (`ViewInputs.links`, `VisibleInputs.links`).
  *
@@ -91,7 +91,6 @@ import type {
   SliceSession,
   SliceWorktree,
 } from '../../../shared/src/slice-types'
-import type { ArmStats } from '../../../shared/src/stats'
 import {
   type EditableStage,
   type EditPatch,
@@ -183,10 +182,9 @@ export interface ModelHost {
   readonly visibleInputs: VisibleInputs
   /** What the roll-up parts read (one per pool, shared by every issue). */
   readonly rollupInputs: RollupInputs
-  readonly stats: ArmStats
   /** One transaction of the write layer's edit log; throws when the pool has no write layer. */
   edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId
-  /** The pool's fenced relation reader: what the relation getters follow. */
+  /** The pool's relation reader: what the relation getters follow. */
   readonly relations: RelationReader
   /** The object of a row in memory, built on first request; undefined when not in memory. */
   model<E extends EntityName>(entity: E, id: string): ModelOf[E] | undefined
@@ -212,7 +210,7 @@ export class EntityModel {
     protected readonly host: ModelHost,
   ) {}
 
-  /** The row as the pool shows it (the one reader: fenced, tracked, pending edits overlaid). */
+  /** The row as the pool shows it (the one reader: tracked, pending edits overlaid). */
   get row(): StoredRow | undefined {
     const row = this.host.row(this.entity, this.id)
     return row === LOADING ? undefined : (row as StoredRow | undefined)
@@ -397,13 +395,10 @@ export interface Loaded {
  * One row field as a cached value of the issue: built when a drawn row (or
  * any reaction) first reads it, dropped when none does. Its value compares
  * structurally, so a field whose inputs moved but whose value did not
- * notifies no row. Each run is a `rowsDerived`.
+ * notifies no row.
  */
 function rowField<V>(field: RowViewField, compute: (issue: IssueModel) => V): (issue: IssueModel) => V {
-  return cachedGroup(field, (issue: IssueModel) => {
-    issue.stats.rowsDerived += 1
-    return compute(issue)
-  })
+  return cachedGroup(field, (issue: IssueModel) => compute(issue))
 }
 
 /**
@@ -463,10 +458,9 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
      * units: apart from `unitOwn`, so a change to its own row (a rename) walks
      * no child.
      */
-    unitsBelow: cachedGroup('unitsBelow', (issue: IssueModel) => {
-      issue.host.rollupInputs.counted()
-      return unitsBelowPartOf(issue.host.rollupInputs, issue.id)
-    }),
+    unitsBelow: cachedGroup('unitsBelow', (issue: IssueModel) =>
+      unitsBelowPartOf(issue.host.rollupInputs, issue.id),
+    ),
     /**
      * What the IN-MEMORY row gives (one read of it, which queues a cold row's
      * load): its decision facts for the roll-up (`state` says whether it is in
@@ -528,11 +522,6 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
-  }
-
-  /** The pool's stats (a row field's run counts in them). */
-  get stats(): ArmStats {
-    return this.host.stats
   }
 
   /** Edit this issue: one transaction of the write layer's log (paint, remember, send). */

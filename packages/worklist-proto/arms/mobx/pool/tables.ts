@@ -13,8 +13,7 @@
  *
  * THE SAME INGEST FOR THE LIVE POOL AND THE REBUILD. `ingestRecord` reads
  * through one table set and writes another (`IngestTarget`: in the live pool
- * it reads the fenced view, so the reads fence counts ingest's reads, and
- * writes the raw MobX maps), so `rebuildFromScratch` replays the feed's
+ * it reads the tables and writes the raw MobX maps), so `rebuildFromScratch` replays the feed's
  * `snapshot(kind)` through exactly this routing into plain maps and never
  * touches the live pool.
  *
@@ -108,8 +107,7 @@ export interface IngestOut {
   volatile: number
 }
 
-/** Reads go through `read` (the fenced view in the live pool, so the reads
- *  fence counts them); writes go to `write` (the raw tables). */
+/** Reads go through `read` (the live pool's tables); writes go to `write` (the raw tables). */
 export interface IngestTarget {
   readonly read: { readonly [E in EntityName]: { get(id: string): unknown } }
   readonly write: TableSet
@@ -138,11 +136,7 @@ export interface IngestTarget {
  * row for anything else — standing, rank, placement, views) stays quiet,
  * while the cursor's own readers (`unread`, a decay row's `flat`) re-run
  * through the lane. Skipping the slot write skips nothing else: no declared
- * relation reads the cursor (schema `where`, collapse and edge resolvers
- * carry no `readAt`), and residency routes only new rows by rule (a hot row
- * stays hot whatever its cursor says). The lane holds one cursor per known
- * issue, readable by id only, so nothing can walk the corpus through it
- * uncounted; the reads fence keeps counting the row the update arrived on.
+ * relation reads the cursor, and residency routes only new rows by rule.
  */
 export interface VolatileLane {
   /**

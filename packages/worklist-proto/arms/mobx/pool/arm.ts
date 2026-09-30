@@ -21,7 +21,7 @@
 import { createElement, lazy, type ReactElement, Suspense } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
-import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
+import type { ReadFence } from '../../../shared/src/instrument/reads'
 import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
 import type { ArmStats } from '../../../shared/src/stats'
 import { MobxPool, type PoolLazyOptions, type WriteSeam } from './pool'
@@ -31,9 +31,11 @@ import { PoolList } from './react/list'
 const PoolNativeList = lazy(() => import('./native/list'))
 
 /**
- * The product handle: the live pool, its stats, its lifecycle and its mounts.
- * Harness hooks (snapshot, rebuild, drain) live in the harness adapter and
- * are not part of the product surface.
+ * The product handle: the live pool, its lifecycle and its mounts. Harness
+ * hooks (snapshot, rebuild, drain) live in the harness adapter and are not
+ * part of the product surface. `stats` satisfies the arm contract with zeros:
+ * tests count from outside (the borrowed rows and the work meter), never from
+ * product code.
  */
 export interface MobxPoolHandle {
   /** The live pool (tests; the copy sweep reaches the tables through it). */
@@ -48,7 +50,7 @@ export const mobxPoolArm = {
   create(
     source: RowSource,
     locals: LocalsSource,
-    reads: ReadFence = DISABLED_READ_FENCE,
+    _reads?: ReadFence,
     /** The load window and its timer (default 50 ms, `setTimeout`). */
     loader: Omit<PoolLazyOptions, 'load'> = {},
     /** The write layer's pending display (`write/overlay.ts`), read by the pool's one reader. */
@@ -60,7 +62,14 @@ export const mobxPoolArm = {
         '[pool] the feed has no per-row read (RowSource.row): a lazy pool cannot load a cold row',
       )
     }
-    const pool = new MobxPool(reads, locals.get(), undefined, { ...loader, load: row }, writes)
+    const pool = new MobxPool(locals.get(), undefined, { ...loader, load: row }, writes)
+    const stats: ArmStats = {
+      rowsDerived: 0,
+      rollupsDerived: 0,
+      indexUpdates: 0,
+      notifications: 0,
+      reset(): void {},
+    }
     pool.apply({
       type: 'replace',
       rows: [
@@ -74,7 +83,7 @@ export const mobxPoolArm = {
     const roots = new Set<Root>()
     return {
       pool,
-      stats: pool.stats,
+      stats,
       dispose(): void {
         offRows()
         offLocals()

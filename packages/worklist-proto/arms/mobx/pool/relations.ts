@@ -55,11 +55,11 @@
  * doc names: a collapse group, and the members under one root. No step walks
  * a table.
  *
- * READS. Rows are read through the fenced tables (counted). A `prefix` probe
+ * READS. Rows are read through the tables. A `prefix` probe
  * asks the RAW table whether each ancestor path is a root (a miss reads no
- * row) and counts the hit. Bucket moves count no row; `indexUpdates` counts
- * the slots they write, and `bucketElements` (`onElements`) the elements
- * they add or delete: one per edge moved, whatever the bucket's size.
+ * row) and takes the hit. Bucket moves read no row; they write slots
+ * (forward entries and buckets) and touch the elements they add or delete:
+ * one per edge moved, whatever the bucket's size.
  *
  * COLD ROWS (POD-4567). With a residency hook, a link's slots for a row that
  * is not resident (a cold source's `forward` entry, a bucket keyed by a cold
@@ -92,7 +92,7 @@
  */
 
 import { type ObservableMap, type ObservableSet, observable } from 'mobx'
-import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
+import type { RelationReader } from '../../../shared/src/instrument/reads'
 import { relationRef } from '../../../shared/src/links'
 
 // Moved to the typed links (POD-4758); kept importable from the engine.
@@ -114,7 +114,7 @@ import {
 
 type Row = Readonly<Record<string, unknown>>
 
-/** The read surface a relation needs; a fenced table, a MobX map and a `Map` all have it. */
+/** The read surface a relation needs; a table, a MobX map and a `Map` all have it. */
 export interface ReadableTable {
   get(id: string): unknown
   has(id: string): boolean
@@ -246,22 +246,17 @@ interface Collapse {
 export type ProbeTables = { readonly [E in EntityName]: { has(id: string): boolean } }
 
 export interface PoolRelationsOptions {
-  /** Row reads (the fenced tables in the live pool). */
+  /** Row reads (the tables in the live pool). */
   readonly tables: ReadableTables
   /** The raw tables, for `prefix` root probes (a miss reads no row). */
   readonly probe: ProbeTables
-  readonly reads: ReadFence
   readonly schema?: ModelSchema
-  /** Bumped once per slot written (forward entries and buckets). */
-  readonly onWrite?: (slots: number) => void
-  /** Bumped by the bucket elements a write touched (POD-4568 rework, M3 F1). */
-  readonly onElements?: (elements: number) => void
   /**
    * POD-4678 — a bucket's net member move, after the bucket applied it
    * (inside the action): the collection (`issue.sessions`), the target, the
    * member and whether it was added. The pool maintains its seat set from
    * this delta (one element, never the family), never by re-listing the
-   * bucket through the fenced reader. Generic: no relation named here.
+   * bucket through the reader. Generic: no relation named here.
    */
   readonly onBucket?: (
     collection: string,
@@ -290,15 +285,8 @@ export interface RelationMaintenance {
 
 export class PoolRelations implements RelationReader, RelationMaintenance {
   readonly schema: ModelSchema
-  /** The slots the current (or last) action wrote, `collection:key` / `from.name→id`. */
-  readonly lastWrites: string[] = []
-  /** Bucket elements the current (or last) action touched. */
-  lastElements = 0
   private readonly tables: ReadableTables
   private readonly probe: ProbeTables
-  private readonly reads: ReadFence
-  private readonly onWrite: (slots: number) => void
-  private readonly onElements: (elements: number) => void
   private readonly onBucket: (
     collection: string,
     target: string,
@@ -339,9 +327,6 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     this.schema = options.schema ?? SCHEMA
     this.tables = options.tables
     this.probe = options.probe
-    this.reads = options.reads
-    this.onWrite = options.onWrite ?? (() => {})
-    this.onElements = options.onElements ?? (() => {})
     this.onBucket = options.onBucket ?? (() => {})
     this.cold = options.cold ?? null
     this.onSubsetJoin = options.onSubsetJoin ?? (() => {})
@@ -552,11 +537,8 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     return [...members].sort()
   }
 
-  /** Start an action: forget the previous action's write record. */
-  begin(): void {
-    this.lastWrites.length = 0
-    this.lastElements = 0
-  }
+  /** Start an action: no per-action record is kept. */
+  begin(): void {}
 
   /** One table write happened: maintain every relation it touches (doc §4). */
   changed(
@@ -752,7 +734,6 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
           if (twin !== undefined) {
             link.coldBuckets.delete(target)
             for (const member of twin) bucket.add(member)
-            this.touched(twin.size)
             adopted = true
           }
         }
@@ -775,8 +756,6 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
           else link.buckets.set(target, bucket as ObservableSet<string>)
         }
         if (plain && this.cold !== null) this.cold.changed(link.spec.to, target)
-        this.wrote(`${link.collection}:${target}`)
-        this.touched(elements)
       }
     }
     this.pending.clear()
@@ -802,7 +781,6 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     }
     for (const held of this.summaries.values()) held.clear()
     this.pending.clear()
-    this.lastWrites.length = 0
   }
 
   /**
@@ -918,7 +896,6 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     }
     if (set.has(id)) return
     set.add(id)
-    this.touched(1)
     this.onSubsetJoin(link.collection, subset.name, target, id)
   }
 
@@ -926,7 +903,6 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     const set = subset.sets.get(target)
     if (set === undefined || !set.has(id)) return
     set.delete(id)
-    this.touched(1)
     if (set.size === 0) subset.sets.delete(target)
   }
 
@@ -944,7 +920,6 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       else link.forward.set(id, target)
     }
     if (this.cold !== null && !this.cold.resident(link.from, id)) this.cold.changed(link.from, id)
-    this.wrote(`${link.from}.${link.name}→${id}`)
   }
 
   /** Index `id` under every ancestor of its source path (prefix links). */
@@ -978,12 +953,9 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   private probeRoot(link: Link, normalized: string): string | null {
     const roots = this.probe[link.spec.to]
     for (const candidate of prefixCandidates(normalized)) {
-      if (roots.has(candidate)) {
-        this.reads.touch(link.spec.to, candidate, 'get')
-        return candidate
-      }
-      // POD-4671: the union — an issue's own path is a root with no lane and
-      // no counted read (a miss reads no row; the extra set is an index).
+      if (roots.has(candidate)) return candidate
+      // POD-4671: the union — an issue's own path is a root with no lane
+      // (a miss reads no row; the extra set is an index).
       if (link.extraCounts?.has(candidate) === true) return candidate
     }
     return null
@@ -1066,7 +1038,6 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       if (target === undefined) continue
       link.coldForward.delete(id)
       link.forward.set(id, target)
-      this.wrote(`${link.from}.${link.name}→${id}`)
       moved = true
     }
     for (const link of this.incoming.get(entity) ?? []) {
@@ -1076,8 +1047,6 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       const promoted = newBucket(link)
       for (const member of bucket) promoted.add(member)
       link.buckets.set(id, promoted)
-      this.wrote(`${link.collection}:${id}`)
-      this.touched(bucket.size)
       moved = true
     }
     if (moved) this.cold.changed(entity, id)
@@ -1098,16 +1067,6 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     }
     if (moves.get(member) === !added) moves.delete(member)
     else moves.set(member, added)
-  }
-
-  private touched(elements: number): void {
-    this.lastElements += elements
-    this.onElements(elements)
-  }
-
-  private wrote(slot: string): void {
-    this.lastWrites.push(slot)
-    this.onWrite(1)
   }
 }
 

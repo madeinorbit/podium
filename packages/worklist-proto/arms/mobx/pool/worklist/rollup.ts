@@ -530,8 +530,6 @@ export interface RollupInputs {
   /** A session's cached `lastActiveAt` (Mb1's `activityMs`). */
   seatActivity(id: string): number | null
   spinOffIds(id: string): readonly string[]
-  /** Count one group run (the shared `ArmStats.rollupsDerived`: `attentionOf`, `progressOf`). */
-  counted(): void
 }
 
 /** The own row's facts the own part reads, cached apart from the seats. */
@@ -782,7 +780,6 @@ export function attentionOf(
   id: string,
   self: Pick<RollupSelf, 'present' | 'ownFacts' | 'rosterIds' | 'openOwn' | 'tip'>,
 ): Attention {
-  input.counted()
   const ownAttention = ownAttentionPartOf(input, self)
   return {
     ownAttention,
@@ -803,6 +800,5 @@ export function progressOf(
   id: string,
   self: Pick<RollupSelf, 'openOwn'>,
 ): Progress {
-  input.counted()
   return { unitOwn: unitOwnPartOf(input, id, self), unitsBelow: unitsBelowPartOf(input, id) }
 }

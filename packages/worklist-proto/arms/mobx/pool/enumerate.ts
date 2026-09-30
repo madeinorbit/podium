@@ -6,9 +6,9 @@
  * Three walks, all membership-sized by nature:
  * - `issueIdsOf`: every RESIDENT issue id (`MobxPool.issueIds`: the
  *   rebuild's residency input and the tests). The worklist no longer reads it
- *   (POD-4569). It iterates the fenced table's KEYS, which count each id
- *   without reading its value (POD-4621), so the enclosing computed
- *   subscribes to membership only and the walk costs what it walks.
+ *   (POD-4569). It iterates the table's KEYS, touching membership only,
+ *   so the enclosing computed subscribes to membership only and the walk
+ *   costs what it walks.
  * - `builtIds`: the rows of one entity whose object the pool has built (a
  *   `replace` releases the ones it no longer knows, `MobxPool.followHeldOut`).
  *   Sized by what was built, never by the table.
@@ -59,9 +59,9 @@ import {
   type TableSet,
 } from './tables'
 
-/** Every issue id in the pool; tracked on membership, counted per id. */
-export function issueIdsOf(pool: { readonly fenced: PoolTables }): string[] {
-  return [...pool.fenced.issue.keys()]
+/** Every issue id in the pool; tracked on membership. */
+export function issueIdsOf(pool: { readonly tables: PoolTables }): string[] {
+  return [...pool.tables.issue.keys()]
 }
 
 /** The ids whose object the pool has built for one entity (a `replace` releases the unknown ones). */

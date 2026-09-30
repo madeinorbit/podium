@@ -61,7 +61,7 @@ function boot(arm: Arm, feed: ReturnType<typeof feedOf>): MobxPool {
       schedule: () => () => {},
     }).pool
   }
-  const pool = new MobxPool(DISABLED_READ_FENCE, locals.source.get())
+  const pool = new MobxPool(locals.source.get())
   const { source } = feed.replay
   pool.apply({
     type: 'replace',

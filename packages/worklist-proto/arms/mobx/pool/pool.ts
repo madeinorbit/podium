@@ -15,8 +15,6 @@
  * tells the relation engine, which maintains every declared relation from
  * the schema; the action ends with one `flush`, which applies each touched
  * bucket's net moves once, one element per member added or removed.
- * `indexUpdates` counts the relation slots written, `counters.bucketElements`
- * the bucket elements touched (M3 F1).
  *
  * RESIDENCY (POD-4567, `residency.ts`). With a per-row read (`lazy.load`, the
  * feed's `RowSource.row`), rows the schema lets be cold (closed issues and
@@ -37,22 +35,12 @@
  * object itself when nothing is pending, and for a row not in memory the
  * answer the caller names (`AbsentRead`: `LOADING` with its load queued,
  * `LOADING` alone, or its current value by id through the feed). Every table
- * read goes through the reads fence (`reads.wrapTables`), every relation read
- * through `reads.wrapRelations`; with the fence disabled both are the
- * identity. Derivations run lazily: a row field computes when a mounted row
+ * read goes through the tables, every relation read through the relation
+ * engine. Derivations run lazily: a row field computes when a mounted row
  * reads it and suspends when nothing does (no `keepAlive`).
  *
  * STRICT FLAGS (POD-4760) live only in tests (`enforce.ts` exports them,
  * `mobx-trap.ts` applies them): importing the pool never configures MobX.
- *
- * STATS (`README.md` has the definitions): `rowsDerived` counts row-field
- * body runs; `notifications` counts actions that changed pool state;
- * `indexUpdates` counts relation slots written (forward entries and
- * buckets; `counters.bucketElements` the elements inside them);
- * `rollupsDerived` counts runs of an issue's two roll-up compositions
- * (`worklist/rollup.ts` `attentionOf`: its own attention, the subtree
- * aggregate and seat activity; `unitsBelowPartOf`: the units below).
- * The pool's own counters are in `counters`.
  */
 
 import {
@@ -67,7 +55,7 @@ import {
   runInAction,
   untracked,
 } from 'mobx'
-import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
+import type { RelationReader } from '../../../shared/src/instrument/reads'
 import { relationLinks } from '../../../shared/src/links'
 import { type EntityName, type ModelSchema, SCHEMA } from '../../../shared/src/schema'
 import type {
@@ -76,7 +64,7 @@ import type {
   SliceLocals,
   SliceSession,
 } from '../../../shared/src/slice-types'
-import type { ArmStats, RowSourceEvent } from '../../../shared/src/stats'
+import type { RowSourceEvent } from '../../../shared/src/stats'
 import {
   type EditPatch,
   type TxId,
@@ -111,27 +99,8 @@ import {
   readAtOf,
   rollupInputsOf,
   VisibleCollection,
-  type VisibleCounters,
   type VisibleInputs,
 } from './worklist/visible'
-
-/** The pool's own counters, beside the shared `ArmStats`. */
-export interface PoolCounters extends VisibleCounters {
-  /** Models built (first access): the worklist's held issues and their sessions, and drawn rows. */
-  modelsCreated: number
-  /** Table slots written (set to a different object, or deleted). */
-  tableWrites: number
-  /** Rows removed (evict or remove), each with its model dropped. */
-  rowsRemoved: number
-  /**
-   * Relation bucket ELEMENTS touched: each member added to or removed from a
-   * bucket, and each member moved when a cold bucket turns resident (M3 F1).
-   * `indexUpdates` counts slots; this counts the work inside them.
-   */
-  bucketElements: number
-}
-
-export type PoolStats = ArmStats & { readonly counters: PoolCounters }
 
 /**
  * POD-4678 (item 2): lower bound by id in a sorted seat list (default
@@ -152,49 +121,6 @@ function sortedIndex(list: { readonly length: number; readonly [i: number]: stri
 
 /** POD-4678 (item 2): no seats (shared frozen, never written; `seatList` absent case). */
 const EMPTY_SEAT_LIST: readonly string[] = Object.freeze([])
-
-function createStats(residency: Residency | null): PoolStats {
-  const counters: PoolCounters = {
-    modelsCreated: 0,
-    tableWrites: 0,
-    rowsRemoved: 0,
-    bucketElements: 0,
-    issueNodes: 0,
-    membershipFlips: 0,
-    groupRuns: 0,
-    groupElements: 0,
-  }
-  const stats: PoolStats = {
-    rowsDerived: 0,
-    rollupsDerived: 0,
-    indexUpdates: 0,
-    notifications: 0,
-    counters,
-    reset(): void {
-      stats.rowsDerived = 0
-      stats.rollupsDerived = 0
-      stats.indexUpdates = 0
-      stats.notifications = 0
-      counters.modelsCreated = 0
-      counters.tableWrites = 0
-      counters.rowsRemoved = 0
-      counters.bucketElements = 0
-      counters.issueNodes = 0
-      counters.membershipFlips = 0
-      counters.groupRuns = 0
-      counters.groupElements = 0
-      if (residency !== null) {
-        const r = residency.counters
-        r.coldWrites = 0
-        r.requests = 0
-        r.batches = 0
-        r.hydrated = 0
-        r.warmed = 0
-      }
-    },
-  }
-  return stats
-}
 
 /**
  * Whether the hot issue update `previous` → `next` moves only the read
@@ -267,21 +193,18 @@ export interface LazyMembers {
 }
 
 export class MobxPool {
-  /** The raw tables (writes only; the copy sweep reaches the pool through them). */
+  /** The tables: every read and write in the pool goes here. */
   readonly tables: PoolTables
-  /** The same tables through the reads fence: every read in the pool goes here. */
-  readonly fenced: PoolTables
   readonly relations: RelationReader
-  /** The relation engine itself (tests read its write record; unfenced). */
+  /** The relation engine itself. */
   readonly graph: PoolRelations
   /** The selection local: at most one entry, the selected issue id. */
   readonly selection: ObservableMap<string, true>
   /**
    * The read-state lane (POD-4686): each known issue's read cursor, per-key
    * tracked, readable by id only. A mark-read writes one key; only that row's
-   * `unread` (and a decay row's `flat`) re-runs. Uncounted by the reads fence
-   * by design: it is derived state populated from the row the update arrived
-   * on (counted there), read like a cached computed.
+   * `unread` (and a decay row's `flat`) re-runs. It is derived state populated
+   * from the row the update arrived on, read like a cached computed.
    */
   readonly readStates: ObservableMap<string, string | null>
   readonly clock: DeadlineClock
@@ -296,7 +219,6 @@ export class MobxPool {
   readonly groups: WorklistGroups
   /** `SliceLocals.selectedIssueWasFolded` (the R-GROUP 5 latch). */
   readonly foldLatch: IObservableValue<boolean>
-  readonly stats: PoolStats
   /** Residency (POD-4567); null when the pool holds every row. */
   readonly residency: Residency | null
   /** The write layer (pending edits and model edits); null without one. */
@@ -321,7 +243,6 @@ export class MobxPool {
   private readonly clearSeats: () => void
 
   constructor(
-    readonly reads: ReadFence,
     locals: SliceLocals,
     schema?: ModelSchema,
     lazy?: PoolLazyOptions,
@@ -330,14 +251,13 @@ export class MobxPool {
     this.writes = writes ?? null
     this.outOfMemory = lazy?.outOfMemory ?? (() => false)
     this.tables = createObservableTables()
-    this.fenced = reads.wrapTables(this.tables)
-    const fenced = this.fenced
+    const tables = this.tables
     const residency =
       lazy === undefined
         ? null
         : new Residency({
             schema: schema ?? SCHEMA,
-            hot: fenced,
+            hot: tables,
             load: lazy.load,
             // Read at ingest, after the constructor has built the clock.
             now: () => this.clock.current,
@@ -350,26 +270,18 @@ export class MobxPool {
             lanes: () => this.graph,
           })
     this.residency = residency
-    this.stats = createStats(residency)
-    const stats = this.stats
     /**
-     * POD-4678 (sent back items 1-2) — the explicit seats (`issue.sessions`),
-     * maintained SORTED from the relation's own bucket deltas (one element
-     * per move: binary search + splice at its id-order position, never the
-     * family). The rule is declared once in the schema (`issue.sessions`);
-     * this mirror follows the engine's delta in the same action. Held in a
-     * closure (not a field) so the copy sweep never walks it: it holds only
-     * ids, never rows (closures stay a review item).
+     * The explicit seats (`issue.sessions`), maintained SORTED from the
+     * relation's own bucket deltas (one element per move: binary search +
+     * splice at its id-order position, never the family). The rule is declared
+     * once in the schema (`issue.sessions`); this mirror follows the engine's
+     * delta in the same action. Held in a closure (not a field) so the copy
+     * sweep never walks it: it holds only ids, never rows (closures stay a
+     * review item).
      *
-     * TWO DOORS (item 1 vs item 2):
-     * - `seats(id)` (fenced, below): every yielded id counts as a relation
-     *   read, exactly as `many()` yields do. `[...seats].sort()` (the landed
-     *   code verbatim) re-reads the whole family here: over budget (true
-     *   state). The plant uses it and must FAIL #10 at both scales.
-     * - `seatList(id)` (unfenced, below): the maintained SORTED array itself,
-     *   returned without iterating it. A membership change yields the new
-     *   member only: O(1) for real. `seatIdsPartOf` / `sessionIdsPartOf` read
-     *   it, never `seats()` nor `many()`.
+     * The maintained SORTED array itself is returned without iterating it. A
+     * membership change yields the new member only: O(1) for real.
+     * `seatIdsPartOf` / `sessionIdsPartOf` read it, never the relation.
      */
     const seats = observable.map<string, IObservableArray<string>>(undefined, {
       deep: false,
@@ -383,32 +295,25 @@ export class MobxPool {
     // itself, from the row ingest hands it (POD-4753), never read by id.
     const known =
       residency === null
-        ? fenced
+        ? tables
         : (Object.fromEntries(
             ENTITIES.map((entity) => [
               entity,
               {
-                get: (id: string) => fenced[entity].get(id),
-                has: (id: string) => fenced[entity].has(id) || residency.known(entity, id),
+                get: (id: string) => tables[entity].get(id),
+                has: (id: string) => tables[entity].has(id) || residency.known(entity, id),
               },
             ]),
           ) as ReadableTables)
     this.graph = new PoolRelations({
       tables: known,
       probe: this.tables,
-      reads,
       ...(schema === undefined ? {} : { schema }),
-      onWrite: (slots) => {
-        stats.indexUpdates += slots
-      },
-      onElements: (elements) => {
-        stats.counters.bucketElements += elements
-      },
-      // POD-4678 (item 2): file the explicit seat delta (one element) into
-      // the maintained SORTED list, in the same action that moved the bucket:
-      // binary search by id (default `.sort()` order, UTF-16 code units) +
-      // splice at its position. No per-session reactions; the schema declares
-      // the rule once. Family-small (2-3 ids): splice shifting is trivial.
+      // File the explicit seat delta (one element) into the maintained SORTED
+      // list, in the same action that moved the bucket: binary search by id
+      // (default `.sort()` order, UTF-16 code units) + splice at its position.
+      // No per-session reactions; the schema declares the rule once.
+      // Family-small (2-3 ids): splice shifting is trivial.
       onBucket: (collection, target, member, added) => {
         if (collection !== 'issue.sessions') return
         if (added) {
@@ -433,9 +338,8 @@ export class MobxPool {
         ? {}
         : {
             cold: {
-              // Through the fence (M3 N4): a presence probe is a counted read.
               resident: (entity: EntityName, id: string) =>
-                !residency.capable(entity) || fenced[entity].has(id),
+                !residency.capable(entity) || tables[entity].has(id),
               observe: (entity: EntityName, id: string) => {
                 residency.known(entity, id)
               },
@@ -445,7 +349,7 @@ export class MobxPool {
               residency.laneJoined(collection, subset, member),
           }),
     })
-    this.relations = reads.wrapRelations(this.graph)
+    this.relations = this.graph
     this.selection = observable.map<string, true>(undefined, {
       deep: false,
       name: 'pool.selection',
@@ -459,7 +363,7 @@ export class MobxPool {
       ENTITIES.map((entity) => [entity, new Map()]),
     ) as MobxPool['models']
     this.target = {
-      read: this.fenced,
+      read: this.tables,
       write: this.tables,
       relations: this.graph,
       volatile: {
@@ -496,31 +400,15 @@ export class MobxPool {
       present: (entity, id) =>
         entity === 'issue'
           ? this.issueObject(id).loaded.facts.state === 'ready'
-          : fenced[entity].has(id),
+          : tables[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
       // Only asked for an issue in memory (`originTickPartOf`): its object.
       parts: (id) => this.issueObject(id),
       rollup: (id) => this.knownIssue(id)?.rollup,
       retainedSeats: (id) => this.knownIssue(id)?.retainedSeatIds ?? [],
-      // POD-4678 (sent back item 1, plant/old): the mirror IS the relation —
-      // every id it yields counts, exactly as `many()` yields do.
-      // `[...seats].sort()` (landed code verbatim) re-reads the whole family
-      // here: over budget (true state). The plant uses it and must FAIL #10.
-      // Closure-held (never walked by the copy sweep: ids only, never rows).
-      seats: (id) => ({
-        *[Symbol.iterator](): Generator<string> {
-          const list = seats.get(id)
-          if (list === undefined) return
-          for (const member of list) {
-            reads.touch('session', member, 'relation')
-            yield member
-          }
-        },
-      }),
-      // POD-4678 (item 2, O(1) real): the maintained SORTED list itself,
-      // returned without iterating it. A membership change yields the new
-      // member only (its own row reads, already counted there); the family
-      // is never yielded here, so never counted. Closure-held, ids only.
+      // The maintained SORTED list itself, returned without iterating it. A
+      // membership change yields the new member only; the family is never
+      // yielded here. Closure-held, ids only.
       seatList: (id) => seats.get(id) ?? EMPTY_SEAT_LIST,
       selected: (id) => this.selection.has(id),
       reached: (t) => this.clock.reached(t),
@@ -540,32 +428,13 @@ export class MobxPool {
       issueRead: (id) => this.readCursor(id),
       nested: (id) => this.issueObject(id).nested,
       formalChildren: (id) => links.issue.children.ids(id),
-      // POD-4678 (item 1, plant/old): the mirror IS the relation — every id
-      // yielded counts, exactly as `many()` yields do. Spread + sort
-      // (`[...seats].sort()`, landed code verbatim) re-reads the whole family:
-      // over budget (true state). The plant uses it and must FAIL #10.
-      // Closure-held (never walked by the copy sweep: ids only, never rows).
-      seats: (id) => ({
-        *[Symbol.iterator](): Generator<string> {
-          const list = seats.get(id)
-          if (list === undefined) return
-          for (const member of list) {
-            reads.touch('session', member, 'relation')
-            yield member
-          }
-        },
-      }),
-      // POD-4678 (item 2, O(1) real): the maintained SORTED list itself,
-      // returned without iterating it — a membership change yields the new
-      // member only. `seatIdsPartOf` reads it, never `seats()` nor `many()`.
+      // The maintained SORTED list itself, returned without iterating it — a
+      // membership change yields the new member only. `seatIdsPartOf` reads
+      // it, never the relation.
       seatList: (id) => seats.get(id) ?? EMPTY_SEAT_LIST,
-      counted: () => {
-        stats.rollupsDerived += 1
-      },
     }
     this.rollupInputs = rollupInputsOf(this.visibleInputs)
     this.worklist = new VisibleCollection({
-      counters: stats.counters,
       issue: (id) => this.issueObject(id),
       fileGroups: (id, filing) => this.groups.file(id, filing),
     })
@@ -577,7 +446,6 @@ export class MobxPool {
       // At most one entry (`select`): the key walk is the selection itself.
       selectedId: () => this.selection.keys().next().value ?? null,
       foldLatch: () => this.foldLatch.get(),
-      counters: stats.counters,
     })
     makeObservable<
       MobxPool,
@@ -594,7 +462,6 @@ export class MobxPool {
       | 'release'
     >(this, {
       tables: false,
-      fenced: false,
       relations: false,
       graph: false,
       selection: false,
@@ -614,14 +481,12 @@ export class MobxPool {
       edit: false,
       row: false,
       readCursor: false,
-      stats: false,
       models: false,
       target: false,
       selectedId: false,
       heldOut: false,
       outOfMemory: false,
       clearSeats: false,
-      reads: false,
       residency: false,
       resident: false,
       lazyMany: false,
@@ -659,21 +524,20 @@ export class MobxPool {
    * overlay entry, never to it.
    *
    * Not in memory (cold, POD-4567): what `absent` names (`AbsentRead`). A
-   * cold row's value is read by id through the feed and counted as a read
-   * (POD-4569); it is tracked by residency's per-id atom, which reports every
-   * relink and the load. Unknown rows answer undefined. Never blocks.
+   * cold row's value is read by id through the feed; it is tracked by
+   * residency's per-id atom, which reports every relink and the load.
+   * Unknown rows answer undefined. Never blocks.
    */
   row(entity: EntityName, id: string, absent: 'peek'): object | undefined
   row(entity: EntityName, id: string, absent?: 'load' | 'mark'): Loaded<object>
   row(entity: EntityName, id: string, absent: AbsentRead = 'load'): Loaded<object> {
-    let server = this.fenced[entity].get(id) as object | undefined
+    let server = this.tables[entity].get(id) as object | undefined
     if (server === undefined) {
       const residency = this.residency
       if (residency === null) return undefined
       if (absent === 'load') return residency.loading(entity, id) ? LOADING : undefined
       if (!residency.known(entity, id)) return undefined
       if (absent === 'mark') return LOADING
-      this.reads.touch(entity, id, 'get')
       server = residency.read(entity, id)
       if (server === undefined) return undefined
     }
@@ -701,7 +565,7 @@ export class MobxPool {
 
   /** The model of a row in memory, built on first request; undefined when absent (tracked). */
   model<E extends EntityName>(entity: E, id: string): ModelOf[E] | undefined {
-    if (!this.fenced[entity].has(id)) return undefined
+    if (!this.tables[entity].has(id)) return undefined
     return this.object(entity, id) as ModelOf[E]
   }
 
@@ -716,7 +580,6 @@ export class MobxPool {
     if (model === undefined) {
       model = new MODEL_CLASSES[entity](id, this)
       models.set(id, model)
-      this.stats.counters.modelsCreated += 1
     }
     return model
   }
@@ -767,7 +630,7 @@ export class MobxPool {
    * an empty row.
    */
   resident(entity: EntityName, id: string): Residence {
-    if (this.fenced[entity].has(id)) return 'resident'
+    if (this.tables[entity].has(id)) return 'resident'
     return this.residency?.loading(entity, id) === true ? 'loading' : 'absent'
   }
 
@@ -799,7 +662,7 @@ export class MobxPool {
     const ready: string[] = []
     let pending = 0
     for (const member of this.relations.many(from, id, relation)) {
-      if (this.fenced[to].has(member)) ready.push(member)
+      if (this.tables[to].has(member)) ready.push(member)
       else if (this.residency?.loading(to, member) === true) pending += 1
     }
     return { ready, pending }
@@ -825,8 +688,6 @@ export class MobxPool {
       residency.install(this.target, batch, out)
       this.graph.flush()
     })
-    this.stats.counters.tableWrites += out.writes
-    if (out.writes > 0 || out.volatile > 0) this.stats.notifications += 1
   }
 
   /** Models currently held, per entity (tests: lifecycle). */
@@ -853,9 +714,6 @@ export class MobxPool {
       this.followHeldOut(event)
     })
     for (const [entity, id] of out.removed) this.release(entity, id)
-    this.stats.counters.tableWrites += out.writes
-    this.stats.counters.rowsRemoved += out.removed.length
-    if (out.writes > 0 || out.cold > 0 || out.volatile > 0) this.stats.notifications += 1
   }
 
   /**
@@ -909,7 +767,6 @@ export class MobxPool {
       if (latch) this.foldLatch.set(locals.selectedIssueWasFolded === true)
       if (clock) this.clock.advance(locals.coarseNow)
     })
-    this.stats.notifications += 1
   }
 
   /** Empty every table, model cache, selection and clock registration. */

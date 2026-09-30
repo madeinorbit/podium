@@ -140,7 +140,6 @@ function rig(
   const reads = options.fence === false ? DISABLED_READ_FENCE : createReadFence({ enabled: true })
   const loads = options.loads
   const pool = new MobxPool(
-    reads,
     locals.source.get(),
     options.schema,
     loads === undefined

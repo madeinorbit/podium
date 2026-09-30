@@ -353,7 +353,7 @@ describe('an edit on a row not in memory', () => {
     }).create(counted, feeds.locals.source) as HarnessWritableMobxPoolHandle
     // The all-in-memory pool: no residency, every row in its tables.
     const overlay = new PendingOverlay()
-    const full = new MobxPool(DISABLED_READ_FENCE, feeds.locals.source.get(), undefined, undefined, overlay)
+    const full = new MobxPool(feeds.locals.source.get(), undefined, undefined, overlay)
     full.apply({
       type: 'replace',
       rows: [

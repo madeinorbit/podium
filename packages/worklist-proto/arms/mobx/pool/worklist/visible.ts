@@ -149,16 +149,8 @@ export interface VisibleInputs {
   nested(id: string): Iterable<string>
   /** The known issues whose declared `issue.parent` is `id` (the relation engine's `children` bucket). */
   formalChildren(id: string): Iterable<string>
-  /**
-   * The explicit seats (`issue.sessions`) as the relation yields them: every
-   * id counts as a read, as `many()` yields do. No part reads it; the seat
-   * list below is the read.
-   */
-  seats(id: string): Iterable<string>
   /** The maintained SORTED seat list itself, returned without iterating it. */
   seatList(id: string): readonly string[]
-  /** One composition run, reported through the shared `ArmStats.rollupsDerived`. */
-  counted(): void
 }
 
 // ------------------------------------------------------------ own-row facts
@@ -518,7 +510,6 @@ export function rollupInputsOf(input: VisibleInputs): RollupInputs {
     seat: (id) => input.session(id).verdict,
     seatActivity: (id) => input.session(id).activityMs,
     spinOffIds: (id) => input.issue(id)?.spinOffIds ?? [],
-    counted: () => input.counted(),
   }
 }
 
@@ -1034,23 +1025,10 @@ export interface HeldIssue extends IssueVisibility {
 
 /** What the collection reads from the pool. */
 export interface VisibleHost {
-  readonly counters: VisibleCounters
   /** The one object of issue `id`, built on first request. */
   issue(id: string): HeldIssue
   /** File one row into the groups' lanes (`WorklistGroups.file`). */
   fileGroups(id: string, filing: Filing | undefined): void
-}
-
-/** The collection's own counters (`MobxPool.stats.counters` carries them). */
-export interface VisibleCounters {
-  /** Filing reactions taken (one per issue in memory, and per issue kept out of memory beside the rule). */
-  issueNodes: number
-  /** Visible-set membership flips (an id entering or leaving). */
-  membershipFlips: number
-  /** Rows filed into the groups (`groups.ts`): one per filing change. */
-  groupRuns: number
-  /** Lanes those filings changed (each moves one row), never the rows around it. */
-  groupElements: number
 }
 
 /** The order's one key. */
@@ -1111,7 +1089,6 @@ export class VisibleCollection {
         { fireImmediately: true, equals: compareStructural, name: `pool.file.${id}` },
       ),
     )
-    this.host.counters.issueNodes += 1
   }
 
   /** Release issue `id`'s reaction and take its row out of every list (inside an action). */
@@ -1125,9 +1102,7 @@ export class VisibleCollection {
 
   /** Move row `id` to where `filing` puts it (inside an action). */
   private file(id: string, filing: Filing | undefined): void {
-    const was = this.visible.has(id)
     this.visible.file(id, filing === undefined ? undefined : VISIBLE, filing?.rank)
-    if (was !== (filing !== undefined)) this.host.counters.membershipFlips += 1
     this.host.fileGroups(id, filing)
   }
 

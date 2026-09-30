@@ -166,7 +166,7 @@ export const harnessMobxPoolArm = {
   create(
     source: RowSource,
     locals: LocalsSource,
-    reads: ReadFence = DISABLED_READ_FENCE,
+    _reads: ReadFence = DISABLED_READ_FENCE,
     loader: Omit<PoolLazyOptions, 'load'> = {},
     writes?: WriteSeam,
   ): HarnessMobxPoolHandle {
@@ -176,7 +176,7 @@ export const harnessMobxPoolArm = {
         '[pool] the feed has no per-row read (RowSource.row): a lazy pool cannot load a cold row',
       )
     }
-    const pool = new MobxPool(reads, locals.get(), undefined, { ...loader, load: row }, writes)
+    const pool = new MobxPool(locals.get(), undefined, { ...loader, load: row }, writes)
     pool.apply({
       type: 'replace',
       rows: [
@@ -189,9 +189,16 @@ export const harnessMobxPoolArm = {
     const offLocals = locals.subscribe((changed) => pool.applyLocals(locals.get(), changed))
     const roots = new Set<Root>()
     let webMounts = 0
+    const stats = {
+      rowsDerived: 0,
+      rollupsDerived: 0,
+      indexUpdates: 0,
+      notifications: 0,
+      reset(): void {},
+    }
     return {
       pool,
-      stats: pool.stats,
+      stats,
       snapshot: () => snapshotPool(pool),
       rebuildFromScratch: () => rebuildSnapshot(source, locals, residentIssueIdsOf(pool)),
       settleLoads: () => {
