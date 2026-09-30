@@ -95,7 +95,7 @@ import { ROW_DISPLAYED_FIELDS } from '../../../shared/src/row-view'
 import { type FixtureScale, startScenarioEngine } from '../../../shared/src/scenarios'
 import { coldByRule, type EntityName, SCHEMA, tableColdContext } from '../../../shared/src/schema'
 import { handPoolArm, type HandPoolHandle } from './arm'
-import { type HandPool } from './pool'
+import { HandPool } from './pool'
 import { writableHandPoolArm, type WritableHandPoolHandle } from './write/arm'
 
 // happy-dom rewrites `import.meta.url` (the package's own `test` lane); resolve
