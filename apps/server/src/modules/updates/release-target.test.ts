@@ -507,7 +507,7 @@ describe('resolveReleaseTarget trust root', () => {
     })
 
     it('REFUSES a redirect chain longer than the hop cap', async () => {
-      const hops = [
+      const hops: [string, ...string[]] = [
         `${RELEASE_BASE}/h1.tar.gz`,
         `${RELEASE_BASE}/h2.tar.gz`,
         `${RELEASE_BASE}/h3.tar.gz`,
@@ -521,8 +521,9 @@ describe('resolveReleaseTarget trust root', () => {
           return new Response(null, { status: 302, headers: { location: hops[0] } })
         }
         const index = hops.indexOf(url)
-        if (index >= 0 && index < hops.length - 1) {
-          return new Response(null, { status: 302, headers: { location: hops[index + 1] } })
+        const nextHop = hops[index + 1]
+        if (index >= 0 && nextHop !== undefined) {
+          return new Response(null, { status: 302, headers: { location: nextHop } })
         }
         return new Response(null, { status: 200 })
       })
