@@ -72,6 +72,22 @@ export interface HeadlessHistoryRelay {
   >
 }
 
+export interface HeadlessTurnResult {
+  ok: boolean
+  error?: string
+  /** The send may have reached the program; it must not be retried as a refusal. */
+  deliveryStatus?: 'unknown'
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
+  harnessSessionId?: string
+  output?: string
+  retryable?: boolean
+  accountId?: AccountId
+  requestDigest?: string
+}
+
+const DELIVERY_UNKNOWN_ERROR =
+  'Delivery could not be proven; the message may have reached the agent.'
+
 export interface HeadlessDeps {
   /** Deployment-qualified durable namespace, injected by server composition. */
   durableLabelFor(sessionId: SessionId): string
@@ -304,16 +320,7 @@ export class HeadlessService {
       timeoutMs?: number
     },
     onEvent?: (event: HeadlessTurnEvent) => void,
-  ): Promise<{
-    ok: boolean
-    error?: string
-    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-    harnessSessionId?: string
-    output?: string
-    retryable?: boolean
-    accountId?: AccountId
-    requestDigest?: string
-  }> {
+  ): Promise<HeadlessTurnResult> {
     if (input.toolPolicy === 'none' && !harnessSupportsNoTools(input.agent)) {
       throw new Error(`harness ${input.agent} cannot enforce a no-tools headless turn`)
     }
@@ -420,7 +427,11 @@ export class HeadlessService {
           ...(effort ? { effort } : {}),
         })
       } catch (error) {
-        return { ok: false, error: describeError(error), retryable: true }
+        return {
+          ok: false,
+          deliveryStatus: 'unknown',
+          error: `${DELIVERY_UNKNOWN_ERROR} ${describeError(error)}`,
+        }
       }
       if (receipt.outcome === 'refused') {
         const reason = receipt.refusal.reason
@@ -438,7 +449,7 @@ export class HeadlessService {
         return { ok: false, error: detail }
       }
       if (receipt.outcome === 'unverified') {
-        return { ok: false, error: 'headless turn transport timed out', retryable: true }
+        return { ok: false, deliveryStatus: 'unknown', error: DELIVERY_UNKNOWN_ERROR }
       }
       if (receipt.outcome === 'queued') {
         return { ok: false, error: 'headless turn was queued; expected direct dispatch', retryable: true }
@@ -454,9 +465,9 @@ export class HeadlessService {
         try {
           await relay.interrupt(input.sessionId)
         } catch {
-          // Fencing is best-effort; the retryable report below is the verdict.
+          // Fencing cannot prove whether the message reached the conversation.
         }
-        return { ok: false, error: 'headless turn transport timed out', retryable: true }
+        return { ok: false, deliveryStatus: 'unknown', error: DELIVERY_UNKNOWN_ERROR }
       }
       const term = (terminal as { ev: { ev: string; verdict?: string; reason?: string; detail?: string } }).ev
       // Read the canonical output + resume after the fence. Best-effort: a
