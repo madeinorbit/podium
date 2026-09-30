@@ -37,22 +37,21 @@ import { openKernelAssembly, type KernelAssembly } from '@/lib/kernelReplica'
 import { resolveReplicaPrincipal, recordIdentityEvidence } from '@/lib/use-kernel-replica'
 import '@/index.css'
 import '@/styles.css'
-import { harnessMobxPoolArm } from '../../packages/worklist-proto/harness/src/adapters/mobx-pool'
-import { handPoolArm } from '../../packages/worklist-proto/arms/hand/pool/arm'
-import { legacyControlArmFor } from '../../packages/worklist-proto/harness/src/legacy-control/arm'
-import { createEngineLocals } from '../../packages/worklist-proto/harness/src/engine-locals'
-import { oracleSnapshot } from '../../packages/worklist-proto/harness/src/oracle/index'
-import { createRowSource, type RowSourceHandle } from '../../packages/worklist-proto/shared/src/row-source'
-import { createCommitLog, withCommitLog, type CommitLog } from '../../packages/worklist-proto/shared/src/row-shell'
-import { firstSnapshotDifference } from '../../packages/worklist-proto/harness/web/entrylib'
+import { harnessMobxPoolArm } from '../../../packages/worklist-proto/harness/src/adapters/mobx-pool'
+import { handPoolArm } from '../../../packages/worklist-proto/arms/hand/pool/arm'
+import { legacyControlArmFor } from '../../../packages/worklist-proto/harness/src/legacy-control/arm'
+import { createEngineLocals } from '../../../packages/worklist-proto/harness/src/engine-locals'
+import { oracleSnapshot } from '../../../packages/worklist-proto/harness/src/oracle/index'
+import { createRowSource, type RowSourceHandle } from '../../../packages/worklist-proto/shared/src/row-source'
+import { createCommitLog, withCommitLog, type CommitLog } from '../../../packages/worklist-proto/shared/src/row-shell'
 import type {
   ArmHandle,
   CheckableArm,
   LocalsSource,
   RowSource,
-} from '../../packages/worklist-proto/shared/src/arm'
-import type { LocalsSourceHandle } from '../../packages/worklist-proto/shared/src/locals-source'
-import type { SliceSnapshot } from '../../packages/worklist-proto/shared/src/slice-types'
+} from '../../../packages/worklist-proto/shared/src/arm'
+import type { LocalsSourceHandle } from '../../../packages/worklist-proto/shared/src/locals-source'
+import type { SliceSnapshot } from '../../../packages/worklist-proto/shared/src/slice-types'
 
 // The bundle is fetched, parsed and evaluated (every static import); the page
 // clock starts here, as on the harness pages (`scriptAt`).
@@ -87,7 +86,7 @@ interface LivePanel {
   locals: LocalsSourceHandle
   handle: ArmHandle
   unmount: () => void
-  parity: { ok: boolean; firstDifference: string | null; at: number } | null
+  parity: { status: 'green' | 'red' | 'live'; firstDifference: string | null; at: number } | null
   lastTotal: number
   lastDelta: number
 }
@@ -114,6 +113,60 @@ function armOf(name: ArmName, boot: { runtime: LiveBoot['runtime'] }): Checkable
 
 function snapshotRows(snapshot: SliceSnapshot): number {
   return Object.keys(snapshot.rowsById).length
+}
+
+/**
+ * The first difference between two slice outputs, walking the oracle's order.
+ * Mirrors `firstSnapshotDifference` in `packages/worklist-proto/harness/web/entrylib.ts`
+ * (the driver compares the same two snapshots after every sample); kept local
+ * so this page does not pull the harness's scenario/fixture machinery into the
+ * app dev server. The compared snapshots — the arm's and `oracleSnapshot`'s —
+ * are the same ones the tests use.
+ */
+function firstSnapshotDifference(actual: SliceSnapshot, expected: SliceSnapshot): string | null {
+  const canonical = (value: unknown): string =>
+    JSON.stringify(value, (_key, inner: unknown) =>
+      inner !== null && typeof inner === 'object' && !Array.isArray(inner)
+        ? Object.fromEntries(
+            Object.entries(inner as Record<string, unknown>).sort(([a], [b]) =>
+              a < b ? -1 : a > b ? 1 : 0,
+            ),
+          )
+        : inner,
+    )
+  const ids = (snapshot: SliceSnapshot): string[] => [
+    ...snapshot.order.pinnedIds,
+    ...snapshot.order.groups.flatMap((group) => [...group.rowIds, ...group.closedIds]),
+  ]
+  const want = ids(expected)
+  for (const id of want) {
+    const a = actual.rowsById[id]
+    const e = expected.rowsById[id]
+    if (a === undefined) return `row ${id}: missing from the arm`
+    if (canonical(a) !== canonical(e)) {
+      const fields = Object.keys({ ...a, ...e }).filter(
+        (field) =>
+          canonical((a as unknown as Record<string, unknown>)[field]) !==
+          canonical((e as unknown as Record<string, unknown>)[field]),
+      )
+      return `row ${id}: ${fields
+        .map(
+          (f) =>
+            `${f} arm=${canonical((a as unknown as Record<string, unknown>)[f])} oracle=${canonical((e as unknown as Record<string, unknown>)[f])}`,
+        )
+        .join('; ')}`
+    }
+  }
+  const extra = Object.keys(actual.rowsById).find((id) => !(id in expected.rowsById))
+  if (extra !== undefined) return `row ${extra}: drawn by the arm, not in the oracle`
+  if (canonical(actual.order) !== canonical(expected.order)) {
+    const got = ids(actual)
+    const at = want.findIndex((id, index) => got[index] !== id)
+    return at >= 0
+      ? `order at ${at}: arm has ${got[at] ?? 'nothing'}, oracle ${want[at]}`
+      : 'order: same rows, different grouping'
+  }
+  return null
 }
 
 function heapMB(): number | null {
@@ -235,19 +288,42 @@ function teardown(boot: LiveBoot): void {
   void boot.assembly.dispose().catch(() => {})
 }
 
-function checkParity(boot: LiveBoot, panel: LivePanel): void {
-  try {
-    const actual = panel.handle.snapshot()
-    const expected = oracleSnapshot(boot.runtime.getSnapshot())
-    const firstDifference = firstSnapshotDifference(actual, expected)
-    panel.parity = { ok: firstDifference === null, firstDifference, at: Date.now() }
-  } catch (error) {
-    panel.parity = {
-      ok: false,
-      firstDifference: `parity threw: ${error instanceof Error ? error.message : String(error)}`,
-      at: Date.now(),
+/**
+ * The arm's output against the oracle's over the live engine. Live data moves
+ * under the check (agents work while the operator watches), so one comparison
+ * can catch the two snapshots on either side of a publication and report a
+ * difference that is already gone. Retry while the answer moves: green the
+ * moment they agree, `live` while each attempt names a DIFFERENT row (the
+ * store is changing faster than the check), red only when the same row
+ * differs across attempts. A click never selects during the check — selection
+ * is locals-only and cannot move a row — so a stable red is the arm's, not
+ * the operator's.
+ */
+async function checkParity(boot: LiveBoot, panel: LivePanel): Promise<void> {
+  const seen = new Map<string, number>()
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    let firstDifference: string | null
+    try {
+      firstDifference = firstSnapshotDifference(
+        panel.handle.snapshot(),
+        oracleSnapshot(boot.runtime.getSnapshot()),
+      )
+    } catch (error) {
+      firstDifference = `parity threw: ${error instanceof Error ? error.message : String(error)}`
     }
+    if (firstDifference === null) {
+      panel.parity = { status: 'green', firstDifference: null, at: Date.now() }
+      return
+    }
+    seen.set(firstDifference, (seen.get(firstDifference) ?? 0) + 1)
+    if (seen.size > 1) {
+      panel.parity = { status: 'live', firstDifference, at: Date.now() }
+      return
+    }
+    if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 500))
   }
+  const [stable] = seen.keys()
+  panel.parity = { status: 'red', firstDifference: stable ?? 'unknown', at: Date.now() }
 }
 
 function onRowClick(boot: LiveBoot, event: MouseEvent): void {
@@ -297,8 +373,10 @@ function PanelView({
         {' · '}parity{' '}
         {parity === null ? (
           <span>pending</span>
-        ) : parity.ok ? (
+        ) : parity.status === 'green' ? (
           <span style={{ color: 'green' }}>green</span>
+        ) : parity.status === 'live' ? (
+          <span style={{ color: 'orange' }}>LIVE {parity.firstDifference}</span>
         ) : (
           <span style={{ color: 'red' }}>RED {parity.firstDifference}</span>
         )}
@@ -326,7 +404,7 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
     if (settledRef.current === next) return
     settledRef.current = next
     for (const panel of next.panels) await panel.handle.settleLoads?.()
-    for (const panel of next.panels) checkParity(next, panel)
+    for (const panel of next.panels) await checkParity(next, panel)
     await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
     next.firstPaintMs = performance.now() - scriptAt
     setTick((n) => n + 1)
@@ -339,7 +417,10 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
       if (el !== null && current !== null) {
         if (panel.el === null) mountPanel(current, panel, el)
         if (current.panels.every((candidate) => candidate.el !== null)) {
-          void settleBoot(current)
+          // A ref callback runs inside React's commit: the arm's settle drains
+          // through `flushSync`, which React forbids there. Settle on the next
+          // task instead — the mount itself is already committed.
+          setTimeout(() => void settleBoot(current), 0)
         }
       }
     },
@@ -410,8 +491,10 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
       setTick((n) => n + 1)
     }, 500)
     const parityTimer = setInterval(() => {
-      for (const panel of boot.panels) checkParity(boot, panel)
-      setTick((n) => n + 1)
+      void (async () => {
+        for (const panel of boot.panels) await checkParity(boot, panel)
+        setTick((n) => n + 1)
+      })()
     }, 10_000)
     return () => {
       clearInterval(timer)
@@ -431,9 +514,9 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
             panel.name,
             panel.parity === null
               ? 'pending'
-              : panel.parity.ok
+              : panel.parity.status === 'green'
                 ? 'green'
-                : `RED ${panel.parity.firstDifference}`,
+                : `${panel.parity.status.toUpperCase()} ${panel.parity.firstDifference}`,
           ]),
         ),
       rebuild,
@@ -506,8 +589,10 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
           <button
             type="button"
             onClick={() => {
-              for (const panel of boot.panels) checkParity(boot, panel)
-              setTick((n) => n + 1)
+              void (async () => {
+                for (const panel of boot.panels) await checkParity(boot, panel)
+                setTick((n) => n + 1)
+              })()
             }}
           >
             Check parity now
