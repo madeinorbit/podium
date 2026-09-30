@@ -78,3 +78,23 @@ before binding the session. A refusal or inconsistent reply rejects adoption;
 cleanup closes the new client and leaves a surviving engine running. Coverage
 also includes journals predating rollout paths and the existing dead-engine
 fallback.
+
+The required `bun run test:multi-instance` lane executed 35 checks on candidate
+`07f5b58a1`: **29 passed, six failed**. An exact focused comparison of those six
+checks at the original `dev/mw` base, `5f4dee72a`, reproduced **all six failures**
+in the same flatblock checkout. This lane is not green; its failures predate the
+Codex change. Its later managed-account and installer steps did not execute
+because the Bun test step failed.
+
+| Baseline failure | Observation | Existing or discovered issue |
+| --- | --- | --- |
+| Production supervisor gateway | Settled approval catch-up grant times out | POD-4342 (also POD-4366) |
+| Newly claimed named root | Assertion expects configVersion 2; actual is 3 | POD-4223 |
+| Independent instance lifecycle | Session kill cannot confirm process retirement | POD-4997 |
+| Two-platform release fixture | Zig is absent from the test host | POD-3574 |
+| Coordinator replacement control | Expected coordinator grant is empty | POD-4998 |
+| New daemon with old server | Protocol rejection contradicts the connection expectation | POD-4369 |
+
+The two new discoveries are top-level Proposed issues with `discovered-from`
+edges to this issue. They were not claimed or staged. The issue branch remains
+unlanded; POD-4720 owns landing after operator authorization.
