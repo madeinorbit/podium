@@ -118,6 +118,15 @@
       "inputs": ["$TURBO_DEFAULT$"],
       "outputs": ["*.tsbuildinfo"]
     },
+    "@podium/web#typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/worklist-proto/**/*.ts",
+        "$TURBO_ROOT$/packages/worklist-proto/**/*.tsx"
+      ],
+      "outputs": ["*.tsbuildinfo"]
+    },
     "@podium/scripts#typecheck": {
       "dependsOn": ["^typecheck"],
       "inputs": [
