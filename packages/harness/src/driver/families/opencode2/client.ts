@@ -244,6 +244,7 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
               ? [{ type: 'text', text: row.text }]
               : []
             : content
+        if (type === 'user' && parts.length) remember(sessionId, id, false)
         return {
           info: {
             ...row,
