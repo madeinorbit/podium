@@ -57,6 +57,8 @@ export interface OpencodeClientConfig {
   /** Per-request timeout. Generous, because a loopback request that is slow is
    *  a server that is busy, not a server that is gone. */
   timeoutMs?: number
+  /** Exact instance-owned v2 store; never fall back to the operator's HOME. */
+  databasePath?: string
 }
 
 /** A non-2xx from the server, carrying enough to tell apart "we asked wrong"
@@ -95,6 +97,9 @@ export interface OpencodeClient {
   prompt(sessionId: OpencodeSessionId, body: OpencodePromptBody): Promise<OpencodePromptAdmission>
   abort(sessionId: OpencodeSessionId): Promise<void>
   messages(sessionId: OpencodeSessionId): Promise<readonly OpencodeMessageWithParts[]>
+  /** V2 durable admissions not yet in the conversation. Absence from this
+   * list never proves loss; reads can fail or race promotion. */
+  pendingPrompts?(sessionId: OpencodeSessionId): Promise<readonly string[]>
   /** The OPEN asks, from the server rather than from our memory of the stream —
    *  see {@link OpencodePermissionRequest} for why the driver reconciles. */
   permissions(): Promise<readonly OpencodePermissionRequest[]>

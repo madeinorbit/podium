@@ -4,7 +4,7 @@
 import type { Declared } from '../manifest.js'
 import type { HarnessRef, SessionId, TranscriptItemRef } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import type { RetractTooLate } from '@podium/protocol/daemon'
+import type { DeliveryFailureCause, RetractTooLate } from '@podium/protocol/daemon'
 
 // ---------------------------------------------------------------------------
 // Turns and control — the one write path (spec §3)
@@ -322,6 +322,8 @@ export type RefusalReason =
 
 export interface Refusal {
   reason: RefusalReason
+  /** Direct evidence from the program's explicit rejection of our request. */
+  cause?: DeliveryFailureCause
   /** Harness-specific detail, preserved for diagnostics. Never parsed for
    *  control flow — that is what `reason` is for. */
   detail?: string

@@ -6,6 +6,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeEvent, SessionSpec } from '../../host.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
+import type { OpencodeClient } from '../opencode/client.js'
 import { deltaItemIdForPart } from '../opencode/map.js'
 import { createOpencodeRuntime, type OpencodeRuntimeHost } from '../opencode/runtime.js'
 import { createOpencode2Client } from './client.js'
@@ -15,11 +16,22 @@ type Frame = {
   label?: string
   status?: number
   path?: string
-  body?: { data?: any; [key: string]: any }
-  frame?: { id: string; type: string; data: Record<string, any> }
+  body?: { id?: string; text?: string; prompt?: { text: string }; data?: unknown }
+  frame?: {
+    id: string
+    type: string
+    data: { sessionID?: string; messageID?: string; inboxID?: string }
+  }
   table?: string
   change?: string
-  row?: Record<string, any>
+  row?: {
+    id: string
+    s?: string
+    session_id?: string
+    p?: number | null
+    type?: string
+    data?: Record<string, unknown>
+  }
 }
 
 // Recorded on the real CLIs, 2026-09-29 (POD-4864). Stable stays on the v1
@@ -31,7 +43,10 @@ function measured(lane: string, file = 'timeline.jsonl'): Frame[] {
       import.meta.url,
     ),
     'utf8',
-  ).split('\n').filter(Boolean).map((line) => JSON.parse(line))
+  )
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line))
 }
 
 function frame(timeline: Frame[], kind: string, label: string): Frame {
@@ -74,7 +89,9 @@ async function fixture(lane: string, label = 'S1', file?: string) {
     const row = timeline.find((entry) => entry.table === table && entry.row?.id === messageID)?.row
     if (!row) throw new Error('Missing measured pending row')
     db.prepare(`INSERT INTO ${table} VALUES (?, ?, ?)`).run(
-      row.id, row.session_id ?? row.s, lane === 'v2' ? row.p : row.type,
+      row.id,
+      (row.session_id ?? row.s)!,
+      lane === 'v2' ? (row.p ?? null) : row.type!,
     )
   }
   let history: unknown[] = []
@@ -83,34 +100,48 @@ async function fixture(lane: string, label = 'S1', file?: string) {
   const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
     const path = new URL(String(url)).pathname
     if (path === '/api/event') {
-      return new Response(new ReadableStream<Uint8Array>({
-        start(controller) {
-          streams.add(controller)
-          init?.signal?.addEventListener('abort', () => {
-            streams.delete(controller)
-            controller.close()
-          }, { once: true })
-        },
-      }))
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            streams.add(controller)
+            init?.signal?.addEventListener(
+              'abort',
+              () => {
+                streams.delete(controller)
+                controller.close()
+              },
+              { once: true },
+            )
+          },
+        }),
+      )
     }
     if (path.endsWith('/prompt')) return json(promptReply.body, promptReply.status)
     if (path.endsWith('/message')) return json({ data: history, cursor: { next: null } })
     if (path.endsWith('/permission') || path.endsWith('/form')) return json({ data: [] })
     return json({ data: { id: sessionID } })
   })
+  let client: OpencodeClient
   const host: OpencodeRuntimeHost = {
     driverId: 'opencode2-server',
     launch: async () => ({
-      baseUrl: 'http://127.0.0.1:41427', username: 'opencode', password: 'fixture',
+      baseUrl: 'http://127.0.0.1:41427',
+      username: 'opencode',
+      password: 'fixture',
       process: { key: 'fixture-opencode' },
-      stop: async () => {}, kill: async () => {}, resources: () => undefined,
+      stop: async () => {},
+      kill: async () => {},
+      resources: () => undefined,
     }),
     adopt: async () => undefined,
-    stageAttachment: async () => { throw new Error('No attachments in the measured lane') },
+    stageAttachment: async () => {
+      throw new Error('No attachments in the measured lane')
+    },
     attachClient: async () => undefined,
     bindings: { recorded: () => undefined, bound: () => {}, released: () => {} },
-    makeClient: (config) => createOpencode2Client({ ...config, fetch, databasePath }),
-    randomSecret: () => 'fixture', mintSessionId: () => 'fixture' as SessionId,
+    makeClient: (config) => (client = createOpencode2Client({ ...config, fetch, databasePath })),
+    randomSecret: () => 'fixture',
+    mintSessionId: () => 'fixture' as SessionId,
     now: () => Date.now(),
   }
   const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
@@ -118,20 +149,31 @@ async function fixture(lane: string, label = 'S1', file?: string) {
   const spec: SessionSpec = {
     harness: 'opencode',
     selection: { auth: 'api-key', platform: 'linux', available: ['opencode2-server'] },
-    workdir: directory, model: {},
+    workdir: directory,
+    model: {},
     instructions: { supported: false, reason: 'fixture' },
     mcpServers: { supported: false, reason: 'fixture' },
   }
   const handle = await runtime.driver.create(spec)
   const events: RuntimeEvent[] = []
-  void (async () => { for await (const event of handle.events('bootstrap')) events.push(event) })()
+  void (async () => {
+    for await (const event of handle.events('bootstrap')) events.push(event)
+  })()
   const emit = (type: string, id = messageID, sid = sessionID) => {
-    const recorded = timeline.find((entry) => entry.kind === 'sse' &&
-      entry.label === 'api-event' && entry.frame?.type === type &&
-      (entry.frame.data.messageID ?? entry.frame.data.inboxID) === messageID)?.frame
-    const event = recorded ? structuredClone(recorded) : {
-      id: `fixture-${type}`, type, data: { sessionID: sid },
-    }
+    const recorded = timeline.find(
+      (entry) =>
+        entry.kind === 'sse' &&
+        entry.label === 'api-event' &&
+        entry.frame?.type === type &&
+        (entry.frame.data.messageID ?? entry.frame.data.inboxID) === messageID,
+    )?.frame
+    const event = recorded
+      ? structuredClone(recorded)
+      : {
+          id: `fixture-${type}`,
+          type,
+          data: { sessionID: sid },
+        }
     event.data.sessionID = sid
     if ('messageID' in event.data) event.data.messageID = id
     if ('inboxID' in event.data) event.data.inboxID = id
@@ -139,21 +181,42 @@ async function fixture(lane: string, label = 'S1', file?: string) {
     for (const controller of streams) controller.enqueue(bytes)
   }
   const promote = () => {
-    const row = timeline.find((entry) => entry.table === 'session_message' &&
-      entry.change === 'insert' && entry.row?.id === messageID)?.row
+    const row = timeline.find(
+      (entry) =>
+        entry.table === 'session_message' &&
+        entry.change === 'insert' &&
+        entry.row?.id === messageID,
+    )?.row
     if (!row) throw new Error('Missing measured user row')
     history = [{ id: row.id, type: row.type, ...row.data }]
-    db.exec(`DELETE FROM ${table}`)
+    if (lane === 'v2')
+      db.prepare('UPDATE session_input SET promoted_seq = 2 WHERE id = ?').run(messageID)
+    else db.prepare('DELETE FROM session_inbox WHERE id = ?').run(messageID)
   }
   const deliveries = () => events.filter((event) => event.t === 'delivery')
   const prompts = () => fetch.mock.calls.filter(([url]) => String(url).endsWith('/prompt'))
   return {
-    handle, events, deliveries, fetch, prompts, emit, promote, pending,
-    sessionID, messageID, text, timeline,
+    handle,
+    events,
+    deliveries,
+    fetch,
+    prompts,
+    emit,
+    promote,
+    pending,
+    sessionID,
+    messageID,
+    text,
+    timeline,
     input: { id: messageID, text },
     entry: deltaItemIdForPart(sessionID, `${messageID}:0`),
-    setReply: (value: Frame) => { promptReply = value },
-    setHistory: (value: unknown[]) => { history = value },
+    setReply: (value: Frame) => {
+      promptReply = value
+    },
+    setHistory: (value: unknown[]) => {
+      history = value
+    },
+    pendingIds: () => client.pendingPrompts!(sessionID),
     newOwner: () => runtime.driver.resume({ kind: 'opencode-session', value: sessionID }, spec),
   }
 }
@@ -165,12 +228,13 @@ describe.each([
   it('accepts the 200 durably without inventing a conversation entry', async () => {
     const f = await fixture(lane)
     f.pending()
+    expect(await f.pendingIds()).toEqual([f.messageID])
     const receipt = await f.handle.send(f.input, options)
     expect(receipt).toMatchObject({ outcome: 'accepted', held: 'durable' })
     expect(receipt).not.toHaveProperty('transcriptItem')
-    expect(receipt).toMatchObject({ harnessRef: expect.arrayContaining([
-      { kind: 'opencode-message', id: f.messageID },
-    ]) })
+    expect(receipt).toMatchObject({
+      harnessRef: expect.arrayContaining([{ kind: 'opencode-message', id: f.messageID }]),
+    })
     f.emit(admitted)
     await flush()
     expect(f.deliveries().filter((event) => event.outcome === 'delivered')).toEqual([])
@@ -184,10 +248,16 @@ describe.each([
     expect(f.deliveries()).toMatchObject([{ outcome: 'accepted', held: 'durable' }])
     f.emit(promoted, 'msg_other')
     f.emit(promoted, f.messageID, 'ses_other')
+    f.setHistory([
+      { id: f.messageID, type: 'user' },
+      { id: 'msg_other', type: 'user', text: f.text },
+      { id: f.messageID, type: 'assistant', content: [{ type: 'text', text: f.text }] },
+    ])
     f.emit(promoted) // The row is still unavailable: no guessed confirmation.
     await flush()
     expect(f.deliveries()).toHaveLength(1)
     f.promote()
+    expect(await f.pendingIds()).toEqual([])
     f.emit(promoted)
     await flush()
     expect(f.deliveries()).toMatchObject([
@@ -197,7 +267,9 @@ describe.each([
     f.emit(promoted)
     await flush()
     expect(f.deliveries()).toHaveLength(2)
-    expect((await f.handle.transcript.history({ limit: 200 })).items.some((item) => item.id === f.entry)).toBe(true)
+    expect(
+      (await f.handle.transcript.history({ limit: 200 })).items.some((item) => item.id === f.entry),
+    ).toBe(true)
   })
 
   it('keeps a held row accepted across an interrupt and a long idle window', async () => {
@@ -212,11 +284,15 @@ describe.each([
     f.promote()
     f.emit(promoted)
     await flush()
-    expect(f.deliveries().at(-1)).toMatchObject({ outcome: 'delivered', transcriptItem: { id: f.entry } })
+    expect(f.deliveries().at(-1)).toMatchObject({
+      outcome: 'delivered',
+      transcriptItem: { id: f.entry },
+    })
   })
 
   it('rechecks the pending admission after a kill, without resending it', async () => {
-    const recovery = lane === 'v2' ? 'timeline-pending-repeat-and-recovery.jsonl' : 'timeline-recovery.jsonl'
+    const recovery =
+      lane === 'v2' ? 'timeline-pending-repeat-and-recovery.jsonl' : 'timeline-recovery.jsonl'
     const f = await fixture(lane, 'S6e.1', recovery)
     f.pending()
     await f.handle.send({ ...f.input, rowId: f.messageID }, options)
@@ -224,8 +300,13 @@ describe.each([
     await f.handle.kill()
     const owner = await f.newOwner()
     const observed: RuntimeEvent[] = []
-    void (async () => { for await (const event of owner.events('bootstrap')) observed.push(event) })()
-    await owner.send({ ...f.input, rowId: f.messageID, deliveryRecovery: true, held: 'durable' }, options)
+    void (async () => {
+      for await (const event of owner.events('bootstrap')) observed.push(event)
+    })()
+    await owner.send(
+      { ...f.input, rowId: f.messageID, deliveryRecovery: true, held: 'durable' },
+      options,
+    )
     await flush()
     expect(f.prompts()).toHaveLength(1)
     expect(observed.filter((event) => event.t === 'delivery')).toEqual([])
@@ -233,6 +314,43 @@ describe.each([
     f.emit(promoted)
     await flush()
     expect(observed.filter((event) => event.t === 'delivery')).toMatchObject([
+      { outcome: 'delivered', transcriptItem: { id: f.entry } },
+    ])
+    expect(f.prompts()).toHaveLength(1)
+  })
+
+  it('finds promotion missed while the daemon was down, without a resend or live event', async () => {
+    const f = await fixture(lane)
+    f.pending()
+    await f.handle.send({ ...f.input, rowId: f.messageID }, options)
+    await flush()
+    await f.handle.kill()
+    f.promote()
+    const owner = await f.newOwner()
+    const observed: RuntimeEvent[] = []
+    void (async () => {
+      for await (const event of owner.events('bootstrap')) observed.push(event)
+    })()
+    await owner.send(
+      { ...f.input, rowId: f.messageID, deliveryRecovery: true, held: 'durable' },
+      options,
+    )
+    await flush()
+    expect(observed.filter((event) => event.t === 'delivery')).toMatchObject([
+      { outcome: 'delivered', transcriptItem: { id: f.entry } },
+    ])
+    expect(f.prompts()).toHaveLength(1)
+  })
+
+  it('rechecks history when the promotion event is lost', async () => {
+    vi.useFakeTimers()
+    const f = await fixture(lane)
+    await f.handle.send({ ...f.input, rowId: f.messageID }, options)
+    await flush()
+    f.promote()
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(f.deliveries()).toMatchObject([
+      { outcome: 'accepted', held: 'durable' },
       { outcome: 'delivered', transcriptItem: { id: f.entry } },
     ])
     expect(f.prompts()).toHaveLength(1)
@@ -247,13 +365,23 @@ describe.each([
     f.promote()
     f.setReply(frame(f.timeline, 'http.reply', 'S5a.2'))
     const repeat = await f.handle.send(f.input, options)
-    expect(repeat).toMatchObject({ transcriptItem: { id: f.entry } })
+    expect(repeat).toMatchObject({ outcome: 'accepted' })
+    await flush()
+    expect(
+      f
+        .deliveries()
+        .every((event) => event.outcome === 'delivered' && event.transcriptItem?.id === f.entry),
+    ).toBe(true)
+    expect(f.deliveries().length).toBeGreaterThan(0)
     const bodies = f.prompts().map(([, init]) => JSON.parse(String(init?.body)))
     expect(bodies).toEqual([bodies[0], bodies[0]])
     expect(bodies[0]).toMatchObject({ id: f.messageID, text: f.text })
   })
 
-  it.each(['S10.baddelivery', 'S10.nosession'])('reports measured %s as failed/rejected-by-agent', async (label) => {
+  it.each([
+    'S10.baddelivery',
+    'S10.nosession',
+  ])('reports measured %s as failed/rejected-by-agent', async (label) => {
     const f = await fixture(lane, label)
     await f.handle.send({ ...f.input, rowId: f.messageID }, options)
     await flush()
@@ -264,7 +392,9 @@ describe.each([
     const f = await fixture(lane, 'S5f.cross')
     await f.handle.send({ ...f.input, rowId: f.messageID }, options)
     await flush()
-    expect(f.deliveries().some((event) => event.outcome === 'failed' && event.cause !== 'unconfirmed')).toBe(false)
+    expect(
+      f.deliveries().some((event) => event.outcome === 'failed' && event.cause !== 'unconfirmed'),
+    ).toBe(false)
     expect(f.prompts()).toHaveLength(1)
   })
 })
@@ -272,14 +402,18 @@ describe.each([
 it('a stable pending different-text 409 is still accepted/durable', async () => {
   const f = await fixture('v2', 'S5e.2')
   f.pending()
-  await expect(f.handle.send(f.input, options)).resolves.toMatchObject({ outcome: 'accepted', held: 'durable' })
+  await expect(f.handle.send(f.input, options)).resolves.toMatchObject({
+    outcome: 'accepted',
+    held: 'durable',
+  })
 })
 
 it('a stable delivered different-text 409 confirms the original user row', async () => {
   const f = await fixture('v2', 'S5d.2')
   const history = frame(f.timeline, 'http.reply', 'S5d.after')
-  f.setHistory(history.body!.data)
+  f.setHistory(history.body!.data as unknown[])
   await expect(f.handle.send(f.input, options)).resolves.toMatchObject({
-    outcome: 'accepted', transcriptItem: { id: f.entry },
+    outcome: 'accepted',
+    transcriptItem: { id: f.entry },
   })
 })

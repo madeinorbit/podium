@@ -635,7 +635,15 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
   return {
     driverId,
     bindings: records,
-    ...(deps.makeClient ? { makeClient: deps.makeClient } : {}),
+    ...(deps.makeClient
+      ? {
+          makeClient: (config: OpencodeClientConfig) =>
+            deps.makeClient!({
+              ...config,
+              ...(deps.flavorEnv?.OPENCODE_DB ? { databasePath: deps.flavorEnv.OPENCODE_DB } : {}),
+            }),
+        }
+      : {}),
     stageAttachment: deps.stageAttachment,
     now: deps.now ?? (() => Date.now()),
     /** 32 bytes from the CSPRNG. Not a uuid, not a timestamp: this is the only

@@ -400,7 +400,12 @@ export function withDeliveryQueue(
           // throws instead, below. So the row was never typed: `failed`
           // without the `unconfirmed` cause, which the server reports as not
           // delivered and safe to resend (POD-4778).
-          settle(id, 'failed', receipt.refusal.detail ?? receipt.refusal.reason)
+          settle(
+            id,
+            'failed',
+            receipt.refusal.detail ?? receipt.refusal.reason,
+            receipt.refusal.cause,
+          )
           continue
         }
         // Neither an unverified write nor admission to another local queue

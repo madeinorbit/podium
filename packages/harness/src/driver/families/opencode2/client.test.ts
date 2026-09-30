@@ -70,8 +70,8 @@ describe('OpenCode 2 client adapter', () => {
         },
       ],
     ])
-    // The admitted input is the record: its text part is the row's first.
-    expect(admission).toEqual({ textPartId: 'msg_ours:0' })
+    // The admitted input is held outside the conversation until promotion.
+    expect(admission).toEqual({ held: 'durable' })
     expect(fetch.mock.calls[0]?.[1]?.headers).toMatchObject({
       authorization: 'Basic b3BlbmNvZGU6c2VjcmV0',
     })
@@ -99,7 +99,8 @@ describe('OpenCode 2 client adapter', () => {
     const [message] = await client.messages('ses_v2')
 
     expect(repeat).toEqual(first)
-    expect(message?.parts.map((part) => part.id)).toEqual([first.textPartId])
+    expect(first).toEqual({ held: 'durable' })
+    expect(message?.parts.map((part) => part.id)).toEqual(['msg_ours:0'])
   })
 
   it('does not credit a malformed admission naming another session', async () => {

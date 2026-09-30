@@ -378,7 +378,7 @@ export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservati
  * never a new arm, for the rolling-upgrade reason `cause` gives below: an older
  * server strips it and settles the row as it always did.
  */
-export const DELIVERY_FAILURE_CAUSES = ['not-accepting-input', 'unconfirmed'] as const
+export const DELIVERY_FAILURE_CAUSES = ['not-accepting-input', 'unconfirmed', 'rejected-by-agent'] as const
 export type DeliveryFailureCause = (typeof DELIVERY_FAILURE_CAUSES)[number]
 
 /*
