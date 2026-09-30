@@ -22,6 +22,7 @@ afterEach(() => {
 
 describe('sidebar measurement boundary', () => {
   it('counts committed row bodies without counting memo skips or panel samples', async () => {
+    vi.resetModules()
     vi.doMock('@/lib/sidebar-data-layer', () => ({ sidebarDataLayer: () => 'pool' }))
     const { bindSidebarRowMeasurements, initializeSidebarMeasurements, measureSidebarRow } =
       await import('./sidebar-measurements')

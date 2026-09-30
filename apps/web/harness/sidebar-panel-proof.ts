@@ -95,9 +95,10 @@ try {
   await page.screenshot({ path: resolve(out, 'legacy-idle.png') })
   // Drive one real sidebar click and keyboard gesture, then observe the panel.
   const row = page.locator('[data-issue-row]').first()
-  await row.click()
+  const rowButton = row.locator('button').first()
+  await rowButton.click()
   await page.waitForTimeout(100)
-  await row.press('Enter')
+  await rowButton.press('Enter')
   await page.waitForTimeout(1200)
   const afterInput = await readReport()
   if (

@@ -76,11 +76,17 @@ export function observeSidebarInputs(
   perf: SidebarPerf,
   afterPaint: (done: () => void) => void,
 ): () => void {
+  let keyboardPaintPending = 0
   const input = (event: Event): void => {
     // Panel interactions never count as sidebar work. All other app input
     // excludes the causal input→paint interval from the idle bucket.
     const target = event.target instanceof Element ? event.target : null
     if (target?.closest('[data-perf-panel]')) return
+    // Enter can dispatch a click in the same keyboard activation. Keep its
+    // original timestamp and one session sample rather than timing it twice.
+    if (event instanceof MouseEvent && event.detail === 0 && keyboardPaintPending > 0) return
+    const keyboard = event.type === 'keydown'
+    if (keyboard) keyboardPaintPending++
     const sidebar =
       target?.closest('[data-sidebar-shell], .worklist-column, [data-testid="sidebar-rail"]') !==
         null && target !== null
@@ -93,6 +99,7 @@ export function observeSidebarInputs(
     const token = perf.beginInput()
     const markPaint = sidebar ? captureSidebarSwitchInput(at) : null
     afterPaint(() => {
+      if (keyboard) keyboardPaintPending--
       perf.endInput(token, at, sidebar)
       markPaint?.()
     })
