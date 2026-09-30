@@ -1,6 +1,6 @@
 {
   "updatedBy": "POD-4759",
-  "reason": "remove fence/counters/plant from product; rows counted via borrowed rows outside, relation walks no longer fenced",
+  "reason": "remove product counting doors; rows counted via borrowed rows outside, relation walks are no longer wrapped",
   "counts": {
     "1x.firstPaint.byOwner.GroupNode.computeds": 48,
     "1x.firstPaint.byOwner.GroupNode.owners": 8,
