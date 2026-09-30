@@ -76,6 +76,50 @@ were stale: the former fixture failed before measurement because sessions was
 missing. This is an explicit current-tree recalibration, not a claimed speedup.
 Sidebar ownership remains bounded to two cwd reads per session.
 
+## Cold-start settings regression (2026-09-30)
+
+POD-4988 traced the third cold-start worklist derivation to `66919c3e9`, the
+September 28 main-to-dev/mw merge. It imported project ordering from
+`351d73818`, including a dependency on the whole `sidebarSettings` object's
+identity. The engine starts with the default settings, then publishes the
+fetched personal settings as a new object. With the same effective project
+order, that publication unnecessarily re-derived the whole worklist.
+
+Adjacent-commit probes used an isolated checkout on flatblock, checkout-local
+Bun 1.4.2, and the unchanged kernel harness and budgets:
+
+| Candidate | Probe | Worklist derives | Publishes | Row builds | Result |
+| --- | --- | ---: | ---: | ---: | --- |
+| `0e6fa968c`, the merge's first parent | CI cold sample 1 | 2 | 9 | 674 | Pass |
+| `66919c3e9` | CI cold sample 1 | 3 | 9 | 674 | Fail |
+| `66919c3e9`, deleting only the settings identity guard | Cold samples 1–4 at all three scales | 2 each | 9 each | Exactly profile issue count | 12 pass, 3 hot-distribution samples excluded |
+
+The counterfactual is diagnostic only: removing the dependency would leave a
+real saved-order change stale. The fix compares the ordered entries of the
+active custom order, matching the input to `orderedSidebarProjects`. Default
+hydration, equal fresh arrays, grouping changes, and inactive saved orders
+reuse the published worklist. Activating, reordering, shortening, or leaving a
+nonempty custom order still invalidates it. The cold budget remains **two**;
+no ceiling or fixture was relaxed. Restoring the settings object-identity
+comparison reinstates the regression.
+
+Reproduce the bracket with `bun run test:perf:frontend --
+kernel-scenarios.frontend-perf.tsx -t 'ci: cold sample 1'`; the counterfactual
+used `-t 'cold sample [1-4]'`. These filtered probes establish the cause and
+are not whole-lane results.
+
+Final validation on issue base `1727f0a9c` plus the fix:
+`bun run test:file --
+packages/client-core/src/viewmodels/slices/worklist/published.test.ts` passed
+all 20 contract tests, including eight new settings regression cases.
+`bun run test:perf:frontend` on flatblock passed all 28 tests in all five files.
+Each profile's five cold samples recorded **two derivations and nine
+publications**, with row builds exactly 674 / 4,867 / 9,734 respectively. The
+existing draft negative controls still produced one derivation with the guard
+removed and zero with it restored. Tested source hashes matched the issue
+checkout. These are the focused contract gate and the explicit performance
+lane, not a repository suite result or a browser timing claim.
+
 ## Recorded baseline
 
 Measured 2026-09-18 on **ludovico**, AMD EPYC Processor (with IBPB), Bun 1.4.2,

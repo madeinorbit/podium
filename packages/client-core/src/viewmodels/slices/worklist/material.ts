@@ -1,4 +1,5 @@
 import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
+import type { Sidebar } from '@podium/runtime'
 import type { PinState } from '../../types'
 import type { IssueNavigationModel } from '../issues'
 
@@ -104,5 +105,17 @@ export function worklistPinsEqual(a: PinState, b: PinState): boolean {
     a === b ||
     (orderedEqual(a.repos, b.repos, wireSignature) &&
       orderedEqual(a.worktrees, b.worktrees, wireSignature))
+  )
+}
+
+const NO_PROJECT_ORDER: readonly string[] = []
+
+/** Only the active saved order feeds orderedSidebarProjects. Hydrating fresh
+ * defaults, changing grouping, or editing an inactive order cannot move it. */
+export function worklistProjectOrderEqual(a: Sidebar | undefined, b: Sidebar | undefined): boolean {
+  return orderedEqual(
+    a?.repoSort === 'custom' ? a.repoOrder : NO_PROJECT_ORDER,
+    b?.repoSort === 'custom' ? b.repoOrder : NO_PROJECT_ORDER,
+    (key) => key,
   )
 }

@@ -115,15 +115,83 @@ describe('POD-331 published worklist slice — the clock is an INPUT, not an amb
 })
 
 describe('published project order', () => {
-  it('re-derives when the personal project order changes', () => {
-    let store = {
+  function projectStore(sidebarSettings: Store['sidebarSettings'] | undefined): Store {
+    return {
       ...storeAt(NOON, []),
       repos: [
         { path: '/a', kind: 'repository', branch: 'main', worktrees: [] },
         { path: '/b', kind: 'repository', branch: 'main', worktrees: [] },
       ],
-      sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
+      sidebarSettings,
     } as unknown as Store
+  }
+
+  it.each([
+    undefined,
+    { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
+    { repoSort: 'custom', repoOrder: [], groupByRepo: false },
+  ] satisfies Array<Store['sidebarSettings'] | undefined>)(
+    'keeps the published value when defaults hydrate over %j',
+    (initial) => {
+      let store = projectStore(initial)
+      const publisher = createSlicePublisher<Store>(() => store)
+      const before = publisher.read(worklistSlice)
+      store = {
+        ...store,
+        sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
+      }
+      expect(publisher.read(worklistSlice)).toBe(before)
+      expect(publisher.derivations().worklist).toBe(1)
+    },
+  )
+
+  it('ignores grouping and saved orders until custom ordering is active', () => {
+    let store = projectStore({ repoSort: 'lastUsed', repoOrder: [], groupByRepo: false })
+    const publisher = createSlicePublisher<Store>(() => store)
+    const before = publisher.read(worklistSlice)
+    store = {
+      ...store,
+      sidebarSettings: { repoSort: 'alphabetical', repoOrder: ['/b', '/a'], groupByRepo: true },
+    }
+    expect(publisher.read(worklistSlice)).toBe(before)
+    expect(before.projects.map((project) => project.key)).toEqual(['/a', '/b'])
+    expect(publisher.derivations().worklist).toBe(1)
+  })
+
+  it('keeps the published value for an equal active order in a fresh array', () => {
+    let store = projectStore({ repoSort: 'custom', repoOrder: ['/b', '/a'], groupByRepo: false })
+    const publisher = createSlicePublisher<Store>(() => store)
+    const before = publisher.read(worklistSlice)
+    store = {
+      ...store,
+      sidebarSettings: { repoSort: 'custom', repoOrder: ['/b', '/a'], groupByRepo: true },
+    }
+    expect(publisher.read(worklistSlice)).toBe(before)
+    expect(before.projects.map((project) => project.key)).toEqual(['/b', '/a'])
+    expect(publisher.derivations().worklist).toBe(1)
+  })
+
+  it.each([
+    { repoSort: 'custom', repoOrder: ['/a', '/b'], groupByRepo: false },
+    { repoSort: 'custom', repoOrder: ['/a'], groupByRepo: false },
+    { repoSort: 'lastUsed', repoOrder: ['/b', '/a'], groupByRepo: false },
+  ] satisfies Store['sidebarSettings'][])(
+    'updates visible project order when the active order changes to %j',
+    (next) => {
+      let store = projectStore({ repoSort: 'custom', repoOrder: ['/b', '/a'], groupByRepo: false })
+      const publisher = createSlicePublisher<Store>(() => store)
+      const before = publisher.read(worklistSlice)
+      expect(before.projects.map((project) => project.key)).toEqual(['/b', '/a'])
+      store = { ...store, sidebarSettings: next }
+      const after = publisher.read(worklistSlice)
+      expect(after).not.toBe(before)
+      expect(after.projects.map((project) => project.key)).toEqual(['/a', '/b'])
+      expect(publisher.derivations().worklist).toBe(2)
+    },
+  )
+
+  it('re-derives when the personal project order changes', () => {
+    let store = projectStore({ repoSort: 'lastUsed', repoOrder: [], groupByRepo: false })
     const publisher = createSlicePublisher<Store>(() => store)
     expect(publisher.read(worklistSlice).projects.map((project) => project.key)).toEqual([
       '/a',
@@ -137,6 +205,7 @@ describe('published project order', () => {
       '/b',
       '/a',
     ])
+    expect(publisher.derivations().worklist).toBe(2)
   })
 })
 

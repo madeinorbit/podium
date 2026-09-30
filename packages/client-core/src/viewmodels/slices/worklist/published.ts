@@ -55,6 +55,7 @@ import {
   worklistIssuesEqual,
   worklistMachinesEqual,
   worklistPinsEqual,
+  worklistProjectOrderEqual,
   worklistReposEqual,
   worklistSessionsEqual,
 } from './material'
@@ -191,7 +192,7 @@ export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>(
   sourceEqual: (previous, next) => {
     if (previous === next) return true
     if (
-      previous.sidebarSettings !== next.sidebarSettings ||
+      !worklistProjectOrderEqual(previous.sidebarSettings, next.sidebarSettings) ||
       previous.coarseNow !== next.coarseNow ||
       !worklistReposEqual(previous.repos, next.repos) ||
       !worklistMachinesEqual(previous.machines, next.machines) ||
