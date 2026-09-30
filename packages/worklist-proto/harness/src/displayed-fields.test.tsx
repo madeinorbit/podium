@@ -14,12 +14,19 @@
  * PLANT (proven red, restored with cp): the MobX web row reading `row.sortKey`
  * again (a `data-sort-key` attribute, as it did for the old oracle) redraws
  * the moved row: `over=[<id>]` on the placement step.
+ *
+ * A MEASURED roster arm (`RosterArm.measuredOnly`, POD-4934) runs both steps
+ * with parity asserted, but REPORTS each commit verdict (pass, or the
+ * over/under rows with their counts) instead of failing: the first
+ * measurement of an arm before its rework. With the flag removed the hand
+ * arm goes red on the placement step (`over=[i214]`), which proves the fence
+ * sees it.
  */
 
 import { describe, expect, it } from 'vitest'
 import { displayChanged, ROW_DISPLAYED_FIELDS, ROW_VIEW_FIELDS } from '../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../shared/src/scenarios'
-import { assertCommits, mountArmForCounts } from './count-harness'
+import { assertCommits, type CountResult, mountArmForCounts } from './count-harness'
 import {
   engineLocals,
   FENCE_SCENARIOS,
@@ -67,6 +74,26 @@ describe('the rows an arm must redraw are the rows whose DRAWN fields changed (P
       const ctx = await startScenarioEngine(1)
       const feeds = openFenceFeeds(ctx, entry.mode)
       const mounted = mountArmForCounts(entry.armFor(ctx), feeds.rows.source, feeds.locals)
+      // POD-4934: a measured arm reports each commit verdict instead of failing on it.
+      const measuredOnly = entry.measuredOnly === true
+      const checkCommits = (result: CountResult, at: string): void => {
+        if (!measuredOnly) {
+          assertCommits(result)
+          return
+        }
+        try {
+          assertCommits(result)
+        } catch (error) {
+          console.info(
+            `[drawn-fields] ${entry.name} ${at}: REPORTS ${(error as Error).message}`,
+          )
+          return
+        }
+        console.info(
+          `[drawn-fields] ${entry.name} ${at}: pass ` +
+            `(changed ${result.oracleChangedRows?.length ?? 0}, drew ${result.drawnRows?.length ?? 0})`,
+        )
+      }
       try {
         const id = ctx.targets.visibleRootId
         const views = () => rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
@@ -85,13 +112,13 @@ describe('the rows an arm must redraw are the rows whose DRAWN fields changed (P
         )
         expect(placed.result.parity, placed.result.parityDiff ?? '').toBe(true)
         expect(placed.result.oracleChangedRows).toEqual([])
-        assertCommits(placed.result)
+        checkCommits(placed.result, 'sortKeyOnly (P1)')
 
         const rename = FENCE_SCENARIOS.find((scenario) => scenario.methodology === '#4')!
         const renamed = await runFenceStep(mounted, ctx, feeds.flush, rename)
         expect(renamed.result.parity, renamed.result.parityDiff ?? '').toBe(true)
         expect(renamed.result.oracleChangedRows).toEqual([id])
-        assertCommits(renamed.result)
+        checkCommits(renamed.result, 'visibleTitleRename (#4)')
       } finally {
         mounted.unmount()
         feeds.dispose()

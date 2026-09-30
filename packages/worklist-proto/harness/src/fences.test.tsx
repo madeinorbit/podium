@@ -296,5 +296,10 @@ describe('roster', () => {
       expect(manifests, `pending ${folder} has no fence.json`).toContain(folder)
       expect(rostered, `pending ${folder} is already on the roster`).not.toContain(folder)
     }
+    // POD-4934: measuredOnly is the pre-rework hand arm's alone — MobX stays fully armed.
+    expect(
+      ROUND_THREE_ARMS.find((entry) => entry.folder === 'mobx')?.measuredOnly ?? false,
+      'MobX is never measured-only',
+    ).toBe(false)
   })
 })
