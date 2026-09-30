@@ -68,7 +68,7 @@ for (const lane of lanes) {
       modelContainsStored: texts.map(t => modelTexts.some(m => m.includes(t))),
       otherRecords: native.filter(r => r.kind !== 'prompt').map(r => ({ source: r.source, position: r.position, kind: r.kind, id: r.id,
         texts: r.texts.map((t: string) => ({ bytes: bytes(t), sha256: sha(t), first: t.slice(0, 70), last: t.slice(-70) })) })),
-      error: o.error, status: o.status, extraEnterAt: o.extraEnterAt,
+      error: o.error, status: o.status, extraEnterAt: o.extraEnterAt, editorDrainComplete: o.editorDrainComplete,
     }
   })
   writeFileSync(`${base}/summary.jsonl`, summaries.map(s => JSON.stringify(s)).join('\n') + '\n')

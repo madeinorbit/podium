@@ -49,7 +49,8 @@ const run = { lane, version, commandPath, startedAt: new Date().toISOString(), r
   tty: '180x45, independent tmux server; new terminal process for every case',
   methods: ['paste: tmux paste-buffer -r -p, exact input bytes including LF and CR',
     'typed: tmux send-keys -l, unbracketed literal bytes in 256-character chunks, 40ms between writes; 650ms pause then Enter',
-    'typed-paced: unbracketed literal bytes in 256-character chunks, 40ms between writes; 650ms pause then Enter'],
+    'typed-paced: unbracketed literal bytes in 256-character chunks, 40ms between writes; 650ms pause then Enter',
+    'typed-buffer: tmux paste-buffer -r WITHOUT -p: unbracketed literal byte stream, no escape wrappers; programs can detect a fast burst as paste'],
   editorDrain: 'Unbracketed input waits for its final marker in the fresh editor before Enter (up to max(60s, 5ms per byte)); pending input is not a storage result.',
 }
 writeFileSync(`${out}/run.json`, JSON.stringify(run, null, 2) + '\n')
@@ -106,6 +107,15 @@ function history(): Native[] {
         }
       }
     } finally { db.close() }
+    for (const file of files(`${home}/.local/state/opencode`).filter(f => f.endsWith('/prompt-history.jsonl'))) {
+      const lines = readFileSync(file, 'utf8').split('\n')
+      for (let n = 0; n < lines.length; n++) {
+        if (!lines[n]) continue
+        const raw = JSON.parse(lines[n]!)
+        const texts = [raw.input ?? raw.text ?? '', ...(raw.parts ?? raw.pasted ?? []).flatMap((p: any) => contentText(p.text))]
+        rows.push({ source: file.slice(home.length + 1), position: n + 1, kind: 'input-history', raw, texts })
+      }
+    }
     return rows
   }
   const dir = lane!.startsWith('codex') ? `${home}/.codex/sessions` : `${home}/.grok/sessions`
