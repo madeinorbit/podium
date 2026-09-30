@@ -334,12 +334,13 @@ function runStamp(run: { ctx: ScenarioEngine }): string {
 }
 
 /** Plant (c): any remote drops the pending entry, so the object takes the server value. */
-function dropPendingOnRemote(handle: HarnessWritableHandPoolHandle): void {
+function dropPendingOnRemote(handle: HarnessWritableHandPoolHandle, exercised?: () => void): void {
   const write = handle.write
   const remote = write.handleRemote.bind(write)
   write.handleRemote = (kind, id, values) => {
     remote(kind, id, values)
     for (const edit of write.log.pendingFor(kind, id)) {
+      exercised?.()
       write.reject({ txId: edit.txId, error: { message: '[plant] remote drops pending', parked: false } })
     }
   }
@@ -689,12 +690,30 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
       // fail every seed persistently and masked cadence weakness. With the
       // orphan seated, the plant must catch the transient itself to stay
       // strong — never weaken the 3/3 expectation.
+      //
+      // POD-4741 (seed 7, same as the MobX arm's POD-5002): every seed starts
+      // with a forced title edit plus a conflicting remote title while
+      // pending (`forcePendingRemote`), so the plant is EXERCISED on a visible
+      // row in every seed; the run must then be CAUGHT by the oracle.
       let failures = 0
+      const cells: {
+        seed: number
+        exercised: number
+        caught: boolean
+        against: string | null
+        steps: number
+        diff: string | null
+      }[] = []
       for (const seed of SEEDS) {
+        let exercised = 0
         const adapter = new ArmEditAdapter()
         const oracle = new WriteOracle()
-        const planted = armWithAdapter(adapter, oracle, dropPendingOnRemote)
-        const sequence = gen(seed, STEPS)
+        const planted = armWithAdapter(adapter, oracle, (handle) =>
+          dropPendingOnRemote(handle, () => {
+            exercised += 1
+          }),
+        )
+        const sequence = gen(seed, STEPS, {}, { forcePendingRemote: true })
         const result = await checkArm(planted, sequence, {
           mode: 'truth',
           shrink: false,
@@ -705,7 +724,22 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             feedStep(oracle, step, run)
           },
         })
+        cells.push({
+          seed,
+          exercised,
+          caught: !result.ok,
+          against: result.ok ? null : result.against,
+          steps: result.counts.steps,
+          diff: result.ok ? null : result.diff,
+        })
         if (!result.ok) failures += 1
+      }
+      writeResult(`hand-write-truth-plant-c-${SEEDS.length}x${STEPS}`, { cells })
+      for (const cell of cells) {
+        console.info(`[plant (c)] seed ${cell.seed}: exercised=${cell.exercised}, caught=${cell.caught}`)
+        expect(cell.exercised, `seed ${cell.seed}: plant (c) was EXERCISED`).toBeGreaterThan(0)
+        expect(cell.caught, `seed ${cell.seed}: plant (c) was caught`).toBe(true)
+        expect(cell.against, `seed ${cell.seed}: caught by the oracle`).toBe('oracle')
       }
       expect(failures).toBe(SEEDS.length)
     },
