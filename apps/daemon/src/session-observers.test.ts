@@ -3445,6 +3445,62 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
       await unrequested.cleanup()
     }
   })
+
+  it('a prompt Claude ran from its queue replaces the turn it stopped, and its Stop ends it [POD-4878]', async () => {
+    // Claude 2.1.284, Escape (or send-now) with a prompt queued: no Stop for the
+    // stopped turn, the queued prompt runs at once as a new turn, and no
+    // UserPromptSubmit names it. Its `user` record and its Stop do. The session
+    // used to read Working until the next prompt, every hook of the new turn
+    // refused for naming a turn other than the open one.
+    const turn = await openClaudeTurn()
+    try {
+      await appendFile(
+        turn.transcript,
+        line({
+          type: 'user',
+          promptId: 'p-2',
+          promptSource: 'queued',
+          timestamp: '2026-09-23T10:00:05.000Z',
+          message: { role: 'user', content: 'typed while the tool ran' },
+        }) + answerRecord('Done.'),
+      )
+      turn.hook('Stop', 'p-2')
+      await vi.waitFor(() => expect(turn.observations()).toHaveLength(3))
+      expect(turn.observations()[2]).toMatchObject({
+        transitionKind: 'turn_opened',
+        turnEpoch: 2,
+        priorPhase: 'working',
+        nextPhase: 'working',
+        providerPromptId: 'p-2',
+      })
+      turn.accept(turn.observations()[2]!)
+      // The Stop that named the turn is applied to it once the opening is acked.
+      await vi.waitFor(() => expect(turn.observations()).toHaveLength(4))
+      expect(turn.observations()[3]).toMatchObject({
+        sourceEventKind: 'Stop',
+        transitionKind: 'turn_terminal',
+        turnEpoch: 2,
+        nextPhase: 'idle',
+      })
+      turn.accept(turn.observations()[3]!)
+      expect(turn.observers.trackedState(turn.sessionId)?.phase).toBe('idle')
+    } finally {
+      await turn.cleanup()
+    }
+  })
+
+  it('control arm: a Stop naming another turn with no record of its prompt ends nothing [POD-4878]', async () => {
+    const turn = await openClaudeTurn()
+    try {
+      await appendFile(turn.transcript, answerRecord('still going'))
+      turn.hook('Stop', 'p-2')
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      expect(turn.observations()).toHaveLength(2)
+      expect(turn.observers.trackedState(turn.sessionId)?.phase).toBe('working')
+    } finally {
+      await turn.cleanup()
+    }
+  })
 })
 
 /** One Grok `updates.jsonl` line: the file the Grok transcript is read from (POD-4875). */
