@@ -58,13 +58,13 @@ for (const lane of lanes) {
       promptRecords: prompts.length,
       stored: prompts.map(r => ({ source: r.source, position: r.position, id: r.id,
         texts: r.texts.map((text: string) => ({ bytes: bytes(text), sha256: sha(text), change: change(input.text, text) })) })),
-      frameIdStored: input.framed ? texts.some(t => t.includes(input.id)) : null,
-      strictFrameMatches: input.framed ? texts.some(t => frameId(t) === input.id) : null,
-      exactBodyStored: texts.some(t => t.includes(input.body)),
+      frameIdStored: input.framed && texts.length ? texts.some(t => t.includes(input.id)) : null,
+      strictFrameMatches: input.framed && texts.length ? texts.some(t => frameId(t) === input.id) : null,
+      exactBodyStored: texts.length ? texts.some(t => t.includes(input.body)) : null,
       exactTextStored: texts.some(t => t === input.text),
-      currentTextRuleMatches: texts.some(t => textMatches(lane, input.text, t)),
+      currentTextRuleMatches: texts.length ? texts.some(t => textMatches(lane, input.text, t)) : null,
       protocolIdStored: lane.includes('terminal') ? null : native.some(r => r.id === input.id),
-      modelExactBody: modelTexts.some(t => t.includes(input.body)),
+      modelExactBody: modelTexts.length ? modelTexts.some(t => t.includes(input.body)) : null,
       modelContainsStored: texts.map(t => modelTexts.some(m => m.includes(t))),
       otherRecords: native.filter(r => r.kind !== 'prompt').map(r => ({ source: r.source, position: r.position, kind: r.kind, id: r.id,
         texts: r.texts.map((t: string) => ({ bytes: bytes(t), sha256: sha(t), first: t.slice(0, 70), last: t.slice(-70) })) })),
@@ -81,5 +81,5 @@ for (const lane of lanes) {
     ...summaries.map(s => `| ${s.label} | ${s.inputBytes} | ${s.promptRecords} / ${s.stored.flatMap(r => r.texts.map((t: any) => t.bytes)).join(', ') || '—'} | ${s.stored.flatMap(r => r.texts.map((t: any) => t.change)).join('; ') || 'no prompt'} | ${yes(s.exactBodyStored)} | ${yes(s.strictFrameMatches)} | ${yes(s.currentTextRuleMatches)} | ${yes(s.modelExactBody)} |`), '',
   ].join('\n')
   writeFileSync(`${base}/results.md`, md)
-  console.log(`${lane}: ${summaries.length} cases, ${summaries.filter(s => s.exactTextStored).length} exact, ${summaries.filter(s => s.promptRecords > 1).length} split, ${summaries.filter(s => s.strictFrameMatches === false).length} failed frames, ${summaries.filter(s => !s.currentTextRuleMatches).length} text-rule misses`)
+  console.log(`${lane}: ${summaries.length} cases, ${summaries.filter(s => s.exactTextStored).length} exact, ${summaries.filter(s => s.promptRecords === 0).length} without a record, ${summaries.filter(s => s.promptRecords > 1).length} split, ${summaries.filter(s => s.strictFrameMatches === false).length} failed stored frames, ${summaries.filter(s => s.currentTextRuleMatches === false).length} text-rule misses`)
 }
