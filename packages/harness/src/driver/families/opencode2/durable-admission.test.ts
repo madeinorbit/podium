@@ -109,8 +109,7 @@ async function fixture(lane: string, label = 'S1', file?: string) {
             init?.signal?.addEventListener(
               'abort',
               () => {
-                streams.delete(controller)
-                controller.close()
+                if (streams.delete(controller)) controller.close()
               },
               { once: true },
             )
