@@ -240,7 +240,7 @@ function mountPanel(boot: LiveBoot, panel: LivePanel, el: HTMLDivElement): void 
   panel.unmount = withCommitLog(panel.log, () => panel.handle.mountWeb(el))
 }
 
-function teardown(boot: LiveBoot): void {
+async function teardown(boot: LiveBoot): Promise<void> {
   oldRefs = []
   for (const panel of boot.panels) {
     try {
@@ -285,7 +285,9 @@ function teardown(boot: LiveBoot): void {
   } catch {
     // Destroy is irreversible; a throw here still ends with disposal below.
   }
-  void boot.assembly.dispose().catch(() => {})
+  // Awaited: the next boot re-opens the same IndexedDB database and principal
+  // namespace, which must not race the old assembly's close.
+  await boot.assembly.dispose().catch(() => {})
 }
 
 /**
@@ -429,26 +431,34 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
     [boot],
   )
 
+  const rebuildingRef = useRef(false)
+
   const rebuild = async (): Promise<void> => {
-    const previous = bootRef.current
-    if (previous !== null) teardown(previous)
-    bootRef.current = null
-    settledRef.current = null
-    setBoot(null)
-    setFailure(null)
+    if (rebuildingRef.current) return
+    rebuildingRef.current = true
     try {
-      const next = await bootLive(names, (message) => setFailure(message))
-      bootRef.current = next
-      setBoot(next)
-      // Containers survive a rebuild (same DOM nodes), so mount explicitly,
-      // then settle once every panel has its element.
-      for (const panel of next.panels) {
-        const el = mountEls.current.get(panel.name)
-        if (el !== null && panel.el === null) mountPanel(next, panel, el)
+      const previous = bootRef.current
+      if (previous !== null) await teardown(previous)
+      bootRef.current = null
+      settledRef.current = null
+      setBoot(null)
+      setFailure(null)
+      try {
+        const next = await bootLive(names, (message) => setFailure(message))
+        bootRef.current = next
+        setBoot(next)
+        // Containers survive a rebuild (same DOM nodes), so mount explicitly,
+        // then settle once every panel has its element.
+        for (const panel of next.panels) {
+          const el = mountEls.current.get(panel.name)
+          if (el !== null && panel.el === null) mountPanel(next, panel, el)
+        }
+        if (next.panels.every((panel) => panel.el !== null)) await settleBoot(next)
+      } catch (error) {
+        setFailure(error instanceof Error ? error.message : String(error))
       }
-      if (next.panels.every((panel) => panel.el !== null)) await settleBoot(next)
-    } catch (error) {
-      setFailure(error instanceof Error ? error.message : String(error))
+    } finally {
+      rebuildingRef.current = false
     }
   }
 
@@ -464,7 +474,7 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
           if (alive) setFailure(message)
         })
         if (!alive) {
-          teardown(next)
+          await teardown(next)
           return
         }
         bootRef.current = next
