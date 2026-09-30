@@ -33,12 +33,18 @@
  * pending through every step (`writable-arm.ts`). Parity is then held to the
  * oracle with those titles laid over it. Same check, same allowances.
  *
+ * The roster's `windowLayout` additionally runs the actual windowed web
+ * list with a harness-supplied box, at the browser lane's 5800px height.
+ * Native SectionList work is counted in `harness/native/mobx-pool.native.test.tsx`.
+ * Both use this meter and neighbourhood bound; neither renders a test-local list.
+ *
  * `POD_WORK_TRACE=1` names the call sites behind each count (slow).
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { act } from 'react'
 import type { Arm } from '../../shared/src/arm'
 import type { RowSourceMode } from '../../shared/src/row-source'
 import {
@@ -80,6 +86,8 @@ import {
   withPendingTitles,
 } from './writable-arm'
 
+import { stubWindowLayout, type WindowLayout } from './window-layout'
+
 const TRACE = process.env.POD_WORK_TRACE === '1'
 
 // happy-dom rewrites `import.meta.url`; resolve from the lane's cwd instead.
@@ -90,6 +98,7 @@ const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
 /** The arm one engine mounts, and what it must show: its own pending edits over the oracle. */
 interface CellArm {
   arm: Arm
+  windowLayout?: WindowLayout
   expected?: (oracle: SliceSnapshot) => SliceSnapshot
   /** Runs after the last step, before unmount (the pending edits are still pending). */
   after?: (handle: unknown) => void
@@ -106,10 +115,25 @@ async function cellsAt(
   const ctx = await startScenarioEngine(scale)
   const feeds = openFenceFeeds(ctx, mode)
   const built = build(ctx, feeds)
+  const restoreLayout =
+    built.windowLayout === undefined ? () => {} : stubWindowLayout(built.windowLayout)
   const mounted = mountArmForCounts(built.arm, feeds.rows.source, feeds.locals, {
     work: TRACE ? 'trace' : true,
   })
   try {
+    if (built.windowLayout !== undefined) {
+      let snapshot!: SliceSnapshot
+      act(() => {
+        snapshot = mounted.handle.snapshot()
+      })
+      const list = document.querySelector('[data-pool-list]')
+      const drawn = list?.querySelectorAll('[data-issue-row], [data-loading-row]').length ?? 0
+      expect(drawn, 'the window layout draws rows').toBeGreaterThan(0)
+      expect(drawn, 'the count mount is a window').toBeLessThan(
+        snapshot.order.pinnedIds.length +
+          snapshot.order.groups.reduce((n, group) => n + group.rowIds.length + group.closedIds.length, 0),
+      )
+    }
     const cells: ScaleCell[] = []
     for (const entry of scenarios) {
       const step = await runFenceStep(
@@ -135,6 +159,7 @@ async function cellsAt(
     return cells
   } finally {
     mounted.unmount()
+    restoreLayout()
     feeds.dispose()
     ctx.engine.destroy()
   }
@@ -240,6 +265,20 @@ for (const entry of ROUND_THREE_ARMS) {
       )
     }, 1_200_000)
   })
+  if (entry.windowLayout !== undefined) {
+    describe(`work per change: ${entry.name} (window layout)`, () => {
+      it('does the same work at 1x and 4x, or more by at most the changed items’ neighbourhood', async () => {
+        await checkWork(
+          `${entry.name} (window layout)`,
+          `${entry.folder}-window`,
+          entry.mode,
+          (ctx) => ({ arm: entry.armFor(ctx), windowLayout: entry.windowLayout }),
+          entry.allowances,
+          false,
+        )
+      }, 1_200_000)
+    })
+  }
   if (entry.writable === undefined) continue
   for (const variant of WRITE_VARIANTS) {
     describe(`work per change: ${entry.name} with its write layer (${variant})`, () => {

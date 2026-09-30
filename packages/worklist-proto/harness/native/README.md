@@ -50,9 +50,25 @@ real RN renderer either (no such dependency; its vitest config carries the
 same react-native-web alias) — so Mc5 is the brief's "otherwise" branch: the
 existing react-native-web lane, limitation stated.
 
-Run through the package config (never `test:file`, which routes these files
-to the node lane where they are excluded):
+Run through `test:file`, which routes native files to the package config
+with the react-native-web alias:
 
 ```
-bun ../../scripts/validation-admission.ts focused -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts harness/native/mobx-pool-fence.native.test.tsx
+bun run test:file -- packages/worklist-proto/harness/native/mobx-pool-fence.native.test.tsx
 ```
+
+## Windowed pool work counts
+
+`mobx-pool.native.test.tsx` now runs all sixteen work-per-change scenarios
+on the real `mountNative()` SectionList at 1x and 4x, with the same external
+read fence, work meter and neighbourhood bound as the web roster. It records
+`work-mobx-native.json` and checks the actual mount's sections: an unchanged
+lane retains both its section object and its data array, and a completely
+unchanged list retains the sections array. The parity projection's cold
+inputs are primed outside the meter; the renderer remains windowed.
+
+The section-copy plant fails the identity check; a whole-list rank scan fails
+the work bound. This is the existing react-native-web count lane, not a
+measurement of React Native on a phone. React reconciliation and plain
+SectionList internals are outside the meter, as on web; product observer
+bodies, pool derivations and their collection walks are counted.

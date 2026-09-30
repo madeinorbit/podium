@@ -78,12 +78,49 @@ const PoolNativeGroupHeader = observer(function PoolNativeGroupHeader({
  * id list, so building the sections walks the groups, never their rows
  * (POD-4792).
  */
-interface Section {
+export interface Section {
   readonly key: string
   readonly group: string | null
   readonly header: boolean
   readonly data: readonly string[]
 }
+
+/** Section objects and data stay identical for every unchanged lane. */
+export class NativeSections {
+  private readonly lanes = new Map<string, Section>()
+  private previous: Section[] = []
+
+  update(groups: WorklistGroups, folded: ReadonlySet<string>): Section[] {
+    const sections: Section[] = []
+    const active = new Set<string>()
+    const add = (key: string, group: string | null, header: boolean, data: readonly string[]): void => {
+      active.add(key)
+      let section = this.lanes.get(key)
+      if (section === undefined || section.data !== data) {
+        section = { key, group, header, data }
+        this.lanes.set(key, section)
+      }
+      sections.push(section)
+    }
+    const pinnedIds = groups.pinnedIds
+    if (pinnedIds.length > 0) add('pinned', null, true, pinnedIds)
+    for (const key of groups.keys) {
+      const group = groups.group(key)
+      add(`group:${key}`, key, true, group.rowIds)
+      if (!folded.has(key)) add(`closed:${key}`, key, false, group.closedIds)
+    }
+    for (const key of this.lanes.keys()) if (!active.has(key)) this.lanes.delete(key)
+    if (
+      sections.length !== this.previous.length ||
+      sections.some((section, i) => section !== this.previous[i])
+    ) {
+      this.previous = sections
+    }
+    return this.previous
+  }
+}
+
+const keyExtractor = (id: string): string => id
 
 const PoolNativeList = observer(function PoolNativeList({
   pool,
@@ -91,6 +128,7 @@ const PoolNativeList = observer(function PoolNativeList({
   pool: MobxPool
 }): ReactElement {
   const groups = pool.groups
+  const [plan] = useState(() => new NativeSections())
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
   const toggle = useCallback((key: string) => {
     setFolded((previous) => {
@@ -100,26 +138,20 @@ const PoolNativeList = observer(function PoolNativeList({
     })
   }, [])
 
-  const sections: Section[] = []
-  if (groups.pinnedIds.length > 0) {
-    sections.push({ key: 'pinned', group: null, header: true, data: groups.pinnedIds })
-  }
-  for (const key of groups.keys) {
-    const group = groups.group(key)
-    sections.push({ key: `group:${key}`, group: key, header: true, data: group.rowIds })
-    if (!folded.has(key)) {
-      sections.push({ key: `closed:${key}`, group: key, header: false, data: group.closedIds })
-    }
-  }
+  const sections = plan.update(groups, folded)
+  const renderItem = useCallback(
+    ({ item }: { item: string }) => <PoolNativeSlot pool={pool} id={item} />,
+    [pool],
+  )
 
   return (
     <SectionList<string, Section>
       testID="mobx-pool-list"
       sections={sections}
-      keyExtractor={(id) => id}
+      keyExtractor={keyExtractor}
       initialNumToRender={INITIAL_ROWS}
       stickySectionHeadersEnabled={false}
-      renderItem={({ item }) => <PoolNativeSlot pool={pool} id={item} />}
+      renderItem={renderItem}
       renderSectionHeader={({ section }) =>
         !section.header ? null : section.group === null ? (
           <Text testID="group-PINNED">Pinned</Text>

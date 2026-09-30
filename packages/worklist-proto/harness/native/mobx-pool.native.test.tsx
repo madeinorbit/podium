@@ -22,13 +22,17 @@
 
 import { observable, reaction, runInAction } from 'mobx'
 import { act } from 'react'
+import { createReadFence } from '../../shared/src/instrument/reads'
+import { NativeSections, type Section } from '../../arms/mobx/pool/native/list'
+import { writeResult } from '../src/results'
+import { assertScaleInvariant, describeCells, scaleCell, scaleVerdicts, type ScaleCell } from '../src/scale-check'
 import { describe, expect, it, vi } from 'vitest'
 import { harnessMobxPoolArm, tracked, visibleOrderOf } from '../src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../src/mobx-trap'
 import { sliceOrderOf } from '../../arms/mobx/pool/worklist/groups'
 import { startScenarioEngine, writeHeartbeat, writeTitleRename } from '../../shared/src/scenarios'
 import { mountNativeForCounts } from '../src/count-harness'
-import { openFenceFeeds } from '../src/fence-scenarios'
+import { FENCE_SCENARIOS, openFenceFeeds, runFenceStep } from '../src/fence-scenarios'
 
 const trap = installMobxWarnTrap({ errors: true })
 
@@ -135,4 +139,78 @@ describe('mobx pool on the native renderer', () => {
       ctx.engine.destroy()
     }
   }, 120_000)
+})
+
+/** The real SectionList mount, with the same work meter and scenarios as web. */
+async function nativeCellsAt(scale: 1 | 4): Promise<ScaleCell[]> {
+  const ctx = await startScenarioEngine(scale)
+  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const reads = createReadFence({ enabled: true })
+  const handle = harnessMobxPoolArm.create(reads.wrapSource(feeds.rows.source), feeds.locals.source, reads, {
+    schedule: () => () => {},
+  })
+  const sections = vi.spyOn(NativeSections.prototype, 'update')
+  const mounted = await mountNativeForCounts(handle, reads)
+  mounted.work = true
+  mounted.locals = feeds.locals
+  try {
+    await act(async () => {
+      await import('../../arms/mobx/pool/native/list')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      // The parity oracle reads every visible row; prime its cold inputs
+      // outside the count so projection loads are not attributed to a step.
+      handle.snapshot()
+    })
+    expect(document.querySelector('[data-testid="mobx-pool-list"]')).not.toBeNull()
+    const latest = (): Section[] => {
+      const result = sections.mock.results.at(-1)
+      expect(result?.type).toBe('return')
+      return result!.value as Section[]
+    }
+    let retained = 0
+    let changed = 0
+    const cells: ScaleCell[] = []
+    for (const entry of FENCE_SCENARIOS) {
+      const before = latest()
+      const step = await runFenceStep(mounted, ctx, feeds.flush, entry)
+      expect(step.result.parity, `${scale}x ${entry.methodology}`).toBe(true)
+      cells.push(scaleCell(step))
+      const after = latest()
+      for (const section of after) {
+        const old = before.find((previous) => previous.key === section.key)
+        if (old === undefined) continue
+        if (old.data.length === section.data.length && old.data.every((id, i) => id === section.data[i])) {
+          expect(section.data, `${entry.methodology} ${section.key}: unchanged data identity`).toBe(old.data)
+          expect(section, `${entry.methodology} ${section.key}: unchanged section identity`).toBe(old)
+          retained += 1
+        } else {
+          expect(section.data, `${entry.methodology} ${section.key}: changed data`).not.toBe(old.data)
+          changed += 1
+        }
+      }
+      if (before.every((section, i) => section === after[i]) && before.length === after.length) {
+        expect(after, `${entry.methodology}: unchanged sections container`).toBe(before)
+      }
+    }
+    expect(retained, 'unchanged lanes were checked').toBeGreaterThan(0)
+    expect(changed, 'a lane change was checked').toBeGreaterThan(0)
+    return cells
+  } finally {
+    mounted.unmount()
+    sections.mockRestore()
+    feeds.dispose()
+    ctx.engine.destroy()
+  }
+}
+
+describe('work per change: MobX pool (native SectionList)', () => {
+  it('keeps unchanged lanes by identity and stays within the changed neighbourhood at 1x and 4x', async () => {
+    const at1x = await nativeCellsAt(1)
+    const at4x = await nativeCellsAt(4)
+    const verdicts = scaleVerdicts(at1x, at4x)
+    writeResult('work-mobx-native', { at1x, at4x, verdicts })
+    console.info(`[work] MobX pool (native SectionList)\n${describeCells(at1x, at4x)}`)
+    expect(at1x.some((cell) => cell.work.derivations > 0 && cell.work.elements > 0)).toBe(true)
+    assertScaleInvariant(verdicts)
+  }, 1_200_000)
 })

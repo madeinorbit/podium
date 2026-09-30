@@ -33,6 +33,7 @@ import type { CountResult } from './count-harness'
 import type { FixtureCorpus } from './fixture/index'
 import type { RowViews } from './oracle/index'
 import type { WorkAllowance } from './scale-check'
+import type { WindowLayout } from './window-layout'
 
 /**
  * One arm's named exceptions. Every member names the issue that removes it
@@ -102,6 +103,8 @@ export interface RosterArm {
    * red. Never an allowance, never a widened bound.
    */
   measuredOnly?: boolean
+  /** The real web window, counted beside the bare and write-layer mounts. */
+  windowLayout?: WindowLayout
   /** Named exceptions, each removed by the issue it names (above). */
   allowances?: RosterAllowances
 }
@@ -111,6 +114,7 @@ export const ROUND_THREE_ARMS: readonly RosterArm[] = [
     // POD-4572 (Mb4): the round-three MobX pool with its worklist (Mb1-Mb3).
     // POD-4671 fixed: no parity allowance. POD-4792 fixed: no work allowance.
     name: 'MobX pool',
+    windowLayout: { height: 5800, width: 1600 },
     folder: 'mobx',
     mode: 'overlaid',
     armFor: () => harnessMobxPoolArm,

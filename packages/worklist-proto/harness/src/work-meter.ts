@@ -55,9 +55,9 @@
  *   a render calls them from (POD-4934).
  *
  * What the arm schedules from there (its timers, its loads) stays the arm's.
- * React's own reconciliation is not counted: in the count lane every list
- * draws every row (happy-dom has no layout), so React visits every sibling of
- * a redrawn row, which the browser's window bounds; the exact-commit fence
+ * React's own reconciliation is not counted: the full-list variants draw
+ * every row (happy-dom has no layout), so React visits every sibling of a
+ * redrawn row. The window and native variants draw bounded windows; the exact-commit fence
  * holds what React redraws. A plain (non-`observer`) component body is React's
  * side too. happy-dom's DOM mutation methods run outside while measuring, so
  * the DOM's own bookkeeping never counts, even when the arm calls it.
