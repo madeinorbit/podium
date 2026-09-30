@@ -46,6 +46,7 @@ describe('split source daemon on a fresh state dir', () => {
         PODIUM_STATE_DIR: state,
         PODIUM_HOST: '127.0.0.1',
         PODIUM_PORT: String(listener.port),
+        ABDUCO_SOCKET_DIR: join(root, 'abduco'),
         TMUX_TMPDIR: join(root, 'tmux'),
       })
       delete env.PODIUM_UNDER_PARENT

@@ -492,7 +492,7 @@ describe('desktop release workflow', () => {
    * The old shape built x64 on an Ubuntu runner and arm64 on a native ARM one,
    * because the compiled daemon embedded a C helper (abduco, since retired) that
    * had to be built on the architecture that would run it. The native binaries a
-   * bundle ships now (podium-host-rs, podium-tunnel) are cross-built for every
+   * bundle ships now (podium-host, podium-tunnel) are cross-built for every
    * target from one Linux runner, so the runner's own architecture no longer
    * decides anything and the matrix is gone (spec §8b). Asserting `arch: x64`
    * here would now pin a design the release deliberately replaced — the failure
@@ -512,7 +512,7 @@ describe('desktop release workflow', () => {
     // it passed (POD-4789).
     expect(parsed.jobs?.publish?.needs).toEqual(['headless'])
     // Every bundle goes through the shipped-bundle gate, bound to the release commit;
-    // that gate refuses a bundle without podium-host-rs (the daemon starts no session
+    // that gate refuses a bundle without podium-host (the daemon starts no session
     // without it) and one carrying a retired abduco or C podium-host.
     expect(headlessWorkflow).toContain('bash scripts/assert-headless-bundle.sh')
     expect(headlessWorkflow).toContain('--source-commit "$GITHUB_SHA"')

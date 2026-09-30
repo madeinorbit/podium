@@ -493,7 +493,7 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
     {
       file: 'packages/pty/src/host-bin.ts',
       reason:
-        'In a source checkout, builds the vendored Rust podium-host with cargo into `<cache>/podium/podium-host-rs-src/<source hash>`. A build cache keyed on the source it was built from is not state: it names no entity, is byte-identical for every build of that source, and is rebuilt if deleted.',
+        'In a source checkout, builds the vendored Rust podium-host with cargo into `<cache>/podium/podium-host-src/<source hash>`. A build cache keyed on the source it was built from is not state: it names no entity, is byte-identical for every build of that source, and is rebuilt if deleted.',
     },
     {
       file: 'apps/server/src/migrations/restore.ts',

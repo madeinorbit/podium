@@ -60,14 +60,14 @@ echo "tarball sha256=$(sha256sum "$TARBALL" | cut -d' ' -f1)"
 # packages/runtime/src/update-install.ts: replacement = join(staged, 'headless')
 listing="$(tar -tzf "$TARBALL")" || fail "cannot list $TARBALL"
 echo "$listing" | grep -qE '^headless/?$' || fail "tarball has no headless/ root entry"
-for want in headless/podium-cli headless/podium headless/podium-host-rs headless/VERSION; do
+for want in headless/podium-cli headless/podium headless/podium-host headless/VERSION; do
   echo "$listing" | grep -qx "$want" || fail "tarball missing $want"
 done
 echo "$listing" | head -1 | grep -q '^headless/' \
   || fail "tarball first entry is not under headless/ (updater extract expects headless/)"
 stray="$(echo "$listing" | awk -F/ '{print $1}' | sort -u | grep -vx 'headless' || true)"
 [[ -z "$stray" ]] || fail "tarball has entries outside headless/: $stray"
-pass "tarball archive root is headless/ with podium-cli, podium, podium-host-rs, VERSION and nothing else"
+pass "tarball archive root is headless/ with podium-cli, podium, podium-host, VERSION and nothing else"
 
 # --- Extract; everything below interrogates the EXTRACTED bytes ---
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/podium-assert-XXXXXX")"
@@ -119,17 +119,17 @@ pass "shipped binary contains no Linux ELF header"
   || fail "shipped binary carries a retired abduco or C podium-host"
 pass "shipped binary carries no retired abduco or C podium-host"
 
-HOST="$WORK/headless/podium-host-rs"
-[[ -x "$HOST" ]] || fail "extracted headless/podium-host-rs is missing or not executable"
+HOST="$WORK/headless/podium-host"
+[[ -x "$HOST" ]] || fail "extracted headless/podium-host is missing or not executable"
 file_host="$(file -b "$HOST")"
-echo "file headless/podium-host-rs: $file_host"
+echo "file headless/podium-host: $file_host"
 [[ "$file_host" == *"Mach-O"* && "$file_host" == *"$EXPECT_ARCH"* ]] \
-  || fail "shipped podium-host-rs is not Mach-O $EXPECT_ARCH (got: $file_host)"
+  || fail "shipped podium-host is not Mach-O $EXPECT_ARCH (got: $file_host)"
 host_sig="$(rcodesign print-signature-info "$HOST" 2>&1)" \
-  || fail "cannot read shipped podium-host-rs signature"
+  || fail "cannot read shipped podium-host signature"
 echo "$host_sig" | grep -q 'CodeSignatureFlags(ADHOC' \
-  || fail "shipped podium-host-rs has no ad-hoc signature"
-pass "shipped headless/podium-host-rs is an ad-hoc signed Mach-O $EXPECT_ARCH"
+  || fail "shipped podium-host has no ad-hoc signature"
+pass "shipped headless/podium-host is an ad-hoc signed Mach-O $EXPECT_ARCH"
 
 # --- Signature of the SHIPPED binary ---
 sig="$(rcodesign print-signature-info "$CLI" 2>&1)" \

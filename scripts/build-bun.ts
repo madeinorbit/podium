@@ -1,7 +1,7 @@
 /**
  * Build the single-file `bun build --compile` binaries.
  *
- *   1. Build the Rust process host (`podium-host-rs`) for the target. It ships as its
+ *   1. Build the Rust process host (`podium-host`) for the target. It ships as its
  *      own file beside `podium-cli` in the headless bundle, not embedded; a POSIX
  *      bundle without it cannot run a durable session, so a missing host fails the
  *      build. Windows has no durable host (ConPTY) and ships none.

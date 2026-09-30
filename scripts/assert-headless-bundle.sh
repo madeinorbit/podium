@@ -49,7 +49,7 @@ need tar
 need python3
 
 # EXPECT_FORMAT/EXPECT_ARCH are what `file -b` prints for a correct binary. They are
-# asked of podium-cli AND of podium-host-rs, which is the check that catches a build
+# asked of podium-cli AND of podium-host, which is the check that catches a build
 # that shipped the build machine's Rust host instead of the target's.
 case "$PLATFORM" in
   linux-x86_64)   EXPECT_FORMAT="ELF";     EXPECT_ARCH="x86-64" ;;
@@ -90,7 +90,7 @@ echo "tarball sha256=$(sha256sum "$TARBALL" | cut -d' ' -f1)"
 #
 # packages/runtime/src/update-install.ts joins the staged dir with 'headless', so
 # any other archive root silently installs nothing. The file set itself is what
-# scripts/build-bun.ts writes: podium-cli, podium-tunnel, podium-host-rs, the launcher shim, both client sites,
+# scripts/build-bun.ts writes: podium-cli, podium-tunnel, podium-host, the launcher shim, both client sites,
 # the packaged systemd units, VERSION, LICENSE, NOTICE, THIRD-PARTY-NOTICES.md.
 # POD-2501's spike packed none of systemd/LICENSE/NOTICE and wrote stub
 # index.html files; a gate that only checks that subset accepts a malformed
@@ -100,7 +100,7 @@ for want in \
   headless/podium-cli \
   headless/podium \
   headless/podium-tunnel \
-  headless/podium-host-rs \
+  headless/podium-host \
   headless/VERSION \
   headless/LICENSE \
   headless/NOTICE \
@@ -127,8 +127,8 @@ CLI="$WORK/headless/podium-cli"
 [ -x "$WORK/headless/podium" ] || fail "extracted headless/podium launcher is not executable"
 [ -x "$WORK/headless/podium-tunnel" ] \
   || fail "extracted headless/podium-tunnel (the opt-in quick-tunnel supervisor) is missing or not executable"
-[ -x "$WORK/headless/podium-host-rs" ] \
-  || fail "extracted headless/podium-host-rs is missing or not executable"
+[ -x "$WORK/headless/podium-host" ] \
+  || fail "extracted headless/podium-host is missing or not executable"
 grep -q 'PODIUM_HOME' "$WORK/headless/podium" \
   || fail "extracted headless/podium is not the launcher shim (no PODIUM_HOME)"
 [ -s "$WORK/headless/VERSION" ] || fail "extracted headless/VERSION is empty"
@@ -277,31 +277,31 @@ pass "shipped podium-cli is $EXPECT_FORMAT $EXPECT_ARCH, $size bytes"
 
 # The Rust host is a standalone payload, so interrogate the extracted executable.
 # Linux must be static musl; Darwin must have a signature sealing its bytes.
-RUST_HOST="$WORK/headless/podium-host-rs"
+RUST_HOST="$WORK/headless/podium-host"
 rust_host_file="$(file -b "$RUST_HOST")"
 case "$rust_host_file" in
   *"$EXPECT_FORMAT"*"$EXPECT_ARCH"*) : ;;
-  *) fail "shipped podium-host-rs is not $EXPECT_FORMAT $EXPECT_ARCH (got: $rust_host_file)" ;;
+  *) fail "shipped podium-host is not $EXPECT_FORMAT $EXPECT_ARCH (got: $rust_host_file)" ;;
 esac
 if [ "$IS_DARWIN" = 0 ]; then
   case "$rust_host_file" in
     *"static"*) : ;;
-    *) fail "shipped podium-host-rs is not statically linked (got: $rust_host_file)" ;;
+    *) fail "shipped podium-host is not statically linked (got: $rust_host_file)" ;;
   esac
 else
   rust_host_sig="$(rcodesign print-signature-info "$RUST_HOST" 2>&1)" \
-    || fail "cannot read shipped podium-host-rs signature"
+    || fail "cannot read shipped podium-host signature"
   grep -q 'CodeSignatureFlags(ADHOC' <<<"$rust_host_sig" \
-    || fail "shipped podium-host-rs has no ad-hoc signature"
-  grep -q 'identifier: podium-host-rs' <<<"$rust_host_sig" \
-    || fail "shipped podium-host-rs signature identifier is not podium-host-rs"
+    || fail "shipped podium-host has no ad-hoc signature"
+  grep -q 'identifier: podium-host' <<<"$rust_host_sig" \
+    || fail "shipped podium-host signature identifier is not podium-host"
   rust_host_verify="$(rcodesign verify "$RUST_HOST" 2>&1 || true)"
   grep -q 'CMS error' <<<"$rust_host_verify" \
-    || fail "podium-host-rs signature verification did not run as expected"
+    || fail "podium-host signature verification did not run as expected"
   grep -qi 'digest mismatch' <<<"$rust_host_verify" \
-    && fail "podium-host-rs signature does not seal the shipped bytes"
+    && fail "podium-host signature does not seal the shipped bytes"
 fi
-pass "shipped podium-host-rs is $EXPECT_FORMAT $EXPECT_ARCH with the platform link/signature policy"
+pass "shipped podium-host is $EXPECT_FORMAT $EXPECT_ARCH with the platform link/signature policy"
 
 # --- Nothing is embedded: no abduco, no C podium-host inside the shipped binaries ---
 #
@@ -310,7 +310,7 @@ pass "shipped podium-host-rs is $EXPECT_FORMAT $EXPECT_ARCH with the platform li
 # beside podium-cli and nothing is embedded. A `with { type: 'file' }` import stores the
 # file verbatim, so a helper creeping back in carries its own identifying strings: the
 # abduco banner, and the C host's `version` format (the Rust host prints the same words
-# through Rust formatting, never this printf string). Asked of podium-host-rs too, so a C
+# through Rust formatting, never this printf string). Asked of podium-host too, so a C
 # host renamed into the Rust host's place is refused as well. This runs BEFORE the Darwin
 # signature checks so its failure line is unambiguous.
 legacy_report="$(python3 - "$CLI" "$RUST_HOST" <<'PY'
@@ -328,8 +328,8 @@ eval "$(echo "$legacy_report" | sed 's/^/LEGACY_/')"
 [ "${LEGACY_cli_c_host}" = "0" ] \
   || fail "shipped podium-cli carries an embedded C podium-host (${LEGACY_cli_c_host} C version strings)"
 [ "${LEGACY_rust_host_abduco}" = "0" ] && [ "${LEGACY_rust_host_c_host}" = "0" ] \
-  || fail "shipped podium-host-rs is not the Rust host (it carries abduco or C podium-host strings)"
-pass "no abduco and no C podium-host inside podium-cli or podium-host-rs"
+  || fail "shipped podium-host is not the Rust host (it carries abduco or C podium-host strings)"
+pass "no abduco and no C podium-host inside podium-cli or podium-host"
 
 # --- Darwin signature + entitlements ---
 #

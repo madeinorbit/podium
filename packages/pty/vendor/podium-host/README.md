@@ -6,10 +6,10 @@ C compiler. `packages/pty/src/host-bin.ts` resolves the binary for every new spa
 
 1. `PODIUM_HOST_BIN`, when set. It must answer `version` as a podium-host at feature
    level 2, or resolution fails loudly and never falls back.
-2. A release's `podium-host-rs`, shipped beside `podium-cli` (cross-built by
+2. A release's `podium-host`, shipped beside `podium-cli` (cross-built by
    `scripts/rust-host-cross.ts`; customer machines never run cargo).
 3. In a source checkout, this crate built with cargo on the daemon's first use, cached
-   by source hash under `~/.cache/podium/podium-host-rs-src/<hash>/podium-host-rs`
+   by source hash under `~/.cache/podium/podium-host-src/<hash>/podium-host`
    (`$PODIUM_RUST_HOST_BUILD_DIR` moves it), so every worktree shares one build.
 
 Otherwise the daemon refuses every spawn with a diagnostic; there is no fallback host.
@@ -136,7 +136,7 @@ installs this crate's toolchain from here, and a dev daemon's first-use build ru
 `rust-toolchain.toml` (plain `cargo` when rustup is missing).
 
 ```sh
-cd packages/pty/vendor/podium-host-rs
+cd packages/pty/vendor/podium-host
 mise trust && mise install
 cargo test --release     # unit tests, plus tests/security.rs (Linux: drives the binary)
 cargo zigbuild --release --target x86_64-unknown-linux-musl   # static, as rust-host-cross.ts builds it
@@ -150,6 +150,6 @@ hosts and children it started. The repository's TypeScript host suites run again
 this binary through the same resolution as the daemon (the cached source build, or
 `PODIUM_HOST_BIN`).
 
-Darwin outputs need `rcodesign sign --binary-identifier podium-host-rs` (zig signs
+Darwin outputs need `rcodesign sign --binary-identifier podium-host` (zig signs
 arm64 ad hoc and leaves x86_64 unsigned); `scripts/rust-host-cross.ts` does this for the
 release, and `.cargo/config.toml` reserves the header room for it.

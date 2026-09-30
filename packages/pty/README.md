@@ -22,12 +22,12 @@ remote terminal rendered black. A Bun too old fails loudly at startup.
 ### Durable host — `src/host.ts`, `src/host-bin.ts`, `src/durable-process.ts`, `src/scope.ts`
 
 A durable host is what makes a session survive the daemon. On Linux and macOS it is
-podium-host, the Rust crate in `vendor/podium-host-rs/` — the only host Podium spawns
+podium-host, the Rust crate in `vendor/podium-host/` — the only host Podium spawns
 (POD-4986); no C compiler is involved in building or releasing it. `resolveHostBin()`
 picks the binary for a new spawn: `$PODIUM_HOST_BIN` (must answer `version` at feature
-level `HOST_FEATURES` = 2, else resolution fails), then a release's `podium-host-rs`
+level `HOST_FEATURES` = 2, else resolution fails), then a release's `podium-host`
 beside `podium-cli`, then — in a source checkout — the crate built with cargo on first
-use and cached by source hash under `~/.cache/podium/podium-host-rs-src`
+use and cached by source hash under `~/.cache/podium/podium-host-src`
 (`ensureSourceRustHost()`). With none of these the daemon refuses every spawn
 (`HOST_UNAVAILABLE`); there is no fallback. `hostSupported()` is the single place the
 platform rule lives: on Windows sessions run on the ConPTY backend with no durable host

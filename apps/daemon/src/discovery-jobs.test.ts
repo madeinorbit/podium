@@ -28,8 +28,8 @@ describe('runMemoryBreakdownJob', () => {
       root,
       100,
       1,
-      'podium-host-rs',
-      'podium-host-rs create --socket /run/hosts/podium-S1.sock -- claude',
+      'podium-host',
+      'podium-host create --socket /run/hosts/podium-S1.sock -- claude',
       50,
     )
     fakeProc(root, 101, 100, 'claude', 'claude --foo', 200)

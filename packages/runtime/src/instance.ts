@@ -19,7 +19,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, hostname, userInfo } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { SessionId } from '@podium/model'
 import { refuseLiveStateDir } from './live-state-guard'
@@ -32,13 +32,14 @@ export const LINUX_SUN_PATH_BYTES = 108
 export const LINUX_UNIX_SOCKET_PATH_BYTES = LINUX_SUN_PATH_BYTES - 1
 
 /**
- * Longest instance component in a named instance's durable label.
+ * Longest instance component in a packaged abduco socket on Linux.
  *
- * Budgeted for the retired abduco backend's socket (`/tmp/pd-<10-byte-key>/
- * abduco/<user>/<label>@<hostname>`, 17 bytes left of Linux's 107 usable
- * pathname bytes). It stays FIXED after abduco's removal (POD-4986): the label
- * is how a restarted daemon finds a running host, so changing this would
- * orphan every named instance's live sessions.
+ * The bounded root is `/tmp/pd-<10-byte-key>`. With the packaged `podium` user,
+ * a 12-byte Docker hostname, `podium-` label prefix, UUID session id, separators,
+ * and abduco's own `abduco/<user>/` directory plus `@<hostname>` suffix, 90 bytes
+ * are fixed. That leaves 17 bytes of Linux's 107 usable pathname bytes; 18 would
+ * fill byte 108 and leave no room for the required NUL. Keep the arithmetic pinned
+ * in instance.test.ts rather than making the next socket change rediscover it.
  */
 export const DURABLE_INSTANCE_COMPONENT_BYTES = 17
 export const INSTANCE_SOCKET_KEY_BYTES = 10
@@ -258,6 +259,16 @@ export function durableSessionLabel(
     : `podium-${durableInstanceComponent(id)}-${sessionId}`
 }
 
+/** Exact pathname abduco constructs for a relative durable label. */
+export function abducoSocketPathname(
+  socketDir: string,
+  label: string,
+  username: string,
+  host: string,
+): string {
+  return join(socketDir, 'abduco', username, `${label}@${host}`)
+}
+
 export function linuxUnixSocketPathFits(path: string): boolean {
   return Buffer.byteLength(path) <= LINUX_UNIX_SOCKET_PATH_BYTES
 }
@@ -289,6 +300,14 @@ export function instanceSocketRuntimeDir(
   const id = validateInstanceId(instanceId)
   const key = stableKey(`${uid}\0${id}\0${resolve(dir)}`, INSTANCE_SOCKET_KEY_BYTES)
   return join('/tmp', `pd-${key}`)
+}
+
+function currentUsername(): string {
+  try {
+    return userInfo().username
+  } catch {
+    return typeof process.getuid === 'function' ? String(process.getuid()) : 'unknown'
+  }
 }
 
 /**
@@ -695,17 +714,52 @@ export function rekeyInstanceStateIdentity(
 }
 
 /**
- * Stamp the instance id into the environment every child inherits.
+ * Pin named-instance durable backend sockets to private per-instance roots.
+ * An explicit ABDUCO_SOCKET_DIR is preserved as an intentional
+ * sharing/configuration choice. The default instance keeps legacy global sockets.
  *
- * This used to pin a named instance's `ABDUCO_SOCKET_DIR` as well; abduco is
- * gone (POD-4986), and podium-host places its sockets under
- * `hosts/<instance>/` itself (`hostSocketDir`).
+ * Since POD-4986 nothing CREATES an abduco session — podium-host is the only
+ * host a spawn uses — but a running abduco session from an older Podium is
+ * still adopted, and this pin is where this instance's abduco masters are
+ * found. It stays until abduco adoption itself is retired.
+ *
+ * THE ABDUCO ROOT IS NOT UNDER THE STATE DIRECTORY, and that is the fix for
+ * POD-2853 rather than an aesthetic choice. This pin used to be
+ * `<state>/runtime/abduco`, which was wrong twice over:
+ *
+ *   - It DOUBLED the segment. abduco appends `abduco/<user>/` itself, so the
+ *     composed directory was `<state>/runtime/abduco/abduco/<user>/`.
+ *   - Length. Measured on a real named instance at the state root
+ *     docs/multi-instance.md documents, the composed socket path was 121 bytes
+ *     against a 108-byte `sun_path`, and every spawn died on abduco's
+ *     "create-session: File name too long". De-duplicating the segment alone
+ *     brought it to 114 — STILL over. A named instance's state root plus its
+ *     instance-prefixed label simply cannot fit, so no amount of tidying the
+ *     pin would have made a named instance able to start a terminal.
+ *
+ *
+ * SOCKETS MOVE for a named instance that did not set ABDUCO_SOCKET_DIR itself,
+ * so masters created by an older build are not found after an upgrade and their
+ * sessions have to be resumed. Every instance this pin applies to is one that
+ * could not start a durable session at all, so in practice there is nothing to
+ * orphan; an instance that DID set the variable is untouched.
  */
 export function applyInstanceRuntimeEnv(
   instanceId: string = resolveInstanceId(),
   env: NodeJS.ProcessEnv = process.env,
+  dir: string = instanceStateDir(instanceId, env),
 ): NodeJS.ProcessEnv {
   const id = validateInstanceId(instanceId)
   env.PODIUM_INSTANCE = id
+  if (id === DEFAULT_INSTANCE_ID) return env
+  const sessionId = '00000000-0000-4000-8000-000000000000' as SessionId
+  const label = durableSessionLabel(sessionId, id)
+  const shortDir = instanceSocketRuntimeDir(id, dir)
+  if (!env.ABDUCO_SOCKET_DIR) {
+    const legacyDir = join(dir, 'runtime', 'abduco')
+    const projected = abducoSocketPathname(legacyDir, label, currentUsername(), hostname())
+    env.ABDUCO_SOCKET_DIR = linuxUnixSocketPathFits(projected) ? legacyDir : shortDir
+    mkdirSync(env.ABDUCO_SOCKET_DIR, { recursive: true, mode: 0o700 })
+  }
   return env
 }

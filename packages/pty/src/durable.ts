@@ -3,9 +3,10 @@
  *
  * What makes a session survive the daemon: the podium-host adapter, the Rust
  * host's resolution (`./host-bin.js`), and the systemd scope argv that places a
- * host outside the daemon's cgroup (`./scope.js`). abduco and the C host are
- * gone (POD-4986); a C host an older daemon started is still adopted through
- * the host protocol. Importing this subpath means driving a real durable
+ * host outside the daemon's cgroup (`./scope.js`). Nothing spawns on abduco or
+ * the C host any more (POD-4986); a running C host is adopted through the host
+ * protocol, and a running abduco session through the adoption-only abduco
+ * adapter (`./abduco.js`, attach and census only). Importing this subpath means driving a real durable
  * process — it is the auditable door P2b narrows to `DurableProcess`.
  *
  * SOLE ENTRY (P2b): production daemon code reaches a process ONLY through
@@ -25,8 +26,11 @@ export {
   type DurableProcess,
   type HeadlessSpawnOptions,
   type HeadlessAttachOptions,
+  type DurableAdapterKind,
   hostDurableAdapter,
+  abducoAdoptionAdapter,
   createDurableProcess,
+  sweepStaleDurableBindTemps,
   durableProcessFor,
 } from './durable-process.js'
 // TESTS ONLY (POD-4617): the direct-pty stand-in for a durable process. A
@@ -34,7 +38,7 @@ export {
 // raw pty spawn is still reachable, and the durable-door allow-list keeps it
 // out of production daemon code.
 export { directPtyDurableForTests } from './direct-pty-durable.js'
-// The attachment handle the adapter implements, re-exported so the durable
+// The attachment handle both adapters implement, re-exported so the durable
 // door names the ONE interface (POD-4434). Type-only: it widens no runtime
 // capability, and the P2b value door above is unchanged.
 export type { DurableAttachment } from './session.js'
@@ -52,7 +56,36 @@ export {
   stopSessionScope,
   type DurableSpawnOptions,
 } from './scope.js'
-export { legacyAbducoSocket } from './legacy-abduco.js'
+export {
+  abducoAttachArgv,
+  resolveAttachBin,
+  isAbducoAvailable,
+  type AbducoSessionEntry,
+  parseAbducoList,
+  abducoSocketPath,
+  reapStaleAbducoBindTemps,
+  abducoTerminatedSocketPaths,
+  waitForAbducoSocket,
+  abducoSocketHasSession,
+  abducoHasSession,
+  killAbducoSession,
+  listLiveAbducoLabels,
+  reapAbducoTestSessions,
+  type AbducoAttachOptions,
+  attachAbducoAgent,
+} from './abduco.js'
+export {
+  ABDUCO_FEATURES,
+  type AbducoManifest,
+  abducoSupported,
+  defaultAbducoCachePath,
+  managedAbducoDir,
+  abducoBinFeatures,
+  vendoredAbducoSourceHash,
+  buildVendoredAbduco,
+  ensureManagedAbduco,
+  resolveAbducoBin,
+} from './abduco-bin.js'
 export {
   HOST_PROTO_VERSION,
   HostFrame,

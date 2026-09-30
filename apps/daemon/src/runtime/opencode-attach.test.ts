@@ -333,8 +333,8 @@ describe('the client terminal a server-family attach produces', () => {
       {
         pid: 200,
         ppid: 1,
-        name: 'podium-host-rs',
-        cmdline: `systemd-run --user --scope --unit=${scopeUnitName(attachLabel)} -- podium-host-rs create --socket /run/user/1000/hosts/default/${attachLabel}.sock --cols 120 --rows 40 --cwd /home/agent/work -- opencode attach http://127.0.0.1:41234`,
+        name: 'podium-host',
+        cmdline: `systemd-run --user --scope --unit=${scopeUnitName(attachLabel)} -- podium-host create --socket /run/user/1000/hosts/default/${attachLabel}.sock --cols 120 --rows 40 --cwd /home/agent/work -- opencode attach http://127.0.0.1:41234`,
         memBytes: 90_000_000,
       },
       // The TUI itself, a child of the attachment's master.

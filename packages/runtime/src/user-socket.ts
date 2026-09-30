@@ -7,7 +7,7 @@
  * minted, stored, expired or rotated, and — unlike a loopback TCP port — the
  * socket is not reachable through anything that forwards network traffic to
  * 127.0.0.1, such as a Cloudflare tunnel. podium-host's session sockets work the
- * same way (0600 plus a peer-uid check, vendor/podium-host-rs/src/sys.rs).
+ * same way (0600 plus a peer-uid check, vendor/podium-host/src/sys.rs).
  *
  * Used by the daemon's Codex hook socket and the server's control socket.
  */

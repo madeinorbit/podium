@@ -97,11 +97,11 @@ expect_fail "Linux ELF swapped in as headless/podium-cli" \
   "is not Mach-O" "$WORK/t.tar.gz"
 
 # (c) The Rust host built for the wrong platform: a Linux ELF shipped as
-#     headless/podium-host-rs beside a perfectly good Darwin CLI.
+#     headless/podium-host beside a perfectly good Darwin CLI.
 fresh
-cp -f /bin/true "$WORK/headless/podium-host-rs"; chmod +x "$WORK/headless/podium-host-rs"; repack
-expect_fail "Linux ELF shipped as headless/podium-host-rs" \
-  "podium-host-rs is not Mach-O" "$WORK/t.tar.gz"
+cp -f /bin/true "$WORK/headless/podium-host"; chmod +x "$WORK/headless/podium-host"; repack
+expect_fail "Linux ELF shipped as headless/podium-host" \
+  "podium-host is not Mach-O" "$WORK/t.tar.gz"
 
 # (c2) A retired helper embedded in the CLI: its identifying string appended to the
 #      shipped binary (breaks the seal too, but the embed scan runs first).
@@ -160,9 +160,9 @@ fi
 
 # (h) The regression that mattered most: an input that vanishes must FAIL, not skip.
 fresh
-rm -f "$WORK/headless/podium-host-rs"; repack
-expect_fail "podium-host-rs missing from the tarball (must fail, not silently skip)" \
-  "tarball missing headless/podium-host-rs" "$WORK/t.tar.gz"
+rm -f "$WORK/headless/podium-host"; repack
+expect_fail "podium-host missing from the tarball (must fail, not silently skip)" \
+  "tarball missing headless/podium-host" "$WORK/t.tar.gz"
 
 # (i) Old spike tarball layout (loose binaries at the archive root) — not what the
 #     updater extracts.

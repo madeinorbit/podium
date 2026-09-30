@@ -165,17 +165,17 @@ else
   fail "daemon: all-in-one did not stay up / no server|daemon up line"
 fi
 # --- the bundled Rust process host: runs, signed, hosts a session that survives ---
-HOST_BIN="$WORK/headless/podium-host-rs"
+HOST_BIN="$WORK/headless/podium-host"
 if [[ -x "$HOST_BIN" ]] && h_out="$("$HOST_BIN" version 2>&1)" && [[ "$h_out" == "podium-host "*" features="* ]]; then
   echo "$h_out"
-  pass "host: bundled podium-host-rs runs ($h_out)"
+  pass "host: bundled podium-host runs ($h_out)"
 else
-  fail "host: bundled podium-host-rs missing or did not run"
+  fail "host: bundled podium-host missing or did not run"
 fi
 if codesign --verify --strict --verbose=4 "$HOST_BIN" 2>&1; then
-  pass "host: codesign --verify --strict accepts podium-host-rs"
+  pass "host: codesign --verify --strict accepts podium-host"
 else
-  fail "host: codesign --verify --strict REJECTED podium-host-rs"
+  fail "host: codesign --verify --strict REJECTED podium-host"
 fi
 
 # `create` daemonizes and returns while the host stays up; a second `create` on the same

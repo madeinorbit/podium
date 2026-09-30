@@ -1794,7 +1794,7 @@ shells_live() {
       '[$ids[] as $id|any(.[];.sessionId==$id and .status=="live")]|all' >/dev/null
 }
 # One line per running process host in the container: `<pid>\t<cmdline>`. A host is
-# `podium-host-rs create --socket <dir>/<label>.sock …` (a C host an older daemon started
+# `podium-host create --socket <dir>/<label>.sock …` (a C host an older daemon started
 # is still `podium-host create …`), and the label ends in `-<session id>`, so the socket
 # path in the argv names the session. The host daemonizes without exec, so its argv is
 # what it was started with. Read from /proc because the clean container ships no pgrep.
@@ -2704,8 +2704,8 @@ main() {
     container_exec "$container" sh -lc 'command -v gzip >/dev/null'
   done
   for container in "$FLEET_A" "$FLEET_B"; do
-    container_exec "$container" test -x "$(install_path)/podium-host-rs"
-    [[ "$(container_exec "$container" "$(install_path)/podium-host-rs" version)" == "podium-host "*" features="* ]]
+    container_exec "$container" test -x "$(install_path)/podium-host"
+    [[ "$(container_exec "$container" "$(install_path)/podium-host" version)" == "podium-host "*" features="* ]]
     container_exec "$container" sh -c "! test -e '$(state_path)/bin/abduco' && ! test -e '$(state_path)/bin/podium-host'"
   done
   container_exec "$SOURCE" sh -lc \

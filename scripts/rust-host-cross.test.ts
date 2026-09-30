@@ -94,7 +94,7 @@ describe('Rust host release cross-builds', () => {
       .mock.calls.filter(([file]) => file === '/tools/rcodesign')
     expect(signatures).toHaveLength(2)
     for (const [, args] of signatures) {
-      expect(args?.slice(0, 3)).toEqual(['sign', '--binary-identifier', 'podium-host-rs'])
+      expect(args?.slice(0, 3)).toEqual(['sign', '--binary-identifier', 'podium-host'])
     }
   })
 

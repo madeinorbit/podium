@@ -15,8 +15,8 @@ bot: just open a pull request.
   development backend runs from an installed Bun-compiled bundle. Agent PTYs use
   `Bun.Terminal`.
 - **Linux and macOS: Rust (rustup + cargo).** A dev daemon run from a source checkout builds the
-  durable session host, podium-host, from `packages/pty/vendor/podium-host-rs` with cargo on first
-  use and caches it by source hash under `~/.cache/podium/podium-host-rs-src`; without a working
+  durable session host, podium-host, from `packages/pty/vendor/podium-host` with cargo on first
+  use and caches it by source hash under `~/.cache/podium/podium-host-src`; without a working
   build it refuses to start sessions. Install the crate's pinned toolchain with
   `mise trust && mise install` in that directory (or rustup; the channel is in its
   `rust-toolchain.toml`). Set `PODIUM_HOST_BIN` to a prebuilt Rust podium-host (feature level 2)

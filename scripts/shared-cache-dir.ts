@@ -70,7 +70,7 @@ export function projectCacheKey(root: string): string {
 }
 
 /**
- * `<cache base>/podium/<kind>/<projectKey>` for one cache family (`turbo`, `podium-host-rs`).
+ * `<cache base>/podium/<kind>/<projectKey>` for one cache family (`turbo`, `podium-host`).
  *
  * Each base candidate is only valid when absolute. A relative value is treated as
  * unset: resolving it against each worktree would silently produce separate caches.

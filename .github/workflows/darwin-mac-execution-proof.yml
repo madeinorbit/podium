@@ -37,13 +37,13 @@ jobs:
       # The Rust host owns its own Rust pin; rust-host-cross selects that channel explicitly.
       - name: Install Rust host toolchain
         run: |
-          mise trust packages/pty/vendor/podium-host-rs/mise.toml
-          mise -C packages/pty/vendor/podium-host-rs install rust
+          mise trust packages/pty/vendor/podium-host/mise.toml
+          mise -C packages/pty/vendor/podium-host install rust
 
       - name: bun install
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Cross-compile podium + podium-host-rs
+      - name: Cross-compile podium + podium-host
         run: |
           set -euo pipefail
           bun --conditions=@podium/source scripts/spike/build-bun-darwin.ts --target=bun-darwin-arm64
@@ -112,8 +112,8 @@ jobs:
           grep -Eq '^(PASS|WARN)  gatekeeper: quarantine (blocked execution|did not block)' "$log"
           grep -Eq '^(PASS|WARN)  unsigned: a signature-stripped binary' "$log"
           grep -q 'PASS  daemon: all-in-one boot' "$log"
-          grep -q 'PASS  host: bundled podium-host-rs runs' "$log"
-          grep -q 'PASS  host: codesign --verify --strict accepts podium-host-rs' "$log"
+          grep -q 'PASS  host: bundled podium-host runs' "$log"
+          grep -q 'PASS  host: codesign --verify --strict accepts podium-host' "$log"
           grep -q 'PASS  host: session survives daemon kill' "$log"
           grep -q 'RESULT: PASS' "$log"
       - uses: actions/upload-artifact@v4

@@ -1,7 +1,17 @@
 import { existsSync } from 'node:fs'
 import type { Geometry } from '@podium/model'
 import type { DurableAttachment } from './session.js'
-import { noteLegacyAbducoSession } from './legacy-abduco.js'
+import {
+  abducoHasSession,
+  abducoSocketPath,
+  attachAbducoAgent,
+  isAbducoAvailable,
+  killAbducoSession,
+  listLiveAbducoLabels,
+  reapStaleAbducoBindTemps,
+  waitForAbducoSocket,
+} from './abduco.js'
+import { noteUnadoptableAbducoSession } from './legacy-abduco.js'
 import type { DurableSpawnOptions } from './scope.js'
 import {
   type HostDurableAttachment,
@@ -21,16 +31,21 @@ import {
  *
  * This is `@podium/process/durable`'s sole entry for reaching a process: every
  * spawn, locate, kill, list and liveness check goes through a
- * {@link DurableProcess}, chosen once at boot from the backend, and the host
- * adapter below is the only code that knows which host it is talking to.
+ * {@link DurableProcess}, chosen once at boot from the backend, and the two
+ * adapters below are the only code that knows which host it is talking to.
  *
- * ONE BACKEND (POD-4986). podium-host is the only durable host on Linux and
- * macOS. A session a C host holds (spawned by an older daemon) is located and
- * adopted like any other: both hosts speak the one protocol in `./host.js`, and
- * only NEW spawns select a binary. A session an abduco master holds cannot be
- * re-adopted — that needs the abduco binary, which Podium no longer ships — so
- * {@link DurableProcess.locate} logs it once by label and leaves its process
- * alone.
+ * ONE BACKEND SPAWNS (POD-4986). podium-host is the only durable host a new
+ * session starts on, on Linux and macOS. What already runs is adopted:
+ *  - a C host (spawned by an older daemon) is located and attached like any
+ *    other host: both hosts speak the one protocol in `./host.js`, and only a
+ *    NEW spawn selects a binary;
+ *  - an abduco master (every Podium release before POD-4986 ran its sessions
+ *    on abduco) is located, attached, listed and killed through the
+ *    ADOPTION-ONLY {@link abducoAdoptionAdapter}, which refuses to create
+ *    anything. Its attach client is the vendored abduco binary; where none can
+ *    be had, the session is logged once by label and its process left alone.
+ * So {@link DurableProcess.locate} probes the host's directory first and
+ * abduco's second, and the census lists both.
  *
  * Harness-agnostic by construction: this file names no SessionId, no protocol
  * frame and no daemon context — only labels, socket paths and geometry.
@@ -39,6 +54,9 @@ import {
 export type DurableBackend = 'host' | 'none'
 
 export type DurableKind = Exclude<DurableBackend, 'none'>
+
+/** What an adapter talks to: the host, or an abduco master it only adopts. */
+export type DurableAdapterKind = DurableKind | 'abduco'
 
 export interface DurableAttachOptions {
   label: string
@@ -76,7 +94,7 @@ export interface DurableReattach {
 
 /** The adapter over the durable host. */
 export interface DurableAdapter {
-  readonly kind: DurableKind
+  readonly kind: DurableAdapterKind
   spawn(opts: DurableSpawnOptions): Promise<DurableAttachment>
   /**
    * Spawn a HEADLESS engine (POD-4433): no pty, pipes instead, stdout+stderr
@@ -157,6 +175,63 @@ export interface DurableProcess {
 /** Backwards-compatible alias: the daemon predates the `DurableProcess` name. */
 export type Durable = DurableProcess
 
+const ABDUCO_ADOPTS_ONLY = 'abduco sessions are adopted, never created (POD-4986): podium-host is the only host a spawn uses'
+
+/**
+ * RUNNING abduco sessions, adopted — nothing here creates one (POD-4986). Every
+ * create verb refuses loudly; locate, attach, liveness, kill and the census
+ * work as they did, so a customer who upgrades keeps every session an older
+ * Podium started on abduco until it exits.
+ */
+export function abducoAdoptionAdapter(): DurableAdapter {
+  const refuse = (label: string): Promise<never> =>
+    Promise.reject(new Error(`${ABDUCO_ADOPTS_ONLY} (label '${label}')`))
+  return {
+    kind: 'abduco',
+    spawn: (opts) => refuse(opts.label),
+    spawnHeadless: (opts) => refuse(opts.label),
+    attachHeadless: (opts) => refuse(opts.label),
+    async attach(opts) {
+      // The agent has been running all along at a size of its own, and
+      // `lastKnownGeometry` is only what the server last KNEW. A reattach is not
+      // a viewer asking for a size, so it neither resizes nor signals the agent
+      // (size-neutral `-N`); the first viewport request after reconnect is what
+      // moves it [spec:SP-6144].
+      const attachment = attachAbducoAgent({
+        label: opts.label,
+        socketPath: opts.socketPath,
+        sizeNeutral: true,
+        // Read ONLY if this machine has no `-N` abduco build and the attach
+        // downgrades to one that does announce a size (POD-4723: abduco cannot
+        // read its size back).
+        fallbackGeometry: opts.lastKnownGeometry,
+      })
+      return { attachment, cmd: `abduco -a ${opts.socketPath}` }
+    },
+    async steal(opts) {
+      throw new Error(
+        `abduco has no writer lease to steal (label '${opts.label}'): every attach client already writes`,
+      )
+    },
+    has: (label) => abducoHasSession(label),
+    kill: (label) => killAbducoSession(label),
+    list: async () => listLiveAbducoLabels(),
+    async socketPath(label, env) {
+      reapStaleAbducoBindTemps(env)
+      const path = abducoSocketPath(label, env)
+      if (!path) return undefined
+      // Attaching needs the abduco client. Without one the session cannot be
+      // adopted: say so once, and leave the master and its program alone.
+      if (isAbducoAvailable()) return path
+      noteUnadoptableAbducoSession(label, path)
+      return undefined
+    },
+    waitForSocket: (label, env, opts) => waitForAbducoSocket(label, env, opts),
+    hasMasterSync: (label, env) => abducoSocketPath(label, env) !== undefined,
+    attachCommand: (target) => `abduco -a ${target}`,
+  }
+}
+
 export function hostDurableAdapter(): DurableAdapter {
   return {
     kind: 'host',
@@ -213,12 +288,13 @@ export function hostDurableAdapter(): DurableAdapter {
 }
 
 /**
- * Compose the daemon's durable object. There is one backend (POD-4986), so this
- * takes none; `backend` stays on the object for the daemon's reporting.
+ * Compose the daemon's durable object. Every spawn goes to the host (there is
+ * one backend, POD-4986); locate, has, kill and the census also reach running
+ * abduco sessions through the adoption-only adapter.
  */
 export function createDurableProcess(): DurableProcess {
   const primary = hostDurableAdapter()
-  const all = [primary] as const
+  const all = [primary, abducoAdoptionAdapter()] as const
   const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
   return {
     backend: 'host',
@@ -230,21 +306,43 @@ export function createDurableProcess(): DurableProcess {
     async locate(label, env, opts) {
       const deadline = Date.now() + (opts?.waitMs ?? 0)
       for (;;) {
-        const socketPath = await primary.socketPath(label, env)
-        if (socketPath) return { adapter: primary, socketPath }
-        if (Date.now() >= deadline) break
+        for (const adapter of all) {
+          const socketPath = await adapter.socketPath(label, env)
+          if (socketPath) return { adapter, socketPath }
+        }
+        if (Date.now() >= deadline) return undefined
         await wait(25)
       }
-      // Not a host's: say so once if an abduco master still holds it. It is
-      // not re-adopted and not touched — see the header.
-      noteLegacyAbducoSession(label, env)
-      return undefined
     },
-    has: (label) => primary.has(label),
-    kill: (label) => primary.kill(label),
-    list: () => primary.list(),
-    hasMasterSync: (label, env) => primary.hasMasterSync(label, env),
+    async has(label) {
+      for (const adapter of all) if (await adapter.has(label)) return true
+      return false
+    },
+    async kill(label) {
+      // abduco's kill lists masters through the abduco client; ask it only when
+      // an abduco socket holds the label, so a host kill forks nothing extra.
+      const abduco = all[1]
+      await Promise.all([
+        primary.kill(label),
+        abduco.hasMasterSync(label, process.env) ? abduco.kill(label) : undefined,
+      ])
+    },
+    async list() {
+      const labels = new Set<string>()
+      for (const adapter of all) for (const l of await adapter.list()) labels.add(l)
+      return [...labels]
+    },
+    hasMasterSync: (label, env) => all.some((adapter) => adapter.hasMasterSync(label, env)),
   }
+}
+
+/**
+ * Sweep leftover `.abduco-<pid>` bind probes through the durable door: a
+ * killed create left them, and they inflate every socket readdir the adoption
+ * path does. The daemon sweeps once before the reattach storm.
+ */
+export function sweepStaleDurableBindTemps(env: NodeJS.ProcessEnv = process.env): string[] {
+  return reapStaleAbducoBindTemps(env)
 }
 
 /**

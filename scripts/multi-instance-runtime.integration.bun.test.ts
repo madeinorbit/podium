@@ -201,7 +201,7 @@ function buildPackagedCli(): string {
   const buildRoot = join(TEST_ROOT, 'compiled-cli-build')
   const scriptsDir = join(buildRoot, 'scripts')
   mkdirSync(scriptsDir, { recursive: true })
-  // The packaged CLI embeds no native binary (POD-4986): podium-host-rs ships
+  // The packaged CLI embeds no native binary (POD-4986): podium-host ships
   // beside podium-cli in the release payload instead.
   for (const file of ['cli-compiled.ts', 'cli.ts']) {
     cpSync(join(ROOT, 'scripts', file), join(scriptsDir, file))

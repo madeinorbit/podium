@@ -45,6 +45,7 @@ import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import { asMachineId, asSessionId, asUserId, type AgentKind, type MachineId, type SessionId } from '@podium/model'
 import {
   createDurableProcess,
+  sweepStaleDurableBindTemps,
   durableProcessFor,
   isHostAvailable,
 } from '@podium/process/durable'
@@ -1614,6 +1615,8 @@ export async function createDaemonHostRuntime(args: {
     const timer = setTimeout(() => {
       void (async () => {
         try {
+          // Both kinds: an abduco session an older Podium started is still a
+          // live session this machine holds (adopted, POD-4986).
           send({ type: 'durableSessionCensus', labels: (await durable?.list()) ?? [] })
         } catch (err) {
           log.warn('could not census the durable sessions', { err })
@@ -1726,6 +1729,10 @@ export async function createDaemonHostRuntime(args: {
       uploadsGcTimer.unref?.()
       stopInventoryRefresh = startInventoryRefresh(ctx)
       void sweepHandoffStage({ ...(homeDir ? { homeDir } : {}) }).catch(() => undefined)
+      // Leftover `.abduco-<pid>` bind probes (a create an older Podium killed)
+      // inflate every abduco socket readdir the adoption path does. Sweep
+      // before the reattach storm.
+      sweepStaleDurableBindTemps()
     }
     for (const diagnostic of [...portConflicts, ...backendDiagnostics]) {
       send({ type: 'machineDiagnostic', ...diagnostic })

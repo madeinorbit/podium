@@ -76,7 +76,7 @@ export function tunnelSourceHash(crate: string = TUNNEL_CRATE): string {
   return h.digest('hex')
 }
 
-/** `PODIUM_TUNNEL_CACHE_DIR` overrides it, as PODIUM_RUST_HOST_CACHE_DIR does for podium-host-rs. */
+/** `PODIUM_TUNNEL_CACHE_DIR` overrides it, as PODIUM_RUST_HOST_CACHE_DIR does for podium-host. */
 export function tunnelCacheDir(root: string = REPO_ROOT): string {
   const override = process.env.PODIUM_TUNNEL_CACHE_DIR?.trim()
   if (override) return resolve(root, override)

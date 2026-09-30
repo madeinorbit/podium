@@ -42,7 +42,7 @@ jobs:
   # This used to be a matrix — x64 on Blacksmith Ubuntu, arm64 on a native ARM runner —
   # because the compiled daemon embedded native C helpers (abduco and the C podium-host,
   # both retired in POD-4986) and each helper had to be built on the architecture that
-  # would run it. The native binaries a bundle ships now, podium-host-rs and
+  # would run it. The native binaries a bundle ships now, podium-host and
   # podium-tunnel, are cross-built for every target from here by cargo-zigbuild. `rcodesign` does not add the Darwin signature — `bun build --compile`
   # already emits an ad-hoc LINKER_SIGNED Mach-O (identifier a.out). rcodesign REPLACES
   # that with identifier podium plus the five Bun JIT entitlement keys. Drop rcodesign
@@ -65,8 +65,8 @@ jobs:
       # crate configuration; rust-host-cross selects that channel explicitly.
       - name: Install Rust host toolchain
         run: |
-          mise trust packages/pty/vendor/podium-host-rs/mise.toml
-          mise -C packages/pty/vendor/podium-host-rs install rust
+          mise trust packages/pty/vendor/podium-host/mise.toml
+          mise -C packages/pty/vendor/podium-host install rust
       # The Rust host cache is content-addressed on the crate, its pins and the build
       # script, so this key is the honest one: touch any of them and every platform's host
       # is rebuilt. PODIUM_RUST_HOST_CACHE_DIR pins it back inside the checkout: locally the
@@ -75,7 +75,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: dist-bun/rust-host-cache
-          key: rust-host-cross-${{ hashFiles('mise.toml', 'scripts/rust-host-cross.ts', 'packages/pty/vendor/podium-host-rs/**') }}
+          key: rust-host-cross-${{ hashFiles('mise.toml', 'scripts/rust-host-cross.ts', 'packages/pty/vendor/podium-host/**') }}
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache

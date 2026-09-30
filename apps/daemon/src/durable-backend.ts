@@ -50,7 +50,7 @@ export function noDurableBackendDiagnostic(platform: NodeJS.Platform = process.p
   return {
     code: NO_DURABLE_BACKEND_DIAGNOSTIC,
     title: 'This machine cannot start sessions',
-    body: `${why} The daemon is connected, but it refuses to start any agent, shell or login session until podium-host is available. Reinstall Podium on this machine (a source checkout builds it with the Rust toolchain pinned in packages/pty/vendor/podium-host-rs), then restart the daemon.`,
+    body: `${why} The daemon is connected, but it refuses to start any agent, shell or login session until podium-host is available. Reinstall Podium on this machine (a source checkout builds it with the Rust toolchain pinned in packages/pty/vendor/podium-host), then restart the daemon.`,
     description: `This machine refuses to start sessions because ${why.charAt(0).toLowerCase()}${why.slice(1)}`,
   }
 }

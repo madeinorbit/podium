@@ -46,7 +46,7 @@ export function bootstrapDaemonInstance(opts?: {
   const instanceId = resolveInstanceId()
   const identity = ensureInstanceStateIdentity({ instanceId })
   const instanceDir = instanceStateDir(instanceId)
-  applyInstanceRuntimeEnv(instanceId, process.env)
+  applyInstanceRuntimeEnv(instanceId, process.env, instanceDir)
   const previousUuid = process.env.PODIUM_INSTANCE_UUID
   const previousSessionId = process.env.PODIUM_SESSION_ID
   process.env.PODIUM_INSTANCE_UUID = identity.instanceUuid

@@ -4,7 +4,7 @@
  * Not for landing as-is — a minimal fork of scripts/build-bun.ts that:
  *   - takes --target=bun-darwin-arm64 | bun-darwin-x64
  *   - ships the cross-built Rust process host (scripts/rust-host-cross.ts) as
- *     headless/podium-host-rs, as the production bundle does (the spike originally
+ *     headless/podium-host, as the production bundle does (the spike originally
  *     embedded a prebuilt abduco; both it and the C podium-host are retired)
  *   - skips web/mobile packaging (optional --full-bundle) so the spike can prove
  *     binary+host without rebuilding client dists

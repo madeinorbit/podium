@@ -2,7 +2,7 @@
  * VIEWER CATCH-UP FROM THE HOST'S PICTURES, END TO END (POD-4912, SPEC v4 B2).
  *
  * A real server, a real daemon (in process) and a real Rust podium-host that
- * keeps the screen, built from `packages/pty/vendor/podium-host-rs`; viewers
+ * keeps the screen, built from `packages/pty/vendor/podium-host`; viewers
  * are real logged-in `/client` websockets. Every check compares what a viewer
  * rebuilt from the bytes it received with a picture the HOST itself hands a
  * separate reader connection — the truth the system is meant to deliver.
@@ -73,7 +73,7 @@ const FIXTURE = fileURLToPath(
 function rustHost(): string | undefined {
   try {
     return buildLocalRustHost(
-      fileURLToPath(new URL('../../packages/pty/vendor/podium-host-rs', import.meta.url)),
+      fileURLToPath(new URL('../../packages/pty/vendor/podium-host', import.meta.url)),
     )
   } catch {
     return undefined

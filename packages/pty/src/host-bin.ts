@@ -30,7 +30,7 @@ const log = createLogger('pty:host-bin')
  *   1. $PODIUM_HOST_BIN — explicit binary path; if it doesn't run or is not a
  *      podium-host at feature level {@link HOST_FEATURES}, resolution FAILS (no
  *      silent fallback past operator intent).
- *   2. The release payload's podium-host-rs beside podium-cli.
+ *   2. The release payload's podium-host beside podium-cli.
  *   3. A source checkout (a dev daemon run from the repository): the vendored
  *      crate built with cargo into a per-user cache keyed by the crate's source
  *      hash, so every worktree and state dir shares one build.
@@ -49,13 +49,13 @@ const log = createLogger('pty:host-bin')
  * 2 — the Rust host's screen: WELCOME's features byte and PICTURE (POD-4909).
  */
 export const HOST_FEATURES = 2
-export const RUST_HOST_BINARY = 'podium-host-rs'
+export const RUST_HOST_BINARY = 'podium-host'
 
 /** Why a spawn has no host; the resolver printed the details when it failed. */
 export const HOST_UNAVAILABLE =
   'podium-host unavailable: no Rust podium-host binary could be found or built (see the daemon log)'
 
-const VENDOR_CRATE = fileURLToPath(new URL('../vendor/podium-host-rs', import.meta.url))
+const VENDOR_CRATE = fileURLToPath(new URL('../vendor/podium-host', import.meta.url))
 
 /** Prebuilt Rust host shipped beside podium-cli; no customer Rust toolchain. */
 export function bundledRustHostPath(): string {
@@ -98,7 +98,7 @@ function buildHome(): string | undefined {
 
 /**
  * Where source builds live: `$PODIUM_RUST_HOST_BUILD_DIR`, else
- * `<cache>/podium/podium-host-rs-src`. One cargo target dir for incremental
+ * `<cache>/podium/podium-host-src`. One cargo target dir for incremental
  * rebuilds plus one directory per source hash holding the published binary.
  */
 export function sourceRustHostCacheDir(): string | undefined {
@@ -106,7 +106,7 @@ export function sourceRustHostCacheDir(): string | undefined {
   if (override) return override
   const cache =
     process.env.XDG_CACHE_HOME || (buildHome() ? join(buildHome() as string, '.cache') : undefined)
-  return cache ? join(cache, 'podium', 'podium-host-rs-src') : undefined
+  return cache ? join(cache, 'podium', 'podium-host-src') : undefined
 }
 
 function crateFiles(crate: string): string[] {
@@ -179,7 +179,7 @@ function cargoBuild(crate: string, targetDir: string): string | undefined {
         : undefined
   if (!argv) {
     lastSourceBuildError =
-      'neither rustup nor cargo runs here (install the crate toolchain: mise install in packages/pty/vendor/podium-host-rs)'
+      'neither rustup nor cargo runs here (install the crate toolchain: mise install in packages/pty/vendor/podium-host)'
     return undefined
   }
   try {

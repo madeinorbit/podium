@@ -1,10 +1,10 @@
 import { promoteMachineAssignment } from '../apps/server/src/transfer-machine-assignment'
 /**
- * Live agent daemon process (split deployment): owns ALL per-agent work — abduco
+ * Live agent daemon process (split deployment): owns ALL per-agent work — podium-host
  * PTY attach, transcript tailing, agent-state observation, discovery scans, host metrics.
  * Connects to the coordinating server over ws://localhost:<port>/daemon and reconnects
  * with backoff, so it can start before the server is ready and survive a server restart
- * without dropping running agents (the abduco masters live in their own systemd scopes).
+ * without dropping running agents (the podium-hosts live in their own systemd scopes).
  *
  * Runs under Bun:
  *   bun --conditions=@podium/source scripts/daemon.ts

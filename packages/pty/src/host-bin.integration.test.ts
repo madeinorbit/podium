@@ -27,7 +27,7 @@ import {
 /**
  * RUST HOST RESOLUTION (POD-4986). The Rust host is the only podium-host a new
  * spawn selects: an explicit PODIUM_HOST_BIN at feature level 2, the release
- * payload's podium-host-rs, or — in a source checkout — the vendored crate
+ * payload's podium-host, or — in a source checkout — the vendored crate
  * built with cargo into a cache keyed by its source hash. Nothing else, and no
  * fallback: a C host (feature 1) is refused, and when nothing resolves the
  * resolver says why and returns undefined.

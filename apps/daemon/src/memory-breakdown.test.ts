@@ -33,9 +33,9 @@ describe('attributeMemory', () => {
       // argv names the label through its socket path
       proc({
         pid: 30,
-        name: 'podium-host-rs',
+        name: 'podium-host',
         cmdline:
-          'podium-host-rs create --socket /run/user/1000/podium/hosts/default/podium-s1.sock --cols 80 --rows 24 --cwd /w -- claude',
+          'podium-host create --socket /run/user/1000/podium/hosts/default/podium-s1.sock --cols 80 --rows 24 --cwd /w -- claude',
         memBytes: 1 * MB,
       }),
       proc({ pid: 31, ppid: 30, name: 'claude', memBytes: 200 * MB }),

@@ -62,7 +62,7 @@ function findTool(
     if (existsSync(candidate)) return candidate
   }
   throw new Error(
-    `${binary} is required to cross-compile the native binaries (podium-host-rs, podium-tunnel) but was not found. ` +
+    `${binary} is required to cross-compile the native binaries (podium-host, podium-tunnel) but was not found. ` +
       `Install it, put it on PATH, or set ${envName} to its path.`,
   )
 }

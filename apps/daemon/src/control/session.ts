@@ -2362,9 +2362,9 @@ export async function recoverTerminalHost(
     const durable = durableProcessFor(ctx)
     if (durable) {
       const env = ctx.homeDir ? { ...process.env, HOME: ctx.homeDir } : process.env
-      // Any live podium-host holds it, Rust or a C host an older daemon
-      // started: both speak the one protocol (POD-4986). A session an abduco
-      // master holds is logged once and left alone — it cannot be re-adopted.
+      // HOST FIRST, THEN ABDUCO. Any live podium-host, Rust or a C host an
+      // older daemon started (both speak the one protocol), then an abduco
+      // master an older Podium started — adopted, never created (POD-4986).
       const located = await durable.locate(msg.durableLabel, env, { waitMs: 1500 })
       if (located) {
         try {

@@ -52,13 +52,13 @@ if (!runs('cargo', ['--version'])) {
   }
 }
 
-// 2. rustup — build-bun.ts builds the Rust process host (podium-host-rs) during
+// 2. rustup — build-bun.ts builds the Rust process host (podium-host) during
 //    `package:headless`, which stage-sidecar.ts runs, through `rustup run <channel>` so the
 //    crate's own pinned toolchain is used. Windows uses ConPTY and ships no host, so
 //    requiring rustup there rejects a valid Tauri toolchain.
 if (!isWindows && !runs('rustup', ['--version'])) {
   problems.push({
-    what: 'rustup not found — needed to build the Rust process host (podium-host-rs).',
+    what: 'rustup not found — needed to build the Rust process host (podium-host).',
     fix: 'curl --proto \'=https\' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source "$HOME/.cargo/env"',
   })
 }

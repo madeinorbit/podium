@@ -27,7 +27,7 @@ import { sharedCacheDir } from './shared-cache-dir'
 import { resolveRcodesign, resolveZig } from './tool-pins'
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
-export const RUST_HOST_CRATE = join(REPO_ROOT, 'packages/pty/vendor/podium-host-rs')
+export const RUST_HOST_CRATE = join(REPO_ROOT, 'packages/pty/vendor/podium-host')
 
 export const RUST_HOST_TARGETS: Record<HeadlessPlatform, { rustTarget: string; darwin: boolean }> =
   {
@@ -67,7 +67,7 @@ export function rustHostSourceHash(crate = RUST_HOST_CRATE, root = REPO_ROOT): s
 
 export function rustHostCacheDir(root = REPO_ROOT): string {
   const override = process.env.PODIUM_RUST_HOST_CACHE_DIR?.trim()
-  return override ? resolve(root, override) : sharedCacheDir('podium-host-rs', root)
+  return override ? resolve(root, override) : sharedCacheDir('podium-host', root)
 }
 
 export function rustHostCachePath(

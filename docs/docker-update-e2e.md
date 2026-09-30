@@ -496,7 +496,7 @@ clean focused lane and a run that died halfway read identically.
 
 | Row | Programmatic evidence |
 | --- | --- |
-| Environment | Setup is complete before updater checks; the packaged `podium-host-rs` executes on every fleet machine and no retired `abduco` or C `podium-host` was unpacked into its state directory, every container has `gzip`, and the packaged mobile dist contains precompressed assets. |
+| Environment | Setup is complete before updater checks; the packaged `podium-host` executes on every fleet machine and no retired `abduco` or C `podium-host` was unpacked into its state directory, every container has `gzip`, and the packaged mobile dist contains precompressed assets. |
 | Fresh install | `install.sh` claims the named state identity, persists the channel, and creates one named parent unit; identity and channel are reported independently and the full installer/setup transcript is preserved. Its only OS children are server and daemon, and janitor has no unit/process because it is a server worker. |
 | Diagnostic version | The packaged `--version` command must print the exact build version even when pointed at a foreign non-empty state root, and must not adopt or mark that root. The row records a failure without short-circuiting later update scenarios. |
 | Fleet join | Two independently installed parents pair, each has exactly one daemon child, daemon mode config, no local server, and an accurate advertised version. |

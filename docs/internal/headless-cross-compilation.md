@@ -17,7 +17,7 @@ executable had neither `abduco.c` nor `host.c` on disk to compile at runtime, an
 both helpers were built by the host's own `cc`. So the release workflow ran
 x64 on one runner and arm64 on another, and Darwin was not published at all.
 Both helpers are gone (POD-4986): the one native helper a bundle carries now is the
-Rust podium-host, shipped as its own file `podium-host-rs` beside `podium-cli`, not
+Rust podium-host, shipped as its own file `podium-host` beside `podium-cli`, not
 embedded.
 
 Two tools remove that constraint:
@@ -25,16 +25,16 @@ Two tools remove that constraint:
 | Tool | What it does | Where it is used |
 |---|---|---|
 | `cargo zigbuild` (linking through the pinned `zig`) | cross-builds the Rust podium-host for every target from Linux | `scripts/rust-host-cross.ts` |
-| `rcodesign` | replaces Bun's linker signature with identifier `podium` + the five JIT entitlement keys; ad-hoc signs the Darwin `podium-host-rs` | `scripts/build-bun.ts`, `scripts/rust-host-cross.ts` |
+| `rcodesign` | replaces Bun's linker signature with identifier `podium` + the five JIT entitlement keys; ad-hoc signs the Darwin `podium-host` | `scripts/build-bun.ts`, `scripts/rust-host-cross.ts` |
 
 ## The podium-host helper
 
 `scripts/rust-host-cross.ts` builds podium-host from the crate in
-`packages/pty/vendor/podium-host-rs` — the same source a dev daemon builds with
+`packages/pty/vendor/podium-host` — the same source a dev daemon builds with
 cargo on first use — with `rustup run <channel> cargo zigbuild --release --locked
 --target <rust target>`, the channel taken from the crate's `rust-toolchain.toml`.
 Four targets, a content-addressed cache, a staging-then-rename publish, a static musl
-Linux link, and an ad-hoc rcodesign signature (identifier `podium-host-rs`) on Darwin.
+Linux link, and an ad-hoc rcodesign signature (identifier `podium-host`) on Darwin.
 
 **Nothing is checked in.** The repository holds no binaries and this did not
 become the first: a committed helper can drift from the source under review,
@@ -43,7 +43,7 @@ the source hash — the crate's manifest, lockfile, toolchain pins, cargo config
 `src/`, plus the root `mise.toml` and the script itself:
 
 ```
-~/.cache/podium/podium-host-rs/<projectKey>/<platform>-<sourceHash[0:16]>
+~/.cache/podium/podium-host/<projectKey>/<platform>-<sourceHash[0:16]>
 ```
 
 Touch any of those and every platform's entry is invalidated at once. A CI cache
@@ -60,7 +60,7 @@ every release would pay the builds again. Print the resolved path with
 `PODIUM_RUST_HOST_CACHE_DIR` — which is how CI pins it back to
 `dist-bun/rust-host-cache`, the fixed path an `actions/cache` `path:` can name. CI
 caches that directory keyed on `hashFiles('mise.toml', 'scripts/rust-host-cross.ts',
-'packages/pty/vendor/podium-host-rs/**')`, so the builds are paid for once.
+'packages/pty/vendor/podium-host/**')`, so the builds are paid for once.
 
 Regenerate by hand (Linux, the crate's toolchain from its `mise.toml`, `zig` and
 `rcodesign` on PATH):
@@ -177,11 +177,11 @@ between build and packaging; it does **not** prove the build itself is correct, 
 a broken build can agree with its own captured identity. The tarball gate still verifies
 both sites' exact-file manifests and refuses to run without `--source-commit <sha>`, so
 an omitted input can never read as a green. It asks `file` of the shipped
-`podium-host-rs` as well as of `podium-cli`: the right format and architecture,
-statically linked on Linux, ad-hoc signed with identifier `podium-host-rs` and sealing
+`podium-host` as well as of `podium-cli`: the right format and architecture,
+statically linked on Linux, ad-hoc signed with identifier `podium-host` and sealing
 its bytes on Darwin. A bundle without it fails, and so does one that carries a retired
 helper — a loose `abduco` or C `podium-host`, or either one's identifying strings inside
-`podium-cli` or `podium-host-rs`.
+`podium-cli` or `podium-host`.
 
 And a fourth script exists to check the checker:
 `prove-headless-assertions-can-fail.sh` breaks a real bundle and
@@ -215,7 +215,7 @@ way:
   version of it originally swapped the reference helper the gate was given, so the
   gate rejected its own input and the one check the matrix collapse most threatens —
   does this bundle carry the right platform's helper? — was never exercised per
-  release at all. The Rust host case copies the Linux `podium-host-rs` into the Darwin
+  release at all. The Rust host case copies the Linux `podium-host` into the Darwin
   bundle for that reason.
 
 Every file operation in the harness is checked, and each mutated tree is deleted
@@ -228,7 +228,7 @@ instead of stopping.
 ### Executing what can be executed
 
 `smoke-headless-bundle.sh` runs a bundle whose platform matches the machine: the
-binary starts and agrees with the bundle's `VERSION`, and the shipped `podium-host-rs`
+binary starts and agrees with the bundle's `VERSION`, and the shipped `podium-host`
 runs and hosts a detached session that outlives its starter.
 The release job runs it on `linux-x86_64` **before** publishing. The published
 smoke also runs that bundle, but only after publication — which is too late to
@@ -255,7 +255,7 @@ refuse a tool whose `--version` disagrees with the pin —
 
 | Where | Needs | How |
 |---|---|---|
-| CI release job | zig, rcodesign, cargo-zigbuild; the crate's Rust | `jdx/mise-action` reading `mise.toml`; `mise install rust` in `packages/pty/vendor/podium-host-rs` |
+| CI release job | zig, rcodesign, cargo-zigbuild; the crate's Rust | `jdx/mise-action` reading `mise.toml`; `mise install rust` in `packages/pty/vendor/podium-host` |
 | CI published-smoke | rcodesign | same (it opens Darwin bundles it cannot execute; no helpers are rebuilt) |
 | The dev host (ludovico) | zig, rcodesign, cargo-zigbuild; the crate's Rust | `mise install` (root and crate); or PATH / `PODIUM_ZIG` / `PODIUM_RCODESIGN` (still pin-checked) |
 | Any release host | pigz (optional at build time) | `mise install` (conda backend), package manager, or `PODIUM_PIGZ`; falls back to gzip |

@@ -3,13 +3,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
+import { longestDurableLabelFor, SUN_PATH_MAX, unixSocketPathBytes } from './unix-socket.js'
 import {
+  abducoSocketPathname,
   applyInstanceRuntimeEnv,
-  assertInstanceStateIdentity,
   assertLinuxUnixSocketPath,
+  assertInstanceStateIdentity,
   DEFAULT_INSTANCE_ID,
-  DURABLE_INSTANCE_COMPONENT_BYTES,
   defaultInstancePorts,
+  DURABLE_INSTANCE_COMPONENT_BYTES,
   durableInstanceComponent,
   durableSessionLabel,
   ensureInstanceStateIdentity,
@@ -22,6 +24,7 @@ import {
   instanceStateDir,
   instanceTimerName,
   instanceUpdateTimerName,
+  LINUX_UNIX_SOCKET_PATH_BYTES,
   readInstanceStateIdentity,
   resolveInstanceId,
   selectInstance,
@@ -31,6 +34,20 @@ import {
 const roots: string[] = []
 const temp = (): string => {
   const dir = mkdtempSync(join(tmpdir(), 'podium-instance-'))
+  roots.push(dir)
+  return dir
+}
+/**
+ * A SHORT temp root, for the cases about socket-path length (POD-2853).
+ *
+ * `temp()` above sits under a vitest run directory and is ~50 bytes before
+ * anything is joined to it, which is over half of `sun_path`. A named
+ * instance's abduco root is chosen by whether it FITS, so a long fixture makes
+ * the chooser correctly reject it and fall to /tmp — and the test then reads as
+ * a failure of the code rather than of its own fixture.
+ */
+const shortTemp = (): string => {
+  const dir = mkdtempSync('/tmp/pod-rt-')
   roots.push(dir)
   return dir
 }
@@ -106,13 +123,23 @@ describe('instance namespaces', () => {
 describe('Unix socket byte budget', () => {
   const sessionId = asSessionId('00000000-0000-4000-8000-000000000000')
 
-  it('pins the 17-byte instance component: a restarted daemon finds a host by its label', () => {
-    // Budgeted for the retired abduco socket; changing it now would rename every
-    // named instance's durable labels and orphan their running hosts (POD-4986).
+  it('pins the 17-byte instance component ceiling inside Linux sun_path', () => {
     expect(DURABLE_INSTANCE_COMPONENT_BYTES).toBe(17)
-    expect(durableSessionLabel(sessionId, 'i'.repeat(17))).toBe(
+    const fixedRoot = '/tmp/pd-0123456789'
+    const atCeiling = abducoSocketPathname(
+      fixedRoot,
       `podium-${'i'.repeat(17)}-${sessionId}`,
+      'podium',
+      '123456789abc',
     )
+    const overflow = abducoSocketPathname(
+      fixedRoot,
+      `podium-${'i'.repeat(18)}-${sessionId}`,
+      'podium',
+      '123456789abc',
+    )
+    expect(Buffer.byteLength(atCeiling)).toBe(LINUX_UNIX_SOCKET_PATH_BYTES)
+    expect(Buffer.byteLength(overflow)).toBe(LINUX_UNIX_SOCKET_PATH_BYTES + 1)
   })
 
   it('keeps short instance labels readable and hashes longer ids deterministically', () => {
@@ -175,18 +202,33 @@ describe('state ownership marker', () => {
   })
 })
 
-it('stamps the instance into the environment and pins no abduco socket root', () => {
+it('named durable backend env is private unless explicitly overridden', () => {
+  const dir = join(temp(), 'x'.repeat(60), 'state')
   const env: NodeJS.ProcessEnv = {}
-  applyInstanceRuntimeEnv('blue', env)
-  expect(env).toEqual({ PODIUM_INSTANCE: 'blue' })
+  applyInstanceRuntimeEnv('blue', env, dir)
+  const bounded = instanceSocketRuntimeDir('blue', dir)
+  expect(env).toMatchObject({
+    PODIUM_INSTANCE: 'blue',
+    ABDUCO_SOCKET_DIR: bounded,
+  })
+  expect(bounded).toMatch(/^\/tmp\/pd-[A-Za-z0-9_-]{10}$/)
   const shared: NodeJS.ProcessEnv = { ABDUCO_SOCKET_DIR: '/shared/a' }
-  applyInstanceRuntimeEnv('blue', shared)
-  expect(shared).toEqual({ PODIUM_INSTANCE: 'blue', ABDUCO_SOCKET_DIR: '/shared/a' })
+  applyInstanceRuntimeEnv('blue', shared, dir)
+  expect(shared.ABDUCO_SOCKET_DIR).toBe('/shared/a')
 })
 
-it('bounds a named instance socket root under /tmp', () => {
-  const bounded = instanceSocketRuntimeDir('blue', join(temp(), 'x'.repeat(60), 'state'))
-  expect(bounded).toMatch(/^\/tmp\/pd-[A-Za-z0-9_-]{10}$/)
+it('pins a named instance somewhere abduco can actually bind a socket', () => {
+  // THE PROPERTY, not the path. The old pin was a perfectly reasonable-looking
+  // directory that no session could ever use, and a test that only compared
+  // strings would have passed against it in exactly the same way. This one
+  // composes what abduco composes and measures it.
+  const env: NodeJS.ProcessEnv = { XDG_RUNTIME_DIR: shortTemp() }
+  applyInstanceRuntimeEnv('blue', env, join(temp(), 'state'))
+  // abduco composes `<root>/abduco/<user>/<label>@<host>`.
+  const composed = unixSocketPathBytes(
+    `${env.ABDUCO_SOCKET_DIR ?? ''}/abduco/mgw/${longestDurableLabelFor('blue')}@flatblock`,
+  )
+  expect(composed).toBeLessThan(SUN_PATH_MAX)
 })
 
 it('gives builds their own slice, a sibling of the sessions slice', () => {

@@ -299,21 +299,21 @@ check "VERSION removed" "tarball missing headless/VERSION" \
 #     podium-host used to be. The embedded cases APPEND the retired helper's identifying
 #     string rather than rebuilding: that breaks the signature too, but the retired-helper
 #     scan runs before the signature checks, so the failure line is unambiguous.
-edit_norusthost() { rm -f "$CASE/headless/podium-host-rs"; }
-check "Rust host removed" "tarball missing headless/podium-host-rs" \
+edit_norusthost() { rm -f "$CASE/headless/podium-host"; }
+check "Rust host removed" "tarball missing headless/podium-host" \
   darwin-aarch64 "$(mutate norusthost edit_norusthost)"
 if [ -n "$LINUX_TARBALL" ] && [ -f "$LINUX_TARBALL" ]; then
   rm -rf "$WORK/linux"; mkdir -p "$WORK/linux"
-  tar -xzf "$LINUX_TARBALL" -C "$WORK/linux" headless/podium-host-rs \
+  tar -xzf "$LINUX_TARBALL" -C "$WORK/linux" headless/podium-host \
     || { echo "ABORT: could not extract the linux Rust host" >&2; exit 1; }
-  edit_linux_rusthost() { cp "$WORK/linux/headless/podium-host-rs" "$CASE/headless/podium-host-rs"; }
-  check "linux Rust host in the darwin bundle" "shipped podium-host-rs is not Mach-O" \
+  edit_linux_rusthost() { cp "$WORK/linux/headless/podium-host" "$CASE/headless/podium-host"; }
+  check "linux Rust host in the darwin bundle" "shipped podium-host is not Mach-O" \
     darwin-aarch64 "$(mutate linuxrusthost edit_linux_rusthost)"
   rm -rf "$WORK/linux"
 else
   echo "SKIPPED [linux Rust host in the darwin bundle]: no linux tarball passed"
 fi
-edit_loose_abduco() { cp "$CASE/headless/podium-host-rs" "$CASE/headless/abduco"; }
+edit_loose_abduco() { cp "$CASE/headless/podium-host" "$CASE/headless/abduco"; }
 check "loose abduco beside the Rust host" "ships a retired abduco/C podium-host helper" \
   darwin-aarch64 "$(mutate looseabduco edit_loose_abduco)"
 edit_embedded_abduco() { printf 'abduco-0.6-podium' >> "$CASE/headless/podium-cli"; }

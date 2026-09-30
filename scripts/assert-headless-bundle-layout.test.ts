@@ -143,8 +143,8 @@ function writeProductionTree(headless: string): string {
   chmodSync(join(headless, 'podium-cli'), 0o755)
   writeFileSync(join(headless, 'podium-tunnel'), '#!/bin/sh\necho stub-tunnel\n')
   chmodSync(join(headless, 'podium-tunnel'), 0o755)
-  writeFileSync(join(headless, 'podium-host-rs'), '#!/bin/sh\necho stub-rust-host\n')
-  chmodSync(join(headless, 'podium-host-rs'), 0o755)
+  writeFileSync(join(headless, 'podium-host'), '#!/bin/sh\necho stub-rust-host\n')
+  chmodSync(join(headless, 'podium-host'), 0o755)
   writeFileSync(
     join(headless, 'podium'),
     '#!/bin/sh\nexport PODIUM_HOME="$DIR"\nexec "$DIR/podium-cli" "$@"\n',
@@ -209,20 +209,20 @@ describe('assert-headless-bundle production layout', () => {
     const root = scratch()
     const headless = join(root, 'headless')
     writeProductionTree(headless)
-    rmSync(join(headless, 'podium-host-rs'))
+    rmSync(join(headless, 'podium-host'))
     const { status, failLine } = runGate(pack(root))
     expect(status).not.toBe(0)
-    expect(failLine).toMatch(/tarball missing headless\/podium-host-rs/)
+    expect(failLine).toMatch(/tarball missing headless\/podium-host/)
   })
 
   it('refuses a release payload whose Rust host is not executable', () => {
     const root = scratch()
     const headless = join(root, 'headless')
     writeProductionTree(headless)
-    chmodSync(join(headless, 'podium-host-rs'), 0o644)
+    chmodSync(join(headless, 'podium-host'), 0o644)
     const { status, failLine } = runGate(pack(root))
     expect(status).not.toBe(0)
-    expect(failLine).toMatch(/podium-host-rs.*not executable/)
+    expect(failLine).toMatch(/podium-host.*not executable/)
   })
 
   it.each([

@@ -284,7 +284,7 @@ test.skipIf(process.env.PODIUM_E2E_REAL_AGENTS !== '1')(
         <script type="module" src="/picture-viewer.js"></script></body></html>`,
       )
       process.env.PODIUM_HOST_BIN = buildLocalRustHost(
-        join(ROOT, 'packages/pty/vendor/podium-host-rs'),
+        join(ROOT, 'packages/pty/vendor/podium-host'),
       )
       resolveHostBin({ fresh: true })
       await bootServer()
