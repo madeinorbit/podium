@@ -48,7 +48,7 @@ Bun.serve({
         choices: [{ index: 0, delta, finish_reason }],
       })}\n\n`)
       chunk({ role: 'assistant', content: '' }); chunk({ content: answer }); chunk({}, 'stop')
-      data.push(`data: ${JSON.stringify({ id: `chatcmpl-${n}`, object: 'chat.completion.chunk', choices: [], usage })}\n\ndata: [DONE]\n\n`)
+      data.push(`data: ${JSON.stringify({ id: `chatcmpl-${n}`, object: 'chat.completion.chunk', created: Math.floor(at / 1000), model: body.model, choices: [], usage })}\n\ndata: [DONE]\n\n`)
     }
     return new Response(data.join(''), { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' } })
   },
