@@ -132,11 +132,11 @@ export type RefusalReason = z.infer<typeof RefusalReason>
 
 export const Refusal = z.object({
   reason: RefusalReason,
-  /** Direct request-rejection evidence. Unknown causes remain readable. */
-  cause: z.string().optional(),
   /** Harness detail for diagnostics. NEVER parsed for control flow — that is
    *  what the typed `reason` is for. */
   detail: z.string().optional(),
+  /** Direct request-rejection evidence. Unknown causes remain readable. */
+  cause: z.string().optional(),
 })
 export type Refusal = z.infer<typeof Refusal>
 
@@ -195,9 +195,9 @@ export const TurnReceipt = z.discriminatedUnion('outcome', [
     transcriptItem: TranscriptItemRef.optional(),
     /** The program's own ids for this send, when it gave any (POD-4841). */
     harnessRef: HarnessRefWire,
+    at: z.string().datetime(),
     /** Admission is held outside history; preserve this across direct RPCs. */
     held: z.enum(['memory', 'durable']).optional(),
-    at: z.string().datetime(),
   }),
   z.object({
     outcome: z.literal('queued'),

@@ -1452,12 +1452,13 @@
       "variant": "full",
       "wire": {
         "reason": "needs_user",
-        "detail": "detail"
+        "detail": "detail",
+        "cause": "cause"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"reason\":\"needs_user\",\"detail\":\"detail\"}"
+      "encoded": "{\"reason\":\"needs_user\",\"detail\":\"detail\",\"cause\":\"cause\"}"
     },
     {
       "schema": "RefusalReason",
@@ -1862,13 +1863,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "lease_held",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeConfigureResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeConfigureResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeDaemonMessage",
@@ -1953,13 +1955,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "no_resume_ref",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeDaemonMessage",
@@ -2016,13 +2019,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "staging_failed",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"staging_failed\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"staging_failed\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeDaemonMessage",
@@ -2033,13 +2037,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "busy",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"busy\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"busy\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeDraftRequestMessage",
@@ -2147,13 +2152,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "unsupported",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeDraftResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeDraftResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeDurableSendRequestMessage",
@@ -4324,13 +4330,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "lease_held",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeHistoryResultMessage",
@@ -4341,13 +4348,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "unsupported",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeHistoryResultMessage",
@@ -4358,13 +4366,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "no_resume_ref",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeHistoryResultMessage",
@@ -4375,13 +4384,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "session_ended",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"session_ended\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"session_ended\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeInteractionAskedMessage",
@@ -4694,13 +4704,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "lease_held",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeMessage",
@@ -4781,13 +4792,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "no_resume_ref",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeMessage",
@@ -4844,13 +4856,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "staging_failed",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"staging_failed\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"staging_failed\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeMessage",
@@ -4861,13 +4874,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "busy",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"busy\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"busy\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeQueueDrainAbandonedAckMessage",
@@ -5000,13 +5014,14 @@
           "turnEpoch": 1,
           "deliveredAs": "when-ready",
           "provenBy": "protocol-ack",
-          "at": "2026-01-02T03:04:05.000Z"
+          "at": "2026-01-02T03:04:05.000Z",
+          "held": "memory"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSendResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"receipt\":{\"outcome\":\"accepted\",\"turnEpoch\":1,\"deliveredAs\":\"when-ready\",\"provenBy\":\"protocol-ack\",\"at\":\"2026-01-02T03:04:05.000Z\"}}"
+      "encoded": "{\"type\":\"runtimeSendResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"receipt\":{\"outcome\":\"accepted\",\"turnEpoch\":1,\"deliveredAs\":\"when-ready\",\"provenBy\":\"protocol-ack\",\"at\":\"2026-01-02T03:04:05.000Z\",\"held\":\"memory\"}}"
     },
     {
       "schema": "RuntimeSendResultMessage",
@@ -5038,14 +5053,15 @@
           "outcome": "refused",
           "refusal": {
             "reason": "unsupported",
-            "detail": "receipt.refusal.detail"
+            "detail": "receipt.refusal.detail",
+            "cause": "receipt.refusal.cause"
           }
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSendResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"receipt\":{\"outcome\":\"refused\",\"refusal\":{\"reason\":\"unsupported\",\"detail\":\"receipt.refusal.detail\"}}}"
+      "encoded": "{\"type\":\"runtimeSendResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"receipt\":{\"outcome\":\"refused\",\"refusal\":{\"reason\":\"unsupported\",\"detail\":\"receipt.refusal.detail\",\"cause\":\"receipt.refusal.cause\"}}}"
     },
     {
       "schema": "RuntimeSendResultMessage",
@@ -5243,13 +5259,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "lease_held",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeSnapshotResultMessage",
@@ -5260,13 +5277,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "unsupported",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeSnapshotResultMessage",
@@ -5277,13 +5295,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "no_resume_ref",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeSnapshotResultMessage",
@@ -5294,13 +5313,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "session_ended",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"session_ended\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"session_ended\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeSnapshotResultMessage",
@@ -5311,13 +5331,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "not_running",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"not_running\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"not_running\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeStageAttachmentRequestMessage",
@@ -5404,13 +5425,14 @@
         "sessionId": "sessionId",
         "result": {
           "reason": "lease_held",
-          "detail": "result.detail"
+          "detail": "result.detail",
+          "cause": "result.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeStageAttachmentResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\"}}"
+      "encoded": "{\"type\":\"runtimeStageAttachmentResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
     },
     {
       "schema": "RuntimeWatchLevel",
@@ -6667,12 +6689,13 @@
         "turnEpoch": 1,
         "deliveredAs": "when-ready",
         "provenBy": "protocol-ack",
-        "at": "2026-01-02T03:04:05.000Z"
+        "at": "2026-01-02T03:04:05.000Z",
+        "held": "memory"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"outcome\":\"accepted\",\"turnEpoch\":1,\"deliveredAs\":\"when-ready\",\"provenBy\":\"protocol-ack\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"outcome\":\"accepted\",\"turnEpoch\":1,\"deliveredAs\":\"when-ready\",\"provenBy\":\"protocol-ack\",\"at\":\"2026-01-02T03:04:05.000Z\",\"held\":\"memory\"}"
     },
     {
       "schema": "TurnReceipt",
@@ -6695,13 +6718,14 @@
         "outcome": "refused",
         "refusal": {
           "reason": "unsupported",
-          "detail": "refusal.detail"
+          "detail": "refusal.detail",
+          "cause": "refusal.cause"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"outcome\":\"refused\",\"refusal\":{\"reason\":\"unsupported\",\"detail\":\"refusal.detail\"}}"
+      "encoded": "{\"outcome\":\"refused\",\"refusal\":{\"reason\":\"unsupported\",\"detail\":\"refusal.detail\",\"cause\":\"refusal.cause\"}}"
     },
     {
       "schema": "TurnReceipt",
