@@ -258,12 +258,13 @@ function staleRewind(handle: HarnessWritableMobxPoolHandle): void {
 }
 
 /** Plant (c): any remote drops the pending entry, so the object takes the server value. */
-function dropPendingOnRemote(handle: HarnessWritableMobxPoolHandle): void {
+function dropPendingOnRemote(handle: HarnessWritableMobxPoolHandle, exercised: () => void = () => {}): void {
   const write = handle.write
   const remote = write.handleRemote.bind(write)
   write.handleRemote = (kind, id, values) => {
     remote(kind, id, values)
     for (const edit of write.log.pendingFor(kind, id)) {
+      exercised()
       write.reject({ txId: edit.txId, error: { message: '[plant] remote drops pending', parked: false } })
     }
   }
@@ -676,9 +677,10 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
       // seed persistently and masked cadence weakness. Never weaken 3/3.
       let failures = 0
       for (const seed of SEEDS) {
+        let exercised = 0
         const adapter = new ArmEditAdapter()
         const oracle = new WriteOracle()
-        const planted = armWithAdapter(adapter, oracle, dropPendingOnRemote)
+        const planted = armWithAdapter(adapter, oracle, (handle) => dropPendingOnRemote(handle, () => { exercised += 1 }))
         const sequence = gen(seed, STEPS)
         const result = await checkArm(planted, sequence, {
           mode: 'truth',
@@ -690,6 +692,7 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
             feedStep(oracle, step, run)
           },
         })
+        console.info(`[plant-c diagnostic] seed=${seed} generatedRemotes=${sequence.filter((c) => c.kind === 'remoteOnPending').length} exercised=${exercised} caught=${!result.ok} ${JSON.stringify(result.ok ? {} : { step: result.step, change: result.change, against: result.against, diff: result.diff })}`)
         if (!result.ok) failures += 1
       }
       expect(failures).toBe(SEEDS.length)
