@@ -28,23 +28,21 @@
  * never sees it. Do not import this file from `src/`.
  */
 
-import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent } from 'react'
-import { createRoot } from 'react-dom/client'
-import { asIssueId } from '@podium/model'
 import { createClientRuntime } from '@podium/client-core/engine'
 import { parseReplicaNamespaceKey } from '@podium/client-core/replica'
-import { serverConfig, makeTrpc } from '@/app/trpc'
-import { openKernelAssembly, type KernelAssembly } from '@/lib/kernelReplica'
-import { resolveReplicaPrincipal, recordIdentityEvidence } from '@/lib/use-kernel-replica'
+import { asIssueId } from '@podium/model'
+import { type JSX, type MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import { makeTrpc, serverConfig } from '@/app/trpc'
+import { type KernelAssembly, openKernelAssembly } from '@/lib/kernelReplica'
+import { recordIdentityEvidence, resolveReplicaPrincipal } from '@/lib/use-kernel-replica'
 import '@/index.css'
 import '@/styles.css'
-import { harnessMobxPoolArm } from '../../../packages/worklist-proto/harness/src/adapters/mobx-pool'
 import { handPoolArm } from '../../../packages/worklist-proto/arms/hand/pool/arm'
-import { legacyControlArmFor } from '../../../packages/worklist-proto/harness/src/legacy-control/arm'
+import { harnessMobxPoolArm } from '../../../packages/worklist-proto/harness/src/adapters/mobx-pool'
 import { createEngineLocals } from '../../../packages/worklist-proto/harness/src/engine-locals'
+import { legacyControlArmFor } from '../../../packages/worklist-proto/harness/src/legacy-control/arm'
 import { oracleSnapshot } from '../../../packages/worklist-proto/harness/src/oracle/index'
-import { createRowSource, type RowSourceHandle } from '../../../packages/worklist-proto/shared/src/row-source'
-import { createCommitLog, withCommitLog, type CommitLog } from '../../../packages/worklist-proto/shared/src/row-shell'
 import type {
   ArmHandle,
   CheckableArm,
@@ -52,6 +50,15 @@ import type {
   RowSource,
 } from '../../../packages/worklist-proto/shared/src/arm'
 import type { LocalsSourceHandle } from '../../../packages/worklist-proto/shared/src/locals-source'
+import {
+  type CommitLog,
+  createCommitLog,
+  withCommitLog,
+} from '../../../packages/worklist-proto/shared/src/row-shell'
+import {
+  createRowSource,
+  type RowSourceHandle,
+} from '../../../packages/worklist-proto/shared/src/row-source'
 import type { SliceSnapshot } from '../../../packages/worklist-proto/shared/src/slice-types'
 
 // The bundle is fetched, parsed and evaluated (every static import); the page
@@ -175,7 +182,10 @@ function heapMB(): number | null {
   return memory?.usedJSHeapSize === undefined ? null : memory.usedJSHeapSize / 1_048_576
 }
 
-async function bootLive(names: readonly ArmName[], onFatal: (message: string) => void): Promise<LiveBoot> {
+async function bootLive(
+  names: readonly ArmName[],
+  onFatal: (message: string) => void,
+): Promise<LiveBoot> {
   const engineBegin = performance.now()
   const config = serverConfig(window.location)
   const trpc = makeTrpc(config.httpOrigin)
@@ -236,7 +246,7 @@ async function bootLive(names: readonly ArmName[], onFatal: (message: string) =>
   }
 }
 
-function mountPanel(boot: LiveBoot, panel: LivePanel, el: HTMLDivElement): void {
+function mountPanel(_boot: LiveBoot, panel: LivePanel, el: HTMLDivElement): void {
   panel.el = el
   panel.unmount = withCommitLog(panel.log, () => panel.handle.mountWeb(el))
 }
@@ -365,9 +375,9 @@ function PanelView({
     <section style={{ flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '4px 8px', fontSize: 12, borderBottom: '1px solid #333' }}>
         <strong>{panel.name}</strong>
-        {' · '}commits <strong>{panel.lastTotal}</strong>
-        {' '}(last poll <strong>+{panel.lastDelta}</strong>)
-        {' · '}mounts <strong>{[...panel.log.mounts.values()].reduce((n, c) => n + c, 0)}</strong>
+        {' · '}commits <strong>{panel.lastTotal}</strong> (last poll{' '}
+        <strong>+{panel.lastDelta}</strong>){' · '}mounts{' '}
+        <strong>{[...panel.log.mounts.values()].reduce((n, c) => n + c, 0)}</strong>
         {' · '}rowsDerived {panel.handle.stats.rowsDerived}
         {' · '}rollups {panel.handle.stats.rollupsDerived}
         {' · '}feed flushes {panel.source.stats.flushes}
@@ -384,6 +394,8 @@ function PanelView({
           <span style={{ color: 'red' }}>RED {parity.firstDifference}</span>
         )}
       </div>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: click delegation for the arm's rows mounted inside; the rows are the interactive elements */}
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: dev-only demo; selection by mouse mirrors the control's pressable */}
       <div
         ref={mountRef}
         onClick={(event) => onRowClick(boot, event)}
@@ -427,8 +439,7 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
         }
       }
     },
-    // bootRef/settledRef are refs; the callback identity only needs boot changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // biome-ignore lint/correctness/useExhaustiveDependencies: bootRef/settledRef are refs; the callback identity only needs boot changes
     [boot],
   )
 
@@ -487,7 +498,7 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
     return () => {
       alive = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // biome-ignore lint/correctness/useExhaustiveDependencies: one boot per page load and per arm selection (namesKey is names' stable key); never per render
   }, [namesKey])
 
   // Poll counters twice a second; parity every 10 s. Untimed reads only.
@@ -516,9 +527,7 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
   useEffect(() => {
     window.__protoLive = {
       survivors: () =>
-        oldRefs
-          .filter((entry) => entry.ref.deref() !== undefined)
-          .map((entry) => entry.label),
+        oldRefs.filter((entry) => entry.ref.deref() !== undefined).map((entry) => entry.label),
       parity: () =>
         Object.fromEntries(
           (bootRef.current?.panels ?? []).map((panel) => [
@@ -540,7 +549,7 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
     return () => {
       window.__protoLive = undefined
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // biome-ignore lint/correctness/useExhaustiveDependencies: installed once per page; rebuild reads refs, setters and the arm names fixed by the URL for the page's life
   }, [])
 
   if (failure !== null) {
@@ -578,8 +587,8 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
           Proto live — {names.join(' + ')} over your data
         </h1>
         <div>
-          Read-only apart from selection: this page issues no write commands. Clicking a row
-          selects it through the engine&apos;s own selection write (as the legacy control does).
+          Read-only apart from selection: this page issues no write commands. Clicking a row selects
+          it through the engine&apos;s own selection write (as the legacy control does).
         </div>
         <div>
           principal <strong>{boot.principalLabel}</strong>
@@ -612,8 +621,8 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
             Rebuild (principal switch path)
           </button>{' '}
           <span>
-            arms: ?arm=mobx|hand|control · side by side: ?split=1 (&amp;arm2=…) · parity ticks
-            every 10 s · console: __protoLive.survivors()
+            arms: ?arm=mobx|hand|control · side by side: ?split=1 (&amp;arm2=…) · parity ticks every
+            10 s · console: __protoLive.survivors()
           </span>
         </div>
       </header>
@@ -632,15 +641,15 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
 }
 
 const params = readParams()
-const root = document.getElementById('root')!
+const root = document.getElementById('root')
+if (root === null) throw new Error('proto-live: #root missing')
 
 if (params.invalid !== null) {
   createRoot(root).render(
     <main style={{ padding: 24, fontFamily: 'sans-serif' }}>
       <h1>Proto live — unknown arm</h1>
       <p>
-        ?arm={params.invalid} is not an arm. Use ?arm=mobx|hand|control, ?split=1 for side by
-        side.
+        ?arm={params.invalid} is not an arm. Use ?arm=mobx|hand|control, ?split=1 for side by side.
       </p>
     </main>,
   )

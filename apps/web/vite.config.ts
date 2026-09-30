@@ -301,7 +301,9 @@ export default defineConfig(({ command, mode }) => {
         // meter falls back to UNTRACKED; the dev server's default stub throws
         // on access instead, so the page gets the same absent shape here.
         // Nothing in the production graph imports it — the budget is unaffected.
-        'node:async_hooks': fileURLToPath(new URL('./harness/node-async-hooks-shim.ts', import.meta.url)),
+        'node:async_hooks': fileURLToPath(
+          new URL('./harness/node-async-hooks-shim.ts', import.meta.url),
+        ),
         // DEV-HARNESS ONLY (POD-4537): the prototype arms' native lists import
         // `react-native`, whose Flow source no bundler here parses. The web
         // page never loads those chunks (native mounts are lazy/dynamic and
