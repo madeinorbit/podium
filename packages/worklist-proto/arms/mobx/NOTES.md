@@ -1,5 +1,53 @@
 # arms/mobx — notes
 
+## POD-4945: prototype code out of the pool · 2026-09-30
+
+What used to live in the product modules under `pool/` and where it went,
+so the pilot can move those files into a real package as they are. History
+only — the current design is `README.md` ("Round three: the pool").
+
+- One node per KNOWN issue (`IssueNode`, plus `SessionNode` per member
+  session), each with four `fireImmediately` reactions (visible, nested,
+  formal, layout), synced from the pool at every event
+  (`MobxPool.syncWorklist` over `knownIssueIds`, the old whole-membership
+  walk). Replaced by POD-4757: one filing reaction per RESIDENT issue
+  (`VisibleCollection.track`, taken when its row enters the table), and no
+  per-node objects — cold rows file nothing.
+- Derived values as `IssueParts` (own, repoTarget, prefix, displayTitle,
+  originRef, originId, originTick, activityAt, view). Replaced by cached
+  groups on the model (`pool/cached.ts`), built on first reactive read.
+- Input functions replaced after construction (the write layer's old seam).
+  Replaced by POD-4743: the `WriteSeam` passed at construction, read by the
+  pool's one reader (`MobxPool.row`), never replaced.
+- The test knob `PoolLazyOptions.outOfMemory` with its `heldOut` machinery
+  (a second tracking path: cold-beside-the-rule rows held a filing reaction
+  and answered visible). Deleted: tests that need a visible row out of
+  memory force it cold from the harness side (evict, re-apply under a wrapped
+  rule, track by hand) or use the rule's own cold rows.
+- Arm-contract dummies: the zero `stats` object and the unused `_reads`
+  parameter. Deleted from the product arm; the harness adapter supplies the
+  zeros for the contract.
+- Test-only members, deleted (the harness observes from outside or the tests
+  read product state): `MobxPool.modelCount` / `issueIds`,
+  `VisibleCollection.order` / `trackedIds` / `size` (the harness snapshot and
+  tests read the group lanes instead), `Residency.size` / `summaryCount` /
+  `registeredTarget` / `queued` / `hasQueued` (the harness wraps the window's
+  schedule and drains until `hydrate()` installs nothing),
+  `PoolRelations.summaryCount`, `DeadlineClock.waiting`, dead
+  `IngestOut.writes` / `.cold` / `.volatile` (only `removed` remains).
+  `MobxWriteApi.log` stays: the long write-gate plants drive the pending log
+  directly, and re-proving those gates is a follow-up with gate budget.
+- Gate and oracle code in product modules: `enumerate.ts`'s `knownTables` /
+  `scanRelations` / `diffRelations` / `diffResidency` and all of `rebuild.ts`
+  moved to `harness/src/adapters/mobx-rebuild.ts`; `enforce.ts`,
+  `mobx-trap.ts` and `tracking-counts.baseline.json` moved to `harness/src/`
+  (`fence.json` no longer lists them as store modules). The partition check
+  no longer asserts the registry's internal `via` target; the dependents
+  behavior it guarded is covered by the residency tests.
+- Whole-table computeds `MobxPool.issueIds` and `VisibleCollection.order`
+  are gone: the tracking-counts baseline dropped exactly those two declared
+  computeds per cell (create-built and changes -2), nothing else moved.
+
 ## Round three: member parts per edge, O(family) accepted (POD-4683) · 2026-09-27
 
 ACCEPT view-time O(family), as Linear sorts and filters at view time over a

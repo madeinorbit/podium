@@ -4,8 +4,9 @@
  *
  * ONE RULE, TWO CALLERS. The live pool caches these parts in groups on the
  * one object per issue (`models.ts`, `IssueModel`), over tracked inputs; the
- * rebuild runs the same functions directly over plain maps built from the
- * feed's snapshot (`directParts`, `rebuild.ts`). Nothing here knows which: a
+ * harness-owned rebuild runs the same functions directly over plain maps
+ * built from the feed's snapshot (`directParts`,
+ * `harness/src/adapters/mobx-rebuild.ts`). Nothing here knows which: a
  * rule cannot drift between the incremental result and its own oracle.
  *
  * WHAT A VIEW DERIVES (inputs per L1b):

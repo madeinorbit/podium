@@ -15,22 +15,20 @@
  *
  * - ATTENTION (`phase`, `working`, `asking`) composes over the VISIBLE
  *   subtree (L1d): a row's own seats plus the aggregates of the rows NESTED
- *   under it (`rows.ts:331-334`, `attach`). The nest children are the inverse
- *   of Mb1's `nestParent` (the nearest present ancestor by the raw `parentId`,
- *   or the started-by owner), maintained per node like the visible set
- *   (`visible.ts` `VisibleCollection.sync`). A hidden issue has no row and so
- *   no own part; its visible descendants nest under the nearest visible
- *   ancestor, which is the legacy walk-past (`rows.ts:272-283`).
+ *   under it (`rows.ts:331-334`, `attach`). The nest children are derived
+ *   per row from the nearest present ancestor by the raw `parentId` (or the
+ *   started-by owner): each row's own `nested` value, read cached. A hidden
+ *   issue has no row and so no own part; its visible descendants nest under
+ *   the nearest visible ancestor, which is the legacy walk-past
+ *   (`rows.ts:272-283`).
  * - PROGRESS (`progressDone` / `progressTotal`) composes over the declared
  *   `issue.parent` / `issue.children` relation, the formal closure
  *   `missionRollup` counts (`mission.ts:1353-1404`, members
  *   `formalMemberIds`, `mission.ts:1054`). The relation drops archived and
  *   deleted children (schema `where`, `missionParentId`), which is the legacy
- *   cut of an archived branch. The children are read from a filing of each
- *   node's own `parent` forward slot (`VisibleCollection.childrenBy`), not by
- *   re-listing the `children` bucket: a re-listing reads every sibling id
- *   (the fence counts each), so a re-parent would cost both families, where
- *   the filing costs the moved row's own slot.
+ *   cut of an archived branch. The children are read from the engine's
+ *   `children` bucket through the relation reader, and each child's cached
+ *   unit — never a second index.
  *
  * THE ROOT, WITHOUT A WALK (audit §3.3). A session's motion phase depends on
  * the ROW being derived, not on the session's own issue: on a finished row an
