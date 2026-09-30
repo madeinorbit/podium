@@ -6,7 +6,11 @@ import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
 import type { Geometry } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
-import { assertLinuxUnixSocketPath, resolveInstanceId } from '@podium/runtime/instance'
+import {
+  assertLinuxUnixSocketPath,
+  durableInstanceComponent,
+  resolveInstanceId,
+} from '@podium/runtime/instance'
 import { resolveScopeBudget } from '@podium/runtime/scope'
 import type { PtyProcess } from './backends/types.js'
 import { HOST_UNAVAILABLE, resolveHostBin } from './host-bin.js'
@@ -601,20 +605,36 @@ export function connectHost(
  * Where a label's host socket lives: `<root>/hosts/<instance>/<label>.sock`, root
  * being the user runtime dir when there is one (tmpfs, per-login) else the state
  * dir. `PODIUM_HOST_SOCKET_DIR` overrides the root for tests and odd hosts.
+ *
+ * `<instance>` is the instance's BOUNDED component (`durableInstanceComponent`,
+ * at most 17 bytes), not the raw id (POD-4986). A 32-character id with the
+ * 61-byte label it mints would put the socket at 120 bytes under
+ * `/run/user/<uid>`, past Linux's 107 usable `sun_path` bytes, so every spawn
+ * on such an instance was refused; abduco's short `/tmp/pd-<key>` root was the
+ * only thing that let it run. An id of 17 bytes or less is its own component,
+ * so its directory does not move.
  */
 export function hostSocketDir(env: NodeJS.ProcessEnv = process.env): string {
-  const instance = resolveInstanceId(env)
-  if (env.PODIUM_HOST_SOCKET_DIR) return join(env.PODIUM_HOST_SOCKET_DIR, instance)
-  return join(userRuntimeDir() ?? stateDir(), 'hosts', instance)
+  return hostSocketDirFor(durableInstanceComponent(resolveInstanceId(env)), env)
 }
 
-/** Every directory a label's socket may be found in — the current root and the alternate one. */
+function hostSocketDirFor(segment: string, env: NodeJS.ProcessEnv): string {
+  if (env.PODIUM_HOST_SOCKET_DIR) return join(env.PODIUM_HOST_SOCKET_DIR, segment)
+  return join(userRuntimeDir() ?? stateDir(), 'hosts', segment)
+}
+
+/**
+ * Every directory a label's socket may be found in: the current root and the
+ * alternate one, each also under the raw instance id where that differs from
+ * the bounded component — a host an older daemon started for an 18- or
+ * 19-character id bound there, and is adopted from there until it exits.
+ */
 function hostSocketDirs(env: NodeJS.ProcessEnv = process.env): string[] {
   const instance = resolveInstanceId(env)
-  const dirs = [hostSocketDir(env)]
-  if (!env.PODIUM_HOST_SOCKET_DIR) {
-    const rt = userRuntimeDir()
-    if (rt) dirs.push(join(stateDir(), 'hosts', instance))
+  const segments = [durableInstanceComponent(instance), instance]
+  const dirs = segments.map((segment) => hostSocketDirFor(segment, env))
+  if (!env.PODIUM_HOST_SOCKET_DIR && userRuntimeDir()) {
+    for (const segment of segments) dirs.push(join(stateDir(), 'hosts', segment))
   }
   return dirs.filter((d, i) => dirs.indexOf(d) === i)
 }
