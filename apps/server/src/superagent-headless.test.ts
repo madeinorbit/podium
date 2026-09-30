@@ -17,7 +17,8 @@ import {
 import type { ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { type HarnessAgent, nativeAccountId } from '@podium/runtime'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { EventMap } from './modules/bus'
 import { harnessResumeKind } from './harness-manifest'
 import {
   buildHandoffSeed,
@@ -556,6 +557,67 @@ describe('headless turn refusal surfacing (POD-4409)', () => {
       error: 'headless session has ended',
       retryable: true,
     })
+  })
+
+  it('ends an unverified direct relay as unknown without authorizing a resend', async () => {
+    const h = await harness()
+    const { turn, req } = await startProbeTurn(h, 'turn:unverified-probe')
+    await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+      type: 'runtimeSendResult',
+      requestId: req.requestId,
+      sessionId: asSessionId(req.sessionId),
+      receipt: {
+        outcome: 'unverified',
+        deliveredAs: 'when-ready',
+        verificationWindowMs: 0,
+        at: new Date().toISOString(),
+      },
+    })
+    const result = await turn
+    expect(result).toMatchObject({ ok: false, deliveryStatus: 'unknown' })
+    expect(result.error).toMatch(/delivery could not be proven/i)
+    expect(result.retryable).toBeUndefined()
+  })
+
+  it('sendTurn ends an unverified message as unknown and does not dispatch it again', async () => {
+    const h = await harness()
+    const ended: EventMap['superagent.turnEnded'][] = []
+    h.registry.modules.bus.on('superagent.turnEnded', (event) => { ended.push(event) })
+    await h.sa.sendTurn({
+      ownerUserId: firstAdminMemberId(),
+      threadId: asThreadId('global'),
+      text: 'may already have reached the conversation',
+    })
+    const req = h.turnReqs[0]!
+    vi.useFakeTimers()
+    try {
+      await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+        type: 'runtimeSendResult',
+        requestId: req.requestId,
+        sessionId: asSessionId(req.sessionId),
+        receipt: {
+          outcome: 'unverified',
+          deliveredAs: 'when-ready',
+          verificationWindowMs: 0,
+          at: new Date().toISOString(),
+        },
+      })
+      await vi.advanceTimersByTimeAsync(31_000)
+      expect(ended).toEqual([expect.objectContaining({ ok: false, deliveryStatus: 'unknown' })])
+      expect(await h.registry.sessionStore.superagent.listPendingTurns()).toEqual([])
+      expect(h.turnReqs).toHaveLength(1)
+      expect(h.turnAcks).toHaveLength(0)
+      const history = await h.sa.history(firstAdminMemberId(), asThreadId('global'))
+      expect(history.some((m) => /delivery could not be proven/i.test(m.content))).toBe(true)
+      expect(history.some((m) => m.content.startsWith(TURN_FAILED_MARKER))).toBe(false)
+      expect(h.activity().at(-1)?.event).toMatchObject({
+        kind: 'turn-end',
+        error: expect.stringMatching(/delivery could not be proven/i),
+      })
+    } finally {
+      h.sa.dispose()
+      vi.useRealTimers()
+    }
   })
 
   it('passes a non-identity refusal through with its detail verbatim', async () => {

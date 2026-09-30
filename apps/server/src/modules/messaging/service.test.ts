@@ -407,6 +407,29 @@ describe('MessagingService', () => {
     expect(h.sendTurn.mock.calls[0]![0]!.text).toContain('first')
   })
 
+  it('reports unknown delivery from sendTurn without calling it failed or resending it', async () => {
+    const h = await makeHarness()
+    try {
+      h.inbound('may already have arrived')
+      await flush()
+      h.bus.emit('superagent.turnEnded', {
+        threadId: asThreadId('global'),
+        podiumSessionId: asSessionId('ps1'),
+        ok: false,
+        deliveryStatus: 'unknown',
+        error: 'Delivery could not be proven; the message may have reached the agent.',
+      } as never)
+      await flush()
+      expect(h.sent).toEqual([{
+        chatId: '42',
+        text: expect.stringMatching(/^⚠️ Delivery unknown: .*delivery could not be proven/i),
+      }])
+      expect(h.sendTurn).toHaveBeenCalledTimes(1)
+    } finally {
+      h.service.dispose()
+    }
+  })
+
   it('queues while a turn is in flight and drains on turnEnded', async () => {
     const h = await makeHarness()
     h.inbound('first')
