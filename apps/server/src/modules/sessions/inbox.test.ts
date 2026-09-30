@@ -2167,23 +2167,31 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.applied).not.toHaveBeenCalled()
   })
 
-  it('routes only exact history id proof to the alarm after a failed row settles', async () => {
+  it.each([
+    ['claude-sdk', 'claude-uuid'],
+    ['codex-app-server', 'codex-client-message'],
+    ['grok-acp', 'grok-prompt'],
+    ['opencode-server', 'opencode-message'],
+  ])('routes only exact %s history id proof to the alarm after a failed row settles', async (driverId, kind) => {
     vi.useFakeTimers()
-    const h = harness({ contractReceipts: [] })
+    const h = harness({ contractReceipts: [], hasBoundDriver: true, driverId })
     await queueOne(h, 'msg_failed', 'msg_failed')
     await vi.advanceTimersByTimeAsync(1_000)
     await h.inbox.deliveryOutcome(SID, { rowId: 'msg_failed', outcome: 'failed', cause: 'not-recorded' })
     expect(h.rows).toEqual([])
     const proof = { rowId: 'msg_failed', outcome: 'delivered' as const,
-      transcriptItem: { id: 'entry-1' }, harnessRef: [{ kind: 'codex-client-message', id: 'msg_failed' }],
+      transcriptItem: { id: 'entry-1' }, harnessRef: [{ kind, id: 'msg_failed' }],
     }
-    // An outcome, hook id or an unfamiliar matching rule is not exact proof.
+    // A protocol ack or a receipt's turn id does not name a history record.
+    await h.inbox.deliveryOutcome(SID, { ...proof, harnessRef: [{ kind: 'codex-turn', id: 'turn-1' }] })
+    await h.inbox.deliveryOutcome(SID, { ...proof, transcriptItem: undefined })
+    await h.inbox.deliveryOutcome(SID, { ...proof, harnessRef: undefined })
+    // Terminal hooks may attach an id even when the entry was matched by text.
+    h.session.driverId = 'generic-pty'
     await h.inbox.deliveryOutcome(SID, proof)
-    await h.inbox.deliveryOutcome(SID, { ...proof, matchedBy: 'order' })
-    await h.inbox.deliveryOutcome(SID, { ...proof, matchedBy: 'id', transcriptItem: undefined })
-    await h.inbox.deliveryOutcome(SID, { ...proof, matchedBy: 'id', harnessRef: undefined })
     expect(h.idMatched).not.toHaveBeenCalled()
-    await h.inbox.deliveryOutcome(SID, { ...proof, matchedBy: 'id' })
+    h.session.driverId = driverId
+    await h.inbox.deliveryOutcome(SID, proof)
     expect(h.idMatched).toHaveBeenCalledExactlyOnceWith({
       messageId: proof.rowId, sessionId: SID, transcriptItem: proof.transcriptItem, harnessRef: proof.harnessRef,
     })

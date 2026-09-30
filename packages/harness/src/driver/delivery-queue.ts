@@ -5,7 +5,6 @@ import {
   type TranscriptItemRef,
 } from '@podium/model'
 import type { DeliveryFailureCause } from '@podium/protocol/daemon'
-import { createLogger } from '@podium/logger'
 import type { AgentSessionHandle } from './driver.js'
 import type { RuntimeEventBody } from './events.js'
 import type { SendOptions, TurnInput, TurnReceipt } from './turns.js'
@@ -30,7 +29,6 @@ import type { SendOptions, TurnInput, TurnReceipt } from './turns.js'
  */
 const ENDS_ON_ITS_OWN: ReadonlySet<string> = new Set(['working', 'compacting', 'needs_user'])
 const STUCK_CEILING_MS = 60_000
-const log = createLogger('harness:delivery')
 const EXACT_HISTORY_IDS: ReadonlySet<string> = new Set([
   'claude-uuid', 'codex-client-message', 'grok-prompt', 'opencode-message', 'opencode-part',
 ])
@@ -76,27 +74,21 @@ export function withDeliveryQueue(
   const contradictionsReported = new Set<string>()
   // Terminal hooks may lend ids to a text match. Only the protocol drivers
   // bind these ids to their own history records; they all use family server.
-  const idMatch = (item: TranscriptItemRef | undefined, refs: HarnessRef | undefined): { matchedBy?: 'id' } =>
-    handle.binding?.family === 'server' && item && refs?.some((ref) => EXACT_HISTORY_IDS.has(ref.kind))
-      ? { matchedBy: 'id' } : {}
+  const isExactHistoryMatch = (item: TranscriptItemRef | undefined, refs: HarnessRef | undefined): boolean =>
+    handle.binding?.family === 'server' && !!item && !!refs?.some((ref) => EXACT_HISTORY_IDS.has(ref.kind))
 
-  function reportContradiction(
+  function forwardContradiction(
     id: string,
     prior: Outcome,
     transcriptItem: TranscriptItemRef | undefined,
     harnessRef: HarnessRef | undefined,
   ): void {
     if (prior.outcome !== 'failed' || prior.cause === 'unconfirmed' ||
-        !idMatch(transcriptItem, harnessRef).matchedBy || contradictionsReported.has(id)) return
+        !isExactHistoryMatch(transcriptItem, harnessRef) || contradictionsReported.has(id)) return
     contradictionsReported.add(id)
     // Report the observed history, preserving the final failed replay. The
     // server records the contradiction instead of changing its final status.
-    const evidence = { transcriptItem, harnessRef }
-    log.warn('message delivery contradiction', { diagnostic: {
-      messageId: id, sessionId: handle.binding?.sessionId, program: handle.binding?.harness,
-      failedCause: prior.cause ?? null, evidence: { kind: 'driver-id', ...evidence },
-    } })
-    emit({ t: 'delivery', rowId: id, outcome: 'delivered', matchedBy: 'id', ...evidence })
+    emit({ t: 'delivery', rowId: id, outcome: 'delivered', transcriptItem, harnessRef })
   }
   /** Entries a driver named before its row settled (POD-4774). */
   const namedEarly = new Map<string, TranscriptItemRef>()
@@ -169,7 +161,6 @@ export function withDeliveryQueue(
       ...(cause ? { cause } : {}),
       ...(named ? { transcriptItem: named } : {}),
       ...(ids ? { harnessRef: ids } : {}),
-      ...idMatch(named, ids),
     }
     finished.set(id, event)
     rows.delete(id)
@@ -195,10 +186,10 @@ export function withDeliveryQueue(
       }
       return
     }
-    reportContradiction(id, prior, transcriptItem, mergeHarnessRefs(prior.harnessRef, harnessRef))
+    forwardContradiction(id, prior, transcriptItem, mergeHarnessRefs(prior.harnessRef, harnessRef))
     if (prior.outcome !== 'delivered' || prior.transcriptItem) return
     const ids = mergeHarnessRefs(prior.harnessRef, harnessRef)
-    const event: Outcome = { ...prior, transcriptItem, ...(ids ? { harnessRef: ids } : {}), ...idMatch(transcriptItem, ids) }
+    const event: Outcome = { ...prior, transcriptItem, ...(ids ? { harnessRef: ids } : {}) }
     finished.set(id, event)
     emit(event)
   }
@@ -250,7 +241,7 @@ export function withDeliveryQueue(
     harnessRef?: HarnessRef,
   ): void {
     const prior = finished.get(id)
-    if (prior) reportContradiction(id, prior, transcriptItem, mergeHarnessRefs(prior.harnessRef, harnessRef))
+    if (prior) forwardContradiction(id, prior, transcriptItem, mergeHarnessRefs(prior.harnessRef, harnessRef))
     if (prior?.outcome !== 'failed' || prior.cause !== 'unconfirmed') return
     const ids = mergeHarnessRefs(prior.harnessRef, harnessRef)
     const event: Outcome = {
@@ -259,7 +250,6 @@ export function withDeliveryQueue(
       outcome: 'delivered',
       ...(transcriptItem ? { transcriptItem } : {}),
       ...(ids ? { harnessRef: ids } : {}),
-      ...idMatch(transcriptItem, ids),
     }
     finished.set(id, event)
     emit(event)
@@ -503,7 +493,7 @@ export function withDeliveryQueue(
       const delivered = (transcriptItem?: TranscriptItemRef, harnessRef?: HarnessRef) => {
         const ids = mergeHarnessRefs(known, harnessRef)
         if (failed) {
-          reportContradiction(turnId, failed, transcriptItem, ids)
+          forwardContradiction(turnId, failed, transcriptItem, ids)
           return
         }
         emit({
@@ -512,7 +502,6 @@ export function withDeliveryQueue(
           outcome: 'delivered',
           ...(transcriptItem ? { transcriptItem } : {}),
           ...(ids ? { harnessRef: ids } : {}),
-          ...idMatch(transcriptItem, ids),
         })
       }
       // A DIRECT SEND'S PROVEN "NO" (POD-4887) goes under the same id; one

@@ -413,8 +413,8 @@ export class EventsRepository {
     return id
   }
 
-  /** One diagnostic per (kind, subject), also across replay and restart.
-   * The read and append share the store's serialized write transaction. */
+  /** One diagnostic per (kind, subject), across replay, restart and retention.
+   * Its durable watermark and append share the serialized write transaction. */
   async appendEventOnce(e: {
     ts: string
     kind: string
@@ -423,11 +423,11 @@ export class EventsRepository {
     payload?: unknown
   }): Promise<number | undefined> {
     return await this.createOrJoinTransaction(async () => {
-      const prior = await this.db.select({ id: podiumEvents.id }).from(podiumEvents)
-        .where(and(eq(podiumEvents.kind, e.kind), eq(podiumEvents.subject, e.subject)))
-        .limit(1).get()
-      if (prior) return undefined
-      return await this.appendEvent(e)
+      const key = `event-once:${JSON.stringify([e.kind, e.subject])}`
+      if (await this.getStewardState(key) !== undefined) return undefined
+      const id = await this.appendEvent(e)
+      await this.setStewardState(key, String(id))
+      return id
     })
   }
 

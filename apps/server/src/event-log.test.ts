@@ -62,6 +62,12 @@ describe('SessionStore event log', () => {
     expect(await store.events.appendEventOnce(other)).toBeTypeOf('number')
     expect(await store.events.appendEventOnce({ ...diagnostic, kind: 'another.diagnostic' })).toBeTypeOf('number')
     expect(await store.events.listEventsSince(0)).toHaveLength(3)
+    // Retention may remove the diagnostic, but it must not reset the limiter.
+    const plan = await store.events.planEventPrune({ maxAgeDays: 1, maxRows: 0 })
+    expect(await store.events.pruneEventBatch(plan)).toBe(3)
+    expect(await store.events.appendEventOnce(diagnostic)).toBeUndefined()
+    expect(await store.events.listEventsSince(0)).toEqual([])
+    expect(announced).toHaveBeenCalledTimes(3)
   })
 
   it('appendEvent/listEventsSince round-trips payloads and returns ascending ids', async () => {

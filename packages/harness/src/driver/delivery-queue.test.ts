@@ -42,7 +42,7 @@ describe('exact history proof contradicting a final failure (POD-4894)', () => {
     prove()
     prove()
     expect(emit.mock.calls.map(([event]) => event).filter((event) => event.outcome === 'delivered')).toEqual(family === 'server' ? [
-      { t: 'delivery', rowId: input.id, outcome: 'delivered', matchedBy: 'id', ...proof },
+      { t: 'delivery', rowId: input.id, outcome: 'delivered', ...proof },
     ] : [])
     if (via !== 'direct') {
       await handle.send(input, options)

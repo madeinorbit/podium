@@ -48,7 +48,7 @@ import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import type { SessionInputGatewayPort } from '../../gateway/daemon-ports'
-import { type HarnessInterrupt } from '../../harness-manifest'
+import { driverIdIsServerFamily, type HarnessInterrupt } from '../../harness-manifest'
 import { spawnPromptMessageId } from '../../message-ids'
 import { injectionPayload } from './paste'
 import type { ConfigureOutcome } from './runtime-gateway'
@@ -127,9 +127,11 @@ export interface DeliveryOutcomeEvent {
   /** On any outcome: the agent program's own ids for the row, every one known
    *  by then (POD-4841). A later outcome for the same id may carry more. */
   harnessRef?: HarnessRef
-  /** Only a protocol driver's exact id match to its own history sets this. */
-  matchedBy?: string
 }
+
+const EXACT_HISTORY_IDS: ReadonlySet<string> = new Set([
+  'claude-uuid', 'codex-client-message', 'grok-prompt', 'opencode-message', 'opencode-part',
+])
 
 const REFUSALS_PROVING_NO_WRITE: ReadonlySet<Refusal['reason']> = new Set(['not_running', 'unsupported', 'staging_failed'])
 
@@ -1523,7 +1525,13 @@ export class SessionInbox {
         harnessRef: event.harnessRef,
       })
     }
-    if (event.outcome === 'delivered' && event.matchedBy === 'id' && event.transcriptItem && event.harnessRef?.length) {
+    // Protocol drivers name entries by these exact ids. Terminal hooks can
+    // attach ids to text matches, so their bindings do not qualify as proof.
+    // Reuse the existing delivery frame; no new wire field is needed.
+    const session = this.deps.getSession(sessionId)
+    if (event.outcome === 'delivered' && event.transcriptItem && event.harnessRef &&
+        event.harnessRef.some((ref) => EXACT_HISTORY_IDS.has(ref.kind)) &&
+        driverIdIsServerFamily(session?.driverId ?? '')) {
       await this.deps.authorization.idMatched?.({
         messageId: event.rowId, sessionId,
         transcriptItem: event.transcriptItem, harnessRef: event.harnessRef,
