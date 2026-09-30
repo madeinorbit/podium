@@ -211,8 +211,6 @@ describe('ingest', () => {
       expect(pool.modelCount('issue') - pool.worklist.size()).toBeLessThanOrEqual(cold[0]!)
       expect(pool.modelCount('worktree')).toBe(0)
       expect(pool.modelCount('repo')).toBe(0)
-        pool.modelCount('issue') + pool.modelCount('session'),
-      )
     } finally {
       r.dispose()
     }

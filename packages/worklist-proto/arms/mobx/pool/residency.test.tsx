@@ -243,8 +243,6 @@ describe('bootstrap', () => {
     expect(pool.modelCount('issue') - hotIssues.length).toBeLessThanOrEqual(
       corpus.sliceIssues.length - hotIssues.length,
     )
-      pool.modelCount('issue') + pool.modelCount('session'),
-    )
     // POD-4753: startup reads no row by id. A cold issue is hidden by the
     // rule, so the walks that reach one (a hot child's nesting walk, a
     // rescue) read its declared summary, never its row or its sessions'.
@@ -368,8 +366,6 @@ describe('bootstrap', () => {
     const issueModels = built.size
     expect(pool.modelCount('issue')).toBe(issueModels)
     expect(pool.modelCount('session')).toBeGreaterThanOrEqual(members.size)
-      issueModels + pool.modelCount('session'),
-    )
     // No cold row got a model, and none was drawn.
     for (const issue of corpus.sliceIssues) {
       if (isCold(issue)) expect(tracked(() => pool.resident('issue', issue.id))).toBe('loading')
