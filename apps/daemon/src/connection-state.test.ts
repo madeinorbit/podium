@@ -14,7 +14,11 @@ import {
   type PeerHelloReply,
   DAEMON_WIRE_VERSION,
 } from '@podium/protocol'
-import { CAP_DELIVERY_ACCEPTED, type DaemonMessage } from '@podium/protocol/daemon'
+import {
+  CAP_DELIVERY_ACCEPTED,
+  CAP_DELIVERY_NOT_IN_CONVERSATION,
+  type DaemonMessage,
+} from '@podium/protocol/daemon'
 import { readConnectivityForTest, writeConnectivity } from '@podium/runtime/connectivity'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
 import { readDaemonHealth, writeDaemonHealth } from '@podium/runtime/daemon-health'
@@ -1839,6 +1843,52 @@ describe('the accepted outcome on the daemon link (POD-4886)', () => {
       }
     }
     expect(l.outbox.pending()).toEqual([settled])
+    await l.conn.close()
+  })
+
+  /**
+   * A PROVEN "NO" (POD-4887): `failed` with a cause a server before POD-4887
+   * would read as "never typed". Only a server that accepted
+   * CAP_DELIVERY_NOT_IN_CONVERSATION hears it; any other hears `unconfirmed`,
+   * its `unknown`. The outbox keeps the real cause for the next link.
+   */
+  const exited: Extract<DaemonMessage, { type: 'runtimeEvent' }> = {
+    type: 'runtimeEvent',
+    deliveryId: 'exited',
+    sessionId: asSessionId('s'),
+    event: {
+      ...envelope,
+      t: 'delivery',
+      rowId: 'row-exited',
+      outcome: 'failed',
+      reason: 'the agent program exited without it',
+      cause: 'agent-exited',
+    },
+  }
+
+  it('offers the proven-no capability in its hello', async () => {
+    const l = link([])
+    await l.conn.start()
+    expect(l.hello()?.caps).toContain(CAP_DELIVERY_NOT_IN_CONVERSATION)
+    await l.conn.close()
+  })
+
+  it('tells a server that does not read a proven "no" it is unconfirmed, and keeps the cause', async () => {
+    const l = link([CAP_DELIVERY_ACCEPTED])
+    await l.conn.start()
+    l.conn.send(exited)
+    expect(l.delivered).toEqual([
+      { ...exited, event: { ...exited.event, cause: 'unconfirmed' } },
+    ])
+    expect(l.outbox.pending()).toEqual([exited])
+    await l.conn.close()
+  })
+
+  it('sends a proven "no" as it is to a server that accepted the capability', async () => {
+    const l = link([CAP_DELIVERY_NOT_IN_CONVERSATION])
+    await l.conn.start()
+    l.conn.send(exited)
+    expect(l.delivered).toEqual([exited])
     await l.conn.close()
   })
 

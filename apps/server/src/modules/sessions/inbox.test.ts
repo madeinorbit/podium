@@ -134,6 +134,9 @@ function harness(
     async (_input: { sourceMessageId: string; sessionId: SessionId; reason: string }) => {},
   )
   const provenLate = vi.fn(async (_input: { messageId: string; sessionId: SessionId }) => {})
+  const disprovenLate = vi.fn(
+    async (_input: { messageId: string; sessionId: SessionId; reason: string; cause: string }) => {},
+  )
   const accepted = vi.fn(
     async (_input: {
       sourceMessageId: string
@@ -264,6 +267,7 @@ function harness(
       interruptedPending,
       unconfirmed,
       provenLate,
+      disprovenLate,
       accepted,
       ...(options.held ? { held: options.held } : {}),
       named,
@@ -384,6 +388,7 @@ function harness(
     interruptedPending,
     unconfirmed,
     provenLate,
+    disprovenLate,
     accepted,
     named,
     harnessIds,
@@ -3108,6 +3113,78 @@ describe('agent drain via the runtime contract', () => {
     ])
     expect(h.unconfirmed).not.toHaveBeenCalled()
     expect(h.promptFailed).toHaveBeenCalledWith(expect.objectContaining({ unconfirmed: false }))
+  })
+
+  // POD-4887: the agent program's own evidence proves a typed message is NOT
+  // in its conversation. A real failure with that cause — safe to resend —
+  // never `unknown`; a person's words go back to the composer.
+  it.each(['dropped-by-agent', 'not-recorded', 'agent-exited'] as const)(
+    'a daemon that proves the message is not in the conversation (%s) fails it with that cause',
+    async (cause) => {
+      vi.useFakeTimers()
+      const h = harness({ contractReceipts: [] })
+      await h.inbox.queueText({ sessionId: SID, text: 'typed, not kept', sourceMessageId: 'msg_no' })
+      await vi.advanceTimersByTimeAsync(0)
+      await h.inbox.deliveryOutcome(SID, {
+        rowId: 'msg_no',
+        outcome: 'failed',
+        reason: 'the agent program dropped it',
+        cause,
+      })
+      expect(h.rejected).toEqual([
+        expect.objectContaining({ sourceMessageId: 'msg_no', reason: 'the agent program dropped it', cause }),
+      ])
+      expect(h.unconfirmed).not.toHaveBeenCalled()
+      expect(h.setSessionDraft).toHaveBeenCalledWith({ sessionId: SID, text: 'typed, not kept' })
+      expect(h.promptFailed).toHaveBeenCalledWith(expect.objectContaining({ unconfirmed: false }))
+      expect(h.rows).toEqual([])
+    },
+  )
+
+  it('reads a failure cause it does not know as unconfirmed, never as a "no" (POD-4887)', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.queueText({ sessionId: SID, text: 'who knows', sourceMessageId: 'msg_new' })
+    await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_new',
+      outcome: 'failed',
+      reason: 'a newer daemon knows why',
+      cause: 'some-later-cause',
+    })
+    expect(h.rejected).toEqual([])
+    expect(h.unconfirmed).toHaveBeenCalledOnce()
+    expect(h.setSessionDraft).not.toHaveBeenCalled()
+  })
+
+  it('hands a late proven "no" for a row no longer queued to the ledger (POD-4887)', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await h.inbox.queueText({ sessionId: SID, text: 'gone', sourceMessageId: 'msg_gone' })
+    await vi.advanceTimersByTimeAsync(0)
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_gone',
+      outcome: 'failed',
+      reason: 'delivery could not be confirmed; check the transcript before retrying',
+      cause: 'unconfirmed',
+    })
+    expect(h.disprovenLate).not.toHaveBeenCalled()
+    await h.inbox.deliveryOutcome(SID, {
+      rowId: 'msg_gone',
+      outcome: 'failed',
+      reason: 'the agent program exited without it',
+      cause: 'agent-exited',
+    })
+    expect(h.disprovenLate).toHaveBeenCalledExactlyOnceWith({
+      messageId: 'msg_gone',
+      sessionId: SID,
+      reason: 'the agent program exited without it',
+      cause: 'agent-exited',
+    })
+    // An unproven failure for a row no longer queued moves nothing.
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_gone', outcome: 'failed', cause: 'unconfirmed' })
+    expect(h.disprovenLate).toHaveBeenCalledOnce()
+    expect(h.rejected).toEqual([])
   })
 
   // POD-4778: an agent's message is its sender's to hear about. The owner of

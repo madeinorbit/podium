@@ -2,7 +2,12 @@
 // surface's five governing rules and the core-vs-extended tier boundary.
 
 import type { Declared } from '../manifest.js'
-import type { HarnessRef, SessionId, TranscriptItemRef } from '@podium/model'
+import type {
+  HarnessRef,
+  NotInConversationCause,
+  SessionId,
+  TranscriptItemRef,
+} from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import type { DeliveryFailureCause, RetractTooLate } from '@podium/protocol/daemon'
 
@@ -222,16 +227,27 @@ export interface SendOptions {
    */
   onTranscriptItem?: (item: TranscriptItemRef, harnessRef?: HarnessRef) => void
   /**
-   * A HELD MESSAGE THE PROGRAM WILL NOT RECORD ANY MORE (POD-4849).
+   * A MESSAGE THE PROGRAM WILL NOT RECORD ANY MORE (POD-4849, POD-4887).
    *
-   * Called at most once, only after an `accepted` receipt with `held:
-   * 'memory'`, when what held it ended first: the turn closed, or the session
-   * did. The delivery queue ignores it for a durable hold (POD-4886). It proves
-   * no "no" — the program may have shown it to the model before a crash — so
-   * the delivery queue settles the row as unconfirmed, never as failed.
-   * Daemon-local; never crosses the wire.
+   * Called at most once, never together with `onTranscriptItem` or
+   * `onLateProof`. Without `proof`: only after an `accepted` receipt with
+   * `held: 'memory'`, when what held it ended first — the turn closed, or the
+   * session did. That proves no "no" (the program may have shown it to the
+   * model before a crash), so the delivery queue settles the row as
+   * unconfirmed, never as failed.
+   *
+   * With `proof` (POD-4819 §6.1 N2b, N3, N4): the program's OWN evidence says
+   * the message is not in its conversation — it recorded dropping it, it says
+   * no turn is open and its history lacks our id, or its process exited and
+   * its history, read to the end after the exit, lacks it. Never from a
+   * timer, a hook, a screen or an agent-state reading. It may come before
+   * the receipt returns, after an `accepted` receipt with `held: 'memory'`,
+   * or after an `unverified` one (a late "no"); the delivery queue settles
+   * the row `failed` with that cause, safe to resend. The delivery queue
+   * ignores both forms for a durable hold (POD-4886). Daemon-local; never
+   * crosses the wire.
    */
-  onUnrecorded?: (reason: string) => void
+  onUnrecorded?: (reason: string, proof?: NotInConversationCause) => void
   /**
    * LATE PROOF OF AN `unverified` SEND (POD-4840).
    *

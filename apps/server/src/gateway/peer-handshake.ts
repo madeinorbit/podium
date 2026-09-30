@@ -14,7 +14,7 @@ import { randomBytes } from 'node:crypto'
  */
 
 import type { MachineId, UserId } from '@podium/model'
-import { CAP_DELIVERY_ACCEPTED } from '@podium/protocol/daemon'
+import { CAP_DELIVERY_ACCEPTED, CAP_DELIVERY_NOT_IN_CONVERSATION } from '@podium/protocol/daemon'
 import {
   type AcceptorStep,
   CAP_DAEMON_GEOMETRY_APPLIED,
@@ -121,6 +121,9 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       // POD-4886: this server reads the delivery outcome `accepted`; a daemon
       // sends it only once this is accepted.
       CAP_DELIVERY_ACCEPTED,
+      // POD-4887: this server reads a proven "not delivered" cause
+      // (`dropped-by-agent`, `not-recorded`, `agent-exited`) on `failed`.
+      CAP_DELIVERY_NOT_IN_CONVERSATION,
     ],
     transport: {
       endpoint: '/daemon',

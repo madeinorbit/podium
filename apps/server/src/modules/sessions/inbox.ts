@@ -32,11 +32,13 @@ import {
   asMutationId,
   asUserId,
   isAgentComputing,
+  isNotInConversationCause,
+  type NotInConversationCause,
 } from '@podium/model'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
 import type {
   DeliveryCancelResult,
-  QueueDrainAbandonedReason,
+  MessageFailedCause,
   Refusal,
   RuntimeAttachmentRef,
   TurnReceipt,
@@ -267,6 +269,14 @@ export interface InboxQueuePort {
 
 export type InboxAuthorizationDecision = { ok: true } | { ok: false; reason: string }
 
+/** The `failed` causes this server reads (POD-4887): none (a refusal), the
+ *  ones before POD-4887, and a proven "not in the conversation". */
+const failureCauseKnown = (cause: string | undefined): boolean =>
+  cause === undefined ||
+  cause === 'not-accepting-input' ||
+  cause === 'rejected-by-agent' ||
+  isNotInConversationCause(cause)
+
 export interface InboxAuthorizationPort {
   /** Resolve live; implementations must never memoize this answer. */
   authorizeAtDrain(input: {
@@ -287,7 +297,7 @@ export interface InboxAuthorizationPort {
     reason: string
     /** Why, when the daemon said so: `never-live` = the agent was not
      *  accepting input, so nothing was typed. Absent = no cause known. */
-    cause?: QueueDrainAbandonedReason
+    cause?: MessageFailedCause
   }): Promise<void>
   /** The row was handed on and nobody can say any more whether it arrived:
    *  the forward timed out, or the daemon could not prove the text landed.
@@ -312,6 +322,16 @@ export interface InboxAuthorizationPort {
    *  no longer holds landed (POD-4840): the ledger moves the message to
    *  `confirmed` only from `unknown`, for this session. */
   provenLate?(input: { messageId: string; sessionId: SessionId }): Promise<void>
+  /** The agent's machine proved, after reporting it could not, that a row it
+   *  no longer holds is NOT in the agent's conversation (POD-4887): the ledger
+   *  moves the message to `failed` with that cause from any open status handed
+   *  on to this session, and tells its sender it is safe to resend. */
+  disprovenLate?(input: {
+    messageId: string
+    sessionId: SessionId
+    reason: string
+    cause: NotInConversationCause
+  }): Promise<void>
   /** The agent program took the row and has not recorded it yet (POD-4886):
    *  the ledger moves the message to `accepted`, forward only, and keeps how
    *  the program holds it. */
@@ -1515,6 +1535,20 @@ export class SessionInbox {
         await this.deps.authorization.provenLate?.({ messageId: event.rowId, sessionId })
         return
       }
+      if (event.outcome === 'failed' && isNotInConversationCause(event.cause)) {
+        // A LATE "NO" (POD-4887): the same message, now proven not in the
+        // agent's conversation by the program's own evidence. Ahead of the
+        // settled-row guard for the same reason as the late proof; a direct
+        // send's proven "no" lands here too, and the ledger fails it from any
+        // open status with the cause, safe to resend.
+        await this.deps.authorization.disprovenLate?.({
+          messageId: event.rowId,
+          sessionId,
+          reason: event.reason ?? "the agent's own record proves it is not in the conversation",
+          cause: event.cause,
+        })
+        return
+      }
       // A replayed report for a durable row settled above is neither a live
       // row nor a direct send: acknowledge it without re-firing anything.
       if (this.settledQueueRowIds.has(event.rowId)) return
@@ -1542,13 +1576,15 @@ export class SessionInbox {
       await this.settleDelivered(session, row)
     } else if (event.outcome === 'dropped') {
       await this.deps.authorization.interrupted?.({ sessionId, sourceMessageId: row.sourceMessageId })
-    } else if (event.cause === 'unconfirmed') {
+    } else if (event.cause === 'unconfirmed' || !failureCauseKnown(event.cause)) {
       // The daemon may have typed it and could not prove it landed: `unknown`,
       // never failed, and never written back into the draft (POD-4775). Keyed
       // on the structured cause, never on reason prose (POD-4802): no
       // dead-letter and no retry affordance, since resending a landed turn
       // duplicates it. A daemon too old to send `cause` keeps the visible
       // failure below.
+      // A cause this server does not know is read the same way: it cannot tell
+      // whether it proves a "no", and it never guesses one (POD-4887).
       await this.reportUnconfirmed(
         sessionId,
         row,
@@ -1560,8 +1596,15 @@ export class SessionInbox {
       // sent it or only a person can unblock the agent (POD-4778). A person's
       // text goes back to an empty composer so nothing typed is lost; an
       // agent's never lands in a person's box.
+      // Or the agent program's own evidence proved it is not in the
+      // conversation (POD-4887): typed, and just as safe to resend.
       const reason = event.reason ?? "the agent's machine could not deliver it"
-      const cause = event.cause === 'not-accepting-input' ? 'never-live' : 'delivery-failed'
+      const cause: MessageFailedCause =
+        event.cause === 'not-accepting-input'
+          ? 'never-live'
+          : isNotInConversationCause(event.cause)
+            ? event.cause
+            : 'delivery-failed'
       if (sentByAPerson(row)) {
         const draft = this.deps.draftText?.(sessionId)
         if (draft === undefined || draft === '' || draft === row.text) {
@@ -1620,7 +1663,8 @@ export class SessionInbox {
   private async settleDirectDeliveryOutcome(sessionId: SessionId, event: DeliveryOutcomeEvent): Promise<void> {
     // `delivered` with no row here only names the entry (POD-4774, in
     // `deliveryOutcome`): a direct send settles on its own receipt.
-    if (event.outcome !== 'failed' || event.cause === 'unconfirmed') return
+    // An unknown cause is no proof of a "no" either (POD-4887): left alone.
+    if (event.outcome !== 'failed' || event.cause === 'unconfirmed' || !failureCauseKnown(event.cause)) return
     await this.deps.authorization.rejected({
       queueId: event.rowId,
       sourceMessageId: event.rowId,

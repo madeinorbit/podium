@@ -17,6 +17,7 @@ import type {
   IssueId,
   MachineId,
   MessageHeld,
+  NotInConversationCause,
   SessionId,
   SessionMeta,
   UpdateChannel,
@@ -47,7 +48,7 @@ import {
   SubscriptionRegistry,
   wireSchemaDigest,
 } from '@podium/protocol'
-import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
+import type { MessageFailedCause, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { resolveSpawnDefaults } from '@podium/runtime'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
@@ -1472,13 +1473,19 @@ export class SessionRegistry {
       }) => Promise<{ ok: boolean; reason?: string }>
       applied?: (messageId: string, sessionId: SessionId) => Promise<void>
       provenLate?: (messageId: string, sessionId: SessionId) => Promise<void>
+      disprovenLate?: (
+        messageId: string,
+        sessionId: SessionId,
+        reason: string,
+        cause: NotInConversationCause,
+      ) => Promise<void>
       accepted?: (messageId: string, sessionId: SessionId, held: MessageHeld) => Promise<void>
       injected?: (messageId: string, sessionId: SessionId) => Promise<void>
       unconfirmed?: (messageId: string, sessionId: SessionId, reason: string) => Promise<void>
       rejected?: (
         messageId: string,
         reason: string,
-        cause?: QueueDrainAbandonedReason,
+        cause?: MessageFailedCause,
       ) => Promise<void>
       abandoned?: (input: {
         sessionId: SessionId
@@ -1556,6 +1563,15 @@ export class SessionRegistry {
         const completion: Promise<void> | undefined = queuedApplyHooks.provenLate?.(
           messageId,
           sessionId,
+        )
+        await completion
+      },
+      failQueuedMessageLate: async (messageId, sessionId, reason, cause) => {
+        const completion: Promise<void> | undefined = queuedApplyHooks.disprovenLate?.(
+          messageId,
+          sessionId,
+          reason,
+          cause,
         )
         await completion
       },
@@ -2241,6 +2257,8 @@ export class SessionRegistry {
       await messagesSvc.onQueuedInputApplied(messageId, sessionId)
     queuedApplyHooks.provenLate = async (messageId, sessionId) =>
       await messagesSvc.onQueuedInputProvenLate(messageId, sessionId)
+    queuedApplyHooks.disprovenLate = async (messageId, sessionId, reason, cause) =>
+      await messagesSvc.onQueuedInputDisprovenLate(messageId, sessionId, reason, cause)
     queuedApplyHooks.accepted = async (messageId, sessionId, held) =>
       await messagesSvc.onQueuedInputAccepted(messageId, sessionId, held)
     queuedApplyHooks.injected = async (messageId, sessionId) =>

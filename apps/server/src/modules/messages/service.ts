@@ -56,14 +56,17 @@ import {
   asIssueId,
   asSessionId,
   isIssueClosed,
+  isNotInConversationCause,
   type IssueScope,
+  type NotInConversationCause,
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
-import {
-  type QueueDrainAbandonedReason,
-  type TurnReceipt,
+import type {
+  MessageFailedCause,
+  QueueDrainAbandonedReason,
+  TurnReceipt,
 } from '@podium/protocol/daemon'
 import type { CommandPrincipal } from '../../command-principal'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
@@ -525,12 +528,16 @@ function capUrgency(requested: MessageUrgency, max: MessageUrgency): MessageUrge
  *                    (not accepting input), `teardown` (stopped first),
  *                    `delivery-failed` (the hand-off failed); `detail` names a
  *                    refusal more precisely when there is one.
+ *  - `not-in-conversation` (POD-4887) typed, and the agent program's own
+ *                    evidence proves it is not in its conversation: it
+ *                    dropped it, never recorded it, or exited without it.
  */
 export type SendFailure =
   | { kind: 'session-gone'; mayHaveArrived?: boolean; issueEnded?: boolean }
   | { kind: 'issue-ended'; deleted?: boolean }
   | { kind: 'not-allowed'; detail?: string }
   | { kind: 'never-typed'; cause: QueueDrainAbandonedReason; detail?: string }
+  | { kind: 'not-in-conversation'; cause: NotInConversationCause }
 
 const SESSION_GONE: SendFailure = { kind: 'session-gone' }
 /** Typed, about to be, taken by the program, or lost track of: past the point
@@ -570,6 +577,33 @@ type FailureWords = { outcome?: string; reason: string; action: string }
 const ISSUE_ENDED: SendFailure = { kind: 'issue-ended' }
 const ISSUE_DELETED: SendFailure = { kind: 'issue-ended', deleted: true }
 const notAllowed = (detail: string): SendFailure => ({ kind: 'not-allowed', detail })
+
+/**
+ * THE PROGRAM'S OWN "NO" (POD-4887; POD-4819 §6.1): typed, and proven not in
+ * the conversation — so, unlike `unknown`, resending cannot run it twice.
+ */
+function notInConversationWords(cause: NotInConversationCause): FailureWords {
+  switch (cause) {
+    case 'dropped-by-agent':
+      return {
+        reason:
+          "the agent program dropped it before its conversation took it (a hook blocked it); it is not in the agent's conversation",
+        action: 'Sending it again is safe, though the same hook may block it again.',
+      }
+    case 'not-recorded':
+      return {
+        reason:
+          "the agent program ended its turn without recording it; it is not in the agent's conversation",
+        action: 'Sending it again is safe.',
+      }
+    case 'agent-exited':
+      return {
+        reason:
+          "the agent program exited without recording it; it is not in the agent's conversation",
+        action: 'Sending it again is safe.',
+      }
+  }
+}
 
 export class MessageDeliveryService {
   /** hop of the message that triggered the CURRENT turn per session — set at
@@ -2475,7 +2509,7 @@ export class MessageDeliveryService {
   private async deadLetter(
     message: MessageRow,
     reason: string,
-    opts: { notifySender?: boolean; cause?: QueueDrainAbandonedReason; failure: SendFailure },
+    opts: { notifySender?: boolean; cause?: MessageFailedCause; failure: SendFailure },
   ): Promise<DeliveryOutcome> {
     const at = this.deps.now()
     const cause =
@@ -2590,6 +2624,8 @@ export class MessageDeliveryService {
             reason: `you are no longer allowed to reach it${failure.detail ? ` (${failure.detail})` : ''}`,
             action: 'Do not resend; do not wait for a reply.',
           }
+        case 'not-in-conversation':
+          return notInConversationWords(failure.cause)
         case 'never-typed':
           switch (failure.cause) {
             case 'never-live':
@@ -2778,14 +2814,43 @@ export class MessageDeliveryService {
   async rejectQueuedInput(
     messageId: string,
     reason: string,
-    cause?: QueueDrainAbandonedReason,
+    cause?: MessageFailedCause,
   ): Promise<void> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message || !isMessagePending(message.deliveryStatus)) return
     await this.deadLetter(message, reason, {
       notifySender: true,
       ...(cause ? { cause } : {}),
-      failure: cause ? { kind: 'never-typed', cause } : notAllowed(reason),
+      failure: !cause
+        ? notAllowed(reason)
+        : isNotInConversationCause(cause)
+          ? { kind: 'not-in-conversation', cause }
+          : { kind: 'never-typed', cause },
+    })
+  }
+
+  /**
+   * A LATE "NO" (POD-4887; POD-4819 §4, §6.1). The daemon reported the
+   * message unconfirmed, the server recorded it `unknown` and dropped its
+   * row, and the agent program's own evidence has now proved it is not in the
+   * conversation — the process exited and its history lacks it, say. `unknown`
+   * may still go `failed`; this moves only a message handed on to this
+   * session and still open, and tells its sender once, like any failure.
+   */
+  async onQueuedInputDisprovenLate(
+    messageId: string,
+    sessionId: SessionId,
+    reason: string,
+    cause: NotInConversationCause,
+  ): Promise<void> {
+    const message = await this.deps.messages.getMessage(messageId)
+    if (!message || !isMessageHandedOn(message.deliveryStatus) || message.deliveredTo !== sessionId)
+      return
+    if (this.render.isPointer(message)) return
+    await this.deadLetter(message, reason, {
+      notifySender: true,
+      cause,
+      failure: { kind: 'not-in-conversation', cause },
     })
   }
 

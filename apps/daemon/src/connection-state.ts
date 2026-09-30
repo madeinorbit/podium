@@ -24,8 +24,10 @@ import {
   type PeerCredential,
   type PeerHelloRejected,
 } from '@podium/protocol'
+import { isNotInConversationCause } from '@podium/model'
 import {
   CAP_DELIVERY_ACCEPTED,
+  CAP_DELIVERY_NOT_IN_CONVERSATION,
   isDurableRuntimeEvent,
   type DaemonMessage,
 } from '@podium/protocol/daemon'
@@ -413,7 +415,24 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     runtimeEventRetryTimer = undefined
   }
 
-  const sendConnected = (msg: DaemonMessage): boolean => {
+  /**
+   * A PROVEN "NO" GOES ONLY TO A SERVER THAT READS IT (POD-4887). A server
+   * built before these causes would tell the sender the message was never
+   * typed; on its link the row goes as `unconfirmed`, the `unknown` it always
+   * recorded for it. At every write, retained replays included: the outbox
+   * keeps the real cause for the next link.
+   */
+  const forLink = (msg: DaemonMessage): DaemonMessage =>
+    msg.type === 'runtimeEvent' &&
+    msg.event.t === 'delivery' &&
+    msg.event.outcome === 'failed' &&
+    isNotInConversationCause(msg.event.cause) &&
+    !acceptedCaps.has(CAP_DELIVERY_NOT_IN_CONVERSATION)
+      ? { ...msg, event: { ...msg.event, cause: 'unconfirmed' } }
+      : msg
+
+  const sendConnected = (frame: DaemonMessage): boolean => {
+    const msg = forLink(frame)
     if (localAttachment) {
       try {
         localAttachment.deliver(msg)
@@ -919,6 +938,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         // POD-4886: this daemon reports `accepted` for a held row. Offered so
         // a server that reads it can say so; sent only once it has.
         CAP_DELIVERY_ACCEPTED,
+        // POD-4887: this daemon reports a proven "not delivered" cause. Sent
+        // only once the server accepts it; otherwise as `unconfirmed`.
+        CAP_DELIVERY_NOT_IN_CONVERSATION,
       ],
       ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {

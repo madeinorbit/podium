@@ -1198,6 +1198,35 @@ describe('dead-letter cause for injected-but-unconfirmed rows [POD-4704]', () =>
     expect(notices[0]!.body).not.toContain('session no longer exists')
   })
 
+  it.each([
+    ['dropped-by-agent', 'the agent program dropped it before its conversation took it (a hook blocked it)'],
+    ['not-recorded', 'the agent program ended its turn without recording it'],
+    ['agent-exited', 'the agent program exited without recording it'],
+  ] as const)(
+    '[POD-4887] a proven %s tells the sender it is not in the conversation and safe to resend',
+    async (cause, words) => {
+      const senderSession = session({ sessionId: asSessionId('sX'), cwd: '/wt/b' })
+      const targetSession = session({ sessionId: asSessionId('s1'), cwd: '/wt/a' })
+      const { svc, store } = await harness([senderSession, targetSession])
+      const r = await svc.send(
+        { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
+        { to: { kind: 'issue', id: ISSUE.id }, body: 'typed, then proven not kept' },
+      )
+      await svc.rejectQueuedInput(r.message.id, 'a driver reason', cause)
+      const message = (await store.messages.getMessage(r.message.id))!
+      expect(message.deliveryStatus).toBe('failed')
+      expect(message.deliveryDeferredReason).toBe(cause)
+      const notices = (
+        await store.messages.listMessagesFor({ kind: 'session', id: asSessionId('sX') })
+      ).filter((m) => m.kind === 'notification' && m.fromKind === 'system')
+      expect(notices).toHaveLength(1)
+      expect(notices[0]!.body).toContain('was not delivered')
+      expect(notices[0]!.body).toContain(`${words}; it is not in the agent's conversation`)
+      expect(notices[0]!.body).toContain('Sending it again is safe')
+      expect(notices[0]!.body).not.toMatch(/never typed|target (was )?gone|may not have been/)
+    },
+  )
+
   it('an apply-time refusal tells the sender it may no longer reach the target', async () => {
     const senderSession = session({ sessionId: asSessionId('sX'), cwd: '/wt/b' })
     const { svc, store } = await harness([senderSession])
@@ -3640,6 +3669,37 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
         (e) => e.subject === lost,
       ),
     ).toHaveLength(1)
+  })
+
+  it('a late proven "no" fails only an open message handed to its own session, once [POD-4887]', async () => {
+    const { svc, store } = await harness([
+      session({ sessionId: asSessionId('sX'), cwd: '/wt/b' }),
+      session({ sessionId: asSessionId('s1') }),
+      session({ sessionId: asSessionId('s2') }),
+    ])
+    const r = await svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
+      { to: { kind: 'session', id: asSessionId('s1') }, body: 'lost with the process' },
+    )
+    const lost = r.message.id
+    const status = async (id: string) => (await store.messages.getMessage(id))?.deliveryStatus
+    await svc.onQueuedInputUnknown(lost, asSessionId('s1'), 'delivery could not be confirmed')
+    expect(await status(lost)).toBe('unknown')
+    // Another session's evidence says nothing about a message handed to s1.
+    await svc.onQueuedInputDisprovenLate(lost, asSessionId('s2'), 'exited', 'agent-exited')
+    expect(await status(lost)).toBe('unknown')
+    await svc.onQueuedInputDisprovenLate(lost, asSessionId('s1'), 'exited', 'agent-exited')
+    expect(await status(lost)).toBe('failed')
+    expect((await store.messages.getMessage(lost))!.deliveryDeferredReason).toBe('agent-exited')
+    await svc.onQueuedInputDisprovenLate(lost, asSessionId('s1'), 'exited', 'agent-exited')
+    const notices = (
+      await store.messages.listMessagesFor({ kind: 'session', id: asSessionId('sX') })
+    ).filter((m) => m.kind === 'notification' && m.fromKind === 'system')
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.body).toContain('the agent program exited without recording it')
+    // `failed` stays final: late proof of a record moves nothing.
+    await svc.onQueuedInputProvenLate(lost, asSessionId('s1'))
+    expect(await status(lost)).toBe('failed')
   })
 
   /** A frame as the server renders it: head line, body, closing line. */

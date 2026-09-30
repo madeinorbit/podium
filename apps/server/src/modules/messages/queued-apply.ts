@@ -6,7 +6,7 @@ import {
   type SessionId,
   type TranscriptItemRef,
 } from '@podium/model'
-import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
+import type { MessageFailedCause } from '@podium/protocol/daemon'
 import type { MessageRow } from '../../store'
 import type { MessageDeliveryDeps } from './service'
 
@@ -31,7 +31,7 @@ export class QueuedMessageApply {
       applied(messageId: string, sessionId: SessionId): Promise<void>
       injected(messageId: string, sessionId: SessionId): Promise<void>
       unconfirmed(messageId: string, sessionId: SessionId, reason: string): Promise<void>
-      rejected(messageId: string, reason: string, cause?: QueueDrainAbandonedReason): Promise<void>
+      rejected(messageId: string, reason: string, cause?: MessageFailedCause): Promise<void>
     },
   ) {}
 
@@ -93,11 +93,7 @@ export class QueuedMessageApply {
   /** The inbox refused the row at apply time (no `cause`), or the daemon said
    *  it was never typed (`cause`): the message fails and its sender is told,
    *  in one write (POD-4778). */
-  async reject(
-    messageId: string,
-    reason: string,
-    knownCause?: QueueDrainAbandonedReason,
-  ): Promise<void> {
+  async reject(messageId: string, reason: string, knownCause?: MessageFailedCause): Promise<void> {
     const completion: Promise<void> = this.deps.rejected(messageId, reason, knownCause)
     await completion
   }

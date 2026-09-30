@@ -411,14 +411,14 @@ describe('the entry is named by our id once Grok recorded the prompt', () => {
     try {
       const handle = await runtime.driver.create(spec())
       const named: TranscriptItemRef[] = []
-      const unrecorded: string[] = []
+      const unrecorded: [string, string | undefined][] = []
       const receipt = await handle.send(
         { id: 'msg_blocked', text: 'blocked' },
         {
           origin: 'human',
           delivery: 'when-ready',
           onTranscriptItem: (item) => named.push(item),
-          onUnrecorded: (reason) => unrecorded.push(reason),
+          onUnrecorded: (reason, proof) => unrecorded.push([reason, proof]),
         },
       )
       // Grok took it (the queue ack) before its hook refused it.
@@ -426,7 +426,7 @@ describe('the entry is named by our id once Grok recorded the prompt', () => {
       w.serverFor(handle.binding.sessionId).runPromptHook('block')
       await expect.poll(async () => (await handle.state()).phase).not.toBe('working')
       expect(named).toEqual([])
-      expect(unrecorded).toEqual(['dropped by a Grok hook'])
+      expect(unrecorded).toEqual([['dropped by a Grok hook', 'dropped-by-agent']])
       expect(userItems((await handle.transcript.history({ limit: 100 })).items)).toEqual([])
     } finally {
       runtime.dispose()
@@ -467,6 +467,42 @@ describe('the entry is named by our id once Grok recorded the prompt', () => {
         rowId: 'msg_row',
         outcome: 'delivered',
         transcriptItem: { id: 'grok-user-msg_row' },
+      })
+      await iterator.return?.()
+    } finally {
+      runtime.dispose()
+    }
+  })
+  it('settles a durable row its hook blocked as not delivered, never unknown (POD-4887)', async () => {
+    // Measured (grok-acp 1.0.44, README §Grok): a blocking UserPromptSubmit hook
+    // ends our turn `cancelled` with `HookDenied` and writes nothing. That is
+    // Grok's own record of the drop: `failed`/`dropped-by-agent`, safe to resend.
+    const w = world({ promptHook: true })
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
+    try {
+      const handle = await runtime.driver.create(spec())
+      const before = await handle.snapshot()
+      await handle.send(
+        { id: 'msg_denied', text: 'blocked', rowId: 'msg_denied' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      const server = w.serverFor(handle.binding.sessionId)
+      await expect.poll(() => server.promptCount).toBe(1)
+      const iterator = handle.events(before.cursor)[Symbol.asyncIterator]()
+      const next = async (): Promise<RuntimeEvent> => {
+        for (;;) {
+          const step = await iterator.next()
+          if (step.done) throw new Error('event stream ended')
+          if (step.value.t === 'delivery') return step.value
+        }
+      }
+      expect(await next()).toMatchObject({ rowId: 'msg_denied', outcome: 'accepted' })
+      server.runPromptHook('block')
+      expect(await next()).toMatchObject({
+        t: 'delivery',
+        rowId: 'msg_denied',
+        outcome: 'failed',
+        cause: 'dropped-by-agent',
       })
       await iterator.return?.()
     } finally {

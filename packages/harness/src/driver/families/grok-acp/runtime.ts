@@ -16,6 +16,7 @@ import { initialAgentState, reduceAgentState } from '../../../observer.js'
 import type {
   AgentRuntimeState,
   HarnessRef,
+  NotInConversationCause,
   ResumeRef,
   SessionId,
   TranscriptItem,
@@ -852,11 +853,16 @@ export function createGrokAcpRuntime(
     delivery.onTranscriptItem?.({ id }, grokPromptRef(promptId))
   }
 
-  function markUnrecorded(session: DriverSession, delivery: PromptDelivery, reason: string): void {
+  function markUnrecorded(
+    session: DriverSession,
+    delivery: PromptDelivery,
+    reason: string,
+    proof?: NotInConversationCause,
+  ): void {
     if (!delivery.acked || delivery.recorded || delivery.unrecorded) return
     delivery.unrecorded = true
     session.receiptWatches.delete(delivery.promptId)
-    delivery.onUnrecorded?.(reason)
+    delivery.onUnrecorded?.(reason, proof)
   }
 
   function ingestQueueChanged(session: DriverSession, frame: GrokAcpFrame): void {
@@ -889,8 +895,11 @@ export function createGrokAcpRuntime(
       notification.params._meta?.cancellationCategory === 'HookDenied' &&
       promptId
     ) {
+      // GROK'S OWN RECORD OF THE DROP (POD-4887; POD-4819 §6.1 N2b): measured
+      // on 1.0.44, a blocking hook ends our turn `cancelled` as `HookDenied`
+      // and writes nothing. Not in the conversation, safe to resend.
       const delivery = session.receiptWatches.get(promptId)
-      if (delivery) markUnrecorded(session, delivery, 'dropped by a Grok hook')
+      if (delivery) markUnrecorded(session, delivery, 'dropped by a Grok hook', 'dropped-by-agent')
     }
     const eventId = notification.params._meta?.eventId
     const ordinal = grokAcpEventOrdinal(eventId)

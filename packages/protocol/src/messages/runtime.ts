@@ -3,6 +3,8 @@ export { NativeBindingReceipt } from './native-binding'
 import {
   DriverFamilyWire,
   HarnessRef,
+  NOT_IN_CONVERSATION_CAUSES,
+  type NotInConversationCause,
   ResumeRef,
   SessionIdField,
   TranscriptItem,
@@ -130,7 +132,16 @@ export const RefusalReason = z.enum([
 ])
 export type RefusalReason = z.infer<typeof RefusalReason>
 
-export const DELIVERY_FAILURE_CAUSES = ['not-accepting-input', 'unconfirmed', 'rejected-by-agent'] as const
+export const DELIVERY_FAILURE_CAUSES = [
+  'not-accepting-input',
+  'unconfirmed',
+  'rejected-by-agent',
+  // A PROVEN "NO" FROM THE PROGRAM'S OWN EVIDENCE (POD-4887; POD-4819 §6.1 N2b,
+  // N3, N4): typed, and not in the agent's conversation. See
+  // `NOT_IN_CONVERSATION_CAUSES` for each, and CAP_DELIVERY_NOT_IN_CONVERSATION
+  // for who may be told.
+  ...NOT_IN_CONVERSATION_CAUSES,
+] as const
 export type DeliveryFailureCause = (typeof DELIVERY_FAILURE_CAUSES)[number]
 
 export const Refusal = z.object({
@@ -366,6 +377,13 @@ export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservati
  *                          landed. Not a failure at all to the server, which
  *                          records the message `unknown`: retyping it could
  *                          open a duplicate turn, and it may still arrive.
+ *  - `rejected-by-agent`   the program refused our request explicitly and
+ *                          recorded nothing (§6.1 N2).
+ *  - `dropped-by-agent`, `not-recorded`, `agent-exited` (POD-4887): typed,
+ *                          and proven NOT in the conversation by the program's
+ *                          own evidence (§6.1 N2b, N3, N4). A real failure,
+ *                          safe to resend. Only sent to a server that accepted
+ *                          {@link CAP_DELIVERY_NOT_IN_CONVERSATION}.
  *
  * Carried as a plain optional string beside the outcome, never as a new
  * outcome arm: an older server strips a field it does not know and reads the
@@ -403,6 +421,20 @@ export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservati
  * Losing one to a link drop costs a status, never a verdict: the row's
  * settlement is retained as ever, and the server moves forward only.
  */
+/*
+ * A PROVEN "NO" IS NEGOTIATED TOO (POD-4887). The cause is a plain string, so
+ * any server parses the frame; but a server built before these causes reads
+ * any cause it does not know as "never typed" and tells the sender so, which
+ * claims more than the proof does. So the daemon sends them only on a link
+ * whose server accepted this capability, and on any other link sends
+ * `unconfirmed` instead — the message `unknown` there, today's handling.
+ * Checked at every write, since a retained outcome may replay into another
+ * link.
+ */
+/** Link capability (POD-4887): this server reads the causes in
+ *  `NOT_IN_CONVERSATION_CAUSES` on a `failed` delivery outcome. */
+export const CAP_DELIVERY_NOT_IN_CONVERSATION = 'delivery.not-in-conversation'
+
 /** Link capability (POD-4886): this server reads the delivery outcome
  *  `accepted`. The daemon offers it; the server's acceptance licenses it. */
 export const CAP_DELIVERY_ACCEPTED = 'delivery.accepted'
@@ -1029,6 +1061,15 @@ export type RuntimeStageAttachmentResultMessage = z.infer<
  */
 export const QueueDrainAbandonedReason = z.enum(['never-live', 'teardown', 'delivery-failed'])
 export type QueueDrainAbandonedReason = z.infer<typeof QueueDrainAbandonedReason>
+
+/**
+ * WHY THE SERVER RECORDS A MESSAGE `failed` ON A MACHINE'S WORD: a driver queue
+ * gave up before typing it (above), or the agent program's own evidence
+ * proved it is not in the conversation (POD-4887, `NOT_IN_CONVERSATION_CAUSES`).
+ * Server-side only, stored as the row's `delivery_deferred_reason`; never a
+ * value of the drain-abandoned frame above.
+ */
+export type MessageFailedCause = QueueDrainAbandonedReason | NotInConversationCause
 
 /**
  * daemon → server: a driver queue gave up on turns it had accepted. No turn was

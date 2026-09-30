@@ -1,4 +1,9 @@
-import { type HarnessRef, mergeHarnessRefs, type TranscriptItemRef } from '@podium/model'
+import {
+  type HarnessRef,
+  mergeHarnessRefs,
+  type NotInConversationCause,
+  type TranscriptItemRef,
+} from '@podium/model'
 import type { DeliveryFailureCause } from '@podium/protocol/daemon'
 import type { AgentSessionHandle } from './driver.js'
 import type { RuntimeEventBody } from './events.js'
@@ -101,8 +106,9 @@ export function withDeliveryQueue(
       ...(ids ? { harnessRef: ids } : {}),
     })
   }
-  /** Rows the driver said it will not record before their receipt came back. */
-  const unrecordedEarly = new Map<string, string>()
+  /** Rows the driver said it will not record before their receipt came back,
+   *  and the program's proof of it when it had one (POD-4887). */
+  const unrecordedEarly = new Map<string, { reason: string; proof?: NotInConversationCause }>()
   const send = handle.send.bind(handle)
   let draining = false
   const pause = (ms: number) =>
@@ -165,20 +171,36 @@ export function withDeliveryQueue(
     emit(event)
   }
   /**
-   * A HELD ROW THE PROGRAM WILL NOT RECORD (POD-4849): what held it ended
-   * first. Unconfirmed — the server's `unknown` — and never `failed`: nothing
-   * here proves the model did not see it, and a retry could run it twice.
+   * A ROW THE PROGRAM WILL NOT RECORD (POD-4849): what held it ended first.
+   * Unconfirmed — the server's `unknown` — and never `failed`: nothing here
+   * proves the model did not see it, and a retry could run it twice.
+   *
+   * UNLESS THE PROGRAM PROVED IT (POD-4887; POD-4819 §6.1 N2b, N3, N4): its
+   * own evidence says the message is not in its conversation. Then `failed`
+   * with that cause, safe to resend: at once for a held row; on its receipt
+   * for a row still being typed; and as a late "no" for a row that already
+   * settled unconfirmed — the one outcome a proof may still move, as
+   * `proveLate` moves it the other way. Whichever proof comes first wins.
    */
-  function unrecorded(id: string, reason: string): void {
+  function unrecorded(id: string, reason: string, proof?: NotInConversationCause): void {
     // A DURABLE HOLD HAS NO SUCH END (POD-4886): the program keeps the message
     // across the end of a turn, of the session, of its own process, and may
     // still run it. Only its record settles it.
     if (held.get(id)?.kind === 'durable') return
     if (held.has(id)) {
-      settle(id, 'failed', reason, 'unconfirmed')
+      settle(id, 'failed', reason, proof ?? 'unconfirmed')
       return
     }
-    if (rows.has(id) && !finished.has(id)) unrecordedEarly.set(id, reason)
+    const prior = finished.get(id)
+    if (prior) {
+      if (proof && prior.outcome === 'failed' && prior.cause === 'unconfirmed') {
+        const event: Outcome = { ...prior, reason, cause: proof }
+        finished.set(id, event)
+        emit(event)
+      }
+      return
+    }
+    if (rows.has(id)) unrecordedEarly.set(id, { reason, ...(proof ? { proof } : {}) })
   }
   /**
    * AN UNCONFIRMED ROW, PROVEN LATE (POD-4840): the driver's watch outlived
@@ -316,7 +338,7 @@ export function withDeliveryQueue(
               deliveryAttempt: true,
               signal: row.abort.signal,
               onTranscriptItem: (item, harnessRef) => name(id, item, harnessRef),
-              onUnrecorded: (reason) => unrecorded(id, reason),
+              onUnrecorded: (reason, proof) => unrecorded(id, reason, proof),
               onLateProof: ({ transcriptItem, harnessRef }) =>
                 proveLate(id, transcriptItem, harnessRef),
             },
@@ -341,7 +363,7 @@ export function withDeliveryQueue(
             // never retractable, but not delivered until the driver says so.
             const lost = receipt.held === 'memory' ? unrecordedEarly.get(id) : undefined
             if (lost !== undefined) {
-              settle(id, 'failed', lost, 'unconfirmed')
+              settle(id, 'failed', lost.reason, lost.proof ?? 'unconfirmed')
               continue
             }
             unrecordedEarly.delete(id)
@@ -408,6 +430,13 @@ export function withDeliveryQueue(
           )
           continue
         }
+        // A PROGRAM'S OWN "NO" THAT CAME BEFORE ITS RECEIPT (POD-4887): a hook
+        // dropped it inside the window, say. Not delivered, safe to resend.
+        const disproved = unrecordedEarly.get(id)
+        if (disproved?.proof) {
+          settle(id, 'failed', disproved.reason, disproved.proof)
+          continue
+        }
         // Neither an unverified write nor admission to another local queue
         // proves loss. Retyping either can open a duplicate turn. The durable
         // failure keeps the text recoverable for an explicit operator retry.
@@ -446,9 +475,24 @@ export function withDeliveryQueue(
           ...(ids ? { harnessRef: ids } : {}),
         })
       }
+      // A DIRECT SEND'S PROVEN "NO" (POD-4887) goes under the same id; one
+      // without proof says nothing, as before: the server's own receipt
+      // handling leaves it where the receipt put it.
+      const disproved = (reason: string, proof?: NotInConversationCause) => {
+        if (!proof) return
+        emit({
+          t: 'delivery',
+          rowId: turnId,
+          outcome: 'failed',
+          reason,
+          cause: proof,
+          ...(known ? { harnessRef: known } : {}),
+        })
+      }
       const receipt = await send(input, {
         ...options,
         onTranscriptItem: options.onTranscriptItem ?? delivered,
+        onUnrecorded: options.onUnrecorded ?? disproved,
         onLateProof:
           options.onLateProof ??
           (({ transcriptItem, harnessRef }) => delivered(transcriptItem, harnessRef)),
