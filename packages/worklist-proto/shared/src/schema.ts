@@ -57,6 +57,7 @@ export type ModelSchemaName =
   | 'RepoProjection'
   | 'GitRepositoryWire'
   | 'GitWorktreeWire'
+  | 'IssueGitState'
 
 /**
  * Where a row physically arrives from.
@@ -484,7 +485,8 @@ const SESSION_STATUS_RANK: Readonly<Record<string, number>> = {
 // `buildUnifiedRows`, `rows.ts:51-118`, with `sessionRetainsWorklistRow` and
 // `issueVisibleInSidebar` from `slices/worklist/visibility.ts`). Each is the
 // latest instant its input could keep the row visible. The inputs are every
-// input R-VIS has: the issue's own standing, its explicit members (R2) and the
+// input R-VIS has: the issue's own standing, its unlanded branch
+// (`awaitingMergeOf`, no decay), its explicit members (R2) and the
 // issueless sessions its own checkout seats (R3, POD-4745). What is left out
 // only makes a row resident that R-VIS hides: the rescue (a finished row is
 // never rescued, `rows.ts:147`), nesting and placement (they only hide), the
@@ -524,14 +526,86 @@ function issueFinished(row: Readonly<Record<string, unknown>>): boolean {
 }
 
 /**
+ * The most the merge verdict reads of an issue row: the finished and blocked
+ * standing, the close reason (abandoned closures ask nothing), and the
+ * checkout's merge axis. Structural so a frozen slice row (`SliceIssue`,
+ * which does not spell `branch`/`gitState`) still answers it: the pool's
+ * composed row carries the wire's fields at runtime
+ * (`row-source.ts:84`, the wire cast).
+ */
+export interface MergeVerdictRow {
+  readonly stage?: unknown
+  readonly closedReason?: unknown
+  readonly blocked?: unknown
+  readonly branch?: unknown
+  readonly gitState?: unknown
+}
+
+/**
+ * `issueAbandoned`'s read of the close reason (`issueStatusOf`,
+ * `model/src/entities/issue-status.ts:220-225`, via views.ts
+ * `canonicalCloseReason`): the legacy spellings, else the four-word
+ * vocabulary, else — an unknown word — `done`. Abandoned iff the answer is
+ * not `done`. A third copy of the map (model, views.ts, here): shared cannot
+ * import the model runtime (arms must not pull zod into their bundles to read
+ * this file) nor the arm, so it is cited, not shared.
+ */
+const LEGACY_CLOSE_REASONS: Readonly<Record<string, string>> = {
+  wontfix: 'cancelled',
+  wont_fix: 'cancelled',
+  "won't fix": 'cancelled',
+  'not planned': 'cancelled',
+  canceled: 'cancelled',
+  dupe: 'duplicate',
+}
+
+function abandonedCloseReason(closedReason: unknown): boolean {
+  if (typeof closedReason !== 'string') return false
+  const key = closedReason.trim().toLowerCase()
+  if (key === '') return false
+  const canonical =
+    LEGACY_CLOSE_REASONS[key] ??
+    (key === 'done' || key === 'cancelled' || key === 'duplicate' || key === 'superseded'
+      ? key
+      : 'done')
+  return canonical !== 'done'
+}
+
+/**
+ * `issuePendingDecision` (`slices/issues.ts:391-404`) without the review
+ * fallback: a finished, non-abandoned issue whose private branch holds
+ * unlanded work (`issueHasUnmergedDelivery`, `slices/issues.ts:357-367`).
+ * R-VIS keeps such a row without limit (`rows.ts:95-104`,
+ * `visibility.ts:31-32`), so the cold bound must too.
+ */
+export function awaitingMergeOf(row: MergeVerdictRow): boolean {
+  const finished = row.stage === 'done' || row.closedReason != null
+  if (!finished || row.blocked === true) return false
+  if (abandonedCloseReason(row.closedReason)) return false
+  const git = row.gitState as { shared?: unknown; merged?: unknown; ahead?: unknown } | null | undefined
+  return (
+    typeof row.branch === 'string' &&
+    row.branch.length > 0 &&
+    git != null &&
+    git.shared === false &&
+    git.merged !== true &&
+    typeof git.ahead === 'number' &&
+    git.ahead > 0
+  )
+}
+
+/**
  * How long the issue can show without a session (`rows.ts:83-106`): an
  * active human issue and a closed top-level human issue without limit (the
- * closed fold does not decay, `visibility.ts:30`); a finished human child
- * inside `issueVisibleInSidebar`'s window, whichever of the unread and read
- * windows is later (the unread rollup reads sessions); anything else never.
+ * closed fold does not decay, `visibility.ts:30`); a finished issue awaiting
+ * merge without limit (unlanded commits stay unlanded, `visibility.ts:32`);
+ * a finished human child inside `issueVisibleInSidebar`'s window, whichever
+ * of the unread and read windows is later (the unread rollup reads sessions);
+ * anything else never.
  */
 function issueShownUntil(row: Readonly<Record<string, unknown>>): number {
   if (issueExcluded(row)) return Number.NEGATIVE_INFINITY
+  if (awaitingMergeOf(row)) return Number.POSITIVE_INFINITY
   const human = row['audience'] === 'human'
   const stage = row['stage']
   if (human && (stage === 'planning' || stage === 'in_progress' || stage === 'review')) {
@@ -629,6 +703,18 @@ const DECLARED = defineSchema({
       repoId: { type: 'id', optional: true, nullable: true, source: wire(), note: 'Foreign key of the `repo` relation.' },
       repoPath: { type: 'string', source: wire(), note: 'On the wire only — IssueProjection does not carry it. The repo identity when repoId is absent.' },
       worktreePath: { type: 'string', optional: true, nullable: true, source: wire(), note: 'Foreign key of the `worktree` relation.' },
+      branch: { type: 'string', optional: true, nullable: true, source: wire(), note: 'The private checkout branch; with an unlanded `gitState` it keeps a finished row shown (`awaitingMergeOf`).' },
+      gitState: {
+        type: 'object',
+        optional: true,
+        source: wire(),
+        note: 'The checkout merge axis, derived server-side at serialization (never persisted); only the merge-axis properties are in scope.',
+        parts: {
+          shared: { type: 'boolean', source: { schema: 'IssueGitState' }, why: 'True = multi-task checkout: the merge axis is suppressed.' },
+          merged: { type: 'boolean', optional: true, source: { schema: 'IssueGitState' }, why: 'Authoritative landed verdict; absent when false.' },
+          ahead: { type: 'number', optional: true, source: { schema: 'IssueGitState' }, why: 'Commits on branch not on the parent; absent when shared.' },
+        },
+      },
       coordinatorSessionId: { type: 'id', optional: true, nullable: true, source: wire() },
       startedBySession: { type: 'id', optional: true, nullable: true, source: wire(), note: 'Foreign key of the `startedBy` relation: the worklist nests a parentless issue under the one its starter session belongs to.' },
       deps: {
@@ -739,17 +825,20 @@ const DECLARED = defineSchema({
     },
     cold: {
       kind: 'unlessShown',
-      when: 'closedAt != null, and neither the issue itself, nor any member session, nor any issueless session in its own checkout can keep it in the list at the current clock',
+      when: 'closedAt != null, and neither the issue itself (its standing, or an unlanded branch), nor any member session, nor any issueless session in its own checkout can keep it in the list at the current clock',
       dependsOn: [
         'closedAt',
         'archived',
         'deletedAt',
         'stage',
         'closedReason',
+        'blocked',
         'audience',
         'parentId',
         'readAt',
         'updatedAt',
+        'branch',
+        'gitState',
       ],
       predicate: (row) => row['closedAt'] != null,
       shownUntil: issueShownUntil,

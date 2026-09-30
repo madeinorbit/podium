@@ -767,6 +767,41 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
     expect(recent.issue('idleRecent')).toBe(false)
   })
 
+  it('keeps resident a finished row awaiting merge, without limit (issueAwaitingMerge)', () => {
+    const delivery = {
+      branch: 'task',
+      gitState: { shared: false, ahead: 3 },
+    }
+    const rule = ruleAt([
+      // The live shape (POD-4940): a finished agent child decayed past every
+      // window, kept by its unlanded private branch alone.
+      child('merged', 8, { audience: 'agent', ...delivery }),
+      // No branch, a shared checkout, a landed branch: nothing keeps them.
+      child('nobranch', 8, { audience: 'agent' }),
+      child('shared', 8, {
+        audience: 'agent',
+        branch: 'task',
+        gitState: { shared: true, ahead: 3 },
+      }),
+      child('landed', 8, {
+        audience: 'agent',
+        ...delivery,
+        gitState: { shared: false, ahead: 3, merged: true },
+      }),
+      // An abandoned closure asks nothing, even with an unlanded branch.
+      child('cancelled', 8, { audience: 'agent', closedReason: 'cancelled', ...delivery }),
+      child('dupe', 8, { audience: 'agent', closedReason: 'dupe', ...delivery }),
+      // Blocked: the merge is not the question.
+      child('blocked', 8, { audience: 'agent', blocked: true, ...delivery }),
+      // Excluded rows never show, merge verdict or not.
+      child('archived', 8, { audience: 'agent', archived: true, ...delivery }),
+    ])
+    expect(rule.issue('merged')).toBe(false)
+    for (const id of ['nobranch', 'shared', 'landed', 'cancelled', 'dupe', 'blocked', 'archived']) {
+      expect(rule.issue(id), id).toBe(true)
+    }
+  })
+
   /**
    * POD-4745 (R3): an issueless session running in the issue's own checkout
    * is one of its seats by containment (`indexSessionOwnership`,
