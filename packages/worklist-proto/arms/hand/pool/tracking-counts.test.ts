@@ -319,11 +319,11 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
     handle =
       variant === 'pool'
         ? handPoolArm.create(source, feeds.locals.source, reads, NEVER_LOAD)
-        : writableHandPoolArm(transport, NEVER_LOAD).create(
+        : (writableHandPoolArm(transport, NEVER_LOAD).create(
             source,
             feeds.locals.source,
             reads,
-          )
+          ) as WritableHandPoolHandle)
     census.exit()
     if (pending !== null) {
       const { write } = handle as WritableHandPoolHandle

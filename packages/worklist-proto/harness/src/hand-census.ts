@@ -136,7 +136,7 @@ export function startHandCensus(): HandCensus {
   })
   wrap(CellGraph.prototype as unknown as object, 'dispose', (original) => {
     const gone = function (this: unknown, ...args: never[]): unknown {
-      const entry = byCell.get(args[0] as object)
+      const entry = byCell.get(args[0] as unknown as object)
       if (entry !== undefined) entry.live = false
       return original.apply(this, args)
     }
