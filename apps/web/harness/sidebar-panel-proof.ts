@@ -55,7 +55,13 @@ try {
   })
   const page = await browser.newPage({ viewport: { width: 1200, height: 900 } })
   const errors: string[] = []
-  page.on('pageerror', (error) => errors.push(error.message))
+  page.on('pageerror', (error) => {
+    errors.push(error.message)
+    console.error('Synthetic sidebar browser error:', error.message)
+  })
+  page.on('console', (message) => {
+    if (message.type() === 'error') console.error('Synthetic sidebar console:', message.text())
+  })
   await page.goto(`${origin}/sidebar-harness.html?perfPanel=1&mobxSidebar=0&rows=6`, {
     waitUntil: 'networkidle',
     timeout: 60_000,
