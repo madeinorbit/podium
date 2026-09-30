@@ -38,13 +38,13 @@ supports_websockets = false
 [projects."${workdir}"]
 trust_level = "trusted"
 `)
+const version = Bun.spawn([cli, '--version'], { env, stdout: 'pipe', stderr: 'pipe' })
+log({ dir: 'mark', label: 'versions', codex: (await new Response(version.stdout).text()).trim(), bun: Bun.version, fakePort, rpcPort })
+await version.exited
 const fake = Bun.spawn([process.execPath, resolve(import.meta.dir, '../pod-4834-receipt-proof/codex-0.155.0/tools/fake-responses-server.ts')], {
   env: { PATH: '/usr/bin:/bin', FAKE_PORT: String(fakePort), FAKE_LOG: `${root}/model.jsonl` },
   stdout: Bun.file(`${root}/fake.stdout.log`), stderr: Bun.file(`${root}/fake.stderr.log`),
 })
-const version = Bun.spawn([cli, '--version'], { env, stdout: 'pipe', stderr: 'pipe' })
-log({ dir: 'mark', label: 'versions', codex: (await new Response(version.stdout).text()).trim(), bun: Bun.version, fakePort, rpcPort })
-await version.exited
 const engine = Bun.spawn([cli, 'app-server', '--listen', `ws://127.0.0.1:${rpcPort}`], {
   cwd: workdir, env,
   stdout: Bun.file(`${root}/engine.stdout.log`), stderr: Bun.file(`${root}/engine.stderr.log`),
