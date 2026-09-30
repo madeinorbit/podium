@@ -36,6 +36,14 @@ describe('program-held receipt evidence survives the wire', () => {
       refusal: { reason: 'invalid_value', cause: 'newer-rejection-cause' },
     })).toEqual({ outcome: 'refused', refusal: { reason: 'invalid_value' } })
   })
+
+  it('keeps an accepted receipt when a newer peer sends an unknown hold', () => {
+    const receipt = {
+      outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready',
+      provenBy: 'protocol-ack', at,
+    }
+    expect(TurnReceipt.parse({ ...receipt, held: 'newer-hold' })).toEqual(receipt)
+  })
 })
 const bodies = {
   metadata: { t: 'metadata', change: { kind: 'context', source: 'transcript', percent: 42 } },
