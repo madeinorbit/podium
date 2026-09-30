@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:net'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
@@ -51,6 +51,8 @@ describe('abduco sessions after abduco stopped being a spawn backend', () => {
     })
     const path = join(home, '.abduco', `${label}@${hostname()}`)
     await new Promise<void>((resolve) => server?.listen(path, resolve))
+    // A live master's socket is 0600: abduco marks a terminated one with S_IXGRP.
+    chmodSync(path, 0o600)
     return { HOME: home, PODIUM_HOST_SOCKET_DIR: join(root, 's') }
   }
 
