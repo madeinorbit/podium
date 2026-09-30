@@ -219,7 +219,7 @@ function NativeWindowControls({ bridge }: { bridge: NativeDesktopBridge }): JSX.
   }
 
   return (
-    <div className="native-window-controls" role="group" aria-label="Window controls">
+    <fieldset className="native-window-controls" aria-label="Window controls">
       <button
         data-pressable
         type="button"
@@ -250,7 +250,7 @@ function NativeWindowControls({ bridge }: { bridge: NativeDesktopBridge }): JSX.
       >
         <X size={15} strokeWidth={1.5} aria-hidden="true" />
       </button>
-    </div>
+    </fieldset>
   )
 }
 
