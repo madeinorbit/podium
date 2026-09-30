@@ -136,6 +136,13 @@ export function hiddenExcludedOf(hidden: HiddenIssue): boolean {
   )
 }
 
+/**
+ * POD-5024 — what the roll-ups read of a cold session for `openOwn`: its
+ * explicit owner and whether it is open, never its row. A small declared
+ * summary, like the hidden issue's.
+ */
+export const COLD_SESSION_FIELDS = ['issueId', 'archived', 'status'] as const
+
 /** Everything the visibility parts read. Tracked in the live pool; plain in the rebuild. */
 export interface VisibleInputs {
   readonly relations: RelationReader

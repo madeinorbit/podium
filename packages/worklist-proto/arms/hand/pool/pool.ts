@@ -130,6 +130,7 @@ import {
 import { type GroupLanes, type GroupsView, WorklistGroups } from './worklist/groups'
 import { LOADING, type Loaded, RollupCollection } from './worklist/rollup'
 import {
+  COLD_SESSION_FIELDS,
   directSessionParts,
   directVisibleParts,
   HIDDEN_ISSUE_FIELDS,
@@ -433,8 +434,9 @@ export class HandPool {
             now: () => this.clock.current,
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
-            // What visibility reads of a hidden issue (POD-4753), never the row.
-            summaries: { issue: HIDDEN_ISSUE_FIELDS },
+            // What visibility and roll-ups read of cold rows (POD-4753,
+            // POD-5024), never the row.
+            summaries: { issue: HIDDEN_ISSUE_FIELDS, session: COLD_SESSION_FIELDS },
             asked: (entity, id) => graph.track(coldness, `${entity}:${id}`),
             changed: (entity, id) => coldMoves.push({ kind: 'residency', entity, id }),
             peeked: (entity, id) => graph.track(coldRows, `${entity}:${id}`),
