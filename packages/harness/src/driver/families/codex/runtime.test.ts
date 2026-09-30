@@ -55,6 +55,8 @@ interface World {
   events(): RuntimeEvent[]
   /** Re-adopt the session from its journal, as the daemon's reattach does. */
   adopt(): Promise<AgentSessionHandle>
+  recorded(): CodexJournalEntry
+  liveHandle(): AgentSessionHandle | undefined
   /** Make the NEXT `onQueueAbandoned` throw, as an fsync-backed host can. */
   failNextAbandonment(): void
   dispose(): void
@@ -141,15 +143,15 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
     reportEntryPaired: (report) => void entryReports.push(report),
     /**
      * Rebind to the LIVE fake server — the durable-engine path (POD-4433).
-     * Returns the SAME server's transport (a second client on the open
-     * thread, which is what the daemon's host does over the Unix listener) or
+     * Returns a fresh client on the SAME server, initially unsubscribed,
+     * as the daemon's host does over the Unix listener, or
      * `undefined` when the engine is gone so adopt falls back to resume.
      */
     adopt: async (binding) => {
       const server = servers.get(binding.sessionId)
       if (!server || !server.alive) return undefined
       return {
-        transport: server.transport,
+        transport: server.reconnect(),
         clientAddress: `unix:///tmp/${binding.sessionId}.sock`,
         process: { key: `podium-cx-${binding.sessionId}`, pid: 1000 + seq },
         stop: async () => {
@@ -224,6 +226,8 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
     },
     events: () => [...collected],
     adopt: () => runtime.driver.adopt(handle.binding),
+    recorded: () => entries.get(handle.binding.sessionId)!,
+    liveHandle: () => runtime.handleFor(handle.binding.sessionId),
     failNextAbandonment: () => {
       failAbandonment = true
     },
@@ -1559,15 +1563,15 @@ describe('the session title on snapshot', () => {
 })
 
 describe('rebind to the surviving engine (POD-4433)', () => {
-  it('adopts the live engine: same thread, no new launch, no thread/resume', async () => {
+  it('rejoins the journalled thread on a fresh client without launching an engine', async () => {
     const w = await world()
     try {
       const before = w.handle.binding
       const adopted = await w.adopt()
-      // THE REBIND, NOT A RESUME: the engine never died, so no second child
-      // and no resume RPC — handshake and attach, on the open thread.
       expect(w.counts().launches).toBe(1)
-      expect(w.server.resumes).toBe(0)
+      expect(w.server.resumeParams).toEqual([
+        { threadId: before.resume!.value, path: w.recorded().rolloutPath },
+      ])
       expect(adopted.binding.resume).toEqual(before.resume)
       expect(adopted.binding.process.key).toBe(before.process.key)
       expect(adopted.binding.bindingVersion).toBe(before.bindingVersion + 1)
@@ -1587,7 +1591,7 @@ describe('rebind to the surviving engine (POD-4433)', () => {
       expect(first.outcome).toBe('accepted')
       const adopted = await w.adopt()
       expect(w.counts().launches).toBe(1)
-      expect(w.server.resumes).toBe(0)
+      expect(w.server.resumes).toBe(1)
       const collected: RuntimeEvent[] = []
       void (async () => {
         try {
@@ -1605,6 +1609,75 @@ describe('rebind to the surviving engine (POD-4433)', () => {
         { t: 'turn', ev: { ev: 'completed' } },
       ])
       expect((await adopted.state()).phase).toBe('idle')
+    } finally {
+      w.dispose()
+    }
+  })
+
+  it('rejoins an unloaded thread on the surviving engine and can send again', async () => {
+    const w = await world()
+    try {
+      const before = w.handle.binding
+      // The daemon's client disappeared; Codex later evicted its idle thread.
+      w.server.transport.close()
+      w.server.closeThread()
+      expect(w.server.alive).toBe(true)
+      const adopted = await w.adopt()
+      expect(w.counts().launches).toBe(1)
+      expect(adopted.binding.resume).toEqual(before.resume)
+      const receipt = await adopted.send({ text: 'after rejoin' }, { origin: 'human', delivery: 'when-ready' })
+      expect(receipt.outcome).toBe('accepted')
+      expect(w.server.turnStarts).toBe(1)
+    } finally {
+      w.dispose()
+    }
+  })
+
+  it('does not publish an adopted handle or journal until resume succeeds', async () => {
+    const w = await world()
+    try {
+      const before = w.recorded()
+      w.server.gateNextResume()
+      let live = false
+      const adopting = w.adopt().then((handle) => { live = true; return handle })
+      await settle()
+      expect(live).toBe(false)
+      expect(w.liveHandle()).toBe(w.handle)
+      expect(w.recorded()).toBe(before)
+      w.server.releaseResume()
+      const adopted = await adopting
+      expect(w.liveHandle()).toBe(adopted)
+      expect(w.recorded().bindingVersion).toBe(before.bindingVersion + 1)
+    } finally {
+      w.dispose()
+    }
+  })
+
+  it('reports resume refusal as adopt failure and closes only the new client', async () => {
+    const w = await world()
+    try {
+      const before = w.recorded()
+      w.server.scriptNextResume({ error: { code: -32600, message: 'no rollout found for journalled thread' } })
+      await expect(w.adopt()).rejects.toThrow('no rollout found for journalled thread')
+      expect(w.server.closedClients).toBe(1)
+      expect(w.server.alive).toBe(true)
+      expect(w.liveHandle()).toBe(w.handle)
+      expect(w.recorded()).toBe(before)
+      expect(w.counts()).toMatchObject({ launches: 1, stopped: 0 })
+    } finally {
+      w.dispose()
+    }
+  })
+
+  it('refuses a resume response for a different conversation', async () => {
+    const w = await world()
+    try {
+      const before = w.recorded()
+      w.server.scriptNextResume({ result: { thread: { id: 'someone-elses-thread', path: before.rolloutPath } } })
+      await expect(w.adopt()).rejects.toThrow('journalled thread')
+      expect(w.recorded()).toBe(before)
+      expect(w.server.alive).toBe(true)
+      expect(w.server.closedClients).toBe(1)
     } finally {
       w.dispose()
     }

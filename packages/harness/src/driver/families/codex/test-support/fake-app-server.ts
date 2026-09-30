@@ -117,6 +117,14 @@ export interface FakeAppServerOptions {
 export interface FakeAppServer {
   /** The pipe the driver's client talks over. */
   transport: CodexTransport
+  /** A fresh, initially unsubscribed client on this same engine. */
+  reconnect(): CodexTransport
+  /** Unload the thread while preserving its rollout and the live engine. */
+  closeThread(): void
+  /** The params of every resume, including failed calls. */
+  resumeParams: Record<string, unknown>[]
+  scriptNextResume(answer: { result: unknown } | { error: { code: number; message: string } }): void
+  closedClients: number
   /** Is the child still running? Flipped by `crash()` and by a kill. */
   alive: boolean
   /** The thread this server started or resumed, once it has. */
@@ -146,9 +154,7 @@ export interface FakeAppServer {
    * server stores it as the `clientId` of the `userMessage` item it records.
    */
   clientUserMessageIds: { method: 'turn/start' | 'turn/steer'; id: string | null }[]
-  /** `thread/resume` calls received. A rebind must NOT move this: attaching to
-   *  the surviving engine opens a second client on the open thread, and a
-   *  resume RPC there would be the fresh-start path wearing a rebind's clothes. */
+  /** `thread/resume` calls received, including rejoining a surviving engine. */
   resumes: number
   /** Make the next `turn/start` answer a JSON-RPC error. */
   failNextTurn(): void
@@ -268,7 +274,20 @@ const clientIdOf = (params: Record<string, unknown>): string | null =>
   typeof params.clientUserMessageId === 'string' ? params.clientUserMessageId : null
 
 export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppServer {
-  const toClient = makePipe()
+  const connections = new Map<Pipe, { ready: boolean; subscribed: boolean }>()
+  function openTransport(): CodexTransport {
+    const pipe = makePipe()
+    connections.set(pipe, { ready: false, subscribed: false })
+    return {
+      write: (line) => handle(line, pipe),
+      onLine: (handler) => pipe.attach(handler),
+      close() {
+        if (!connections.delete(pipe)) return
+        server.closedClients += 1
+        pipe.end()
+      },
+    }
+  }
   const threadIds = [...(options.threadIds ?? ['thr-1', 'thr-2', 'thr-3', 'thr-4', 'thr-5'])]
   let mintedThreads = 0
   const rollouts = options.rollouts ?? new Map<string, Record<string, unknown>[]>()
@@ -284,7 +303,8 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
     log.push(item)
     rollouts.set(threadId, log)
   }
-  let ready = false
+  let loaded = false
+  let nextResumeAnswer: { result: unknown } | { error: { code: number; message: string } } | undefined
   let failNext = false
   const scriptedReads: ({ result: unknown } | { error: { code: number; message: string } })[] = []
   let stallNext = false
@@ -316,15 +336,18 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
   let resumeGate = false
   let releaseResumeGate: (() => void) | undefined
   const server: FakeAppServer = {
-    transport: {
-      write(line) {
-        handle(line)
-      },
-      onLine: (handler) => toClient.attach(handler),
-      close() {
-        toClient.end()
-      },
+    transport: openTransport(),
+    reconnect: openTransport,
+    closeThread() {
+      notify('thread/closed', { threadId: server.threadId })
+      loaded = false
+      openTurn = undefined
+      pendingTurn = undefined
+      for (const connection of connections.values()) connection.subscribed = false
     },
+    resumeParams: [],
+    scriptNextResume: (answer) => { nextResumeAnswer = answer },
+    closedClients: 0,
     alive: true,
     threadId: undefined,
     threadNames: [],
@@ -541,25 +564,25 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
     },
     crash() {
       server.alive = false
-      toClient.end()
+      for (const pipe of connections.keys()) pipe.end()
+      connections.clear()
     },
     close() {
       server.alive = false
-      toClient.end()
+      for (const pipe of connections.keys()) pipe.end()
+      connections.clear()
     },
   }
 
-  /** Responses OMIT `jsonrpc`, as the real server's do. */
-  const respond = (id: number | string, result: unknown): void =>
-    toClient.push(JSON.stringify({ id, result }))
-  const respondError = (id: number | string, code: number, message: string): void =>
-    toClient.push(JSON.stringify({ id, error: { code, message } }))
-  const notify = (method: string, params: unknown): void =>
-    toClient.push(
-      JSON.stringify({ jsonrpc: '2.0', method, params, emittedAtMs: 1_786_700_000_000 }),
-    )
-  const request = (id: number, method: string, params: unknown): void =>
-    toClient.push(JSON.stringify({ jsonrpc: '2.0', id, method, params }))
+  const notify = (method: string, params: unknown): void => {
+    for (const [pipe, connection] of connections) {
+      if (connection.subscribed) pipe.push(JSON.stringify({ jsonrpc: '2.0', method, params, emittedAtMs: 1_786_700_000_000 }))
+    }
+  }
+  const request = (id: number, method: string, params: unknown): void => {
+    const subscribed = [...connections].filter(([, connection]) => connection.subscribed).at(-1)
+    subscribed?.[0].push(JSON.stringify({ jsonrpc: '2.0', id, method, params }))
+  }
 
   /** Move a turn from ACKED to STEERABLE, which is what `turn/started` means. */
   function announceStarted(turnId: string): void {
@@ -598,8 +621,13 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
     }
   }
 
-  function handle(line: string): void {
+  function handle(line: string, pipe: Pipe): void {
     if (!server.alive) return
+    const connection = connections.get(pipe)
+    if (!connection) return
+    /** Responses OMIT `jsonrpc`, as the real server's do. */
+    const respond = (id: number | string, result: unknown): void => pipe.push(JSON.stringify({ id, result }))
+    const respondError = (id: number | string, code: number, message: string): void => pipe.push(JSON.stringify({ id, error: { code, message } }))
     let frame: {
       id?: number | string
       method?: string
@@ -632,7 +660,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
      * send early rather than trying and recovering: on the real server an early
      * call also POISONS the connection, so there is nothing to recover to.
      */
-    if (!ready && method !== 'initialize') return
+    if (!connection.ready && method !== 'initialize') return
 
     if (id === undefined) return
 
@@ -651,7 +679,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         const muted = capabilities.optOutNotificationMethods ?? []
         server.mutedNotificationMethods = [...muted]
         server.optedOutOfDeltas = muted.includes('item/agentMessage/delta')
-        ready = true
+        connection.ready = true
         respond(id, {
           userAgent: 'podium/0.147.0 (fake)',
           codexHome: '/home/agent/.codex',
@@ -667,12 +695,21 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         const threadId = threadIds[mintedThreads++] ?? `thr-${mintedThreads}`
         server.threadId = threadId
         threads.add(threadId)
+        loaded = true
+        connection.subscribed = true
         respond(id, { thread: threadPayload(threadId) })
         notify('thread/started', { thread: threadPayload(threadId) })
         return
       }
       case 'thread/resume': {
         server.resumes += 1
+        server.resumeParams.push(params)
+        const scripted = nextResumeAnswer
+        nextResumeAnswer = undefined
+        if (scripted && 'error' in scripted) {
+          respondError(id, scripted.error.code, scripted.error.message)
+          return
+        }
         const threadId = String(params.threadId)
         /**
          * NO SUCH THREAD IS AN ERROR, not a thread. Codex looks the id up among
@@ -683,9 +720,11 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
           respondError(id, -32000, `no rollout file for thread ${threadId}`)
           return
         }
-        server.threadId = threadId
         const answer = (): void => {
-          respond(id, { thread: threadPayload(threadId) })
+          server.threadId = threadId
+          loaded = true
+          connection.subscribed = true
+          respond(id, scripted && 'result' in scripted ? scripted.result : { thread: threadPayload(threadId) })
           notify('thread/started', { thread: threadPayload(threadId) })
         }
         if (resumeGate) {
@@ -729,6 +768,10 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         return
       }
       case 'turn/start': {
+        if (!loaded || params.threadId !== server.threadId) {
+          respondError(id, -32600, `thread not found: ${params.threadId}`)
+          return
+        }
         if (failNext) {
           failNext = false
           // A REFUSED TURN, not an unprovable one. There is no verification
