@@ -917,8 +917,6 @@ export class DaemonRpcService {
       timeoutMs?: number
       model?: string
       effort?: string
-      /** Routine mail the daemon may coalesce (POD-4716). Absent = deliver alone. */
-      coalescable?: boolean
     },
     machineId: MachineId,
   ): Promise<TurnReceipt> {
@@ -959,7 +957,6 @@ export class DaemonRpcService {
         ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.effort ? { effort: input.effort } : {}),
-        ...(input.coalescable ? { coalescable: true as const } : {}),
       }),
       machineId,
     )

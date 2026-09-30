@@ -1,5 +1,6 @@
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { parseControlMessage } from '../daemon'
 import {
   isDurableRuntimeEvent,
   RuntimeEventMessage,
@@ -104,17 +105,21 @@ describe('delivery failure cause (POD-4802)', () => {
 })
 
 
-describe('coalescable routine mail (POD-4716)', () => {
+describe('a send from an older server that still marks coalescable', () => {
+  // The routine-mail digest is gone (operator decision, POD-4720); a server
+  // that predates the removal still sets the flag. The daemon must accept the
+  // frame and deliver the row as its own prompt, so the key is stripped.
   const send = { type: 'runtimeSendRequest', requestId: 'rpc', sessionId: 'session',
-    turnId: 'row', rowId: 'row', text: 'routine ack', origin: 'human', delivery: 'when-ready' }
+    turnId: 'row', rowId: 'row', text: 'routine ack', origin: 'mail', delivery: 'when-ready',
+    coalescable: true }
 
-  it('still parses a send from an older server without the coalescable flag', () => {
+  it('parses and drops the flag, on the frame schema and on the control plane', () => {
     const parsed = RuntimeSendRequestMessage.parse(send)
-    expect((parsed as { coalescable?: boolean }).coalescable).toBeUndefined()
-  })
-
-  it('keeps the coalescable flag when the server sets it', () => {
-    expect(RuntimeSendRequestMessage.parse({ ...send, coalescable: true })).toMatchObject({ coalescable: true })
+    expect(parsed).not.toHaveProperty('coalescable')
+    expect(parsed).toMatchObject({ turnId: 'row', rowId: 'row', text: 'routine ack' })
+    const control = parseControlMessage(JSON.stringify(send))
+    expect(control).toMatchObject({ type: 'runtimeSendRequest', turnId: 'row' })
+    expect(control).not.toHaveProperty('coalescable')
   })
 })
 
