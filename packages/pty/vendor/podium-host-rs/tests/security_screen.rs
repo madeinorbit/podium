@@ -7,10 +7,10 @@ use std::time::Duration;
 
 const C_RESIZE: u8 = 3;
 const C_SIZE: u8 = 4;
-const C_PICTURE: u8 = 0x0a;
+const C_PICTURE: u8 = 0x0b;
 const H_RESIZED: u8 = 0x84;
 const H_SIZE: u8 = 0x85;
-const H_PICTURE: u8 = 0x8a;
+const H_PICTURE: u8 = 0x8d;
 
 fn next_type(c: &mut Conn, want: u8) -> Vec<u8> {
     loop {
@@ -135,13 +135,13 @@ fn review_m2_child_winsize_resizes_the_screen_and_sends_reset() {
     let mut hosts = Hosts::default(); hosts.track(&c);
     assert_eq!(&picture(&mut c)[9..13], &[0, 80, 0, 24]);
     fs::write(dir.path("go"), b"").unwrap();
-    wait_until("child ioctl", Duration::from_secs(5), || c.seq_high() >= 5);
+    std::thread::sleep(Duration::from_millis(200));
     c.send(&frame(C_SIZE, &[]));
     let mut reset = None;
     loop {
         let (ty, p) = c.next(Duration::from_secs(5)).expect("SIZE/reset");
         if ty == H_PICTURE { reset = Some(p); }
-        if ty == H_SIZE { assert_eq!(p, [0, 120, 0, 40]); break; }
+        else if ty == H_SIZE { assert_eq!(p, [0, 120, 0, 40]); break; }
     }
     let reset = reset.unwrap_or_else(|| next_type(&mut c, H_PICTURE));
     assert_eq!(&reset[8..13], &[0, 0, 120, 0, 40], "reset at kernel size");

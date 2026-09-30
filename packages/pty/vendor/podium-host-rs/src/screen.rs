@@ -1206,3 +1206,54 @@ mod tests {
         assert!(p.contains("\x1b[2;6H"));
     }
 }
+
+#[cfg(test)]
+mod security_regressions {
+    use super::*;
+
+    #[test]
+    fn stored_title_and_hyperlink_are_bounded_when_serialized() {
+        let mut s = Screen::new(80, 24, 0);
+        *s.title.borrow_mut() = Some("B".repeat(2_000_000));
+        s.term.grid_mut()[Line(0)][Column(0)].c = 'X';
+        s.term.grid_mut()[Line(0)][Column(0)].set_hyperlink(Some(Hyperlink::new(
+            Some("id"), format!("http://x/{}", "U".repeat(1_500_000)),
+        )));
+        let mut p = Vec::new();
+        s.picture(&mut p);
+        assert!(p.iter().filter(|&&b| b == b'B').count() <= 4096);
+        assert!(p.iter().filter(|&&b| b == b'U').count() <= 4096);
+    }
+
+    #[test]
+    fn visible_screen_exception_has_an_absolute_picture_ceiling() {
+        let mut s = Screen::new(1000, 500, 0);
+        let grid = s.term.grid_mut();
+        for l in 0..500 {
+            for c in 0..1000 {
+                let cell = &mut grid[Line(l)][Column(c)];
+                cell.c = 'X';
+                for _ in 0..16 { cell.push_zerowidth('\u{301}'); }
+            }
+        }
+        let mut p = b"prefix".to_vec();
+        assert!(s.picture(&mut p), "unrepresentable pictures must be marked truncated");
+        assert_eq!(p, b"prefix", "no partial picture may be emitted past the 8 MiB ceiling");
+    }
+
+    #[test]
+    fn long_control_strings_do_not_feed_unbounded_payloads_or_grow_the_hold() {
+        for start in [b"\x1b]0;".as_slice(), b"\x1bP1$q", b"\x1b_", b"\x1b^", b"\x1bX"] {
+            let mut s = Screen::new(80, 24, 0);
+            s.feed(start);
+            s.feed(&vec![b'A'; HOLD_MAX * 4]);
+            assert!(s.held.len() <= HOLD_MAX);
+            // An overflow cannot reintroduce attacker-controlled bytes into a picture.
+            s.feed(b"\x1b\\safe");
+            let mut p = Vec::new();
+            s.picture(&mut p);
+            assert!(!p.windows(100).any(|b| b.iter().all(|&x| x == b'A')));
+            assert!(p.windows(4).any(|b| b == b"safe"));
+        }
+    }
+}
