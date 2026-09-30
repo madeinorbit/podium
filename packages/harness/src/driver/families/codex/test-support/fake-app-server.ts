@@ -152,6 +152,14 @@ export interface FakeAppServer {
   resumes: number
   /** Make the next `turn/start` answer a JSON-RPC error. */
   failNextTurn(): void
+  /**
+   * Answer the next `thread/read` with exactly this — a result recorded from
+   * the real server, or an error (POD-4887). Unscripted, a read answers one
+   * turn carrying the rollout, `inProgress` while a turn is open.
+   */
+  scriptThreadRead(answer: { result: unknown } | { error: { code: number; message: string } }): void
+  /** The params of every `thread/read` received, in order. */
+  threadReads: Record<string, unknown>[]
   /** Swallow the next request without answering it — a server that is still
    *  thinking. The only way to have a request genuinely IN FLIGHT when the pipe
    *  dies, which is what the "one dead pipe rejects them all" guarantee is
@@ -278,6 +286,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
   }
   let ready = false
   let failNext = false
+  const scriptedReads: ({ result: unknown } | { error: { code: number; message: string } })[] = []
   let stallNext = false
   let deferStarted = false
   let raceForeignTurn = false
@@ -337,6 +346,10 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
     failNextTurn() {
       failNext = true
     },
+    scriptThreadRead(answer) {
+      scriptedReads.push(answer)
+    },
+    threadReads: [],
     stallNextRequest() {
       stallNext = true
     },
@@ -691,14 +704,28 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         respond(id, {})
         return
       case 'thread/read': {
-        // INTENTIONALLY EMPTY: history moved to the Store port, so the driver
-        // must never call this for `transcript.history`. Answering the real
-        // rollout here would let a regressed driver pass the suite while
-        // reading the live process; answering empty makes that regression go
-        // red (history misses the witness the Store holds). The `rollouts`
+        server.threadReads.push(params)
+        const scripted = scriptedReads.shift()
+        if (scripted && 'error' in scripted) {
+          respondError(id, scripted.error.code, scripted.error.message)
+          return
+        }
+        if (scripted) {
+          respond(id, scripted.result)
+          return
+        }
+        // NO ITEMS, INTENTIONALLY: history moved to the Store port, so the
+        // driver must never read `transcript.history` from here. Answering the
+        // real rollout would let a regressed driver pass the suite while
+        // reading the live process; answering no items makes that regression
+        // go red (history misses the witness the Store holds). The `rollouts`
         // map is still what `export()` and the test world's `readHistory`
-        // read — the disk, not this RPC.
-        respond(id, { thread: { turns: [] } })
+        // read — the disk, not this RPC. The turn's status is real, as the
+        // measured read carries it (POD-4887): `inProgress` for a running
+        // turn, which is all the not-recorded proof reads from a default
+        // answer; a test that needs items scripts the read.
+        const status = openTurn || pendingTurn ? 'inProgress' : 'completed'
+        respond(id, { thread: { turns: [{ items: [], status }] } })
         return
       }
       case 'turn/start': {

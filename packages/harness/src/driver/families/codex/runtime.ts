@@ -442,8 +442,9 @@ interface AwaitedEntry {
   deliveredAs: 'turn' | 'steer'
   /** The entry, with our id as Codex echoed it when it did (POD-4841). */
   onItem: ((item: TranscriptItemRef, echo: HarnessRef | undefined) => void) | undefined
-  /** Codex will not record it any more (POD-4849). */
-  onUnrecorded: ((reason: string) => void) | undefined
+  /** Codex will not record it any more (POD-4849), and Codex's own proof that
+   *  it is not in the conversation when there is one (POD-4887). */
+  onUnrecorded: SendOptions['onUnrecorded']
 }
 
 /**
@@ -561,6 +562,9 @@ interface DriverSession {
   userItems: SeenUserItem[]
   /** Sends answered before Codex recorded their input. */
   awaitingEntry: AwaitedEntry[]
+  /** Sends whose turn ended without their input, while Codex's own history is
+   *  read for the proof that it is not there (POD-4887). */
+  checkingEntry: Set<AwaitedEntry>
   usage: UsageSnapshot | undefined
   title: string | undefined
 }
@@ -1150,10 +1154,99 @@ export function createCodexRuntime(
     ended: (entry: AwaitedEntry) => boolean,
     reason: string,
   ): void {
+    for (const entry of takeEntries(session, ended)) entry.onUnrecorded?.(reason)
+  }
+
+  function takeEntries(
+    session: DriverSession,
+    ended: (entry: AwaitedEntry) => boolean,
+  ): AwaitedEntry[] {
     const gone = session.awaitingEntry.filter(ended)
-    if (gone.length === 0) return
-    session.awaitingEntry = session.awaitingEntry.filter((entry) => !ended(entry))
-    for (const entry of gone) entry.onUnrecorded?.(reason)
+    if (gone.length > 0) {
+      session.awaitingEntry = session.awaitingEntry.filter((entry) => !ended(entry))
+    }
+    return gone
+  }
+
+  /**
+   * NOT RECORDED, BY CODEX'S OWN WORD (POD-4887; POD-4819 §6.1 N3). A send
+   * whose turn ended without its input is read for in Codex's history: when
+   * `thread/read` says no turn is open (no `inProgress` turn, the thread not
+   * `active`, and none opened here meanwhile) and no item carries our id, it
+   * is not in the conversation — measured on 0.155.0: a dropped steer is in
+   * no item and never reaches the model, and nothing replays it
+   * (`__fixtures__/steer-dropped-thread-read.json`). An item that does carry
+   * our id is its record. Anything else — no id to look for, a failed read,
+   * a turn open, the session ending first — proves nothing: unconfirmed, as
+   * before. Each send is told once; a late live item pairs with none of them.
+   */
+  async function proveNotRecorded(
+    session: DriverSession,
+    entries: readonly AwaitedEntry[],
+    reason: string,
+  ): Promise<void> {
+    const checked: { entry: AwaitedEntry; id: string }[] = []
+    for (const entry of entries) {
+      if (entry.messageId === undefined) entry.onUnrecorded?.(reason)
+      else checked.push({ entry, id: entry.messageId })
+    }
+    if (checked.length === 0) return
+    for (const { entry } of checked) session.checkingEntry.add(entry)
+    const history = await readThreadHistory(session)
+    const turnOpen =
+      !history ||
+      history.turnOpen ||
+      session.openTurnId !== undefined ||
+      session.pendingTurnId !== undefined
+    for (const { entry, id } of checked) {
+      // Told already: the session ended while the read was out.
+      if (!session.checkingEntry.delete(entry)) continue
+      const found = history?.recorded.get(id)
+      if (found) {
+        entry.onItem?.(found, [{ kind: 'codex-client-message', id }])
+        continue
+      }
+      entry.onUnrecorded?.(reason, turnOpen || session.disposed ? undefined : 'not-recorded')
+    }
+  }
+
+  /**
+   * WHAT CODEX'S HISTORY SAYS, for the proof above: whether a turn is open,
+   * and the entry each client id was recorded as. `includeTurns`, as measured;
+   * undefined when the read fails or answers a shape this driver cannot read.
+   */
+  async function readThreadHistory(
+    session: DriverSession,
+  ): Promise<{ turnOpen: boolean; recorded: Map<string, TranscriptItemRef> } | undefined> {
+    type ThreadRead = { thread?: { status?: { type?: unknown }; turns?: unknown } }
+    let result: ThreadRead
+    try {
+      result = await session.client.call<ThreadRead>(CODEX_METHODS.threadRead, {
+        threadId: session.threadId,
+        includeTurns: true,
+      })
+    } catch {
+      return undefined
+    }
+    const turns = result.thread?.turns
+    if (!Array.isArray(turns)) return undefined
+    let turnOpen = result.thread?.status?.type === 'active'
+    const recorded = new Map<string, TranscriptItemRef>()
+    for (const turn of turns) {
+      if (typeof turn !== 'object' || turn === null) return undefined
+      const { status, items } = turn as { status?: unknown; items?: unknown }
+      if (status === 'inProgress') turnOpen = true
+      if (!Array.isArray(items)) return undefined
+      for (const item of items as Record<string, unknown>[]) {
+        if (item?.type !== 'userMessage' || typeof item.clientId !== 'string') continue
+        if (typeof item.id !== 'string') continue
+        const ref = threadItemToItems(item as never, undefined)
+          .map((mapped) => transcriptItemRefOf(mapped))
+          .find((mappedRef) => mappedRef !== undefined)
+        recorded.set(item.clientId, ref ?? { id: item.id })
+      }
+    }
+    return { turnOpen, recorded }
   }
 
   function claimEntry(
@@ -1181,16 +1274,21 @@ export function createCodexRuntime(
      * never will (POD-4835, measured on codex 0.155.0). A steer is recorded at
      * Codex's next model call, not on its ack: one acked and then interrupted
      * before that call is dropped — in no item, no later turn, and never shown
-     * to the model. Its sender hears so, never "delivered" (POD-4849).
+     * to the model. Its sender hears so, never "delivered" (POD-4849) — and,
+     * when Codex's own history proves it, that it is not in the conversation
+     * (POD-4887): see `proveNotRecorded`.
      */
-    abandonEntries(
-      session,
-      (entry) => entry.turnId === turn.id,
-      `the turn ended (${turn.status}) before Codex recorded the message`,
-    )
+    const ended = takeEntries(session, (entry) => entry.turnId === turn.id)
     const at = iso(turn.completedAt ? turn.completedAt * 1000 : undefined)
     session.openTurnId = undefined
     session.pendingTurnId = undefined
+    if (ended.length > 0) {
+      void proveNotRecorded(
+        session,
+        ended,
+        `the turn ended (${turn.status}) before Codex recorded the message`,
+      )
+    }
 
     /**
      * THE PROJECTION IS FOLDED FROM THE CHANGE THAT IS EMITTED (POD-2811).
@@ -1560,6 +1658,11 @@ export function createCodexRuntime(
     // Before `disposed`, which silences this session's stream: the senders
     // still waiting on a record hear that none will come (POD-4849).
     abandonEntries(session, () => true, 'the Codex session ended before it recorded the message')
+    const checking = [...session.checkingEntry]
+    session.checkingEntry.clear()
+    for (const entry of checking) {
+      entry.onUnrecorded?.('the Codex session ended before it recorded the message')
+    }
     session.disposed = true
     abandonQueue(session, 'teardown')
     /**
@@ -2566,6 +2669,7 @@ export function createCodexRuntime(
       turnOpenWaiters: new Set(),
       userItems: [],
       awaitingEntry: [],
+      checkingEntry: new Set(),
       usage: undefined,
       title: journalled?.title,
     }
