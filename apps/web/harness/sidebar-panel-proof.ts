@@ -57,7 +57,7 @@ try {
   const errors: string[] = []
   page.on('pageerror', (error) => {
     errors.push(error.message)
-    console.error('Synthetic sidebar browser error:', error.message)
+    console.error('Synthetic sidebar browser error:', error.stack ?? error.message)
   })
   page.on('console', (message) => {
     if (message.type() === 'error') console.error('Synthetic sidebar console:', message.text())

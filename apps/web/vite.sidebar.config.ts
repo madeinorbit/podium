@@ -25,6 +25,8 @@ export default defineConfig(async (env) => {
       // BEFORE the spread, or the real config's bare '@' alias swallows it.
       alias: {
         '@/app/store': fileURLToPath(new URL('./harness/sidebar-store.ts', import.meta.url)),
+        '@/lib/use-harness-descriptors': fileURLToPath(new URL('./harness/sidebar-catalog-stub.ts', import.meta.url)),
+        '@/lib/use-model-catalog': fileURLToPath(new URL('./harness/sidebar-catalog-stub.ts', import.meta.url)),
         ...(resolve.alias ?? {}),
       },
     },
