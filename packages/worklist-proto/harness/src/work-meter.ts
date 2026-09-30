@@ -8,7 +8,10 @@
  *
  * - DERIVATIONS: derivation bodies run. Every MobX computed body
  *   (`ComputedValue.computeValue_`) and every reaction body (`Reaction.track`:
- *   autoruns, reactions and `observer` renders all run through it).
+ *   autoruns, reactions and `observer` renders all run through it), and every
+ *   hand-rolled cell body (`CellGraph.run`: `arms/hand/pool/cells.ts` — patched
+ *   here, from OUTSIDE the hand arm, as the MobX patch is; nothing in the
+ *   hand arm counts itself, POD-4934).
  * - ELEMENTS: the DISTINCT collection elements the arm iterated. Array, Set
  *   and Map iteration (`for…of`, spreads, `Array.from`, `new Set(iterable)`:
  *   all go through the patched iterators), `forEach` and the Array callback
@@ -47,6 +50,9 @@
  *   side, wherever React or a timer calls them from. An `observer`'s
  *   invalidation is the one MobX step that is not: it asks React to redraw,
  *   and the redraw React schedules there must not inherit the arm's side.
+ * - every hand cell body (`CellGraph.run`): the hand pool's alone, so its
+ *   bodies always run on the arm's side too, wherever the pool, the drain or
+ *   a render calls them from (POD-4934).
  *
  * What the arm schedules from there (its timers, its loads) stays the arm's.
  * React's own reconciliation is not counted: in the count lane every list
@@ -65,6 +71,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { computed, Reaction } from 'mobx'
+import { CellGraph } from '../../arms/hand/pool/cells'
 
 type Side = 'arm' | 'outside'
 
@@ -98,13 +105,14 @@ export function insideArm<T>(fn: () => T): T {
 
 /** Work counted by one `measureWork`. */
 export interface WorkCounts {
-  /** Derivation bodies run: MobX computeds recomputed plus reaction bodies tracked. */
+  /** Derivation bodies run: MobX computeds recomputed plus reaction bodies tracked, plus hand cell bodies run. */
   derivations: number
   /** Distinct collection elements the arm iterated (see the module note). */
   elements: number
   /**
-   * `elements` split by the derivation that walked them (its MobX name with
-   * digits folded to `#`, so every node of one kind shares a key), or
+   * `elements` split by the derivation that walked them (its name with
+   * digits folded to `#`, so every node of one kind shares a key — a MobX
+   * derivation or a hand cell, POD-4934), or
    * {@link ARM_CODE} for the arm's code outside any derivation. An element
    * two derivations walk counts in both.
    */
@@ -164,7 +172,7 @@ function traceSite(): string | null {
 /** The derivations running now, innermost last (their kinds). */
 const running: string[] = []
 
-/** The kind of a MobX derivation: its name with digits folded, so one key per kind of node. */
+/** The kind of a derivation: its name with digits folded, so one key per kind of node. */
 function kindOf(name: unknown): string {
   return typeof name === 'string' ? name.replace(/\d+/g, '#') : '(unnamed)'
 }
@@ -386,6 +394,28 @@ function countedDerivation(original: Method): Method {
 }
 
 /**
+ * POD-4934 — a method that runs a hand-rolled cell body (`CellGraph.run`):
+ * counts one, and runs it as the arm. Every cell body goes through `run`,
+ * first runs included, wherever the cell was created — so cells built before
+ * the window still count when a change re-runs them. Patched here, from
+ * OUTSIDE the hand arm: nothing in `arms/hand` counts itself. `run` is
+ * private to the graph, so it is reached by name (as the MobX patch reaches
+ * `computeValue_`): the patch throws loudly when it is not an own method.
+ */
+function countedHandDerivation(original: Method): Method {
+  return function (this: unknown, ...args: unknown[]) {
+    if (tally === null) return original.apply(this, args)
+    tally.derivations += 1
+    running.push(kindOf((args[0] as { name?: unknown } | undefined)?.name))
+    try {
+      return insideArm(() => original.apply(this, args))
+    } finally {
+      running.pop()
+    }
+  }
+}
+
+/**
  * An `observer` component's invalidation hands the redraw to React
  * (`useSyncExternalStore`'s store change): React's side, so the render React
  * schedules there is not the arm's. The render body itself comes back to the
@@ -484,6 +514,8 @@ function install(patches: Patches): void {
   patches.replace(computedProto, 'computeValue_', countedDerivation)
   patches.replace(Reaction.prototype as unknown as object, 'track', countedDerivation)
   patches.replace(Reaction.prototype as unknown as object, 'runReaction_', reactSchedulesObserver)
+  // Hand derivations: the cell body (POD-4934, from outside the hand arm).
+  patches.replace(CellGraph.prototype as unknown as object, 'run', countedHandDerivation)
   // The DOM's own work (happy-dom under the count lane) is not the arm's.
   for (const [name, methods] of DOM_METHODS) {
     const ctor = (globalThis as Record<string, unknown>)[name] as { prototype: object } | undefined
