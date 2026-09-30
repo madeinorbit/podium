@@ -19,17 +19,21 @@
  * Isolation: its own state dir (the e2e harness), a private SHORT host socket
  * dir, no systemd scopes, and at the end only the hosts under that dir are
  * stopped. Needs a Rust toolchain (rustup) for the host; skips without one.
+ * The C adoption case needs an external PODIUM_TEST_C_HOST_BIN fixture;
+ * it skips without one, because the C source is no longer vendored.
  */
 
+import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { SessionId } from '@podium/model'
+import { asSessionId, type SessionId } from '@podium/model'
 import {
   connectHost,
-  ensureManagedHost,
+  hostBinFeatures,
+  hostCreateArgs,
   hostSocketPath,
   resolveHostBin,
 } from '@podium/process/durable'
@@ -41,6 +45,7 @@ import {
   PtyOutputBinaryMetadata,
   type ServerMessage,
 } from '@podium/protocol'
+import { durableSessionLabel } from '@podium/runtime/instance'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { startDaemon } from '../../apps/daemon/src/daemon'
@@ -80,6 +85,9 @@ function rustHost(): string | undefined {
   }
 }
 const RUST_HOST = rustHost()
+// Compatibility fixture only: never selected by the Rust-only spawn resolver.
+const C_HOST = process.env.PODIUM_TEST_C_HOST_BIN
+const haveCHost = !!C_HOST && hostBinFeatures(C_HOST) === 1
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -301,27 +309,60 @@ describe.skipIf(RUST_HOST === undefined)('viewer catch-up from host pictures (re
     }
     return seen
   }
-  async function liveShell(): Promise<{ sid: SessionId; label: string }> {
-    const { sessionId } = await srv.registry.modules.sessions.createSession({
+  async function recordHost(label: string) {
+    const conn = connectHost(hostSocketPath(label), { mode: 'reader' })
+    try {
+      const welcome = await conn.welcome
+      const stat = readFileSync(`/proc/${welcome.hostPid}/stat`, 'utf8')
+      const started = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]
+      if (started === undefined) throw new Error('host start time missing')
+      ownedHosts.set(welcome.hostPid, started)
+      return welcome
+    } finally {
+      conn.detach()
+    }
+  }
+  async function liveShell(cHost?: string): Promise<{ sid: SessionId; label: string }> {
+    const sid = asSessionId(randomUUID())
+    const label = durableSessionLabel(sid)
+    let legacyHostPid: number | undefined
+    if (cHost) {
+      // An older daemon already started this host. The current daemon must
+      // adopt its socket; its new-spawn binary remains the Rust host.
+      const socketPath = hostSocketPath(label)
+      mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 })
+      const created = spawnSync(
+        cHost,
+        hostCreateArgs({
+          socketPath,
+          cwd: '/tmp',
+          cmd: process.execPath,
+          args: [FIXTURE],
+          cols: 80,
+          rows: 24,
+        }),
+        { encoding: 'utf8', env: process.env },
+      )
+      expect(created.status, created.stderr).toBe(0)
+      legacyHostPid = (await recordHost(label)).hostPid
+    }
+    await srv.registry.modules.sessions.createSession({
+      sessionId: sid,
       agentKind: 'shell',
       cwd: '/tmp',
       machineId: srv.registry.modules.machines.hostMachineId,
     })
-    const sid = sessionId as SessionId
     await until(
       () => sessionOf(sid).status === 'live',
       () => `session ${sid} never went live`,
     )
-    const label = sessionOf(sid).durableLabel
-    const conn = connectHost(hostSocketPath(label), { mode: 'reader' })
-    try {
-      const { hostPid } = await conn.welcome
-      const stat = readFileSync(`/proc/${hostPid}/stat`, 'utf8')
-      const started = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]
-      if (started === undefined) throw new Error('host start time missing')
-      ownedHosts.set(hostPid, started)
-    } finally {
-      conn.detach()
+    expect(sessionOf(sid).durableLabel).toBe(label)
+    const welcome = await recordHost(label)
+    if (cHost) {
+      expect(welcome.hostPid).toBe(legacyHostPid)
+      expect(readlinkSync(`/proc/${welcome.hostPid}/exe`)).toBe(cHost)
+      expect(welcome.features).toBe(0)
+      expect(welcome.screen).toBe(false)
     }
     return { sid, label }
   }
@@ -490,14 +531,10 @@ describe.skipIf(RUST_HOST === undefined)('viewer catch-up from host pictures (re
     v.close()
   }, 120_000)
 
-  it('a C-host session keeps live output and input, and never sends a picture', async () => {
-    delete process.env.PODIUM_HOST_BIN
-    const cHost = ensureManagedHost()?.bin
-    if (!cHost) throw new Error('no C host could be built')
-    process.env.PODIUM_HOST_BIN = cHost
-    resolveHostBin({ fresh: true })
-    try {
-      const { sid } = await liveShell()
+  it.skipIf(!haveCHost)(
+    'a C-host session keeps live output and input, and never sends a picture',
+    async () => {
+      const { sid } = await liveShell(C_HOST)
       const seen = watch(sid)
       const first = await viewer(port, cookie, sid)
       first.send({ type: 'input', sessionId: sid, data: Buffer.from('b').toString('base64') })
@@ -520,9 +557,7 @@ describe.skipIf(RUST_HOST === undefined)('viewer catch-up from host pictures (re
       )
       expect(seen.resets + seen.cuts).toBe(0)
       v.close()
-    } finally {
-      process.env.PODIUM_HOST_BIN = RUST_HOST
-      resolveHostBin({ fresh: true })
-    }
-  }, 60_000)
+    },
+    60_000,
+  )
 })

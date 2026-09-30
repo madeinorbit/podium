@@ -23,9 +23,9 @@ const log = createLogger('pty:host-bin')
 
 /**
  * podium-host resolution for new spawns. The Rust host is the only podium-host
- * Podium spawns (POD-4986): the C host and abduco are gone from the tree, the
- * build and the release. A session an older daemon started on the C host is not
- * affected — an existing socket attaches directly to its running host, without
+ * Podium spawns (POD-4986): the C host is gone from the tree, build and release;
+ * the abduco client remains only to adopt sessions an older daemon started.
+ * A session an older daemon started on the C host is not affected — an existing socket attaches directly to its running host, without
  * selecting a binary. Order:
  *   1. $PODIUM_HOST_BIN — explicit binary path; if it doesn't run or is not a
  *      podium-host at feature level {@link HOST_FEATURES}, resolution FAILS (no
