@@ -116,7 +116,7 @@ import {
   poolPendingLoads,
   type HarnessWritableMobxPoolHandle,
 } from '../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from './mobx-trap'
+import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { MobxPool } from './pool'
 import { PoolRelations } from './relations'
 import { VisibleCollection } from './worklist/visible'
@@ -128,7 +128,7 @@ installMobxWarnTrap()
 const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
   ? process.cwd()
   : join(process.cwd(), 'packages', 'worklist-proto')
-const BASELINE_PATH = join(PACKAGE_DIR, 'arms', 'mobx', 'pool', 'tracking-counts.baseline.json')
+const BASELINE_PATH = join(PACKAGE_DIR, 'harness', 'src', 'tracking-counts.baseline.json')
 const UPDATE = process.env['POD_TRACKING_COUNTS_UPDATE']
 
 /** The first paint's window, in rows. */

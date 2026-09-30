@@ -34,7 +34,7 @@ import {
   startScenarioEngine,
   upsert,
 } from '../../../../shared/src/scenarios'
-import { installMobxWarnTrap } from '../mobx-trap'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import { rowViewOf } from '../models'
 
 installMobxWarnTrap()

@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
+import { installMobxWarnTrap } from '../mobx-trap'
 import { MobxPool } from '../../arms/mobx/pool/pool'
 import { tracked } from '../src/adapters/mobx-pool'
 import { createReadFence } from '../../shared/src/instrument/reads'

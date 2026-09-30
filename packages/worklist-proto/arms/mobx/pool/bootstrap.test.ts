@@ -27,7 +27,7 @@ import { settableLocals } from '../../../shared/src/locals-source'
 import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { RowRecord } from '../../../shared/src/stats'
 import { harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from './mobx-trap'
+import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { MobxPool } from './pool'
 
 installMobxWarnTrap()

@@ -28,7 +28,7 @@ import { countKinds, gen } from '../../../../shared/src/gen/changes'
 import { type CheckedArm, checkArm } from '../../../../shared/src/gen/check'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import { harnessMobxPoolArm, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from '../mobx-trap'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import { rowViewOf } from '../models'
 
 installMobxWarnTrap()

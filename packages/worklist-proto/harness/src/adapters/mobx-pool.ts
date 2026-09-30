@@ -37,7 +37,7 @@ import type { RowRecord } from '../../../shared/src/stats'
 import type { WriteTransport } from '../../../shared/src/write-contract'
 import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
 import type { MobxPool, PoolLazyOptions, WriteSeam } from '../../../arms/mobx/pool/pool'
-import { rebuildSnapshot } from '../../../arms/mobx/pool/rebuild'
+import { rebuildSnapshot } from './mobx-rebuild'
 import { rowViewOf } from '../../../arms/mobx/pool/models'
 import { sliceOrderOf } from '../../../arms/mobx/pool/worklist/groups'
 import { sliceRowOf } from '../../../shared/src/row-view'
@@ -188,7 +188,7 @@ export const harnessMobxPoolArm = {
       pool,
       stats: base.stats,
       snapshot: () => snapshotPool(pool),
-      rebuildFromScratch: () => rebuildSnapshot(source, locals, residentIssueIdsOf(pool)),
+      rebuildFromScratch: () => rebuildSnapshot(source, locals),
       settleLoads: () => settleWithFlush(pool, () => webMounts > 0),
       pendingLoads: () => poolPendingLoads(pool),
       dispose(): void {

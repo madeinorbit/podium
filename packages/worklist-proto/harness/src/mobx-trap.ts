@@ -1,11 +1,13 @@
 /**
- * POD-4565 (Ma1) + POD-4760 — the enforcement ASSERTION for the pool's tests:
- * strict flags live here, not in product (`enforce.ts` only exports them, so
- * importing the pool never configures MobX). Every pool suite installs this
- * trap, which applies the flags and turns any `console.warn` into a thrown
- * error; the test then fails on any recorded warning, including one MobX
- * swallowed inside a reaction. `pool.test.tsx` proves the trap fires on an
- * untracked read.
+ * POD-4565 (Ma1) + POD-4760 + POD-4945 — the enforcement ASSERTION for the
+ * pool's tests: strict flags live here, not in product (`mobx-enforce.ts`
+ * only exports them, so importing the pool never configures MobX). Every
+ * pool suite installs this trap, which applies the flags and turns any
+ * `console.warn` into a thrown error; the test then fails on any recorded
+ * warning, including one MobX swallowed inside a reaction. `pool.test.tsx`
+ * proves the trap fires on an untracked read. Moved from
+ * `arms/mobx/pool/` (POD-4945): the trap imports vitest, so it cannot ride
+ * into a product package.
  *
  * `{ errors: true }` (POD-4572, M3 note N3): a throw inside a reaction never
  * reaches the test; MobX catches it and reports it through `console.error`.
@@ -17,7 +19,7 @@
 
 import { configure } from 'mobx'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
-import { ENFORCEMENT } from './enforce'
+import { ENFORCEMENT } from './mobx-enforce'
 
 export interface MobxTrapState {
   readonly warnings: string[]

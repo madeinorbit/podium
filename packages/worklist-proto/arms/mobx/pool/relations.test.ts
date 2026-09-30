@@ -39,11 +39,11 @@ import {
   validateStructure,
 } from '../../../shared/src/schema'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
-import { diffRelations } from './enumerate'
+import { diffRelations } from '../../../../harness/src/adapters/mobx-rebuild'
 import { snapshotPool, tracked } from '../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from './mobx-trap'
+import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { MobxPool } from './pool'
-import { rebuildSnapshot } from './rebuild'
+import { rebuildSnapshot } from '../../../../harness/src/adapters/mobx-rebuild'
 import { ancestorPaths } from './relations'
 import { rowViewOf } from './models'
 

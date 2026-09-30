@@ -70,7 +70,7 @@ import { diffSnapshots } from '../../../../shared/src/gen/check'
 import type { RowView } from '../../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
 import { harnessMobxPoolArm, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from '../mobx-trap'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import type { MobxPool } from '../pool'
 import { rowViewOf } from '../models'
 

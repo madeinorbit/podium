@@ -60,7 +60,7 @@ import { startGenRun } from '../../../../shared/src/gen/run'
 import { feedStep, WriteOracle } from '../../../../shared/src/gen/write-oracle'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceIssue, SliceSnapshot } from '../../../../shared/src/slice-types'
-import { installMobxWarnTrap } from '../mobx-trap'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import { harnessWritableMobxPoolArm, settlePoolLoads, tracked, type HarnessWritableMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { LOADING } from '../worklist/rollup'
 

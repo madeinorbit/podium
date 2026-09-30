@@ -56,7 +56,7 @@ import { CommitLogContext, currentCommitLog } from '../../../../shared/src/row-s
 import { type ScenarioEngine, startScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceIssue, SliceOrder } from '../../../../shared/src/slice-types'
 import { harnessMobxPoolArm, poolPendingLoads, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from '../mobx-trap'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import type { MobxPool } from '../pool'
 import { HEADER_HEIGHT, PoolList, ROW_HEIGHT } from '../react/list'
 import { closedOf } from '../views'
