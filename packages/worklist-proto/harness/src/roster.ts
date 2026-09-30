@@ -23,8 +23,7 @@
  */
 
 import { harnessMobxPoolArm, harnessWritableMobxPoolArm } from './adapters/mobx-pool'
-import { handPoolArm } from '../../arms/hand/pool/arm'
-import { writableHandPoolArm } from '../../arms/hand/pool/write/arm'
+import { harnessHandPoolArm, harnessWritableHandPoolArm } from './adapters/hand-pool'
 import type { ArmHandle, CheckableArm } from '../../shared/src/arm'
 import type { RowSourceMode } from '../../shared/src/row-source'
 import type { ScenarioEngine } from '../../shared/src/scenarios'
@@ -126,8 +125,8 @@ export const ROUND_THREE_ARMS: readonly RosterArm[] = [
     name: 'Hand pool',
     folder: 'hand',
     mode: 'overlaid',
-    armFor: () => handPoolArm,
-    writable: (transport) => writableHandPoolArm(transport),
+    armFor: () => harnessHandPoolArm,
+    writable: (transport) => harnessWritableHandPoolArm(transport),
     measuredOnly: true,
   },
 ]
