@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  filesNotRun,
   LANES,
   laneCommand,
   planFiles,
@@ -31,17 +30,33 @@ describe('test lanes', () => {
     }
   })
 
-  it('routes a file to the runner that can collect it', () => {
-    expect(runnerFor('apps/server/src/relay.test.ts')).toEqual({ kind: 'vitest', lane: 'server' })
-    expect(runnerFor('apps/web/src/app.test.tsx')).toEqual({ kind: 'vitest', lane: 'web' })
-    expect(runnerFor('apps/mobile/src/x.test.ts')).toEqual({ kind: 'vitest', lane: 'mobile' })
-    expect(runnerFor('packages/sync/src/span.test.ts')).toEqual({ kind: 'vitest', lane: 'node' })
-    expect(runnerFor('packages/runtime/test/sqlite.bun.test.ts')).toEqual({ kind: 'bun-test' })
-    expect(runnerFor('scripts/lifecycle.integration.test.ts')).toEqual({
-      kind: 'vitest',
-      lane: 'integration',
-    })
-    expect(runnerFor('tests/e2e/relay.e2e.test.ts')).toEqual({ kind: 'vitest', lane: 'e2e' })
+  it.each([
+    ['apps/server/src/relay.test.ts', 'server'],
+    ['apps/web/src/app.test.tsx', 'web'],
+    ['apps/mobile/src/x.test.ts', 'mobile'],
+    ['packages/sync/src/span.test.ts', 'node'],
+    ['scripts/lifecycle.integration.test.ts', 'integration'],
+    ['apps/server/src/gateway/picture-catchup.integration.test.ts', 'integration'],
+    ['apps/server/src/example.integration.spec.ts', 'integration'],
+    ['apps/server/src/sync-e2e.test.ts', 'integration'],
+    ['packages/pty/src/host.integration.test.ts', 'integration'],
+    ['packages/pty/test/example.pty.test.ts', 'integration'],
+    ['packages/pty/test/session.test.ts', 'integration'],
+    ['packages/pty/src/abduco.test.ts', 'integration'],
+    ['tests/e2e/relay.e2e.test.ts', 'e2e'],
+    ['tests/e2e/harness-env.test.ts', 'e2e'],
+    ['scripts/loop-split-load.integration.test.ts', 'acceptance'],
+  ])('routes %s to %s', (file, lane) => {
+    expect(runnerFor(file)).toEqual({ kind: 'vitest', lane })
+  })
+
+  it('keeps Bun-only files ahead of integration and package routing', () => {
+    for (const file of [
+      'packages/runtime/test/sqlite.bun.test.ts',
+      'scripts/lifecycle.integration.bun.test.ts',
+      'apps/server/src/worker.bun.test.ts',
+    ])
+      expect(runnerFor(file)).toEqual({ kind: 'bun-test' })
     expect(runnerFor('packages/sync/src/span.ts')).toHaveProperty('error')
     // POD-4825: the node lane excludes these; the package config runs them.
     expect(
@@ -53,17 +68,57 @@ describe('test lanes', () => {
     })
   })
 
-  it('names every file a run was asked for and did not run (POD-4825)', () => {
-    const named = ['/r/a.test.ts', '/r/b.native.test.tsx', '/r/c.test.ts']
-    const report = { testResults: [{ name: '/r/a.test.ts' }, { name: '/r/c.test.ts' }] }
-    expect(filesNotRun(named, report)).toEqual(['/r/b.native.test.tsx'])
+  it('uses the e2e directory only when no caller path filter was given', () => {
+    const lane = LANES.e2e
+    if (!lane) throw new Error('missing e2e lane')
+    expect(laneCommand(lane, root, [])).toContain('tests/e2e')
+    // A name-pattern flag value is not a file filter, even when it looks like one.
+    expect(laneCommand(lane, root, ['-t', 'sample.test.ts'])).toContain('tests/e2e')
+    for (const args of [
+      ['tests/e2e/picture-catchup.e2e.test.ts'],
+      ['tests/e2e/picture-catchup.e2e.test.ts', '-t', 'picture'],
+      ['picture-catchup'],
+    ]) {
+      const command = laneCommand(lane, root, args)
+      expect(command).not.toContain('tests/e2e')
+      expect(command.slice(-args.length - 1)).toEqual([...args, '--passWithNoTests=false'])
+    }
+  })
+
+  it('overrides permissive zero-collection defaults for every lane', () => {
+    for (const lane of Object.values(LANES)) {
+      expect(laneCommand(lane, root, ['--passWithNoTests'])).toContain('--passWithNoTests=false')
+    }
+  })
+
+  it('plans integration and e2e files independently of server units', () => {
     expect(
-      filesNotRun(named, {
-        testResults: [...report.testResults, { name: '/r/b.native.test.tsx' }],
-      }),
-    ).toEqual([])
-    // No report is no evidence: every file counts as not run.
-    expect(filesNotRun(named, null)).toEqual(named)
+      planFiles(
+        [
+          'apps/server/src/relay.test.ts',
+          'apps/server/src/gateway/picture-catchup.integration.test.ts',
+          'packages/pty/src/host.integration.test.ts',
+          'tests/e2e/picture-catchup.e2e.test.ts',
+        ],
+        root,
+      ),
+    ).toEqual({
+      errors: [],
+      plans: [
+        { runner: { kind: 'vitest', lane: 'server' }, files: ['src/relay.test.ts'] },
+        {
+          runner: { kind: 'vitest', lane: 'integration' },
+          files: [
+            'apps/server/src/gateway/picture-catchup.integration.test.ts',
+            'packages/pty/src/host.integration.test.ts',
+          ],
+        },
+        {
+          runner: { kind: 'vitest', lane: 'e2e' },
+          files: ['tests/e2e/picture-catchup.e2e.test.ts'],
+        },
+      ],
+    })
   })
 
   it('groups files per runner with filters relative to the lane cwd', () => {
@@ -87,5 +142,20 @@ describe('test lanes', () => {
     expect(args.extra).toEqual(['-t', 'lane'])
     expect(args.errors).toEqual(['scripts/nope.test.ts does not exist'])
     expect(splitFileArgs([], root).errors).toEqual(['no test files named'])
+  })
+
+  it('keeps flag values out of the filename list', () => {
+    expect(
+      splitFileArgs(['scripts/test-lanes.test.ts', '-t', 'scripts/nope.test.ts'], root),
+    ).toEqual({
+      files: ['scripts/test-lanes.test.ts'],
+      extra: ['-t', 'scripts/nope.test.ts'],
+      errors: [],
+    })
+    expect(splitFileArgs(['scripts'], root).errors).toContain('scripts is not a file')
+    expect(splitFileArgs([], root, false).errors).toEqual([])
+    expect(splitFileArgs(['src/router.setup.test.ts'], root, false, 'apps/server').files).toEqual([
+      'apps/server/src/router.setup.test.ts',
+    ])
   })
 })

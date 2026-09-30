@@ -2,11 +2,8 @@ import { defineConfig } from 'vitest/config'
 import { nodeTestExclude, sharedVitestConfig } from './vitest.config'
 import { ptySmokeTests } from './vitest.smoke-requirements'
 
-const integrationTests = [
-  'tests/e2e/**/*.test.{ts,tsx}',
-  '**/*e2e*.test.{ts,tsx}',
-  '**/*.integration.{test,spec}.{ts,tsx}',
-  '**/*.pty.test.{ts,tsx}',
+/** Process suites whose filenames do not identify their integration scope. */
+export const processIntegrationTests = [
   'packages/pty/test/session.test.ts',
   'packages/pty/src/abduco.test.ts',
   'packages/pty/src/abduco-bin.test.ts',
@@ -23,6 +20,14 @@ const integrationTests = [
   'apps/server/src/upstream-auth-e2e.test.ts',
   'apps/server/src/upstream-e2e.test.ts',
   'apps/server/src/wsServer.version-gate.test.ts',
+]
+
+const integrationTests = [
+  'tests/e2e/**/*.test.{ts,tsx}',
+  '**/*e2e*.test.{ts,tsx}',
+  '**/*.integration.{test,spec}.{ts,tsx}',
+  '**/*.pty.test.{ts,tsx}',
+  ...processIntegrationTests,
 ]
 
 /** Deterministic native/process integration scope. Resource flakes retry here only. */

@@ -18,9 +18,11 @@
  *   - A lane is `focused` (takes a validation slot) or `heavy` (takes the host-wide
  *     `test:heavy` lease), matching the root script that already owns it.
  */
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseCLI } from 'vitest/node'
+import { processIntegrationTests } from '../vitest.integration.config'
 import type { ValidationClass } from './validation-admission'
 
 export interface Lane {
@@ -31,6 +33,8 @@ export interface Lane {
   admission: Extract<ValidationClass, 'focused' | 'heavy'>
   /** Root scripts that must run first (the integration/e2e lanes need built clients). */
   before?: string[]
+  /** Default path filters, used only when the caller supplies no path filter. */
+  filters?: string[]
   summary: string
 }
 
@@ -135,7 +139,8 @@ export const LANES: Record<string, Lane> = {
   },
   e2e: {
     cwd: '.',
-    command: bunVitest('vitest.integration.config.ts', '--maxWorkers=1', 'tests/e2e'),
+    command: bunVitest('vitest.integration.config.ts', '--maxWorkers=1'),
+    filters: ['tests/e2e'],
     admission: 'heavy',
     before: ['build'],
     summary: 'tests/e2e under the integration config (builds the clients first)',
@@ -156,7 +161,18 @@ export function vitestEntry(lane: Lane, root: string): string {
 
 export function laneCommand(lane: Lane, root: string, extra: string[]): string[] {
   const entry = vitestEntry(lane, root)
-  return [...lane.command.map((part) => (part === '<vitest>' ? entry : part)), ...extra]
+  const filters = fileFilters(extra).length > 0 ? [] : (lane.filters ?? [])
+  return [
+    ...lane.command.map((part) => (part === '<vitest>' ? entry : part)),
+    ...filters,
+    ...extra,
+    '--passWithNoTests=false',
+  ]
+}
+
+/** Use the runner's parser so flag values (for example `-t name`) are not paths. */
+export function fileFilters(argv: string[]): string[] {
+  return parseCLI(['vitest', 'run', ...argv], { allowUnknownOptions: true }).filter
 }
 
 export type FileRunner = { kind: 'vitest'; lane: string } | { kind: 'bun-test' }
@@ -179,9 +195,6 @@ export function runnerFor(path: string): FileRunner | { error: string } {
   if (/\.bun\.test\.[cm]?[jt]sx?$/.test(path)) return { kind: 'bun-test' }
   const parts = path.split(sep)
   const [top, second] = parts
-  if (top === 'apps' && second === 'server') return { kind: 'vitest', lane: 'server' }
-  if (top === 'apps' && second === 'web') return { kind: 'vitest', lane: 'web' }
-  if (top === 'apps' && second === 'mobile') return { kind: 'vitest', lane: 'mobile' }
   if (top === 'tests' && second === 'e2e') return { kind: 'vitest', lane: 'e2e' }
   if (
     top === 'packages' &&
@@ -190,8 +203,20 @@ export function runnerFor(path: string): FileRunner | { error: string } {
     parts[3] === 'native'
   )
     return { kind: 'vitest', lane: 'worklist-native' }
-  if (/\.integration\.test\./.test(path)) return { kind: 'vitest', lane: 'integration' }
-  if (/\.acceptance\.test\./.test(path)) return { kind: 'vitest', lane: 'acceptance' }
+  if (
+    path === 'scripts/loop-split-load.integration.test.ts' ||
+    /\.acceptance\.(test|spec)\./.test(path)
+  )
+    return { kind: 'vitest', lane: 'acceptance' }
+  if (
+    /\.(integration|pty)\.(test|spec)\./.test(path) ||
+    /e2e.*\.test\./.test(path) ||
+    processIntegrationTests.includes(path)
+  )
+    return { kind: 'vitest', lane: 'integration' }
+  if (top === 'apps' && second === 'server') return { kind: 'vitest', lane: 'server' }
+  if (top === 'apps' && second === 'web') return { kind: 'vitest', lane: 'web' }
+  if (top === 'apps' && second === 'mobile') return { kind: 'vitest', lane: 'mobile' }
   return { kind: 'vitest', lane: 'node' }
 }
 
@@ -202,18 +227,30 @@ export interface FileArgs {
 }
 
 /** Paths are the args that name an existing file; everything else is passed to the runner. */
-export function splitFileArgs(argv: string[], root: string): FileArgs {
+export function splitFileArgs(
+  argv: string[],
+  root: string,
+  required = true,
+  fallbackCwd = '.',
+): FileArgs {
   const files: string[] = []
   const extra: string[] = []
   const errors: string[] = []
+  const filters = fileFilters(argv)
   for (const arg of argv) {
-    if (arg.startsWith('-')) {
+    if (!filters.includes(arg)) {
       extra.push(arg)
       continue
     }
-    const absolute = resolve(root, arg)
+    const fromRoot = resolve(root, arg)
+    const absolute = existsSync(fromRoot) ? fromRoot : resolve(root, fallbackCwd, arg)
     if (!existsSync(absolute)) {
       if (isTestFile(arg)) errors.push(`${arg} does not exist`)
+      else extra.push(arg)
+      continue
+    }
+    if (!statSync(absolute).isFile()) {
+      if (required) errors.push(`${arg} is not a file`)
       else extra.push(arg)
       continue
     }
@@ -221,7 +258,7 @@ export function splitFileArgs(argv: string[], root: string): FileArgs {
     if (rel.startsWith('..')) errors.push(`${arg} is outside the repository`)
     else files.push(rel)
   }
-  if (files.length === 0) errors.push('no test files named')
+  if (required && files.length === 0) errors.push('no test files named')
   return { files, extra, errors }
 }
 
@@ -247,19 +284,4 @@ export function planFiles(files: string[], root: string): { plans: FilePlan[]; e
 /** URL-based, not `import.meta.dir`: this module is also loaded by vitest, where that is undefined. */
 export function repositoryRoot(): string {
   return fileURLToPath(new URL('..', import.meta.url))
-}
-
-/**
- * POD-4825 — the named files a vitest run did not run: every file in `named`
- * (absolute) with no entry in the run's JSON report (`testResults[].name`,
- * absolute). A lane's config can exclude a file its filter names, and vitest
- * then runs the rest and exits 0 (six named, three ran).
- */
-export function filesNotRun(named: readonly string[], report: unknown): string[] {
-  const results = (report as { testResults?: { name?: unknown }[] } | null)?.testResults
-  if (!Array.isArray(results)) return [...named]
-  const ran = new Set(
-    results.map((result) => result.name).filter((name) => typeof name === 'string'),
-  )
-  return named.filter((file) => !ran.has(file))
 }
