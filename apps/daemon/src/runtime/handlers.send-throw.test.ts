@@ -13,7 +13,7 @@ import type { AgentSessionHandle } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
-import { DeliveryUnprovenError } from '../../../../../packages/harness/src/driver/errors'
+import { DeliveryUnprovenError } from '../../../../packages/harness/src/driver/errors'
 import type { DaemonContext } from '../control/context'
 import { runtimeHandlers } from './handlers'
 
