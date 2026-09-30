@@ -207,6 +207,32 @@ describe('bind and request', () => {
 })
 
 describe('a redraw on a picture session', () => {
+  it.each(['normal', 'alternate'] as const)('a C host on a picture-capable link gets no %s replay or snapshot', async (mode) => {
+    const w = world({ accepted: true })
+    const host = hostAttachment({ screen: false, atTail: true })
+    wireBridge(w.ctx, SESSION, host.attachment, 'claude-code', 'label')
+    host.data(`${mode === 'alternate' ? '\x1b[?1049h' : ''}OLD SCREEN`)
+    await sessionScreenFor(w.ctx, SESSION)?.screen.flush()
+    w.scheduled.length = 0
+    sessionHandlers.redraw(w.ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
+    expect(w.scheduled).toEqual([])
+    expect(host.raw.replay).not.toHaveBeenCalled()
+    expect(host.raw.requestPicture).not.toHaveBeenCalled()
+    host.data('live')
+    expect(w.scheduled).toEqual(['data:live'])
+  })
+
+  it('a C host still accepts the user Ctrl-L without replaying on a picture-capable link', () => {
+    const w = world({ accepted: true })
+    const host = hostAttachment({ screen: false, atTail: true })
+    wireBridge(w.ctx, SESSION, host.attachment, 'claude-code', 'label')
+    sessionHandlers.redraw(w.ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true, hard: true })
+    expect(host.raw.writeBytes).toHaveBeenCalledOnce()
+    expect([...(host.raw.writeBytes.mock.calls[0]?.[0] as Uint8Array)]).toEqual([0x0c])
+    expect(host.raw.replay).not.toHaveBeenCalled()
+    expect(w.scheduled).toEqual([])
+  })
+
   it('replayRequired asks the host for a picture instead of a snapshot or ring replay', () => {
     const w = world({ accepted: true })
     const host = hostAttachment({ screen: true, atTail: false })

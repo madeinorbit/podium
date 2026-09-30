@@ -116,6 +116,59 @@ const redraws = (toDaemon: ControlMessage[]) => toDaemon.filter((m) => m.type ==
 const attachedOf = (v: Viewer) =>
   v.sent.find((m): m is Extract<ServerMessage, { type: 'attached' }> => m.type === 'attached')
 
+describe('picture-only catch-up (SPEC v4 B3, H6 accept)', () => {
+  it.each(['normal', 'alternate'] as const)('a session without pictures attaches to live %s bytes only and never asks for a repaint', (mode) => {
+    const { t, toDaemon } = terminal()
+    t.setPictures(false)
+    t.acceptOutput(bytes(`${mode === 'alternate' ? '\x1b[?1049h' : ''}HISTORY`), 1)
+    const v = viewer('live')
+    t.attachClient(v)
+    expect(v.text()).toBe('')
+    expect(attachedOf(v)).toMatchObject({ resumed: true, outputSeen: true })
+    expect(redraws(toDaemon)).toEqual([])
+    t.acceptOutput(bytes('LIVE'), 1)
+    expect(v.text()).toBe('LIVE')
+  })
+
+  it('an attach before bind waits for pictures and gets exactly picture plus tail', () => {
+    const { t, toDaemon } = terminal()
+    const v = viewer('waiting')
+    t.attachClient(v)
+    t.acceptOutput(bytes('BEFORE PICTURE'), 1)
+    expect(v.text()).toBe('')
+    expect(redraws(toDaemon)).toEqual([])
+    t.acceptPicture(picture('cut', '<PICTURE>'))
+    t.acceptOutput(bytes('TAIL'), 1)
+    expect(v.text()).toBe('')
+    t.setPictures(true)
+    expect(v.text()).toBe('<PICTURE>TAIL')
+    expect(attachedOf(v)).toMatchObject({ resumed: true })
+  })
+
+  it('a bind without pictures releases a waiting viewer to live bytes without repaint', () => {
+    const { t, toDaemon } = terminal()
+    const v = viewer('waiting')
+    t.attachClient(v)
+    t.acceptOutput(bytes('BEFORE BIND'), 1)
+    t.setPictures(false)
+    expect(v.text()).toBe('')
+    expect(redraws(toDaemon)).toEqual([])
+    t.acceptOutput(bytes('LIVE'), 1)
+    expect(v.text()).toBe('LIVE')
+  })
+
+  it('disabling pictures releases an owed viewer without the old attach redraw', () => {
+    const { t, toDaemon } = terminal()
+    t.setPictures(true)
+    const v = viewer('owed')
+    t.attachClient(v)
+    t.setPictures(false)
+    expect(redraws(toDaemon)).toEqual([])
+    t.acceptOutput(bytes('LIVE'), 1)
+    expect(v.text()).toBe('LIVE')
+  })
+})
+
 describe('a pictures session serves an owed viewer the picture and the tail', () => {
   it('a cold attach gets exactly the picture then the tail, never an older byte', () => {
     const { t, toDaemon } = terminal()

@@ -198,6 +198,8 @@ interface HarnessOptions {
   sessions?: SessionRegistry
   /** The client runs on a screen host and the server accepted pictures (POD-4912). */
   pictures?: boolean
+  /** The server accepts pictures even if this client uses a C host. */
+  picturesAccepted?: boolean
 }
 
 interface Harness {
@@ -276,7 +278,7 @@ function harness(opts: HarnessOptions = {}) {
     frames: (streamId, data) => state.frames.push({ streamId, data }),
     picture: (streamId, picture, seed) =>
       state.pictures.push({ streamId, reason: picture.reason, seed }),
-    ...(opts.pictures ? { picturesAccepted: () => true } : {}),
+    ...(opts.pictures || opts.picturesAccepted ? { picturesAccepted: () => true } : {}),
     releaseStream: (streamId) => state.released.push(streamId),
   })
   return { terminals, state, sessions }
@@ -1917,6 +1919,26 @@ describe('without a session client scope there are no client terminals (POD-3917
 })
 
 describe('a client terminal on a screen host (POD-4912)', () => {
+  it('a returning C-host client on a picture-capable link forwards live bytes only', async () => {
+    const { terminals, state, sessions } = harness({
+      replayFrame: 'OLD RING',
+      hasMaster: () => true,
+      adopted: true,
+      picturesAccepted: true,
+    })
+    terminals.adopt(SESSION)
+    const policy = sessions.get(SESSION)?.client
+    if (policy) policy.replayRequired = true
+    await terminals.attach({ sessionId: SESSION, target })
+    const client = state.clients[0]
+    expect(client?.replays).toBe(0)
+    expect(client?.pictureRequests).toBe(0)
+    expect(state.frames).toEqual([])
+    client?.emit('LIVE')
+    expect(state.frames.map((f) => Buffer.from(f.data).toString('latin1'))).toEqual(['LIVE'])
+    await terminals.close(SESSION)
+  })
+
   it('asks for a picture at birth instead of replaying the ring', async () => {
     const { terminals, state, sessions } = harness({
       replayFrame: '\x1b[2Jring replay',
