@@ -1,4 +1,4 @@
-import type { AgentRuntimeState, SessionId, UserId } from '@podium/model'
+import type { AgentRuntimeState, SessionId, SessionMeta, UserId } from '@podium/model'
 import type { AgentObservation, LiveServerMessage, ServerMessage } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import {
@@ -55,6 +55,7 @@ function telegramKeyEnabled(key: string): boolean {
  *  service never holds live Session objects. */
 export interface SessionNoticeInfo {
   sessionId: SessionId
+  status: SessionMeta['status']
   name?: string
   title?: string
   cwd: string
@@ -135,7 +136,10 @@ export class NotifyService {
       // No ambient operator fallback: unresolved ownership means no recipient.
       if (!ownerUserId) return
       const info = this.deps.sessionInfo(sessionId)
-      if (info) return this.notifyAttention(ownerUserId, info, prev, next, observation)
+      // Bus delivery is deferred past commit. A stop that won that interval
+      // must not turn an earlier state projection into a fresh terminal notice.
+      if (!info || info.status === 'hibernated' || info.status === 'exited') return
+      return this.notifyAttention(ownerUserId, info, prev, next, observation)
     })
     bus.on('attention.raised', ({ sessionId, ownerUserId, title, body }) => {
       const info = this.deps.sessionInfo(sessionId)
@@ -273,6 +277,8 @@ export class NotifyService {
           kind: 'session.phase',
           subject: info.sessionId,
           payload: {
+            producer: 'notify.session.stateChanged',
+            sessionStatus: info.status,
             phase: next.phase,
             ...(next.idle?.kind ? { verdict: next.idle.kind } : {}),
             ...(observation

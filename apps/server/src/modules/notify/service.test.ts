@@ -1,6 +1,6 @@
 import { type AgentRuntimeState, asIssueId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
 import { EventBus } from '../bus'
 import { type NotifyDeps, NotifyService, type SessionNoticeInfo } from './service'
@@ -25,6 +25,7 @@ const OWNER = asUserId('owner')
 
 const info = (): SessionNoticeInfo => ({
   sessionId: asSessionId('s1'),
+  status: 'live',
   name: 'podium / keyboard',
   title: 'keyboard',
   cwd: '/repo',
@@ -64,13 +65,45 @@ function harness(input: { routeAvailable: boolean }) {
     { ntfy: () => {}, telegram: (config) => pushed.push({ chatId: config.chatId }) },
     bus,
   )
-  return { service, bus, requested, pushed }
+  return { service, bus, requested, pushed, deps }
 }
 
 /** The bus schedules listeners; it does not await them. */
 const settle = async (): Promise<void> => {
   for (let i = 0; i < 10; i++) await Promise.resolve()
 }
+
+describe('stopped sessions do not produce phase notices (POD-4992)', () => {
+  it.each(['hibernated', 'exited'] as const)('ignores a state change whose session is already %s when the bus delivers it', async (status) => {
+    const h = harness({ routeAvailable: true })
+    const appendEvent = vi.fn()
+    h.deps.appendEvent = appendEvent
+    h.deps.sessionInfo = () => ({ ...info(), status })
+    await h.bus.emitSettled('session.stateChanged', {
+      sessionId: asSessionId('s1'), ownerUserId: OWNER, prev: state('working'),
+      next: { ...state('idle'), idle: { kind: 'done' } },
+    })
+    expect(appendEvent).not.toHaveBeenCalled()
+    expect(h.requested).toEqual([])
+    expect(h.pushed).toEqual([])
+  })
+
+  it('records a live terminal phase with its producer and session status', async () => {
+    const h = harness({ routeAvailable: true })
+    const appendEvent = vi.fn()
+    h.deps.appendEvent = appendEvent
+    await h.bus.emitSettled('session.stateChanged', {
+      sessionId: asSessionId('s1'), ownerUserId: OWNER, prev: state('working'),
+      next: { ...state('idle'), idle: { kind: 'done' } },
+    })
+    expect(appendEvent).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'session.phase', subject: 's1',
+      payload: expect.objectContaining({
+        producer: 'notify.session.stateChanged', sessionStatus: 'live', phase: 'idle', verdict: 'done',
+      }),
+    }))
+  })
+})
 
 describe('the per-user Telegram route gate', () => {
   it('delivers to a user whose route is bound', async () => {

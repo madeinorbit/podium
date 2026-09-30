@@ -575,11 +575,29 @@ export class StewardService {
     // Cheap housekeeping even on an otherwise empty tick [spec:SP-ba61].
     await this.arbiter.retireExpired(this.now())
     const cursor = await this.resolveCursor()
-    const events = await this.deps.store.listEventsSince(
+    const readEvents = await this.deps.store.listEventsSince(
       cursor,
       options.limit === undefined ? undefined : { limit: options.limit },
     )
-    if (events.length === 0) return
+    if (readEvents.length === 0) return
+    // Guard every route (parent wake, ack fallback, subscriptions and fact
+    // retirement). A genuine completion before stop is still reportable even
+    // if this poll runs later; a new phase created after stop is stale.
+    const sessions = this.deps.sessionFacts()
+    const events = readEvents.filter((event) => {
+      if (event.kind !== 'session.phase') return true
+      const session = sessions.find((s) => s.sessionId === event.subject)
+      if (!session || (session.status !== 'hibernated' && session.status !== 'exited')) return true
+      const stoppedAt = Date.parse(session.stoppedAt ?? '')
+      const eventAt = Date.parse(event.ts)
+      if (Number.isFinite(stoppedAt) && Number.isFinite(eventAt) && eventAt < stoppedAt) return true
+      log.info('ignored phase for an already stopped session', {
+        sessionId: session.sessionId, status: session.status, stoppedAt: session.stoppedAt,
+        eventId: event.id, eventAt: event.ts,
+        producer: (event.payload as { producer?: string } | null)?.producer ?? 'legacy',
+      })
+      return false
+    })
     // Coalesce: all events for the same key form one batch this poll.
     const batches = new Map<string, StewardEvent[]>()
     for (const e of events) {
@@ -644,7 +662,9 @@ export class StewardService {
       log.warn('holding the cursor — delivery failed; will retry the same window')
       return
     }
-    await this.deps.store.setStewardState(CURSOR_KEY, String(events[events.length - 1]!.id))
+    // Ignored stale phases are consumed too, so a stopped-only window cannot
+    // wedge the cursor or repeat its diagnostic on every poll.
+    await this.deps.store.setStewardState(CURSOR_KEY, String(readEvents[readEvents.length - 1]!.id))
   }
 
   /**

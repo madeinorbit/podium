@@ -1780,6 +1780,27 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
       expect(ackFallback).not.toHaveBeenCalled()
       expect(await h.arbiter.isClaimed('sessionparentnudge:phase-reported:child', asSessionId('parent'))).toBe(false)
       expect(await h.arbiter.isClaimed('settle:child', asSessionId('child'))).toBe(false)
+      expect(await h.store.events.getStewardState('cursor')).toBe(String(await h.store.events.maxEventId()))
+      await steward.tick()
+      expect(h.sendNotice).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([undefined, '2026-07-02T15:14:56.000Z'])(
+    'POD-4992: ignores an errored phase for a parked child with stop time %s',
+    async (stoppedAt) => {
+      const h = await harness({ sessions: [
+        fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated' }),
+        fakeSession({ sessionId: asSessionId('child'), status: 'hibernated', spawnedBy: 'session:parent', stoppedAt }),
+      ] })
+      const ackFallback = vi.fn()
+      h.deps.messaging = { ackFallback }
+      await h.store.events.appendEvent({
+        ts: '2026-07-02T15:14:56.000Z', kind: 'session.phase', subject: 'child', payload: { phase: 'errored' },
+      })
+      await new StewardService(h.deps).tick()
+      expect(h.sendNotice).not.toHaveBeenCalled()
+      expect(ackFallback).not.toHaveBeenCalled()
     },
   )
 

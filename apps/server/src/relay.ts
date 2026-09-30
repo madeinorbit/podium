@@ -399,6 +399,7 @@ export interface RegistryModules {
 function noticeInfo(session: Session): SessionNoticeInfo {
   return {
     sessionId: session.sessionId,
+    status: session.status,
     ...(session.name ? { name: session.name } : {}),
     ...(session.title ? { title: session.title } : {}),
     cwd: session.cwd,

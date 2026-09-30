@@ -21,6 +21,7 @@ export type RuntimeEventGateResult =
       kind: 'rejected'
       reason:
         | 'unknown-session'
+        | 'session-not-running'
         | 'invalid-event-time'
         | 'stale-observer-generation'
         | 'observer-generation-jump'
@@ -39,6 +40,7 @@ export type RuntimeEventGateResult =
 
 export interface RuntimeEventSessionProjection {
   readonly sessionId: SessionId
+  readonly status: SessionDurableState['status']
   recordRuntimeActivity(at: string, draft: SessionDurableState): boolean
   /** A kernel OOM kill the machine's supervisor observed in this session's
    *  scope (POD-2413). Explains an exit; never causes one. */
@@ -316,6 +318,12 @@ export class RuntimeEventGate {
     const session = this.ports.session(sessionId)
     if (!session) return { kind: 'rejected', reason: 'unknown-session' }
     if (event.t === 'delivery') return await this.applyDelivery(sessionId, event)
+    // A delayed provider completion or reattach snapshot describes the old
+    // turn, not a new finish of a parked process. Keep transcript, delivery and
+    // process evidence admissible; only state must belong to a running session.
+    if (event.t === 'state' && (session.status === 'hibernated' || session.status === 'exited')) {
+      return { kind: 'rejected', reason: 'session-not-running' }
+    }
     if (!Number.isFinite(Date.parse(event.at))) {
       return { kind: 'rejected', reason: 'invalid-event-time' }
     }
@@ -367,6 +375,7 @@ export class RuntimeEventGate {
     }
     let eventId = 0
     let stateProjection: RuntimeStateProjection | undefined
+    let stoppedBeforeWrite = false
     // BOTH SESSION WRITES LAND ON THE DRAFT THIS COMMIT PERSISTS [POD-3330].
     // They used to be assigned onto the live session in the two statements
     // above this one, where a durable failure left them standing and a
@@ -374,6 +383,11 @@ export class RuntimeEventGate {
     await this.ports.write(
       sessionId,
       (draft) => {
+        // Check again on the committed draft: checkpoint reads above yield,
+        // and an explicit stop can park the session while admission is pending.
+        stoppedBeforeWrite = event.t === 'state' &&
+          (draft.status === 'hibernated' || draft.status === 'exited')
+        if (stoppedBeforeWrite) return
         if (event.t !== 'draft' && event.t !== 'metadata' && event.t !== 'transcript-reset') session.recordRuntimeActivity(event.at, draft)
         /**
          * THE ONE RUNTIME EVENT THAT CHANGES THE ROW'S STOP REASON (POD-2413).
@@ -388,6 +402,7 @@ export class RuntimeEventGate {
           session.recordOomKill(event.at, draft)
       },
       async (draft) => {
+        if (stoppedBeforeWrite) return
         if (event.t === 'state') {
           stateProjection = this.ports.state?.({
             sessionId,
@@ -408,6 +423,7 @@ export class RuntimeEventGate {
         await this.ports.events.saveRuntimeEventCheckpoint(next)
       },
     )
+    if (stoppedBeforeWrite) return { kind: 'rejected', reason: 'session-not-running' }
     this.readySessions.add(sessionId)
     await this.ports.events.announceEvent(eventId)
     if (stateProjection) {

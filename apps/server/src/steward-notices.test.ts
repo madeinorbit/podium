@@ -17,7 +17,10 @@ describe('steward notices travel as messages', () => {
   const body =
     'Blocker #3 closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime'
 
-  it('stores the notice under its id, from the steward, and types its words inside the envelope', async () => {
+  it.each([
+    body,
+    'Child session Worker (child) finished (done). Your child session needs attention.',
+  ])('stores the notice under its id, from the steward, and types its words inside the envelope: %s', async (body) => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'dependent' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })

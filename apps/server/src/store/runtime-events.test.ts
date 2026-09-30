@@ -1479,7 +1479,7 @@ describe('a delivery report is a fact about one message (POD-4796)', () => {
         runtimeEventCheckpoint: async () => checkpoint,
         appendEvent, saveRuntimeEventCheckpoint,
       } as unknown as RuntimeEventGatePorts['events'],
-      session: () => ({ sessionId, recordRuntimeActivity, recordOomKill: () => {} }),
+      session: () => ({ sessionId, status: 'hibernated', recordRuntimeActivity, recordOomKill: () => {} }),
       persist: async () => {}, write, board: async () => {}, now: () => 0,
       delivery: async (_sessionId, event) => { applied.push(event) },
     })
@@ -1516,7 +1516,7 @@ describe('a delivery report is a fact about one message (POD-4796)', () => {
       .toEqual({ kind: 'rejected', reason: 'unknown-session' })
     const failing = new RuntimeEventGate({
       events: { runtimeEventCheckpoint: async () => null } as unknown as RuntimeEventGatePorts['events'],
-      session: () => ({ sessionId, recordRuntimeActivity: () => true, recordOomKill: () => {} }),
+      session: () => ({ sessionId, status: 'live', recordRuntimeActivity: () => true, recordOomKill: () => {} }),
       persist: async () => {}, write: async () => {}, board: async () => {}, now: () => 0,
       delivery: async () => { throw new Error('store unavailable') },
     })

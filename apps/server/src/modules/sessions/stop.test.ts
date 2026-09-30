@@ -44,7 +44,7 @@ const gitWorktreeList = (entries: Array<{ path: string; branch?: string }>): str
     )
     .join('\0')
 
-async function makeRegistry(statusOutput = '## issue/x\n'): Promise<{
+async function makeRegistry(statusOutput = '## issue/x\n', now?: () => number): Promise<{
   reg: SessionRegistry
   daemon: ControlMessage[]
   repoOps: { op: string; cwd: string; args?: Record<string, string> }[]
@@ -55,7 +55,7 @@ async function makeRegistry(statusOutput = '## issue/x\n'): Promise<{
     id: store.hostMachineId, name: 'test-host', hostname: 'test-host', tokenHash: 'test',
     ownerUserId: await firstAdminMemberId(store), assignment: { server: true, agentExecution: true },
   })
-  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default', now })
   registries.push(reg)
   const daemon: ControlMessage[] = []
   await attachHostDaemon(reg, (m) => daemon.push(m))
@@ -125,7 +125,7 @@ async function makeRegistry(statusOutput = '## issue/x\n'): Promise<{
   }
 }
 
-async function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): Promise<void> {
+async function bindLive(reg: SessionRegistry, sessionId: string, cwd: string, resumable = true): Promise<void> {
   await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
@@ -134,6 +134,7 @@ async function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): P
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
+  if (!resumable) return
   await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'sessionResumeRef',
     sessionId: asSessionId(sessionId),
@@ -142,15 +143,18 @@ async function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): P
 }
 
 describe('stopSession [spec:SP-9904]', () => {
-  it.each(['live', 'bootstrap'] as const)(
-    'POD-4992: rejects a %s terminal state reported hours after stop at the runtime producer',
-    async (provenance) => {
-      const { reg, daemon } = await makeRegistry()
+  it.each((['live', 'bootstrap'] as const).flatMap((provenance) =>
+    (['hibernated', 'exited'] as const).map((status) => ({ provenance, status })),
+  ))(
+    'POD-4992: rejects a $provenance terminal state reported hours after stop of a $status child at the runtime producer',
+    async ({ provenance, status }) => {
+      let clock = Date.parse('2026-09-30T01:40:00.000Z')
+      const { reg, daemon } = await makeRegistry('## issue/x\n', () => clock)
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/r',
       })
-      await bindLive(reg, sessionId, '/r')
+      await bindLive(reg, sessionId, '/r', status === 'hibernated')
       const at = '2026-09-30T01:40:00.000Z'
       const stateEvent = (seq: number, change: Record<string, unknown>): RuntimeEvent => ({
         t: 'state', change, at, provenance: 'live',
@@ -162,9 +166,10 @@ describe('stopSession [spec:SP-9904]', () => {
         event: stateEvent(1, { kind: 'prompt_submitted' }),
       })
       expect((await reg.modules.sessions.sessionById(sessionId))?.agentState?.phase).toBe('working')
+      clock = Date.parse('2026-09-30T02:30:00.000Z')
       expect((await reg.modules.issueSessionLifecycle.stopSession({ sessionId })).ok).toBe(true)
       const parked = await reg.modules.sessions.sessionById(sessionId)
-      expect(parked?.status).toBe('hibernated')
+      expect(parked?.status).toBe(status)
       expect(parked?.stoppedAt).toBeTruthy()
       const checkpoint = await reg.sessionStore.events.runtimeEventCheckpoint(sessionId)
       const phases = await reg.sessionStore.events.listEventsSince(0, { kinds: ['session.phase'] })
@@ -182,6 +187,7 @@ describe('stopSession [spec:SP-9904]', () => {
         } : {}),
       }
       // The provider's timestamp is old; receipt and notification creation are fresh.
+      clock = Date.parse('2026-09-30T15:14:56.000Z')
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'runtimeEvent', sessionId, deliveryId: 'terminal-after-stop', event: delayed,
       })
@@ -189,15 +195,58 @@ describe('stopSession [spec:SP-9904]', () => {
       expect(await reg.sessionStore.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual(phases)
       expect(await reg.sessionStore.events.runtimeEventCheckpoint(sessionId)).toEqual(checkpoint)
       expect(await reg.modules.sessions.sessionById(sessionId)).toMatchObject({
-        status: 'hibernated', stoppedAt: parked?.stoppedAt, agentState: parked?.agentState,
+        status, stoppedAt: parked?.stoppedAt, agentState: parked?.agentState,
       })
       // Rejection is acknowledged so the durable daemon outbox does not retry forever.
       expect(daemon).toContainEqual({
         type: 'runtimeEventAck', deliveryId: 'terminal-after-stop', outcome: 'rejected',
-        reason: 'session-not-running',
+        rejectionReason: 'session-not-running',
       })
     },
   )
+
+  it('POD-4992: rejects a terminal state when stop wins during the checkpoint read', async () => {
+    const { reg } = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/r' })
+    await bindLive(reg, sessionId, '/r')
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentState', sessionId,
+      state: { phase: 'working', since: '2026-09-30T01:40:00.000Z', nativeSubagentCount: 0 },
+    })
+    const events = reg.sessionStore.events
+    const read = events.runtimeEventCheckpoint.bind(events)
+    let entered!: () => void
+    let release!: () => void
+    const reading = new Promise<void>((resolve) => { entered = resolve })
+    const released = new Promise<void>((resolve) => { release = resolve })
+    vi.spyOn(events, 'runtimeEventCheckpoint').mockImplementationOnce(async (id) => {
+      entered()
+      await released
+      return await read(id)
+    })
+    const effects = vi.fn()
+    reg.bus.on('session.stateChanged', effects)
+    const pending = reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent', sessionId, deliveryId: 'stop-during-admission',
+      event: {
+        t: 'state', change: { kind: 'turn_completed' },
+        at: '2026-09-30T01:41:00.000Z', provenance: 'live',
+        cursor: { segmentId: 'stopped-child', components: { seq: 1 } },
+        observerGeneration: 1, turnEpoch: 1,
+      },
+    })
+    await reading
+    try {
+      expect((await reg.modules.issueSessionLifecycle.stopSession({ sessionId })).ok).toBe(true)
+    } finally {
+      release()
+    }
+    await pending
+    expect(effects).not.toHaveBeenCalled()
+    expect((await reg.modules.sessions.sessionById(sessionId))?.agentState?.phase).toBe('working')
+    expect(await events.runtimeEventCheckpoint(sessionId)).toBeNull()
+    expect(await events.listRuntimeEvents(sessionId)).toEqual([])
+  })
 
   it('parks a live session, frees the issue worktree, keeps the branch', async () => {
     const { reg, daemon, repoOps } = await makeRegistry()
