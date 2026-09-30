@@ -65,3 +65,16 @@ resume, could not send after unloading, published a handle before resume, and
 accepted adoption despite a resume refusal or an incorrect conversation response.
 The existing dead-engine fallback passed. The production fix had not been applied
 at that checkpoint.
+
+The fixed candidate `e02d0d595` executed all four fake-server consumer files via
+`bun run test:file` on flatblock: **174 passed across four files**, including all
+nine adoption checks and 63 driver conformance checks. The harness package's
+cached typecheck also passed (five tasks, four cache hits). The same test checkout
+and its pinned `.toolchain` were used for both the failing and fixed runs.
+
+Adoption now awaits `thread/resume` on either the surviving endpoint or a fresh
+engine, supplies the saved ID and available rollout path, and checks the reply
+before binding the session. A refusal or inconsistent reply rejects adoption;
+cleanup closes the new client and leaves a surviving engine running. Coverage
+also includes journals predating rollout paths and the existing dead-engine
+fallback.
