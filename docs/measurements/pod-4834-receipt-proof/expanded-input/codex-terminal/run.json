@@ -29,5 +29,6 @@
   "methods": [
     "paste: tmux paste-buffer -r -p, exact input bytes including LF and CR",
     "typed: tmux send-keys -l, unbracketed literal byte burst; 650ms pause then Enter; programs may detect bursts as paste"
-  ]
+  ],
+  "finishedAt": "2026-09-30T16:38:03.386Z"
 }

@@ -16,6 +16,12 @@ const home = join(root, 'home'), work = join(root, 'work')
 for (const dir of [home, work, `${home}/.codex`, `${home}/.grok`, `${home}/.config`, `${home}/.cache`, `${home}/.local/share`, `${home}/.local/state`]) mkdirSync(dir, { recursive: true })
 const fakePort = Number(process.env.MEASURE_FAKE_PORT ?? 49984)
 const appPort = Number(process.env.MEASURE_APP_PORT ?? 49985)
+for (const port of [fakePort, appPort]) {
+  try {
+    const owner = execFileSync('lsof', ['-t', `-iTCP:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    if (owner) throw new Error(`Measurement port ${port} already owned by ${owner}; refusing to overwrite evidence`)
+  } catch (e) { if (e instanceof Error && e.message.includes('refusing to overwrite')) throw e }
+}
 const bin = lane!.startsWith('codex') ? process.env.CODEX_MEASURE_BIN ?? 'codex'
   : lane!.startsWith('opencode2') ? 'opencode2' : lane!.startsWith('opencode') ? 'opencode' : 'grok'
 // Deliberate allowlist: no inherited credential, agent session, or provider vars.
