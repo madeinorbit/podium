@@ -171,8 +171,8 @@ export interface PoolRelationsOptions {
   readonly schema?: ModelSchema
   /**
    * Rows maintenance reads besides the changed one (collapse groups, flipped
-   * rows): every KNOWN row, so in a lazy pool a cold one is read back by id
-   * (POD-4580).
+   * rows): resident rows only. A cold row's fields the engine needs again it
+   * keeps itself, from the row ingest hands it (POD-4753), never read by id.
    */
   readonly rows: TableSet<ReadableTable>
   /** The raw tables, for `prefix` root probes: a miss reads no row. */
@@ -210,6 +210,14 @@ export class PoolRelations implements RelationReader {
   /** POD-4671: prefix links by the entities their `alsoRoots` name. */
   private readonly extraSources = new Map<EntityName, Link[]>()
   private readonly collapses = new Map<EntityName, Collapse>()
+  /**
+   * POD-4753 — per cold-capable entity whose rows the engine reads again
+   * (a collapse's peers and flips): the fields it reads, and each
+   * non-resident row's summary (those fields only), taken from the row ingest
+   * hands it and dropped when the row turns resident or leaves.
+   */
+  private readonly summaryFields = new Map<EntityName, readonly string[]>()
+  private readonly summaries = new Map<EntityName, Map<string, Row>>()
   /** The answer for a key no bucket holds (per engine: the lint refuses module state). */
   private readonly none: ReadonlySet<string> = new Set()
 
@@ -273,6 +281,24 @@ export class PoolRelations implements RelationReader {
           throw new Error(`[pool] ${from}.${name} is a collection no relation maintains`)
         }
       }
+    }
+    // The rows the engine reads again (a collapse's peers and flips), when
+    // they can be cold: exactly the fields it reads of such a row.
+    for (const from of entities) {
+      if (schema[from].cold.kind === 'never') continue
+      const collapse = schema[from].collapse
+      const own = this.outgoing.get(from) ?? []
+      const rereads = collapse !== undefined
+      if (!rereads) continue
+      const fields = new Set(collapse?.fields ?? [])
+      for (const link of own) {
+        for (const field of link.inputs) fields.add(field)
+      }
+      // The issueless maintenance reads `issueId` off the row already in
+      // hand; a flipped peer's relink needs it again, so it is in the inputs
+      // above when the link names it. Nothing more is read.
+      this.summaryFields.set(from, [...fields])
+      this.summaries.set(from, new Map())
     }
   }
 
@@ -401,6 +427,13 @@ export class PoolRelations implements RelationReader {
   ): void {
     const before = prev as Row | undefined
     const after = next as Row | undefined
+    // Keep the cold summary beside the row ingest hands over (POD-4753):
+    // a resident row holds none, a cold one its declared fields, a gone one
+    // nothing. The row itself is never read back by id.
+    if (this.summaryFields.has(entity)) {
+      const resident = this.options.rows[entity].get(id) !== undefined
+      this.holdSummary(entity, id, resident ? undefined : after)
+    }
     const flipped = this.recollapse(entity, id, before, after)
     const selfFlipped = flipped.delete(id)
     const links = this.outgoing.get(entity) ?? []
@@ -410,7 +443,7 @@ export class PoolRelations implements RelationReader {
         this.relink(link, id, after)
     }
     for (const other of flipped) {
-      const row = this.options.rows[entity].get(other) as Row | undefined
+      const row = this.maintainedRow(entity, other)
       for (const link of links) this.relink(link, other, row)
     }
     // POD-4671 ruling Sep27: a session flipping its issueId without moving
@@ -585,7 +618,38 @@ export class PoolRelations implements RelationReader {
       collapse.groupOf.clear()
       collapse.collapsed.clear()
     }
+    for (const held of this.summaries.values()) held.clear()
     this.lastWrites.length = 0
+  }
+
+  /**
+   * Hold `row`'s summary for `entity:id` (not resident), or drop it
+   * (resident, or gone). The pool calls this with the row ingest hands it:
+   * a cold row's summary replaces on every write, a resident row holds none.
+   * Never a read by id.
+   */
+  holdSummary(entity: EntityName, id: string, row: Row | undefined): void {
+    const fields = this.summaryFields.get(entity)
+    if (fields === undefined) return
+    const held = this.summaries.get(entity)
+    if (held === undefined) return
+    if (row === undefined) {
+      held.delete(id)
+      return
+    }
+    const summary: Record<string, unknown> = {}
+    for (const field of fields) {
+      const value = (row as Readonly<Record<string, unknown>>)[field]
+      if (value !== undefined) summary[field] = value
+    }
+    held.set(id, summary as Row)
+  }
+
+  /** A maintenance read of `entity:other`: the resident row, else its summary. */
+  private maintainedRow(entity: EntityName, other: string): Row | undefined {
+    const resident = this.options.rows[entity].get(other) as Row | undefined
+    if (resident !== undefined) return resident
+    return this.summaries.get(entity)?.get(other)
   }
 
   /**
@@ -649,12 +713,12 @@ export class PoolRelations implements RelationReader {
       if (group === undefined) continue
       let losers: ReadonlySet<string> = this.none
       if (group.size > 1) {
-        const table = this.options.rows[entity]
         const members: { id: string; row: Row }[] = []
         for (const member of group) {
-          const row = (member === id ? after : table.get(member)) as Row | undefined
-          // A cold peer read back by id may already be gone from the kernel,
-          // its removal later in this event: it re-decides the group then.
+          const row =
+            member === id ? after : (this.maintainedRow(entity, member) as Row | undefined)
+          // A cold peer already gone from the kernel, its removal later in
+          // this event: it re-decides the group then.
           if (row !== undefined) members.push({ id: member, row })
         }
         losers = new Set(collapseLosers(rule, members))

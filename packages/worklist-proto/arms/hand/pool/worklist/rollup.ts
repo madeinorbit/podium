@@ -712,15 +712,18 @@ export function aggregatePartOf(input: RollupInputs, id: string, self: RollupSel
 }
 
 /**
- * This issue's own contribution to its formal ancestors' progress, hot or
- * cold, never loading it (option A): its progress facts, and `vacated`
- * (`isVacatedOrigin`, `mission.ts:794-808`: no own session on the task, and
- * a spin-off), asked in that order so a row with no spin-off never reads
- * its sessions.
+ * This issue's own contribution to its formal ancestors' progress, through
+ * the one reader (a cold row is a pending marker and its load is queued,
+ * the MobX pool's way since POD-4754): its row when resident, else `NO_UNIT`
+ * with its load queued, and `vacated` (`isVacatedOrigin`,
+ * `mission.ts:794-808`: no own session on the task, and a spin-off), asked
+ * in that order so a row with no spin-off never reads its sessions.
  */
 export function unitOwnPartOf(input: RollupInputs, id: string, self: RollupSelf): UnitOwn {
-  const facts = input.progressFacts(id)
-  if (facts === undefined) return NO_UNIT
+  const issue = input.loadedIssue(id)
+  if (issue === LOADING) return NO_UNIT
+  if (issue === undefined) return NO_UNIT
+  const facts: ProgressFacts = { stage: issue.stage, closedReason: issue.closedReason }
   const vacated = input.spinOffCount(id) > 0 && !self.openOwn
   return unitOwnOf(facts, vacated)
 }
@@ -794,6 +797,12 @@ export interface RollupHost {
   resident(entity: 'issue' | 'session', id: string): boolean
   /** Whether the row is known but not resident (queues its load). */
   loading(entity: 'issue' | 'session', id: string): boolean
+  /**
+   * THE row reader (`HandPool.row`, POD-4743): every row the roll-ups read
+   * comes from here, never a table or a peek. Kept beside the old doors
+   * while they drain; new code reads `row` only.
+   */
+  row?(entity: 'issue' | 'session', id: string, absent?: 'load' | 'mark' | 'peek'): Loaded<object>
   /** Whether the issue is known at all, hot or cold (untracked: maintenance). */
   knownIssue(id: string): boolean
   /** A known issue's visibility parts; undefined otherwise. */
@@ -964,13 +973,15 @@ export class RollupCollection {
 
   private loadedIssue(id: string): Loaded<SliceIssue> {
     const { host } = this
+    if (host.row !== undefined) return host.row('issue', id, 'load') as Loaded<SliceIssue>
     if (host.resident('issue', id)) return host.issueRow(id)
     return host.loading('issue', id) ? LOADING : undefined
   }
 
   private progressFacts(id: string): ProgressFacts | undefined {
-    const row = this.host.issueRow(id)
-    return row === undefined ? undefined : { stage: row.stage, closedReason: row.closedReason }
+    const loaded = this.loadedIssue(id)
+    if (loaded === LOADING || loaded === undefined) return undefined
+    return { stage: loaded.stage, closedReason: loaded.closedReason }
   }
 
   /** The nest children filed under `id` (tracked: a move dirties the composition). */
@@ -1004,6 +1015,11 @@ export class RollupCollection {
       cell = host.graph.cell<Loaded<SeatVerdict>>(
         `rollup:verdict:${id}`,
         () => {
+          if (host.row !== undefined) {
+            const row = host.row('session', id, 'load') as Loaded<SliceSession>
+            if (row === LOADING) return LOADING
+            return row === undefined ? undefined : seatVerdictOf(row)
+          }
           if (host.resident('session', id)) {
             const row = host.sessionRow(id)
             return row === undefined ? undefined : seatVerdictOf(row)

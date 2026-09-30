@@ -103,18 +103,51 @@ export const FINISHED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
  */
 export const RESORT_FRACTION = 1 / 8
 
+/**
+ * POD-4753 — what visibility reads of a HIDDEN issue: one the complete cold
+ * rule keeps out of memory, so nothing can show it, and it is neither flat
+ * nor present. Only two things about it reach other rows: its raw parent
+ * (the nesting walk passes through it) and whether it is excluded (else a
+ * kept row below it still counts for its ancestors' rescue). The pool keeps
+ * exactly these fields of each such row (`Residency` summaries), never the
+ * row, and reads none of its sessions. The hand mirror of the MobX pool's
+ * `HIDDEN_ISSUE_FIELDS`.
+ */
+export const HIDDEN_ISSUE_FIELDS = ['parentId', 'archived', 'deletedAt', 'stage'] as const
+
+/** A hidden issue's declared summary (`HIDDEN_ISSUE_FIELDS`). */
+export type HiddenIssue = Partial<
+  Pick<SliceIssue, (typeof HIDDEN_ISSUE_FIELDS)[number]>
+>
+
+/** Whether a hidden summary is excluded (`standingOf`'s first clause). */
+export function hiddenExcludedOf(hidden: HiddenIssue): boolean {
+  return (
+    hidden.archived === true ||
+    hidden.deletedAt != null ||
+    hidden.stage === 'proposed' ||
+    hidden.stage === 'shipping'
+  )
+}
+
 /** Everything the visibility parts read. Tracked in the live pool; plain in the rebuild. */
 export interface VisibleInputs {
   readonly relations: RelationReader
   /** Whether the row is in the pool's tables (its presence only). */
   resident(entity: 'issue' | 'session', id: string): boolean
   /**
-   * An issue's row, resident or cold. A cold one is read by id without being
-   * loaded (`Residency.peek`), so a part asks only when its fields decide.
+   * An issue's row through the one reader (`HandPool.row`, `peek`): the
+   * resident row, else its declared summary for a hidden issue, else
+   * undefined. Never a full peek, never a load.
    */
   issueRow(id: string): SliceIssue | undefined
   /** A session's row, the same way. */
   sessionRow(id: string): SliceSession | undefined
+  /**
+   * A hidden issue's declared summary (`HIDDEN_ISSUE_FIELDS`), else undefined
+   * for a row in memory, one held out beside the rule, or unknown.
+   */
+  hidden?(id: string): HiddenIssue | undefined
   /** Another issue's parts when it is KNOWN (resident or cold); undefined otherwise. */
   issue(id: string): VisibleParts | undefined
   /** A known session's parts; undefined otherwise. */
@@ -461,8 +494,13 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
   resident(input, id) {
     return input.resident('issue', id)
   },
-  /** The own row's facts; a cold row's are read only when a part below needs them. */
+  /**
+   * The own row's facts; undefined for a hidden issue (its summary decides,
+   * never its row: POD-4753). A cold row that is not hidden is warming and
+   * its parts read as absent until it lands.
+   */
   standing(input, id) {
+    if (input.hidden?.(id) !== undefined) return undefined
     const issue = input.issueRow(id)
     return issue === undefined ? undefined : standingOf(issue)
   },
@@ -569,15 +607,21 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
   /**
    * What this issue gives its parent's rescue: not excluded, and flat or kept
    * below. The standing is read last, so a cold issue nothing below keeps is
-   * answered without its row.
+   * answered without its row; a hidden issue's from its summary (POD-4753).
    */
-  keeps(_input, _id, self) {
+  keeps(input, id, self) {
     if (!self.flat && !self.keptBelow) return false
+    const hidden = input.hidden?.(id)
+    if (hidden !== undefined) return !hiddenExcludedOf(hidden) && (self.flat || self.keptBelow)
     const standing = self.standing
     return standing !== undefined && !standing.excluded
   },
-  /** Has a row before nesting: flat, or a rescued live human ancestor (`rows.ts:121-158`). */
-  present(_input, _id, self) {
+  /**
+   * Has a row before nesting: flat, or a rescued live human ancestor
+   * (`rows.ts:121-158`). A hidden issue is never present (POD-4753).
+   */
+  present(input, id, self) {
+    if (input.hidden?.(id) !== undefined) return false
     if (self.flat) return true
     if (!self.keptBelow) return false
     const standing = self.standing
@@ -586,14 +630,16 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
   /**
    * The raw `parentId`, the nesting walk's next step. A resident row's from
    * its standing; a cold row's from the `parent` edge, which the engine keeps
-   * for cold rows too. An empty edge is also what an archived or deleted row
-   * shows (the relation's `where`), and legacy walks through those by the raw
-   * field, so only then is the cold row read.
+   * for cold rows too; a hidden row's from its summary when the edge is
+   * empty (an archived row also shows an empty edge, POD-4753). Never a full
+   * peek.
    */
   parentLink(input, id, self) {
     if (!self.resident) {
       const edge = input.relations.one('issue', id, 'parent')
       if (edge !== null) return edge
+      const hidden = input.hidden?.(id)
+      if (hidden !== undefined) return (hidden.parentId as string | null) ?? null
     }
     return self.standing?.parentId ?? null
   },

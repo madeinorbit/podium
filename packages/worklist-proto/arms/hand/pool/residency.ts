@@ -137,6 +137,12 @@ export interface ResidencyOptions {
    * source keeps nothing.
    */
   readonly lanes?: () => LaneReader
+  /**
+   * POD-4753 — per entity, the fields its readers need of a row that is cold
+   * BY THE RULE (so hidden: nothing can show it): a small declared summary,
+   * kept beside the cold id from the row ingest hands over, never the row.
+   */
+  readonly summaries?: Partial<Readonly<Record<EntityName, readonly string[]>>>
   /** A cell asked whether `entity:id` is cold (the pool records the running cell). */
   asked(entity: EntityName, id: string): void
   /** `entity:id` entered or left the registry (the pool emits a `residency` delta). */
@@ -187,6 +193,9 @@ export class Residency {
   readonly windowMs: number
   private readonly options: ResidencyOptions
   private readonly schedule: Schedule
+  private readonly summaryFields: Partial<Readonly<Record<EntityName, readonly string[]>>>
+  /** `entity:id` → the declared summary of a cold row (entities that declare one). */
+  private readonly summaries = new Map<string, Readonly<Record<string, unknown>>>()
   /** Entities whose rows can keep an `unlessShown` row resident (the schema's `keptBy`). */
   private readonly keeperKinds: ReadonlySet<EntityName>
   /** Per `members` source: owner id → member id → how long it keeps the owner shown, for EVERY known member row. */
@@ -220,6 +229,7 @@ export class Residency {
     this.options = options
     this.windowMs = options.windowMs ?? LOAD_WINDOW_MS
     this.schedule = options.schedule ?? realSchedule
+    this.summaryFields = options.summaries ?? {}
     const { schema } = options
     this.keeperKinds = keeperEntities(schema)
     this.laneSources = laneSources(schema)
@@ -350,6 +360,25 @@ export class Residency {
     if (!this.capable(entity)) return false
     this.options.asked(entity, id)
     return this.isCold(entity, id)
+  }
+
+  /**
+   * TRACKED: whether `id` is cold BY THE RULE, so hidden: nothing can show it.
+   * The hand mirror of the MobX pool's `hidden` (POD-4753): a cold issue the
+   * complete rule keeps out of memory is never flat or present, so visibility
+   * answers it from its declared summary without reading its row.
+   */
+  hidden(entity: EntityName, id: string): boolean {
+    if (!this.capable(entity)) return false
+    this.options.asked(entity, id)
+    return this.isCold(entity, id)
+  }
+
+  /** TRACKED: the declared summary of a cold row, else undefined. */
+  summary(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined {
+    if (!this.capable(entity)) return undefined
+    this.options.peeked(entity, id)
+    return this.summaries.get(`${entity}:${id}`)
   }
 
   /** Queue `id` for the next load window (arms one if none is open). */
@@ -523,6 +552,7 @@ export class Residency {
     for (const dirty of this.laneDirty.values()) dirty.clear()
     this.placing = null
     this.finish.clear()
+    this.summaries.clear()
   }
 
   /**
@@ -742,6 +772,16 @@ export class Residency {
     if (this.options.schema[entity].cold.kind === 'unlessShown') {
       this.finish.set(`${entity}:${id}`, coldFinishOf(this.options.schema, entity, row))
     }
+    const fields = this.summaryFields[entity]
+    if (fields !== undefined) {
+      const values = row as Readonly<Record<string, unknown>>
+      const summary: Record<string, unknown> = {}
+      for (const field of fields) {
+        const value = values[field]
+        if (value !== undefined) summary[field] = value
+      }
+      this.summaries.set(`${entity}:${id}`, summary)
+    }
     const byTarget = this.dependents.get(entity)
     if (byTarget !== undefined && before !== after) {
       if (before !== null) unindex(byTarget, before, id)
@@ -756,6 +796,7 @@ export class Residency {
     const before = ids.get(id) ?? null
     ids.delete(id)
     this.finish.delete(`${entity}:${id}`)
+    this.summaries.delete(`${entity}:${id}`)
     const byTarget = this.dependents.get(entity)
     if (byTarget !== undefined && before !== null) unindex(byTarget, before, id)
     const queued = this.queue.get(entity as LoadableEntity)

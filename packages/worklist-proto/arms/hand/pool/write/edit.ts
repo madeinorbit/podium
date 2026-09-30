@@ -81,7 +81,6 @@ import {
   WriteContractError,
 } from '../../../../shared/src/write-contract'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
-import { DepIndex } from '../cells'
 import type { HandPool } from '../pool'
 import { createPendingLog } from './pending'
 
@@ -173,30 +172,22 @@ export function createHandWriteApi(
   opts: { log?: PendingLog } = {},
 ): HandWriteApi {
   const log = opts.log ?? createPendingLog()
-  const overlays = new Map<string, IssueOverlay>()
-  const pendingReaders = new DepIndex<string>('write.pending')
   const listeners = new Set<
     (rejection: Rejection & { readonly kind: WritableKind; readonly id: string }) => void
   >()
 
   const refreshOverlay = (kind: WritableKind, id: string): boolean => {
     if (kind !== 'issue') return false
-    const key = overlayKey(kind, id)
     const display = displayOf(log, kind, id)
+    const current = pool.pending(kind, id) as IssueOverlay | undefined
     if (display === undefined) {
-      if (!overlays.has(key)) return false
-      overlays.delete(key)
+      if (current === undefined) return false
+      pool.setPendingOverlay(kind, id, undefined)
       return true
     }
-    const current = overlays.get(key)
     if (current !== undefined && JSON.stringify(current) === JSON.stringify(display)) return false
-    overlays.set(key, display)
+    pool.setPendingOverlay(kind, id, display)
     return true
-  }
-
-  const overlayOf = (id: string): IssueOverlay | undefined => {
-    pool.graph.track(pendingReaders, overlayKey('issue', id))
-    return overlays.get(overlayKey('issue', id))
   }
 
   /**
@@ -213,24 +204,15 @@ export function createHandWriteApi(
   /** The server row with the pending display overlaid (transient, never stored). */
   const withOverlay = (id: string, row: SliceIssue | undefined): SliceIssue | undefined => {
     if (row === undefined) return undefined
-    const overlay = overlayOf(id)
+    const overlay = pool.pending('issue', id) as IssueOverlay | undefined
     if (overlay === undefined) return row
     return { ...row, ...overlay }
   }
 
-  // Overlay at the row-reader boundary. Each wrapper tracks its overlay entry
-  // and delegates to the server reader it replaced. With no pending edit the
-  // server object is returned unchanged, so identity-based commit counting
-  // holds and an idle layer is invisible.
-  const inputs = pool.inputs as { issue: (id: string) => SliceIssue | undefined }
-  const originalIssue = inputs.issue.bind(pool.inputs)
-  inputs.issue = (id: string) => withOverlay(id, originalIssue(id))
-
-  const visible = pool.visibleInputs as {
-    issueRow(id: string): SliceIssue | undefined
-  }
-  const originalIssueRow = visible.issueRow.bind(pool.visibleInputs)
-  visible.issueRow = (id: string) => withOverlay(id, originalIssueRow(id))
+  // Pending edits fold in inside the one reader (`HandPool.row`, POD-4743):
+  // no reader is wrapped here. With no pending edit the server object is
+  // returned unchanged, so identity-based commit counting holds and an idle
+  // layer is invisible.
 
   const commitFor = (kind: WritableKind, id: string): void => {
     // POD-4707: the pending display moves rows only derivations read. File
@@ -238,12 +220,12 @@ export function createHandWriteApi(
     // filing or member cells would never follow its pending verdict.
     if (kind === 'issue') pool.ensureIssues([id])
     pool.commitOverlay(() => {
-      pool.graph.invalidateKey(pendingReaders, overlayKey(kind, id))
-      // The row's table readers too: cells created before the layer wrapped
-      // the doors tracked the table slot, never the overlay key, so an
-      // overlay-only commit would wake nothing (a pending edit could never
-      // flip visibility). Re-running them re-subscribes them going forward;
-      // row isolation holds — one row's readers, like a row delta.
+      pool.graph.invalidateKey(pool.pendingReaders, overlayKey(kind, id))
+      // The row's table readers too: cells created before the layer attached
+      // tracked the table slot, never the overlay key, so an overlay-only
+      // commit would wake nothing (a pending edit could never flip
+      // visibility). Re-running them re-subscribes them going forward; row
+      // isolation holds — one row's readers, like a row delta.
       pool.graph.invalidateKey(pool.rowReaders[kind], id)
     })
   }
@@ -258,7 +240,7 @@ export function createHandWriteApi(
         pool.hydrate()
       }
     }
-    const server = originalIssue(id) ?? originalIssueRow(id)
+    const server = pool.tables.issue.get(id) as SliceIssue | undefined
     if (server === undefined || !isIssueRow(server)) {
       throw new WriteContractError(`unknown issue ${id}`)
     }
@@ -437,11 +419,9 @@ export function createHandWriteApi(
     },
 
     dispose() {
-      inputs.issue = originalIssue
-      visible.issueRow = originalIssueRow
       listeners.clear()
-      overlays.clear()
-      pendingReaders.clear()
+      for (const id of [...pool.writePins]) pool.setPendingOverlay('issue', id, undefined)
+      pool.pendingReaders.clear()
       pool.writePins.clear()
     },
   }

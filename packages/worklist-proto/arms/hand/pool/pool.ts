@@ -128,10 +128,11 @@ import {
   type ViewInputs,
 } from './views'
 import { type GroupLanes, type GroupsView, WorklistGroups } from './worklist/groups'
-import { RollupCollection } from './worklist/rollup'
+import { LOADING, type Loaded, RollupCollection } from './worklist/rollup'
 import {
   directSessionParts,
   directVisibleParts,
+  HIDDEN_ISSUE_FIELDS,
   retainedSeatIdsOf,
   type SessionVisibleParts,
   standingOf,
@@ -223,6 +224,22 @@ export interface PoolLazyOptions {
 /** Where a row stands (`HandPool.resident`). */
 export type Residence = 'resident' | 'loading' | 'absent'
 
+/**
+ * What `HandPool.row` answers for a row that is not in memory (a cold row),
+ * the hand mirror of the MobX pool's `AbsentRead` (POD-4743):
+ * - `load`: `LOADING`, and the row is queued for the next load window (a
+ *   cell's first access);
+ * - `mark`: `LOADING`, nothing queued (maintenance inside a commit, which
+ *   must not arm the window);
+ * - `peek`: the row's declared summary (a hidden issue's `HIDDEN_ISSUE_FIELDS`),
+ *   nothing queued (the visibility parts decide a cold row without loading it).
+ * Unknown rows answer undefined in every mode. Never blocks.
+ */
+export type AbsentRead = 'load' | 'mark' | 'peek'
+
+/** The editable fields of an issue row, as the pending overlay holds them. */
+export type PendingOverlay = { title?: string; stage?: string; readAt?: string | null }
+
 /** A lazy collection: its resident members, and how many are still loading. */
 export interface LazyMembers {
   readonly ready: readonly string[]
@@ -302,8 +319,15 @@ export class HandPool {
   readonly engine: PoolRelations
   /** The cells that asked whether a row is cold, keyed `${entity}:${id}` (POD-4580). */
   readonly coldness: DepIndex<string>
-  /** The cells that read a cold row by id (`Residency.peek`), keyed `${entity}:${id}` (POD-4582). */
+  /**
+   * The cells that read a cold row's declared summary, keyed
+   * `${entity}:${id}` (POD-4753; was `Residency.peek`, POD-4582).
+   */
   readonly coldRows: DepIndex<string>
+  /** The cells that read a row's pending overlay, keyed `issue:${id}` (POD-4586). */
+  readonly pendingReaders: DepIndex<string>
+  /** The pending display per edited issue row (the write layer's newest values). */
+  private readonly pendingOverlays = new Map<string, PendingOverlay>()
   /** Residency (POD-4580); null when the pool holds every row. */
   readonly residency: Residency | null
   /** The cells that read a table's membership (its id list). */
@@ -397,6 +421,8 @@ export class HandPool {
     }))
     const tracked = this.tracked
     const coldMoves = this.coldMoves
+    const pendingReaders = new DepIndex<string>('write.pending')
+    this.pendingReaders = pendingReaders
     const residency =
       lazy === undefined
         ? null
@@ -407,6 +433,8 @@ export class HandPool {
             now: () => this.clock.current,
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
+            // What visibility reads of a hidden issue (POD-4753), never the row.
+            summaries: { issue: HIDDEN_ISSUE_FIELDS },
             asked: (entity, id) => graph.track(coldness, `${entity}:${id}`),
             changed: (entity, id) => coldMoves.push({ kind: 'residency', entity, id }),
             peeked: (entity, id) => graph.track(coldRows, `${entity}:${id}`),
@@ -417,13 +445,14 @@ export class HandPool {
     this.residency = residency
     this.stats = createStats(graph, () => this.residency)
     const stats = this.stats
-    // The engine sees every KNOWN row: a resident one in its table, a cold one
-    // by id (read back through the feed only when maintenance needs its fields).
+    // The engine knows every KNOWN row (a target is present hot or cold) and
+    // reads only resident ones: a cold row's fields it needs again it keeps
+    // itself, from the row ingest hands it (POD-4753), never read by id.
     const known: TableSet<ReadableTable> =
       residency === null
         ? fenced
         : tablesOf((entity) => ({
-            get: (id: string) => fenced[entity].get(id) ?? residency.read(entity, id),
+            get: (id: string) => fenced[entity].get(id),
             has: (id: string) => fenced[entity].has(id) || residency.isCold(entity, id),
           }))
     this.engine = new PoolRelations({
@@ -439,11 +468,13 @@ export class HandPool {
       onIssuelessJoin: (collection, _target, member) => residency?.laneJoined(collection, member),
     })
     this.relations = reads.wrapRelations(this.engine)
+    const inMemory = (row: Loaded<object>): object | undefined =>
+      row === LOADING ? undefined : row
     this.inputs = {
       relations: this.relations,
-      issue: (id) => tracked.issue.get(id) as SliceIssue | undefined,
-      session: (id) => tracked.session.get(id) as SliceSession | undefined,
-      repo: (id) => tracked.repo.get(id) as RepoRow | undefined,
+      issue: (id) => inMemory(this.row('issue', id)) as SliceIssue | undefined,
+      session: (id) => inMemory(this.row('session', id)) as SliceSession | undefined,
+      repo: (id) => inMemory(this.row('repo', id)) as RepoRow | undefined,
       sessionActivity: (id) => this.sessionActivity(id),
       present: (entity, id) => tracked[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
@@ -467,10 +498,9 @@ export class HandPool {
     this.visibleInputs = {
       relations: this.relations,
       resident: (entity, id) => tracked[entity].has(id),
-      issueRow: (id) =>
-        (tracked.issue.get(id) ?? residency?.peek('issue', id)) as SliceIssue | undefined,
-      sessionRow: (id) =>
-        (tracked.session.get(id) ?? residency?.peek('session', id)) as SliceSession | undefined,
+      issueRow: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
+      sessionRow: (id) => this.row('session', id, 'peek') as SliceSession | undefined,
+      hidden: (id) => this.hidden('issue', id) as Record<string, unknown> | undefined,
       // Held parts first (no table touch at all): the hot paths (rosters over
       // bucket members) re-check membership on every recompute, and a fenced
       // presence check there counts every member on the fence (#2's budget).
@@ -511,6 +541,7 @@ export class HandPool {
       sessionRow: (id) => this.visibleInputs.sessionRow(id),
       resident: (entity, id) => this.visibleInputs.resident(entity, id),
       loading: (entity, id) => this.inputs.loading(entity, id),
+      row: (entity, id, absent = 'load') => this.row(entity, id, absent as AbsentRead),
       knownIssue: (id) =>
         this.tables.issue.has(id) || (this.residency?.isCold('issue', id) ?? false),
       visibleIssue: (id) => this.visibleInputs.issue(id),
@@ -612,6 +643,98 @@ export class HandPool {
     return cells
   }
 
+  /**
+   * TRACKED: the pending display for `entity:id`, or undefined when nothing
+   * is pending (the write layer's newest values per edited field). The one
+   * reader lays it over the row; a reader subscribes to the overlay entry,
+   * never to the transient overlaid object.
+   */
+  pending(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined {
+    if (entity !== 'issue') return undefined
+    this.graph.track(this.pendingReaders, `issue:${id}`)
+    return this.pendingOverlays.get(`issue:${id}`)
+  }
+
+  /**
+   * The write layer's pending display, as the one reader sees it: set the
+   * overlay for `entity:id` (or clear it with undefined). Tracking is via
+   * `pending()`; invalidation via `commitOverlay` (the write layer dirties
+   * both the overlay entry and the row slot, so cells created before the
+   * layer wrapped still wake).
+   */
+  setPendingOverlay(entity: EntityName, id: string, overlay: PendingOverlay | undefined): void {
+    const key = `${entity}:${id}`
+    if (overlay === undefined) {
+      this.pendingOverlays.delete(key)
+      return
+    }
+    this.pendingOverlays.set(key, overlay)
+  }
+
+  /**
+   * TRACKED: THE row reader (POD-4743, the hand mirror of `MobxPool.row`).
+   * Every row a view, visibility part, roll-up or group placement reads comes
+   * from here, so they all see one value.
+   *
+   * In memory: the server row with the write layer's pending edits overlaid,
+   * or the server object itself when nothing is pending (same identity, so an
+   * idle write layer adds no commit). The overlaid object is transient, never
+   * stored; a reader subscribes to the table slot and the overlay entry,
+   * never to it.
+   *
+   * Not in memory (cold, POD-4580): what `absent` names. A cold row's load is
+   * queued in `load` mode (`LOADING`), never queued in `mark` mode
+   * (`LOADING`), and its declared summary answered in `peek` mode (hidden
+   * issues: `HIDDEN_ISSUE_FIELDS`, never the row). Unknown rows answer
+   * undefined. Never blocks.
+   */
+  row(entity: EntityName, id: string, absent: 'peek'): object | undefined
+  row(entity: EntityName, id: string, absent?: 'load' | 'mark'): Loaded<object>
+  row(entity: EntityName, id: string, absent: AbsentRead = 'load'): Loaded<object> {
+    const pending = this.pending(entity, id)
+    const server = this.fenced[entity].get(id) as object | undefined
+    if (server !== undefined) {
+      this.graph.track(this.rowReaders[entity], id)
+      return pending === undefined ? server : { ...server, ...pending }
+    }
+    const residency = this.residency
+    if (residency === null) {
+      this.graph.track(this.presence[entity], id)
+      return undefined
+    }
+    if (absent === 'load') {
+      if (residency.loading(entity, id)) return LOADING
+      this.graph.track(this.presence[entity], id)
+      return undefined
+    }
+    if (!residency.known(entity, id)) {
+      this.graph.track(this.presence[entity], id)
+      return undefined
+    }
+    if (absent === 'mark') return LOADING
+    const summary = residency.summary(entity, id)
+    if (summary === undefined) return undefined
+    return pending === undefined
+      ? (summary as object)
+      : { ...(summary as Record<string, unknown>), ...pending }
+  }
+
+  /**
+   * TRACKED: the declared summary of a row the cold rule keeps hidden
+   * (POD-4753): a hidden issue's visibility reads it instead of its row.
+   * Undefined for a row in memory, one held out beside the rule, or unknown.
+   */
+  hidden(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined {
+    const residency = this.residency
+    if (residency === null) return undefined
+    // A row in memory is never hidden, and its reader already tracks its
+    // table slot: asked untracked, so no residency atom is made per issue in
+    // memory.
+    if (this.tables[entity].has(id)) return undefined
+    if (!residency.hidden(entity, id)) return undefined
+    return residency.summary(entity, id) ?? {}
+  }
+
   // --------------------------------------------- the lazy closure (POD-4707)
 
   /**
@@ -646,11 +769,11 @@ export class HandPool {
    * evaluated without building a cell or a filing. Relations come from the
    * raw engine (`forward` + `members`: no fence, no tracking — identical
    * ids to the fenced doors derivations read); rows from the raw tables
-   * with cold rows peeked by id exactly as the live doors peek them
-   * (counted feed reads, never a load); the clock from the live clock
-   * (tracking no-ops outside a cell). The row view (`own`) is a loud stub:
-   * rank is outside the closure read set, so a read there means the scope
-   * grew and must grow with it.
+   * with cold rows answered through their declared summary (never a full
+   * peek, never a load); the clock from the live clock (tracking no-ops
+   * outside a cell). The row view (`own`) is a loud stub: rank is outside
+   * the closure read set, so a read there means the scope grew and must
+   * grow with it.
    *
    * Values equal the live derivations' at a quiescent point, with one
    * stated exception: pending write overlays project through the live row
@@ -666,14 +789,14 @@ export class HandPool {
     const memo = new Map<string, VisibleParts>()
     const sessMemo = new Map<string, SessionVisibleParts>()
     // One row read per id per pass: the ancestor walk re-reaches shared
-    // ancestors, and each must peek a cold row at most once here (the live
-    // derivations peek it again when they run — see the residency count).
+    // ancestors, and each cold row answers its declared summary at most once
+    // here (the live derivations read it again when they run).
     const rowMemo = new Map<string, SliceIssue | undefined>()
     const rowOf = (id: string): SliceIssue | undefined => {
       if (!rowMemo.has(id)) {
         rowMemo.set(
           id,
-          (this.tables.issue.get(id) ?? this.residency?.peek('issue', id)) as
+          (this.tables.issue.get(id) ?? this.residency?.summary('issue', id)) as
             | SliceIssue
             | undefined,
         )
@@ -692,8 +815,13 @@ export class HandPool {
       relations: raw,
       resident: (entity, id) => this.tables[entity].has(id),
       issueRow: (id) => rowOf(id),
+      hidden: (id) => {
+        if (this.tables.issue.has(id)) return undefined
+        if (!(this.residency?.isCold('issue', id) ?? false)) return undefined
+        return this.residency?.summary('issue', id) as Record<string, unknown> | undefined
+      },
       sessionRow: (id) =>
-        (this.tables.session.get(id) ?? this.residency?.peek('session', id)) as
+        (this.tables.session.get(id) ?? this.residency?.summary('session', id)) as
           | SliceSession
           | undefined,
       issue: (id) => (this.knowsIssue(id) ? directVisibleParts(plain, id, memo) : undefined),
@@ -1213,6 +1341,8 @@ export class HandPool {
     this.engine.clear()
     this.relationReaders.clear()
     this.writePins.clear()
+    this.pendingOverlays.clear()
+    this.pendingReaders.clear()
     this.residency?.clear()
     this.coldness.clear()
     this.coldRows.clear()
