@@ -1,9 +1,10 @@
 import { open, stat } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/model'
+import type { HarnessRuntimeObservation, TranscriptRecordMapper } from '../transcript-types.js'
 import { recordUuid, stampCursors } from './cursor-codec'
 import { fileIdFor } from './file-chain'
-import type { HarnessRuntimeObservation } from '../transcript-types.js'
 import { type StatTick, scheduleStatPoll } from './stat-tick'
+import { placeAnswer, turnEndStamper } from './turn-end'
 
 export type { TranscriptColorReader } from '../transcript-types.js'
 
@@ -47,7 +48,7 @@ export interface TranscriptTailOptions {
    *  read remains independently paced by seedGate. */
   statTick?: StatTick
   /** Maps one decoded JSONL record to zero or more normalized chat items. */
-  recordToItems?: (record: unknown) => TranscriptItem[]
+  recordToItems?: TranscriptRecordMapper
   /** Extract an agent identity colour (`/color`) from a record, if any. Called
    *  alongside recordToItems; `onColor` fires when the value changes. */
   recordColor?: (record: unknown) => string | undefined
@@ -169,17 +170,29 @@ export function tailTranscript(
   let flushedOffset = -1
   let stopped = false
   let reading = false
+  // Remembers the reply that may be its turn's answer ACROSS polls: Grok writes
+  // the turn end a poll after the reply often enough (turn-end.ts). Restarted
+  // with every reset read, whose window starts somewhere new.
+  let turnEnd = turnEndStamper(recordToItems)
 
-  /** Parse a single line's bytes into stamped items at the given absolute offset.
-   *  Skips blank/torn lines (returns []). Also forwards an identity-colour change. */
-  const lineToItems = (lineBytes: Buffer, lineOffset: number): TranscriptItem[] => {
+  /** Parse a single line's bytes into stamped items at the given absolute offset
+   *  and append them to `out`; returns how many it appended. Skips blank/torn
+   *  lines. Also forwards an identity-colour change, and a turn end's answer:
+   *  in place when its reply is in this poll's `out`, else onto `answers`, a
+   *  re-send of a row an earlier poll delivered. */
+  const lineToItems = (
+    out: TranscriptItem[],
+    answers: TranscriptItem[],
+    lineBytes: Buffer,
+    lineOffset: number,
+  ): number => {
     const trimmed = lineBytes.toString('utf8').trim()
-    if (!trimmed) return []
+    if (!trimmed) return 0
     let record: unknown
     try {
       record = JSON.parse(trimmed)
     } catch {
-      return [] // torn write — skip the line
+      return 0 // torn write — skip the line
     }
     const items = recordToItems(record)
     const timestamp = items.find((item) => item.ts)?.ts ??
@@ -209,7 +222,11 @@ export function tailTranscript(
       lastContextUsagePercent = contextUsagePercent
       opts.onContextUsage?.(contextUsagePercent, at)
     }
-    return stampCursors(items, fileId, lineOffset, recordUuid(record))
+    const stamped = stampCursors(items, fileId, lineOffset, recordUuid(record))
+    out.push(...stamped)
+    const answer = turnEnd?.observe(record, stamped)
+    if (answer && !placeAnswer(out, answer)) answers.push(answer)
+    return stamped.length + (answer ? 1 : 0)
   }
 
   let firstEmissionReported = false
@@ -258,6 +275,7 @@ export function tailTranscript(
           dropLeadingPartial = start > 0
           first = false
           reset = true
+          turnEnd = turnEndStamper(recordToItems)
         }
         // `offset + leftover.length` is the byte position we have already consumed
         // off disk. A shrink below that means the file was truncated/replaced.
@@ -272,12 +290,16 @@ export function tailTranscript(
           dropLeadingPartial = start > 0
           flushedOffset = -1
           reset = true
+          turnEnd = turnEndStamper(recordToItems)
         }
         if (size === offset + leftover.length && !reset) {
           cycleSucceeded = true
           return
         }
         let items: TranscriptItem[] = []
+        // Answers re-marking rows an earlier poll already delivered. Kept apart
+        // so they never become the delta's `tail`: they are older than it.
+        const answers: TranscriptItem[] = []
         // CHUNKED read + parse: one bounded allocation and one bounded synchronous
         // parse slice per chunk; the await on each chunk read yields the event
         // loop, so a multi-MB backfill no longer blocks it end-to-end (POD-613).
@@ -310,7 +332,7 @@ export function tailTranscript(
               flushedOffset = -1
               continue
             }
-            items = items.concat(lineToItems(lineBytes, lineOffset))
+            lineToItems(items, answers, lineBytes, lineOffset)
           }
           // Bytes after the last newline are an unterminated trailing record:
           // advance `offset` to its start and keep it as leftover (NOT consumed).
@@ -328,9 +350,7 @@ export function tailTranscript(
         // now-complete line at this same offset is skipped rather than re-emitted —
         // the record is delivered exactly once across polls.
         if (!dropLeadingPartial && leftover.length > 0) {
-          const flushed = lineToItems(leftover, offset)
-          if (flushed.length > 0) {
-            items = items.concat(flushed)
+          if (lineToItems(items, answers, leftover, offset) > 0) {
             flushedOffset = offset
           } else {
             // Leftover is blank/torn (not a real record we showed) — no guard.
@@ -340,8 +360,8 @@ export function tailTranscript(
           flushedOffset = -1
         }
         if (reset && items.length > maxInitialItems) items = items.slice(-maxInitialItems)
-        if (items.length > 0 || reset) {
-          onItems(items, { reset, tail: items.at(-1)?.cursor })
+        if (items.length > 0 || answers.length > 0 || reset) {
+          onItems([...items, ...answers], { reset, tail: items.at(-1)?.cursor })
           if (!firstEmissionReported) {
             firstEmissionReported = true
             reportStatus({ kind: 'first-emission', path, items: items.length, reset })

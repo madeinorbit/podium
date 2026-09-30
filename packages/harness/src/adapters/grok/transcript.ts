@@ -1,6 +1,10 @@
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
-import type { HarnessRuntimeObservation } from '../../transcript-types.js'
+import type {
+  HarnessRuntimeObservation,
+  TranscriptRecordMapper,
+  TranscriptTurnEnd,
+} from '../../transcript-types.js'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
 import { toolInputPreview } from '../claude-code/transcript.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
@@ -26,7 +30,10 @@ import { locateGrokTranscript } from './state-locate.js'
  *     `_meta.hideFromScrollback`: that is Grok waking itself after a background
  *     task, a `<system-reminder>` nobody typed.
  *   - `agent_message_chunk` → the reply. The terminal writes each text segment
- *     whole, as one record (real sessions: never two in a row).
+ *     whole, as one record (real sessions: never two in a row). Whether it is
+ *     the turn's answer or narration before a tool is not in the record: the
+ *     next one decides it, so `grokRecordEndsTurn` below names the turn end
+ *     and the Store's readers mark the answer (store/turn-end.ts, POD-4936).
  *   - `tool_call` → the call; a `tool_call_update` that ends it → its result.
  *   - everything else — reasoning, hooks, turn ends, background-task and
  *     compaction bookkeeping — is not part of the conversation view. In
@@ -43,7 +50,11 @@ import { locateGrokTranscript } from './state-locate.js'
  * `hook_execution user_prompt_submit` record written just before it, which a
  * windowed read can cut off, so it is not folded into the id.
  */
-export function grokRecordToItems(record: unknown): TranscriptItem[] {
+export const grokRecordToItems: TranscriptRecordMapper = Object.assign(mapGrokRecord, {
+  endsTurn: grokRecordEndsTurn,
+})
+
+function mapGrokRecord(record: unknown): TranscriptItem[] {
   const params = recordField(record, 'params')
   const update = recordField(params, 'update')
   if (!params || !update) return []
@@ -79,6 +90,20 @@ export function grokRecordToItems(record: unknown): TranscriptItem[] {
     default:
       return []
   }
+}
+
+/**
+ * `turn_completed` ends a turn. `end_turn` is a finished turn, and the reply
+ * right before it was its answer — the marker Claude (stop_reason), Codex
+ * (phase), Pi (stopReason) and OpenCode (finish) carry on the reply itself
+ * (POD-4809). Any other stop — `cancelled`, `error`, the `interrupted` a resume
+ * writes for a turn that died — answered nothing. In 23 real sessions
+ * (2026-09-30) all 80 `end_turn`s followed a reply; no other stop did.
+ */
+export function grokRecordEndsTurn(record: unknown): TranscriptTurnEnd | undefined {
+  const update = recordField(recordField(record, 'params'), 'update')
+  if (stringField(update, 'sessionUpdate') !== 'turn_completed') return undefined
+  return stringField(update, 'stop_reason') === 'end_turn' ? 'answered' : 'ended'
 }
 
 /** `_meta.agentTimestampMs` as an ISO instant, or undefined. */

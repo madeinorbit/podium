@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../store/cursor-codec.js'
-import { grokRecordToItems } from './transcript.js'
+import { grokRecordEndsTurn, grokRecordToItems } from './transcript.js'
 
 // One `updates.jsonl` line as Grok 1.0.44 writes it (shapes from real sessions
 // and docs/measurements/pod-4834-receipt-proof/grok-tui-1.0.44/).
@@ -90,6 +90,21 @@ describe('grokRecordToItems', () => {
       [],
     )
     expect(grokRecordToItems({ type: 'assistant', content: 'hi' })).toEqual([])
+  })
+
+  it('names the record that ends a turn, and whether the turn was answered', () => {
+    // The reply itself cannot say it is final; the turn end right after it
+    // does (POD-4936). Only a finished turn answered anything.
+    expect(grokRecordToItems.endsTurn).toBe(grokRecordEndsTurn)
+    const end = (stop_reason: string) =>
+      grokRecordEndsTurn(line({ sessionUpdate: 'turn_completed', prompt_id: 'p1', stop_reason }))
+    expect(end('end_turn')).toBe('answered')
+    for (const stop of ['cancelled', 'error', 'interrupted']) expect(end(stop)).toBe('ended')
+    expect(
+      grokRecordEndsTurn(
+        line({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi' } }),
+      ),
+    ).toBeUndefined()
   })
 
   it('keeps an attachment as a tag', () => {

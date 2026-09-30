@@ -29,7 +29,7 @@ import {
   withStateChannelEvent,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import type { AgentKind, SessionId, TranscriptItem } from '@podium/model'
+import type { AgentKind, SessionId } from '@podium/model'
 import type { DurableAttachment, ScreenReader } from '@podium/process/screen'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
@@ -37,6 +37,7 @@ import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import {
   createSharedStatTick,
   type StatTick,
+  type TranscriptRecordMapper,
   type TranscriptTailer,
   tailTranscript,
 } from '@podium/harness/store'
@@ -1280,7 +1281,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     sessionId: SessionId,
     path: string,
     agentKind: string,
-    recordToItems: (record: unknown) => TranscriptItem[],
+    recordToItems: TranscriptRecordMapper,
     resumeValue = nativeSessionIds.get(sessionId),
   ): void => {
     // Wait for native identity: a path fallback would split live and mirrored cursors.
@@ -1297,8 +1298,13 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // the terminal driver reads them as held receipts, and the frame sink
     // strips them before the delta leaves the machine.
     const recordReceipts = transcriptReceiptMapperFor(agentKind)
-    const liveRecordToItems = recordReceipts
-      ? (record: unknown) => [...recordToItems(record), ...recordReceipts(record)]
+    // The wrapper keeps the grammar's turn-end reader, or Grok's answers would
+    // lose their marker on the live tail alone (POD-4936).
+    const liveRecordToItems: TranscriptRecordMapper = recordReceipts
+      ? Object.assign(
+          (record: unknown) => [...recordToItems(record), ...recordReceipts(record)],
+          recordToItems.endsTurn ? { endsTurn: recordToItems.endsTurn } : {},
+        )
       : recordToItems
     tails.set(
       sessionId,

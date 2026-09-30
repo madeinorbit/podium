@@ -1,6 +1,7 @@
 import { statSync } from 'node:fs'
 import { open, stat } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/model'
+import type { TranscriptRecordMapper } from '../transcript-types'
 import { decodeCursor, recordUuid, stampCursors } from './cursor-codec'
 import type { ChainEntry } from './file-chain'
 // Self-import so the bounded reader routes its file reads through the module's
@@ -9,6 +10,7 @@ import type { ChainEntry } from './file-chain'
 // bounded windows do NOT slurp whole files — a direct intra-module call would
 // bypass the spy under ESM. See slice.test.ts "bounded window" perf test.
 import * as self from './slice'
+import { placeAnswer, type TurnEndStamper, turnEndStamper } from './turn-end'
 
 export interface SliceResult {
   items: TranscriptItem[]
@@ -31,7 +33,7 @@ export interface SliceResult {
 export async function readFileItems(
   path: string,
   fileId: string,
-  recordToItems: (r: unknown) => TranscriptItem[],
+  recordToItems: TranscriptRecordMapper,
   window?: { start: number; end: number },
 ): Promise<TranscriptItem[]> {
   let buf: Buffer
@@ -61,9 +63,10 @@ export async function readFileItems(
     return []
   }
   const out: TranscriptItem[] = []
+  const turnEnd = turnEndStamper(recordToItems)
   // Parse one line's bytes into stamped items at an absolute offset; skip blank/torn.
   const emit = (lineBytes: Buffer, recOffset: number): void => {
-    out.push(...stampRecordLine(lineBytes, recOffset, fileId, recordToItems))
+    stampRecordLine(out, lineBytes, recOffset, fileId, recordToItems, turnEnd)
   }
   // Walk line boundaries on the raw buffer, tracking each record's ABSOLUTE offset.
   let lineStart = 0
@@ -92,26 +95,32 @@ export async function readFileItems(
   return out
 }
 
-/** Parse one line's bytes into cursor-stamped items at an absolute file offset.
- *  Blank and torn (unparseable) lines yield nothing — the shared line grammar
- *  behind both `readFileItems` and `readIndexWindow`, so every file reader
- *  stamps through this one helper. */
+/** Parse one line's bytes into cursor-stamped items at an absolute file offset
+ *  and append them to `out`. Blank and torn (unparseable) lines yield nothing —
+ *  the shared line grammar behind both `readFileItems` and `readIndexWindow`, so
+ *  every file reader stamps through this one helper. A line that ends a turn
+ *  re-marks the reply before it in `out` as the answer (`turn-end.ts`). */
 function stampRecordLine(
+  out: TranscriptItem[],
   lineBytes: Buffer,
   recOffset: number,
   fileId: string,
-  recordToItems: (r: unknown) => TranscriptItem[],
-): TranscriptItem[] {
+  recordToItems: TranscriptRecordMapper,
+  turnEnd: TurnEndStamper | undefined,
+): void {
   const trimmed = lineBytes.toString('utf8').trim()
-  if (!trimmed) return []
+  if (!trimmed) return
   let record: unknown
   try {
     record = JSON.parse(trimmed)
   } catch {
-    return []
+    return
   }
-  const items = recordToItems(record)
-  return items.length > 0 ? stampCursors(items, fileId, recOffset, recordUuid(record)) : []
+  const mapped = recordToItems(record)
+  const items = mapped.length > 0 ? stampCursors(mapped, fileId, recOffset, recordUuid(record)) : []
+  out.push(...items)
+  const answer = turnEnd?.observe(record, items)
+  if (answer) placeAnswer(out, answer)
 }
 
 export interface IndexWindowResult {
@@ -145,7 +154,7 @@ export interface IndexWindowResult {
 export async function readIndexWindow(
   path: string,
   fileId: string,
-  recordToItems: (r: unknown) => TranscriptItem[],
+  recordToItems: TranscriptRecordMapper,
   from: number,
   to: number,
   windowBytes: number,
@@ -162,13 +171,16 @@ export async function readIndexWindow(
   }
   if (lastNl < 0) return { items: [], consumed: 0 }
   const items: TranscriptItem[] = []
+  // Within this window only: a reply the window's last line leaves open is
+  // indexed unmarked, which search does not read.
+  const turnEnd = turnEndStamper(recordToItems)
   let lineStart = 0
   for (let i = 0; i <= lastNl; i++) {
     if (buf[i] !== 0x0a /* \n */) continue
     const recOffset = from + lineStart
     const lineBytes = buf.subarray(lineStart, i)
     lineStart = i + 1
-    items.push(...stampRecordLine(lineBytes, recOffset, fileId, recordToItems))
+    stampRecordLine(items, lineBytes, recOffset, fileId, recordToItems, turnEnd)
   }
   return { items, consumed: lastNl + 1 }
 }
@@ -234,7 +246,7 @@ const INITIAL_WINDOW_BYTES = 256 * 1024
  */
 export async function readTranscriptSlice(
   chain: ChainEntry[],
-  recordToItems: (r: unknown) => TranscriptItem[],
+  recordToItems: TranscriptRecordMapper,
   opts: SliceOptions,
 ): Promise<SliceResult> {
   if (chain.length === 0 || opts.limit <= 0) return { items: [], hasMore: false }
@@ -387,7 +399,7 @@ interface WindowedResult {
  */
 async function readFileWindowed(
   entry: ChainEntry,
-  recordToItems: (r: unknown) => TranscriptItem[],
+  recordToItems: TranscriptRecordMapper,
   opts: {
     toward: 'older' | 'newer'
     anchorOffset?: number
@@ -674,7 +686,7 @@ function evictSliceCache(): void {
  */
 export async function readTranscriptSliceCached(
   chain: ChainEntry[],
-  recordToItems: (r: unknown) => TranscriptItem[],
+  recordToItems: TranscriptRecordMapper,
   opts: SliceOptions,
 ): Promise<SliceResult> {
   // Degenerate reads have nothing to cache and the underlying reader already
@@ -808,7 +820,7 @@ function rememberTail(chain: ChainEntry[], opts: SliceOptions, result: SliceResu
  *  proven safe — the caller then does the full read. */
 async function continueTailRead(
   chain: ChainEntry[],
-  recordToItems: (r: unknown) => TranscriptItem[],
+  recordToItems: TranscriptRecordMapper,
   opts: SliceOptions,
 ): Promise<SliceResult | null> {
   const key = tailKey(chain, opts)

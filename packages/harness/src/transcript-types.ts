@@ -126,8 +126,28 @@ export function decodeCursor(c: string): CursorParts | null {
 
 /** Pure parser from one harness-native record to neutral transcript items. The
  * implementations live in this package; selection belongs to the harness
- * manifest so adding a CLI never mutates a second registry here. */
-export type TranscriptRecordMapper = (record: unknown) => TranscriptItem[]
+ * manifest so adding a CLI never mutates a second registry here.
+ *
+ * `endsTurn` is for a harness whose reply record cannot say by itself whether
+ * it is the turn's final answer, because only a LATER record decides it
+ * (Grok's `updates.jsonl`: a reply is final when the turn ends right after it,
+ * narration when a tool call follows it). It names the records that end a
+ * turn; the Store's readers then stamp `answer` on the reply directly before
+ * an `answered` end (`store/turn-end.ts`). It rides on the mapper, not beside
+ * it, so every reader and every hop that carries the mapper carries it too.
+ * Harnesses that mark `answer` per record (Claude, Codex, Pi, OpenCode) leave
+ * it out. */
+export type TranscriptRecordMapper = ((record: unknown) => TranscriptItem[]) & {
+  readonly endsTurn?: TranscriptTurnEndReader
+}
+
+/** How a record ends a turn: `answered` when the turn finished normally, so
+ *  the reply directly before it was the turn's answer; `ended` when it ended
+ *  any other way (cancelled, failed, interrupted), which answers nothing. */
+export type TranscriptTurnEnd = 'answered' | 'ended'
+
+/** Read one native record as a turn end, or `undefined` when it is not one. */
+export type TranscriptTurnEndReader = (record: unknown) => TranscriptTurnEnd | undefined
 
 /** Runtime facts observed in a harness-native transcript record. Every field is
  * optional because harnesses expose different subsets. In particular, context

@@ -1,4 +1,5 @@
 import type { TranscriptItem } from '@podium/model'
+import type { TranscriptRecordMapper } from '../transcript-types'
 import { decodeCursor } from './cursor-codec'
 import type { ChainEntry } from './file-chain'
 import { readTranscriptSlice, readTranscriptSliceCached, type SliceResult } from './slice'
@@ -44,7 +45,7 @@ export type { TranscriptRecordMapper } from '../transcript-types.js'
  */
 export function fileChainSource(
   chain: ChainEntry[],
-  recordToItems: (r: unknown) => TranscriptItem[],
+  recordToItems: TranscriptRecordMapper,
 ): TranscriptSource {
   return {
     readSlice: ({ cached, ...opts }) =>

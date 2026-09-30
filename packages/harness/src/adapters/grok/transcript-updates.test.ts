@@ -13,7 +13,7 @@
  * Grok wrote, not to a hand-made shape.
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -130,6 +130,15 @@ describe('the Grok terminal transcript, read from updates.jsonl', () => {
     expect(items.every((item) => ['user', 'assistant', 'tool'].includes(item.role))).toBe(true)
   })
 
+  it('marks the reply each finished turn ended with as its answer (POD-4809, POD-4936)', async () => {
+    // Each of the run's 28 replies ends its turn (`turn_completed end_turn`
+    // right after it): the same answer:true Claude/Codex/Pi/OpenCode carry, so
+    // none of them renders as a process step.
+    const replies = (await read(UPDATES)).filter((item) => item.role === 'assistant')
+    expect(replies).toHaveLength(28)
+    for (const reply of replies) expect(reply.answer).toBe(true)
+  })
+
   it('places every entry at a byte offset that grows through the file', async () => {
     const items = await read(UPDATES)
     expect(items.length).toBeGreaterThan(60)
@@ -166,6 +175,118 @@ describe('the Grok terminal transcript, read from updates.jsonl', () => {
         },
       }),
     ).toEqual({ model: 'grok-4.7-build' })
+  })
+})
+
+describe('which Grok reply is the answer (POD-4936)', () => {
+  let dir: string | undefined
+  afterEach(async () => {
+    if (dir) await rm(dir, { recursive: true, force: true })
+    dir = undefined
+  })
+
+  let event = 0
+  const record = (update: Record<string, unknown>): string => {
+    event += 1
+    return JSON.stringify({
+      method: '_x.ai/session/update',
+      params: {
+        sessionId: SESSION,
+        update,
+        _meta: { eventId: `${SESSION}-${event}`, agentTimestampMs: 1790698265000 + event },
+      },
+    })
+  }
+  const prompt = (text: string) =>
+    record({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text } })
+  const reply = (text: string) =>
+    record({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } })
+  const thought = () =>
+    record({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'hm' } })
+  const call = (id: string) =>
+    record({
+      sessionUpdate: 'tool_call',
+      toolCallId: id,
+      title: 'run_terminal_command',
+      rawInput: { command: 'ls' },
+      _meta: { 'x.ai/tool': { name: 'run_terminal_command' } },
+    })
+  const result = (id: string) =>
+    record({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: id,
+      status: 'completed',
+      rawOutput: { output_for_prompt: 'exit: 0' },
+    })
+  const turnEnd = (stop_reason: string) =>
+    record({ sessionUpdate: 'turn_completed', prompt_id: 'p', stop_reason })
+
+  async function readLines(lines: string[]): Promise<TranscriptItem[]> {
+    dir = await mkdtemp(join(tmpdir(), 'grok-answer-'))
+    const path = join(dir, 'updates.jsonl')
+    await writeFile(path, `${lines.join('\n')}\n`)
+    return read(path)
+  }
+  const replies = (items: TranscriptItem[]) =>
+    items.filter((item) => item.role === 'assistant').map((item) => [item.text, item.answer])
+
+  it('the reply a turn ends on is the answer; narration before a tool is not', async () => {
+    // Real sessions: a reply is followed by a tool call (narration) or by the
+    // turn's end (the answer), with reasoning and hooks between.
+    const items = await readLines([
+      prompt('fix it'),
+      reply('Let me look at the file.'),
+      call('c1'),
+      result('c1'),
+      thought(),
+      reply('Fixed: the guard was inverted.'),
+      thought(),
+      turnEnd('end_turn'),
+    ])
+    expect(replies(items)).toEqual([
+      ['Let me look at the file.', undefined],
+      ['Fixed: the guard was inverted.', true],
+    ])
+    // Re-marked in place: same row, same id and cursor, nothing added.
+    expect(items.map((item) => item.role)).toEqual(['user', 'assistant', 'tool', 'tool', 'assistant'])
+  })
+
+  it('a turn that ended any other way answered nothing', async () => {
+    const items = await readLines([
+      prompt('one'),
+      reply('Starting on it.'),
+      turnEnd('cancelled'),
+      prompt('two'),
+      reply('Checking.'),
+      call('c2'),
+      turnEnd('end_turn'),
+      prompt('three'),
+      reply('Half a sentence'),
+      turnEnd('interrupted'),
+      // A later normal end does not reach back past the turn that failed.
+      turnEnd('end_turn'),
+    ])
+    expect(replies(items)).toEqual([
+      ['Starting on it.', undefined],
+      ['Checking.', undefined],
+      ['Half a sentence', undefined],
+    ])
+  })
+
+  it('a newer page read from the reply on still marks it', async () => {
+    // The cached newest-window read re-reads from its last record, the reply,
+    // when the file grows: the window holds both the reply and its turn end.
+    const lines = [prompt('go'), reply('Done.'), turnEnd('end_turn')]
+    dir = await mkdtemp(join(tmpdir(), 'grok-answer-'))
+    const path = join(dir, 'updates.jsonl')
+    await writeFile(path, `${lines.join('\n')}\n`)
+    const whole = await read(path)
+    const replyOffset = decodeCursor(whole[1]?.cursor ?? '')?.offset ?? -1
+    const window = await readFileItems(path, fileIdFor(SESSION), grokRecordToItems, {
+      start: replyOffset - 1,
+      end: (await stat(path)).size,
+    })
+    expect(window.map((item) => [item.id, item.answer])).toEqual([[whole[1]?.id, true]])
   })
 })
 

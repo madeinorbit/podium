@@ -492,6 +492,111 @@ describe('tailTranscript — seedGate (POD-612)', () => {
   })
 })
 
+describe('tailTranscript — the answer a turn ends on (POD-4936)', () => {
+  const turnEnd = (stop_reason: string): string =>
+    JSON.stringify({
+      method: '_x.ai/session/update',
+      params: { update: { sessionUpdate: 'turn_completed', prompt_id: 'p', stop_reason }, _meta: {} },
+    })
+  const toolCall = (id: string): string =>
+    JSON.stringify({
+      method: '_x.ai/session/update',
+      params: {
+        update: { sessionUpdate: 'tool_call', toolCallId: id, title: 'run_terminal_command' },
+        _meta: {},
+      },
+    })
+  const tail = (path: string, emissions: Emission[]) =>
+    tailTranscript(
+      path,
+      (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
+      { resumeValue: 'native-session', recordToItems: grokRecordToItems, pollMs: 5 },
+    )
+
+  it('re-sends the reply as the answer when its turn ends a poll later', async () => {
+    const path = join(dir, 'grok-answer-next-poll.jsonl')
+    writeFileSync(
+      path,
+      `${grokLine('user_message_chunk', 'hi')}\n${grokLine('agent_message_chunk', 'hello')}\n`,
+    )
+    const emissions: Emission[] = []
+    const tailer = tail(path, emissions)
+    try {
+      await waitFor(() => itemsOf(emissions).length >= 2)
+      const reply = emissions[0]?.items[1]
+      expect(reply).toMatchObject({ role: 'assistant', text: 'hello' })
+      expect(reply?.answer).toBeUndefined()
+
+      appendFileSync(path, `${turnEnd('end_turn')}\n`)
+      await waitFor(() => emissions.length >= 2)
+      // The same row (id + cursor) re-marked; it is older than the delta's
+      // tail, so it is not reported as one.
+      expect(emissions[1]?.items).toEqual([{ ...reply, answer: true }])
+      expect(emissions[1]?.tail).toBeUndefined()
+      expect(emissions[1]?.reset).toBe(false)
+    } finally {
+      tailer.stop()
+    }
+  })
+
+  it('marks it in place when the reply and the turn end land in one poll', async () => {
+    const path = join(dir, 'grok-answer-same-poll.jsonl')
+    writeFileSync(
+      path,
+      `${[
+        grokLine('user_message_chunk', 'hi'),
+        grokLine('agent_message_chunk', 'looking'),
+        toolCall('c1'),
+        grokLine('agent_message_chunk', 'hello'),
+        turnEnd('end_turn'),
+      ].join('\n')}\n`,
+    )
+    const emissions: Emission[] = []
+    const tailer = tail(path, emissions)
+    try {
+      await waitFor(() => itemsOf(emissions).length >= 4)
+      expect(emissions).toHaveLength(1)
+      expect(
+        emissions[0]?.items.map((item) => [item.role, item.text, item.answer === true]),
+      ).toEqual([
+        ['user', 'hi', false],
+        ['assistant', 'looking', false],
+        ['tool', '', false],
+        ['assistant', 'hello', true],
+      ])
+      expect(emissions[0]?.tail).toBe(emissions[0]?.items[3]?.cursor)
+    } finally {
+      tailer.stop()
+    }
+  })
+
+  it('re-sends nothing for narration or a turn that did not finish', async () => {
+    const path = join(dir, 'grok-answer-none.jsonl')
+    writeFileSync(path, `${grokLine('agent_message_chunk', 'looking')}\n`)
+    const emissions: Emission[] = []
+    const tailer = tail(path, emissions)
+    try {
+      await waitFor(() => itemsOf(emissions).length >= 1)
+      appendFileSync(path, `${toolCall('c1')}\n${turnEnd('end_turn')}\n`)
+      await waitFor(() => itemsOf(emissions).length >= 2)
+      appendFileSync(
+        path,
+        `${grokLine('agent_message_chunk', 'half')}\n${turnEnd('cancelled')}\n${turnEnd('end_turn')}\n`,
+      )
+      await waitFor(() => itemsOf(emissions).length >= 3)
+      // Settle: a wrong re-send would arrive on the same poll as the lines.
+      await new Promise((r) => setTimeout(r, 30))
+      expect(itemsOf(emissions).map((item) => [item.text, item.answer === true])).toEqual([
+        ['looking', false],
+        ['', false],
+        ['half', false],
+      ])
+    } finally {
+      tailer.stop()
+    }
+  })
+})
+
 describe('tailTranscript — chunked backfill + boot-seed window (POD-613)', () => {
   const collect = (path: string, opts: Partial<TranscriptTailOptions>) => {
     const emissions: Emission[] = []
