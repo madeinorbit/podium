@@ -1,3 +1,4 @@
+import type { SuperagentTurnFailure } from '@podium/client-core/api'
 import { matchesQuestionInteraction } from '@podium/client-core/viewmodels'
 import { useStoreSelector } from '@podium/client-core/react'
 import { useModelCatalog, useSlice } from '@podium/client-core/react'
@@ -125,9 +126,11 @@ export function SuperagentScreen() {
   const publishedSid =
     superagent.activeSessionId === clearedSid ? undefined : superagent.activeSessionId
   const podiumSid = ackedSid ?? publishedSid
-  const currentQuestion = useStoreSelector((s) => (s.pendingInteractions ?? []).find(
-    (row) => row.sessionId === podiumSid && row.kind === 'question' && row.status === 'asked',
-  ))
+  const currentQuestion = useStoreSelector((s) =>
+    (s.pendingInteractions ?? []).find(
+      (row) => row.sessionId === podiumSid && row.kind === 'question' && row.status === 'asked',
+    ),
+  )
   const transcriptSession = podiumSid
     ? sessions.find((session) => session.sessionId === podiumSid)
     : undefined
@@ -144,12 +147,14 @@ export function SuperagentScreen() {
   // on purpose — the echo matcher below compares words, and the restoration
   // must be dropped by structure only (a newer transcript item, or live
   // send activity), never by text.
-  const [restoredFailure, setRestoredFailure] = useState<{
-    inputId: string
-    userText: string
-    failed: string
-    at: string
-  } | null>(null)
+  const [restoredFailure, setRestoredFailure] = useState<SuperagentTurnFailure | null>(null)
+  // Live activity takes over this mount. Invalidate reads already in flight,
+  // and avoid starting restoration after a send that precedes transcript load.
+  const failureActivityVersion = useRef(0)
+  const clearRestoredFailure = useCallback(() => {
+    failureActivityVersion.current += 1
+    setRestoredFailure(null)
+  }, [])
   const prepareAttachmentSession = useCallback(async (): Promise<SessionId> => {
     if (podiumSid) return podiumSid
     const result = await trpc.superagent.ensureSession.mutate({ threadId: THREAD_ID })
@@ -233,6 +238,7 @@ export function SuperagentScreen() {
   // cancel the optimistic hand-off above.
   useEffect(() => {
     if (superagent.active?.turnRunning === true) {
+      clearRestoredFailure()
       querySawRunning.current = true
       setRunning(true)
       setJustSent(false)
@@ -244,7 +250,7 @@ export function SuperagentScreen() {
       clearLiveText()
       setStatusLabel(null)
     }
-  }, [clearLiveText, superagent.active?.turnRunning])
+  }, [clearLiveText, clearRestoredFailure, superagent.active?.turnRunning])
 
   // The conversation itself, read and streamed from the thread's headless
   // session exactly as SessionScreen does for a normal chat.
@@ -299,20 +305,15 @@ export function SuperagentScreen() {
   // prompt the transcript carries) only the reason restores — never a second
   // user bubble.
   useEffect(() => {
-    if (!podiumSid || !transcriptLoaded) return
+    setRestoredFailure(null)
+    if (!podiumSid || !transcriptLoaded || failureActivityVersion.current > 0) return
     let cancelled = false
+    const requestedAtVersion = failureActivityVersion.current
     void trpc.superagent.latestTurnFailure
       .query({ threadId: THREAD_ID })
       .then((failure) => {
-        if (cancelled || !failure) return
-        setError(failure.error)
-        if (!failure.userText) return
-        setRestoredFailure({
-          inputId: failure.inputId,
-          userText: failure.userText,
-          failed: failure.error,
-          at: failure.at,
-        })
+        if (cancelled || failureActivityVersion.current !== requestedAtVersion || !failure) return
+        setRestoredFailure(failure)
       })
       .catch(() => {})
     return () => {
@@ -346,6 +347,7 @@ export function SuperagentScreen() {
     if (!podiumSid) return
     const unsubscribe = hub.subscribeHeadless(podiumSid, (event) => {
       const eventVersion = ++activityVersion.current
+      clearRestoredFailure()
       if (event.kind === 'turn-start') {
         setRunning(true)
         setJustSent(false)
@@ -357,9 +359,9 @@ export function SuperagentScreen() {
         querySawRunning.current = false
         clearLiveText()
         setStatusLabel(null)
+        setError(event.error ?? null)
         if (event.error) {
           const reason = event.error
-          setError(reason)
           // The OTHER way a turn fails (POD-344). POD-346 marks a row "not sent"
           // when the mutation is rejected — but a turn that is ACCEPTED and then
           // dies (harness crash, spawn failure) resolves that mutation, so its
@@ -380,7 +382,7 @@ export function SuperagentScreen() {
       unsubscribe()
       cancelLiveTextFrame()
     }
-  }, [cancelLiveTextFrame, clearLiveText, hub, podiumSid, queueLiveText])
+  }, [cancelLiveTextFrame, clearLiveText, clearRestoredFailure, hub, podiumSid, queueLiveText])
 
   // headlessActivity frames are ephemeral, and the FIRST turn only learns its
   // session from the ack — so the subscription can attach after that turn's
@@ -424,7 +426,8 @@ export function SuperagentScreen() {
       // for the thread now (the restoration drops by structure anyway, but
       // clearing the state keeps it from resurfacing once the live rows
       // drain).
-      setRestoredFailure(null)
+      clearRestoredFailure()
+      setError(null)
       void trpc.superagent.sendTurn
         .mutate({ threadId: THREAD_ID, text: wire, ...superagentTurnChoice(backend) })
         .then((ack) => {
@@ -441,7 +444,7 @@ export function SuperagentScreen() {
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
         })
     },
-    [trpc, backend, refreshSuperThreads],
+    [trpc, backend, refreshSuperThreads, clearRestoredFailure],
   )
 
   const send = useCallback(
@@ -449,7 +452,6 @@ export function SuperagentScreen() {
       const trimmed = text.trim()
       const attached = files ?? []
       if (!trimmed && attached.length === 0) return
-      setError(null)
       // Counter, not text length: two identical messages inside one millisecond
       // would share an id, and `failed`/retry address a row BY id.
       const id = `${Date.now()}:${turnSeq.current++}`
@@ -477,13 +479,12 @@ export function SuperagentScreen() {
       // (which itself drops the restoration) and dispatch. Matched by row
       // identity against the restoration's input id, never by comparing
       // words.
-      if (restoredFailure && turn.id === `restored:${restoredFailure.inputId}`) {
+      if (restoredFailure?.userText && turn.id === `restored:${restoredFailure.inputId}`) {
         const live: LocalPendingTurn = {
           id: `retry:${restoredFailure.inputId}:${Date.now()}`,
           text: restoredFailure.userText,
           wire: restoredFailure.userText,
         }
-        setRestoredFailure(null)
         setPendingTurns((prev) => [...prev, live])
         dispatch(live.id, live.wire)
         return
@@ -525,7 +526,8 @@ export function SuperagentScreen() {
       attachments.clear()
       void refreshSuperThreads().catch(() => {})
       setPendingTurns([])
-      setRestoredFailure(null)
+      clearRestoredFailure()
+      setError(null)
       clearLiveText()
       setRunning(false)
       setJustSent(false)
@@ -533,35 +535,37 @@ export function SuperagentScreen() {
     } catch (e) {
       setError(humanizeSendFailure(e))
     }
-  }, [attachments.clear, clearLiveText, podiumSid, refreshSuperThreads, trpc])
+  }, [attachments.clear, clearLiveText, clearRestoredFailure, podiumSid, refreshSuperThreads, trpc])
 
   // Keep the high-frequency live row outside the settled transcript. This
   // preserves the settled array's identity and its cached paired/row model.
   const liveItem = useMemo(() => liveTranscriptItem(liveText, running), [liveText, running])
-  // The restored failure as a failed pending row (POD-4806). Dropped by
+  // Apply the same structural rule to the restored reason and retry row,
+  // including post-dispatch failures whose userText is null. Dropped by
   // structure, never by comparing words: a transcript item recorded after the
   // failure means a later turn ran, and live send activity means this mount
   // is already speaking for itself — either way the old row must not pin the
   // thread.
-  const restoredRow = useMemo((): LocalPendingTurn | null => {
-    if (!restoredFailure) return null
+  const visibleRestoredFailure = useMemo(() => {
+    if (!restoredFailure || pendingTurns.length > 0 || working) return null
     const failureAt = Date.parse(restoredFailure.at)
     if (
       Number.isFinite(failureAt) &&
-      settled.some((item) => {
-        const ts = item.ts
-        return typeof ts === 'string' && Number.isFinite(Date.parse(ts)) && Date.parse(ts) > failureAt
-      })
+      settled.some((item) => item.ts !== undefined && Date.parse(item.ts) > failureAt)
     )
       return null
-    if (pendingTurns.length > 0 || working) return null
-    return {
-      id: `restored:${restoredFailure.inputId}`,
-      text: restoredFailure.userText,
-      wire: restoredFailure.userText,
-      failed: restoredFailure.failed,
-    }
+    return restoredFailure
   }, [restoredFailure, settled, pendingTurns.length, working])
+  const restoredRow = useMemo((): LocalPendingTurn | null => {
+    if (!visibleRestoredFailure?.userText) return null
+    return {
+      id: `restored:${visibleRestoredFailure.inputId}`,
+      text: visibleRestoredFailure.userText,
+      wire: visibleRestoredFailure.userText,
+      failed: visibleRestoredFailure.error,
+    }
+  }, [visibleRestoredFailure])
+  const visibleError = error ?? visibleRestoredFailure?.error ?? null
   const visiblePendingTurns = useMemo(
     () => (restoredRow ? [...pendingTurns, restoredRow] : pendingTurns),
     [pendingTurns, restoredRow],
@@ -605,7 +609,7 @@ export function SuperagentScreen() {
         {/* The composer rides the keyboard on the view's own bottom edge — see
             useKeyboardHeight for why this is not a KeyboardAvoidingView. */}
         <View style={[styles.flex, { paddingBottom: keyboardLift }]}>
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {visibleError ? <Text style={styles.error}>{visibleError}</Text> : null}
           <BootstrapCrossfade resolved={resolved} placeholder={<TranscriptSkeleton />}>
             <PullToRefreshBoundary
               connected={connected}
@@ -653,8 +657,12 @@ export function SuperagentScreen() {
                 }
                 answerInteractionId={currentQuestion?.id}
                 onAnswer={async (answer) => {
-                  if (currentQuestion && (answer.interactionId !== currentQuestion.id ||
-                      !answer.question || !matchesQuestionInteraction(currentQuestion, answer.question))) {
+                  if (
+                    currentQuestion &&
+                    (answer.interactionId !== currentQuestion.id ||
+                      !answer.question ||
+                      !matchesQuestionInteraction(currentQuestion, answer.question))
+                  ) {
                     throw new Error('The question changed; wait for the current menu.')
                   }
                   if (!podiumSid) return
