@@ -192,12 +192,11 @@ describe('POD-4743 the one row reader, not in memory', () => {
     const { pool } = r.handle
     const residency = pool.residency!
     const restore = forceCold(pool, r.replay, id)
-    try {
-      // Kept out of memory, yet decided visible: the visibility parts read it by id.
-      expect(tracked(() => pool.tables.issue.has(id))).toBe(false)
-      expect(residency.isCold('issue', id)).toBe(true)
-      expect(visibleOrderOf(pool)).toContain(id)
-      expect(queuedCount(pool)).toBe(0)
+    // Kept out of memory, yet decided visible: the visibility parts read it by id.
+    expect(tracked(() => pool.tables.issue.has(id))).toBe(false)
+    expect(residency.isCold('issue', id)).toBe(true)
+    expect(visibleOrderOf(pool)).toContain(id)
+    expect(queuedCount(pool)).toBe(0)
 
     const el = document.createElement('div')
     document.body.append(el)
