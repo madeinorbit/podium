@@ -1,0 +1,128 @@
+{
+  "_recordedFrom": "codex-cli 0.155.0 (POD-4863 lane, docs/measurements/pod-4834-receipt-proof/codex-0.155.0/app-server/s6-pending-term/frames.jsonl). A steer (clientUserMessageId our_steer) acked into the running turn, then the app-server stopped (SIGTERM) before Codex's next model call. thread/read {includeTurns:true} afterwards: thread status idle, the turn interrupted, and no item carries our_steer: the steer is in no item and was never sent to the model (model-requests.jsonl). The frames are verbatim.",
+  "steerRequest": {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "method": "turn/steer",
+    "params": {
+      "threadId": "01a0edf5-145e-7381-b456-7e3fda91d4da",
+      "expectedTurnId": "01a0edf5-147f-7ad3-a666-be9664077767",
+      "clientUserMessageId": "our_steer",
+      "input": [
+        {
+          "type": "text",
+          "text": "steer at kill",
+          "text_elements": []
+        }
+      ]
+    }
+  },
+  "steerAcceptedResponse": {
+    "id": 5,
+    "result": {
+      "turnId": "01a0edf5-147f-7ad3-a666-be9664077767"
+    }
+  },
+  "threadReadRequest": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "thread/read",
+    "params": {
+      "threadId": "01a0edf5-145e-7381-b456-7e3fda91d4da",
+      "includeTurns": true
+    }
+  },
+  "threadReadResponse": {
+    "id": 3,
+    "result": {
+      "thread": {
+        "id": "01a0edf5-145e-7381-b456-7e3fda91d4da",
+        "environments": [
+          {
+            "environmentId": "local",
+            "cwd": "/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/as/s6-pending-term/work",
+            "runtimeWorkspaceRoots": [
+              "/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/as/s6-pending-term/work"
+            ]
+          }
+        ],
+        "extra": null,
+        "sessionId": "01a0edf5-145e-7381-b456-7e3fda91d4da",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "TOOLSLEEP busy",
+        "ephemeral": false,
+        "section": null,
+        "sectionEnteredAt": null,
+        "projectId": null,
+        "historyMode": "paginated",
+        "modelProvider": "fake",
+        "model": "fake",
+        "reasoningEffort": null,
+        "createdAt": 1790698656,
+        "updatedAt": 1790698660,
+        "recencyAt": 1790698657,
+        "status": {
+          "type": "idle"
+        },
+        "path": "/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/as/s6-pending-term/home/.codex/sessions/2026/09/29/rollout-2026-09-29T18-17-36-01a0edf5-145e-7381-b456-7e3fda91d4da.jsonl",
+        "cwd": "/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/as/s6-pending-term/work",
+        "cliVersion": "0.155.0",
+        "originator": "podium",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "daybreakEnabled": null,
+        "turns": [
+          {
+            "id": "01a0edf5-147f-7ad3-a666-be9664077767",
+            "items": [
+              {
+                "type": "userMessage",
+                "id": "01a0edf5-1559-7981-86a0-a9364fb57a40",
+                "clientId": "our_busy",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "TOOLSLEEP busy",
+                    "text_elements": []
+                  }
+                ]
+              },
+              {
+                "type": "commandExecution",
+                "id": "call_fake1",
+                "pluginId": null,
+                "scriptPath": null,
+                "command": "/bin/bash -lc 'sleep 8'",
+                "cwd": "/tmp/claude-1000/-home-mgw-src-other-podium--worktrees-issue-4863-codex-receipt-facts/a92e9ff6-59e9-45de-bd34-af89a88d25b0/scratchpad/as/s6-pending-term/work",
+                "processId": "81415",
+                "source": "unifiedExecStartup",
+                "status": "failed",
+                "commandActions": [
+                  {
+                    "type": "unknown",
+                    "command": "sleep 8"
+                  }
+                ],
+                "aggregatedOutput": null,
+                "exitCode": -1,
+                "durationMs": 2267
+              }
+            ],
+            "itemsView": "full",
+            "status": "interrupted",
+            "error": null,
+            "startedAt": 1790698656,
+            "completedAt": 1790698659,
+            "durationMs": 2754
+          }
+        ]
+      }
+    }
+  }
+}

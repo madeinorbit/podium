@@ -19,6 +19,7 @@ import { streamItemIdOf } from '../../../store/index.js'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../events.js'
+import steerDropped from './__fixtures__/steer-dropped-thread-read.json' with { type: 'json' }
 import { codexAppServerCapabilities } from './capabilities.js'
 import { createCodexClient } from './client.js'
 import {
@@ -1902,12 +1903,16 @@ describe('Codex carries our message id', () => {
       { origin: 'human', delivery: 'when-ready' },
     )
     await w.handle.send({ id: 'msg_later', text: 'later' }, { origin: 'human', delivery: 'queue' })
+    // The running turn's own input is recorded before it ends, as on the real
+    // server: a turn that ended without it would prove it not recorded (POD-4887).
+    w.liveServer().emitUserMessage('busy', 'usr-busy', { clientId: 'msg_busy' })
     w.liveServer().completeTurn()
     await expect.poll(() => w.liveServer().turnStarts).toBe(2)
     w.liveServer().emitUserMessage('later', 'usr-later', { clientId: 'msg_later' })
     await expect
       .poll(() => deliveries(w.events()))
       .toEqual([
+        expect.objectContaining({ rowId: 'msg_busy', transcriptItem: { id: 'usr-busy' } }),
         expect.objectContaining({ rowId: 'msg_later', transcriptItem: { id: 'usr-later' } }),
       ])
     w.dispose()
@@ -2041,19 +2046,165 @@ describe('a message Codex holds in memory', () => {
     w.dispose()
   })
 
-  it('ends a row Codex silently steered, then dropped at an interrupt, as unconfirmed', async () => {
+  it('ends a row Codex silently steered, then dropped at an interrupt, as not recorded', async () => {
     const w = await world()
     w.liveServer().raceForeignTurnOnNextTurnStart()
     await w.handle.send(row('msg_race', 'raced'), whenReady)
     await expect.poll(() => w.liveServer().turnStarts).toBe(1)
     await settle()
+    // Codex's own read after the turn: no turn open, our id in no item.
     w.liveServer().completeTurn('interrupted')
     await expect
       .poll(() => deliveries(w.events()))
       .toEqual([
-        expect.objectContaining({ rowId: 'msg_race', outcome: 'failed', cause: 'unconfirmed' }),
+        expect.objectContaining({ rowId: 'msg_race', outcome: 'failed', cause: 'not-recorded' }),
       ])
     w.dispose()
+  })
+
+  /**
+   * A DROPPED STEER, PROVEN NOT RECORDED (POD-4887; POD-4819 §6.1 N3). Codex
+   * keeps our id; after the turn ends, its own `thread/read` says no turn is
+   * open and no item carries our id — measured on 0.155.0
+   * (`__fixtures__/steer-dropped-thread-read.json`). Codex does not
+   * deduplicate, so this proof, not a resend under the same id, is what makes
+   * the message safe to send again. Anything short of it stays unconfirmed.
+   */
+  describe('a steer dropped when its turn ended', () => {
+    /** The measured read after the steer was dropped, with a change applied. */
+    const measuredRead = (
+      change: (thread: { status: unknown; turns: { status: string; items: unknown[] }[] }) => void = () => {},
+    ) => {
+      const answer = structuredClone(steerDropped.threadReadResponse) as {
+        result: { thread: { status: unknown; turns: { status: string; items: unknown[] }[] } }
+      }
+      change(answer.result.thread)
+      return { result: answer.result }
+    }
+    const droppedRow = async (read: Parameters<FakeAppServer['scriptThreadRead']>[0]) => {
+      const w = await world()
+      w.liveServer().raceForeignTurnOnNextTurnStart()
+      await w.handle.send(row('msg_race', 'raced'), whenReady)
+      await expect.poll(() => w.liveServer().turnStarts).toBe(1)
+      await settle()
+      w.liveServer().scriptThreadRead(read)
+      w.liveServer().completeTurn('interrupted')
+      return w
+    }
+
+    it('fails the row as not recorded when no turn is open and no item has our id', async () => {
+      const w = await droppedRow(measuredRead())
+      await expect
+        .poll(() => deliveries(w.events()))
+        .toEqual([
+          expect.objectContaining({ rowId: 'msg_race', outcome: 'failed', cause: 'not-recorded' }),
+        ])
+      // The read that proves it asks for the turns, as the measured one did.
+      expect(w.liveServer().threadReads.at(-1)).toMatchObject({ includeTurns: true })
+      w.dispose()
+    })
+
+    it('stays unconfirmed while Codex says a turn is open', async () => {
+      const w = await droppedRow(
+        measuredRead((thread) => {
+          for (const turn of thread.turns) turn.status = 'inProgress'
+        }),
+      )
+      await expect
+        .poll(() => deliveries(w.events()))
+        .toEqual([
+          expect.objectContaining({ rowId: 'msg_race', outcome: 'failed', cause: 'unconfirmed' }),
+        ])
+      w.dispose()
+    })
+
+    it('stays unconfirmed while Codex says the thread is active', async () => {
+      const w = await droppedRow(
+        measuredRead((thread) => {
+          thread.status = { type: 'active', activeFlags: [] }
+        }),
+      )
+      await expect
+        .poll(() => deliveries(w.events()))
+        .toEqual([
+          expect.objectContaining({ rowId: 'msg_race', outcome: 'failed', cause: 'unconfirmed' }),
+        ])
+      w.dispose()
+    })
+
+    it('never says not recorded when an item carries our id: that is the record', async () => {
+      const w = await droppedRow(
+        measuredRead((thread) => {
+          thread.turns.at(-1)?.items.push({
+            type: 'userMessage',
+            id: 'usr-found',
+            clientId: 'msg_race',
+            content: [{ type: 'text', text: 'raced', text_elements: [] }],
+          })
+        }),
+      )
+      await expect
+        .poll(() => deliveries(w.events()))
+        .toEqual([
+          expect.objectContaining({
+            rowId: 'msg_race',
+            outcome: 'delivered',
+            transcriptItem: { id: 'usr-found' },
+          }),
+        ])
+      w.dispose()
+    })
+
+    it('stays unconfirmed when the read fails', async () => {
+      const w = await droppedRow({ error: { code: -32603, message: 'internal error' } })
+      await expect
+        .poll(() => deliveries(w.events()))
+        .toEqual([
+          expect.objectContaining({ rowId: 'msg_race', outcome: 'failed', cause: 'unconfirmed' }),
+        ])
+      w.dispose()
+    })
+
+    it('tells a direct steer the proof, once', async () => {
+      const w = await world()
+      await w.handle.send({ id: 'msg_open', text: 'open' }, whenReady)
+      const lost: [string, string | undefined][] = []
+      await w.handle.send(
+        { id: 'msg_lost', text: 'lost' },
+        {
+          origin: 'human',
+          delivery: 'steer',
+          onUnrecorded: (reason, proof) => void lost.push([reason, proof]),
+        },
+      )
+      w.liveServer().scriptThreadRead(measuredRead())
+      w.liveServer().completeTurn('interrupted')
+      await expect.poll(() => lost).toEqual([[expect.stringContaining('interrupted'), 'not-recorded']])
+      w.liveServer().emitUserMessage('lost', 'usr-late', { clientId: 'msg_lost' })
+      await settle()
+      expect(lost).toHaveLength(1)
+      w.dispose()
+    })
+
+    it('stays unconfirmed when the session ends before the read answers', async () => {
+      const w = await world()
+      await w.handle.send({ id: 'msg_open', text: 'open' }, whenReady)
+      const lost: [string, string | undefined][] = []
+      await w.handle.send(
+        { id: 'msg_lost', text: 'lost' },
+        {
+          origin: 'human',
+          delivery: 'steer',
+          onUnrecorded: (reason, proof) => void lost.push([reason, proof]),
+        },
+      )
+      w.liveServer().stallNextRequest()
+      w.liveServer().completeTurn('interrupted')
+      await settle()
+      await w.handle.stop()
+      await expect.poll(() => lost).toEqual([[expect.any(String), undefined]])
+      w.dispose()
+    })
   })
 
   it('ends a row waiting for its record as unconfirmed when the app-server goes away', async () => {
