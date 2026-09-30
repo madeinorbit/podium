@@ -123,9 +123,7 @@ if (process.env.PODIUM_LEGACY_DAEMON_GUARD === 'guard') {
         Object.entries(process.env).filter(
           ([name]) =>
             !name.startsWith('PODIUM_') &&
-            !['NOTIFY_SOCKET', 'WATCHDOG_USEC', 'INVOCATION_ID', 'ABDUCO_SOCKET_DIR'].includes(
-              name,
-            ),
+            !['NOTIFY_SOCKET', 'WATCHDOG_USEC', 'INVOCATION_ID'].includes(name),
         ),
       )
       const machines = ['blue', 'green'].map((name) => {

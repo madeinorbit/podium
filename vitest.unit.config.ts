@@ -9,13 +9,13 @@ import { ptySmokeTests, realAgentSmokeTests } from './vitest.smoke-requirements'
  * Convention: anything that talks to the real world stays OUT of the unit run and lives
  * in the integration lane (`bun run test:integration`) or the real-agent smoke lane
  * (`bun run test:smoke:agents`, gated on PODIUM_REAL_CLI=1):
- *   - tests/e2e/**            → full-stack e2e (real server + daemon + abduco + playwright)
+ *   - tests/e2e/**            → full-stack e2e (real server + daemon + podium-host + playwright)
  *   - *e2e*.test.ts           → boots a live in-process server on a real port
  *   - *.integration.*         → spawns real processes / systemd scopes
  *   - real-agent smoke tests  → require a real agent binary (claude/codex); opt-in only
  *   - PTY smoke tests         → spawn a real PTY; integration lane
- *   - *.pty.test.ts, pty-behavior/, session.test, abduco*.test
- *                             → spawn real Bun.Terminal PTYs or build/run abduco.
+ *   - *.pty.test.ts, pty-behavior/, session.test
+ *                             → spawn real Bun.Terminal PTYs.
  *   - *.bun.test.ts           → `bun test` only (import bun:test); excluded in the base config
  *
  * Drift guard: scripts/test-configuration.test.ts asserts the lane invariants.
@@ -44,8 +44,6 @@ export const unitTestExclude = [
   '**/*.pty.test.{ts,tsx}',
   'packages/pty/test/pty-behavior/**',
   'packages/pty/test/session.test.ts',
-  'packages/pty/src/abduco.test.ts',
-  'packages/pty/src/abduco-bin.test.ts',
   // Drives the real claude binary (self-skips without PODIUM_REAL_CLI=1);
   // the agent-smoke lane owns it.
   'packages/pty/test/harness-smoke/**',

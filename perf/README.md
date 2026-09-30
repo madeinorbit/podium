@@ -19,8 +19,9 @@ sh scripts/profile-backend.sh bun 600 20
 ```
 
 Each run writes `perf/<label>-samples.csv` (per-sample) and `perf/<label>-summary.json`
-(avg/max). The abduco attach clients are an external C binary, identical under both
-runtimes, so they're a constant (~42–44 here) and not the comparison target.
+(avg/max). In the baselines below the abduco attach clients (an external C binary,
+retired in POD-4986) were identical under both runtimes, so they were a constant (~42–44
+here) and not the comparison target.
 
 ## Baseline — Node (tsx), 2026-06-21, 30 samples over 10 min, 42 live sessions
 

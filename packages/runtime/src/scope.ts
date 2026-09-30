@@ -11,11 +11,12 @@
  * writing a SECOND resource policy. Two policies drift; one does not.
  *
  * A transient `--user` scope already kept an agent alive across a redeploy
- * (see `abduco.ts`). What it never did was BOUND one: every session ran with
- * unlimited memory, unlimited tasks, and the host's own OOM policy, so a single
- * runaway agent could take the machine down — and twice did. This module is the
- * missing half. Scope creation stays exactly where it was; what changes is that
- * every scope is now placed in an instance-owned slice and carries a budget.
+ * (see `packages/pty/src/scope.ts`). What it never did was BOUND one: every
+ * session ran with unlimited memory, unlimited tasks, and the host's own OOM
+ * policy, so a single runaway agent could take the machine down — and twice
+ * did. This module is the missing half. Scope creation stays exactly where it
+ * was; what changes is that every scope is now placed in an instance-owned
+ * slice and carries a budget.
  *
  * ```
  * podium.slice                                  (or podium-<instance>.slice)

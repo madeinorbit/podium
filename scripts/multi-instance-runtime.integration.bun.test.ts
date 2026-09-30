@@ -24,31 +24,25 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { hostname, tmpdir, userInfo } from 'node:os'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { asMachineId, asSessionId } from '@podium/model'
 import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import { SERVER_MOVE_CAPABILITY, SESSION_COOKIE } from '@podium/protocol'
+import { longestDurableLabelFor, unixSocketPathFits } from '@podium/runtime/unix-socket'
 import {
-  ABDUCO_SUN_PATH_MAX,
-  abducoSocketDir,
-  abducoSocketPathBytes,
-  longestDurableLabelFor,
-} from '@podium/runtime/abduco-socket'
-import {
-  abducoSocketPath,
-  killAbducoSession,
-  resolveAbducoBin,
-  spawnAbducoAgent,
+  hostHasSession,
+  hostSocketPath,
+  killHostSession,
+  resolveHostBin,
+  spawnHostAgent,
 } from '@podium/process/durable'
 import {
-  abducoSocketPathname,
   applyInstanceRuntimeEnv,
   durableSessionLabel,
   ensureInstanceStateIdentity,
-  instanceSocketRuntimeDir,
   LINUX_UNIX_SOCKET_PATH_BYTES,
 } from '@podium/runtime/instance'
 import { encodeJoin } from '@podium/runtime/join'
@@ -58,9 +52,7 @@ import { updateFingerprint } from '@podium/runtime/machine-update'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { AppRouter } from '../apps/server/src/router'
 import { machineFileKey } from '../apps/server/src/modules/logs/fleet-store'
-import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
-import { buildVendoredHost } from '../packages/pty/src/host-bin'
 import {
   MachineUpdateExecutor,
   readMachineUpdateJournal,
@@ -178,7 +170,6 @@ function instanceEnv(
     'PODIUM_DEV_SOURCE_ROOT',
     'PODIUM_DEV_ARTIFACT_BASE_URL',
     'NOTIFY_SOCKET',
-    'ABDUCO_SOCKET_DIR',
   ])
     delete env[key]
   Object.assign(env, {
@@ -191,7 +182,6 @@ function instanceEnv(
     PODIUM_AGENT_RELAY_PORT: String(spec.relayPort),
     PODIUM_HOST: '127.0.0.1',
     PODIUM_NO_RELAY: '1',
-    PODIUM_ABDUCO: join(TEST_ROOT, 'missing-abduco'),
     PODIUM_NO_SCOPE: '1',
     PODIUM_PTY_BACKEND: 'bun-terminal',
     PATH: RUNTIME_BIN,
@@ -204,26 +194,22 @@ function instanceEnv(
   return env
 }
 
-/** Compile the real packaged entry in an isolated tree so its fixed embedded-file
- *  path cannot race with or depend on a developer's dist-bun artifacts. */
+/** Compile the real packaged entry in an isolated tree so the build cannot race
+ *  with or depend on a developer's dist-bun artifacts. */
 function buildPackagedCli(): string {
   if (packagedCli) return packagedCli
   const buildRoot = join(TEST_ROOT, 'compiled-cli-build')
   const scriptsDir = join(buildRoot, 'scripts')
-  const distDir = join(buildRoot, 'dist-bun')
   mkdirSync(scriptsDir, { recursive: true })
-  mkdirSync(distDir, { recursive: true })
-  for (const file of ['cli-compiled.ts', 'cli.ts', 'embedded-abduco.ts', 'embedded-host.ts']) {
+  // The packaged CLI embeds no native binary (POD-4986): podium-host-rs ships
+  // beside podium-cli in the release payload instead.
+  for (const file of ['cli-compiled.ts', 'cli.ts']) {
     cpSync(join(ROOT, 'scripts', file), join(scriptsDir, file))
   }
   for (const dir of ['apps', 'packages']) {
     symlinkSync(join(ROOT, dir), join(buildRoot, dir), 'dir')
   }
 
-  const embeddedAbduco = join(distDir, 'abduco.bin')
-  expect(buildVendoredAbduco(embeddedAbduco)).toBe(embeddedAbduco)
-  const embeddedHost = join(distDir, 'podium-host.bin')
-  expect(buildVendoredHost(embeddedHost)).toBe(embeddedHost)
   const executable = join(buildRoot, 'podium-cli')
   execFileSync(
     process.execPath,
@@ -535,27 +521,30 @@ afterAll(async () => {
 }, 120_000)
 
 describe('long instance durable sockets', () => {
-  it('arms the old overflow, starts a real bounded session, and refuses an impossible override', async () => {
-    const bin = resolveAbducoBin({ fresh: true })
-    if (!bin) throw new Error('multi-instance acceptance requires abduco')
+  it('starts a real bounded host session for the longest instance id and refuses an impossible override', async () => {
+    const bin = resolveHostBin({ fresh: true })
+    if (!bin) throw new Error('multi-instance acceptance requires podium-host')
 
+    // The longest id INSTANCE_ID_PATTERN admits: 32 characters.
     const instanceId = `update-e2e-${'x'.repeat(21)}`
     const sessionId = asSessionId(randomUUID())
-    const oldLabel = `podium-${instanceId}-${sessionId}`
     const socketTestRoot = mkdtempSync('/tmp/podium-mi-socket-')
     const stateDir = join(socketTestRoot, instanceId, 'state')
-    const oldSocketDir = join(stateDir, 'runtime', 'abduco')
+    // podium-host binds under `<user runtime dir>/hosts/<instance>/`. Stand in
+    // for `/run/user/<uid>` with a private root of exactly its length, so the
+    // byte budget below is the production one without touching the live
+    // runtime directory (mkdtemp appends six characters to the prefix).
+    const liveRuntimeDir = `/run/user/${typeof process.getuid === 'function' ? process.getuid() : 0}`
+    const runtimeRoot = mkdtempSync(`/tmp/${'p'.repeat(liveRuntimeDir.length - 11)}`)
+    expect(runtimeRoot.length).toBe(liveRuntimeDir.length)
     const impossibleDir = join('/tmp', `podium-refusal-${process.pid}-${'x'.repeat(28)}`)
-    mkdirSync(oldSocketDir, { recursive: true })
-    const oldPath = abducoSocketPathname(oldSocketDir, oldLabel, userInfo().username, hostname())
-    expect(Buffer.byteLength(oldPath)).toBeGreaterThan(LINUX_UNIX_SOCKET_PATH_BYTES)
 
     const previous = {
       PODIUM_INSTANCE: process.env.PODIUM_INSTANCE,
       PODIUM_STATE_DIR: process.env.PODIUM_STATE_DIR,
-      PODIUM_ABDUCO: process.env.PODIUM_ABDUCO,
-      ABDUCO_SOCKET_DIR: process.env.ABDUCO_SOCKET_DIR,
+      PODIUM_HOST_SOCKET_DIR: process.env.PODIUM_HOST_SOCKET_DIR,
       PODIUM_NO_SCOPE: process.env.PODIUM_NO_SCOPE,
+      XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
     }
     const restore = () => {
       for (const [key, value] of Object.entries(previous)) {
@@ -564,75 +553,57 @@ describe('long instance durable sockets', () => {
       }
     }
 
-    let session: Awaited<ReturnType<typeof spawnAbducoAgent>> | undefined
+    let session: Awaited<ReturnType<typeof spawnHostAgent>> | undefined
     let label: string | undefined
     try {
-      // ABDUCO_SOCKET_DIR is only abduco's first candidate. If it cannot bind there,
-      // the native tool silently falls through HOME, TMPDIR, and /tmp, so a relative
-      // label cannot force this negative control. An absolute name has no fallback and
-      // proves the legacy pathname itself exceeds sun_path before the bounded product
-      // derivation below is allowed to succeed.
-      const old = spawnSync(bin, ['-n', oldPath, '/bin/true'], {
-        env: { ...process.env, PODIUM_NO_SCOPE: '1' },
-        encoding: 'utf8',
-      })
-      expect(old.status).not.toBe(0)
-      expect(old.stderr).toMatch(/File name too long|Filename too long/)
-
       process.env.PODIUM_INSTANCE = instanceId
       process.env.PODIUM_STATE_DIR = stateDir
-      process.env.PODIUM_ABDUCO = bin
-      delete process.env.ABDUCO_SOCKET_DIR
+      delete process.env.PODIUM_HOST_SOCKET_DIR
       process.env.PODIUM_NO_SCOPE = '1'
-      applyInstanceRuntimeEnv(instanceId, process.env, stateDir)
+      process.env.XDG_RUNTIME_DIR = runtimeRoot
+      applyInstanceRuntimeEnv(instanceId, process.env)
       label = durableSessionLabel(sessionId, instanceId)
-      expect(process.env.ABDUCO_SOCKET_DIR).toMatch(/^\/tmp\/pd-[A-Za-z0-9_-]{10}$/)
 
-      session = await spawnAbducoAgent({
+      // THE BOUND: the socket the product derives for the longest label this
+      // instance can mint fits sun_path, so a real session can bind it.
+      const socketPath = hostSocketPath(label, process.env)
+      expect(Buffer.byteLength(socketPath), socketPath).toBeLessThanOrEqual(
+        LINUX_UNIX_SOCKET_PATH_BYTES,
+      )
+      session = await spawnHostAgent({
         label,
         cmd: '/bin/sh',
         args: ['-c', 'sleep 30'],
         cols: 80,
         rows: 24,
       })
-      expect(abducoSocketPath(label, process.env)).toBeDefined()
+      expect(await hostHasSession(label)).toBe(true)
       session.dispose()
       session = undefined
-      await killAbducoSession(label)
+      await killHostSession(label)
 
+      // An override that cannot fit is refused with the path and the budget
+      // before podium-host is asked to bind it, rather than surfacing as a
+      // native `File name too long`.
       mkdirSync(impossibleDir, { recursive: true })
-      const impossiblePath = abducoSocketPathname(
-        impossibleDir,
-        label,
-        userInfo().username,
-        hostname(),
+      const override = { PODIUM_HOST_SOCKET_DIR: impossibleDir, PODIUM_INSTANCE: instanceId }
+      expect(Buffer.byteLength(hostSocketPath(label, override))).toBeGreaterThan(
+        LINUX_UNIX_SOCKET_PATH_BYTES,
       )
-      expect(Buffer.byteLength(impossiblePath)).toBeGreaterThan(LINUX_UNIX_SOCKET_PATH_BYTES)
-      const raw = spawnSync(bin, ['-n', impossiblePath, '/bin/true'], {
-        env: { ...process.env, PODIUM_NO_SCOPE: '1' },
-        encoding: 'utf8',
-      })
-      expect(raw.status).not.toBe(0)
-      expect(raw.stderr).toMatch(/File name too long|Filename too long/)
-
       await expect(
-        spawnAbducoAgent({
-          label,
-          cmd: '/bin/true',
-          cols: 80,
-          rows: 24,
-          env: { ABDUCO_SOCKET_DIR: impossibleDir, PODIUM_INSTANCE: instanceId },
-        }),
+        spawnHostAgent({ label, cmd: '/bin/true', cols: 80, rows: 24, env: override }),
       ).rejects.toThrow(
         new RegExp(
           `instance '${instanceId}'.*Linux sun_path \\(108 bytes.*107 pathname bytes usable\\)`,
         ),
       )
+      expect(existsSync(join(impossibleDir, instanceId))).toBe(false)
     } finally {
       session?.dispose()
-      if (label) await killAbducoSession(label)
+      if (label) await killHostSession(label)
       restore()
       rmSync(impossibleDir, { recursive: true, force: true })
+      rmSync(runtimeRoot, { recursive: true, force: true })
       rmSync(socketTestRoot, { recursive: true, force: true })
     }
   }, 30_000)
@@ -737,7 +708,6 @@ describe('multi-instance runtime isolation', () => {
       spawnSync(executable, argv, {
         cwd: ROOT,
         env: instanceEnv(foreign, {
-          PODIUM_ABDUCO: undefined,
           PODIUM_ADOPT_STATE: undefined,
           PODIUM_APP_VERSION: '9.9.9',
           PODIUM_RUN_MODE: 'detached',
@@ -753,10 +723,8 @@ describe('multi-instance runtime isolation', () => {
     expect(helpResult.status, helpResult.stderr).toBe(0)
     expect(helpResult.stdout).toContain('Usage: podium [command] [--flags]')
 
-    // Neither diagnostic may claim or otherwise populate the foreign root, including
-    // the packaged entry's embedded-abduco initialization.
+    // Neither diagnostic may claim or otherwise populate the foreign root.
     expect(existsSync(join(foreign.stateDir, 'instance.json'))).toBe(false)
-    expect(existsSync(join(foreign.stateDir, 'bin', 'abduco'))).toBe(false)
 
     const mutation = run(['channel', 'edge'])
     expect(mutation.status).toBe(2)
@@ -1647,14 +1615,13 @@ exec "$CANARY_REAL_CLI" "$@"
     }, 480_000)
   }
 
-  it('claims an absent named root before the compiled launcher materializes abduco', async () => {
+  it('claims an absent named root through the compiled launcher', async () => {
     const namedSpec = makeSpec('blue', 'cold-blue')
     expect(existsSync(namedSpec.stateDir)).toBe(false)
     const executable = buildPackagedCli()
     const child = spawn(executable, ['channel', 'edge'], {
       cwd: ROOT,
       env: instanceEnv(namedSpec, {
-        PODIUM_ABDUCO: undefined,
         PODIUM_ADOPT_STATE: undefined,
         PODIUM_APP_VERSION: '9.9.9',
         PODIUM_RUN_MODE: 'detached',
@@ -1682,7 +1649,6 @@ exec "$CANARY_REAL_CLI" "$@"
     })
 
     expect(code, `${stdout}\n${stderr}`).toBe(0)
-    expect(existsSync(join(namedSpec.stateDir, 'bin', 'abduco'))).toBe(true)
     expect(
       JSON.parse(readFileSync(join(namedSpec.stateDir, 'instance.json'), 'utf8')),
     ).toMatchObject({ instanceId: 'blue' })
@@ -1692,10 +1658,7 @@ exec "$CANARY_REAL_CLI" "$@"
       },
     )
 
-    const named = startInstance(namedSpec, {
-      PODIUM_ADOPT_STATE: undefined,
-      PODIUM_ABDUCO: join(namedSpec.stateDir, 'bin', 'abduco'),
-    })
+    const named = startInstance(namedSpec, { PODIUM_ADOPT_STATE: undefined })
     await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'clean named server')
     expect(JSON.parse(readFileSync(join(namedSpec.stateDir, 'config.json'), 'utf8'))).toMatchObject(
       { mode: 'all-in-one', configVersion: 2 },
@@ -1754,27 +1717,20 @@ exec "$CANARY_REAL_CLI" "$@"
     expect(JSON.parse(readFileSync(join(named.stateDir, 'instance.json'), 'utf8'))).toMatchObject({
       instanceId: 'blue',
     })
-    // A NAMED INSTANCE GETS A PRIVATE DURABLE-SOCKET ROOT, and since POD-2853
-    // that root is NOT under its state directory. It used to be
-    // `<state>/runtime/abduco`, and the composed socket path
-    // (`<root>/abduco/<user>/podium-<instance>-<uuid>@<host>`) then ran past the
-    // 108-byte `sun_path` ceiling on the documented state layout — measured at
-    // 121 bytes — so every terminal spawn on a named instance died with
-    // "create-session: File name too long". The root now comes from the runtime
-    // directory, which is both short enough and where sockets belong.
-    expect(existsSync(join(compat.stateDir, 'runtime', 'abduco'))).toBe(false)
-    expect(existsSync(join(named.stateDir, 'runtime', 'abduco'))).toBe(false)
-    const namedSocketRoot = instanceSocketRuntimeDir('blue', named.stateDir)
-    expect(existsSync(namedSocketRoot)).toBe(true)
-    // AND IT FITS, which is the property the old pin failed. Asserted with the
-    // real user and host, because those bytes are in the same budget.
-    expect(
-      abducoSocketPathBytes(
-        abducoSocketDir(namedSocketRoot, userInfo().username),
-        longestDurableLabelFor('blue'),
-        `@${hostname()}`,
-      ),
-    ).toBeLessThan(ABDUCO_SUN_PATH_MAX)
+    // A NAMED INSTANCE'S DURABLE SOCKETS FIT sun_path (POD-2853). A durable
+    // socket once lived under the state directory, and on the documented state
+    // layout the composed path ran past the 108-byte ceiling — measured at 121
+    // bytes — so every terminal spawn on a named instance died with "File name
+    // too long". podium-host binds under `<runtime dir>/hosts/<instance>/`,
+    // outside the state tree when a user runtime dir exists; the daemon
+    // inherits this process's runtime dir, so the path derived here is the one
+    // it binds. Asserted with the longest
+    // label the instance can mint, because that is the one that must fit.
+    const namedHostSocket = hostSocketPath(longestDurableLabelFor('blue'), {
+      ...process.env,
+      PODIUM_INSTANCE: 'blue',
+    })
+    expect(unixSocketPathFits(namedHostSocket), namedHostSocket).toBe(true)
 
     const instanceOwners = new Set<string>()
     const inspectBoot = (spec: InstanceSpec) => {

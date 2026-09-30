@@ -24,7 +24,7 @@ function opencodeRuns(bin: string, env?: ResolverEnvironment): boolean {
 export function opencodeBinCandidates(homeDir?: string, env?: ResolverEnvironment): string[] {
   const home = homeDir ?? (env ? (env.HOME ?? homedir()) : (process.env.HOME ?? homedir()))
   // Known install paths before bare `opencode`: the daemon's systemd PATH often
-  // omits ~/.opencode/bin, and abduco execvp does not run through a login shell.
+  // omits ~/.opencode/bin, and podium-host execs the command without a login shell.
   return [
     join(home, '.opencode', 'bin', 'opencode'),
     join(home, '.local', 'bin', 'opencode'),

@@ -137,7 +137,7 @@ describe('Grok ACP real scoped child boundary', () => {
       expect(await grokAcpVersionProbe()).toEqual({ drivable: true })
       const sent: DaemonMessage[] = []
       const facts = grokEngineFacts(manifestFor('grok')!)
-      const durable = createDurableProcess('host', { host: true, abduco: false })
+      const durable = createDurableProcess()
       const engines = createSessionEngineScope(durable, { sessions: new SessionRegistry() })
       const host = createGrokEngineHost({
         facts,

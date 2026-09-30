@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -8,23 +8,16 @@ import { describe, expect, it } from 'vitest'
 // so the arithmetic exists twice, and a test is the only thing that can stop the two
 // drifting silently.
 import { bunTargetForPlatform as serverBunTargetForPlatform } from '../apps/server/src/modules/updates/dev-bundle'
-import { C_HOST_FEATURES } from '../packages/pty/src/host-bin.js'
-import {
-  ABDUCO_TARGETS,
-  abducoCachePath,
-  abducoCompileFlags,
-  HEADLESS_PLATFORMS,
-  isHeadlessPlatform,
-} from './abduco-cross'
+import { HEADLESS_PLATFORMS, isHeadlessPlatform } from '../packages/protocol/src/update/platforms'
 import { BUN_TARGETS, bunTargetForPlatform, parseBuildTarget, targetOutputRoot } from './build-bun'
 import { CLIENT_ROOT_DIGEST_FILE } from './client-build-root-digest'
-import { HOST_TARGETS, hostCachePath, hostCompileFlags } from './host-cross'
 import { headlessAsset, loadPreparedHeadless, RELEASE_PLATFORMS } from './release'
+import { RUST_HOST_TARGETS, rustHostCachePath } from './rust-host-cross'
 
 /**
- * The four platform names are spoken by six things — the abduco cache, the
- * podium-host cache, the bun --compile target table, the release asset names,
- * the manifest keys and the CLI's own host derivation. These tests exist because
+ * The four platform names are spoken by five things — the Rust host cache, the
+ * bun --compile target table, the release asset names, the manifest keys and the
+ * CLI's own host derivation. These tests exist because
  * a mismatch between any two of them is invisible until a machine asks for an
  * update and is told its platform was never published.
  */
@@ -38,16 +31,13 @@ describe('the headless platform set', () => {
     ])
   })
 
-  it('gives every platform a bun --compile target and helper targets', () => {
+  it('gives every platform a bun --compile target and a Rust host target', () => {
     for (const platform of HEADLESS_PLATFORMS) {
       const target = bunTargetForPlatform(platform)
       expect(BUN_TARGETS[target].platform).toBe(platform)
-      expect(ABDUCO_TARGETS[platform].zigTarget).toBeTruthy()
-      expect(HOST_TARGETS[platform].zigTarget).toBeTruthy()
-      // The two helpers ship to the same machines, so they cross-compile for the
-      // same triples and agree on which outputs are Mach-O.
-      expect(HOST_TARGETS[platform].zigTarget).toBe(ABDUCO_TARGETS[platform].zigTarget)
-      expect(HOST_TARGETS[platform].darwin).toBe(ABDUCO_TARGETS[platform].darwin)
+      expect(RUST_HOST_TARGETS[platform].rustTarget).toBeTruthy()
+      // The host ships beside the CLI, so it is Mach-O exactly where the CLI is.
+      expect(RUST_HOST_TARGETS[platform].darwin).toBe(BUN_TARGETS[target].nodePlatform === 'darwin')
     }
   })
 
@@ -63,7 +53,7 @@ describe('the headless platform set', () => {
   })
 
   it('marks exactly the Darwin platforms as needing a code signature', () => {
-    const signed = HEADLESS_PLATFORMS.filter((p) => ABDUCO_TARGETS[p].darwin)
+    const signed = HEADLESS_PLATFORMS.filter((p) => RUST_HOST_TARGETS[p].darwin)
     expect([...signed].sort()).toEqual(['darwin-aarch64', 'darwin-x86_64'])
   })
 
@@ -82,56 +72,17 @@ describe('the headless platform set', () => {
   })
 })
 
-describe('abduco cross-build inputs', () => {
-  it('keys the cache on the source hash, so an edited abduco.c invalidates every platform', () => {
-    const a = abducoCachePath('linux-aarch64', 'a'.repeat(64), '/repo/')
-    const b = abducoCachePath('linux-aarch64', 'b'.repeat(64), '/repo/')
+describe('Rust host cross-build inputs', () => {
+  it('keys the cache per platform and source hash', () => {
+    const a = rustHostCachePath('linux-aarch64', 'a'.repeat(64), '/repo/')
+    const b = rustHostCachePath('linux-aarch64', 'b'.repeat(64), '/repo/')
     expect(a).not.toBe(b)
     expect(a).toContain('linux-aarch64-')
   })
 
-  it('reserves Mach-O header room and the util.h shim only for Darwin targets', () => {
-    // Without -headerpad the x86_64 link leaves no room for the code-signature load
-    // command and rcodesign fails; without the include dir zig cannot see forkpty.
-    const darwin = abducoCompileFlags(ABDUCO_TARGETS['darwin-x86_64'], '/inc')
-    expect(darwin).toContain('-Wl,-headerpad,0x8000')
-    expect(darwin).toContain('/inc')
-    const linux = abducoCompileFlags(ABDUCO_TARGETS['linux-x86_64'], '/inc')
-    expect(linux).not.toContain('-Wl,-headerpad,0x8000')
-    expect(linux).not.toContain('/inc')
-  })
-
-  it('links Linux helpers against musl, so the bundle carries no glibc floor', () => {
-    expect(ABDUCO_TARGETS['linux-x86_64'].zigTarget).toContain('musl')
-    expect(ABDUCO_TARGETS['linux-aarch64'].zigTarget).toContain('musl')
-    expect(HOST_TARGETS['linux-x86_64'].zigTarget).toContain('musl')
-    expect(HOST_TARGETS['linux-aarch64'].zigTarget).toContain('musl')
-  })
-})
-
-describe('podium-host cross-build inputs', () => {
-  it('keys the cache on the source hash, so an edited host.c invalidates every platform', () => {
-    const a = hostCachePath('linux-aarch64', 'a'.repeat(64), '/repo/')
-    const b = hostCachePath('linux-aarch64', 'b'.repeat(64), '/repo/')
-    expect(a).not.toBe(b)
-    expect(a).toContain('linux-aarch64-')
-  })
-
-  it('reserves Mach-O header room and the util.h shim only for Darwin targets', () => {
-    const darwin = hostCompileFlags(HOST_TARGETS['darwin-x86_64'], '/inc')
-    expect(darwin).toContain('-Wl,-headerpad,0x8000')
-    expect(darwin).toContain('/inc')
-    const linux = hostCompileFlags(HOST_TARGETS['linux-x86_64'], '/inc')
-    expect(linux).not.toContain('-Wl,-headerpad,0x8000')
-    expect(linux).not.toContain('/inc')
-  })
-
-  it('stamps the native feature level, so the cross helper reports what the resolver expects', () => {
-    // host-bin.ts builds with -DVERSION="<features>-podium" and resolves by that
-    // feature level; a cross helper stamped otherwise would never be selected.
-    expect(hostCompileFlags(HOST_TARGETS['linux-x86_64'], '/inc')).toContain(
-      `-DVERSION="${C_HOST_FEATURES}-podium"`,
-    )
+  it('links Linux hosts against musl, so the bundle carries no glibc floor', () => {
+    expect(RUST_HOST_TARGETS['linux-x86_64'].rustTarget).toContain('musl')
+    expect(RUST_HOST_TARGETS['linux-aarch64'].rustTarget).toContain('musl')
   })
 })
 
@@ -254,16 +205,6 @@ describe('loadPreparedHeadless', () => {
       )
     } finally {
       rmSync(dir, { recursive: true, force: true })
-    }
-  })
-})
-
-describe('the checked-in repository stays binary-free', () => {
-  it('keeps no prebuilt abduco under scripts/', () => {
-    // The helpers are built from the vendored source into a gitignored cache. If one is
-    // ever committed instead, the shipped helper can drift from the source under review.
-    for (const platform of HEADLESS_PLATFORMS) {
-      expect(existsSync(join('scripts/prebuilt/abduco', platform, 'abduco'))).toBe(false)
     }
   })
 })

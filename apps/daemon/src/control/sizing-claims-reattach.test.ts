@@ -3,11 +3,10 @@
  * rewritten for POD-3279's rule 1 rev 4).
  *
  * Its own file because it must mock `@podium/process/durable` and
- * `@podium/process/abduco` at module scope: the claim is
+ * `@podium/process/host` at module scope: the claim is
  * about what the reattach handler does AROUND the durable attach, so the attach
- * itself is stubbed and the real handler runs. The abduco half of C16
- * (`repaintOnAttach` defaulting to true) is executed for real against a vendored
- * abduco in `packages/pty/src/abduco-winsize.integration.test.ts`.
+ * itself is stubbed and the real handler runs. (The other half of C16 was
+ * abduco's `repaintOnAttach`; abduco is gone since POD-4986.)
  *
  * WHAT CHANGED AT STAGE 3: the bind used to carry `msg.geometry` back, which was
  * the server's own last-known returned to it as a daemon report. A size-neutral
@@ -16,14 +15,13 @@
  * may therefore report. The redraw half of the original claim is unchanged.
  *
  * WHAT CHANGED AT STAGE 4 (POD-3276): last-known no longer reaches the attach as
- * a `cols`/`rows` it could apply — only as `fallbackGeometry`, read on the one
- * path where there is no `-N` abduco build.
+ * a `cols`/`rows` it could apply.
  *
  * WHAT CHANGED WITH POD-4723 (design rev 3): the bind carries the CONNECTION's
  * size — what the host's WELCOME read back from the kernel — and nothing else;
- * abduco cannot read its size back, so its bind is bare even after a downgrade.
- * There is no held resize to dispatch at bind, and the reattach never nudges
- * the program: no redraw, no resize, no Ctrl-L.
+ * a connection that reports no size binds bare. There is no held resize to
+ * dispatch at bind, and the reattach never nudges the program: no redraw, no
+ * resize, no Ctrl-L.
  */
 
 import { tmpdir } from 'node:os'
@@ -43,7 +41,7 @@ const stub = vi.hoisted(() => {
     writes: 0,
     resizes: [] as Array<[number, number]>,
     attachedAt: [] as unknown[],
-    /** Set to stand in for a backend that reads the kernel size back (the host). */
+    /** The size the host's WELCOME read back from the kernel; unset = none reported. */
     size: undefined as { cols: number; rows: number } | undefined,
   }
   const session = {
@@ -61,57 +59,49 @@ const stub = vi.hoisted(() => {
       state.resizes.push([cols, rows])
     },
     size: () => state.size,
+    // The host adapter awaits `ready` (the WELCOME) before it returns.
+    ready: Promise.resolve(),
     dispose: () => {},
   }
-  return { state, session }
+  const SOCKET = '/tmp/podium-sizing-claims-reattach.sock'
+  const hostLeaves = {
+    hostHasSession: async () => true,
+    hostSocketPath: () => SOCKET,
+    liveHostSocket: async () => SOCKET,
+    listLiveHostLabels: async () => [],
+    attachHostAgent: (opts: unknown) => {
+      state.attachedAt.push(opts)
+      return session
+    },
+    killHostSession: async () => {},
+    spawnHostAgent: async () => session,
+    waitForHostSocket: async () => SOCKET,
+  }
+  return { state, session, hostLeaves }
 })
 
 vi.mock('@podium/process/durable', async (importOriginal) => {
   // Spread the real door so durableProcessFor, createDurableProcess and the
-  // adapters stay REAL: the claim is about what the reattach handler does
+  // adapter stay REAL: the claim is about what the reattach handler does
   // AROUND the durable attach, so only the leaf functions below are stubbed. A
   // whole-module stub hides durableProcessFor, the handler finds no durable
   // process and answers reattachFailed without ever building the bind frame.
   const actual = await importOriginal<typeof import('@podium/process/durable')>()
-  return {
-    ...actual,
-    abducoHasSession: async () => true,
-    abducoSocketPath: () => '/tmp/podium-sizing-claims-reattach.sock',
-    attachAbducoAgent: (opts: unknown) => {
-      stub.state.attachedAt.push(opts)
-      return stub.session
-    },
-    killAbducoSession: async () => {},
-    reapStaleAbducoBindTemps: () => {},
-    spawnAbducoAgent: async () => stub.session,
-    waitForAbducoSocket: async () => '/tmp/podium-sizing-claims-reattach.sock',
-  }
+  return { ...actual, ...stub.hostLeaves }
 })
 
-// The REAL abduco adapter kept real by the spread above reaches its leaves
-// through `./abduco.js`, not through the door — `@podium/process/*` resolves to
+// The REAL host adapter kept real by the spread above reaches its leaves
+// through `./host.js`, not through the door — `@podium/process/*` resolves to
 // `packages/pty/src/*.ts`, so this is the same module record the adapter
 // imports. Stubbing the door alone leaves the real locate() probing the real
 // filesystem, finding nothing at the fake socket path and failing the reattach
 // (POD-4008). The same leaf stubs here let locate() hit the stubbed socket
-// path, and the real adapter then adds sizeNeutral/fallbackGeometry itself on
-// its way down to the stubbed attachAbducoAgent — which is why the stub lives
-// at the LEAF, not at adapter.attach.
-vi.mock('@podium/process/abduco', async (importOriginal) => {
+// path, and the real adapter then builds its attach options itself on its way
+// down to the stubbed attachHostAgent — which is why the stub lives at the
+// LEAF, not at adapter.attach.
+vi.mock('@podium/process/host', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@podium/process/durable')>()
-  return {
-    ...actual,
-    abducoHasSession: async () => true,
-    abducoSocketPath: () => '/tmp/podium-sizing-claims-reattach.sock',
-    attachAbducoAgent: (opts: unknown) => {
-      stub.state.attachedAt.push(opts)
-      return stub.session
-    },
-    killAbducoSession: async () => {},
-    reapStaleAbducoBindTemps: () => {},
-    spawnAbducoAgent: async () => stub.session,
-    waitForAbducoSocket: async () => '/tmp/podium-sizing-claims-reattach.sock',
-  }
+  return { ...actual, ...stub.hostLeaves }
 })
 
 const { sessionHandlers } = await import('./session')
@@ -149,7 +139,7 @@ function reattachMessage() {
 
 function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonContext {
   const ctx = {
-    backend: 'abduco',
+    backend: 'host',
     settingsDir: join(tmpdir(), 'podium-sizing-claims-reattach'),
     sessions: testSessions(),
     durableLabelFor: (id: SessionId) => `podium-${id}`,
@@ -188,7 +178,7 @@ function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonCon
 }
 
 describe('C16 (rev 3): a reattach binds the connection size and never touches the program', () => {
-  it('binds BARE on a backend that cannot read its size back, and never nudges', async () => {
+  it('binds BARE when the connection reports no size, and never nudges', async () => {
     reset()
     const sent: Array<{ type: string; resizesBefore: number }> = []
     const ctx = ctxFor(sent)
@@ -206,12 +196,14 @@ describe('C16 (rev 3): a reattach binds the connection size and never touches th
     // Nothing reached the program: no resize, no redraw nudge, no Ctrl-L.
     expect(stub.state.resizes).toEqual([])
     expect(stub.state.writes).toBe(0)
-    // The attach is SIZE-NEUTRAL: last-known reaches it only as
-    // `fallbackGeometry`, never as a `cols`/`rows` it could apply.
+    // The attach is SIZE-NEUTRAL: it demands the writer lease and resumes at
+    // the tail, and last-known never reaches it as a `cols`/`rows` it could apply.
     expect(stub.state.attachedAt).toHaveLength(1)
     expect(stub.state.attachedAt[0]).toMatchObject({
-      sizeNeutral: true,
-      fallbackGeometry: { cols: 132, rows: 43 },
+      label: 'podium-s-sizing-reattach',
+      socketPath: '/tmp/podium-sizing-claims-reattach.sock',
+      requireLease: true,
+      fromSeq: 'tail',
     })
     expect(stub.state.attachedAt[0]).not.toHaveProperty('cols')
     expect(stub.state.attachedAt[0]).not.toHaveProperty('rows')
@@ -325,7 +317,7 @@ describe('terminal recovery ownership', () => {
       const sent: Array<{ type: string; resizesBefore: number }> = []
       const ctx = ctxFor(sent)
       if (wrongIncarnation) ctx.sessions.ensure(SESSION).label = 'podium-other-incarnation'
-      else ctx.durable = { ...createDurableProcess('abduco', { host: false, abduco: true }), locate: async () => undefined }
+      else ctx.durable = { ...createDurableProcess(), locate: async () => undefined }
       sessionHandlers.reattach(ctx, reattachMessage())
       await vi.waitFor(() => expect(sent.some((m) => m.type === 'reattachFailed')).toBe(true))
       expect(sent.some((m) => m.type === 'bind')).toBe(false)

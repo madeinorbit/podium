@@ -27,21 +27,26 @@ describe('attributeMemory', () => {
     expect(agents).toEqual([{ sessionId: 's1', bytes: 155 * MB, processCount: 3 }])
   })
 
-  it('claims the durable master found by label in the cmdline (abduco)', () => {
+  it('claims the durable master found by label in the cmdline (podium-host)', () => {
     const procs = [
-      // attach client under the daemon
-      proc({ pid: 20, name: 'abduco', cmdline: 'abduco -a podium-s1', memBytes: 1 * MB }),
-      // detached master holding the real agent — NOT a daemon child
-      proc({ pid: 30, name: 'abduco', cmdline: 'abduco -c podium-s1 claude', memBytes: 1 * MB }),
+      // detached host master holding the real agent — NOT a daemon child; its
+      // argv names the label through its socket path
+      proc({
+        pid: 30,
+        name: 'podium-host-rs',
+        cmdline:
+          'podium-host-rs create --socket /run/user/1000/podium/hosts/default/podium-s1.sock --cols 80 --rows 24 --cwd /w -- claude',
+        memBytes: 1 * MB,
+      }),
       proc({ pid: 31, ppid: 30, name: 'claude', memBytes: 200 * MB }),
     ]
     const { agents } = attributeMemory(
       procs,
-      [{ sessionId: asSessionId('s1'), label: 'podium-s1', pid: 20 }],
+      [{ sessionId: asSessionId('s1'), label: 'podium-s1', pid: 31 }],
       [],
     )
-    expect(agents[0]?.bytes).toBe(202 * MB)
-    expect(agents[0]?.processCount).toBe(3)
+    expect(agents[0]?.bytes).toBe(201 * MB)
+    expect(agents[0]?.processCount).toBe(2)
   })
 
   it('attributes unclaimed processes to the longest matching root by cwd', () => {

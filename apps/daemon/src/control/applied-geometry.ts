@@ -13,7 +13,7 @@
  *     be reported as applied.
  *   - A BIND carries the connection's current size, read at the bind through
  *     {@link bindFrame}; absent when the session has no terminal or its backend
- *     cannot read its size back (abduco, a direct pty), which binds bare.
+ *     cannot read its size back (a direct pty), which binds bare.
  *
  * WHAT THIS REPLACED. `AppliedGeometryRecord` recorded a size at every "apply
  * site" — seven of them — with a dispatch callback that answered `true`

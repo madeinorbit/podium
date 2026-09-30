@@ -17,7 +17,8 @@
  * - a report written from the ask ("dispatch = applied"): the refused-ask case
  *   would report a size the child never got.
  *
- * Integration lane (a C compile, real processes, real ptys).
+ * Integration lane (the Rust podium-host, built from the vendored crate in a
+ * checkout; real processes, real ptys).
  */
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
@@ -38,14 +39,7 @@ import { forgetSessionScreen } from '../session-screens'
 import type { DaemonContext } from './context'
 import { sessionHandlers, sessionSize, wireBridge } from './session'
 
-const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
-  try {
-    execFileSync(c, ['--version'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
-})
+const hasHost = resolveHostBin() !== undefined
 
 /**
  * A TUI stand-in that reports on itself: its birth size, every SIGWINCH with a
@@ -74,7 +68,7 @@ let fixture = ''
 let serial = 0
 
 beforeAll(() => {
-  if (!hasCompiler) return
+  if (!hasHost) return
   root = mkdtempSync(join(tmpdir(), 'pod-hra-'))
   process.env.PODIUM_HOST_SOCKET_DIR = join(root, 's')
   process.env.PODIUM_STATE_DIR = join(root, 'state')
@@ -180,7 +174,7 @@ function cleanup(h: Harness, sessionId: SessionId): void {
   forgetSessionScreen(h.ctx, sessionId)
 }
 
-describe.skipIf(!hasCompiler)('headed sizing on a real podium-host (POD-4723)', () => {
+describe.skipIf(!hasHost)('headed sizing on a real podium-host (POD-4723)', () => {
   it('fresh spawn, then viewer asks: child tty == last report == bind size, one SIGWINCH per real change', async () => {
     const sessionId = asSessionId(`hra-${process.pid}-${++serial}`)
     const label = `podium-${sessionId}`

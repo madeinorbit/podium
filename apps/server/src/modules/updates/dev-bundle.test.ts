@@ -645,7 +645,7 @@ describe('development bundle names', () => {
       'podium-headless-dev+NOTHEX.tar.gz',
       'podium-headless-dev+abc1234-yesterday.tar.gz',
       'podium',
-      'abduco.bin',
+      'podium-host-rs',
     ]) {
       expect(parseDevBundleName(name), name).toBeNull()
     }

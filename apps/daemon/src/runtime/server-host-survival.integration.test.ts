@@ -15,7 +15,8 @@
  * grok, no fresh `claude` for claude: the incarnation files each hold one
  * line.
  *
- * Integration lane (real processes, a C compile, real sockets); never unit.
+ * Integration lane (real processes, the Rust podium-host built from the
+ * vendored crate, real sockets); never unit.
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import {
@@ -512,7 +513,7 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
       await wait(1000)
 
       // Generation 2: new objects, same dirs, same journals on disk.
-      const durable = createDurableProcess('host', { host: true, abduco: false })
+      const durable = createDurableProcess()
       const noResources = () => undefined
       // The session layer's engine hold over the new generation's durable.
       const sessionEngines = createSessionEngineScope(durable, { sessions: new SessionRegistry(), socketRoot: engineSocketRoot })
@@ -664,7 +665,7 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
       })
 
       // Cleanup owns every engine by label, whatever generation holds it now.
-      const killer = createDurableProcess('host', { host: true, abduco: false })
+      const killer = createDurableProcess()
       await killer.kill(codexScopeLabel(codexFacts, codexBinding.sessionId))
       await killer.kill(opencodeScopeLabel(flavor, opencodeBinding.sessionId))
       await killer.kill(grokAcpProcessKey(grokFacts, grokBinding.sessionId))

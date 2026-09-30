@@ -42,7 +42,7 @@ describe('test lanes', () => {
     ['packages/pty/src/host.integration.test.ts', 'integration'],
     ['packages/pty/test/example.pty.test.ts', 'integration'],
     ['packages/pty/test/session.test.ts', 'integration'],
-    ['packages/pty/src/abduco.test.ts', 'integration'],
+    ['apps/daemon/src/daemon.test.ts', 'integration'],
     ['tests/e2e/relay.e2e.test.ts', 'e2e'],
     ['tests/e2e/harness-env.test.ts', 'e2e'],
     ['scripts/loop-split-load.integration.test.ts', 'acceptance'],

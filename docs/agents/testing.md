@@ -125,7 +125,7 @@ use the `test:lane` form, which is the same command with admission taken from th
 
 | Command | Tests live in / exact selection | Also executed by | Run when |
 | --- | --- | --- | --- |
-| `bun run test:integration` | Patterns and explicit files in `vitest.integration.config.ts`: `*.integration.*`, `*.pty.test.*`, process/daemon/server boot suites; then `test:acceptance` if Vitest is green | `oracle`; CI oracle matrix | Changed real process, PTY, abduco, daemon/server boot, updater process, or agent-bridge behavior |
+| `bun run test:integration` | Patterns and explicit files in `vitest.integration.config.ts`: `*.integration.*`, `*.pty.test.*`, process/daemon/server boot suites; then `test:acceptance` if Vitest is green | `oracle`; CI oracle matrix | Changed real process, PTY, podium-host, daemon/server boot, updater process, or agent-bridge behavior |
 | `bun run test:acceptance` | Exact file `scripts/loop-split-load.integration.test.ts` via `vitest.acceptance.config.ts` | Successful `test:integration` | Loop-split load scheduling or its acceptance threshold |
 | `bun run test:acceptance:process` | Exact Bun file `scripts/loop-split-process.acceptance.bun.test.ts` | No parent command | Publication worker, user-systemd recovery, janitor/process recovery |
 | `bun run test:e2e` | Non-browser `tests/e2e/**/*.test.{ts,tsx}` selected through `vitest.integration.config.ts` | `oracle`; CI oracle matrix | A changed full-stack server↔daemon↔client flow cannot be covered at one boundary |
@@ -362,7 +362,7 @@ hermetic setup, lane exclusions, and exit-status safeguards.
   `PODIUM_PORT`/`PODIUM_STATE_DIR` overrides.
 - **CI runs the oracle: unit + typecheck + integration + e2e + multi-instance**
   [POD-295]. CI installs with `--ignore-scripts`; real PTYs use Bun.Terminal and
-  Podium builds its vendored abduco on first use. Agent-smoke is NEVER in CI
+  Podium builds its vendored Rust podium-host with cargo on first use. Agent-smoke is NEVER in CI
   (it bills real LLM quota) and
   runs only on explicit request.
 - **The oracle is the rewrite's behavioral contract** [POD-295]: `bun run oracle`

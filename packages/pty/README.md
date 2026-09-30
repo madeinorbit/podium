@@ -19,27 +19,38 @@ remote terminal rendered black. A Bun too old fails loudly at startup.
 
 `PODIUM_PTY_BACKEND=bun-terminal` may pin the only supported backend.
 
-### Durable hosts — `src/abduco.ts`, `src/abduco-bin.ts`, `src/tmux.ts`
+### Durable host — `src/host.ts`, `src/host-bin.ts`, `src/durable-process.ts`, `src/scope.ts`
 
-A durable host is what makes a session survive the daemon. abduco is the primary;
-tmux is the alternative. Podium ships abduco rather than demanding a system
-install: `resolveAbducoBin()` prefers `$PODIUM_ABDUCO`, then `abduco` on PATH,
-then a cached build, then compiles the vendored ISC source in `vendor/abduco/`
-with the system C compiler. Compiled binaries instead embed a prebuilt abduco and
-materialize it into that same cache path on first start (`scripts/build-bun.ts`
-and `scripts/embedded-abduco.ts`). abduco is POSIX-only — `abducoSupported()` is
-the single place that platform rule lives, and on Windows sessions run on the
-ConPTY backend with no durable host \[spec:SP-7f2c].
+A durable host is what makes a session survive the daemon. On Linux and macOS it is
+podium-host, the Rust crate in `vendor/podium-host-rs/` — the only host Podium spawns
+(POD-4986); no C compiler is involved in building or releasing it. `resolveHostBin()`
+picks the binary for a new spawn: `$PODIUM_HOST_BIN` (must answer `version` at feature
+level `HOST_FEATURES` = 2, else resolution fails), then a release's `podium-host-rs`
+beside `podium-cli`, then — in a source checkout — the crate built with cargo on first
+use and cached by source hash under `~/.cache/podium/podium-host-rs-src`
+(`ensureSourceRustHost()`). With none of these the daemon refuses every spawn
+(`HOST_UNAVAILABLE`); there is no fallback. `hostSupported()` is the single place the
+platform rule lives: on Windows sessions run on the ConPTY backend with no durable host
+\[spec:SP-7f2c].
 
-On Linux each master is additionally wrapped in a transient `systemd-run --user
---scope` so an agent's CPU/IO weight sits below the daemon's; `PODIUM_NO_SCOPE=1`
-turns that off for tests and non-systemd hosts.
+Production daemon code reaches a host only through `DurableProcess`
+(`createDurableProcess()` / `durableProcessFor()`, `@podium/process/durable`); the raw
+`spawnHostAgent`, `attachHostAgent`, `hostHasSession`, `killHostSession` and
+`listLiveHostLabels` stay exported for tests and the adapter. They are async, so process
+creation and listing never block the interactive loop; the
+`durable-host-sync-async-twins` deletion-audit item guards this boundary at zero.
 
-Durable-host process operations expose one async API: `abducoHasSession`,
-`killAbducoSession`, `tmuxHasSession`, `killTmuxServer`, `spawnAbducoAgent`, and
-`spawnTmuxAgent`. Callers await them so process creation and listing never block the
-interactive loop. The `durable-host-sync-async-twins` deletion-audit item guards this
-boundary at zero.
+Adoption is by socket, not by binary: a session a C host started by an older daemon is
+still located and adopted until it exits, because both hosts speak the one protocol in
+`src/host.ts`. A session an abduco master holds cannot be re-adopted — abduco is no
+longer built or shipped — so `src/legacy-abduco.ts` logs it once by label and leaves
+its process alone. `ABDUCO_SOCKET_DIR`, `PODIUM_ABDUCO` and the daemon's
+`--backend abduco` are gone.
+
+On Linux each host is additionally wrapped in a transient `systemd-run --user --scope`
+(`src/scope.ts`) so a redeploy's cgroup kill cannot reach it and an agent's CPU/IO
+weight sits below the daemon's; `PODIUM_NO_SCOPE=1` turns that off for tests and
+non-systemd hosts.
 
 ### Framing, redraw, OSC scan — `src/session.ts`, `src/osc-title.ts`
 

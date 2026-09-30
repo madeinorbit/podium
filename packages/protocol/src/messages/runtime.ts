@@ -778,7 +778,7 @@ export type RuntimeConfigureRequestMessage = z.infer<typeof RuntimeConfigureRequ
  * is. Re-added under the header's rule (no producer, no schema) because W5's
  * snapshot frame carries one and the daemon produces it.
  *
- * `process.key` is OPAQUE AND DRIVER-PRIVATE by contract: an abduco label, a
+ * `process.key` is OPAQUE AND DRIVER-PRIVATE by contract: a podium-host label, a
  * scope unit name, a socket path. The wire carries it without interpreting it,
  * which is what lets one schema serve every family.
  */

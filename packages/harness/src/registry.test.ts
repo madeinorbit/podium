@@ -222,7 +222,7 @@ describe('agent manifest registry', () => {
 
   it('keeps every client-terminal label distinct, and clear of the session’s own', () => {
     const tokens = CLIENT_TERMINAL_HARNESSES.map((kind) => clientTerminalFor(kind)?.labelToken)
-    // A shared token would give two harnesses ONE durable abduco label: attaching
+    // A shared token would give two harnesses ONE durable label: attaching
     // the second would adopt the first's parked master and put the user in
     // another CLI's conversation.
     expect(new Set(tokens).size, `duplicate labelToken among ${tokens.join()}`).toBe(tokens.length)

@@ -3,9 +3,11 @@
  *
  * Not for landing as-is — a minimal fork of scripts/build-bun.ts that:
  *   - takes --target=bun-darwin-arm64 | bun-darwin-x64
- *   - embeds scripts/prebuilt/abduco/<platform>/abduco instead of compiling host abduco
+ *   - ships the cross-built Rust process host (scripts/rust-host-cross.ts) as
+ *     headless/podium-host-rs, as the production bundle does (the spike originally
+ *     embedded a prebuilt abduco; both it and the C podium-host are retired)
  *   - skips web/mobile packaging (optional --full-bundle) so the spike can prove
- *     binary+abduco without rebuilding client dists
+ *     binary+host without rebuilding client dists
  *   - ad-hoc signs the Mach-O with rcodesign + Bun JIT entitlements
  *
  * Usage:
@@ -29,7 +31,9 @@ import {
   hasBunTerminal,
   minTerminalBunVersion,
 } from '../../packages/pty/src/backends/bun-terminal-backend.js'
+import { RUST_HOST_BINARY } from '../../packages/pty/src/host-bin.js'
 import { launcherShim } from '../build-bun.js'
+import { crossBuildRustHost } from '../rust-host-cross.js'
 
 type SpikeTarget = 'bun-darwin-arm64' | 'bun-darwin-x64'
 
@@ -52,6 +56,10 @@ function platformDir(target: SpikeTarget): 'darwin-arm64' | 'darwin-x64' {
   return target === 'bun-darwin-arm64' ? 'darwin-arm64' : 'darwin-x64'
 }
 
+function headlessPlatform(target: SpikeTarget): 'darwin-aarch64' | 'darwin-x86_64' {
+  return target === 'bun-darwin-arm64' ? 'darwin-aarch64' : 'darwin-x86_64'
+}
+
 function main(): void {
   if (!hasBunTerminal()) {
     throw new Error(
@@ -62,14 +70,8 @@ function main(): void {
   const { target, fullBundle } = parseArgs(process.argv.slice(2))
   const root = fileURLToPath(new URL('../..', import.meta.url))
   const out = `${root}dist-bun-spike/${platformDir(target)}`
-  const prebuilt = `${root}scripts/prebuilt/abduco/${platformDir(target)}/abduco`
   const entitlements = `${root}scripts/spike/bun-jit.entitlements.plist`
 
-  if (!existsSync(prebuilt)) {
-    throw new Error(
-      `spike: missing prebuilt abduco at ${prebuilt} — run scripts/spike/build-prebuilt-abduco.sh first`,
-    )
-  }
   if (!existsSync(entitlements)) {
     throw new Error(`spike: missing entitlements ${entitlements}`)
   }
@@ -84,12 +86,10 @@ function main(): void {
   rmSync(out, { recursive: true, force: true })
   mkdirSync(out, { recursive: true })
 
-  // Embed Darwin abduco bytes at the path scripts/embedded-abduco.ts imports.
-  // The host dist-bun/abduco.bin is what the compile-time `with { type: 'file' }` reads.
-  const hostEmbed = `${root}dist-bun`
-  mkdirSync(hostEmbed, { recursive: true })
-  cpSync(prebuilt, `${hostEmbed}/abduco.bin`)
-  console.log(`[spike] embedded abduco <- ${prebuilt}`)
+  // The Darwin Rust host, cross-built with cargo-zigbuild and ad-hoc signed, from the
+  // same content-addressed cache the release uses.
+  const rustHost = crossBuildRustHost(headlessPlatform(target), { root })
+  console.log(`[spike] ${RUST_HOST_BINARY} <- ${rustHost}`)
 
   console.log(`[spike] compiling podium for ${target} (v${version})…`)
   execFileSync(
@@ -127,14 +127,12 @@ function main(): void {
   )
   chmodSync(signed, 0o755)
 
-  // Also ship a standalone signed abduco next to the binary (for PODIUM_ABDUCO override tests).
-  cpSync(prebuilt, `${out}/abduco`)
-  chmodSync(`${out}/abduco`, 0o755)
-
   const headless = `${out}/headless`
   mkdirSync(headless, { recursive: true })
   cpSync(signed, `${headless}/podium-cli`)
   chmodSync(`${headless}/podium-cli`, 0o755)
+  cpSync(rustHost, `${headless}/${RUST_HOST_BINARY}`)
+  chmodSync(`${headless}/${RUST_HOST_BINARY}`, 0o755)
   writeFileSync(`${headless}/podium`, launcherShim())
   chmodSync(`${headless}/podium`, 0o755)
   writeFileSync(`${headless}/VERSION`, `${version}\n`)
@@ -146,7 +144,7 @@ function main(): void {
       `bun-target: ${target}`,
       `bun-version: ${bunVersion()}`,
       `version: ${version}`,
-      `abduco: scripts/prebuilt/abduco/${platformDir(target)}/abduco`,
+      `host: ${RUST_HOST_BINARY} (scripts/rust-host-cross.ts, ${headlessPlatform(target)})`,
       `sign: rcodesign sign --entitlements-xml-file scripts/spike/bun-jit.entitlements.plist`,
       `full-bundle: ${fullBundle}`,
       '',
@@ -178,7 +176,7 @@ function main(): void {
   const tarball = `${out}/podium-headless-spike-${platformDir(target)}.tar.gz`
   execFileSync(
     'tar',
-    ['-czf', tarball, '-C', out, 'headless', 'podium', 'podium.unsigned', 'abduco'],
+    ['-czf', tarball, '-C', out, 'headless', 'podium', 'podium.unsigned'],
     {
       stdio: 'inherit',
     },
@@ -188,7 +186,7 @@ function main(): void {
   console.log(`[spike] unsigned copy -> ${unsigned}`)
   console.log(`[spike] tarball -> ${tarball}`)
   console.log(`[spike] file(1):`)
-  execFileSync('file', [signed, unsigned, `${out}/abduco`], { stdio: 'inherit' })
+  execFileSync('file', [signed, unsigned, `${headless}/${RUST_HOST_BINARY}`], { stdio: 'inherit' })
 }
 
 if (import.meta.main) main()

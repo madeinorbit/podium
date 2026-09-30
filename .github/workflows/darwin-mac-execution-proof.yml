@@ -2,7 +2,7 @@
 #
 # workflow_dispatch only — this is NOT a per-release gate. The whole point of spec
 # section 8b is that no Mac sits in the per-release build loop; this job exists so the
-# EXECUTION proof can be re-run on demand (after a Bun bump, an abduco rebuild, or a
+# EXECUTION proof can be re-run on demand (after a Bun bump, a Rust host change, or a
 # change to the signing step) without waiting for a physical Mac.
 #
 # The runner labels are the ones apps/desktop already releases on:
@@ -34,15 +34,18 @@ jobs:
           key: bun-${{ hashFiles('bun.lock') }}
       # zig + rcodesign versions come from mise.toml — the one pin site dev machines share.
       - uses: jdx/mise-action@v2
+      # The Rust host owns its own Rust pin; rust-host-cross selects that channel explicitly.
+      - name: Install Rust host toolchain
+        run: |
+          mise trust packages/pty/vendor/podium-host-rs/mise.toml
+          mise -C packages/pty/vendor/podium-host-rs install rust
 
       - name: bun install
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Cross-compile abduco + podium
+      - name: Cross-compile podium + podium-host-rs
         run: |
           set -euo pipefail
-          chmod +x scripts/spike/build-prebuilt-abduco.sh
-          scripts/spike/build-prebuilt-abduco.sh
           bun --conditions=@podium/source scripts/spike/build-bun-darwin.ts --target=bun-darwin-arm64
           PLATFORM=darwin-arm64 scripts/spike/package-mac-execution-bundle.sh
           bun --conditions=@podium/source scripts/spike/build-bun-darwin.ts --target=bun-darwin-x64
@@ -59,15 +62,6 @@ jobs:
       - name: Prove the asserter can fail (negative controls)
         run: |
           set -euo pipefail
-          mkdir -p dist-bun-spike/fixtures
-          cp scripts/prebuilt/abduco/darwin-arm64/abduco /tmp/abduco.darwin.bak
-          cp /bin/true scripts/prebuilt/abduco/darwin-arm64/abduco
-          bun --conditions=@podium/source scripts/spike/build-bun-darwin.ts --target=bun-darwin-arm64
-          tar -czf dist-bun-spike/fixtures/linux-abduco-embedded.tar.gz \
-            -C dist-bun-spike/darwin-arm64 headless
-          cp /tmp/abduco.darwin.bak scripts/prebuilt/abduco/darwin-arm64/abduco
-          bun --conditions=@podium/source scripts/spike/build-bun-darwin.ts --target=bun-darwin-arm64
-          PLATFORM=darwin-arm64 scripts/spike/package-mac-execution-bundle.sh
           scripts/spike/prove-assert-can-fail.sh | tee prove-assert-can-fail.log
 
       - uses: actions/upload-artifact@v4
@@ -118,8 +112,9 @@ jobs:
           grep -Eq '^(PASS|WARN)  gatekeeper: quarantine (blocked execution|did not block)' "$log"
           grep -Eq '^(PASS|WARN)  unsigned: a signature-stripped binary' "$log"
           grep -q 'PASS  daemon: all-in-one boot' "$log"
-          grep -q 'PASS  abduco: embedded helper materialized' "$log"
-          grep -q 'PASS  abduco: session survives daemon kill' "$log"
+          grep -q 'PASS  host: bundled podium-host-rs runs' "$log"
+          grep -q 'PASS  host: codesign --verify --strict accepts podium-host-rs' "$log"
+          grep -q 'PASS  host: session survives daemon kill' "$log"
           grep -q 'RESULT: PASS' "$log"
       - uses: actions/upload-artifact@v4
         if: always()

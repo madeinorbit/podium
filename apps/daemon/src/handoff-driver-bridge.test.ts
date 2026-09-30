@@ -303,7 +303,7 @@ describe('handoff driver bridge (POD-4306 F16)', () => {
     })
     const leaked = {
       ...base,
-      binding: { ...base.binding, process: { key: 'abduco:session' }, bindingVersion: 3 },
+      binding: { ...base.binding, process: { key: 'host:session' }, bindingVersion: 3 },
     } as unknown as SessionArchive
     expect(() =>
       validateConversationArchive(leaked, { sessionId, agentKind: 'claude-code', resume }),

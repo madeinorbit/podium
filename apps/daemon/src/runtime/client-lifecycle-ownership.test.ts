@@ -49,7 +49,7 @@ function fakeAttachment(): DurableAttachment {
 
 function recordingScope(calls: string[]) {
   const adapter = {
-    kind: 'abduco',
+    kind: 'host',
     spawn: async (opts: { label: string }) => {
       calls.push(`spawn:${opts.label}`)
       return fakeAttachment()
@@ -63,7 +63,7 @@ function recordingScope(calls: string[]) {
     },
   }
   const recordingDurable = {
-    backend: 'abduco',
+    backend: 'host',
     primary: adapter,
     all: [adapter],
     spawn: adapter.spawn,

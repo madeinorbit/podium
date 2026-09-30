@@ -9,7 +9,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # CI installs with --ignore-scripts: Podium's real PTYs use Bun.Terminal and its
-# vendored abduco is built on first use, so validation has no package lifecycle prerequisite.
+# Rust process host is built from the vendored crate with cargo on first use, so
+# validation has no package lifecycle prerequisite.
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -441,8 +442,7 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-      # Podium builds its vendored abduco on first use; Ubuntu 24.04 no longer
-      # provides the package in the runner's configured apt repositories.
+      # Podium builds its Rust process host from the vendored crate on first use.
       - run: bun install --frozen-lockfile --ignore-scripts
       # No playwright install here on purpose: the e2e LANE is browser-free — it
       # is 7 vitest files under tests/e2e (verified: none of them, nor their
@@ -488,7 +488,7 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-      # The harness relay builds Podium's vendored abduco on first use.
+      # The harness relay builds Podium's Rust process host on first use.
       - run: bun install --frozen-lockfile --ignore-scripts
       # The config declares chromium and webkit projects; both browsers plus
       # their OS deps have to be present or every suite errors on setup.

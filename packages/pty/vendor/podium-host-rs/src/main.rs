@@ -1,6 +1,8 @@
-//! podium-host — a small durable process host. Rust port (POD-4791) of
-//! ../podium-host/host.c, which stays the shipped host until the release
-//! ships this one (POD-3190 step A2).
+//! podium-host — a small durable process host, and the only one Podium
+//! spawns (POD-4986). Rust port (POD-4791) of the C host
+//! packages/pty/vendor/podium-host/host.c, removed from the tree in POD-4986
+//! (read it in git history); the comments here that compare with host.c
+//! describe that retired host, whose running sessions are still adopted.
 //!
 //! One process per session. It owns a child (through a pty, or through pipes
 //! with --no-pty), keeps a bounded ring of the child's output addressed by a
@@ -42,7 +44,7 @@ const VERSION: &str = match option_env!("PODIUM_HOST_VERSION") {
     None => "1-podium",
 };
 /// 1 — SPEC-6 protocol version 1. 2 — the screen: WELCOME's features byte
-/// and PICTURE (POD-4909). host.c stays at 1.
+/// and PICTURE (POD-4909). The retired C host (host.c) reports 1.
 const HOST_FEATURES: u32 = if cfg!(feature = "screen") { 2 } else { 1 };
 
 pub fn die(msg: fmt::Arguments) -> ! {

@@ -66,7 +66,7 @@ Paste the MATRIX section onto the follow-up issue. Exit code 0 = PASS.
   ad-hoc signed, so this had to be stripped deliberately; the spike's old
   `podium.unsigned` was never unsigned and its "AMFI is lenient" reading was wrong.
 - `verify-on-mac.sh` — version, `codesign --verify --strict`, unsigned refusal,
-  Gatekeeper±quarantine, all-in-one boot, abduco spawn/survive
+  Gatekeeper±quarantine, all-in-one boot, podium-host-rs session spawn/survive
 EOF
 
 tar -czf "$ROOT/dist-bun-spike/mac-execution-bundle-$PLATFORM.tar.gz" \

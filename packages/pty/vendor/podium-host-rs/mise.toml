@@ -1,9 +1,13 @@
-# Toolchain for the EXPERIMENTAL Rust port of podium-host (POD-4791).
+# Toolchain for podium-host, the Rust durable process host (POD-4791; the only host since
+# POD-4986).
 #
-# Kept here, not in the repository's mise.toml, on purpose: CI installs every tool in the
-# root file (jdx/mise-action), and nothing in the default build or the release uses this
-# crate. mise merges this file over the root one when you work in this directory, so the
-# pinned zig from the root file is the zig cargo-zigbuild links with.
+# Kept here, not in the repository's mise.toml, on purpose: the root file pins the older
+# Rust podium-tunnel builds with, and CI installs every tool in it (jdx/mise-action). The
+# release workflow installs this crate's Rust from this file, scripts/rust-host-cross.ts
+# runs cargo through rustup on rust-toolchain.toml's channel, and a dev daemon's first-use
+# source build (packages/pty/src/host-bin.ts) does the same when rustup is there. mise
+# merges this file over the root one when you work in this directory, so the pinned zig
+# from the root file is the zig cargo-zigbuild links with.
 #
 #   mise trust && mise install
 #   cargo zigbuild --release --target x86_64-unknown-linux-musl

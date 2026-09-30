@@ -10,7 +10,7 @@
 //
 // Bun embeds an additional entrypoint at its path relative to the common ancestor of ALL
 // entrypoints, rooted at `/$bunfs/root`, with `.ts` transpiled to `.js`. The daemon's main
-// entry is scripts/daemon-compiled.ts, so the common ancestor is the repo root and the embedded
+// entry is scripts/cli-compiled.ts, so the common ancestor is the repo root and the embedded
 // path is the repo-relative worker path below. (The main entry, by contrast, always lands at
 // `/$bunfs/root/<outfile-basename>`.)
 

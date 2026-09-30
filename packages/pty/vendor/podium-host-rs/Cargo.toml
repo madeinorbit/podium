@@ -2,7 +2,7 @@
 name = "podium-host"
 version = "1.0.0"
 edition = "2024"
-description = "Experimental Rust port of podium-host (SPEC-6); the C host in ../podium-host is the shipped one."
+description = "podium-host (SPEC-6): the durable process host behind every Podium session on Linux and macOS."
 license = "Apache-2.0"
 publish = false
 

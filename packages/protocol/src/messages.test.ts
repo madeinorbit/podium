@@ -705,7 +705,7 @@ describe('DaemonMessage (daemon -> server)', () => {
     {
       type: 'bind',
       sessionId: asSessionId('s-reattached'),
-      cmd: 'abduco -a podium-s-reattached',
+      cmd: 'podium-host attach /run/hosts/podium-s-reattached.sock',
       cwd: '/w',
       agentKind: 'claude-code',
     },
@@ -843,7 +843,7 @@ describe('Layer 3 reattach messages', () => {
     const msg = {
       type: 'reattachFailed' as const,
       sessionId: asSessionId('s1'),
-      reason: 'no abduco session',
+      reason: 'no durable session',
     }
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })

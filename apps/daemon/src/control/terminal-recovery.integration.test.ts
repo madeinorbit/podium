@@ -55,7 +55,7 @@ it('rebuilds the screen from a durable survivor, and a link-B reattach never sig
     let redrawFrames = 0
     ctx = {
       backend: 'host',
-      durable: createDurableProcess('host', { host: true, abduco: false }),
+      durable: createDurableProcess(),
       settingsDir: join(root, 'settings'),
       sessions: testSessions(),
       durableLabelFor: () => label,

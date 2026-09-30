@@ -164,7 +164,7 @@ RestartSec=2
 # Two-tier scheduling (POD-598): the host runs ~10x CPU-oversubscribed by agent/test
 # workloads; POD-594 measured the daemon main thread waiting on the runqueue 60% of
 # wall time (server 51%) with everything at default CPUWeight=100. Interactive Podium
-# services get the high tier; per-agent scopes get CPUWeight=50/IOWeight=100 (abduco.ts).
+# services get the high tier; per-agent scopes get CPUWeight=50/IOWeight=100 (packages/pty/src/scope.ts).
 CPUWeight=900
 IOWeight=500
 MemoryLow=512M
@@ -331,7 +331,7 @@ RestartSec=2
 # Two-tier scheduling (POD-598): the host runs ~10x CPU-oversubscribed by agent/test
 # workloads; POD-594 measured this daemon's main thread waiting on the runqueue 60% of
 # wall time with everything at default CPUWeight=100. Interactive Podium services get
-# the high tier; per-agent scopes get CPUWeight=50/IOWeight=100 (abduco.ts).
+# the high tier; per-agent scopes get CPUWeight=50/IOWeight=100 (packages/pty/src/scope.ts).
 CPUWeight=900
 IOWeight=500
 MemoryLow=2G

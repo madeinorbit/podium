@@ -12,7 +12,7 @@
  * THE SAME TRANSLATION THE opencode DRIVER MAKES, FOR THE SAME REASON
  * ---------------------------------------------------------------------------
  *
- * A server-family session has no bridge, no abduco master, no frames and no
+ * A server-family session has no bridge, no terminal master, no frames and no
  * observer — and the acceptance criterion is that it works from the existing web
  * UI with NO UI redesign. So the supervisor speaks, on this session's behalf,
  * the same small vocabulary every other session speaks: `bind`,
@@ -332,7 +332,7 @@ export function createCodexSessionRuntime(deps: CodexSessionDeps): DaemonCodexRu
       /**
        * `bind` IS WHAT MARKS THE SESSION LIVE, sent with the truth rather than a
        * plausible imitation of a PTY spawn. `cmd` names the process this session
-       * actually is; a fake `abduco -a …` would put a lie in the one field an
+       * actually is; a fake `podium-host attach …` would put a lie in the one field an
        * operator reads to find out what is running.
        *
        * NO GEOMETRY (POD-3290). What stood here was `{ cols: 120, rows: 40 }`,

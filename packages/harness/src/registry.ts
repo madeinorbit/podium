@@ -150,7 +150,7 @@ export function clientTerminalFor(
  * master still holding a label for this session?" has to be asked of every
  * label that could exist. A hand-written list of three names there was the same
  * defect as a branch — a fourth driver would have been silently skipped, and its
- * abduco master left resident until the machine rebooted. Reading it off the
+ * parked master left resident until the machine rebooted. Reading it off the
  * manifests makes the declaration the only thing that has to be right.
  */
 export const CLIENT_TERMINAL_HARNESSES: readonly BuiltinHarnessKind[] = (

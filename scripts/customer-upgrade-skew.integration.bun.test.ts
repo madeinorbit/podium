@@ -115,6 +115,8 @@ const baseEnv = (stateDir: string): Record<string, string> => ({
   PODIUM_NO_SCOPE: '1',
   PODIUM_ADOPT_STATE: '1',
   PODIUM_PTY_BACKEND: 'bun-terminal',
+  // The v0.1.0 and edge.4 daemons this lane runs still look for abduco (retired in
+  // POD-4986); point them at none so they never reach a real one on this machine.
   PODIUM_ABDUCO: join(TEST_ROOT, 'no-abduco'),
 })
 

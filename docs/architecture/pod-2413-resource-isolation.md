@@ -36,10 +36,11 @@ those two names *are* the tree; no unit files are involved and every level is
 created on demand. The daemon and server units stay **outside** the sessions slice:
 a supervisor that shares an OOM fate with what it supervises is not a supervisor.
 
-All four spawn paths — the abduco master, `codex app-server`, `grok agent stdio`,
-`opencode serve` — already funnelled through one argv builder
-(`systemdScopeArgv` in `packages/pty/src/abduco.ts`), so the placement and the
-budget land in one place and cannot drift per family.
+All four spawn paths — the durable master (then abduco; podium-host since POD-4986),
+`codex app-server`, `grok agent stdio`, `opencode serve` — already funnelled through
+one argv builder (`systemdScopeArgv`, then in `packages/pty/src/abduco.ts`, now in
+`packages/pty/src/scope.ts`), so the placement and the budget land in one place and
+cannot drift per family.
 
 Defaults are derived from host RAM, because the same daemon runs on an 8 GiB VPS and
 a 128 GiB workstation: `MemoryMax` is 50% of RAM clamped to 2–16 GiB, `MemorySwapMax`

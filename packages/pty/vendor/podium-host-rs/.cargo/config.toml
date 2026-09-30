@@ -1,6 +1,6 @@
 # rcodesign writes an LC_CODE_SIGNATURE load command into the Mach-O header; without
-# reserved headroom the x86_64 link leaves no room for it and signing fails. Same flag
-# scripts/host-cross.ts passes to `zig cc` for the C host.
+# reserved headroom the x86_64 link leaves no room for it and signing fails
+# (scripts/rust-host-cross.ts signs the release's Darwin builds).
 [target.x86_64-apple-darwin]
 rustflags = ["-C", "link-arg=-Wl,-headerpad,0x8000"]
 

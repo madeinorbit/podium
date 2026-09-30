@@ -1,18 +1,28 @@
 # podium-host (Rust)
 
-A Rust implementation of [`../podium-host/host.c`](../podium-host/host.c), the durable
-process host behind every podium session (SPEC-6, POD-3190 artifact #31). Podium is
-moving its host to Rust; until that switch, **the C host is the shipped one**: nothing
-in the default build, `host-bin.ts`'s managed build or the release references this
-crate. Select it with the existing override: set `PODIUM_HOST_BIN` to the built binary
-in the daemon's environment (`packages/pty/src/host-bin.ts`; an override that does not
-answer `version` as a podium-host fails resolution loudly and never falls back).
+The durable process host behind every podium session on Linux and macOS (SPEC-6,
+POD-3190 artifact #31), and since POD-4986 the only one Podium spawns. Nothing needs a
+C compiler. `packages/pty/src/host-bin.ts` resolves the binary for every new spawn:
 
-Same command line, same wire protocol, same exit codes as host.c, apart from the
-differences below. Background, measurements and both security reviews: the comparison
-doc and the reviews attached to POD-4791, POD-4842 and POD-4843.
+1. `PODIUM_HOST_BIN`, when set. It must answer `version` as a podium-host at feature
+   level 2, or resolution fails loudly and never falls back.
+2. A release's `podium-host-rs`, shipped beside `podium-cli` (cross-built by
+   `scripts/rust-host-cross.ts`; customer machines never run cargo).
+3. In a source checkout, this crate built with cargo on the daemon's first use, cached
+   by source hash under `~/.cache/podium/podium-host-rs-src/<hash>/podium-host-rs`
+   (`$PODIUM_RUST_HOST_BUILD_DIR` moves it), so every worktree shares one build.
 
-## Differences from host.c
+Otherwise the daemon refuses every spawn with a diagnostic; there is no fallback host.
+
+It began as a port of the C host, `packages/pty/vendor/podium-host/host.c`, which was
+the shipped host until POD-4986 removed it from the tree (the source is in git history).
+It keeps host.c's command line, wire protocol and exit codes, apart from the differences
+below. A C host an older daemon started is still adopted until its session exits: both
+speak the one protocol in `packages/pty/src/host.ts`, and only new spawns choose a
+binary. Background, measurements and both security reviews: the comparison doc and the
+reviews attached to POD-4791, POD-4842 and POD-4843.
+
+## Differences from the retired C host (host.c)
 
 Deliberate, each for a reason; everything else matches host.c byte for byte.
 
@@ -96,7 +106,8 @@ child's output up to its `seq` left the real one.
 
 The client side already copes with all of this: `packages/pty/src/host.ts` has
 `HostErr.INPUT_FULL`, rejects exactly the write an ERR names (falling back to the
-oldest request when there is no id, as for the C host), and logs refused input once.
+oldest request when there is no id, as an adopted C host sends), and logs refused
+input once.
 
 ## Layout and `unsafe`
 
@@ -117,15 +128,18 @@ go through [rustix](https://docs.rs/rustix)'s safe wrappers. All `unsafe` is in
 
 ## Build and test
 
-Toolchain pins live in this directory's `mise.toml` (not the repository's, so CI does
-not install Rust): Rust 1.98.1 and cargo-zigbuild, linking through the repository's
-pinned zig.
+Toolchain pins live in this directory's `mise.toml` and `rust-toolchain.toml`: Rust
+1.98.1 and cargo-zigbuild, linking through the repository's pinned zig. They stay out of
+the repository's `mise.toml`, which pins podium-tunnel's older Rust; the release workflow
+installs this crate's toolchain from here, and a dev daemon's first-use build runs
+`rustup run <channel> cargo build --release --locked` with the channel from
+`rust-toolchain.toml` (plain `cargo` when rustup is missing).
 
 ```sh
 cd packages/pty/vendor/podium-host-rs
 mise trust && mise install
 cargo test --release     # unit tests, plus tests/security.rs (Linux: drives the binary)
-cargo zigbuild --release --target x86_64-unknown-linux-musl   # static, like host-cross.ts
+cargo zigbuild --release --target x86_64-unknown-linux-musl   # static, as rust-host-cross.ts builds it
 # also: aarch64-unknown-linux-musl, x86_64-apple-darwin, aarch64-apple-darwin
 ```
 
@@ -133,9 +147,9 @@ cargo zigbuild --release --target x86_64-unknown-linux-musl   # static, like hos
 removing a replaced socket, removing its own socket, a relative socket, inherited fds,
 a full backlog, `--cwd`); each fails on the code before its fix, and each ends the
 hosts and children it started. The repository's TypeScript host suites run against
-this binary through `PODIUM_HOST_BIN` (see POD-4791 for the suites that delete that
-variable and need a stand-in `cc`).
+this binary through the same resolution as the daemon (the cached source build, or
+`PODIUM_HOST_BIN`).
 
-Darwin outputs still need `rcodesign sign --binary-identifier podium-host` (zig signs
-arm64 ad hoc and leaves x86_64 unsigned); `.cargo/config.toml` reserves the header room
-for it.
+Darwin outputs need `rcodesign sign --binary-identifier podium-host-rs` (zig signs
+arm64 ad hoc and leaves x86_64 unsigned); `scripts/rust-host-cross.ts` does this for the
+release, and `.cargo/config.toml` reserves the header room for it.

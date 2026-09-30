@@ -2,8 +2,8 @@
 
 This is a live, Podium-independent benchmark for the native mechanisms used by
 the Claude, Codex, Grok, and OpenCode headless runtimes. It imports no Podium
-packages and starts no Podium server, daemon, relay, database, browser, abduco
-master, or systemd scope.
+packages and starts no Podium server, daemon, relay, database, browser,
+podium-host, or systemd scope.
 
 The report deliberately separates three independent lanes:
 

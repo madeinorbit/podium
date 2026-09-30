@@ -123,7 +123,7 @@ function survivingEngineDurable() {
 function survivingClientDurable() {
   const masters = new Set<string>()
   const adapter = {
-    kind: 'abduco',
+    kind: 'host',
     spawn: async (opts: { label: string }) => {
       masters.add(opts.label)
       return fakeClientAttachment(5000 + masters.size)
@@ -132,7 +132,7 @@ function survivingClientDurable() {
     hasMasterSync: (label: string) => masters.has(label),
   }
   const durable = {
-    backend: 'abduco',
+    backend: 'host',
     primary: adapter,
     all: [adapter],
     spawn: adapter.spawn,

@@ -1222,7 +1222,7 @@ export const CHECKS: AuditCheck[] = [
         )
       let durableHostFiles = 0
       for (const f of ctx.files) {
-        // POD-396 moved the durable hosts (abduco.ts) out of
+        // POD-396 moved the durable hosts (then abduco.ts) out of
         // agent-bridge into packages/pty. Both roots are listed rather than one
         // swapped for the other: a single hardcoded root turns a package MOVE
         // into "0 sites = twins deleted, POD-324 clear to close" — the phantom

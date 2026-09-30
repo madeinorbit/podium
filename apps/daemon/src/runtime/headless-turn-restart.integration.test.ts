@@ -14,9 +14,9 @@
  * (the result lives only in the host's ring, and generation 2 replays it).
  * Both end with the server's acknowledgement releasing the host.
  *
- * Integration lane (a C compile of podium-host, real processes, real
- * sockets); never unit. No skip: without a host binary this must fail, not
- * report a pass it never ran.
+ * Integration lane (the Rust podium-host built from the vendored crate, real
+ * processes, real sockets); never unit. No skip: without a host binary this
+ * must fail, not report a pass it never ran.
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -195,7 +195,7 @@ describe('a real daemon restart replays a one-shot headless turn (POD-4614)', ()
       expect(await hostHasSession(turn.label)).toBe(true)
 
       // Generation 2: new objects, the same turn from the server again.
-      const engines = createSessionEngineScope(createDurableProcess('host', { host: true, abduco: false }), { sessions: new SessionRegistry() })
+      const engines = createSessionEngineScope(createDurableProcess(), { sessions: new SessionRegistry() })
       const events: HeadlessTurnEvent[] = []
       const handle = runRestartTurn(engines, turn, snapshot, events)
       await wait(300)
@@ -221,7 +221,7 @@ describe('a real daemon restart replays a one-shot headless turn (POD-4614)', ()
       await waitFor(async () => (await liveHostSocket(turn.label)) === undefined, 10_000, 'host release')
     } finally {
       gen1.kill('SIGKILL')
-      await createDurableProcess('host', { host: true, abduco: false }).kill(turn.label)
+      await createDurableProcess().kill(turn.label)
     }
   }, 240_000)
 
@@ -238,7 +238,7 @@ describe('a real daemon restart replays a one-shot headless turn (POD-4614)', ()
       await waitFor(async () => !(await hostHasSession(turn.label)), 10_000, 'the child to exit')
       await wait(500)
 
-      const engines = createSessionEngineScope(createDurableProcess('host', { host: true, abduco: false }), { sessions: new SessionRegistry() })
+      const engines = createSessionEngineScope(createDurableProcess(), { sessions: new SessionRegistry() })
       const outcome = await runRestartTurn(engines, turn, snapshot).done
       expect(outcome).toEqual({
         harnessSessionId: `uuid-${c.sessionId}`,
@@ -249,7 +249,7 @@ describe('a real daemon restart replays a one-shot headless turn (POD-4614)', ()
       await waitFor(async () => (await liveHostSocket(turn.label)) === undefined, 10_000, 'host release')
     } finally {
       gen1.kill('SIGKILL')
-      await createDurableProcess('host', { host: true, abduco: false }).kill(turn.label)
+      await createDurableProcess().kill(turn.label)
     }
   }, 240_000)
 })

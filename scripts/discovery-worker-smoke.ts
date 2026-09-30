@@ -6,7 +6,7 @@
 // LOCATION MATTERS: this fixture lives in scripts/ — a top-level sibling of apps/ — on purpose.
 // Bun embeds an extra entrypoint at its path relative to the common ancestor of all entrypoints;
 // with this fixture and apps/daemon/src/discovery-worker.ts the common ancestor is the repo root,
-// exactly matching the real daemon (whose entry is scripts/daemon-compiled.ts). Moving it under
+// exactly matching the shipped binary (whose entry is scripts/cli-compiled.ts). Moving it under
 // apps/ would change the embedded path and make the test lie about the shipped geometry.
 import { DiscoveryWorkerClient } from '../apps/daemon/src/worker-client.js'
 

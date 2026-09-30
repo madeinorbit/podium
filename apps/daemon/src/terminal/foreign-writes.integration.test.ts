@@ -1,51 +1,32 @@
 /**
- * THE COUNTER OVER REAL BACKENDS (POD-4888): a real podium-host whose writer
- * lease is stolen, and a real abduco master, each held by the daemon's
- * Terminal on a session entry exactly as `wireBridge` holds them.
+ * THE COUNTER OVER A REAL BACKEND (POD-4888): a real podium-host whose writer
+ * lease is stolen, and a second real attachment that never held the lease,
+ * each held by the daemon's Terminal on a session entry exactly as
+ * `wireBridge` holds them.
  */
 
-import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import {
   attachHostAgent,
-  buildVendoredAbduco,
   type DurableAttachment,
-  killAbducoSession,
   killHostSession,
   resolveHostBin,
-  spawnAbducoAgent,
   spawnHostAgent,
 } from '@podium/process/durable'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../session/registry.js'
 import { Terminal } from './terminal.js'
 
-const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
-  try {
-    execFileSync(c, ['--version'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
-})
+/** A Rust podium-host: $PODIUM_HOST_BIN, the release payload, or a checkout build. */
+const hasHost = resolveHostBin() !== undefined
 
-const ENV_KEYS = [
-  'PODIUM_STATE_DIR',
-  'PODIUM_HOST_SOCKET_DIR',
-  'PODIUM_NO_SCOPE',
-  'PODIUM_HOST_BIN',
-  'PODIUM_ABDUCO',
-  'ABDUCO_SOCKET_DIR',
-]
+const ENV_KEYS = ['PODIUM_STATE_DIR', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_NO_SCOPE']
 const saved: Record<string, string | undefined> = {}
 let root = ''
-/** abduco's socket path must fit sun_path (107 bytes), so its root stays short. */
-let sockRoot = ''
 const hostLabels: string[] = []
-const abducoLabels: string[] = []
 const attachments: DurableAttachment[] = []
 
 /**
@@ -66,17 +47,12 @@ async function waitFor(pred: () => boolean, what: string, timeoutMs = 8000): Pro
 }
 
 beforeAll(() => {
-  if (!hasCompiler) return
+  if (!hasHost) return
   root = mkdtempSync(join(tmpdir(), 'podium-foreign-writes-'))
   for (const k of ENV_KEYS) saved[k] = process.env[k]
   process.env.PODIUM_STATE_DIR = join(root, 'state')
   process.env.PODIUM_HOST_SOCKET_DIR = join(root, 'sock')
   process.env.PODIUM_NO_SCOPE = '1'
-  sockRoot = mkdtempSync('/tmp/fw-')
-  process.env.ABDUCO_SOCKET_DIR = sockRoot
-  delete process.env.PODIUM_HOST_BIN
-  resolveHostBin({ fresh: true })
-  process.env.PODIUM_ABDUCO = buildVendoredAbduco(join(root, 'abduco-bin', 'abduco')) as string
 })
 
 afterEach(async () => {
@@ -88,7 +64,6 @@ afterEach(async () => {
     }
   }
   for (const l of hostLabels.splice(0)) await killHostSession(l).catch(() => {})
-  for (const l of abducoLabels.splice(0)) await killAbducoSession(l).catch(() => {})
 })
 
 afterAll(() => {
@@ -96,12 +71,10 @@ afterAll(() => {
     if (v === undefined) delete process.env[k]
     else process.env[k] = v
   }
-  if (hasCompiler) resolveHostBin({ fresh: true })
   if (root) rmSync(root, { recursive: true, force: true })
-  if (sockRoot) rmSync(sockRoot, { recursive: true, force: true })
 })
 
-describe.skipIf(!hasCompiler)('the foreign-write counter over real backends (POD-4888)', () => {
+describe.skipIf(!hasHost)('the foreign-write counter over a real podium-host (POD-4888)', () => {
   it('podium-host: trustworthy while the lease is held; a steal counts and ends the trust', async () => {
     const label = freshLabel('podium-fw-host-')
     hostLabels.push(label)
@@ -139,23 +112,31 @@ describe.skipIf(!hasCompiler)('the foreign-write counter over real backends (POD
     expect(sessions.orderTrustworthy(sessionId)).toBe(false)
   }, 30_000)
 
-  it('abduco: never order-trustworthy, since any `abduco -a` client writes unseen', async () => {
-    const label = freshLabel('fw-')
-    abducoLabels.push(label)
-    const attachment = await spawnAbducoAgent({
+  it('a surface that never held the writer lease is never order-trustworthy', async () => {
+    const label = freshLabel('podium-fw-reader-')
+    hostLabels.push(label)
+    const held = await spawnHostAgent({
       label,
       cmd: 'sleep',
       args: ['30'],
       cols: 80,
       rows: 24,
+      requireLease: true,
     })
-    attachments.push(attachment)
+    attachments.push(held)
+    await held.ready
+    // A second attachment while the first holds the one writer lease: the
+    // host admits it without the lease, so anyone else may be writing.
+    const reader = attachHostAgent({ label, fromSeq: 'tail' })
+    attachments.push(reader)
+    await reader.ready
+    expect(reader.holdsWriterLease?.()).toBe(false)
     const sessions = new SessionRegistry()
-    const sessionId = asSessionId('fw-abduco')
+    const sessionId = asSessionId('fw-reader')
     const owned = sessions.ensure(sessionId)
-    owned.replaceTerminal(Terminal.attach(attachment, owned, { onFrame: () => {} }))
+    owned.replaceTerminal(Terminal.attach(reader, owned, { onFrame: () => {} }))
     expect(sessions.orderTrustworthy(sessionId)).toBe(false)
-    // Still counted: the count is kept whatever the backend.
+    // Still counted: the count is kept whatever the lease.
     const start = sessions.foreignWrites(sessionId)
     owned.terminal?.write(new TextEncoder().encode('y'))
     expect(sessions.foreignWrites(sessionId)).toBe(start + 1)

@@ -32,8 +32,8 @@ need python3
 ARG="${1:-$ROOT/dist-bun-spike/darwin-arm64}"
 PLATFORM="${2:-darwin-arm64}"
 case "$PLATFORM" in
-  darwin-arm64) EXPECT_ARCH="arm64"; OTHER_PLATFORM="darwin-x64" ;;
-  darwin-x64)   EXPECT_ARCH="x86_64"; OTHER_PLATFORM="darwin-arm64" ;;
+  darwin-arm64) EXPECT_ARCH="arm64" ;;
+  darwin-x64)   EXPECT_ARCH="x86_64" ;;
   *) fail "unknown platform '$PLATFORM' (want darwin-arm64 | darwin-x64)" ;;
 esac
 
@@ -51,9 +51,6 @@ else
   fail "no such tarball or spike dir: $ARG"
 fi
 
-PREBUILT="$ROOT/scripts/prebuilt/abduco/$PLATFORM/abduco"
-OTHER_PREBUILT="$ROOT/scripts/prebuilt/abduco/$OTHER_PLATFORM/abduco"
-
 echo "=== linux-assert-darwin-spike ==="
 echo "tarball=$TARBALL"
 echo "platform=$PLATFORM (expect Mach-O $EXPECT_ARCH)"
@@ -63,14 +60,14 @@ echo "tarball sha256=$(sha256sum "$TARBALL" | cut -d' ' -f1)"
 # packages/runtime/src/update-install.ts: replacement = join(staged, 'headless')
 listing="$(tar -tzf "$TARBALL")" || fail "cannot list $TARBALL"
 echo "$listing" | grep -qE '^headless/?$' || fail "tarball has no headless/ root entry"
-for want in headless/podium-cli headless/podium headless/VERSION; do
+for want in headless/podium-cli headless/podium headless/podium-host-rs headless/VERSION; do
   echo "$listing" | grep -qx "$want" || fail "tarball missing $want"
 done
 echo "$listing" | head -1 | grep -q '^headless/' \
   || fail "tarball first entry is not under headless/ (updater extract expects headless/)"
 stray="$(echo "$listing" | awk -F/ '{print $1}' | sort -u | grep -vx 'headless' || true)"
 [[ -z "$stray" ]] || fail "tarball has entries outside headless/: $stray"
-pass "tarball archive root is headless/ with podium-cli, podium, VERSION and nothing else"
+pass "tarball archive root is headless/ with podium-cli, podium, podium-host-rs, VERSION and nothing else"
 
 # --- Extract; everything below interrogates the EXTRACTED bytes ---
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/podium-assert-XXXXXX")"
@@ -92,56 +89,47 @@ echo "file headless/podium-cli: $file_cli"
 [[ "$file_cli" == *"ELF"* ]] && fail "shipped podium-cli is an ELF — this is a Linux binary"
 pass "shipped headless/podium-cli is Mach-O $EXPECT_ARCH"
 
-# --- The embedded abduco is the DARWIN prebuilt, and no ELF rode along ---
-[[ -f "$PREBUILT" ]] \
-  || fail "prebuilt abduco missing: $PREBUILT — rebuild with scripts/spike/build-prebuilt-abduco.sh (this is a FAIL, not a skip)"
-pf="$(file -b "$PREBUILT")"
-[[ "$pf" == *"Mach-O"* && "$pf" == *"$EXPECT_ARCH"* ]] \
-  || fail "prebuilt abduco is not Mach-O $EXPECT_ARCH (got: $pf)"
-pass "prebuilt abduco input is Mach-O $EXPECT_ARCH"
+# Size floor: a bundled Bun runtime is tens of megabytes. A signed hello-world with the
+# right identifier and entitlements satisfies every other check here; not this one.
+size="$(stat -c%s "$CLI")"
+[[ "$size" -ge 20000000 ]] \
+  || fail "shipped podium-cli is only $size bytes — far too small to embed the Bun runtime"
+pass "shipped podium-cli is $size bytes"
 
-embed_report="$(python3 - "$CLI" "$PREBUILT" "$OTHER_PREBUILT" <<'PY'
+# --- Nothing native rode along inside the CLI; the Rust host ships beside it ---
+# The CLI embeds no helper any more (the spike once embedded abduco; it and the C
+# podium-host are retired), so a Linux ELF header or a retired helper's identifying
+# string inside the Mach-O is a build that pulled the wrong bytes in.
+embed_report="$(python3 - "$CLI" <<'PY'
 import sys
-cli, prebuilt, other = sys.argv[1], sys.argv[2], sys.argv[3]
-data = open(cli, 'rb').read()
-want = open(prebuilt, 'rb').read()
-at = data.find(want)
-print(f"size={len(data)}")
-print(f"prebuilt_len={len(want)}")
-print(f"prebuilt_at={at}")
+data = open(sys.argv[1], 'rb').read()
 # A whole 64-bit little-endian SysV ELF header, not just the 4-byte magic:
 # chance of a false positive in a ~70 MB binary is negligible.
 print(f"elf_headers={data.count(b'\x7fELF\x02\x01\x01')}")
 print(f"abduco_banner={data.count(b'abduco-0.6-podium')}")
-try:
-    o = open(other, 'rb').read()
-    print(f"other_prebuilt_at={data.find(o)}")
-except FileNotFoundError:
-    print("other_prebuilt_at=absent-input")
+print(f"c_host={data.count(b'podium-host %s features=%d')}")
 PY
-)" || fail "embedded-abduco byte scan failed"
+)" || fail "shipped-binary byte scan failed"
 echo "$embed_report"
 eval "$(echo "$embed_report" | sed 's/^/EMB_/')"
-
-# Order matters: a build that embedded the LINUX abduco fails BOTH of the next two
-# checks, and "a linux binary rode along" is the more useful message of the two.
 [[ "${EMB_elf_headers}" == "0" ]] \
   || fail "shipped binary contains ${EMB_elf_headers} Linux ELF header(s) — a linux binary was embedded"
 pass "shipped binary contains no Linux ELF header"
+[[ "${EMB_abduco_banner}" == "0" && "${EMB_c_host}" == "0" ]] \
+  || fail "shipped binary carries a retired abduco or C podium-host"
+pass "shipped binary carries no retired abduco or C podium-host"
 
-[[ "${EMB_prebuilt_at}" != "-1" ]] \
-  || fail "the darwin $EXPECT_ARCH prebuilt abduco (${EMB_prebuilt_len} bytes) does NOT appear inside the shipped binary"
-pass "shipped binary contains the darwin $EXPECT_ARCH prebuilt abduco verbatim at offset ${EMB_prebuilt_at}"
-
-[[ "${EMB_abduco_banner}" == "1" ]] \
-  || fail "expected exactly one abduco banner string in the shipped binary, found ${EMB_abduco_banner}"
-pass "shipped binary carries exactly one abduco copy (banner string count = 1)"
-
-case "${EMB_other_prebuilt_at}" in
-  -1) pass "the $OTHER_PLATFORM abduco is absent from the shipped binary" ;;
-  absent-input) echo "NOTE: $OTHER_PREBUILT not built; cross-arch absence not checked" ;;
-  *) fail "the $OTHER_PLATFORM abduco is embedded at offset ${EMB_other_prebuilt_at} — wrong arch helper" ;;
-esac
+HOST="$WORK/headless/podium-host-rs"
+[[ -x "$HOST" ]] || fail "extracted headless/podium-host-rs is missing or not executable"
+file_host="$(file -b "$HOST")"
+echo "file headless/podium-host-rs: $file_host"
+[[ "$file_host" == *"Mach-O"* && "$file_host" == *"$EXPECT_ARCH"* ]] \
+  || fail "shipped podium-host-rs is not Mach-O $EXPECT_ARCH (got: $file_host)"
+host_sig="$(rcodesign print-signature-info "$HOST" 2>&1)" \
+  || fail "cannot read shipped podium-host-rs signature"
+echo "$host_sig" | grep -q 'CodeSignatureFlags(ADHOC' \
+  || fail "shipped podium-host-rs has no ad-hoc signature"
+pass "shipped headless/podium-host-rs is an ad-hoc signed Mach-O $EXPECT_ARCH"
 
 # --- Signature of the SHIPPED binary ---
 sig="$(rcodesign print-signature-info "$CLI" 2>&1)" \

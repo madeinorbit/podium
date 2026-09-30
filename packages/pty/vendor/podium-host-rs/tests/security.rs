@@ -1,5 +1,5 @@
 //! Regression tests for the security reviews of podium-host (POD-4842 for
-//! host.c, POD-4843 for this port). Each test drives the real binary through
+//! the retired C host, host.c; POD-4843 for this port). Each test drives the real binary through
 //! its socket and fails on the code before the fix. Linux: they read /proc.
 
 #![cfg(target_os = "linux")]

@@ -188,7 +188,7 @@ and was found by the sweep, already skipped and already invisible.
 
 Everything else that does not run is **conditional-by-environment, not a quarantine**, and
 needs no entry: the `PODIUM_REAL_CLI` gate on the agent-smoke suites ([spec:SP-0be7] — never
-implicit, bills real quota), abduco/tmux availability guards, and platform guards. Verified
+implicit, bills real quota), podium-host availability guards, and platform guards. Verified
 by sweep: `router.test.ts:369` is the only unconditional `.skip` in the repo.
 
 ### 2.4 Baseline — commit c577009d, 2026-07-16 (POD-295)
@@ -468,13 +468,13 @@ recorded here (phase agents append rows).
 | `decideOnProtocolMismatch` / `decidePostUpdate` self-update policy | `apps/daemon/src/self-update.ts` (`self-update.test.ts`); both envelope rejection and HTTP 426 enter this policy | Self-update decisions were once inline and cross-wired; keep/extend the module (POD-327) |
 | Instance identity before durable-path reads | `apps/daemon/src/instance-bootstrap.ts` (`instance-bootstrap.test.ts`) | InstanceId is a deployment partition, not a user boundary; resolving/applying it after state or labels are read mixes instance-scoped durable data |
 | Loop-stall starved-vs-busy attribution | `apps/daemon/src/loop-attribution.ts` (`loop-attribution.test.ts`); classifier input remains in `@podium/runtime/loop-metrics` | POD-600: wall-clock lag alone blamed daemon work when the process was scheduler-starved; preserve activity, heap and schedstat classification together |
-| Durable-backend preference and no-survival warning | `apps/daemon/src/durable-backend.ts` (selection/warning cases in `daemon.test.ts`) | Silent fallback hid that sessions would die with the daemon; explicit override wins, then abduco, then tmux, otherwise warn that durability is absent |
+| Durable-backend preference and no-survival warning | `apps/daemon/src/durable-backend.ts` (selection/warning cases in `daemon.test.ts`) | Silent fallback hid that sessions would die with the daemon; an explicit `--backend` wins, then podium-host; with no host the daemon boots but refuses every spawn with a machine diagnostic (POD-4617) |
 | Delete-tracking on replica sync (assign `undefined`, never `delete`) | replica delta application | Replica dropped nulled fields — stuck fields incident (POD-170-era); POD-378 carries the regression test |
-| `reclaimStaleScope` | session scope allocation | Scope-name collision killed a live agent |
+| `scopeReclaimArgvs` / `stopSessionScope` | session scope allocation, `packages/pty/src/scope.ts` | Scope-name collision killed a live agent |
 | Master-probe + exited-row heal on restart | `apps/daemon/src/control/session.ts`; burst pacing in `apps/daemon/src/reattach-gates.ts` | Restart orphaned live sessions |
 | `seedBootState` on reattach | `apps/daemon/src/session-observers.ts`; wired by `host-runtime.ts` | Reattach previously showed stale agent state |
 | Feature-detect `spawn({terminal})` | `packages/pty/src/backends` (`bun-terminal-detect.bun.test.ts`) | PTY black screens on stale-Bun daemon |
-| Masters in their own `systemd-run --scope` | `packages/pty/src/abduco.ts` | Redeploy's cgroup kill took live sessions down |
+| Masters in their own `systemd-run --scope` | `packages/pty/src/scope.ts` (`systemdScopeArgv`) | Redeploy's cgroup kill took live sessions down |
 | Codex hooks/TOML version guard | `apps/daemon/src/codex-hooks.ts` (`codex-hooks.test.ts`); public hooks review only, private TOML trust state is never edited | Silent use of a changed private trust/hash representation; unknown versions now leave both files untouched and degrade via journal banner plus authenticated owner/admin issue-mail |
 
 (Phase 5, which touches the host layer, updates this registry for everything it
@@ -639,7 +639,7 @@ same commit.**
 
 **Declared same-layer edges** (the only legal sideways imports): `issue-client → protocol`;
 `sync → runtime`; `telemetry → runtime`;
-`pty → runtime` (POD-396: `stateDir()` behind the abduco binary cache); `harness → runtime`; `terminal-client → harness` (POD-4469: the DOM readiness check uses the shared pure composer extractor, dissolved from `packages/composer` into the terminal-family deep entries); `terminal-client-react → client-core` (POD-400: React hooks bind the client-core socket-transport port); `commands → protocol` (POD-728: contracts name the frames they are exposed on); `issue-client → commands` (POD-311: the CLI's rendering table RENDERS the shared contracts rather than declaring its own command-name universe — an edge that existed since POD-311 and was invisible to this list until POD-335 stopped exempting type-only imports from the layer axiom).
+`pty → runtime` (POD-396: `stateDir()` behind the abduco binary cache, abduco since removed in POD-4986; the host socket root, install dir and scope budget); `harness → runtime`; `terminal-client → harness` (POD-4469: the DOM readiness check uses the shared pure composer extractor, dissolved from `packages/composer` into the terminal-family deep entries); `terminal-client-react → client-core` (POD-400: React hooks bind the client-core socket-transport port); `commands → protocol` (POD-728: contracts name the frames they are exposed on); `issue-client → commands` (POD-311: the CLI's rendering table RENDERS the shared contracts rather than declaring its own command-name universe — an edge that existed since POD-311 and was invisible to this list until POD-335 stopped exempting type-only imports from the layer axiom).
 
 **Neutral is a real tag, not a dodge.** `runtime` and `telemetry` both have a browser-safe
 barrel with node-only concerns behind explicit subpaths, so neither is honestly

@@ -7,14 +7,14 @@
  * variant its capability declares — is proved by the conformance corpus in
  * `@podium/harness/driver/host`, against a real listener.
  *
- * No abduco and no systemd are started: every process port is injected. What is
+ * No podium-host and no systemd are started: every process port is injected. What is
  * NOT faked is `attributeMemory`, because the label rule below is only true if
  * the real attribution function says so.
  */
 
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { hostname, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import type { OpencodeJournalEntry, SessionBinding } from '@podium/harness/driver/host'
 import {
   createMemoryBindingRecords,
@@ -25,7 +25,7 @@ import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor, manifest
 import { asSessionId, type SessionId } from '@podium/model'
 import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
 import type { AgentFrame, AgentPicture, DurableAttachment } from '@podium/process/screen'
-import { createDurable, scopeUnitName } from '@podium/process/durable'
+import { createDurableProcess, hostSocketPath, scopeUnitName } from '@podium/process/durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { attributeMemory, type ProcSample } from '../memory-breakdown'
 import {
@@ -59,11 +59,11 @@ const SECRET = 'e2d1c0ffee5eba11deadbeefcafef00dfeedfacefeedfacefeedfacefeedface
 const URL = 'http://127.0.0.1:41234'
 
 /**
- * The backend the probe-subject tests below mean: the session-owned scope is
- * built over this object, so its socket-dir read is the production path —
+ * The durable object the probe-subject tests below mean: the session-owned
+ * scope is built over it, so its socket-dir read is the production path —
  * spawns never reach it, because no test in this file summons through it.
  */
-const abducoOnly = createDurable('abduco', { host: false, abduco: true })
+const hostDurable = createDurableProcess()
 
 const target = {
   kind: 'opencode',
@@ -75,7 +75,7 @@ const target = {
 /**
  * A stand-in for the client PTY: records what was wired to it. `size` stands in
  * for the host's WELCOME (the kernel size it read back); absent, the backend
- * cannot say (abduco). `replayFrame` is what the host ring hands back on a
+ * cannot say (no `size()`). `replayFrame` is what the host ring hands back on a
  * replay — the only repaint a client ever gets from the daemon (POD-4723).
  */
 function fakeClient(
@@ -170,7 +170,7 @@ interface HarnessOptions {
    * WELCOME frame on a real host attach.
    */
   adoptedGeometry?: { cols: number; rows: number }
-  /** The client's backend cannot read its size back (abduco): no WELCOME. */
+  /** The client's attachment cannot read its size back (no `size()`): no WELCOME. */
   unsized?: boolean
   replayFrame?: string
   subscribeFrame?: string
@@ -333,8 +333,8 @@ describe('the client terminal a server-family attach produces', () => {
       {
         pid: 200,
         ppid: 1,
-        name: 'abduco',
-        cmdline: `systemd-run --user --scope --unit=${scopeUnitName(attachLabel)} -- abduco -n ${attachLabel} opencode attach http://127.0.0.1:41234`,
+        name: 'podium-host-rs',
+        cmdline: `systemd-run --user --scope --unit=${scopeUnitName(attachLabel)} -- podium-host-rs create --socket /run/user/1000/hosts/default/${attachLabel}.sock --cols 120 --rows 40 --cwd /home/agent/work -- opencode attach http://127.0.0.1:41234`,
         memBytes: 90_000_000,
       },
       // The TUI itself, a child of the attachment's master.
@@ -771,7 +771,7 @@ describe('the client terminal a server-family attach produces', () => {
   it('reclaims a parked master for EVERY harness that declares a client terminal', async () => {
     // No attachment record, so the teardown path must probe by label alone. A
     // hand-written list of three names here would silently strand a fourth
-    // driver's abduco master until the machine rebooted.
+    // driver's parked master until the machine rebooted.
     for (const kind of CLIENT_TERMINAL_HARNESSES) {
       const label = clientTerminalLabel(SESSION, kind)
       expect(label, `${kind} declares a client terminal but has no label`).toBeDefined()
@@ -996,10 +996,10 @@ describe('warm-parking', () => {
    *
    * The defect these rows exist for is not visible in any single verb: attach
    * was right, close was right, and the switch made of the two lost the CLI's
-   * keyboard. Every switch out of Native reclaimed the abduco master, so every
+   * keyboard. Every switch out of Native reclaimed the durable master, so every
    * switch back in cold-started `opencode attach` — and that TUI DISCARDS stdin
    * part-way through its own startup, which is exactly when a viewer who has
-   * just switched types. Driven against the real binary under abduco, a nonce
+   * just switched types. Driven against the real binary (then under abduco), a nonce
    * typed 1.2s and 1.5s after the client PTY appeared never echoed, while the
    * fresh interface painted ~16 KB; the same nonce typed into a client that had
    * been PARKED and reconnected echoed at the same 1.5s, with `adopted` true.
@@ -1255,53 +1255,54 @@ describe('warm-parking', () => {
    * THE DEFAULT PROBE — THE ONLY ONE PRODUCTION EVER RUNS (POD-2761).
    *
    * Every other test here injects `hasMaster`, so none of them touches the
-   * default, and the default was wrong: it read the DAEMON's `HOME` for a master
-   * abduco created under the instance agent home. `abducoSocketDirs` falls back
-   * to `$HOME/.abduco` only when `ABDUCO_SOCKET_DIR` is unset — which is why a
-   * NAMED instance never saw this (`applyInstanceRuntimeEnv` pins that variable
-   * on both sides) and an agent home on the default instance did.
+   * default, and the default was once wrong: it read the DAEMON's `HOME` for a
+   * master created under the instance agent home (abduco kept its sockets under
+   * `$HOME`). podium-host keeps them under the instance's host socket root,
+   * which no agent home moves — so a client run with an agent home must be
+   * found exactly where one run without it is.
    *
-   * Driven against the real filesystem and the real `abducoSocketPath`, because
-   * a fake socket root is the one thing that cannot pin a bug about which socket
-   * root gets read. Only `reclaim` is injected, so nothing forks `abduco`.
+   * Driven against the real filesystem and the real `hostSocketPath`, because a
+   * fake socket root is the one thing that cannot pin a bug about which socket
+   * root gets read. Only `reclaim` is injected, so nothing forks a host.
    */
   describe('the default master probe, against a real socket directory', () => {
     const realHome = process.env.HOME
-    const realSocketDir = process.env.ABDUCO_SOCKET_DIR
+    const realSocketDir = process.env.PODIUM_HOST_SOCKET_DIR
     let agentHome: string
     let daemonHome: string
+    let socketRoot: string
 
     beforeEach(() => {
       agentHome = mkdtempSync(join(tmpdir(), 'pod2761-agent-home-'))
       daemonHome = mkdtempSync(join(tmpdir(), 'pod2761-daemon-home-'))
-      // The EXPOSED configuration is the unpinned one. With ABDUCO_SOCKET_DIR
-      // set, both sides resolve one root and `HOME` never enters the answer.
-      delete process.env.ABDUCO_SOCKET_DIR
+      socketRoot = mkdtempSync(join(tmpdir(), 'pod2761-host-sockets-'))
+      process.env.PODIUM_HOST_SOCKET_DIR = socketRoot
       process.env.HOME = daemonHome
-      // A live master, where abduco puts one for a client whose HOME is the
-      // agent home. Relative names are stored `<label>@<hostname>`, and a clear
-      // group-execute bit is what abduco writes to mean "not terminated".
-      const dir = join(agentHome, '.abduco')
-      mkdirSync(dir, { recursive: true })
-      const socket = join(dir, `${requireClientTerminalLabel(SESSION, 'codex')}@${hostname()}`)
-      writeFileSync(socket, '')
-      chmodSync(socket, 0o600)
     })
 
     afterEach(() => {
       if (realHome === undefined) delete process.env.HOME
       else process.env.HOME = realHome
-      if (realSocketDir !== undefined) process.env.ABDUCO_SOCKET_DIR = realSocketDir
+      if (realSocketDir === undefined) delete process.env.PODIUM_HOST_SOCKET_DIR
+      else process.env.PODIUM_HOST_SOCKET_DIR = realSocketDir
       rmSync(agentHome, { recursive: true, force: true })
       rmSync(daemonHome, { recursive: true, force: true })
+      rmSync(socketRoot, { recursive: true, force: true })
     })
+
+    /** A live master's socket, where podium-host puts one for this label. */
+    function parkMaster(): void {
+      const socket = hostSocketPath(requireClientTerminalLabel(SESSION, 'codex'), process.env)
+      mkdirSync(dirname(socket), { recursive: true })
+      writeFileSync(socket, '')
+    }
 
     function subject(homeDir?: string) {
       const reclaimed: string[] = []
       // The probe is DELIBERATELY the real one: the session-owned scope over
-      // the abduco durable, so the socket-dir read under test is the
+      // the host durable, so the socket-dir read under test is the
       // production path, not an injection. Only the reclaim is recorded.
-      const scope = createSessionClientScope(abducoOnly, homeDir ? { homeDir } : undefined)!
+      const scope = createSessionClientScope(hostDurable, homeDir ? { homeDir } : undefined)!
       const clients: ClientProcessOwner = {
         spawnClient: (opts) => scope.spawnClient(opts),
         reclaimClient: async (label) => {
@@ -1318,7 +1319,8 @@ describe('warm-parking', () => {
       return { terminals, reclaimed }
     }
 
-    it('reclaims a parked master that lives under the agent home', async () => {
+    it('reclaims a parked master for a client run under the agent home', async () => {
+      parkMaster()
       const { terminals, reclaimed } = subject(agentHome)
       // No attachment record, so teardown has nothing but the label to go on.
       await terminals.close(SESSION)
@@ -1326,17 +1328,23 @@ describe('warm-parking', () => {
     })
 
     it('adopts that same master back under the server-owned window', () => {
+      parkMaster()
       const { terminals } = subject(agentHome)
       terminals.adopt(SESSION, 'codex')
       expect(terminals.reclaimable()).toBe(1)
     })
 
-    it('follows homeDir, and is not merely answering yes to everything', async () => {
-      // The control that gives the two rows above their direction. With no agent
-      // home the daemon's own `HOME` IS the right place to look, and there is no
-      // master in it — so the probe must say no. Before the fix both arms said
-      // no, and the master leaked while nothing ever adopted it back.
+    it('finds it without an agent home too', async () => {
+      parkMaster()
       const { terminals, reclaimed } = subject(undefined)
+      await terminals.close(SESSION)
+      expect(reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'codex')])
+    })
+
+    it('is not merely answering yes to everything', async () => {
+      // The control that gives the rows above their direction: with no master
+      // under the label, the probe must say no.
+      const { terminals, reclaimed } = subject(agentHome)
       await terminals.close(SESSION)
       terminals.adopt(SESSION, 'codex')
       expect(reclaimed).toEqual([])
@@ -1578,7 +1586,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
       journal: memoryJournal(journalEntry()),
       clientTerminals: {
         attach: async () => {
-          throw new Error('abduco unavailable: not installed and the vendored build failed')
+          throw new Error('podium-host unavailable: not installed and the source build failed')
         },
         adopt: () => {},
         relaunch: async () => {},
@@ -1744,7 +1752,7 @@ describe('a client terminal states its size through the size event', () => {
   })
 })
 
-describe('under backend=host the client terminal lives in the host, not abduco (SPEC-6)', () => {
+describe('the client terminal lives in the host, reached through the session-owned scope (SPEC-6)', () => {
   it('spawn, the master probe and reclaim all go through the session-owned scope', async () => {
     const calls: string[] = []
     const client = fakeClient()
@@ -1808,7 +1816,7 @@ describe('under backend=host the client terminal lives in the host, not abduco (
 })
 
 describe('without a session client scope there are no client terminals (POD-3917)', () => {
-  it('refuses to be built without a session owner — there is no silent abduco fallback', () => {
+  it('refuses to be built without a session owner — there is no silent fallback backend', () => {
     // ARMED: before the fix the fallback built an abduco-only host here, so
     // this construction succeeded and the omission silently chose a backend.
     // Now the omission throws at the call site that made it.
@@ -1822,7 +1830,7 @@ describe('without a session client scope there are no client terminals (POD-3917
 
   it('a backend=none daemon gets no terminal host rather than a substituted one', () => {
     // The deliberate answer to the one real decision: `undefined` in means
-    // `undefined` out — never an abduco object the daemon never selected.
+    // `undefined` out — never a durable object the daemon never selected.
     expect(
       createClientTerminalsFor(undefined, { frames: () => {}, sessions: testSessions() }),
     ).toBeUndefined()

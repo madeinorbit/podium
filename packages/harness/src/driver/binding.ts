@@ -31,7 +31,7 @@ export interface SessionBinding {
    *  opaque harness login name — see `SessionSpec.principal`. */
   principal?: string
   /** Process/scope identity: what `adopt()` matches on after a supervisor
-   *  restart. Its CONTENT is driver-private (an abduco socket name, a unix
+   *  restart. Its CONTENT is driver-private (a podium-host label, a unix
    *  socket path, a worker pid) — the contract only requires that it round-trips
    *  and identifies EXACTLY one process tree. */
   process: ProcessIdentity

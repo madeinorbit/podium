@@ -7,16 +7,10 @@
 # then compares this tarball to that process-local value. This script deliberately accepts
 # no expected digest; letting a caller provide one would make forged bytes their own proof.
 #
-# A MISSING INPUT IS A FAILURE, NEVER A SKIP. The embedded-helper identity checks need
-# the reference abduco and podium-host; running without either requires saying so
-# explicitly with --no-abduco-identity / --no-host-identity, so an omitted path can
-# never read as a green.
+# A MISSING INPUT IS A FAILURE, NEVER A SKIP.
 #
 # Usage:
-#   scripts/assert-headless-bundle.sh <tarball> <platform> --source-commit <sha> \
-#     --abduco <reference-binary> --host <reference-binary>
-#   scripts/assert-headless-bundle.sh <tarball> <platform> --source-commit <sha> \
-#     --no-abduco-identity --no-host-identity
+#   scripts/assert-headless-bundle.sh <tarball> <platform> --source-commit <sha>
 #
 # platform: linux-x86_64 | linux-aarch64 | darwin-aarch64 | darwin-x86_64
 set -euo pipefail
@@ -30,17 +24,9 @@ need() { command -v "$1" >/dev/null || fail "need $1 on PATH"; }
 
 TARBALL=""
 PLATFORM=""
-ABDUCO_REF=""
-ABDUCO_IDENTITY=unset
-HOST_REF=""
-HOST_IDENTITY=unset
 SOURCE_COMMIT=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --abduco) ABDUCO_REF="${2:-}"; ABDUCO_IDENTITY=required; shift 2 ;;
-    --no-abduco-identity) ABDUCO_IDENTITY=waived; shift ;;
-    --host) HOST_REF="${2:-}"; HOST_IDENTITY=required; shift 2 ;;
-    --no-host-identity) HOST_IDENTITY=waived; shift ;;
     --source-commit) SOURCE_COMMIT="${2:-}"; shift 2 ;;
     -*) fail "unknown flag $1" ;;
     *)
@@ -57,23 +43,19 @@ done
 [[ "$SOURCE_COMMIT" =~ ^[0-9a-fA-F]{7,40}$ ]] \
   || fail "--source-commit must be a 7-40 character hexadecimal commit"
 [ -f "$TARBALL" ] || fail "no such tarball: $TARBALL"
-[ "$ABDUCO_IDENTITY" != unset ] \
-  || fail "pass --abduco <reference-binary> to check the embedded helper, or --no-abduco-identity to state deliberately that you are not checking it"
-[ "$HOST_IDENTITY" != unset ] \
-  || fail "pass --host <reference-binary> to check the embedded podium-host, or --no-host-identity to state deliberately that you are not checking it"
 
 need file
 need tar
 need python3
 
-# EXPECT_FORMAT/EXPECT_ARCH are what `file -b` prints for a correct binary; OTHER_* name
-# the platform whose helper must NOT be inside, which is the check that catches a build
-# that embedded the host's abduco instead of the target's.
+# EXPECT_FORMAT/EXPECT_ARCH are what `file -b` prints for a correct binary. They are
+# asked of podium-cli AND of podium-host-rs, which is the check that catches a build
+# that shipped the build machine's Rust host instead of the target's.
 case "$PLATFORM" in
-  linux-x86_64)   EXPECT_FORMAT="ELF";     EXPECT_ARCH="x86-64";  OTHER_PLATFORM="linux-aarch64" ;;
-  linux-aarch64)  EXPECT_FORMAT="ELF";     EXPECT_ARCH="aarch64"; OTHER_PLATFORM="linux-x86_64" ;;
-  darwin-aarch64) EXPECT_FORMAT="Mach-O";  EXPECT_ARCH="arm64";   OTHER_PLATFORM="darwin-x86_64" ;;
-  darwin-x86_64)  EXPECT_FORMAT="Mach-O";  EXPECT_ARCH="x86_64";  OTHER_PLATFORM="darwin-aarch64" ;;
+  linux-x86_64)   EXPECT_FORMAT="ELF";     EXPECT_ARCH="x86-64" ;;
+  linux-aarch64)  EXPECT_FORMAT="ELF";     EXPECT_ARCH="aarch64" ;;
+  darwin-aarch64) EXPECT_FORMAT="Mach-O";  EXPECT_ARCH="arm64" ;;
+  darwin-x86_64)  EXPECT_FORMAT="Mach-O";  EXPECT_ARCH="x86_64" ;;
   *) fail "unknown platform '$PLATFORM'" ;;
 esac
 case "$PLATFORM" in darwin-*) IS_DARWIN=1 ;; *) IS_DARWIN=0 ;; esac
@@ -131,6 +113,10 @@ do
 done
 stray="$(echo "$listing" | awk -F/ '{print $1}' | sort -u | grep -vx 'headless' || true)"
 [ -z "$stray" ] || fail "tarball has entries outside headless/: $stray"
+# The Rust host is the only process host a bundle ships (POD-4986). A loose abduco or C
+# podium-host beside it is a build that regressed to the retired helpers.
+legacy="$(grep -E '(^|/)(abduco|podium-host)(\.bin)?$' <<<"$listing" || true)"
+[ -z "$legacy" ] || fail "tarball ships a retired abduco/C podium-host helper: $legacy"
 pass "archive root is headless/ and carries the production file set"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/podium-assert-XXXXXX")"
@@ -317,106 +303,33 @@ else
 fi
 pass "shipped podium-host-rs is $EXPECT_FORMAT $EXPECT_ARCH with the platform link/signature policy"
 
-# --- The embedded abduco helper is the one built FOR THIS PLATFORM ---
-if [ "$ABDUCO_IDENTITY" = required ]; then
-  [ -f "$ABDUCO_REF" ] || fail "reference abduco missing: $ABDUCO_REF (regenerate with scripts/abduco-cross.ts)"
-  # BOTH format and architecture, in order, and no looser alternative. This used to
-  # accept `*<arch>*` on its own, which made the FORMAT optional — so the check read as
-  # "is this an ELF aarch64?" while only asking "does the word aarch64 appear?". Among
-  # the four platforms we ship I could not construct a pair that actually exploited it
-  # (`file` prints x86-64 for ELF and x86_64 for Mach-O, arm64 for Mach-O and ARM
-  # aarch64 for ELF), so this is not a fixed bug — it is a check that now says what it
-  # means, and cannot be widened by a fifth platform arriving.
-  ref_file="$(file -b "$ABDUCO_REF")"
-  case "$ref_file" in
-    *"$EXPECT_FORMAT"*"$EXPECT_ARCH"*) : ;;
-    *) fail "reference abduco is not $EXPECT_FORMAT $EXPECT_ARCH (got: $ref_file)" ;;
-  esac
-  # The sibling entry sits beside the reference we were handed. Derived from that path
-  # rather than a literal cache directory: the cache is durable and outside the checkout
-  # (POD-3162), and this script must not have its own opinion about where it lives.
-  OTHER_REF="$(dirname "$ABDUCO_REF")/$OTHER_PLATFORM-$(basename "$ABDUCO_REF" | sed "s/^$PLATFORM-//")"
-  report="$(python3 - "$CLI" "$ABDUCO_REF" "$OTHER_REF" <<'PY'
-import sys
-cli, ref, other = sys.argv[1:4]
-data = open(cli, 'rb').read()
-want = open(ref, 'rb').read()
-print(f"ref_len={len(want)}")
-print(f"ref_at={data.find(want)}")
-print(f"banner={data.count(b'abduco-0.6-podium')}")
-try:
-    print(f"other_at={data.find(open(other, 'rb').read())}")
-except OSError:
-    print("other_at=absent-input")
-PY
-)" || fail "embedded-helper byte scan failed"
-  echo "$report"
-  eval "$(echo "$report" | sed 's/^/EMB_/')"
-  [ "${EMB_ref_at}" != "-1" ] \
-    || fail "the $PLATFORM abduco (${EMB_ref_len} bytes) does NOT appear inside the shipped binary — the wrong helper was embedded"
-  pass "shipped binary embeds the $PLATFORM abduco verbatim at offset ${EMB_ref_at}"
-  [ "${EMB_banner}" = "1" ] \
-    || fail "expected exactly one abduco copy in the shipped binary, found ${EMB_banner} banner strings"
-  pass "shipped binary carries exactly one abduco"
-  case "${EMB_other_at}" in
-    -1) pass "the $OTHER_PLATFORM abduco is absent from the shipped binary" ;;
-    absent-input) echo "NOTE: no $OTHER_PLATFORM reference built; cross-arch absence not checked" ;;
-    *) fail "the $OTHER_PLATFORM abduco is embedded at offset ${EMB_other_at} — wrong architecture helper" ;;
-  esac
-else
-  echo "NOTE: embedded-helper identity NOT checked (--no-abduco-identity was passed)"
-fi
-
-# --- The embedded podium-host is the one built FOR THIS PLATFORM ---
+# --- Nothing is embedded: no abduco, no C podium-host inside the shipped binaries ---
 #
-# podium-host keeps every agent, shell and login session alive across daemon restarts,
-# and the daemon starts no session without it. build-bun.ts embeds it the way it embeds
-# abduco, from scripts/host-cross.ts's content-addressed cache; an EMPTY embed is how a
-# build says "no host for this target", and materializeEmbeddedHost then unpacks
-# nothing — a bundle that ships no host looks healthy until a machine refuses to start
-# a session. So the same three questions as abduco: is the reference right, is it
-# inside the shipped binary, and is the other platform's copy absent. There is no
-# banner count: the CLI's own JavaScript names podium-host many times over, so "exactly
-# one copy" is asked of the reference bytes themselves.
-if [ "$HOST_IDENTITY" = required ]; then
-  [ -f "$HOST_REF" ] || fail "reference podium-host missing: $HOST_REF (regenerate with scripts/host-cross.ts)"
-  host_ref_file="$(file -b "$HOST_REF")"
-  case "$host_ref_file" in
-    *"$EXPECT_FORMAT"*"$EXPECT_ARCH"*) : ;;
-    *) fail "reference podium-host is not $EXPECT_FORMAT $EXPECT_ARCH (got: $host_ref_file)" ;;
-  esac
-  OTHER_HOST_REF="$(dirname "$HOST_REF")/$OTHER_PLATFORM-$(basename "$HOST_REF" | sed "s/^$PLATFORM-//")"
-  host_report="$(python3 - "$CLI" "$HOST_REF" "$OTHER_HOST_REF" <<'PY'
+# The compiled CLI used to embed abduco and the C podium-host (`with { type: 'file' }`
+# imports, materialized on first start). Both are retired (POD-4986): the Rust host ships
+# beside podium-cli and nothing is embedded. A `with { type: 'file' }` import stores the
+# file verbatim, so a helper creeping back in carries its own identifying strings: the
+# abduco banner, and the C host's `version` format (the Rust host prints the same words
+# through Rust formatting, never this printf string). Asked of podium-host-rs too, so a C
+# host renamed into the Rust host's place is refused as well. This runs BEFORE the Darwin
+# signature checks so its failure line is unambiguous.
+legacy_report="$(python3 - "$CLI" "$RUST_HOST" <<'PY'
 import sys
-cli, ref, other = sys.argv[1:4]
-data = open(cli, 'rb').read()
-want = open(ref, 'rb').read()
-at = data.find(want)
-print(f"ref_len={len(want)}")
-print(f"ref_at={at}")
-print(f"second_at={data.find(want, at + 1) if at >= 0 else -1}")
-try:
-    print(f"other_at={data.find(open(other, 'rb').read())}")
-except OSError:
-    print("other_at=absent-input")
+for label, path in (('cli', sys.argv[1]), ('rust_host', sys.argv[2])):
+    data = open(path, 'rb').read()
+    print(f"{label}_abduco={data.count(b'abduco-0.6-podium')}")
+    print(f"{label}_c_host={data.count(b'podium-host %s features=%d')}")
 PY
-)" || fail "embedded podium-host byte scan failed"
-  echo "$host_report"
-  eval "$(echo "$host_report" | sed 's/^/HOST_/')"
-  [ "${HOST_ref_at}" != "-1" ] \
-    || fail "the $PLATFORM podium-host (${HOST_ref_len} bytes) does NOT appear inside the shipped binary — it embeds no podium-host, or the wrong one"
-  pass "shipped binary embeds the $PLATFORM podium-host verbatim at offset ${HOST_ref_at}"
-  [ "${HOST_second_at}" = "-1" ] \
-    || fail "the $PLATFORM podium-host is embedded twice (offsets ${HOST_ref_at} and ${HOST_second_at})"
-  pass "shipped binary carries exactly one podium-host"
-  case "${HOST_other_at}" in
-    -1) pass "the $OTHER_PLATFORM podium-host is absent from the shipped binary" ;;
-    absent-input) echo "NOTE: no $OTHER_PLATFORM podium-host reference built; cross-arch absence not checked" ;;
-    *) fail "the $OTHER_PLATFORM podium-host is embedded at offset ${HOST_other_at} — wrong architecture podium-host" ;;
-  esac
-else
-  echo "NOTE: embedded podium-host identity NOT checked (--no-host-identity was passed)"
-fi
+)" || fail "retired-helper byte scan failed"
+echo "$legacy_report"
+eval "$(echo "$legacy_report" | sed 's/^/LEGACY_/')"
+[ "${LEGACY_cli_abduco}" = "0" ] \
+  || fail "shipped podium-cli carries an embedded abduco (${LEGACY_cli_abduco} banner strings)"
+[ "${LEGACY_cli_c_host}" = "0" ] \
+  || fail "shipped podium-cli carries an embedded C podium-host (${LEGACY_cli_c_host} C version strings)"
+[ "${LEGACY_rust_host_abduco}" = "0" ] && [ "${LEGACY_rust_host_c_host}" = "0" ] \
+  || fail "shipped podium-host-rs is not the Rust host (it carries abduco or C podium-host strings)"
+pass "no abduco and no C podium-host inside podium-cli or podium-host-rs"
 
 # --- Darwin signature + entitlements ---
 #

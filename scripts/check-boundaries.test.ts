@@ -130,7 +130,6 @@ describe('console-ownership (POD-1905)', () => {
       'packages/client-core/src/logging/crash.ts',
       'packages/client-core/src/perf/switch-trace.ts',
       'packages/terminal-client/src/terminal-diagnostics.ts',
-      'packages/pty/src/abduco-bin.ts',
       'apps/web/src/perf/large-state.frontend-perf.tsx',
     ]) {
       expect(checkConsoleOwnership(file, "console.warn('x')")).toEqual([])
@@ -2565,7 +2564,7 @@ describe('terminal objects boundary (POD-4437)', () => {
     expect(backend.some((v) => v.rule === 'terminal-objects-primitives')).toBe(true)
     const build = checkTerminalObjectsPrimitives(
       'scripts/build-bun.ts',
-      `import { buildVendoredHost } from '../packages/pty/src/host-bin.js'`,
+      `import { RUST_HOST_BINARY } from '../packages/pty/src/host-bin.js'`,
     )
     expect(build).toEqual([])
   })

@@ -56,7 +56,7 @@ to the sidecar, so exporting these once covers both processes.
 | Message | Cause | Answer |
 |---|---|---|
 | `this agent session belongs to instance 'default', not 'desktoptest'` | Your own Podium session's relay | `PODIUM_NO_RELAY=1` |
-| `refusing to adopt non-empty state directory … for instance 'x'` | The sidecar materialises `bin/abduco` *before* the instance-identity check, so even a freshly-created dir is non-empty by the time it is checked | `PODIUM_ADOPT_STATE=1` |
+| `refusing to adopt non-empty state directory … for instance 'x'` | A sidecar built before POD-4986 materialises `bin/abduco` *before* the instance-identity check, so even a freshly-created dir is non-empty by the time it is checked | `PODIUM_ADOPT_STATE=1` |
 
 ## Getting a display without root
 

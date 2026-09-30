@@ -55,7 +55,7 @@ PTY-scraping is a **last resort**, only for what's visible nowhere else. Codex f
 
 | Term | Meaning |
 |------|---------|
-| **Harness** | A native agent CLI (Claude Code, Codex) running in a durable (abduco-hosted) PTY. |
+| **Harness** | A native agent CLI (Claude Code, Codex) running in a durable (podium-host-hosted) PTY. |
 | **Session** | One running agent or shell instance. |
 | **Work pane** | A named panel holding a session (agent or shell). Named auto-by-content or by the user. |
 | **Workstream** | **The central unit of attention.** A thread of work spanning multiple tasks/stages (spec → build → bugfix), wrapping one or more native sessions that share context. Shows status, blockers, and last recap; you steer here and drop into a session's PTY for the wheel. Pin, ice, or archive even if unfinished. *(Shorthand: "stream.")* |

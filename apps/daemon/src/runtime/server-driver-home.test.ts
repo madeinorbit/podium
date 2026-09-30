@@ -253,7 +253,7 @@ const resources = () => undefined
  * object production passes in, so these tests prove the production spawn path,
  * env composition included, rather than a seam.
  */
-const engineDurable = () => createDurableProcess('host', { host: true, abduco: false })
+const engineDurable = () => createDurableProcess()
 
 describe('a launched server-driver child runs in the INSTANCE home', () => {
   it('opencode serve: the child itself reports the instance HOME', async () => {

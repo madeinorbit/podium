@@ -67,7 +67,7 @@ export const HeadlessTurnRequestMessage = z.object({
   type: z.literal('headlessTurnRequest'),
   requestId: z.string(),
   /** Stable across server/daemon restarts. The daemon uses this to reattach to
-   *  (or return the completed result of) the same durable abduco turn. */
+   *  (or return the completed result of) the same durable podium-host turn. */
   turnId: z.string(),
   sessionId: SessionIdField,
   /** Exact native-login fingerprint selected by the server. Tool-less turns

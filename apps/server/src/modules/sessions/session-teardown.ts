@@ -98,7 +98,7 @@ export class SessionTeardown {
 
   /**
    * Archive also stops the process (POD-108). Archive used to be pure metadata,
-   * so every archived-but-live session kept its abduco master + agent resident
+   * so every archived-but-live session kept its durable host + agent resident
    * forever — dozens of idle agent processes with no way to reap them from the
    * UI. Same park as stopSession: 'hibernated' when a cold resume is possible
    * (resume ref kept), else 'exited'. Unlike hibernateSession this does not

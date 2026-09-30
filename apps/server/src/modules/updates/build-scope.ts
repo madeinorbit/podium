@@ -65,7 +65,7 @@
  * the other's binary. That is exactly the lie the dev+<sha> identity checks
  * exist to prevent. The unit name is therefore DETERMINISTIC and every launch
  * stops it first: a live orphan dies before the new build starts, and the name
- * doubles as a mutex two servers can both see. (`packages/pty/src/abduco.ts`
+ * doubles as a mutex two servers can both see. (`packages/pty/src/scope.ts`
  * reclaims the same way and for the same "unit already exists" reason —
  * measured here: a second `systemd-run` at a live name exits 1, and `stop` +
  * `reset-failed` frees it.)
@@ -95,7 +95,7 @@ import {
 
 const log = createLogger('server:updates')
 
-/** The batch tier, matching a per-agent scope (`packages/pty/src/abduco.ts`). */
+/** The batch tier, matching a per-agent scope (`packages/pty/src/scope.ts`). */
 export const DEV_BUILD_CPU_WEIGHT = 50
 export const DEV_BUILD_IO_WEIGHT = 50
 /**
@@ -119,7 +119,7 @@ export function devBuildScopeUnit(role: string, instanceId: string): string {
  * arguments to the command — which is why the budget is spliced in HERE and not
  * appended by a caller.
  *
- * WHY THIS IS NOT `systemdScopeArgv` (`packages/pty/src/abduco.ts`), which
+ * WHY THIS IS NOT `systemdScopeArgv` (`packages/pty/src/scope.ts`), which
  * assembles the same kind of argv for a session scope. POD-2413's reviewer
  * would rather one builder existed, and that is a fair thing to want. What the
  * two share is four constant flags; what they do not share is every line that
@@ -164,7 +164,7 @@ export function devBuildScopeReclaimArgvs(unit: string): string[][] {
 /**
  * The user manager's runtime dir — `systemd-run --user` finds its bus through
  * `XDG_RUNTIME_DIR`, which a system service with `User=` never gets. Same
- * fallback, and the same reason, as `packages/pty/src/abduco.ts`.
+ * fallback, and the same reason, as `packages/pty/src/scope.ts`.
  */
 export function userRuntimeDir(): string | undefined {
   if (process.env.XDG_RUNTIME_DIR) return process.env.XDG_RUNTIME_DIR

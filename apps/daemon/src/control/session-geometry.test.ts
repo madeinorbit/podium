@@ -143,7 +143,7 @@ describe('the ask moves nothing; the size event reports', () => {
     const { ctx, sent } = daemonContext()
     const sessionId = asSessionId('s1')
     const asks: Array<[number, number]> = []
-    const abducoLike: DurableAttachment = {
+    const sizeless: DurableAttachment = {
       pid: 1234,
       onFrame: () => () => {},
       onTitle: () => () => {},
@@ -155,7 +155,7 @@ describe('the ask moves nothing; the size event reports', () => {
       },
       dispose: () => {},
     }
-    wireBridge(ctx, sessionId, abducoLike, 'claude-code', 'podium-s1')
+    wireBridge(ctx, sessionId, sizeless, 'claude-code', 'podium-s1')
     sessionHandlers.resize(ctx, { type: 'resize', sessionId, cols: 122, rows: 39 })
     await settle()
     expect(asks).toEqual([[122, 39]])

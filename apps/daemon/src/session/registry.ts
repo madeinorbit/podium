@@ -53,9 +53,9 @@ export class SessionRegistry {
 
   /**
    * Whether an unchanged {@link foreignWrites} can be believed: true only while
-   * the session's Terminal holds podium-host's writer lease. False on the
-   * abduco fallback (any `abduco -a` client writes unseen), with no Terminal,
-   * and after a lease loss.
+   * the session's Terminal holds podium-host's writer lease. False for an
+   * attachment without the lease (another client may write unseen), with no
+   * Terminal, and after a lease loss.
    */
   orderTrustworthy(sessionId: SessionId): boolean {
     return this.sessions.get(sessionId)?.foreignWrites.orderTrustworthy ?? false

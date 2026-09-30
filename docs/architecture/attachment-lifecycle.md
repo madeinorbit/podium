@@ -34,7 +34,7 @@ is a proposal.*
 >
 > The old measurement remains valid as pre-fix evidence, but it is no longer the
 > current implementation description. OpenCode now declares `parkOnRelease` and
-> parks its abduco master when the viewer returns to Chat; the next Native attach
+> parks its durable host when the viewer returns to Chat; the next Native attach
 > adopts that master and keeps its scrollback. The shared attach seam also emits a
 > clear/reset sequence only for a newly created client generation, so Codex and
 > Grok's deliberate cold starts cannot paint a fresh interface into old scrollback.

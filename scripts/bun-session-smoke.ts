@@ -1,12 +1,12 @@
 /**
  * Real session lifecycle through the Bun-running daemon, end to end:
- *   client WS -> server -> daemon -> Bun.Terminal -> abduco master -> agent -> frames.
+ *   client WS -> server -> daemon -> podium-host -> agent -> frames.
  *
- * In-process server + daemon (so the daemon spawns via Bun.Terminal and persists via
- * bun:sqlite under Bun), driving a client over the wire exactly like the browser does:
- * attach, redraw, stream output, round-trip input, resize + take control. Uses the e2e
- * harness isolation so it can't touch the developer's real ~/.podium or live abduco
- * sessions, and reaps its durable master at the end.
+ * In-process server + daemon (so the daemon runs and persists via bun:sqlite under
+ * Bun), driving a client over the wire exactly like the browser does: attach, redraw,
+ * stream output, round-trip input, resize + take control. Uses the e2e harness
+ * isolation so it can't touch the developer's real ~/.podium or live host sessions,
+ * and reaps its durable host at the end.
  *
  * Run: bun --conditions=@podium/source scripts/bun-session-smoke.ts
  */

@@ -52,12 +52,22 @@ if (!runs('cargo', ['--version'])) {
   }
 }
 
-// 2. A C compiler — build-bun.ts compiles the vendored abduco (cc/gcc/clang) during
-//    `package:headless`, which stage-sidecar.ts runs. Windows uses ConPTY and deliberately
-//    skips abduco, so requiring a POSIX compiler there rejects a valid Tauri toolchain.
+// 2. rustup — build-bun.ts builds the Rust process host (podium-host-rs) during
+//    `package:headless`, which stage-sidecar.ts runs, through `rustup run <channel>` so the
+//    crate's own pinned toolchain is used. Windows uses ConPTY and ships no host, so
+//    requiring rustup there rejects a valid Tauri toolchain.
+if (!isWindows && !runs('rustup', ['--version'])) {
+  problems.push({
+    what: 'rustup not found — needed to build the Rust process host (podium-host-rs).',
+    fix: 'curl --proto \'=https\' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source "$HOME/.cargo/env"',
+  })
+}
+
+// 3. A system linker — rustc links the Tauri shell and the Rust process host with the
+//    platform's C toolchain (clang from the Command Line Tools on macOS, cc on Linux).
 if (!isWindows && !['cc', 'gcc', 'clang'].some((c) => runs(c, ['--version']))) {
   problems.push({
-    what: 'No C compiler found (cc/gcc/clang) — needed to build the embedded abduco.',
+    what: 'No C toolchain found (cc/gcc/clang) — rustc needs its linker.',
     fix: isMac
       ? 'xcode-select --install   # installs the Command Line Tools (clang, linker)'
       : isLinux
@@ -66,7 +76,7 @@ if (!isWindows && !['cc', 'gcc', 'clang'].some((c) => runs(c, ['--version']))) {
   })
 }
 
-// 3. Linux-only: the webkit/gtk system libs Tauri links against. Probe via pkg-config.
+// 4. Linux-only: the webkit/gtk system libs Tauri links against. Probe via pkg-config.
 if (isLinux) {
   const havePkgConfig = runs('pkg-config', ['--version'])
   if (!havePkgConfig) {
@@ -87,7 +97,7 @@ if (isLinux) {
   }
 }
 
-// 4. Bundle targets must include something the host OS can actually produce, or
+// 5. Bundle targets must include something the host OS can actually produce, or
 //    `tauri build` exits without a usable artifact. Flag a host mismatch rather than letting
 //    the user chase an empty output directory.
 try {

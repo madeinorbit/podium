@@ -24,7 +24,7 @@ rssmb() { awk '/VmRSS/{printf "%.1f",$2/1024}' "/proc/$1/status" 2>/dev/null; }
 pidon() { ss -ltnp 2>/dev/null | grep ":$1 " | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2; }
 cpu() { awk -v a="$1" -v b="$2" -v c="$CLK" -v i="$INT" 'BEGIN{if(a==""||b==""){print ""}else{printf "%.1f",(b-a)/c/i*100}}'; }
 
-echo "ts,server_pid,server_rss_mb,server_cpu_pct,daemon_pid,daemon_rss_mb,daemon_cpu_pct,attach_clients" > "$CSV"
+echo "ts,server_pid,server_rss_mb,server_cpu_pct,daemon_pid,daemon_rss_mb,daemon_cpu_pct,host_processes" > "$CSV"
 sp=$(pidon 18787); dp=$(pidon 45777)
 spt=$(ticks "$sp"); dpt=$(ticks "$dp")
 echo "[profile] label=$LABEL server=$sp daemon=$dp dur=${DUR}s int=${INT}s clk=$CLK -> $CSV"
@@ -40,7 +40,7 @@ while [ "$i" -lt "$n" ]; do
   if [ "$csp" = "$sp" ]; then scpu=$(cpu "$spt" "$cspt"); else scpu=""; fi
   if [ "$cdp" = "$dp" ]; then dcpu=$(cpu "$dpt" "$cdpt"); else dcpu=""; fi
   srss=$(rssmb "$csp"); drss=$(rssmb "$cdp")
-  ac=$(pgrep -fc 'abduco -q -e' 2>/dev/null || echo 0)
+  ac=$(pgrep -fc 'podium-host(-rs)? create' 2>/dev/null || echo 0)
   echo "$(date -Iseconds),$csp,$srss,$scpu,$cdp,$drss,$dcpu,$ac" >> "$CSV"
   sp=$csp; dp=$cdp; spt=$cspt; dpt=$cdpt
 done
@@ -60,7 +60,7 @@ awk -F, -v label="$LABEL" '
     printf "  \"server_cpu_pct\": {\"avg\": %.1f, \"max\": %.1f},\n", (scn?sc/scn:0), scm
     printf "  \"daemon_rss_mb\": {\"avg\": %.1f, \"max\": %.1f},\n", (drn?dr/drn:0), drm
     printf "  \"daemon_cpu_pct\": {\"avg\": %.1f, \"max\": %.1f},\n", (dcn?dc/dcn:0), dcm
-    printf "  \"attach_clients_avg\": %.0f\n}\n", (acn?ac/acn:0)
+    printf "  \"host_processes_avg\": %.0f\n}\n", (acn?ac/acn:0)
   }' "$CSV" > "$SUMMARY"
 
 echo "[profile] done -> $SUMMARY"

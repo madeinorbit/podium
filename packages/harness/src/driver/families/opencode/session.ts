@@ -10,7 +10,7 @@
  * ---------------------------------------------------------------------------
  *
  * This is where the epic's claim gets tested. A server-family session has no
- * bridge, no abduco master, no frames and no observer — and the acceptance
+ * bridge, no terminal master, no frames and no observer — and the acceptance
  * criterion is that it works from the existing web UI with NO UI redesign. The
  * only way both can be true is if the supervisor speaks, on this session's behalf,
  * the same small vocabulary of frames every other session speaks:
@@ -90,7 +90,7 @@ export interface DaemonOpencodeRuntime extends OpencodeRuntime {
    *
    * `undefined` when nothing is answering — the entry is stale and the caller
    * reports the session gone rather than falling through to a PTY path that
-   * would look for an abduco master this family never had.
+   * would look for a terminal master this family never had.
    *
    * Distinct from the contract's `adopt(binding)`, which takes a live
    * `SessionBinding` a caller already holds. After a daemon restart nobody holds
@@ -349,7 +349,7 @@ export function createOpencodeSessionRuntime(deps: OpencodeSessionDeps): DaemonO
       /**
        * `bind` IS WHAT MARKS THE SESSION LIVE, and it is sent with the truth
        * rather than with a plausible imitation of a PTY spawn. `cmd` names the
-       * server this session actually is; a fake `abduco -a …` would put a lie in
+       * server this session actually is; a fake `podium-host attach …` would put a lie in
        * the one field an operator reads to find out what is running.
        *
        * NO GEOMETRY (POD-3290). What stood here was `{ cols: 120, rows: 40 }`,

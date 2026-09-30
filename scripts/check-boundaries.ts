@@ -3434,12 +3434,12 @@ export function checkTerminalObjectsServer(file: string, source: string): Violat
  * except through the package.
  *
  * No file outside packages/pty reaches a process primitive (pty backends,
- * abduco, podium-host) by any route but the `@podium/process` package door —
+ * podium-host) by any route but the `@podium/process` package door —
  * which the manifest's consumer restriction already holds to apps/daemon and
  * the build tier. This rule closes the other route: a relative import that
  * walks into packages/pty/src bypasses the package entirely, and a bare
  * `node-pty` specifier skips both gates. scripts/ is exempt (L5 build tier
- * composes everything: scripts/build-bun.ts vendors abduco and the host), and
+ * composes everything: scripts/build-bun.ts packages the Rust host), and
  * tests are exempt (integration scaffolding drives the real backend).
  */
 export function checkTerminalObjectsPrimitives(file: string, source: string): Violation[] {
@@ -3747,8 +3747,6 @@ const CONSOLE_EXEMPT_FILES: ReadonlySet<string> = new Set([
   'apps/web/src/perf/large-state.frontend-perf.tsx',
   // Console output behind its own enable flag — the diagnostics ARE the feature.
   'packages/terminal-client/src/terminal-diagnostics.ts',
-  // Build-time stdout (the vendored-abduco build step), i.e. the CLI category.
-  'packages/pty/src/abduco-bin.ts',
   // Test-fixture BUILD output. Named as well as covered by the `test-support`
   // segment above, because it is the file the plan called out by path.
   'apps/server/src/test-support/pre-migrated-store.build.ts',

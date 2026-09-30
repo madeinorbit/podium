@@ -132,7 +132,7 @@ export function terminalComposerSectionsFor(kind: string): TerminalComposerSecti
  * version GATE, not a `which`.
  *
  * The terminal ids are unconditionally available because their mechanism is
- * Podium's own — abduco and a PTY — and the harness binary's absence is already
+ * Podium's own — podium-host and a PTY — and the harness binary's absence is already
  * a spawn error one layer down, reported there with the harness named.
  *
  * MEMOIZED VIA THE GATE ITSELF. `gateOpencodeVersion` is pure; the daemon-side

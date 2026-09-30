@@ -55,8 +55,9 @@ export class ForeignWriteCounter {
   /**
    * Whether an unchanged count can be trusted to mean "nobody else wrote":
    * true only while a Terminal is attached over a backend whose writer lease
-   * this daemon holds (podium-host). False on the abduco fallback, where any
-   * `abduco -a` client writes unseen, while parked, and after a lease loss.
+   * this daemon holds (podium-host). False on an attachment that holds no
+   * writer lease, where another client may write unseen, while parked, and
+   * after a lease loss.
    */
   get orderTrustworthy(): boolean {
     return this.exclusive?.() === true

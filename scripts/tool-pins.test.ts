@@ -109,13 +109,13 @@ describe('resolveZig pin enforcement', () => {
 })
 
 /**
- * ONE LOOKUP FOR BOTH HELPER BUILDS. host-cross.ts once carried its own copy of the tool
- * lookup, taken before the POD-3771 fix, so it probed `zig --version` and declared missing
- * the zig that abduco-cross had just used. The PATH test above only ever exercised
- * abduco's copy. So: neither build script may define a lookup of its own.
+ * ONE LOOKUP FOR EVERY NATIVE CROSS BUILD. A cross build once carried its own copy of the
+ * tool lookup, taken before the POD-3771 fix, so it probed `zig --version` and declared
+ * missing the zig its sibling had just used. The PATH test above only ever exercised one
+ * copy. So: no cross build script may define a lookup of its own.
  */
-describe('both helper builds resolve their tools through tool-pins', () => {
-  for (const file of ['abduco-cross.ts', 'host-cross.ts']) {
+describe('the native cross builds resolve their tools through tool-pins', () => {
+  for (const file of ['rust-host-cross.ts', 'tunnel-cross.ts']) {
     it(`${file} has no tool lookup of its own`, () => {
       const source = readFileSync(join(import.meta.dirname, file), 'utf8')
       expect(source).not.toMatch(/function findTool\b/)

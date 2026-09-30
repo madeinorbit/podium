@@ -365,7 +365,7 @@ category:
 - **Build tooling** — `scripts/` and `apps/<x>/scripts/**`.
 - **Named files** where console output *is* the product: perf harnesses
   (including `console.table`, which the rule does cover), the terminal
-  diagnostics feature, the abduco build step, and the logging module's own
+  diagnostics feature, the Rust podium-host build step, and the logging module's own
   degrade notices — those last must stay `console`, or a degraded forwarding
   sink reports its own degradation through itself.
 

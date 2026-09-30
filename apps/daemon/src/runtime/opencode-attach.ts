@@ -49,7 +49,7 @@
  *
  * Beside, never inside. The client is a convenience the user opened and closed;
  * the session is the work. Spec §5 makes that structural: the client runs under
- * abduco in a scope SIBLING to the session's, so it can be reclaimed on its own,
+ * podium-host in a scope SIBLING to the session's, so it can be reclaimed on its own,
  * it dies when the session does, and — the rule with teeth — its memory never
  * counts against the agent's budget.
  *
@@ -71,10 +71,10 @@
  * ---------------------------------------------------------------------------
  *
  * §5 wants a client that is PARKED on detach rather than killed, so bouncing
- * between sessions is an abduco reconnect and not a cold TUI start. The parked
- * thing is the abduco MASTER: it holds the running client, survives this daemon,
- * and a later attach reconnects to it (`spawnAbducoAgent` adopts a live master
- * that already owns the label).
+ * between sessions is a host reconnect and not a cold TUI start. The parked
+ * thing is the podium-host MASTER: it holds the running client, survives this
+ * daemon, and a later attach reconnects to it (`spawnHostAgent` adopts a live
+ * master that already owns the label).
  *
  * IDLE MEANS "NOBODY IS RENDERING NATIVE", AND THE DAEMON CAN SEE THAT.
  * `sessionPriority.nativeView` is aggregated from the live clients' visible
@@ -348,7 +348,7 @@ export interface OpencodeClientTerminalPorts {
    * a client terminal under any backend is created, found and reclaimed where
    * the session layer put it. REQUIRED: the only production call site passes
    * the daemon's session-owned scope, and an omitted one used to fall back to
-   * abduco silently (POD-3917).
+   * a backend the daemon never selected, silently (POD-3917).
    */
   clients: ClientProcessOwner
   /**
@@ -397,8 +397,8 @@ export interface OpencodeClientTerminalPorts {
  * exists to forbid. So that daemon builds NOTHING here: the caller leaves
  * `ctx.clientTerminals` unset, the server-family drivers refuse a Native attach
  * with their per-machine wording, and every control frame that reaches for one
- * already tolerates its absence. `undefined` is the honest answer; abduco is
- * not this daemon's to give.
+ * already tolerates its absence. `undefined` is the honest answer; a host
+ * this daemon never selected is not its to give.
  */
 export function createClientTerminalsFor(
   clients: ClientProcessOwner | undefined,
@@ -451,7 +451,7 @@ export function createOpencodeClientTerminals(
      * A NEW CLIENT MUST NOT PAINT INTO THE OLD ONE'S SCROLLBACK (POD-2761),
      * BUT A REATTACHED CLIENT MUST KEEP THE SCROLLBACK IT ALREADY OWNS.
      *
-     * `start()` serves both cases. A view-switch reclaims the abduco master, so
+     * `start()` serves both cases. A view-switch reclaims the host master, so
      * no master exists and spawn creates a new TUI generation. After a daemon
      * restart or lost client handle, the master and its TUI survive; spawn
      * reconnects to that same generation instead. The reset below is emitted for
@@ -511,8 +511,8 @@ export function createOpencodeClientTerminals(
       /**
        * THE SAME PROVIDER KEYS THE SERVE HALF DELETES, deleted here too.
        *
-       * It is the same binary reading the same config, and abduco hands the app
-       * the daemon's whole environment — so a daemon carrying `ANTHROPIC_API_KEY`
+       * It is the same binary reading the same config, and the host hands the
+       * app the daemon's whole environment — so a daemon carrying `ANTHROPIC_API_KEY`
        * would have this client resolve a provider the session never chose. The
        * client is thin today and may never call one, which is exactly why the
        * asymmetry would go unnoticed: two processes of one binary, opposite
@@ -528,7 +528,7 @@ export function createOpencodeClientTerminals(
        * helper is how you ask for it.
        */
       stripEnv: harnessChildStripEnv(kind),
-      // The overlay abduco layers over the daemon env — composed through the
+      // The overlay the host layers over the daemon env — composed through the
       // same `spawnEnv` the PTY path uses, so an instance home overrides HOME
       // (and prepends its bin roots to PATH) here exactly as it does for the
       // serve half (POD-2247).
@@ -590,7 +590,7 @@ export function createOpencodeClientTerminals(
         ports.frames(sessionId, data)
       },
       onExit: () => {
-        // THE CLIENT EXITING IS NOT THE ATTACHMENT ENDING. abduco's master (and the
+        // THE CLIENT EXITING IS NOT THE ATTACHMENT ENDING. The host's master (and the
         // TUI inside it) survives a client that was disposed, crashed or was killed
         // by a redeploy — that survival is what "warm" means. Park the Terminal
         // (unwire + detach) and let the next attach reconnect; the reaper still

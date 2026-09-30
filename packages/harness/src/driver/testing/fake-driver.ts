@@ -79,7 +79,7 @@ import { createRuntimeEventStream } from '../events.js'
 /**
  * Sessions that "survive" a supervisor restart, keyed by process identity.
  *
- * This is the fake's stand-in for abduco masters and harness server processes:
+ * This is the fake's stand-in for podium-host masters and harness server processes:
  * dropping a driver instance drops the HANDLES, exactly as a daemon restart
  * does, while the entries here stay put so `adopt()` has something real to find.
  * Without it, a restart test would be adopting an object it never let go of.

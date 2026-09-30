@@ -1,31 +1,29 @@
 /**
  * Build the single-file `bun build --compile` binaries.
  *
- *   1. Prebuild the vendored abduco (cc → dist-bun/abduco.bin) so the daemon can embed
- *      it — the compiled binary has no abduco.c on disk to compile at runtime.
- *   2. Compile the server (relay + bun:sqlite; no PTY, no abduco).
- *   3. Compile the daemon via scripts/daemon-compiled.ts (embeds + materializes abduco).
+ *   1. Build the Rust process host (`podium-host-rs`) for the target. It ships as its
+ *      own file beside `podium-cli` in the headless bundle, not embedded; a POSIX
+ *      bundle without it cannot run a durable session, so a missing host fails the
+ *      build. Windows has no durable host (ConPTY) and ships none.
+ *   2. Compile the one `podium` CLI via scripts/cli-compiled.ts (every role: server,
+ *      daemon, all-in-one).
+ *   3. Assemble the headless bundle: binaries, web + mobile clients, launcher.
  *
  * Run with: bun run package:headless                            (this machine's platform)
  *           bun scripts/package-headless.ts --target=bun-darwin-arm64 (cross, from Linux)
  *
  * CROSS-COMPILATION [spec:SP-6144 §8b]. With `--target` this builds the bundle for
  * ANOTHER platform from a Linux box: `bun build --compile --target=…` produces the
- * foreign executable, `scripts/abduco-cross.ts` produces the foreign abduco helper
- * with `zig cc`, `scripts/host-cross.ts` produces the foreign podium-host helper
- * the same way, and a Darwin target is re-signed with `rcodesign`. bun build --compile
+ * foreign executable, `scripts/rust-host-cross.ts` produces the foreign Rust host with
+ * `cargo zigbuild`, and a Darwin target is re-signed with `rcodesign`. bun build --compile
  * already emits an ad-hoc LINKER_SIGNED Mach-O (identifier a.out, no entitlements);
  * rcodesign replaces that signature with identifier podium plus the five Bun JIT
  * entitlement keys. Drop rcodesign and the binary still "signs" — what breaks is JIT,
  * at runtime, not code signing at build time. That is what collapses the release
  * matrix from one runner per architecture to one Linux job for all four.
  *
- * ONE TARGET PER INVOCATION, and deliberately so: the compiled binary embeds abduco
- * and podium-host through static `with { type: 'file' }` imports of the FIXED paths
- * dist-bun/abduco.bin and dist-bun/podium-host.bin,
- * so two targets building at once would race to leave the wrong helpers there. Callers
- * that want several platforms (scripts/release.ts, the dev publisher) run this script
- * once per platform, in sequence.
+ * ONE TARGET PER INVOCATION. Callers that want several platforms (scripts/release.ts,
+ * the dev publisher) run this script once per platform, in sequence.
  */
 import { execFileSync } from 'node:child_process'
 import { sign as cryptoSign } from 'node:crypto'
@@ -59,23 +57,22 @@ import {
   commitShaFromDevVersion,
   isDevChannelVersion,
 } from '../packages/protocol/src/update/dev-version.js'
-import { abducoSupported, buildVendoredAbduco } from '../packages/pty/src/abduco-bin.js'
+import type { HeadlessPlatform } from '../packages/protocol/src/update/platforms'
 import {
   bunVersion,
   hasBunTerminal,
   minTerminalBunVersion,
 } from '../packages/pty/src/backends/bun-terminal-backend.js'
-import { buildVendoredHost, hostSupported, RUST_HOST_BINARY } from '../packages/pty/src/host-bin.js'
+import { hostSupported, RUST_HOST_BINARY } from '../packages/pty/src/host-bin.js'
 import { developmentSourceSha } from '../packages/runtime/src/source-version'
-import { crossBuildAbduco, type HeadlessPlatform, resolveRcodesign } from './abduco-cross'
 import { buildClients } from './build-clients'
 import {
   assertNoCallerSuppliedClientRootDigest,
   clientBuildRootDigestFromSites,
 } from './client-build-root-digest'
-import { crossBuildHost } from './host-cross'
 import { resolvePigz, tarCompressArgs } from './parallel-gzip'
 import { buildLocalRustHost, crossBuildRustHost } from './rust-host-cross'
+import { resolveRcodesign } from './tool-pins'
 import { buildLocalTunnel, crossBuildTunnel, TUNNEL_BINARY } from './tunnel-cross'
 import {
   type ClientBuildEvidence,
@@ -502,7 +499,7 @@ export function packageHeadlessForFreshClients(
   // The bundle packs `apps/web/dist`, and a dev+<sha> tarball may only pack the
   // website built from that same commit — packing yesterday's under today's sha
   // is the lie the source-identity gate exists to prevent. That check used to
-  // sit after the abduco prebuild AND after `bun build --compile`, so every
+  // sit after the helper prebuild AND after `bun build --compile`, so every
   // refusal paid for a full compile and threw it away: 28 of 112 attempts in the
   // week to 2026-08-13, each ~50 s, re-asked every 60 s by /version (POD-1985).
   // Nothing below this point can change the answer, so it belongs up here.
@@ -562,67 +559,36 @@ export function packageHeadlessForFreshClients(
         `(captured=${session.clientRootDigest}, current=${currentClientRootDigest})`,
     )
   }
-  timeReleaseBuildSync(
+  // THE PROCESS HOST, BUILT BEFORE THE COMPILE so a toolchain that cannot produce it
+  // fails the build before paying for `bun build --compile`. The Rust host is the only
+  // durable host a POSIX bundle has: without it no session survives a daemon restart,
+  // so there is no "ship without it" branch. A cross build takes it from the
+  // cargo-zigbuild cache (scripts/rust-host-cross.ts: static musl on Linux, ad-hoc
+  // signed on Darwin); a local build compiles the vendored crate with this host's
+  // cargo. Windows runs sessions on ConPTY without a durable host [spec:SP-7f2c].
+  const rustHost = timeReleaseBuildSync(
     { granularity: 'phase', phase: 'dependency-preparation', target: spec?.platform ?? 'local' },
     () =>
       timeReleaseBuildSync(
         {
           granularity: 'task',
           phase: 'dependency-preparation',
-          task: 'abduco-helper',
+          task: 'rust-host',
           target: spec?.platform ?? 'local',
         },
-        () => {
-          if (spec) {
-            // Cross build: the helper cannot be compiled by the host cc (wrong architecture,
-            // wrong object format), so it comes from the zig-cc cache — built from the SAME
-            // vendored abduco.c, keyed on that source's hash. Copied to the fixed path the
-            // compiled binary's `with { type: 'file' }` import reads.
-            const helper = crossBuildAbduco(spec.platform, { root })
-            cpSync(helper, `${out}/abduco.bin`)
-            console.log(`[build-bun] embedded abduco (${spec.platform}) <- ${helper}`)
-          } else if (!abducoSupported()) {
-            // No abduco on Windows (POSIX forkpty) — sessions run on the ConPTY PTY backend
-            // without a durable host [spec:SP-7f2c]. The compiled CLI still embeds
-            // dist-bun/abduco.bin (a static `with {type:'file'}` import), so write an empty
-            // placeholder for the bundler; materializeEmbeddedAbduco skips it at runtime.
-            console.log(
-              '[build-bun] windows: skipping abduco prebuild (ConPTY backend, no durable host)',
-            )
-            writeFileSync(`${out}/abduco.bin`, '')
-          } else {
-            console.log('[build-bun] prebuilding abduco…')
-            const abduco = buildVendoredAbduco(`${out}/abduco.bin`)
-            if (!abduco)
-              throw new Error(
-                'build-bun: failed to prebuild abduco (missing C compiler, or a compile error — see the [podium] abduco build output above)',
-              )
-            console.log(`[build-bun] abduco -> ${abduco}`)
-          }
-          // podium-host (SPEC-6) rides beside abduco as a second static
-          // `with { type: 'file' }` import, cross-built the same way: the host cc
-          // cannot emit a foreign architecture or object format, so a cross build
-          // comes from the zig-cc cache — built from the SAME vendored host.c,
-          // keyed on that source's hash. Copied to the fixed path the compiled
-          // binary's `with { type: 'file' }` import reads. Windows has no forkpty
-          // and still embeds an EMPTY placeholder, which materializeEmbeddedHost
-          // reads as "no host here" and the daemon falls back to abduco.
+        (): string | undefined => {
           if (!hostSupported(spec?.nodePlatform ?? process.platform)) {
-            console.log('[build-bun] podium-host: no prebuild for this target (abduco fallback)')
-            writeFileSync(`${out}/podium-host.bin`, '')
-          } else if (spec) {
-            const hostHelper = crossBuildHost(spec.platform, { root })
-            cpSync(hostHelper, `${out}/podium-host.bin`)
-            console.log(`[build-bun] embedded podium-host (${spec.platform}) <- ${hostHelper}`)
-          } else {
-            console.log('[build-bun] prebuilding podium-host…')
-            const host = buildVendoredHost(`${out}/podium-host.bin`)
-            if (!host)
-              throw new Error(
-                'build-bun: failed to prebuild podium-host (missing C compiler, or a compile error — see the [podium] podium-host build output above)',
-              )
-            console.log(`[build-bun] podium-host -> ${host}`)
+            console.log(`[build-bun] ${RUST_HOST_BINARY}: none for this target (ConPTY, no host)`)
+            return undefined
           }
+          const built = spec ? crossBuildRustHost(spec.platform, { root }) : buildLocalRustHost()
+          if (!existsSync(built)) {
+            throw new Error(
+              `build-bun: the Rust process host was not produced at ${built}; ` +
+                'a POSIX bundle cannot ship without it (see the cargo output above)',
+            )
+          }
+          return built
         },
       ),
   )
@@ -807,14 +773,10 @@ export function packageHeadlessForFreshClients(
           }
           chmodSync(bundledCli, 0o755)
 
-          // New sessions prefer this prebuilt Rust host. The embedded C helper
-          // remains available for payloads without Rust and explicit overrides.
+          // The Rust process host, beside podium-cli (not embedded): the daemon execs it
+          // from the install dir. Staged and renamed for the same ETXTBSY reason as the
+          // CLI above. A reused Windows output must not retain another build's host.
           const bundledRustHost = `${headless}/${RUST_HOST_BINARY}`
-          const rustHost = win
-            ? undefined
-            : spec
-              ? crossBuildRustHost(spec.platform, { root })
-              : buildLocalRustHost()
           if (rustHost) {
             const stagedHost = `${bundledRustHost}.new-${process.pid}`
             try {
@@ -826,9 +788,7 @@ export function packageHeadlessForFreshClients(
             }
             console.log(`[build-bun] ${RUST_HOST_BINARY} <- ${rustHost}`)
           } else {
-            // A reused local output must not retain another build's Rust helper.
             rmSync(bundledRustHost, { force: true })
-            console.log(`[build-bun] ${RUST_HOST_BINARY}: no prebuild; C host fallback`)
           }
 
           // podium-tunnel (POD-4640): the opt-in quick-tunnel supervisor `podium tunnel

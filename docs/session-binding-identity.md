@@ -151,7 +151,7 @@ conversation**.
 
 **W3 — Attempt identity and observation generation are two fences with two owners.**
 
-- **Attempt id** (daemon-minted) names *which run this is*: this abduco session, this PTY,
+- **Attempt id** (daemon-minted) names *which run this is*: this podium-host session, this PTY,
   this headless invocation. Answers "is the output I am reading from the process I
   started?"
 - **Observation generation** (server-minted, monotonic, `reattachment-design.md`
@@ -401,8 +401,8 @@ orphaned live process is a failure this repo has actually suffered. The contract
 - The daemon **must not start a PTY or headless process before the server has accepted its
   reattach** (§6.2 step 4). Acceptance is what authorizes the attempt, so the common race
   produces no second process at all.
-- If a second attempt exists anyway (daemon crash-restart, a mixed-version daemon, an
-  abduco session that outlived its server acceptance), the server's rejection carries
+- If a second attempt exists anyway (daemon crash-restart, a mixed-version daemon, a
+  durable host that outlived its server acceptance), the server's rejection carries
   `disposition: 'terminate-attempt'` naming the rejected `attemptId`, and the daemon
   **terminates that attempt** — not the session, not the durable host of the winning
   attempt.
@@ -892,7 +892,7 @@ daemon reopens that record, enumerates durable process hosts, replays unacked ob
 and reconciles against the server's new control instruction. No recovery path derives a
 binding from a native filesystem artifact alone, and the server never invents an alias.
 
-**R2 — Daemon restart, process alive.** The daemon enumerates its **durable hosts** (abduco
+**R2 — Daemon restart, process alive.** The daemon enumerates its **durable hosts** (podium-host
 sessions), matches each to a session, and reports what it finds. Rules: the surviving
 process keeps its **attempt id** (W3) — a restart is not a new run; the server issues a
 **new generation**; the daemon's current state is sent as a **bootstrap snapshot, not a

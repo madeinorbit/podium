@@ -1140,8 +1140,8 @@ function developmentSigningKey(root: string): string {
  *
  * `--platform` for EVERY platform, this host's own included, so the dev host exercises
  * the exact path that produces what ships rather than a nearby one — including the
- * cross-compiled abduco helper, which is the part of a bundle a native build would have
- * got from somewhere else. `--artifact` because this side owns the artifacts' lifecycle:
+ * cross-compiled Rust process host, which is the part of a bundle a native build would
+ * have got from somewhere else. `--artifact` because this side owns the artifacts' lifecycle:
  * the build stamp in each name is what retention later sorts on, and the paths must be
  * absolute because the coordinator runs in the snapshot worktree, which is deleted
  * afterwards.

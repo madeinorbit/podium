@@ -4,7 +4,7 @@
  */
 
 import type { SessionId } from '@podium/model'
-import type { AbducoSpawnOptions, DurableAttachment, DurableProcess } from '@podium/process/durable'
+import type { DurableSpawnOptions, DurableAttachment, DurableProcess } from '@podium/process/durable'
 import type { DaemonContext } from '../control/context'
 import { Terminal, type TerminalKind } from '../terminal/terminal.js'
 import { SessionRegistry } from './registry.js'
@@ -39,14 +39,14 @@ export function attachTestTerminal(
  * Nothing survives: `has` is false, so a stub exit reads as the session's exit.
  */
 export function stubDurable(
-  spawn: (opts: AbducoSpawnOptions & { cols: number; rows: number }) => unknown,
+  spawn: (opts: DurableSpawnOptions & { cols: number; rows: number }) => unknown,
 ): DurableProcess {
   const refuse = (): Promise<never> => Promise.reject(new Error('stubDurable: not a durable host'))
   const adapter = {
     kind: 'host' as const,
     // A terminal spawn always carries geometry (the adapters refuse one without).
-    spawn: async (opts: AbducoSpawnOptions) =>
-      spawn(opts as AbducoSpawnOptions & { cols: number; rows: number }) as DurableAttachment,
+    spawn: async (opts: DurableSpawnOptions) =>
+      spawn(opts as DurableSpawnOptions & { cols: number; rows: number }) as DurableAttachment,
     spawnHeadless: refuse,
     attachHeadless: refuse,
     attach: refuse,

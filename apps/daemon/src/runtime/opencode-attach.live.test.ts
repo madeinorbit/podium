@@ -1,6 +1,6 @@
 /**
  * THE LIVE RE-PROOF FOR POD-2059: a REAL `opencode attach` against a REAL
- * `opencode serve`, under a REAL abduco master in its own systemd scope.
+ * `opencode serve`, under a REAL podium-host master in its own systemd scope.
  *
  * ---------------------------------------------------------------------------
  * WHY THIS EXISTS SEPARATELY FROM `opencode-attach.test.ts`
@@ -39,9 +39,10 @@
  *
  *   - SECRET FROM THE ENV, argv carrying nothing but the url and `--session`
  *       → 289 bytes of terminal handshake, no error, master alive. The scope
- *         listing showed `podium-oc-attach-<id>.scope` running
- *         `abduco -n podium-oc-attach-<id> opencode attach http://127.0.0.1:…
- *         --session ses_…` — the credential nowhere in that line.
+ *         listing showed `podium-oc-attach-<id>.scope` running the durable
+ *         master (then abduco; podium-host since POD-4986) over
+ *         `opencode attach http://127.0.0.1:… --session ses_…` — the
+ *         credential nowhere in that line.
  *   - A WRONG SECRET, everything else identical
  *       → `Error: opencode server GET …/session/ses_… → 401 Unauthorized`,
  *         printed in words, then the terminal restored and the client GONE —
@@ -57,7 +58,7 @@ import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { asSessionId, type SessionId } from '@podium/model'
-import { abducoHasSession, createDurable } from '@podium/process/durable'
+import { createDurableProcess, hostHasSession } from '@podium/process/durable'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { attributeMemory, snapshotProcesses } from '../memory-breakdown'
 import { createOpencodeClientTerminals, requireClientTerminalLabel } from './opencode-attach'
@@ -70,7 +71,7 @@ const LIVE = process.env.PODIUM_OPENCODE_LIVE === '1'
 /** Two sessions, two attachments, ONE server — booting the binary twice would
  *  double the slowest part of the run for no extra evidence. */
 // Shared-host live lanes can overlap. Fixed ids make one run adopt or close another
-// run's durable abduco master, turning the liveness assertion into a queue-order race.
+// run's durable host master, turning the liveness assertion into a queue-order race.
 const GOOD = asSessionId(randomUUID())
 const BAD = asSessionId(randomUUID())
 const SECRET = 'live-attach-secret-0123456789abcdef'
@@ -151,10 +152,9 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
     // These attachments are DURABLE by construction. Without an explicit close
     // each run would leave a master and a scope behind for the whole warm TTL.
     const terminals = createOpencodeClientTerminals({
-      // This re-proof predates the host backend: it asserts abduco masters, so
-      // it states abduco explicitly (POD-3917) — through the session-owned
-      // scope, the relay's only process path.
-      clients: createSessionClientScope(createDurable('abduco', { host: false, abduco: true }))!,
+      // Through the session-owned scope, the relay's only process path
+      // (POD-3917).
+      clients: createSessionClientScope(createDurableProcess())!,
       sessions: new SessionRegistry(),
       frames: () => {},
     })
@@ -168,7 +168,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
   ): Promise<{ bytes: string; streamId: string }> => {
     const frames: Uint8Array[] = []
     const terminals = createOpencodeClientTerminals({
-      clients: createSessionClientScope(createDurable('abduco', { host: false, abduco: true }))!,
+      clients: createSessionClientScope(createDurableProcess())!,
       sessions: new SessionRegistry(),
       frames: (_streamId, frame) => frames.push(frame),
     })
@@ -210,7 +210,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
       // The durable master is real, under the label whose scope is the session's
       // sibling — this is what makes the attachment warm-parkable.
       const label = requireClientTerminalLabel(GOOD, 'opencode')
-      expect(await abducoHasSession(label)).toBe(true)
+      expect(await hostHasSession(label)).toBe(true)
 
       /**
        * §5's memory rule, against the real `/proc` rather than a fixture.
@@ -259,11 +259,11 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
       // And closing the attachment takes the master with it, rather than leaving
       // a scope resident for the machine's lifetime.
       await createOpencodeClientTerminals({
-        clients: createSessionClientScope(createDurable('abduco', { host: false, abduco: true }))!,
+        clients: createSessionClientScope(createDurableProcess())!,
         sessions: new SessionRegistry(),
         frames: () => {},
       }).close(GOOD)
-      expect(await abducoHasSession(label)).toBe(false)
+      expect(await hostHasSession(label)).toBe(false)
     },
     CASE_TIMEOUT_MS,
   )
@@ -280,12 +280,12 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
       expect(bytes).toContain('401')
       expect(bytes.toLowerCase()).toContain('unauthorized')
       // A refused client EXITS, so its master goes too. Worth pinning: it means
-      // a dead attachment cleans itself out of abduco, and the reaper's job for
+      // a dead attachment cleans itself out of the host, and the reaper's job for
       // one of these is the record and the scope, not a live process.
       const deadline = Date.now() + 15_000
       let alive = true
       while (alive && Date.now() < deadline) {
-        alive = await abducoHasSession(requireClientTerminalLabel(BAD, 'opencode'))
+        alive = await hostHasSession(requireClientTerminalLabel(BAD, 'opencode'))
         if (alive) await sleep(500)
       }
       expect(alive).toBe(false)

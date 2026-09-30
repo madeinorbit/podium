@@ -1295,7 +1295,7 @@ export interface ClientTerminalSpec {
    * THIS HARNESS'S SLOT IN THE DURABLE LABEL `podium-<token>-attach-<sessionId>`.
    *
    * Podium owns the shape; the harness owns its token, because the token is
-   * what keeps three parked abduco masters for one session distinguishable. It
+   * what keeps three parked podium-host masters for one session distinguishable. It
    * is also the reason this is a declaration rather than a derivation from the
    * harness id: the label is DURABLE — a master outlives the daemon — so
    * changing it orphans a live client, and a value that can be recomputed from
@@ -1327,7 +1327,7 @@ export interface ClientTerminalSpec {
    *     engine that would outlive the control lease. Codex's TUI dials the
    *     per-session Unix listener directly; leaving it warm would let queued
    *     keystrokes bypass the daemon's lease gate.
-   *   `true` — the client may be PARKED: its abduco client is dropped, its
+   *   `true` — the client may be PARKED: the daemon's attachment is dropped, its
    *     master and TUI keep running, and the next switch back in RECONNECTS to
    *     the same generation. Nothing can type into a parked client, because the
    *     only writer is the daemon's own handle and that is exactly what the park

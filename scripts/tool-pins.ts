@@ -4,9 +4,9 @@
  * mise.toml is the ONE place zig and rcodesign versions are spelled: dev machines install
  * from it (`mise install`), CI installs from it (jdx/mise-action), and resolveZig/
  * resolveRcodesign (below) assert against it so a drifted local install fails loudly
- * instead of shipping different bytes. Both helper builds, abduco-cross.ts and
- * host-cross.ts, resolve their tools here: host-cross once carried its own copy of the
- * lookup, from before the POD-3771 fix, and so could not find a zig that abduco could. This module is that assertion's
+ * instead of shipping different bytes. Both native cross builds, rust-host-cross.ts and
+ * tunnel-cross.ts, resolve their tools here: a cross build once carried its own copy of the
+ * lookup, from before the POD-3771 fix, and so could not find a zig its sibling could. This module is that assertion's
  * source of truth — a deliberately narrow parser, not a TOML library: it reads exactly
  * the two pins and throws on anything unexpected, so an edit that breaks the shape is
  * caught by the first build rather than silently unpinning a tool.
@@ -62,14 +62,14 @@ function findTool(
     if (existsSync(candidate)) return candidate
   }
   throw new Error(
-    `${binary} is required to cross-compile the embedded helpers (abduco, podium-host) but was not found. ` +
+    `${binary} is required to cross-compile the native binaries (podium-host-rs, podium-tunnel) but was not found. ` +
       `Install it, put it on PATH, or set ${envName} to its path.`,
   )
 }
 
 /**
  * The found tool must MATCH the mise.toml pin [POD-3187]. Both tools change the bytes a
- * release ships (zig compiles the embedded helper, rcodesign writes the Darwin signature),
+ * release ships (zig links the native binaries, rcodesign writes the Darwin signature),
  * so a drifted local install must fail here, loudly, rather than produce a bundle that
  * differs from what CI would have built. `PODIUM_SKIP_TOOL_PIN_CHECK=1` waives it for
  * deliberate experiments. Memoized per (tool, path): one probe per process, not per call.

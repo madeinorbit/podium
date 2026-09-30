@@ -169,7 +169,7 @@ function incarnations(): string[] {
 describe('a live codex engine whose listener file was removed (POD-4611)', () => {
   it('a relaunch on the same label adopts the survivor, starts no second engine, and fails loudly', async () => {
     const label = codexScopeLabel(facts, SESSION)
-    const durable = createDurableProcess('host', { host: true, abduco: false })
+    const durable = createDurableProcess()
     const sessionEngines = createSessionEngineScope(durable, {
       sessions: new SessionRegistry(),
       socketRoot: engineSocketRoot,

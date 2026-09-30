@@ -1793,48 +1793,59 @@ shells_live() {
     jq -e --argjson ids "$1" \
       '[$ids[] as $id|any(.[];.sessionId==$id and .status=="live")]|all' >/dev/null
 }
-abduco_listing() {
-  local container=$1 socket_dir listing
-  socket_dir="$(container_exec "$container" find /tmp -maxdepth 1 -type d -name "pd-*" -print -quit)"
-  [[ -n "$socket_dir" ]] || socket_dir="$(state_path)/runtime/abduco"
-  if ! listing="$(container_exec "$container" env "ABDUCO_SOCKET_DIR=$socket_dir" \
-      "$(state_path)/bin/abduco" 2>>"$WORK/logs/abduco-state.log")"; then
+# One line per running process host in the container: `<pid>\t<cmdline>`. A host is
+# `podium-host-rs create --socket <dir>/<label>.sock …` (a C host an older daemon started
+# is still `podium-host create …`), and the label ends in `-<session id>`, so the socket
+# path in the argv names the session. The host daemonizes without exec, so its argv is
+# what it was started with. Read from /proc because the clean container ships no pgrep.
+host_listing() {
+  local container=$1 listing
+  if ! listing="$(container_exec "$container" sh -c '
+      for p in /proc/[0-9]*; do
+        c="$(tr "\0" " " <"$p/cmdline" 2>/dev/null)" || continue
+        case "$c" in
+          *podium-host*" create "*"--socket "*) printf "%s\t%s\n" "${p#/proc/}" "$c" ;;
+        esac
+      done' 2>>"$WORK/logs/host-state.log")"; then
     return 1
   fi
-  printf "%s socket=%s\n%s\n" "$container" "$socket_dir" "$listing" \
-    >>"$WORK/logs/abduco-state.log"
+  printf "%s\n%s\n" "$container" "$listing" >>"$WORK/logs/host-state.log"
   printf %s "$listing"
 }
 # THE BASELINE IS A FILE BECAUSE A SUBSHELL CANNOT DISCARD A FILE (POD-2747).
 #
 # `wait_for` runs its predicate as `last="$("$@" 2>&1)"`, so everything the
 # predicate assigns belongs to a command-substitution subshell that exits one
-# line later. `capture_abduco_state` is the ONE predicate that records state, and
+# line later. `capture_host_state` is the ONE predicate that records state, and
 # two of its three call sites go through `wait_for` — including the re-capture
 # before the handover, which is the one that runs whenever the shells had to be
-# re-created. So the recorded masters were thrown away, `abduco_sessions_survived`
-# found no PID to compare against, counted nothing, and reported the survival
-# lost while the journal showed both masters still attached on their original
-# PIDs straight through the successor swap. The row was red for the harness's own
-# bookkeeping, never for the product.
+# re-created. When this baseline was a shell array (it then recorded abduco
+# masters) the recorded PIDs were thrown away, the survival check found no PID
+# to compare against, counted nothing, and reported the survival lost while the
+# journal showed every session still up on its original PID straight through
+# the successor swap. The row was red for the harness's own bookkeeping, never
+# for the product.
 #
 # The same reason the array failed is the reason the guards below say `|| return
 # 1` out loud: with the function called as an `if`/`wait_for` condition, errexit
 # is suppressed for its whole body, so a bare `[[ … ]]` decides nothing and
 # execution simply walks on to the next line.
-abduco_baseline() { printf %s "$WORK/logs/abduco-baseline.tsv"; }
-capture_abduco_state() {
+#
+# Attachment is not read here: `shells_live`, which every call site checks first,
+# is the daemon's own word that it holds each session. What this adds is that the
+# session is held by the SAME host process before and after.
+host_baseline() { printf %s "$WORK/logs/host-baseline.tsv"; }
+capture_host_state() {
   local ids=$1 container listing id line pid found=0 expected baseline
-  baseline="$(abduco_baseline)"
+  baseline="$(host_baseline)"
   expected="$(jq length <<<"$ids")"
   : >"$baseline.new"
   for container in "$FLEET_A" "$FLEET_B"; do
-    listing="$(abduco_listing "$container")" || return 1
+    listing="$(host_listing "$container")" || return 1
     for id in $(jq -r ".[]" <<<"$ids"); do
-      line="$(grep -F -- "-$id" <<<"$listing" | head -1 || true)"
+      line="$(grep -F -- "-$id.sock" <<<"$listing" | head -1 || true)"
       [[ -n "$line" ]] || continue
-      [[ "$line" == \** ]] || return 1
-      pid="$(cut -f3 <<<"$line" | xargs)"
+      pid="$(cut -f1 <<<"$line" | xargs)"
       [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
       docker exec "$container" kill -0 "$pid" || return 1
       printf '%s\t%s\t%s\n' "$container" "$id" "$pid" >>"$baseline.new"
@@ -1842,33 +1853,33 @@ capture_abduco_state() {
     done
   done
   # Publish only a COMPLETE baseline: a half-captured file would let the survival
-  # check compare the masters it happened to see and call that a survival.
+  # check compare the hosts it happened to see and call that a survival.
   [[ "$found" == "$expected" ]] || return 1
   mv "$baseline.new" "$baseline"
 }
-abduco_sessions_survived() {
+host_sessions_survived() {
   local ids=$1 container listing id line pid old recorded found=0 expected baseline
-  baseline="$(abduco_baseline)"
+  baseline="$(host_baseline)"
   expected="$(jq length <<<"$ids")"
   # A missing baseline is a failure to REPORT, not a comparison to skip. The row
-  # claims these EXACT masters survived; with nothing recorded there is no claim
+  # claims these EXACT hosts survived; with nothing recorded there is no claim
   # to make, and reading that as "nothing to check" is precisely how the lost
   # baseline came out looking like lost sessions.
   if [[ ! -s "$baseline" ]]; then
-    say "no abduco master baseline was captured, so survival cannot be judged" >&2
+    say "no process-host baseline was captured, so survival cannot be judged" >&2
     return 1
   fi
   if [[ "$(wc -l <"$baseline")" != "$expected" ]]; then
-    say "abduco baseline holds $(wc -l <"$baseline") masters, expected $expected" >&2
+    say "process-host baseline holds $(wc -l <"$baseline") hosts, expected $expected" >&2
     return 1
   fi
   for container in "$FLEET_A" "$FLEET_B"; do
-    listing="$(abduco_listing "$container")" || return 1
+    listing="$(host_listing "$container")" || return 1
     while IFS=$'\t' read -r recorded id old; do
       [[ "$recorded" == "$container" ]] || continue
-      line="$(grep -F -- "-$id" <<<"$listing" | head -1 || true)"
-      [[ -n "$line" && "$line" == \** ]] || return 1
-      pid="$(cut -f3 <<<"$line" | xargs)"
+      line="$(grep -F -- "-$id.sock" <<<"$listing" | head -1 || true)"
+      [[ -n "$line" ]] || return 1
+      pid="$(cut -f1 <<<"$line" | xargs)"
       [[ "$pid" == "$old" ]] || return 1
       docker exec "$container" kill -0 "$pid" || return 1
       (( found += 1 ))
@@ -1876,7 +1887,6 @@ abduco_sessions_survived() {
   done
   [[ "$found" == "$expected" ]]
 }
-
 
 reported_versions_are() {
   rpc GET updates.fleet |
@@ -2693,20 +2703,15 @@ main() {
   for container in "$SOURCE" "$FLEET_A" "$FLEET_B"; do
     container_exec "$container" sh -lc 'command -v gzip >/dev/null'
   done
-  helper="$(container_exec "$SOURCE" sh -lc \
-    'cd /work/source && find "$(bun scripts/abduco-cross.ts --print-cache-dir)" \
-       -type f -name "linux-x86_64-*" -print -quit')"
-  [[ -n "$helper" ]]
-  container_exec "$SOURCE" test -x "$helper"
-  container_exec "$SOURCE" "$helper" -v >/dev/null
   for container in "$FLEET_A" "$FLEET_B"; do
-    container_exec "$container" test -x "$(state_path)/bin/abduco"
-    container_exec "$container" "$(state_path)/bin/abduco" -v >/dev/null
+    container_exec "$container" test -x "$(install_path)/podium-host-rs"
+    [[ "$(container_exec "$container" "$(install_path)/podium-host-rs" version)" == "podium-host "*" features="* ]]
+    container_exec "$container" sh -c "! test -e '$(state_path)/bin/abduco' && ! test -e '$(state_path)/bin/podium-host'"
   done
   container_exec "$SOURCE" sh -lc \
     'test -n "$(find /work/source/apps/mobile/dist -type f -name "*.gz" -print -quit)"'
   coordinator_healthy
-  pass environment "setup is complete; built and packaged abduco execute, gzip is present, and mobile assets are precompressed"
+  pass environment "setup is complete; the packaged Rust process host executes and no retired helper was unpacked, gzip is present, and mobile assets are precompressed"
 
   if [[ "$ONLY" == legacy ]]; then
     prepare_legacy_machine
@@ -2797,11 +2802,11 @@ main() {
   local shells="[]" shells_ready=0
   if shells="$(create_shells)" &&
      wait_for 60 "durable shells" shells_live "$shells" &&
-     wait_for 60 "attached abduco masters" capture_abduco_state "$shells"; then
+     wait_for 60 "process hosts" capture_host_state "$shells"; then
     shells_ready=1
   else
     blocked agent-survival \
-      "BLOCKED-BY-SESSIONS: real packaged sessions did not become live with captured abduco masters; rollout continues without a survival claim"
+      "BLOCKED-BY-SESSIONS: real packaged sessions did not become live with captured process hosts; rollout continues without a survival claim"
   fi
 
   CURRENT_SCENARIO=update-offer
@@ -2888,11 +2893,11 @@ main() {
 
   CURRENT_SCENARIO=agent-survival
   if (( shells_ready == 0 )) || ! shells_live "$shells" ||
-     ! capture_abduco_state "$shells"; then
+     ! capture_host_state "$shells"; then
     shells_ready=0
     if shells="$(create_shells)" &&
        wait_for 60 "fresh durable shells before handover" shells_live "$shells" &&
-       wait_for 60 "fresh attached abduco masters before handover" capture_abduco_state "$shells"; then
+       wait_for 60 "fresh process hosts before handover" capture_host_state "$shells"; then
       shells_ready=1
     else
       blocked agent-survival \
@@ -2939,13 +2944,13 @@ main() {
   if (( shells_ready == 1 )); then
     CURRENT_SCENARIO=agent-survival
     if wait_for 60 "durable shells after handover" shells_live "$shells" &&
-       wait_for 60 "same abduco masters reattached after handover" \
-         abduco_sessions_survived "$shells"; then
+       wait_for 60 "same process hosts after handover" \
+         host_sessions_survived "$shells"; then
       pass agent-survival \
-        "real remote shells stayed live and retained the exact attached abduco master PIDs across self-handover"
+        "real remote shells stayed live and kept the exact process-host PIDs across self-handover"
     else
       fail agent-survival \
-        "real remote shells or their exact attached abduco master PIDs did not survive self-handover"
+        "real remote shells or their exact process-host PIDs did not survive self-handover"
     fi
   fi
   if [[ -n "$PROVE_FAILURE" ]]; then

@@ -6,8 +6,7 @@
  * every reachable external npm package (dependencies + optionalDependencies + resolvable
  * peerDependencies; devDependencies excluded). For each package it reads the installed
  * package.json (license, author) and LICENSE file (copyright lines) from the bun store,
- * then emits THIRD-PARTY-NOTICES.md at the repo root, including a hand-maintained
- * "Vendored code" section.
+ * then emits THIRD-PARTY-NOTICES.md at the repo root.
  *
  * Usage:
  *   bun scripts/generate-third-party-notices.ts           # (re)write THIRD-PARTY-NOTICES.md
@@ -354,20 +353,6 @@ function isCopyleft(expr: string): boolean {
 // ---------------------------------------------------------------------------------------
 // Output
 
-const VENDORED_SECTION = `## Vendored code
-
-The following third-party sources are vendored (copied) into this repository:
-
-### abduco
-
-- Path: \`packages/pty/vendor/abduco/\`
-- Upstream: https://github.com/martanne/abduco (v0.6, commit 8c32909)
-- License: ISC — Copyright (c) 2013-2018 Marc André Tanner. See
-  \`packages/pty/vendor/abduco/LICENSE\` for the full text.
-- Podium compiles abduco at build time and embeds the binary in the compiled daemon as
-  its durable PTY session backend. Local changes: none (see the accompanying VENDOR.md).
-`
-
 function render(deps: Dep[]): string {
   const byLicense = new Map<string, number>()
   for (const d of deps) byLicense.set(d.license, (byLicense.get(d.license) ?? 0) + 1)
@@ -402,7 +387,6 @@ package and are omitted.
 | --- | --- |
 ${summary}
 
-${VENDORED_SECTION}
 ## npm packages
 
 ${rows}

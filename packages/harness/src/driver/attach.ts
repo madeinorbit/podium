@@ -19,7 +19,7 @@ export type AttachEndpoint =
   /** Terminal family: today's frames path — the engine terminal IS the session. */
   | { kind: 'engine'; stream: TerminalStreamRef }
   /** Server family: a harness TUI client (`codex resume`, `opencode attach`)
-   *  under abduco in a scope SIBLING to the session's, streamed and warm-parked
+   *  under podium-host in a scope SIBLING to the session's, streamed and warm-parked
    *  so its memory never counts against the agent's budget. */
   | {
       kind: 'client'

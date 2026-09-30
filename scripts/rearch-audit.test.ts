@@ -489,9 +489,9 @@ describe('inventory checks', () => {
 
   it('sync/async twins match only a blocking fn that HAS an async twin', () => {
     const ctx = ctxOf({
-      'packages/pty/src/abduco.ts': [
-        'export function abducoHasSession(l) {}',
-        'export async function abducoHasSessionAsync(l) {}',
+      'packages/pty/src/host.ts': [
+        'export function hostHasSession(l) {}',
+        'export async function hostHasSessionAsync(l) {}',
         // No twin — a lone sync function is not this item.
         'export function onlySync(l) {}',
         // Node-builtin-style name without a twin must not false-positive.
@@ -499,7 +499,7 @@ describe('inventory checks', () => {
       ].join('\n'),
     })
     const sites = CHECKS.find((c) => c.id === 'durable-host-sync-async-twins')?.collect(ctx) ?? []
-    expect(sites.map((s) => s.text)).toEqual(['export function abducoHasSession(l) {}'])
+    expect(sites.map((s) => s.text)).toEqual(['export function hostHasSession(l) {}'])
   })
 
   it('send-turn-duplicate counts the redundant alias, not the real entry', () => {

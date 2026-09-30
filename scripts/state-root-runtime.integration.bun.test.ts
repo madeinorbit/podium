@@ -46,14 +46,13 @@ it('keeps consolidated machine files independent across two named runtimes', asy
       // No relay, credentials or instance selection from the operator's live session.
       for (const key of Object.keys(env)) if (key.startsWith('PODIUM_')) delete env[key]
       delete env.NOTIFY_SOCKET
-      delete env.ABDUCO_SOCKET_DIR
       const httpPort = port()
       Object.assign(env, {
         PODIUM_INSTANCE: id, PODIUM_STATE_DIR: stateDir,
         PODIUM_AGENT_HOME: join(root, `${id}-agents`), PODIUM_WEB_DIR: webDir,
         PODIUM_PORT: String(httpPort), PODIUM_HOOK_PORT: String(port()), PODIUM_AGENT_RELAY_PORT: String(port()),
         PODIUM_HOST: '127.0.0.1', PODIUM_NO_RELAY: '1', PODIUM_NO_SCOPE: '1',
-        PODIUM_ABDUCO: join(root, 'missing-abduco'), PODIUM_PTY_BACKEND: 'bun-terminal',
+        PODIUM_PTY_BACKEND: 'bun-terminal',
         PATH: bin, SHELL: '/bin/bash',
       })
       const child = spawn(process.execPath, ['--conditions=@podium/source', join(ROOT, 'scripts/cli.ts'), '--instance', id, 'parent', '--takeover'], {

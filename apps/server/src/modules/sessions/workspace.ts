@@ -526,7 +526,7 @@ export class SessionWorkspace {
     // A recorded path is only valid on the machine that hosts its repository.
     // Rows created before issue rehoming shipped can retain a source-machine cwd
     // after their session moves. Trusting it makes Bun misleadingly report ENOENT
-    // against the executable (`posix_spawn '.../abduco'`) when the missing object
+    // against the executable (`posix_spawn '.../podium-host-rs'`) when the missing object
     // is actually cwd.
     //
     // Keep the normal recorded-worktree path synchronous (POD-197). Reconcile only

@@ -2,7 +2,7 @@
  * Build podium-tunnel (native/podium-tunnel, Rust) for every headless release
  * platform, from one Linux box (POD-4640).
  *
- * The same shape as scripts/host-cross.ts, for the same reasons: one runner builds
+ * The same shape as scripts/rust-host-cross.ts, for the same reasons: one runner builds
  * all four targets, the output is content-addressed on the source so a restored
  * cache is either exactly right or invisible, and Darwin binaries get the same
  * rcodesign ad-hoc signature (Apple Silicon refuses to execute an unsigned Mach-O).
@@ -13,7 +13,7 @@
  * which rustup does not ship and zig does — so no Apple SDK and no Mac runner. rustc
  * prints a warning that it could not ask `xcrun` for an SDK; that is expected, and
  * the link succeeds against zig's stubs. Linux links static musl, so the binary has
- * no glibc floor, like the C helpers.
+ * no glibc floor, like the Rust process host.
  *
  * Toolchain: `rust` and cargo-zigbuild are pinned in mise.toml; the Rust channel is
  * also named in native/podium-tunnel/rust-toolchain.toml, and each build adds its
@@ -76,7 +76,7 @@ export function tunnelSourceHash(crate: string = TUNNEL_CRATE): string {
   return h.digest('hex')
 }
 
-/** `PODIUM_TUNNEL_CACHE_DIR` overrides it, as PODIUM_HOST_CACHE_DIR does for podium-host. */
+/** `PODIUM_TUNNEL_CACHE_DIR` overrides it, as PODIUM_RUST_HOST_CACHE_DIR does for podium-host-rs. */
 export function tunnelCacheDir(root: string = REPO_ROOT): string {
   const override = process.env.PODIUM_TUNNEL_CACHE_DIR?.trim()
   if (override) return resolve(root, override)
@@ -142,7 +142,7 @@ export function crossBuildTunnel(
         CARGO_ZIGBUILD_ZIG_PATH: zig,
         // Room in the Mach-O header for the signature rcodesign writes below; without
         // it x86_64 fails with "insufficient room to write code signature load
-        // command". The same pad host-cross.ts gives the C helper.
+        // command". The same pad rust-host-cross.ts gives the Rust process host.
         ...(spec.darwin ? { RUSTFLAGS: '-C link-arg=-Wl,-headerpad,0x8000' } : {}),
       },
     },

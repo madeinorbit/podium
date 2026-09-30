@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest'
  * files from importing them, so the door cannot be walked around.
  *
  * Allowed value imports from the durable door are the sole entry itself, the
- * availability probes `durable-backend.ts` reads through the door, and the
+ * availability probe `durable-backend.ts` reads through the door, and the
  * systemd scope argv/name helpers the server-family hosts wrap their children
  * in (they name no process and construct no backend or adapter). Type-only
  * imports are always allowed: they erase at runtime and construct nothing.
@@ -26,17 +26,12 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const ALLOWED_DURABLE_VALUES = new Set([
   // Sole entry.
   'createDurableProcess',
-  'createDurable',
   'durableProcessFor',
-  'durableFor',
-  'abducoDurableAdapter',
   'hostDurableAdapter',
-  'sweepStaleDurableBindTemps',
-  // Availability probes (policy reads them through the door).
+  // Availability probe (policy reads it through the door).
   'isHostAvailable',
-  'isAbducoAvailable',
   // Refusal classification (POD-4434): catching the typed lease refusal to
-  // refuse loudly constructs no backend — the same rationale as the probes.
+  // refuse loudly constructs no backend — the same rationale as the probe.
   'WriterLeaseRefusedError',
   // Systemd scope argv/name helpers (wrap a child, construct no backend).
   'canScopeMaster',
@@ -46,13 +41,7 @@ const ALLOWED_DURABLE_VALUES = new Set([
   'applySessionsSliceBudget',
   'scopeEnv',
   'userRuntimeDir',
-  'reclaimStaleScope',
-  'reclaimTerminatedSession',
-  'abducoAttachArgv',
-  'abducoCreateArgv',
-  'resolveAttachBin',
   'liveEnv',
-  'parseAbducoList',
 ])
 
 function* walk(dir: string): Generator<string> {

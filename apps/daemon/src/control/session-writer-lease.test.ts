@@ -182,7 +182,7 @@ describe('the stealWriter verb', () => {
 
   it('answers reattachFailed when the takeover itself is refused', async () => {
     const { ctx, sent, adapter } = world()
-    adapter.steal.mockRejectedValueOnce(new Error('abduco has no writer lease to steal'))
+    adapter.steal.mockRejectedValueOnce(new Error('the host refused the writer lease steal'))
     sessionHandlers.stealWriter(ctx, {
       type: 'stealWriter',
       sessionId: SESSION,

@@ -3,7 +3,7 @@
 #
 # The previous version of the assertion script printed "ALL PASSED" when the
 # reviewer swapped the shipped binary for a 50 KB hello-world, and printed
-# "ALL PASSED" again when its embedded-abduco input was deleted. An assertion
+# "ALL PASSED" again when its embedded-helper input was deleted. An assertion
 # script that cannot go red launders a guess into a GO, so every claim it makes
 # needs a negative control here.
 #
@@ -18,7 +18,6 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SPIKE="${1:-$ROOT/dist-bun-spike/darwin-arm64}"
 ASSERT="$ROOT/scripts/spike/linux-assert-darwin-spike.sh"
 GOOD="$SPIKE/podium-headless-darwin-arm64.tar.gz"
-PREBUILT="$ROOT/scripts/prebuilt/abduco/darwin-arm64/abduco"
 export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"
 
 [[ -f "$GOOD" ]] || { echo "missing $GOOD — run package-mac-execution-bundle.sh first" >&2; exit 2; }
@@ -27,12 +26,7 @@ for t in zig rcodesign python3 file tar; do
 done
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/podium-prove-XXXXXX")"
-cleanup() {
-  [[ -f "$WORK/prebuilt.bak" ]] && cp -f "$WORK/prebuilt.bak" "$PREBUILT"
-  rm -rf "$WORK"
-}
-trap cleanup EXIT
-cp -f "$PREBUILT" "$WORK/prebuilt.bak"
+trap 'rm -rf "$WORK"' EXIT
 
 CASES=0
 BAD=0
@@ -94,7 +88,7 @@ rcodesign sign --binary-identifier podium \
 ls -l "$WORK/hello" | awk '{print "  hello-world size: " $5 " bytes (signed, identifier=podium, JIT entitlements)"}'
 cp -f "$WORK/hello" "$WORK/headless/podium-cli"; chmod +x "$WORK/headless/podium-cli"; repack
 expect_fail "hello-world Mach-O swapped in as headless/podium-cli" \
-  "does NOT appear inside the shipped binary" "$WORK/t.tar.gz"
+  "far too small to embed the Bun runtime" "$WORK/t.tar.gz"
 
 # (b) Linux ELF in place of the shipped binary.
 fresh
@@ -102,21 +96,19 @@ cp -f /bin/true "$WORK/headless/podium-cli"; chmod +x "$WORK/headless/podium-cli
 expect_fail "Linux ELF swapped in as headless/podium-cli" \
   "is not Mach-O" "$WORK/t.tar.gz"
 
-# (c) A REAL build whose embedded abduco is the Linux ELF one (the subtle failure
-#     mode the whole spike exists to exclude). Fixture built by pointing the
-#     prebuilt path at the host linux abduco and re-running the spike build.
-if [[ -f "$ROOT/dist-bun-spike/fixtures/linux-abduco-embedded.tar.gz" ]]; then
-  expect_fail "build with the LINUX abduco embedded" \
-    "Linux ELF header" "$ROOT/dist-bun-spike/fixtures/linux-abduco-embedded.tar.gz"
-else
-  echo
-  echo "SKIP case: no dist-bun-spike/fixtures/linux-abduco-embedded.tar.gz"
-  echo "  rebuild it with:"
-  echo "    cp /bin/true $PREBUILT"
-  echo "    bun --conditions=@podium/source scripts/spike/build-bun-darwin.ts --target=bun-darwin-arm64"
-  echo "    tar -czf dist-bun-spike/fixtures/linux-abduco-embedded.tar.gz -C dist-bun-spike/darwin-arm64 headless"
-  echo "  then restore the darwin prebuilt and rebuild."
-fi
+# (c) The Rust host built for the wrong platform: a Linux ELF shipped as
+#     headless/podium-host-rs beside a perfectly good Darwin CLI.
+fresh
+cp -f /bin/true "$WORK/headless/podium-host-rs"; chmod +x "$WORK/headless/podium-host-rs"; repack
+expect_fail "Linux ELF shipped as headless/podium-host-rs" \
+  "podium-host-rs is not Mach-O" "$WORK/t.tar.gz"
+
+# (c2) A retired helper embedded in the CLI: its identifying string appended to the
+#      shipped binary (breaks the seal too, but the embed scan runs first).
+fresh
+printf 'abduco-0.6-podium' >> "$WORK/headless/podium-cli"; repack
+expect_fail "retired abduco embedded in the shipped binary" \
+  "carries a retired abduco" "$WORK/t.tar.gz"
 
 # (d) Signature removed for real. Note Bun already ad-hoc signs its darwin output,
 #     so this needs macho-strip-signature.py — the old "podium.unsigned" was signed.
@@ -167,11 +159,10 @@ if [[ -f "$SPIKE/podium.unsigned" ]]; then
 fi
 
 # (h) The regression that mattered most: an input that vanishes must FAIL, not skip.
-fresh; repack
-mv -f "$PREBUILT" "$WORK/prebuilt.moved"
-expect_fail "prebuilt abduco input deleted (must fail, not silently skip)" \
-  "prebuilt abduco missing" "$WORK/t.tar.gz"
-cp -f "$WORK/prebuilt.bak" "$PREBUILT"
+fresh
+rm -f "$WORK/headless/podium-host-rs"; repack
+expect_fail "podium-host-rs missing from the tarball (must fail, not silently skip)" \
+  "tarball missing headless/podium-host-rs" "$WORK/t.tar.gz"
 
 # (i) Old spike tarball layout (loose binaries at the archive root) — not what the
 #     updater extracts.

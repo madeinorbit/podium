@@ -12,8 +12,8 @@ ownership live in ADR 10 (`docs/adr/0010-harness-adapter-and-driver-boundary.md`
 
 | Object | Lives in | May import | Must never import |
 |---|---|---|---|
-| podium-host | `packages/pty/vendor/podium-host/host.c`, driven by `@podium/process/durable` | libc | anything |
-| DurableProcess | `@podium/process/durable` (`packages/pty/src/durable-process.ts`) | host, abduco adapters, scope helpers | SessionId, protocol frames, daemon context, any driver |
+| podium-host | `packages/pty/vendor/podium-host-rs/` (Rust), driven by `@podium/process/durable` | libc, its pinned crates | anything |
+| DurableProcess | `@podium/process/durable` (`packages/pty/src/durable-process.ts`) | the host adapter, scope helpers | SessionId, protocol frames, daemon context, any driver |
 | Terminal | `apps/daemon/src/terminal/terminal.ts` (`Terminal`, `TerminalKind`), over `@podium/process/screen`; built only by `Terminal.attach` | DurableAttachment, TerminalScreen, protocol terminal frames | the durable door, any driver, harness manifests |
 | RuntimeDriver | `@podium/harness/driver/families/*` (contract in `@podium/harness/driver`, construction in `/driver/host`); daemon keeps only wiring in `apps/daemon/src/runtime/host.ts` (builds `TerminalHostPorts`) | the Terminal port it is handed; its own protocol client; harness manifests; the session's engine port | DurableProcess spawn/kill, podium-host's socket, the engine's socket path, the binding journal |
 | Session | daemon mirror `apps/daemon/src/session/` (`registry.ts`, `daemon-session.ts`, `engines.ts`, `journal.ts`, `driver-slots.ts`); server record `apps/server/src/modules/sessions/` | DurableProcess, Terminal, the driver registry, protocol frames | screen internals, harness manifests beyond driver selection (daemon); anything in the daemon or the process package (server) |

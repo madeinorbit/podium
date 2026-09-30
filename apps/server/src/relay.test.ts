@@ -1248,8 +1248,8 @@ describe('SessionRegistry', () => {
     })
   })
 
-  // A row can be persisted 'exited' yet still be alive: its abduco attach client
-  // died on a daemon restart while the master + agent survived in their scope. On
+  // A row can be persisted 'exited' yet still be alive: the daemon lost its
+  // attachment on a restart while the host + agent survived in their scope. On
   // boot the durable host — not the stale row — is the source of truth, so the
   // registry probes exited rows and reattaches the ones still running.
   const exitedRow = (id: string, over: Partial<SessionRow> = {}): SessionRow => ({
@@ -2293,7 +2293,7 @@ describe('SessionRegistry', () => {
     await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
       type: 'reattachFailed',
       sessionId,
-      reason: 'no abduco session',
+      reason: 'no durable session',
     })
     expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('exited')
   })
@@ -4073,7 +4073,7 @@ describe('hibernation', () => {
   })
 
   // The hold must NOT swallow the census repair for PTY-driven rows of the same
-  // harnesses: the census measures a live abduco host under the row's label — an
+  // harnesses: the census measures a live podium-host under the row's label — an
   // identity no server-family session ever has — so its revive stays a passive
   // PTY reattach and is exempt from the server-family hold.
   it('the census still revives a PTY-driven codex row the hold would otherwise catch', async () => {

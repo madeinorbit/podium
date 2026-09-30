@@ -301,8 +301,8 @@ CLI-side fact below is from execution, not docs. Podium's headless driver
   `auto_retry_end { success: false, finalError }`. Read failure from the stream, never the exit code.
 - Session bucket name: `--${cwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--` (from
   `session-manager.js`); file `<ISO timestamp with ':'→'-'>_<uuid>.jsonl`.
-- Runs cleanly under abduco (stdin must be closed or redirected; an open non-TTY stdin blocks
-  waiting for EOF).
+- Runs cleanly under a durable host (verified under abduco, before POD-4986; stdin must be
+  closed or redirected — an open non-TTY stdin blocks waiting for EOF).
 - `pi --list-models` prints a whitespace table (`provider model context max-out thinking images`)
   on **stdout** in this version.
 

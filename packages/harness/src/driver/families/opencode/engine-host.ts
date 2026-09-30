@@ -44,7 +44,7 @@
  *      hygiene.
  *
  * ---------------------------------------------------------------------------
- * WHY THE SCOPE RECLAIM IS NOT `reclaimStaleScope`
+ * WHY THE SCOPE RECLAIM IS NOT LEFT TO THE HOST
  * ---------------------------------------------------------------------------
  *
  * `podium-host create` reclaims a stale scope squatting the label's unit name

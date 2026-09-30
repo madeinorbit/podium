@@ -534,7 +534,7 @@ export const ReattachMessage = z.object({
    * restart the pty has been running at a size of its own all along. So it feeds
    * the daemon's HEADLESS screens (the composer engine and the screen observers
    * need some cols x rows to parse output against) and nothing else: it never
-   * reaches the pty (the reattach's abduco attach is size-neutral) and it is
+   * reaches the pty (the reattach's podium-host attach sends no size) and it is
    * never echoed back on `bind`, which reports only what the daemon applied.
    */
   lastKnownGeometry: Geometry,
@@ -710,11 +710,13 @@ export const CAP_DAEMON_GEOMETRY_APPLIED = 'geometryApplied'
  *
  * The daemon flushes that session's held output, dispatches the resize, and
  * emits this before yielding — so a viewer learns the new grid ahead of any
- * output the daemon was still holding at the old one. Honest label: DISPATCHED
- * to the attach pty. For an abduco session the master applies it a beat later
- * and may forward already-read old bytes after doing so; that transient is one
- * SIGWINCH propagation plus one repaint, and is what every terminal shows during
- * a resize (see MODEL.md "Accepted residuals").
+ * output the daemon was still holding at the old one. A daemon on podium-host
+ * sends it from the host's RESIZED, once the kernel applied the size (POD-4723).
+ * An older daemon sends it when the resize is DISPATCHED to the attach pty; its
+ * master (abduco, then) applied it a beat later and could forward already-read
+ * old bytes after doing so; that transient is one SIGWINCH propagation plus one
+ * repaint, and is what every terminal shows during a resize (see MODEL.md
+ * "Accepted residuals").
  *
  * No request id: reports for one session travel in order on one channel, so
  * last-report-wins is the whole ordering rule.
@@ -896,7 +898,7 @@ export const SessionKillResultMessage = z.object({
  * The reap receipt above covers a kill this server saw through; this covers the
  * ones it did not — a kill sent into a socket that had already died, or issued
  * by a server process that has since restarted. The daemon reads its own socket
- * index (no `abduco` fork, no per-label probe), so the whole census is one
+ * index (no process fork, no per-label probe), so the whole census is one
  * directory scan however many sessions the machine holds.
  */
 export const DurableSessionCensusMessage = z.object({

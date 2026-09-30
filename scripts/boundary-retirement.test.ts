@@ -233,7 +233,7 @@ describe('RETIRED agent-host-consumers -> manifest-consumers', () => {
   it("allows the restricted package's OWN tests", () => {
     expect(
       rulesFor(
-        'packages/harness/test/pty-behavior/abduco.bun.test.ts',
+        'packages/harness/test/pty-behavior/host.bun.test.ts',
         `import { x } from '@podium/harness'`,
       ),
     ).toEqual([])

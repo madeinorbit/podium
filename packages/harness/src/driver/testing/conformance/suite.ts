@@ -1838,7 +1838,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         const { handle, control, driver } = setup()
         if (driver.family !== 'server') {
           /**
-           * A PTY's park is a DETACH: the abduco host outlives it and the
+           * A PTY's park is a DETACH: the podium-host outlives it and the
            * process was never gone, so this family reaches the same user-facing
            * promise by a route this property does not describe. Skipping it
            * here is a statement about the shape, not a gap in the family.

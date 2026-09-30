@@ -16,9 +16,9 @@ import {
 import { join, resolve } from "node:path";
 import { requestMachineUpdate } from "../packages/runtime/src/machine-update-control";
 import { readMachineUpdateJournal } from "../packages/runtime/src/machine-update";
-import { buildVendoredAbduco } from "../packages/pty/src/abduco-bin";
-import { buildVendoredHost } from "../packages/pty/src/host-bin";
+import { RUST_HOST_BINARY } from "../packages/pty/src/host-bin";
 import { launcherShim } from "./build-bun";
+import { buildLocalRustHost } from "./rust-host-cross";
 
 // This lane owns one compiler at a time, including all synchronous child builds.
 process.env.PODIUM_TEST_WORKERS = "1";
@@ -321,20 +321,14 @@ try {
   mkdirSync(payload);
   const buildRoot = join(root, "compiled-cli-build");
   const scriptsDir = join(buildRoot, "scripts");
-  const distDir = join(buildRoot, "dist-bun");
   mkdirSync(scriptsDir, { recursive: true });
-  mkdirSync(distDir);
-  for (const file of [
-    "cli-compiled.ts",
-    "cli.ts",
-    "embedded-abduco.ts",
-    "embedded-host.ts",
-  ])
+  for (const file of ["cli-compiled.ts", "cli.ts"])
     cpSync(join(repo, "scripts", file), join(scriptsDir, file));
   for (const dir of ["apps", "packages"])
     symlinkSync(join(repo, dir), join(buildRoot, dir), "dir");
-  buildVendoredAbduco(join(distDir, "abduco.bin"));
-  buildVendoredHost(join(distDir, "podium-host.bin"));
+  // A real payload carries the Rust process host beside podium-cli; nothing is embedded.
+  cpSync(buildLocalRustHost(), join(payload, RUST_HOST_BINARY));
+  chmodSync(join(payload, RUST_HOST_BINARY), 0o755);
   run(process.execPath, [
     "build",
     "--compile",

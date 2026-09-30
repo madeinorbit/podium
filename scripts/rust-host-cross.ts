@@ -148,9 +148,18 @@ export function crossBuildRustHost(
   return out
 }
 
-/** Local packaging remains usable without a Rust toolchain, through the C host. */
-export function buildLocalRustHost(crate = RUST_HOST_CRATE): string | undefined {
-  if (!hasTool('rustup')) return undefined
+/**
+ * The Rust host for a local (this-machine) bundle, built with this host's own cargo.
+ * No fallback: the Rust host is the only durable process host a POSIX bundle has, so
+ * a machine without the crate's toolchain cannot package one and says so.
+ */
+export function buildLocalRustHost(crate = RUST_HOST_CRATE): string {
+  if (!hasTool('rustup')) {
+    throw new Error(
+      'rust-host-cross: rustup is required to build the Rust process host; ' +
+        `run mise install in ${crate}`,
+    )
+  }
   execFileSync('rustup', ['run', rustChannel(crate), 'cargo', 'build', '--release', '--locked'], {
     cwd: crate,
     stdio: 'inherit',

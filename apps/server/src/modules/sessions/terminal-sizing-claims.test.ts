@@ -645,7 +645,7 @@ describe('POD-3279: a bind without geometry keeps the copy and announces nothing
   const bareBind = (sessionId: SessionId): Extract<import('@podium/protocol/daemon').DaemonMessage, { type: 'bind' }> => ({
     type: 'bind',
     sessionId,
-    cmd: `abduco -a podium-${sessionId}`,
+    cmd: `podium-host attach /run/hosts/podium-${sessionId}.sock`,
     cwd: '/w',
     agentKind: 'claude-code',
   })

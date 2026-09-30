@@ -41,7 +41,7 @@ import { SessionRegistry } from './session/registry.js'
  * Each turn gets a fresh session label; a resumed turn is a new session turn
  * on the same harness conversation, exactly as the server sends it.
  */
-const engines = createSessionEngineScope(createDurableProcess('host', { host: true, abduco: false }), { sessions: new SessionRegistry() })
+const engines = createSessionEngineScope(createDurableProcess(), { sessions: new SessionRegistry() })
 let smokeTurns = 0
 function runHeadlessTurn(
   spec: Omit<HeadlessTurnSpec, 'durableLabel'>,

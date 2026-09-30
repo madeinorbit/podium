@@ -151,7 +151,7 @@ echo $! >"$WORK/daemon.pid"
 alive=0
 for _ in $(seq 1 20); do
   if ! kill -0 "$(cat "$WORK/daemon.pid")" 2>/dev/null; then break; fi
-  if [[ -x "$PODIUM_STATE_DIR/bin/abduco" ]] && grep -q 'daemon up\|server up' "$WORK/daemon.log" 2>/dev/null; then
+  if grep -q 'daemon up\|server up' "$WORK/daemon.log" 2>/dev/null; then
     alive=1
     break
   fi
@@ -164,37 +164,49 @@ if [[ $alive -eq 1 ]] && kill -0 "$(cat "$WORK/daemon.pid")" 2>/dev/null; then
 else
   fail "daemon: all-in-one did not stay up / no server|daemon up line"
 fi
-if [[ -x "$PODIUM_STATE_DIR/bin/abduco" ]]; then
-  "$PODIUM_STATE_DIR/bin/abduco" -v 2>&1 | head -3
-  pass "abduco: embedded helper materialized under state dir"
+# --- the bundled Rust process host: runs, signed, hosts a session that survives ---
+HOST_BIN="$WORK/headless/podium-host-rs"
+if [[ -x "$HOST_BIN" ]] && h_out="$("$HOST_BIN" version 2>&1)" && [[ "$h_out" == "podium-host "*" features="* ]]; then
+  echo "$h_out"
+  pass "host: bundled podium-host-rs runs ($h_out)"
 else
-  fail "abduco: embedded helper not materialized"
+  fail "host: bundled podium-host-rs missing or did not run"
+fi
+if codesign --verify --strict --verbose=4 "$HOST_BIN" 2>&1; then
+  pass "host: codesign --verify --strict accepts podium-host-rs"
+else
+  fail "host: codesign --verify --strict REJECTED podium-host-rs"
 fi
 
-# --- abduco spawn + reattach / survive restart ---
-ABDUCO_BIN="${PODIUM_STATE_DIR}/bin/abduco"
-SESS="p$$"
+# `create` daemonizes and returns while the host stays up; a second `create` on the same
+# socket must refuse with exit 3 ("already running"), which proves the socket is live.
+HOST_SOCK="$WORK/h$$.sock"
 set +e
-"$ABDUCO_BIN" -n "$SESS" /bin/sleep 120
+"$HOST_BIN" create --socket "$HOST_SOCK" --no-pty --linger-secs 2 -- /bin/sleep 120
 c_rc=$?
 set -e
-if [[ $c_rc -eq 0 ]] && "$ABDUCO_BIN" -l 2>&1 | grep -qF "$SESS"; then
-  pass "abduco: session spawned (-n $SESS)"
+for _ in $(seq 1 10); do [[ -S "$HOST_SOCK" ]] && break; sleep 0.5; done
+if [[ $c_rc -eq 0 && -S "$HOST_SOCK" ]]; then
+  pass "host: session spawned ($HOST_SOCK)"
 else
-  fail "abduco: session spawn failed (rc=$c_rc)"
+  fail "host: session spawn failed (rc=$c_rc)"
 fi
-# Kill all-in-one (daemon restart stand-in); session must remain.
+# Kill all-in-one (daemon restart stand-in); the session must remain.
 if [[ -f "$WORK/daemon.pid" ]]; then
   kill "$(cat "$WORK/daemon.pid")" 2>/dev/null || true
   sleep 1
 fi
-if "$ABDUCO_BIN" -l 2>&1 | grep -qF "$SESS"; then
-  pass "abduco: session survives daemon kill (reattach/survival)"
+set +e
+dup_out="$("$HOST_BIN" create --socket "$HOST_SOCK" --no-pty -- /usr/bin/true 2>&1)"
+dup_rc=$?
+set -e
+if [[ $dup_rc -eq 3 && "$dup_out" == *"already running"* ]]; then
+  pass "host: session survives daemon kill (socket still live)"
 else
-  fail "abduco: session vanished after daemon kill"
+  fail "host: session vanished after daemon kill (second create exited $dup_rc: $dup_out)"
 fi
 # Cleanup session
-pkill -f "abduco.*$SESS" 2>/dev/null || true
+pkill -f "$HOST_SOCK" 2>/dev/null || true
 
 echo
 echo "=== MATRIX ==="

@@ -189,8 +189,8 @@ jobs:
               apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz
               apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
           # Intel macs build natively on GitHub's Intel runner. Cross-compiling from arm64 would
-          # also need an x64 Bun sidecar and an x64 abduco, neither of which build-bun plumbs
-          # through.
+          # also need an x64 Bun sidecar and an x64 Rust process host, neither of which
+          # build-bun plumbs through on a Mac.
           - target: darwin-x86_64
             runner: macos-15-intel
             build_args: "-- --target x86_64-apple-darwin"
@@ -218,7 +218,6 @@ jobs:
         with:
           path: |
             ~/.bun/install/cache
-            packages/agent-bridge/src/abduco.bin
           key: desktop-build-${{ matrix.target }}-${{ hashFiles('bun.lock', 'apps/desktop/src-tauri/Cargo.lock') }}
       - run: bun install --frozen-lockfile --ignore-scripts
       # The Developer ID lives in a throwaway keychain rather than being handed to Tauri via

@@ -14,15 +14,19 @@ bot: just open a pull request.
   tools use the `@podium/source` condition to resolve workspace packages to `src`; the normal live
   development backend runs from an installed Bun-compiled bundle. Agent PTYs use
   `Bun.Terminal`.
-- **macOS:** Xcode Command Line Tools (`xcode-select --install`). A C compiler (`cc`/clang) compiles
-  the vendored `abduco` session helper into `~/.podium/bin/` on first daemon start; without it,
-  sessions don't survive a daemon restart. Set `PODIUM_ABDUCO=/path/to/abduco` to point at a
-  prebuilt binary instead.
+- **Linux and macOS: Rust (rustup + cargo).** A dev daemon run from a source checkout builds the
+  durable session host, podium-host, from `packages/pty/vendor/podium-host-rs` with cargo on first
+  use and caches it by source hash under `~/.cache/podium/podium-host-rs-src`; without a working
+  build it refuses to start sessions. Install the crate's pinned toolchain with
+  `mise trust && mise install` in that directory (or rustup; the channel is in its
+  `rust-toolchain.toml`). Set `PODIUM_HOST_BIN` to a prebuilt Rust podium-host (feature level 2)
+  to skip the build. On macOS, cargo links through the Xcode Command Line Tools
+  (`xcode-select --install`).
 - **Windows desktop:** Microsoft C++ Build Tools with the "Desktop development with C++"
   workload, Microsoft Edge WebView2, and the Rust MSVC host toolchain. Windows sessions use
-  ConPTY, so they do not need the POSIX `abduco` compiler prerequisite.
-- (Optional) **Rust + Tauri CLI** — only needed to build the desktop app (`apps/desktop`); the
-  desktop build runs a preflight that checks for it.
+  ConPTY, so they need no podium-host build.
+- (Optional) **Tauri CLI** (with the desktop crate's Rust toolchain) — only needed to build the
+  desktop app (`apps/desktop`); the desktop build runs a preflight that checks for it.
 
 ## Setup
 

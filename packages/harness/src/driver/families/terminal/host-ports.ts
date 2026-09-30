@@ -101,7 +101,7 @@ export interface TerminalForeignWrites {
   /** Every foreign write and exclusivity loss so far, this host life. */
   count(sessionId: SessionId): number
   /** Whether an unchanged count can be believed: true only while the session's
-   *  terminal holds the backend's writer lease (never on abduco). */
+   *  terminal holds the host's writer lease. */
   orderTrustworthy(sessionId: SessionId): boolean
   /** Remember the session's current count as `turnId`'s typing start. */
   markTyping(sessionId: SessionId, turnId: string): void
