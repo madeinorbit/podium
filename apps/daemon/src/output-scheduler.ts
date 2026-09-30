@@ -65,6 +65,27 @@ export class OutputScheduler {
     if (p.timer === undefined) p.timer = this.setTimer(() => this.flush(sessionId), this.coalesceMs)
   }
 
+  /**
+   * A PICTURE from the host (POD-4912): the whole screen at this point of the
+   * stream. Whatever DATA this session holds was produced before it, so it
+   * leaves first; then the picture leaves on its own, at once, whatever the
+   * tier — it is never coalesced into data, and never waits for a timer.
+   */
+  enqueuePicture(
+    sessionId: SessionId,
+    picture: { reason: 'reset' | 'cut'; cols: number; rows: number; bytes: Uint8Array },
+  ): void {
+    this.flush(sessionId)
+    this.deps.flush({
+      type: 'ptyPicture',
+      sessionId,
+      reason: picture.reason,
+      cols: picture.cols,
+      rows: picture.rows,
+      bytes: picture.bytes,
+    })
+  }
+
   priorityOf(sessionId: SessionId): Tier {
     return this.state(sessionId).tier
   }

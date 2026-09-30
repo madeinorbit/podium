@@ -26,6 +26,20 @@ export interface AgentFrame {
 }
 
 /**
+ * A PICTURE of the screen, in its place in the output stream (POD-4912): the
+ * whole terminal state at that point, as bytes that rebuild it on a fresh
+ * terminal of `cols` x `rows` (they start with RIS). The DATA after it goes on
+ * from there. `reset` answers a request or follows a resize; `cut` bounds the
+ * tail. Only a host that keeps the screen sends one, and only once asked.
+ */
+export interface AgentPicture {
+  reason: 'reset' | 'cut'
+  cols: number
+  rows: number
+  bytes: Uint8Array
+}
+
+/**
  * THE ATTACHMENT HANDLE (POD-4434): one live connection to a durable process.
  *
  * Renamed in POD-4434 because it never was a session — it is the one live
@@ -78,6 +92,24 @@ export interface DurableAttachment {
    * {@link holdsWriterLease} is.
    */
   onLeaseLost?(cb: () => void): () => void
+  /**
+   * PICTURES, IN STREAM ORDER WITH {@link onFrame} (POD-4912): both are called
+   * synchronously from the one ordered read, so a subscriber to both sees
+   * exactly the host's order. Absent on backends that keep no screen.
+   */
+  onPicture?(cb: (picture: AgentPicture) => void): () => void
+  /** The host keeps the screen and answers a picture request (its WELCOME said so). */
+  keepsScreen?(): boolean
+  /**
+   * Ask for a `reset` picture, which arrives through {@link onPicture} in its
+   * place in the stream. False when the backend keeps no screen.
+   */
+  requestPicture?(): boolean
+  /**
+   * This attachment started at the output TAIL: it has seen none of what the
+   * program drew before it, so only a picture can rebuild that.
+   */
+  readonly attachedAtTail?: boolean
 
   dispose(): void
   /**

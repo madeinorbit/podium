@@ -58,9 +58,10 @@ export function reportSize(
   sessionId: SessionId,
   size: Geometry,
   birth = false,
+  pictures = false,
 ): void {
   ports.outputScheduler?.flushNow?.(sessionId)
-  ports.send(geometryAppliedFrame(sessionId, size, birth))
+  ports.send(geometryAppliedFrame(sessionId, size, birth, pictures))
   log.debug('reported', { sessionId, cols: size.cols, rows: size.rows, birth })
 }
 
@@ -107,13 +108,16 @@ export function geometryAppliedFrame(
   sessionId: SessionId,
   size: Geometry,
   birth = false,
+  pictures = false,
 ): GeometryAppliedFrame {
   return {
     type: 'geometryApplied',
     sessionId,
     geometry: { cols: size.cols, rows: size.rows },
     cause: 'request',
-    // A Terminal's first size (POD-4771): the server treats it like a bind.
+    // A Terminal's first size (POD-4771): the server treats it like a bind,
+    // including whether this terminal's output carries pictures (POD-4912).
     ...(birth ? { birth: true } : {}),
+    ...(birth && pictures ? { pictures: true as const } : {}),
   }
 }

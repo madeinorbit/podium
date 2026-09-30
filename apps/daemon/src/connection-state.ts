@@ -198,6 +198,11 @@ export interface DaemonConnection {
   start(): Promise<void>
   retryHandshake(): void
   sendOutput(batch: DaemonPtyOutputBatch): void
+  /**
+   * The live link accepted terminal.picture.v1 (POD-4912): the server takes
+   * picture items and serves viewers from them. False while disconnected.
+   */
+  acceptsPictures(): boolean
   send(msg: DaemonMessage): void
   quiesceEndpoint(transferId: string): void
   resumeEndpoint(transferId: string): void
@@ -1215,11 +1220,41 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       }
       return ready
     },
+    acceptsPictures() {
+      return state === 'connected' && acceptedCaps.has(CAP_TERMINAL_PICTURE_V1)
+    },
     sendOutput(batch) {
-      // B1 widens the item contract only; B2 enables picture transmission.
-      if (batch.type === 'ptyPicture') return
       if (socket && invalidSockets.has(socket)) return
       if (state !== 'connected') return
+      if (batch.type === 'ptyPicture') {
+        // An older server never receives a picture item (N8): it would fail the
+        // binary frame and terminate the link. The capability is only accepted
+        // together with binary output (E8), so a socket link can carry it.
+        if (!acceptedCaps.has(CAP_TERMINAL_PICTURE_V1)) return
+        if (localAttachment) {
+          localAttachment.deliverOutput(batch)
+          return
+        }
+        if (!socket) return
+        try {
+          socket.send(
+            encodeBinaryEnvelope(
+              {
+                v: 1,
+                type: 'ptyPicture',
+                sessionId: batch.sessionId,
+                reason: batch.reason,
+                cols: batch.cols,
+                rows: batch.rows,
+              },
+              batch.bytes,
+            ),
+          )
+        } catch (error) {
+          lastSocketError = describeSocketError(error)
+        }
+        return
+      }
       assertOutputBatch(batch)
       if (localAttachment) {
         localAttachment.deliverOutput(batch)

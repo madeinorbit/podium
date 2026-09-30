@@ -118,7 +118,7 @@ import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import { ATTACH_TUI_WARM_TTL_MS } from '@podium/protocol'
-import type { DurableAttachment } from '@podium/process/screen'
+import type { AgentPicture, DurableAttachment } from '@podium/process/screen'
 import type { ClientProcessOwner } from '../session/clients.js'
 import type { SessionRegistry } from '../session/registry.js'
 import type { ClientTerminalPolicy } from '../session/daemon-session.js'
@@ -358,7 +358,15 @@ export interface OpencodeClientTerminalPorts {
    * observers and composer. `birth` marks the Terminal's first size, which is
    * the client TUI opening (POD-4771). Absent in a harness built without a daemon.
    */
-  sizeEvent?(sessionId: SessionId, size: Geometry, birth: boolean): void
+  sizeEvent?(sessionId: SessionId, size: Geometry, birth: boolean, keepsScreen: boolean): void
+  /**
+   * A PICTURE from the client TUI's host (POD-4912), in stream order with its
+   * frames: the daemon forwards it with no per-frame side effect, and `seed`
+   * marks the one that rebuilds the session screen. Absent: dropped.
+   */
+  picture?(streamId: string, picture: AgentPicture, seed: boolean): void
+  /** The server link accepted terminal.picture.v1 (POD-4912). */
+  picturesAccepted?(): boolean
   /**
    * THE SIZE TO OPEN THIS SESSION'S CLIENT TERMINAL AT (POD-3809).
    *
@@ -593,7 +601,9 @@ export function createOpencodeClientTerminals(
       // The host states the size — WELCOME now, RESIZED later — and the daemon
       // reports it (POD-4723). A created client is born at `birth`; an adopted
       // one is at a size of its own, which WELCOME reads back.
-      onSize: (size, birth) => ports.sizeEvent?.(sessionId, size, birth),
+      onSize: (size, birth) =>
+        ports.sizeEvent?.(sessionId, size, birth, session.keepsScreen?.() === true),
+      onPicture: (picture, seed) => ports.picture?.(sessionId, picture, seed),
       onFrame: (data) => {
         driverTiming.nativeCliStage(sessionId, kind, 'native_cli_first_output', {
           bytes: data.byteLength,
@@ -618,7 +628,12 @@ export function createOpencodeClientTerminals(
      * used to do this is what put ptys back at a stale size). A fresh
      * generation paints itself at startup and needs nothing.
      */
-    if (session.adopted && policy.replayRequired) {
+    // A CLIENT TERMINAL IS BORN WITHOUT A BIND (H3, POD-4912), so the request
+    // a bind would make is made here: the host's `reset` picture repaints the
+    // returning viewer (and seeds the screen) exactly, instead of the ring.
+    if (ports.picturesAccepted?.() === true && terminal.requestPicture()) {
+      policy.replayRequired = false
+    } else if (session.adopted && policy.replayRequired) {
       policy.replayRequired = false
       void terminal.replay(CLIENT_REPLAY_TAIL_BYTES).catch((err) =>
         log.warn('client terminal replay failed', { err, sessionId }),

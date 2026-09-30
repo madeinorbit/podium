@@ -45,6 +45,12 @@ export interface DaemonContext {
   acknowledgeQueueDrainReport(reportId: string): void
   /** Retire a retained coarse event after the server's durable commit. */
   acknowledgeRuntimeEvent(deliveryId: string): void
+  /**
+   * The live server link accepted terminal.picture.v1 (POD-4912): binds may say
+   * `pictures`, picture items flow, and a redraw is a picture request. Absent
+   * (hand-built contexts) or false: the older server's redraw branches.
+   */
+  picturesAccepted?(): boolean
 
   // -- configuration ---------------------------------------------------------
   /** The machine identity this daemon registers as (inventory reports carry it). */

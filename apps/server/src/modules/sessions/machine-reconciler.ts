@@ -342,6 +342,9 @@ export class SessionMachineReconciler {
     const changed: Session[] = []
     for (const s of this.ports.sessions()) {
       if (s.machineId !== machineId) continue
+      // Its pictures went with the daemon (POD-4912): the returning daemon
+      // rebinds and sends a fresh one. An exited session keeps its last screen.
+      s.terminal.linkDetached()
       // Headless sessions stay 'live' across daemon restarts — no PTY bridge to
       // lose; bound tails re-establish via rebindHeadless and never-bound
       // sessions re-send their establish frame (reestablishHeadless) on the

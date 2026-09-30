@@ -15,8 +15,14 @@ import {
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { feedPrincipalOf } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
+import {
+  type SendOutcome,
+  type SendSequenceSource,
+  SequenceBinary,
+} from '../../gateway/ordered-client-send'
 import { perfPrincipal } from '../perf/principal'
 import { perf } from '../perf/registry'
+import { type CachedPicture, PictureCache } from './picture-cache'
 import type { Send } from './session'
 import { controlSubjectFromClient, identityOf } from './session-control-policy'
 
@@ -26,6 +32,8 @@ const MAX_REPLAY_BYTES = 256 * 1024
 const MAX_REPLAY_FRAMES = 4096
 const MAX_TRANSCRIPT_ITEMS = 12_000
 const SHELL_BUSY_WINDOW_MS = 4000
+/** A viewer owed a catch-up with nothing to serve asks the daemon after this (H2). */
+const STALE_OWED_MS = 1000
 
 function sameGeometry(a: Geometry, b: Geometry | undefined): boolean {
   return b !== undefined && a.cols === b.cols && a.rows === b.rows
@@ -192,6 +200,31 @@ interface OutputFanout {
   legacy?: ServerMessage
 }
 
+/** A picture from the daemon, as the output path carries it (POD-4912). */
+export interface TerminalPicture {
+  reason: 'reset' | 'cut'
+  cols: number
+  rows: number
+  bytes: Uint8Array
+}
+
+/** Why a viewer became owed — named in the log line, never branched on. */
+type OweTrigger = 'attach' | 'drop' | 'reset' | 'epoch' | 'redraw'
+
+/**
+ * A VIEWER THAT MISSED OUTPUT (POD-4912). While owed it gets no live bytes;
+ * it is served the latest picture and the tail after it, and is no longer
+ * owed the moment that serve ends.
+ */
+interface OwedViewer {
+  readonly since: number
+  readonly trigger: OweTrigger
+  /** The serve in flight, if one is. */
+  serve?: { cancel(): void }
+  /** Owed again while a serve was in flight: end it and serve the latest. */
+  again: boolean
+}
+
 /**
  * A viewer's box statement, as the server reads a `viewportRequest`: the box it
  * measured, and whether it also claims control.
@@ -337,8 +370,23 @@ export class SessionTerminal {
    * exactly the slowness it was meant to survive.
    */
   private turnPreview: TurnPreviewMessage | undefined
+  /**
+   * THE LAST BIND'S `pictures` (POD-4912): the daemon forwards its host's
+   * pictures for this session, and viewers are served from them. `undefined`
+   * until a daemon has bound this session (and again after its link
+   * detached): an attach then takes today's path, and the reset picture that
+   * follows a `pictures` bind catches it up.
+   */
+  private pictures: boolean | undefined
+  /** The program exited: the last screen stays servable across a detach. */
+  private exited = false
+  private readonly pictureCache: PictureCache
+  private readonly owed = new Map<string, OwedViewer>()
+  private readonly dropHandlers = new WeakMap<ClientConn, () => void>()
+  private nudgeTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(private readonly init: SessionTerminalInit) {
+    this.pictureCache = new PictureCache(init.sessionId)
     this.geometry = { ...init.geometry }
     this.outputAtMs_ = this.seedMs(init.lastOutputAt)
     this.inputAtMs_ = this.seedMs(init.lastInputAt)
@@ -415,6 +463,23 @@ export class SessionTerminal {
     if (this.controllerId === null) {
       this.setController(client.id, client)
       this.reconcile()
+    }
+    if (this.pictures === true) {
+      // A PICTURES SESSION (POD-4912): the viewer keeps its screen until the
+      // picture's RIS replaces it, so this is a resume; it is owed, and served
+      // the latest picture and the tail — never the byte log.
+      client.send({
+        type: 'attached',
+        sessionId: this.init.sessionId,
+        controllerId: this.controllerId,
+        controllerIdentity: this.controllerIdentity,
+        geometry: { ...this.geometry },
+        epoch: this.epoch,
+        resumed: true,
+        outputSeen: this.outputCount_ > 0,
+      })
+      this.owe(client.id, 'attach')
+      return
     }
     const oldest = this.outputLog[0]?.seq
     const newest = this.outputLog.at(-1)?.seq
@@ -608,6 +673,7 @@ export class SessionTerminal {
   detachClient(clientId: string): void {
     const client = this.clients.get(clientId)
     client?.viewports.delete(this.init.sessionId)
+    this.release(clientId)
     this.clients.delete(clientId)
     this.transcriptSubscribers.delete(clientId)
     this.reconcileWatchLevel()
@@ -642,6 +708,8 @@ export class SessionTerminal {
 
   detachAll(): void {
     for (const client of this.clients.values()) client.viewports.delete(this.init.sessionId)
+    for (const clientId of [...this.owed.keys()]) this.release(clientId)
+    this.stopNudge()
     this.clients.clear()
     this.transcriptSubscribers.clear()
     // The retained frame goes with the viewers. It describes a turn that may
@@ -851,6 +919,9 @@ export class SessionTerminal {
         controllerIdentity: this.controllerIdentity,
         geometry: { ...this.geometry },
       })
+      // A viewer clears its screen on a new epoch: serve every one of them the
+      // picture instead of leaving it blank (POD-4912).
+      this.oweAll('epoch')
     }
     this.reconcile()
   }
@@ -864,6 +935,17 @@ export class SessionTerminal {
     this.controllerId = null
     this.controllerIdentity = identity
     if (attribution) this.lastInputAttribution = attribution
+  }
+
+  /**
+   * THE USER'S REDRAW (POD-4912): the requester is owed and served the
+   * picture again. Only the controller's also reaches the program, as a
+   * Ctrl-L — a spectator must never make the program redraw.
+   */
+  redrawRequest(clientId: string): void {
+    if (!this.clients.has(clientId)) return
+    this.owe(clientId, 'redraw')
+    if (clientId === this.controllerId) this.redraw({ hard: true })
   }
 
   /**
@@ -913,9 +995,13 @@ export class SessionTerminal {
       : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     const seq = this.nextSeq++
     this.bufferFrame(seq, normalized)
+    this.pictureCache.appendData(seq, normalized)
     const fanout: OutputFanout = {}
-    for (const client of this.clients.values())
-      this.sendOutput(client, seq, normalized, true, fanout)
+    for (const client of this.clients.values()) {
+      // An owed viewer gets these bytes in its tail, not live.
+      if (this.owed.has(client.id)) continue
+      this.sendOutput(client, seq, normalized, true, fanout, this.dropHandler(client))
+    }
     this.outputAtMs_ = Date.now()
     this.outputCount_ += sourceFrames
     this.activityDirty_ = true
@@ -923,6 +1009,8 @@ export class SessionTerminal {
   }
 
   stopOutput(): void {
+    this.exited = true
+    this.stopNudge()
     if (this.shellBusyTimer) clearTimeout(this.shellBusyTimer)
     this.shellBusyTimer = undefined
     this.shellBusy_ = false
@@ -950,6 +1038,8 @@ export class SessionTerminal {
       cols: this.geometry.cols,
       rows: this.geometry.rows,
     })
+    // A picture at the new size is servable now (H1).
+    this.serveOwed()
     return true
   }
 
@@ -965,9 +1055,276 @@ export class SessionTerminal {
    * {@link lastForwarded}. Then reconcile, which re-drives a lost ask.
    */
   bind(geometry: Geometry | undefined): void {
+    this.exited = false
     this.lastForwarded = geometry ? { cols: geometry.cols, rows: geometry.rows } : undefined
     if (geometry) this.applyDaemonGeometry(geometry)
     this.reconcile()
+    this.serveOwed()
+  }
+
+  /**
+   * WHETHER THIS SESSION'S OUTPUT CARRIES PICTURES (POD-4912), as its bind (or
+   * a terminal's birth report) states it. Set SYNCHRONOUSLY where the frame is
+   * received, before anything awaits (H1): the reset picture right behind the
+   * bind must find it set, whatever the bind's durable write is queued behind.
+   * Without pictures, owed viewers are released to live bytes and today's
+   * repaint, and the cache goes.
+   */
+  setPictures(on: boolean): void {
+    this.pictures = on
+    if (on) {
+      this.serveOwed()
+      return
+    }
+    this.pictureCache.drop('unbound')
+    if (this.owed.size === 0) return
+    for (const clientId of [...this.owed.keys()]) this.release(clientId)
+    this.stopNudge()
+    this.redraw({ replayRequired: true })
+  }
+
+  /**
+   * A PICTURE FROM THE DAEMON (POD-4912): the host's screen at this point of
+   * the output. It becomes the cache's picture; a `reset` (a request answered,
+   * a resize) owes every viewer, a `cut` owes nobody. Not activity: no output
+   * count, no recency, no shell busy.
+   */
+  acceptPicture(picture: TerminalPicture): void {
+    const seq = this.nextSeq++
+    this.pictureCache.putPicture(seq, picture.cols, picture.rows, picture.bytes)
+    log.debug('picture', {
+      sessionId: this.init.sessionId,
+      reason: picture.reason,
+      cols: picture.cols,
+      rows: picture.rows,
+      bytes: picture.bytes.byteLength,
+    })
+    if (picture.reason === 'reset') this.oweAll('reset')
+    else this.serveOwed()
+  }
+
+  /**
+   * THE DAEMON'S LINK WENT AWAY (POD-4912). A live session's cache goes with
+   * it — the returning daemon rebinds and asks for a fresh picture — and until
+   * that bind the session is back to today's attach. An exited session keeps
+   * its last screen.
+   */
+  linkDetached(): void {
+    if (this.exited) return
+    this.pictureCache.drop('detach')
+    this.pictures = undefined
+    this.stopNudge()
+  }
+
+  /** Owe one viewer, then serve whoever can be served. */
+  private owe(clientId: string, trigger: OweTrigger): void {
+    if (!this.markOwed(clientId, trigger)) return
+    this.serveOwed()
+  }
+
+  /** Owe every viewer of a pictures session, then serve. */
+  private oweAll(trigger: OweTrigger): void {
+    let any = false
+    for (const clientId of this.clients.keys()) any = this.markOwed(clientId, trigger) || any
+    if (any) this.serveOwed()
+  }
+
+  private markOwed(clientId: string, trigger: OweTrigger): boolean {
+    if (this.pictures !== true || !this.clients.has(clientId)) return false
+    const owed = this.owed.get(clientId)
+    if (owed) {
+      // A serve in flight is about an older picture: end it, serve the latest.
+      if (owed.serve) owed.again = true
+      return true
+    }
+    this.owed.set(clientId, { since: Date.now(), trigger, again: false })
+    log.debug('owed', { sessionId: this.init.sessionId, clientId, trigger })
+    return true
+  }
+
+  /** Stop owing a viewer (detached, or released by a bind without pictures). */
+  private release(clientId: string): void {
+    const owed = this.owed.get(clientId)
+    if (!owed) return
+    this.owed.delete(clientId)
+    owed.serve?.cancel()
+  }
+
+  /**
+   * THE ONE SERVE (H1): called when a picture is cached, on a bind, on a
+   * geometry change, on attach and on every owe. Every owed viewer not already
+   * being served is served, if the cached picture is at the session's size;
+   * otherwise it waits, and the stale-owed nudge asks the daemon for a fresh
+   * picture (H2).
+   */
+  private serveOwed(): void {
+    if (this.pictures !== true || this.owed.size === 0) return
+    const picture = this.pictureCache.picture
+    const servable = picture !== undefined && sameGeometry(picture, this.geometry)
+    let waiting = false
+    for (const [clientId, owed] of this.owed) {
+      if (owed.serve) continue
+      const client = this.clients.get(clientId)
+      if (!client) {
+        this.owed.delete(clientId)
+        continue
+      }
+      if (!servable) {
+        waiting = true
+        continue
+      }
+      this.serve(client, owed, picture)
+    }
+    if (waiting) this.armNudge()
+  }
+
+  /**
+   * Serve one owed viewer the picture, then the tail, through a pulled send
+   * sequence (E5). The tail is read by offset, so a cut mid-serve skips and
+   * repeats nothing. The viewer stops being owed IN THE SAME CALL that ends the
+   * sequence: a byte accepted after it goes out live, one before it was in the
+   * tail. A tail the cap evicted, or a newer reason to owe, ends the serve and
+   * serves again.
+   */
+  private serve(client: ClientConn, owed: OwedViewer, picture: CachedPicture): void {
+    const reader = this.pictureCache.openReader(picture)
+    const binary = client.caps.has(CAP_TERMINAL_OUTPUT_BINARY_V1) && client.sendBinary !== undefined
+    let phase: 'picture' | 'tail' | 'done' = 'picture'
+    let cancelled = false
+    const finish = (outcome: 'served' | 'again' | 'failed' | 'cancelled'): void => {
+      if (phase === 'done') return
+      phase = 'done'
+      this.pictureCache.closeReader(reader)
+      if (this.owed.get(client.id) !== owed) return
+      if (outcome === 'served' || outcome === 'failed') {
+        this.owed.delete(client.id)
+        if (outcome === 'served')
+          log.debug('served', {
+            sessionId: this.init.sessionId,
+            clientId: client.id,
+            trigger: owed.trigger,
+            waitMs: Date.now() - owed.since,
+          })
+        return
+      }
+      owed.serve = undefined
+      owed.again = false
+      queueMicrotask(() => this.serveOwed())
+    }
+    const source: SendSequenceSource<ServerMessage> = {
+      next: () => {
+        if (phase === 'done') return undefined
+        if (cancelled) {
+          finish('cancelled')
+          return undefined
+        }
+        // Owed again (a reset, a new epoch, a redraw) while this serve was in
+        // flight: it is about an older picture — stop here, serve the latest.
+        if (owed.again) {
+          finish('again')
+          return undefined
+        }
+        if (phase === 'picture') {
+          phase = 'tail'
+          return this.outputItem(binary, picture.seq, picture.bytes)
+        }
+        const read = this.pictureCache.read(reader)
+        if (read.kind === 'end') {
+          finish('served')
+          return undefined
+        }
+        if (read.kind === 'evicted') {
+          finish('again')
+          return undefined
+        }
+        return this.outputItem(binary, read.seq, read.bytes)
+      },
+    }
+    owed.serve = {
+      cancel: () => {
+        cancelled = true
+        if (phase !== 'done') {
+          phase = 'done'
+          this.pictureCache.closeReader(reader)
+        }
+      },
+    }
+    const sent: Promise<SendOutcome> = client.sendSequence
+      ? client.sendSequence(source)
+      : this.serveEagerly(client, source)
+    void sent.then((outcome) => {
+      if (!outcome.ok) finish('failed')
+    })
+  }
+
+  /** An in-process peer with no lazy sink takes the whole serve now. */
+  private serveEagerly(
+    client: ClientConn,
+    source: SendSequenceSource<ServerMessage>,
+  ): Promise<SendOutcome> {
+    for (let item = source.next(); item !== undefined; item = source.next()) {
+      if (item instanceof SequenceBinary) client.sendBinary?.(item.bytes)
+      else client.send(item)
+    }
+    return Promise.resolve({ ok: true })
+  }
+
+  /** One catch-up frame on the normal output path: this viewer's encoding, the live epoch. */
+  private outputItem(binary: boolean, seq: number, bytes: Buffer): ServerMessage | SequenceBinary {
+    if (binary)
+      return new SequenceBinary(
+        encodeBinaryEnvelope(
+          { v: 1, type: 'ptyOutput', sessionId: this.init.sessionId, seq, epoch: this.epoch },
+          bytes,
+        ),
+      )
+    return {
+      type: 'outputFrame',
+      sessionId: this.init.sessionId,
+      seq,
+      epoch: this.epoch,
+      data: bytes.toString('base64'),
+    }
+  }
+
+  /** A live frame this viewer lost owes it a catch-up (N4, E6) — on a pictures session. */
+  private dropHandler(client: ClientConn): (() => void) | undefined {
+    if (this.pictures !== true) return undefined
+    let handler = this.dropHandlers.get(client)
+    if (!handler) {
+      handler = () => this.owe(client.id, 'drop')
+      this.dropHandlers.set(client, handler)
+    }
+    return handler
+  }
+
+  /** H2: a viewer owed with nothing to serve asks the daemon, at most once a second. */
+  private armNudge(): void {
+    if (this.nudgeTimer !== undefined) return
+    this.nudgeTimer = setTimeout(() => {
+      this.nudgeTimer = undefined
+      this.nudgeStale()
+    }, STALE_OWED_MS)
+    this.nudgeTimer.unref?.()
+  }
+
+  private stopNudge(): void {
+    if (this.nudgeTimer === undefined) return
+    clearTimeout(this.nudgeTimer)
+    this.nudgeTimer = undefined
+  }
+
+  private nudgeStale(): void {
+    if (this.pictures !== true || this.exited) return
+    const waiting = [...this.owed.values()].filter((owed) => !owed.serve)
+    if (waiting.length === 0) return
+    log.debug('owed with nothing to serve: asking for a picture', {
+      sessionId: this.init.sessionId,
+      viewers: waiting.length,
+      hasPicture: this.pictureCache.picture !== undefined,
+    })
+    this.redraw({ replayRequired: true })
+    this.armNudge()
   }
 
   broadcast(message: ServerMessage): void {
@@ -1047,6 +1404,7 @@ export class SessionTerminal {
     bytes: Buffer,
     lossy: boolean,
     shared?: OutputFanout,
+    onDrop?: () => void,
   ): boolean {
     const attribution = this.clientAttribution(client)
     const fanout = shared ?? {}
@@ -1066,7 +1424,7 @@ export class SessionTerminal {
         fanout.binary = frame
       }
       let sent = true
-      if (lossy && client.sendBinaryStream) sent = client.sendBinaryStream(frame)
+      if (lossy && client.sendBinaryStream) sent = client.sendBinaryStream(frame, onDrop)
       else client.sendBinary(frame)
       if (sent) perf.record('phase', 'terminal.output.binary', 0, attribution, bytes.byteLength)
       return sent
@@ -1084,7 +1442,7 @@ export class SessionTerminal {
       fanout.legacy = message
     }
     let sent = true
-    if (lossy && client.sendStream) sent = client.sendStream(message)
+    if (lossy && client.sendStream) sent = client.sendStream(message, onDrop)
     else client.send(message)
     if (sent) perf.record('phase', 'terminal.output.base64', 0, attribution, bytes.byteLength)
     return sent

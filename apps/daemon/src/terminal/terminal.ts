@@ -22,7 +22,7 @@
  */
 
 import type { Geometry } from '@podium/model'
-import type { DurableAttachment } from '@podium/process/screen'
+import type { AgentPicture, DurableAttachment } from '@podium/process/screen'
 import type { TerminalScreen } from '@podium/process/screen'
 import type { ExclusiveWriterCheck, ForeignWriteCounter, MessageWrite } from './foreign-writes.js'
 
@@ -60,6 +60,14 @@ export interface TerminalEvents {
    * every later one (POD-4771).
    */
   onSize?(size: Geometry, birth: boolean): void
+  /**
+   * A PICTURE from a host that keeps the screen (POD-4912), in stream order
+   * with {@link onFrame}. It is not a frame: whoever handles it forwards it and
+   * skips every per-frame side effect. `seed` is true on exactly one picture —
+   * the first `reset` after this Terminal attached at the output tail — which
+   * is the one that may rebuild the session's screen and composer.
+   */
+  onPicture?(picture: AgentPicture, seed: boolean): void
 }
 
 /**
@@ -96,6 +104,11 @@ export class Terminal {
   private readonly writes: ForeignWriteCounter
   /** Whether this attachment is, right now, the only writer: the host's lease. */
   private readonly exclusive: ExclusiveWriterCheck
+  /**
+   * Attached at the tail and not yet given a reset picture: the session's
+   * screen has not seen what the program drew before this attachment.
+   */
+  private seedPending: boolean
 
   private constructor(
     attachment: DurableAttachment,
@@ -114,11 +127,23 @@ export class Terminal {
         if (!this.settled) this.writes.leaseLost()
       }))
     }
+    this.seedPending = attachment.attachedAtTail === true
     this.unwire.push(
       attachment.onFrame((frame) => {
         if (!this.settled) events.onFrame(frame.data)
       }),
     )
+    if (events.onPicture && attachment.onPicture) {
+      const onPicture = events.onPicture
+      this.unwire.push(
+        attachment.onPicture((picture) => {
+          if (this.settled) return
+          const seed = this.seedPending && picture.reason === 'reset'
+          if (seed) this.seedPending = false
+          onPicture(picture, seed)
+        }),
+      )
+    }
     if (events.onTitle) {
       const onTitle = events.onTitle
       this.unwire.push(attachment.onTitle((title) => {
@@ -184,6 +209,20 @@ export class Terminal {
 
   get live(): boolean {
     return !this.settled
+  }
+
+  /** The host keeps the screen and answers a picture request (POD-4912). */
+  get keepsScreen(): boolean {
+    return !this.settled && this.attachment.keepsScreen?.() === true
+  }
+
+  /**
+   * Ask the host for a `reset` picture; it arrives through `onPicture` in its
+   * place in the stream. False when parked or the host keeps no screen.
+   */
+  requestPicture(): boolean {
+    if (this.settled) return false
+    return this.attachment.requestPicture?.() === true
   }
 
   /**

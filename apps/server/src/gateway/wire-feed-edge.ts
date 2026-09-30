@@ -302,31 +302,31 @@ export class WireFeedEdge {
     if (isUpgradeRequired(adapter)) return Promise.resolve({ ok: true })
     let buffered: ServerMessage[] = []
     let done = false
-    const source: SendSequenceSource<ServerMessage> = {
-      next: () => {
-        while (buffered.length === 0 && !done) {
-          const step = frames.next()
-          if (step.done) {
-            done = true
-            break
-          }
-          try {
-            buffered = [...adapter.translate(step.value, { acceptsDelta: peer.acceptsDelta })]
-          } catch (error) {
-            log.error('adapter refused a frame — dropping the peer', {
-              peer: peer.id,
-              wireVersion: peer.wireVersion,
-              err: error,
-            })
-            this.detach(peer.id)
-            done = true
-          }
+    // Feed frames are JSON only: the source never yields a binary item.
+    const next = (): ServerMessage | undefined => {
+      while (buffered.length === 0 && !done) {
+        const step = frames.next()
+        if (step.done) {
+          done = true
+          break
         }
-        return buffered.shift()
-      },
+        try {
+          buffered = [...adapter.translate(step.value, { acceptsDelta: peer.acceptsDelta })]
+        } catch (error) {
+          log.error('adapter refused a frame — dropping the peer', {
+            peer: peer.id,
+            wireVersion: peer.wireVersion,
+            err: error,
+          })
+          this.detach(peer.id)
+          done = true
+        }
+      }
+      return buffered.shift()
     }
+    const source: SendSequenceSource<ServerMessage> = { next }
     if (peer.sendSequence) return peer.sendSequence(source)
-    for (let message = source.next(); message !== undefined; message = source.next()) {
+    for (let message = next(); message !== undefined; message = next()) {
       peer.send(message)
     }
     return Promise.resolve({ ok: true })

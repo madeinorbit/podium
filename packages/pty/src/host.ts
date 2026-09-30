@@ -24,7 +24,7 @@ import {
 } from './abduco.js'
 import type { PtyProcess } from './backends/types.js'
 import { resolveHostBin } from './host-bin.js'
-import { type DurableAttachment, wrapPty } from './session.js'
+import { type AgentPicture, type DurableAttachment, wrapPty } from './session.js'
 
 const log = createLogger('pty:host')
 
@@ -485,6 +485,11 @@ export class HostConnection {
     })
   }
 
+  /** The host's WELCOME announced the screen: it answers {@link requestPicture}. */
+  get keepsScreen(): boolean {
+    return this.welcomed?.screen === true
+  }
+
   /**
    * Ask for pictures (POD-4909). Sent only to a host whose WELCOME announced
    * the screen — never to the C host, which would close the connection on an
@@ -818,6 +823,10 @@ export interface HostAttachOptions {
  */
 export interface HostDurableAttachment extends DurableAttachment {
   readonly ready: Promise<HostWelcome>
+  readonly attachedAtTail: boolean
+  onPicture(cb: (picture: AgentPicture) => void): () => void
+  keepsScreen(): boolean
+  requestPicture(): boolean
   readonly connection: HostConnection
   /**
    * Replay the last `tailBytes` of the host's ring through `onFrame` — what a
@@ -847,8 +856,24 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
   let dataCb: ((bytes: Uint8Array) => void) | undefined
   let exitCb: ((e: { exitCode: number; signal?: number }) => void) | undefined
   let disposed = false
+  const pictureCbs = new Set<(picture: AgentPicture) => void>()
 
-  conn.onData((_seq, data) => dataCb?.(data))
+  // ONE ORDERED READ (POD-4912): DATA goes through the PtyProcess view to
+  // `wrapPty`'s frame fan-out, pictures to their own subscribers, both from
+  // this one callback — so the host's order is the order everyone sees.
+  conn.onItem((item) => {
+    if (item.kind === 'data') {
+      dataCb?.(item.data)
+      return
+    }
+    const picture: AgentPicture = {
+      reason: item.reason,
+      cols: item.cols,
+      rows: item.rows,
+      bytes: item.bytes,
+    }
+    for (const cb of [...pictureCbs]) cb(picture)
+  })
   conn.onExit((code, signal) => exitCb?.({ exitCode: code, ...(signal ? { signal } : {}) }))
   conn.onClose((err) => {
     // A connection lost while the child is alive is not an exit; the daemon's
@@ -975,6 +1000,14 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
         offClose()
       }
     },
+    attachedAtTail: from === HOST_TAIL,
+    onPicture: (cb) => {
+      if (disposed) return () => {}
+      pictureCbs.add(cb)
+      return () => pictureCbs.delete(cb)
+    },
+    keepsScreen: () => conn.keepsScreen,
+    requestPicture: () => !disposed && conn.requestPicture(),
     async replay(tailBytes) {
       if (disposed) return
       await ready
@@ -986,6 +1019,7 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
     dispose() {
       if (disposed) return
       disposed = true
+      pictureCbs.clear()
       base.dispose() // calls proc.kill → DETACH
     },
   }

@@ -210,8 +210,25 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
         failBinary('malformed', raw.byteLength, error)
         return
       }
-      // B1 parses picture items; B2 supplies their ordered routing and handling.
-      if (decoded.metadata.type === 'ptyPicture') return
+      if (decoded.metadata.type === 'ptyPicture') {
+        // In order with the data around it, synchronously (POD-4912).
+        perf.record(
+          'phase',
+          'terminal.picture.daemon.binary',
+          0,
+          DEPLOYMENT,
+          decoded.payload.byteLength,
+        )
+        registry.gateway.routeDaemonOutput(principal, {
+          type: 'ptyPicture',
+          sessionId: decoded.metadata.sessionId,
+          reason: decoded.metadata.reason,
+          cols: decoded.metadata.cols,
+          rows: decoded.metadata.rows,
+          bytes: decoded.payload,
+        })
+        return
+      }
       perf.record(
         'phase',
         'terminal.output.daemon.binary',

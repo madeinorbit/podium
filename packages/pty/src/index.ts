@@ -45,6 +45,7 @@ export type { PtyBackend, PtyProcess, PtySpawnOptions } from './backends/index.j
 export {
   type SpawnOptions,
   type AgentFrame,
+  type AgentPicture,
   type DurableAttachment,
   wrapPty,
 } from './session.js'

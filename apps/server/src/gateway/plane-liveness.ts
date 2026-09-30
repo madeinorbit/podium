@@ -91,12 +91,15 @@ export interface HeartbeatSocket {
 export interface PlaneSink {
   /** Encode and send one frame, capped. */
   send(msg: Parameters<typeof encodeFn>[0]): void
-  /** Lower-budget stream send: false means dropped; it never terminates. */
-  sendLossy(msg: Parameters<typeof encodeFn>[0]): boolean
+  /**
+   * Lower-budget stream send: false means dropped; it never terminates.
+   * `onDrop` hears every drop of this frame, now or later (POD-4912).
+   */
+  sendLossy(msg: Parameters<typeof encodeFn>[0], onDrop?: () => void): boolean
   /** Send one already-framed binary message through the control budget. */
   sendBinary(bytes: Uint8Array): void
   /** Send one already-framed binary message through the lossy stream budget. */
-  sendBinaryLossy(bytes: Uint8Array): boolean
+  sendBinaryLossy(bytes: Uint8Array, onDrop?: () => void): boolean
   /**
    * Send an ordered sequence LAZILY, pulled as the socket drains (POD-3931).
    * Later `send` calls wait behind it. Absent on a sink that cannot push back,
@@ -182,10 +185,17 @@ export function definePlaneLiveness(spec: {
       // binds is demonstrably THIS policy's, at send time.
       return {
         send: (msg) => safeSend(ws, msg, policy.sendBufferLimitBytes),
-        sendLossy: (msg) => safeSendLossy(ws, msg, policy.lossySendBufferLimitBytes),
+        sendLossy: (msg, onDrop) => {
+          const sent = safeSendLossy(ws, msg, policy.lossySendBufferLimitBytes)
+          if (!sent) onDrop?.()
+          return sent
+        },
         sendBinary: (bytes) => safeSendBinary(ws, bytes, policy.sendBufferLimitBytes),
-        sendBinaryLossy: (bytes) =>
-          safeSendBinaryLossy(ws, bytes, policy.lossySendBufferLimitBytes),
+        sendBinaryLossy: (bytes, onDrop) => {
+          const sent = safeSendBinaryLossy(ws, bytes, policy.lossySendBufferLimitBytes)
+          if (!sent) onDrop?.()
+          return sent
+        },
       }
     },
     startHeartbeat(sockets, alive, timers = REAL_TIMERS, onTick) {

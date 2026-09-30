@@ -34,7 +34,7 @@
 import type { Geometry, SessionId } from '@podium/model'
 import type { ClientLogOrigin, ServerMessage } from '@podium/protocol'
 import type { Send } from '../modules/sessions/session'
-import type { SendOutcome, SendSequenceSource } from './ordered-client-send'
+import { SequenceBinary, type SendOutcome, type SendSequenceSource } from './ordered-client-send'
 import type { ClientPrincipal } from './client-principal'
 
 /**
@@ -55,12 +55,15 @@ export interface ClientConn {
   /** Socket termination on admission failure; absent for in-process sinks. */
   terminate?: () => void
   send: Send<ServerMessage>
-  /** Lossy stream sink. False means the frame was dropped under pressure. */
-  sendStream?: (message: ServerMessage) => boolean
+  /**
+   * Lossy stream sink. False means the frame was dropped under pressure;
+   * `onDrop` hears that drop, and a later one inside the pump (POD-4912).
+   */
+  sendStream?: (message: ServerMessage, onDrop?: () => void) => boolean
   /** Explicit binary transport sink; absent on legacy/in-process peers. */
   sendBinary?: (bytes: Uint8Array) => void
-  /** Lossy binary stream sink. False means the frame was dropped under pressure. */
-  sendBinaryStream?: (bytes: Uint8Array) => boolean
+  /** Lossy binary stream sink, reporting drops like {@link sendStream}. */
+  sendBinaryStream?: (bytes: Uint8Array, onDrop?: () => void) => boolean
   /** Lazy ordered sink, pulled as the socket drains; absent on in-process peers. */
   sendSequence?: (source: SendSequenceSource<ServerMessage>) => Promise<SendOutcome>
   /** Last grid this client measured for each terminal it mounted. Geometry is
@@ -183,7 +186,11 @@ export class ClientRegistry {
     source: SendSequenceSource<ServerMessage>,
   ): Promise<SendOutcome> {
     if (conn.sendSequence) return conn.sendSequence(source)
-    for (let msg = source.next(); msg !== undefined; msg = source.next()) this.deliver(conn, msg)
+    for (let msg = source.next(); msg !== undefined; msg = source.next()) {
+      if (!(msg instanceof SequenceBinary)) this.deliver(conn, msg)
+      else if (conn.sendBinary) conn.sendBinary(msg.bytes)
+      else return Promise.resolve({ ok: false, reason: 'binary-unsupported' })
+    }
     return Promise.resolve({ ok: true })
   }
 

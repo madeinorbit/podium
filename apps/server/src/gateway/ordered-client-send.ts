@@ -85,10 +85,19 @@ export type SendFailureReason =
 
 export type SendOutcome = { ok: true } | { ok: false; reason: SendFailureReason }
 
+/**
+ * An already-framed BINARY message inside a pulled sequence (POD-4912): a
+ * viewer's catch-up is a picture and a tail of binary PTY envelopes, served in
+ * order with the JSON around them. Written with the socket's `sendBinary`.
+ */
+export class SequenceBinary {
+  constructor(readonly bytes: Uint8Array) {}
+}
+
 /** A lazy producer of ordered messages: asked for the next one only when the
  * pump has room to prepare it. `undefined` ends the sequence. */
 export interface SendSequenceSource<M extends Message = Message> {
-  next(): M | undefined
+  next(): M | SequenceBinary | undefined
 }
 
 export interface OrderedSendTimers {
@@ -157,6 +166,8 @@ interface Frame {
   sequence?: Sequence
   /** Set when the frame leaves the pump: written, or dropped as lossy. */
   sent?: boolean
+  /** A lossy frame's owner hears that it was dropped (POD-4912, N4). */
+  onDrop?: () => void
 }
 
 interface Sequence {
@@ -252,15 +263,24 @@ export class OrderedClientSend implements PlaneSink {
     const frame = this.encode(msg, false)
     if (frame) this.enqueue(frame)
   }
-  sendLossy: PlaneSink['sendLossy'] = (msg) => {
-    if (!this.admitLossy()) return false
-    const frame = this.encode(msg, true)
-    return frame !== undefined && this.enqueue(frame)
+  /**
+   * LOSSY sends say when they lose a frame (POD-4912): `onDrop` is called once
+   * for a frame refused at admission (E6) — which also returns false — and
+   * once for a frame admitted and later dropped because the socket fell behind
+   * (N4). A frame that is written never calls it.
+   */
+  sendLossy: PlaneSink['sendLossy'] = (msg, onDrop) => {
+    const frame = this.admitLossy() ? this.encode(msg, true) : undefined
+    if (frame && onDrop) frame.onDrop = onDrop
+    if (frame !== undefined && this.enqueue(frame)) return true
+    if (frame?.sent !== false) onDrop?.()
+    return false
   }
   sendBinary: PlaneSink['sendBinary'] = (bytes) => {
     this.binary(bytes, false)
   }
-  sendBinaryLossy: PlaneSink['sendBinaryLossy'] = (bytes) => this.binary(bytes, true)
+  sendBinaryLossy: PlaneSink['sendBinaryLossy'] = (bytes, onDrop) =>
+    this.binary(bytes, true, onDrop)
 
   /**
    * Send an ordered sequence lazily. Resolves once every message the source
@@ -310,21 +330,46 @@ export class OrderedClientSend implements PlaneSink {
     }
   }
 
-  private binary(bytes: Uint8Array, lossy: boolean): boolean {
-    if (lossy && !this.admitLossy()) return false
+  private binary(bytes: Uint8Array, lossy: boolean, onDrop?: () => void): boolean {
+    if (lossy && !this.admitLossy()) {
+      onDrop?.()
+      return false
+    }
     if (!this.ws.sendBinary) {
       if (!lossy) this.fail('binary-unsupported')
+      else onDrop?.()
       return false
     }
     // A queued producer may reuse its buffer after this call returns.
     const queued = this.queue.length > 0 || this.ready.length > 0
-    return this.enqueue({
+    const frame: Frame = {
       kind: 'frame',
       data: queued ? bytes.slice() : bytes,
       charge: bytes.byteLength,
       compress: shouldCompressWebSocketFrame(bytes),
       lossy,
-    })
+      ...(onDrop ? { onDrop } : {}),
+    }
+    if (this.enqueue(frame)) return true
+    // Refused before it entered the pump (a full lossy budget): a drop too. A
+    // frame that entered and was dropped inside has already said so.
+    if (frame.sent !== false) onDrop?.()
+    return false
+  }
+
+  /** A binary item of a pulled sequence: reliable, owned by the source. */
+  private sequenceBinary(item: SequenceBinary): Frame | undefined {
+    if (!this.ws.sendBinary) {
+      this.fail('binary-unsupported')
+      return undefined
+    }
+    return {
+      kind: 'frame',
+      data: item.bytes,
+      charge: item.bytes.byteLength,
+      compress: shouldCompressWebSocketFrame(item.bytes),
+      lossy: false,
+    }
   }
 
   private admitLossy(): boolean {
@@ -433,7 +478,7 @@ export class OrderedClientSend implements PlaneSink {
         this.stage(head)
         continue
       }
-      let msg: Message | undefined
+      let msg: Message | SequenceBinary | undefined
       try {
         msg = head.source.next()
       } catch (error) {
@@ -447,7 +492,7 @@ export class OrderedClientSend implements PlaneSink {
         if (head.outstanding === 0) head.settle({ ok: true })
         continue
       }
-      const frame = this.encode(msg, false)
+      const frame = msg instanceof SequenceBinary ? this.sequenceBinary(msg) : this.encode(msg, false)
       if (frame === undefined) return
       frame.sequence = head
       head.outstanding += 1
@@ -561,6 +606,9 @@ export class OrderedClientSend implements PlaneSink {
       sequence.outstanding -= 1
       if (sequence.exhausted && sequence.outstanding === 0) sequence.settle({ ok: true })
     }
+    // Last: the owner may react by sending (a catch-up), which re-enters the
+    // pump; the reentrant guard turns that into one more pass.
+    if (!sent) frame.onDrop?.()
   }
 
   private pause(): void {

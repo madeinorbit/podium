@@ -278,8 +278,9 @@ export class SessionClientControl {
         }
         break
       case 'redrawRequest':
-        // The user's redraw button: the one repaint that reaches the program.
-        this.ports.sessions.get(message.sessionId)?.terminal.redraw({ hard: true })
+        // The user's redraw button (POD-4912): the requester is served the
+        // picture again; only the controller's also reaches the program.
+        this.ports.sessions.get(message.sessionId)?.terminal.redrawRequest(id)
         break
       case 'tabRelease': {
         // THE TAB-CLOSE RELEASE (POD-4435): the reporting client closed its

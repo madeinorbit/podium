@@ -38,6 +38,7 @@ import {
   durableProcessFor,
   WriterLeaseRefusedError,
 } from '@podium/process/durable'
+import type { AgentPicture } from '@podium/process/screen'
 import { Terminal } from '../terminal/terminal.js'
 import { adaptTerminal } from '../runtime/terminal-transport.js'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -79,7 +80,7 @@ import {
 } from '@podium/harness/driver/host'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
-import { bindFrame, reportSize } from './applied-geometry'
+import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
 import type { ControlHandlers, DaemonContext } from './context'
 import { harnessChildStripEnv, harnessCompatEnv, harnessInstanceEnv, spawnEnv } from './session-env'
 
@@ -477,6 +478,57 @@ export function sessionSize(ctx: DaemonContext, sessionId: SessionId): Geometry 
   return ctx.sessions.get(sessionId)?.terminal?.size()
 }
 
+/** The live server link accepted terminal.picture.v1 (POD-4912). */
+function picturesAccepted(ctx: DaemonContext): boolean {
+  return ctx.picturesAccepted?.() === true
+}
+
+/**
+ * PICTURES ARE ON FOR THIS SESSION (POD-4912): its Terminal's host keeps the
+ * screen, and the server accepted terminal.picture.v1. Then the server serves
+ * viewers from the host's pictures, and this daemon replays nothing: a redraw
+ * is a picture request. Otherwise the older server's redraw branches stand
+ * (N8). EXPORTED for the client-terminal host's ports.
+ */
+export function picturesActive(ctx: DaemonContext, sessionId: SessionId): boolean {
+  return picturesAccepted(ctx) && ctx.sessions.get(sessionId)?.terminal?.keepsScreen === true
+}
+
+/**
+ * SEND A BIND, THEN ASK FOR A PICTURE (POD-4912). Every bind the daemon sends
+ * goes through here: it carries the connection's size and, when pictures are
+ * on, `pictures: true`; then the session's host is asked for a picture, whose
+ * `reset` reaches the server after the bind on the same ordered link and
+ * catches up every viewer. EXPORTED for `host-runtime.ts`'s bind port.
+ */
+export function sendBind(ctx: DaemonContext, facts: BindFacts): void {
+  const pictures = picturesActive(ctx, facts.sessionId)
+  ctx.send(
+    bindFrame(sessionSize(ctx, facts.sessionId), pictures ? { ...facts, pictures: true } : facts),
+  )
+  if (pictures) ctx.sessions.get(facts.sessionId)?.terminal?.requestPicture()
+}
+
+/**
+ * A PICTURE FROM THE HOST (POD-4912): forwarded in stream order, with none of
+ * a frame's side effects (N5) — no frame count, no first-output marker, no
+ * observers, no activity. The one exception is the seed: the first `reset`
+ * after attaching at the tail rebuilds the session screen and the composer,
+ * as a reset, and the bytes after it keep them current as today. EXPORTED for
+ * the client-terminal host, whose Terminal forwards its pictures the same way.
+ */
+export function forwardPicture(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+  picture: AgentPicture,
+  seed: boolean,
+): void {
+  ctx.outputScheduler.enqueuePicture(sessionId, picture)
+  if (!seed) return
+  trackSessionOutput(ctx, sessionId, picture.bytes)
+  if (ctx.composerEngine.has(sessionId)) ctx.composerEngine.onData(sessionId, picture.bytes)
+}
+
 /**
  * THE SIZE EVENT (POD-4723, design rev 3 rule 1): the ONE callback that runs
  * when the host states a session's size — its WELCOME, or a RESIZED. In
@@ -493,8 +545,11 @@ export function onSessionSize(
   sessionId: SessionId,
   size: Geometry,
   birth = false,
+  keepsScreen = false,
 ): void {
-  reportSize(ctx, sessionId, size, birth)
+  // A birth states, like a bind, whether this terminal's output carries
+  // pictures (POD-4912, H3): the server owes its viewers only if it does.
+  reportSize(ctx, sessionId, size, birth, birth && keepsScreen && picturesAccepted(ctx))
   trackSessionSize(ctx, sessionId, size.cols, size.rows)
   ctx.observers.onResize?.(sessionId, size.cols, size.rows)
   ctx.composerEngine.onResize(sessionId, size.cols, size.rows)
@@ -521,7 +576,9 @@ export function wireBridge(
   // The screen is held (not fed) here — see the Terminal contract. Feeding
   // stays in the fan-out below, unchanged.
   const terminal = Terminal.attach(session, owned, {
-      onSize: (size, birth) => onSessionSize(ctx, sessionId, size, birth),
+      onSize: (size, birth) =>
+        onSessionSize(ctx, sessionId, size, birth, session.keepsScreen?.() === true),
+      onPicture: (picture, seed) => forwardPicture(ctx, sessionId, picture, seed),
       onFrame: (data) => {
         driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_first_output', {
           bytes: data.byteLength,
@@ -837,28 +894,26 @@ export async function launchSpawn(
       // is the only thing in the tree that may write `geometry` into a bind, so
       // the grid a spawn announces is the grid `wireBridge` recorded a moment ago
       // — the pty's birth size, or the held resize it dispatched instead.
-      ctx.send(
-        bindFrame(sessionSize(ctx, msg.sessionId), {
-          sessionId: msg.sessionId,
-          cmd: session.adopted ? (durable as DurableProcess).primary.attachCommand(label) : cmd.cmd,
-          cwd: cmd.cwd,
-          agentKind: msg.agentKind,
-          ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-          // The driver handle actually exists for this session (POD-1761 W4,
-          // unconditional since POD-4426). The server records `driverId` on the
-          // row and keys its senders on its presence — see BindMessage.
-          ...(driverId
-            ? {
-                driverId,
-                configureFields: [...configureFieldsForDriver(driverId)],
-                attachKinds: [...attachKindsForDriver(driverId)],
-              }
-            : {}),
-          ...(runtimeSelection.requestedDriverId
-            ? { requestedDriverId: runtimeSelection.requestedDriverId }
-            : {}),
-        }),
-      )
+      sendBind(ctx, {
+        sessionId: msg.sessionId,
+        cmd: session.adopted ? (durable as DurableProcess).primary.attachCommand(label) : cmd.cmd,
+        cwd: cmd.cwd,
+        agentKind: msg.agentKind,
+        ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+        // The driver handle actually exists for this session (POD-1761 W4,
+        // unconditional since POD-4426). The server records `driverId` on the
+        // row and keys its senders on its presence — see BindMessage.
+        ...(driverId
+          ? {
+              driverId,
+              configureFields: [...configureFieldsForDriver(driverId)],
+              attachKinds: [...attachKindsForDriver(driverId)],
+            }
+          : {}),
+        ...(runtimeSelection.requestedDriverId
+          ? { requestedDriverId: runtimeSelection.requestedDriverId }
+          : {}),
+      })
       const handle = handleFor(ctx, msg.sessionId)
       if (handle) driverTiming.sessionReady(handle.binding)
     }
@@ -1196,17 +1251,15 @@ async function adoptServerDriverSession(
   const live = runtime.serverHandleFor?.(msg.sessionId)
   if (live) {
     try {
-      ctx.send(
-        bindFrame(sessionSize(ctx, msg.sessionId), {
-          sessionId: msg.sessionId,
-          cmd: `${live.binding.driver} (${live.binding.driver})`,
-          cwd: live.binding.workdir ?? msg.cwd,
-          agentKind: msg.agentKind,
-          driverId: live.binding.driver,
-          configureFields: [...configureFieldsForDriver(live.binding.driver)],
-          attachKinds: [...attachKindsForDriver(live.binding.driver)],
-        }),
-      )
+      sendBind(ctx, {
+        sessionId: msg.sessionId,
+        cmd: `${live.binding.driver} (${live.binding.driver})`,
+        cwd: live.binding.workdir ?? msg.cwd,
+        agentKind: msg.agentKind,
+        driverId: live.binding.driver,
+        configureFields: [...configureFieldsForDriver(live.binding.driver)],
+        attachKinds: [...attachKindsForDriver(live.binding.driver)],
+      })
       ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await live.state() })
       log.info('reattached a live server-family session without a second adopt', {
         sessionId: msg.sessionId,
@@ -1305,30 +1358,28 @@ async function adoptServerDriverSession(
     return true
   }
   try {
-    ctx.send(
-      bindFrame(sessionSize(ctx, msg.sessionId), {
-        sessionId: msg.sessionId,
-        cmd: `${what} (${handle.binding.driver})`,
-        cwd: workdir,
-        agentKind: msg.agentKind,
-        // THE CONNECTION'S SIZE, WHICH HERE IS USUALLY NONE (POD-4723). This is
-        // an ADOPT: the journalled server child was rebound with no terminal of
-        // its own, so `sessionSize` finds no host connection to read and the
-        // bind is bare. What stood here once was the reattach frame's own
-        // geometry with a hardcoded 120-column default behind it: the server's
-        // last-known handed back, which is no report at all.
-        // The same fact the launch path states, and for the same reason: the
-        // server keys its senders on `driverId`'s presence, and a rebound
-        // session that omitted it would be routed to a PTY it does not have.
-        driverId: handle.binding.driver,
-        // POD-3087. Reported wherever `driverId` is, because the two answer the
-        // same question — which live driver holds this session — and a bind that
-        // named the driver but not what it can change leaves a client guessing at
-        // exactly the thing this field exists to stop it guessing.
-        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
-        attachKinds: [...attachKindsForDriver(handle.binding.driver)],
-      }),
-    )
+    sendBind(ctx, {
+      sessionId: msg.sessionId,
+      cmd: `${what} (${handle.binding.driver})`,
+      cwd: workdir,
+      agentKind: msg.agentKind,
+      // THE CONNECTION'S SIZE, WHICH HERE IS USUALLY NONE (POD-4723). This is
+      // an ADOPT: the journalled server child was rebound with no terminal of
+      // its own, so `sessionSize` finds no host connection to read and the
+      // bind is bare. What stood here once was the reattach frame's own
+      // geometry with a hardcoded 120-column default behind it: the server's
+      // last-known handed back, which is no report at all.
+      // The same fact the launch path states, and for the same reason: the
+      // server keys its senders on `driverId`'s presence, and a rebound
+      // session that omitted it would be routed to a PTY it does not have.
+      driverId: handle.binding.driver,
+      // POD-3087. Reported wherever `driverId` is, because the two answer the
+      // same question — which live driver holds this session — and a bind that
+      // named the driver but not what it can change leaves a client guessing at
+      // exactly the thing this field exists to stop it guessing.
+      configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+      attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+    })
     ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
     log.info('adopted a surviving server-family session', {
       sessionId: msg.sessionId,
@@ -1390,17 +1441,15 @@ async function adoptHeadlessSession(
   }
   try {
     const handle = await runtime.adopt(binding)
-    ctx.send(
-      bindFrame(sessionSize(ctx, msg.sessionId), {
-        sessionId: msg.sessionId,
-        cmd: `headless (${handle.binding.driver})`,
-        cwd: msg.cwd,
-        agentKind: msg.agentKind,
-        driverId: handle.binding.driver,
-        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
-        attachKinds: [...attachKindsForDriver(handle.binding.driver)],
-      }),
-    )
+    sendBind(ctx, {
+      sessionId: msg.sessionId,
+      cmd: `headless (${handle.binding.driver})`,
+      cwd: msg.cwd,
+      agentKind: msg.agentKind,
+      driverId: handle.binding.driver,
+      configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+      attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+    })
     ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
     log.info('adopted surviving headless session', {
       sessionId: msg.sessionId,
@@ -1438,17 +1487,15 @@ async function adoptHeadlessSession(
         },
       }
       const handle = await runtime.resume(msg.resume, spec, msg.sessionId)
-      ctx.send(
-        bindFrame(sessionSize(ctx, msg.sessionId), {
-          sessionId: msg.sessionId,
-          cmd: `headless (${handle.binding.driver})`,
-          cwd: msg.cwd,
-          agentKind: msg.agentKind,
-          driverId: handle.binding.driver,
-          configureFields: [...configureFieldsForDriver(handle.binding.driver)],
-          attachKinds: [...attachKindsForDriver(handle.binding.driver)],
-        }),
-      )
+      sendBind(ctx, {
+        sessionId: msg.sessionId,
+        cmd: `headless (${handle.binding.driver})`,
+        cwd: msg.cwd,
+        agentKind: msg.agentKind,
+        driverId: handle.binding.driver,
+        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+        attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+      })
       ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
       return true
     } catch (resumeError) {
@@ -1545,37 +1592,35 @@ async function resumeJournalledServerSession(
     return true
   }
   try {
-    ctx.send(
-      bindFrame(sessionSize(ctx, msg.sessionId), {
-        sessionId: msg.sessionId,
-        cmd: `${what} (${handle.binding.driver})`,
-        // THE JOURNAL'S WORKDIR, like the reattach path uses. The frame's `cwd` is
-        // where the server thinks the session lives; the journal is where the
-        // conversation was actually opened, and codex resumes a thread relative to
-        // that. They agree unless a worktree moved under a parked session, and if
-        // they disagree the adopted child is the one that has to be described.
-        cwd: workdir,
-        agentKind: msg.agentKind,
-        // NO GEOMETRY, BECAUSE NOTHING WAS APPLIED (MODEL rule 1, POD-3279). The
-        // frame is a `spawn`, but this function is the RESUME arm — it reaches
-        // here only by finding a journalled server child and adopting it, which
-        // starts no terminal and puts nothing at a size, so the applied-size
-        // record stays empty and `bindFrame` states nothing. The spawn's
-        // requested geometry would be an intent, not a report; the hardcoded
-        // default it fell back to was not even an intent.
-        // The same fact the launch and reattach paths state, and for the same
-        // reason: the server keys its senders on `driverId`'s presence, and a
-        // resumed session that omitted it would be routed to a PTY it does not
-        // have.
-        driverId: handle.binding.driver,
-        // POD-3087. Reported wherever `driverId` is, because the two answer the
-        // same question — which live driver holds this session — and a bind that
-        // named the driver but not what it can change leaves a client guessing at
-        // exactly the thing this field exists to stop it guessing.
-        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
-        attachKinds: [...attachKindsForDriver(handle.binding.driver)],
-      }),
-    )
+    sendBind(ctx, {
+      sessionId: msg.sessionId,
+      cmd: `${what} (${handle.binding.driver})`,
+      // THE JOURNAL'S WORKDIR, like the reattach path uses. The frame's `cwd` is
+      // where the server thinks the session lives; the journal is where the
+      // conversation was actually opened, and codex resumes a thread relative to
+      // that. They agree unless a worktree moved under a parked session, and if
+      // they disagree the adopted child is the one that has to be described.
+      cwd: workdir,
+      agentKind: msg.agentKind,
+      // NO GEOMETRY, BECAUSE NOTHING WAS APPLIED (MODEL rule 1, POD-3279). The
+      // frame is a `spawn`, but this function is the RESUME arm — it reaches
+      // here only by finding a journalled server child and adopting it, which
+      // starts no terminal and puts nothing at a size, so the applied-size
+      // record stays empty and `bindFrame` states nothing. The spawn's
+      // requested geometry would be an intent, not a report; the hardcoded
+      // default it fell back to was not even an intent.
+      // The same fact the launch and reattach paths state, and for the same
+      // reason: the server keys its senders on `driverId`'s presence, and a
+      // resumed session that omitted it would be routed to a PTY it does not
+      // have.
+      driverId: handle.binding.driver,
+      // POD-3087. Reported wherever `driverId` is, because the two answer the
+      // same question — which live driver holds this session — and a bind that
+      // named the driver but not what it can change leaves a client guessing at
+      // exactly the thing this field exists to stop it guessing.
+      configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+      attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+    })
     ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
     log.info('resumed a parked server-family session from its binding journal', {
       sessionId: msg.sessionId,
@@ -2266,30 +2311,28 @@ export async function recoverTerminalHost(
     const recoveryProfile = terminalProfileFor(msg.agentKind)
     if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
-    ctx.send(
-      bindFrame(sessionSize(ctx, msg.sessionId), {
-        sessionId: msg.sessionId,
-        cmd,
-        cwd: msg.cwd,
-        agentKind: msg.agentKind,
-        // THE CONNECTION'S SIZE (POD-4723): the bridge was never lost, so the
-        // host's last statement is still the truth, and this bind is the full
-        // statement the server re-drives a lost ask from. Never
-        // `msg.lastKnownGeometry`: that is the server's own belief handed back.
-        ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-        // The driver handle actually exists for this session (POD-1761 W4,
-        // unconditional since POD-4426). The server records `driverId` on the
-        // row and keys its senders on its presence — see BindMessage.
-        ...(driverId
-          ? {
-              driverId,
-              configureFields: [...configureFieldsForDriver(driverId)],
-              attachKinds: [...attachKindsForDriver(driverId)],
-            }
-          : {}),
-        ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
-      }),
-    )
+    sendBind(ctx, {
+      sessionId: msg.sessionId,
+      cmd,
+      cwd: msg.cwd,
+      agentKind: msg.agentKind,
+      // THE CONNECTION'S SIZE (POD-4723): the bridge was never lost, so the
+      // host's last statement is still the truth, and this bind is the full
+      // statement the server re-drives a lost ask from. Never
+      // `msg.lastKnownGeometry`: that is the server's own belief handed back.
+      ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+      // The driver handle actually exists for this session (POD-1761 W4,
+      // unconditional since POD-4426). The server records `driverId` on the
+      // row and keys its senders on its presence — see BindMessage.
+      ...(driverId
+        ? {
+            driverId,
+            configureFields: [...configureFieldsForDriver(driverId)],
+            attachKinds: [...attachKindsForDriver(driverId)],
+          }
+        : {}),
+      ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
+    })
     // NO REDRAW (POD-4723, design rev 3). This used to nudge the program on every
     // link-B reattach — two RESIZEs and a full repaint per session, fanned out to
     // every viewer — and the nudge is what put ptys back at a stale size. The
@@ -2409,33 +2452,34 @@ export async function recoverTerminalHost(
     // wiring all consumers; waiting for a viewer resize leaves idle survivors
     // blank. Plain terminals retain their viewer-driven replay path. The
     // program is never signalled: a fresh daemon repaints from the ring.
-    if (ready) await terminal.replay(HOST_REPLAY_TAIL_BYTES)
+    // With pictures on (POD-4912) the host's `reset` picture — asked for right
+    // after the bind below — seeds the models and serves the viewers instead:
+    // zero replayed bytes.
+    if (ready && !picturesActive(ctx, msg.sessionId)) await terminal.replay(HOST_REPLAY_TAIL_BYTES)
     ready?.()
     const recoveryProfile = terminalProfileFor(msg.agentKind)
     if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
-    ctx.send(
-      bindFrame(sessionSize(ctx, msg.sessionId), {
-        sessionId: msg.sessionId,
-        cmd: found.cmd,
-        cwd: msg.cwd,
-        agentKind: msg.agentKind,
-        // THE CONNECTION'S SIZE (POD-4723): the host's WELCOME, so a daemon
-        // restart binds the size the program really has. Bare on abduco.
-        ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-        // The driver handle actually exists for this session (POD-1761 W4,
-        // unconditional since POD-4426). The server records `driverId` on the
-        // row and keys its senders on its presence — see BindMessage.
-        ...(driverId
-          ? {
-              driverId,
-              configureFields: [...configureFieldsForDriver(driverId)],
-              attachKinds: [...attachKindsForDriver(driverId)],
-            }
-          : {}),
-        ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
-      }),
-    )
+    sendBind(ctx, {
+      sessionId: msg.sessionId,
+      cmd: found.cmd,
+      cwd: msg.cwd,
+      agentKind: msg.agentKind,
+      // THE CONNECTION'S SIZE (POD-4723): the host's WELCOME, so a daemon
+      // restart binds the size the program really has. Bare on abduco.
+      ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+      // The driver handle actually exists for this session (POD-1761 W4,
+      // unconditional since POD-4426). The server records `driverId` on the
+      // row and keys its senders on its presence — see BindMessage.
+      ...(driverId
+        ? {
+            driverId,
+            configureFields: [...configureFieldsForDriver(driverId)],
+            attachKinds: [...attachKindsForDriver(driverId)],
+          }
+        : {}),
+      ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
+    })
   })
 }
 
@@ -2505,21 +2549,19 @@ export async function stealTerminalWriter(
   const recoveryProfile = terminalProfileFor(msg.agentKind)
   if (recoveryProfile) requireTerminalHandle(ctx, observerMsg, recoveryProfile)
   const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
-  ctx.send(
-    bindFrame(sessionSize(ctx, msg.sessionId), {
-      sessionId: msg.sessionId,
-      cmd: found.cmd,
-      cwd: msg.cwd,
-      agentKind: msg.agentKind,
-      ...(driverId
-        ? {
-            driverId,
-            configureFields: [...configureFieldsForDriver(driverId)],
-            attachKinds: [...attachKindsForDriver(driverId)],
-          }
-        : {}),
-    }),
-  )
+  sendBind(ctx, {
+    sessionId: msg.sessionId,
+    cmd: found.cmd,
+    cwd: msg.cwd,
+    agentKind: msg.agentKind,
+    ...(driverId
+      ? {
+          driverId,
+          configureFields: [...configureFieldsForDriver(driverId)],
+          attachKinds: [...attachKindsForDriver(driverId)],
+        }
+      : {}),
+  })
 }
 
 /**
@@ -2829,6 +2871,14 @@ export const sessionHandlers: Pick<
     const owned = ctx.sessions.get(msg.sessionId)
     const terminal = owned?.terminal?.live ? owned.terminal : undefined
     if (msg.hard && terminal) terminal.write(CTRL_L)
+    // PICTURES ON (POD-4912): the server holds the latest picture and serves
+    // the viewers itself; what it asks for is a fresh one (a viewer stayed owed
+    // with nothing to serve — H2). No snapshot and no ring replay: the host's
+    // `reset` is exact where they were approximate.
+    if (terminal && picturesActive(ctx, msg.sessionId)) {
+      if (msg.replayRequired) terminal.requestPicture()
+      return
+    }
     // A page with no server replay, for a native client TUI that is not open
     // yet: owe it the host ring, which the client's start path replays once it
     // is subscribed (`opencode-attach.ts`). Still the ring, never the program.

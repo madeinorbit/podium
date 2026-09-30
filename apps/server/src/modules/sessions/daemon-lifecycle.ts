@@ -351,11 +351,11 @@ export class SessionDaemonLifecycle {
   }
 
   handleOutput(principal: MachinePrincipal, batch: DaemonPtyOutputBatch): void {
-    // Picture handling arrives in B2; never count a picture as a data frame.
-    if (batch.type === 'ptyPicture') return
     const session = this.sessions.get(batch.sessionId)
     if (!session || session.machineId !== principal.machine) return
-    session.terminal.acceptOutput(batch.bytes, batch.sourceFrames)
+    // A picture is never a data frame: it is not output activity (POD-4912).
+    if (batch.type === 'ptyPicture') session.terminal.acceptPicture(batch)
+    else session.terminal.acceptOutput(batch.bytes, batch.sourceFrames)
   }
   async handle(principal: MachinePrincipal, msg: SessionsDaemonFrame): Promise<void> {
     const machineId = principal.machine
@@ -416,6 +416,9 @@ export class SessionDaemonLifecycle {
         // was no terminal. An ordinary report never reconciles.
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
+        // A birth states pictures like a bind does (H3), and as synchronously:
+        // the picture the daemon asks for right after it may be next (H1).
+        if (msg.birth === true) session.terminal.setPictures(msg.pictures === true)
         const current = session.terminal.geometry
         const changed = current.cols !== msg.geometry.cols || current.rows !== msg.geometry.rows
         const apply = (s: Session): void => {
@@ -427,6 +430,12 @@ export class SessionDaemonLifecycle {
         break
       }
       case 'bind': {
+        // FIRST, BEFORE ANY AWAIT (H1, POD-4912): whether this session's output
+        // carries pictures. The host's reset picture follows the bind on the
+        // same ordered link and is routed synchronously; the bind's durable
+        // write below may queue behind a hundred others after a restart. Never
+        // in `Terminal.bind()`, which a birth report also calls.
+        this.sessions.get(msg.sessionId)?.terminal.setPictures(msg.pictures === true)
         this.unfencedExitsAwaitingBind.delete(msg.sessionId)
         this.inbox.markSessionBound(msg.sessionId)
         const s = this.sessions.get(msg.sessionId)

@@ -96,16 +96,16 @@ import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
 import { deliveryCaps } from './build-report'
 import { ComposerSyncEngine } from './composer-sync'
-import { bindFrame } from './control/applied-geometry'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
 import {
+  forwardPicture,
   launchSpawn,
   onSessionSize,
   recoverTerminalHost,
   rememberDurableSeq,
+  sendBind,
   sessionRelayEnv,
-  sessionSize,
   stopSessionProcess,
 } from './control/session'
 import { headlessTurnEnv, spawnEnv } from './control/session-env'
@@ -323,6 +323,8 @@ export async function createDaemonHostRuntime(args: {
    * operator raised the daemon to see.
    */
   isConnected: () => boolean
+  /** The live link accepted terminal.picture.v1 (POD-4912). */
+  picturesAccepted?: () => boolean
   retryHandshake?: () => void
 }): Promise<DaemonHostRuntime> {
   if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Daemon execution disabled during upgrade rehearsal')
@@ -1009,6 +1011,7 @@ export async function createDaemonHostRuntime(args: {
 
   const ctx: DaemonContext = {
     send,
+    ...(args.picturesAccepted ? { picturesAccepted: args.picturesAccepted } : {}),
     acknowledgeQueueDrainReport: args.acknowledgeQueueDrainReport,
     acknowledgeRuntimeEvent: args.acknowledgeRuntimeEvent,
     logForwarding,
@@ -1084,7 +1087,11 @@ export async function createDaemonHostRuntime(args: {
       sessions,
     // The one size event (POD-4723): a client TUI's host stating its size is
     // reported and moves the model exactly as a headed pty's does.
-    sizeEvent: (sessionId, size, birth) => onSessionSize(ctx, sessionId, size, birth),
+    sizeEvent: (sessionId, size, birth, keepsScreen) =>
+      onSessionSize(ctx, sessionId, size, birth, keepsScreen),
+    // The client TUI's pictures take the headed path's one forwarder (POD-4912).
+    picture: (streamId, picture, seed) => forwardPicture(ctx, asSessionId(streamId), picture, seed),
+    picturesAccepted: () => ctx.picturesAccepted?.() === true,
     // A client terminal never becomes a bridge, so the bridge path's resume
     // point never sees it (POD-3919 audit item 7). The same function, on the
     // same map, for the same kind of session — a host connection with a ring.
@@ -1210,8 +1217,7 @@ export async function createDaemonHostRuntime(args: {
   // Session-frame ports shared by the four headless families: the frame sink,
   // the one bind builder, timing stages and the mail continuation. The
   // supervisor owns the wire; the families own the translation.
-  const emitBind: ServerSessionFramePorts['emitBind'] = (input) =>
-    send(bindFrame(sessionSize(ctx, input.sessionId), input))
+  const emitBind: ServerSessionFramePorts['emitBind'] = (input) => sendBind(ctx, input)
   const sessionReady: ServerSessionFramePorts['sessionReady'] = (binding) =>
     driverTiming.sessionReady(binding)
   const traceRuntimeEvent: ServerSessionFramePorts['traceRuntimeEvent'] = (binding, event) =>

@@ -38,6 +38,7 @@ export { type ScreenMode, ScreenModeTracker } from './screen-mode.js'
 export { createHeadlessScreen, type HeadlessScreen, type ScreenReader } from './screen-model.js'
 export {
   type AgentFrame,
+  type AgentPicture,
   type DurableAttachment,
   type SpawnOptions,
   wrapPty,
