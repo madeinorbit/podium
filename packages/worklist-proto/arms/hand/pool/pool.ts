@@ -541,7 +541,10 @@ export class HandPool {
       sessionRow: (id) => this.visibleInputs.sessionRow(id),
       resident: (entity, id) => this.visibleInputs.resident(entity, id),
       loading: (entity, id) => this.inputs.loading(entity, id),
-      row: (entity, id, absent = 'load') => this.row(entity, id, absent as AbsentRead),
+      row: (entity, id, absent: AbsentRead = 'load'): Loaded<object> => {
+        if (absent === 'peek') return this.row(entity, id, 'peek') as Loaded<object>
+        return this.row(entity, id, absent)
+      },
       knownIssue: (id) =>
         this.tables.issue.has(id) || (this.residency?.isCold('issue', id) ?? false),
       visibleIssue: (id) => this.visibleInputs.issue(id),
