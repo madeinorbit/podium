@@ -184,6 +184,7 @@ interface HarnessOpts {
   }>
   spawnOnWake?: import('./service').SpawnOnWake
   now?: () => string
+  programVersion?: import('./service').MessageDeliveryDeps['programVersion']
   /** Issue ids the fake issues dep reports as archived (dead-letter path). */
   archivedIds?: Set<string>
   /** Issue ids the fake issues dep reports as deleted (POD-4817). */
@@ -329,6 +330,7 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       }
     },
     now: opts?.now ?? (() => '2026-07-13T00:00:00.000Z'),
+    programVersion: opts?.programVersion,
   })
   return {
     store,
@@ -3707,6 +3709,73 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     `[podium message ${id} · from x · to y]\n${body}\n[end podium message ${id}]`
   const status = async (store: Awaited<ReturnType<typeof openTestStore>>, id: string) =>
     (await store.messages.getMessage(id))?.deliveryStatus
+
+  it('alarms once when a failed message later appears under its exact frame id', async () => {
+    const target = asSessionId('s1')
+    const sessions = [session({ sessionId: target })]
+    const { svc, store } = await harness(sessions, { programVersion: async () => '2.1.284' })
+    const { message } = await svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: target }, body: 'private prompt', urgency: 'next-turn' },
+    )
+    await svc.onQueuedInputDisprovenLate(message.id, target, 'not recorded after exit', 'agent-exited')
+    const failed = await store.messages.getMessage(message.id)
+    expect(failed?.deliveryStatus).toBe('failed')
+    const item = { id: 'entry-1', role: 'user', text: frame(message.id, message.body) }
+    const diagnostic = {
+      messageId: message.id,
+      sessionId: target,
+      program: 'claude-code',
+      programVersion: '2.1.284',
+      failedCause: 'agent-exited',
+      evidence: { kind: 'wrapped-frame', frameId: message.id, transcriptItem: { id: item.id } },
+    }
+    const alarms = () => store.events.listEventsSince(0, {
+      kinds: ['message.delivery_contradiction'], subject: message.id,
+    })
+    const logs = captureLogs()
+    try {
+      await svc.onTranscriptDelta(target, [item])
+      expect(await store.messages.getMessage(message.id)).toEqual(failed)
+      expect(await alarms()).toEqual([
+        expect.objectContaining({ kind: 'message.delivery_contradiction', subject: message.id, payload: diagnostic }),
+      ])
+      expect(logs.at('warn').filter((r) => r.msg === 'message delivery contradiction')).toEqual([
+        expect.objectContaining({ diagnostic }),
+      ])
+      await svc.onTranscriptDelta(target, [item])
+      await Promise.all([svc.onTranscriptDelta(target, [item]), svc.onTranscriptDelta(target, [item])])
+      // A fresh service cannot forget the once-per-message guard.
+      const restarted = await harness(sessions, { store, programVersion: async () => '2.1.284' })
+      await restarted.svc.onTranscriptDelta(target, [item])
+      expect(await alarms()).toHaveLength(1)
+      expect(logs.at('warn').filter((r) => r.msg === 'message delivery contradiction')).toHaveLength(1)
+      expect(await store.messages.getMessage(message.id)).toEqual(failed)
+    } finally {
+      logs.restore()
+    }
+  })
+
+  it('does not alarm for a quoted failed id, an assistant echo or a different session', async () => {
+    const target = asSessionId('s1')
+    const { svc, store } = await harness([session({ sessionId: target }), session({ sessionId: asSessionId('s2') })])
+    const send = async (body: string) => (await svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: target }, body, urgency: 'next-turn' },
+    )).message
+    const failed = await send('failed prompt')
+    await svc.onQueuedInputDisprovenLate(failed.id, target, 'dropped', 'dropped-by-agent')
+    const quoting = await send(`quoted:\n${frame(failed.id, failed.body)}`)
+    await svc.onTranscriptDelta(target, [
+      { role: 'assistant', text: frame(failed.id, failed.body) },
+      { role: 'user', text: frame(quoting.id, quoting.body) },
+      { role: 'user', text: `${frame(failed.id, failed.body)}\nmore words` },
+    ])
+    await svc.onTranscriptDelta(asSessionId('s2'), [{ role: 'user', text: frame(failed.id, failed.body) }])
+    expect(await status(store, failed.id)).toBe('failed')
+    expect(await status(store, quoting.id)).toBe('confirmed')
+    expect(await store.events.listEventsSince(0, { kinds: ['message.delivery_contradiction'] })).toEqual([])
+  })
 
   it('onTranscriptDelta confirms each item by its own frame across a multi-item delta', async () => {
     const { svc, store } = await harness([session({ sessionId: asSessionId('s1') })])
