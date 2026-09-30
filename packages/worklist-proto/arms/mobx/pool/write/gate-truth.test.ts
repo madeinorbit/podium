@@ -258,13 +258,13 @@ function staleRewind(handle: HarnessWritableMobxPoolHandle): void {
 }
 
 /** Plant (c): any remote drops the pending entry, so the object takes the server value. */
-function dropPendingOnRemote(handle: HarnessWritableMobxPoolHandle, exercised: () => void = () => {}): void {
+function dropPendingOnRemote(handle: HarnessWritableMobxPoolHandle, exercised: (event: { kind: string; id: string; patch: unknown; values: unknown }) => void = () => {}): void {
   const write = handle.write
   const remote = write.handleRemote.bind(write)
   write.handleRemote = (kind, id, values) => {
     remote(kind, id, values)
     for (const edit of write.log.pendingFor(kind, id)) {
-      exercised()
+      exercised({ kind, id, patch: edit.patch, values })
       write.reject({ txId: edit.txId, error: { message: '[plant] remote drops pending', parked: false } })
     }
   }
@@ -678,18 +678,25 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
       let failures = 0
       for (const seed of SEEDS) {
         let exercised = 0
+        let dropped: { kind: string; id: string; patch: unknown; values: unknown }[] = []
         const adapter = new ArmEditAdapter()
         const oracle = new WriteOracle()
-        const planted = armWithAdapter(adapter, oracle, (handle) => dropPendingOnRemote(handle, () => { exercised += 1 }))
+        const planted = armWithAdapter(adapter, oracle, (handle) => dropPendingOnRemote(handle, (event) => { exercised += 1; dropped.push(event) }))
         const sequence = gen(seed, STEPS)
         const result = await checkArm(planted, sequence, {
           mode: 'truth',
           shrink: false,
           oracleEvery: 1,
           editViaArm: adapter.editHook,
-          onStep: (step, run) => {
+          onStep: (step, run, handle) => {
             adapter.pairFromStep(step.detail ?? {})
             feedStep(oracle, step, run)
+            if (dropped.length > 0) {
+              const actual = handle.snapshot()
+              const expected = oracle.expectedSnapshot(run.ctx.engine.getSnapshot(), run.feed().source)
+              console.info(`[plant-c drop] seed=${seed} step=${step.index} change=${JSON.stringify(step.change)} drops=${JSON.stringify(dropped.map((event) => ({ ...event, actual: actual.rowsById[event.id], expected: expected.rowsById[event.id] })))}`)
+              dropped = []
+            }
           },
         })
         console.info(`[plant-c diagnostic] seed=${seed} generatedRemotes=${sequence.filter((c) => c.kind === 'remoteOnPending').length} exercised=${exercised} caught=${!result.ok} ${JSON.stringify(result.ok ? {} : { step: result.step, change: result.change, against: result.against, diff: result.diff })}`)
