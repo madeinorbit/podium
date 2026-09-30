@@ -579,6 +579,57 @@ describe('headless turn refusal surfacing (POD-4409)', () => {
     expect(result.retryable).toBeUndefined()
   })
 
+  it('keeps a dropped relay connection unknown because the write may have happened', async () => {
+    const h = await harness()
+    const { sessionId } = await h.registry.modules.sessions.headless.createHeadlessSession({
+      ownerUserId: firstAdminMemberId(),
+      agentKind: 'claude-code',
+      cwd: '/r',
+    })
+    vi.spyOn(h.registry.modules.sessions.runtimeGateway, 'send')
+      .mockRejectedValueOnce(new Error('connection dropped after dispatch'))
+    const result = await h.registry.modules.sessions.headless.headlessTurn({
+      turnId: 'turn:dropped-probe',
+      sessionId,
+      threadId: asThreadId('dropped-probe'),
+      agent: 'claude-code',
+      cwd: '/r',
+      prompt: 'a write with no answer',
+    })
+    expect(result).toMatchObject({ ok: false, deliveryStatus: 'unknown' })
+    expect(result.error).toMatch(/delivery could not be proven/i)
+    expect(result.retryable).toBeUndefined()
+  })
+
+  it('ends a turn-result timeout as unknown even when the interrupt succeeds', async () => {
+    const h = await harness()
+    const { turn, req } = await startProbeTurn(h, 'turn:timeout-probe')
+    vi.useFakeTimers()
+    try {
+      await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+        type: 'runtimeSendResult',
+        requestId: req.requestId,
+        sessionId: asSessionId(req.sessionId),
+        receipt: {
+          outcome: 'accepted',
+          deliveredAs: 'when-ready',
+          turnEpoch: 1,
+          provenBy: 'protocol-ack',
+          at: new Date().toISOString(),
+        },
+      })
+      await vi.advanceTimersByTimeAsync(610_000)
+      const result = await turn
+      expect(result).toMatchObject({ ok: false, deliveryStatus: 'unknown' })
+      expect(result.error).toMatch(/delivery could not be proven/i)
+      expect(result.retryable).toBeUndefined()
+      expect(h.interrupts).toContain(req.sessionId)
+    } finally {
+      h.sa.dispose()
+      vi.useRealTimers()
+    }
+  })
+
   it('sendTurn ends an unverified message as unknown and does not dispatch it again', async () => {
     const h = await harness()
     const ended: EventMap['superagent.turnEnded'][] = []

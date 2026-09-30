@@ -184,6 +184,8 @@ export interface EventMap {
     threadId: ThreadId
     podiumSessionId: SessionId
     ok: boolean
+    /** Delivery could not be proven; this is not evidence of a failed send. */
+    deliveryStatus?: 'unknown'
     output?: string
     error?: string
     /** Present when a failed turn was classified by the harness classifier. */
