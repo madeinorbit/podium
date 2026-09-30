@@ -355,6 +355,12 @@ export interface ClaudeStreamTurn {
     interactionId: string,
     answer: { decision: 'allow-once' | 'allow-always' | 'deny'; feedback?: string },
   ): void
+  /**
+   * THE CLI PROCESS THIS TURN RODE EXITED (POD-4887): the transport's own exit,
+   * never a dead-pipe guess, and never `close()` — Podium letting go of the
+   * child is not the child ending. Resolves once, at most.
+   */
+  exited: Promise<void>
 }
 
 export interface ClaudeStreamClient {
@@ -836,8 +842,13 @@ export function createClaudeStreamClient(
       })
     }
   }
+  let markExited!: () => void
+  const exited = new Promise<void>((resolve) => {
+    markExited = resolve
+  })
   const offLine = transport.onLine(onLine)
   const offExit = transport.onExit((code, signal) => {
+    markExited()
     offLine()
     settleAllAcks({
       outcome: 'unconfirmed',
@@ -1024,6 +1035,7 @@ export function createClaudeStreamClient(
         },
         requestInterrupt: () => requestInterruptFor(randomUUID()),
         answerPermission,
+        exited,
       }
     },
     answerPermission,
