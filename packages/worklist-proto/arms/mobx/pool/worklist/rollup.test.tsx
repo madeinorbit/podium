@@ -568,7 +568,7 @@ describe('row roll-ups (Mb3)', () => {
       // without loading them, and no visible row is cold by the rule. They
       // land first (none here).
       const own = rig.settleOwn()
-      expect(own, 'nothing asked for with nothing drawn').toEqual([])
+      expect(own.length, 'nothing asked for with nothing drawn').toBe(0)
       const parents = familyParents(rig)
       // One cold level only (the chain test below covers deeper ones), two
       // or more closed children, and a second such row to leave undrawn.
