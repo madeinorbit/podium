@@ -90,6 +90,40 @@ describe('OutputScheduler', () => {
     expect(h.decoded()).toEqual([{ sid: 's', sourceFrames: 1, bytes: 'a' }])
   })
 
+  it('a picture flushes the data held before it, then leaves at once, in stream order (POD-4912)', () => {
+    const h = harness()
+    const sid = asSessionId('s')
+    h.s.setPriority(sid, 3)
+    h.s.enqueue(sid, h.bytes('before'))
+    h.s.enqueuePicture(sid, { reason: 'reset', cols: 100, rows: 30, bytes: h.bytes('<PIC>') })
+    h.s.enqueue(sid, h.bytes('after'))
+    // The picture was not coalesced into data or held for the P3 timer.
+    expect(h.flushed.map((b) => b.type ?? 'ptyOutput')).toEqual(['ptyOutput', 'ptyPicture'])
+    expect(h.flushed[1]).toMatchObject({
+      type: 'ptyPicture',
+      sessionId: 's',
+      reason: 'reset',
+      cols: 100,
+      rows: 30,
+    })
+    const text = (i: number) => Buffer.from(h.flushed[i]?.bytes ?? []).toString()
+    expect(text(1)).toBe('<PIC>')
+    h.fireTimer()
+    expect(text(2)).toBe('after')
+  })
+
+  it('a picture with nothing held before it leaves alone, on a focused session too', () => {
+    const h = harness()
+    const sid = asSessionId('s')
+    h.s.setPriority(sid, 0)
+    h.s.enqueue(sid, h.bytes('a'))
+    h.s.enqueuePicture(sid, { reason: 'cut', cols: 80, rows: 24, bytes: h.bytes('<P>') })
+    // The pending immediate flush of 'a' ran first, synchronously.
+    expect(h.flushed.map((b) => b.type ?? 'ptyOutput')).toEqual(['ptyOutput', 'ptyPicture'])
+    h.runImmediate()
+    expect(h.flushed).toHaveLength(2)
+  })
+
   it('remove flushes then drops state', () => {
     const h = harness()
     h.s.setPriority(asSessionId('s'), 3)

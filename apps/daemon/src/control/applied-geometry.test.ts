@@ -95,8 +95,9 @@ describe('only the size event reports', () => {
     expect(callers.sort()).toEqual(['control/applied-geometry.ts', 'control/session.ts'])
     const session = readFileSync(join(root, 'control/session.ts'), 'utf8')
     const body = session.slice(session.indexOf('export function onSessionSize('))
+    // The birth report also says whether the terminal carries pictures (POD-4912).
     expect(body.slice(0, body.indexOf('\n}\n'))).toContain(
-      'reportSize(ctx, sessionId, size, birth)',
+      'reportSize(ctx, sessionId, size, birth, birth && keepsScreen && picturesAccepted(ctx))',
     )
   })
 })

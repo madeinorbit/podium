@@ -24,7 +24,7 @@ import {
 import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor, manifestFor } from '@podium/harness'
 import { asSessionId, type SessionId } from '@podium/model'
 import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
-import type { AgentFrame, DurableAttachment } from '@podium/process/screen'
+import type { AgentFrame, AgentPicture, DurableAttachment } from '@podium/process/screen'
 import { createDurable, scopeUnitName } from '@podium/process/durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from '../control/context'
@@ -84,14 +84,18 @@ function fakeClient(
   replayFrame?: string,
   subscribeFrame?: string,
   size?: { cols: number; rows: number },
+  screen = false,
 ): DurableAttachment & {
   emit(data: string): void
+  emitPicture(reason: AgentPicture['reason'], data: string): void
   disposed: boolean
   writes: string[]
   sizes: { cols: number; rows: number }[]
   replays: number
+  pictureRequests: number
 } {
   const frameCbs: ((f: AgentFrame) => void)[] = []
+  const pictureCbs: ((p: AgentPicture) => void)[] = []
   let seq = 0
 
   const client = {
@@ -100,6 +104,22 @@ function fakeClient(
     writes: [] as string[],
     sizes: [] as { cols: number; rows: number }[],
     replays: 0,
+    pictureRequests: 0,
+    // A screen host (POD-4912): pictures in the stream, on request.
+    ...(screen
+      ? {
+          attachedAtTail: true,
+          keepsScreen: () => true,
+          requestPicture: () => {
+            client.pictureRequests += 1
+            return true
+          },
+          onPicture(cb: (p: AgentPicture) => void) {
+            pictureCbs.push(cb)
+            return () => {}
+          },
+        }
+      : {}),
     onFrame(cb: (f: AgentFrame) => void) {
       frameCbs.push(cb)
       if (subscribeFrame) client.emit(subscribeFrame)
@@ -130,6 +150,10 @@ function fakeClient(
     },
     emit(data: string) {
       for (const cb of frameCbs) cb({ seq: seq++, data: Buffer.from(data, 'latin1') })
+    },
+    emitPicture(reason: AgentPicture['reason'], data: string) {
+      const p = { reason, cols: 80, rows: 24, bytes: Buffer.from(data, 'latin1') }
+      for (const cb of pictureCbs) cb(p)
     },
   }
   return client
@@ -172,6 +196,8 @@ interface HarnessOptions {
   birthGeometry?: (sessionId: SessionId) => { cols: number; rows: number } | undefined
   /** The session registry the facade writes. Defaults to a fresh one. */
   sessions?: SessionRegistry
+  /** The client runs on a screen host and the server accepted pictures (POD-4912). */
+  pictures?: boolean
 }
 
 interface Harness {
@@ -187,6 +213,8 @@ interface Harness {
   reclaimed: string[]
   released: string[]
   frames: { streamId: string; data: Uint8Array }[]
+  /** Pictures the relay forwarded, and whether each one seeded the screen. */
+  pictures: { streamId: string; reason: string; seed: boolean }[]
   clients: ReturnType<typeof fakeClient>[]
 }
 
@@ -197,6 +225,7 @@ function harness(opts: HarnessOptions = {}) {
     reclaimed: [],
     released: [],
     frames: [...(opts.priorFrames ?? [])],
+    pictures: [],
     clients: [],
   }
   // THE SESSION SUMMONS, THE RELAY RENDERS: the only process path the relay
@@ -222,7 +251,7 @@ function harness(opts: HarnessOptions = {}) {
         : opts.adopted
           ? opts.adoptedGeometry
           : { cols: o.cols ?? 0, rows: o.rows ?? 0 }
-      const client = fakeClient(opts.replayFrame, opts.subscribeFrame, welcome)
+      const client = fakeClient(opts.replayFrame, opts.subscribeFrame, welcome, opts.pictures)
       state.clients.push(client)
       const withConnection = opts.connectionSeq ? { connection: opts.connectionSeq } : {}
       return opts.adopted
@@ -245,6 +274,9 @@ function harness(opts: HarnessOptions = {}) {
     ...(opts.birthGeometry ? { birthGeometry: opts.birthGeometry } : {}),
     ...(opts.rememberDurableSeq ? { rememberDurableSeq: opts.rememberDurableSeq } : {}),
     frames: (streamId, data) => state.frames.push({ streamId, data }),
+    picture: (streamId, picture, seed) =>
+      state.pictures.push({ streamId, reason: picture.reason, seed }),
+    ...(opts.pictures ? { picturesAccepted: () => true } : {}),
     releaseStream: (streamId) => state.released.push(streamId),
   })
   return { terminals, state, sessions }
@@ -1881,5 +1913,59 @@ describe('without a session client scope there are no client terminals (POD-3917
     expect(terminals).toBeDefined()
     await terminals?.attach({ sessionId: SESSION, target })
     await terminals?.close(SESSION)
+  })
+})
+
+describe('a client terminal on a screen host (POD-4912)', () => {
+  it('asks for a picture at birth instead of replaying the ring', async () => {
+    const { terminals, state, sessions } = harness({
+      replayFrame: '\x1b[2Jring replay',
+      hasMaster: () => true,
+      adopted: true,
+      adoptedGeometry: { cols: 100, rows: 30 },
+      pictures: true,
+    })
+    terminals.adopt(SESSION)
+    const policy = sessions.get(SESSION)?.client
+    if (policy) policy.replayRequired = true
+    await terminals.attach({ sessionId: SESSION, target })
+    expect(state.clients[0]?.pictureRequests).toBe(1)
+    expect(state.clients[0]?.replays).toBe(0)
+    expect(state.clients[0]?.writes).toEqual([])
+  })
+
+  it('forwards its pictures on the session relay, the first reset after the tail as the seed', async () => {
+    const { terminals, state } = harness({
+      hasMaster: () => true,
+      adopted: true,
+      adoptedGeometry: { cols: 80, rows: 24 },
+      pictures: true,
+    })
+    terminals.adopt(SESSION)
+    await terminals.attach({ sessionId: SESSION, target })
+    const client = state.clients[0]
+    if (!client) throw new Error('no client was started')
+    client.emitPicture('cut', 'c')
+    client.emitPicture('reset', 'r1')
+    client.emitPicture('reset', 'r2')
+    expect(state.pictures).toEqual([
+      { streamId: SESSION, reason: 'cut', seed: false },
+      { streamId: SESSION, reason: 'reset', seed: true },
+      { streamId: SESSION, reason: 'reset', seed: false },
+    ])
+  })
+
+  it('a server without pictures keeps the ring replay and asks for nothing', async () => {
+    const { terminals, state, sessions } = harness({
+      replayFrame: '\x1b[2Jring replay',
+      hasMaster: () => true,
+      adopted: true,
+    })
+    terminals.adopt(SESSION)
+    const policy = sessions.get(SESSION)?.client
+    if (policy) policy.replayRequired = true
+    await terminals.attach({ sessionId: SESSION, target })
+    expect(state.clients[0]?.replays).toBe(1)
+    expect(state.clients[0]?.pictureRequests).toBe(0)
   })
 })

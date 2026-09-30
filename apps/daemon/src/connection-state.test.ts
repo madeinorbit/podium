@@ -669,27 +669,58 @@ it('sends exact binary output only when the remote handshake accepts it', async 
   await h.state.close()
 })
 
+const pictureBatch = {
+  type: 'ptyPicture' as const,
+  sessionId: asSessionId('session-picture'),
+  reason: 'reset' as const,
+  cols: 120,
+  rows: 40,
+  bytes: Uint8Array.of(0x1b, 0x63),
+}
+
 it.each([
   { caps: [] },
   { caps: [CAP_TERMINAL_OUTPUT_BINARY_V1] },
-  { caps: [CAP_TERMINAL_OUTPUT_BINARY_V1, CAP_TERMINAL_PICTURE_V1] },
-])('does not send picture items in the parser-only step (%j)', async ({ caps }) => {
+])('never sends a picture item to a server without terminal.picture.v1 (%j) (N8)', async ({ caps }) => {
   const h = remoteHarness()
   const started = h.state.start()
   h.socket.emit('open')
   h.socket.message({ ...ok, caps })
   await started
   try {
+    expect(h.state.acceptsPictures()).toBe(false)
     const sent = h.socket.sent.length
-    h.state.sendOutput({
+    h.state.sendOutput(pictureBatch)
+    expect(h.socket.sent).toHaveLength(sent)
+    expect(h.sendApplicationFrame).not.toHaveBeenCalled()
+  } finally {
+    await h.state.close()
+  }
+})
+
+it('sends a picture as one binary ptyPicture envelope once the server accepts terminal.picture.v1', async () => {
+  const h = remoteHarness()
+  const started = h.state.start()
+  h.socket.emit('open')
+  h.socket.message({ ...ok, caps: [CAP_TERMINAL_OUTPUT_BINARY_V1, CAP_TERMINAL_PICTURE_V1] })
+  await started
+  try {
+    expect(h.state.acceptsPictures()).toBe(true)
+    const sent = h.socket.sent.length
+    h.state.sendOutput(pictureBatch)
+    expect(h.socket.sent).toHaveLength(sent + 1)
+    const frame = h.socket.sent.at(-1)
+    if (typeof frame === 'string' || frame === undefined) throw new Error('expected a binary frame')
+    const decoded = decodeBinaryEnvelope(Buffer.from(frame), DaemonPtyOutputMetadata)
+    expect(decoded.metadata).toEqual({
+      v: 1,
       type: 'ptyPicture',
-      sessionId: asSessionId('session-picture'),
+      sessionId: 'session-picture',
       reason: 'reset',
       cols: 120,
       rows: 40,
-      bytes: Uint8Array.of(0x1b, 0x63),
     })
-    expect(h.socket.sent).toHaveLength(sent)
+    expect([...decoded.payload]).toEqual([0x1b, 0x63])
     expect(h.sendApplicationFrame).not.toHaveBeenCalled()
   } finally {
     await h.state.close()
@@ -888,6 +919,33 @@ it('delivers local typed output by reference without changing JSON sends', async
   expect(deliver).toHaveBeenCalledWith(diagnostic)
   expect(deliver.mock.calls[0]![0]).toBe(diagnostic)
   expect(deliverOutput).toHaveBeenCalledTimes(1)
+  await state.close()
+})
+
+it.each([
+  { caps: [CAP_TERMINAL_OUTPUT_BINARY_V1, CAP_TERMINAL_PICTURE_V1], delivered: true },
+  { caps: [CAP_TERMINAL_OUTPUT_BINARY_V1], delivered: false },
+])('hands a picture to an in-process server only when it accepted pictures (%j)', async ({
+  caps,
+  delivered,
+}) => {
+  const deliverOutput = vi.fn()
+  const options = localOptions(() => {}, { machineToken: 'local-secret' })
+  options.localLink = {
+    attach: async () => ({
+      established: true,
+      reply: { ...ok, caps },
+      machineId: MACHINE_ID,
+      deliver: vi.fn(),
+      deliverOutput,
+      close: vi.fn(),
+    }),
+  }
+  const state = connection(options)
+  await state.start()
+  expect(state.acceptsPictures()).toBe(delivered)
+  state.sendOutput(pictureBatch)
+  expect(deliverOutput.mock.calls.map(([batch]) => batch)).toEqual(delivered ? [pictureBatch] : [])
   await state.close()
 })
 

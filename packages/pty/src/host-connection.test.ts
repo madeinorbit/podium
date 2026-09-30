@@ -274,3 +274,58 @@ describe('HostConnection: pictures (POD-4909)', () => {
     expect(conn.lastSeq).toBe(4n)
   })
 })
+
+describe('the host attachment: pictures on the item path (POD-4912)', () => {
+  it('delivers pictures through onPicture in stream order with DATA through onFrame', async () => {
+    const { attachHostAgent } = await import('./host.js')
+    const host = await fakeHost((frames, sock) => {
+      if (frames.at(-1)?.type !== HostFrame.PICTURE) return
+      sock.write(
+        Buffer.concat([
+          data(0n, 'ab'),
+          picture(2n, HostPictureReason.RESET, 100, 30, '\x1bcpic'),
+          data(2n, 'cd'),
+          picture(4n, HostPictureReason.CUT, 100, 30, 'cut'),
+        ]),
+      )
+    }, 1)
+    cleanups.push(host.close)
+    const attachment = attachHostAgent({ label: 'pic', socketPath: host.path, fromSeq: 'tail' })
+    cleanups.push(() => attachment.dispose())
+    await attachment.ready
+    expect(attachment.keepsScreen?.()).toBe(true)
+    expect(attachment.attachedAtTail).toBe(true)
+    const order: string[] = []
+    attachment.onFrame((f) => order.push(`data ${Buffer.from(f.data).toString()}`))
+    const done = new Promise<void>((resolve) => {
+      attachment.onPicture?.((p) => {
+        order.push(`picture ${p.reason} ${p.cols}x${p.rows} ${Buffer.from(p.bytes).toString()}`)
+        if (p.reason === 'cut') resolve()
+      })
+    })
+    expect(attachment.requestPicture?.()).toBe(true)
+    await done
+    expect(order).toEqual([
+      'data ab',
+      'picture reset 100x30 \x1bcpic',
+      'data cd',
+      'picture cut 100x30 cut',
+    ])
+  })
+
+  it('a C host keeps no screen and is never asked; an attach from seq 0 is not at the tail', async () => {
+    const { attachHostAgent } = await import('./host.js')
+    const seen: number[] = []
+    const host = await fakeHost((frames) => {
+      seen.push(...frames.map((f) => f.type))
+    })
+    cleanups.push(host.close)
+    const attachment = attachHostAgent({ label: 'c', socketPath: host.path, fromSeq: 0n })
+    cleanups.push(() => attachment.dispose())
+    await attachment.ready
+    expect(attachment.keepsScreen?.()).toBe(false)
+    expect(attachment.attachedAtTail).toBe(false)
+    expect(attachment.requestPicture?.()).toBe(false)
+    expect(seen).not.toContain(HostFrame.PICTURE)
+  })
+})

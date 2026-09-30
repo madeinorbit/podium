@@ -294,7 +294,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
   it.each([
     'reset',
     'cut',
-  ])('parses a %s picture without routing it as data in B1', async (reason) => {
+  ])('routes a %s picture as a picture item, in order, never as data (POD-4912)', async (reason) => {
     const { reg, ws } = await authenticatedSocket([
       CAP_TERMINAL_OUTPUT_BINARY_V1,
       CAP_TERMINAL_PICTURE_V1,
@@ -310,7 +310,17 @@ describe('the daemon socket speaks the permanent envelope', () => {
         true,
       )
       expect(ws.terminate).not.toHaveBeenCalled()
-      expect(route).not.toHaveBeenCalled()
+      expect(route).toHaveBeenCalledTimes(1)
+      const [, batch] = route.mock.calls[0] ?? []
+      expect(batch).toMatchObject({
+        type: 'ptyPicture',
+        sessionId: 'session-picture',
+        reason,
+        cols: 120,
+        rows: 40,
+      })
+      expect(batch && [...batch.bytes]).toEqual([0x1b, 0x63])
+      expect(batch).not.toHaveProperty('sourceFrames')
     } finally {
       await reg.dispose()
       await reg.sessionStore.close()
