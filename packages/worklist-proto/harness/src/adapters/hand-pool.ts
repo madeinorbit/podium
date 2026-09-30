@@ -66,8 +66,16 @@ export function poolPendingLoads(pool: HandPool): number {
  * harness-only; production closes the window one batch at a time (`hydrate`).
  */
 export function drainPoolLoads(pool: HandPool): number {
-  // PLANT (POD-4933 proof): settle step no-op — drains nothing.
-  return 0
+  const residency = pool.residency
+  if (residency === null) return 0
+  const before = residency.counters.hydrated
+  for (let round = 0; residency.hasQueued(); round += 1) {
+    if (round >= MAX_LOAD_ROUNDS) {
+      throw new Error(`[pool] loads did not drain in ${MAX_LOAD_ROUNDS} rounds`)
+    }
+    pool.hydrate()
+  }
+  return residency.counters.hydrated - before
 }
 
 /**
