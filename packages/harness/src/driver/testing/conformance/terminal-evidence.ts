@@ -14,8 +14,11 @@ export interface TerminalEvidenceControl {
   submitted(sessionId: SessionId, count: number): Promise<readonly string[]>
   /** A user item independent of any send, including foreign or altered text. */
   userTurn(sessionId: SessionId, text: string): void
-  /** The raw provider hook; only profiles declaring hook proof consume it. */
+  /** The raw provider hook. Never a receipt (POD-4905). */
   hook(sessionId: SessionId, text: string): void
+  /** A write into the terminal that is not the typing message's own — a
+   *  person's keystroke — as the foreign-write counter sees it (POD-4888). */
+  foreignWrite(sessionId: SessionId): void
   /** Feed both producer arms for ONE provider boundary, in either order. */
   boundary(sessionId: SessionId, phase: 'working' | 'idle', order: 'state-first' | 'observation-first'): void
 }
@@ -58,11 +61,44 @@ export function describeTerminalEvidenceConformance(target: TerminalEvidenceTarg
       expect(control.textDeliveries(id)).toBe(2)
     })
 
-    it('reflowed whitespace still proves the complete submitted text', async () => {
+    it('an echo whose inner whitespace was reflowed cannot prove the submitted text', async () => {
+      // No program measured (POD-4834 S7) reflows what it records; a reflowed
+      // text is another text (POD-4905).
       const { session, evidence, id } = await setup()
       const pending = session.send({ text: 'preserve these words\nand their order' }, sendOptions)
       await evidence.submitted(id, 1)
-      evidence.userTurn(id, '  preserve\r\nthese\twords and\n their order  ')
+      evidence.userTurn(id, 'preserve\r\nthese\twords and\n their order')
+      expect(await pending).toMatchObject({ outcome: 'unverified' })
+    })
+
+    it('one echo of words two open sends share credits neither', async () => {
+      const { session, evidence, id } = await setup()
+      const first = session.send({ text: 'same amber request' }, sendOptions)
+      await evidence.submitted(id, 1)
+      const second = session.send({ text: 'same amber request' }, sendOptions)
+      await evidence.submitted(id, 2)
+      evidence.userTurn(id, 'same amber request')
+      const receipts = await Promise.all([first, second])
+      expect(receipts.map((receipt) => receipt.outcome)).toEqual(['unverified', 'unverified'])
+    })
+
+    it('a foreign write while the send is open denies its credit by order', async () => {
+      const { session, evidence, id } = await setup()
+      const pending = session.send({ text: 'send-owned amber request' }, sendOptions)
+      await evidence.submitted(id, 1)
+      evidence.foreignWrite(id)
+      evidence.userTurn(id, 'send-owned amber request')
+      expect(await pending).toMatchObject({ outcome: 'unverified' })
+    })
+
+    it('a wrapped message is proven by its own frame id, whatever else the entry holds', async () => {
+      const { session, evidence, id } = await setup()
+      const messageId = 'msg_0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9'
+      const frame = `[podium message ${messageId} · from agent · to you]\nplease look\n[end podium message ${messageId}]`
+      const pending = session.send({ id: messageId, text: frame }, sendOptions)
+      await evidence.submitted(id, 1)
+      evidence.foreignWrite(id)
+      evidence.userTurn(id, `left in the input box\n${frame}`)
       expect(await pending).toMatchObject({ outcome: 'accepted', provenBy: 'transcript-echo' })
     })
 
@@ -77,18 +113,19 @@ export function describeTerminalEvidenceConformance(target: TerminalEvidenceTarg
       expect(await pending).toMatchObject({ outcome: 'unverified' })
     })
 
-    it('a hook credits only its matching overlapping send when hook proof is declared', async () => {
+    it('a hook, even one naming the send, proves nothing', async () => {
+      // Claude 2.1.284 fired `UserPromptSubmit` for a prompt a SIGKILL then
+      // left out of its history (POD-4862): terminal receipts come from the
+      // history only (POD-4905).
       const { session, evidence, driver, id } = await setup()
+      expect(driver.capabilities().send.proof).not.toContain('hook')
       const first = session.send({ text: 'first amber request' }, sendOptions)
       await evidence.submitted(id, 1)
       const second = session.send({ text: 'second violet request' }, sendOptions)
       expect(await evidence.submitted(id, 2)).toEqual(['first amber request', 'second violet request'])
       evidence.hook(id, 'second violet request')
       const receipts = await Promise.all([first, second])
-      expect(receipts[0]).toMatchObject({ outcome: 'unverified' })
-      expect(receipts[1]).toMatchObject(driver.capabilities().send.proof.includes('hook')
-        ? { outcome: 'accepted', provenBy: 'hook' }
-        : { outcome: 'unverified' })
+      expect(receipts.map((receipt) => receipt.outcome)).toEqual(['unverified', 'unverified'])
     })
 
     it.each(['state-first', 'observation-first'] as const)(

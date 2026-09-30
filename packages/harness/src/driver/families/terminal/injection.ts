@@ -44,19 +44,25 @@
  * ---------------------------------------------------------------------------
  *
  * The whole point of routing a send through here is that it comes back with a
- * receipt instead of a hope. Three proofs, in priority order, and a fourth
- * outcome when none of them lands:
+ * receipt instead of a hope. Proof comes from ONE place: the harness's own
+ * history (POD-4819 §3.3, POD-4905).
  *
- *   1. HOOK — Claude's `UserPromptSubmit` fired for THIS prompt. It is a causal
- *      signal from the harness itself, the same one the reattachment design
- *      anchors turn epochs to, so it is as good as a protocol ack.
- *   2. TRANSCRIPT ECHO — the submitted text appeared as a new user turn in the
- *      harness's own transcript. Weaker (it proves the CLI recorded a turn, not
- *      that this exact keystroke run caused it) but still evidence from the
- *      harness rather than from us.
+ *   1. RECORDED — a prompt entry the harness wrote after the send started is
+ *      this send: by its frame id for a wrapped message, by order plus text
+ *      for a person's own words (the daemon's matcher applies both rules).
+ *      `accepted`, naming the entry: delivered.
+ *   2. HELD — the harness took the prompt into its queue and wrote only that
+ *      (Claude's `queue-operation enqueue`). `accepted` with `held: 'memory'`;
+ *      the entry follows through `onTranscriptItem`, or `onUnrecorded` says
+ *      it will not come.
  *   3. Neither, inside the window ⇒ `unverified`. NOT `refused`, and NOT more
  *      retries: the keystrokes really were delivered, and the caller is told
  *      exactly how long we already waited so the decision is theirs.
+ *
+ * A HOOK IS NOT PROOF. Claude's `UserPromptSubmit` fired for a prompt that a
+ * SIGKILL at +200 ms then left out of the history (POD-4862): the program can
+ * announce a prompt it then loses. Hooks serve turn tracking; here Claude's
+ * hook only lends its `prompt_id` to a send the history proved.
  *
  * WHAT IS DELIBERATELY NOT PROOF: the phase leaving `idle`. That is the
  * ready-poll heuristic the whole epic exists to retire — it says the CLI is busy,
@@ -102,19 +108,6 @@ export const QUEUE_MESSAGE_SPACING_MS = 400
  * mechanism was still in the middle of rescuing.
  */
 export const VERIFICATION_WINDOW_MS = SUBMIT_VERIFY_DELAY_MS * (SUBMIT_MAX_RETRIES + 1)
-
-/**
- * How long a HOOK-proven send keeps watching for its transcript echo, to learn
- * which history entry it became (POD-4774).
- *
- * The hook fires when the CLI takes the prompt, which can be before the
- * harness has written its record of it, and the hook payload names no entry.
- * The receipt does not wait: it goes back `accepted` on the hook, and the
- * echo, when it lands inside this window, names the entry through
- * `onTranscriptItem`. An echo that never matches leaves the entry
- * unidentified — never a weaker outcome, never a guess.
- */
-export const HOOK_ECHO_ITEM_WAIT_MS = 30_000
 
 /**
  * How long an `unverified` send keeps watching for its transcript echo, as
@@ -174,27 +167,22 @@ export const DEFAULT_TERMINAL_INTERRUPT: TerminalInterruptConfig = {
 
 export type TimerHandle = { readonly __timer: unique symbol } | unknown
 
-/** A content-correlated accept watch, shared by hooks and transcript echoes.
- * The daemon supplies matching through manifest adapters; this machine only
- * arms watches before the first byte and chooses the strongest observed proof.
- * A counter cannot substitute: unrelated user turns must never credit a send. */
+/** An accept watch, armed before the first byte. The daemon matches through
+ * manifest adapters (a frame id, or order plus text under the foreign-write
+ * counter); this machine only arms watches and reads what they report. */
 export interface AcceptPort {
-  watch(text: string): AcceptWatch
+  /** `turnId` names the send's typing to the foreign-write counter
+   *  (`typingStarts`), which order credit compares against. */
+  watch(text: string, turnId?: string): AcceptWatch
 }
 
-/** The proof a send landed on, and the entry the echo named when it was the
- *  echo that landed. */
-type Proven = {
-  provenBy: 'hook' | 'transcript-echo'
-  transcriptItem?: TranscriptItemRef
-  /** The program's own ids the proving hook carried (POD-4841). */
-  harnessRef?: HarnessRef
-}
+/** What the history showed for a send inside its window. */
+type Proven = { kind: 'recorded'; transcriptItem?: TranscriptItemRef } | { kind: 'held' }
 
 /** What an accept observation said about the prompt it credited. */
 export interface AcceptSeen {
   /** The harness's own record of the prompt — set by a transcript echo, which
-   *  IS that record. A hook names no entry and leaves it unset (POD-4774). */
+   *  IS that record (POD-4774). */
   readonly transcriptItem?: TranscriptItemRef
   /** The program's own ids the observation carried for the prompt — Claude's
    *  hook `prompt_id` (POD-4841). Only as good as the observation's timing:
@@ -206,6 +194,12 @@ export interface AcceptWatch {
   /** Resolves only for this prompt, with what the observation saw. It never
    *  resolves otherwise: the caller's window ends the wait. */
   readonly accepted: Promise<AcceptSeen>
+  /**
+   * Resolves once the harness has taken this prompt into its queue without
+   * recording it in the conversation (Claude's `enqueue`, POD-4905): a held
+   * receipt, never a delivery. Absent where the channel cannot tell.
+   */
+  readonly held?: Promise<void>
   /**
    * Resolves once the history has moved past this prompt without recording
    * it (POD-4840): another prompt entry was recorded after the send started
@@ -270,13 +264,14 @@ export interface TerminalInjectionPorts {
   now(): number
   setTimer(fn: () => void, delayMs: number): TimerHandle
   clearTimer(handle: TimerHandle): void
-  /** Absent for harnesses with no causal hook channel; present for Claude. */
+  /** Claude's `UserPromptSubmit`, read ONLY for the program's own prompt id
+   *  (POD-4841): a hook is never a receipt (POD-4905). Absent elsewhere. */
   hookAccept?: AcceptPort
   /**
-   * The transcript-echo channel. Absent only where nothing can observe the
-   * harness's transcript at all — and an absent channel means the echo proof
-   * cannot be produced, so a send with no hook degrades to `unverified`. That
-   * is the honest answer: the bytes went out and nothing confirmed them.
+   * The history channel: the only proof. Absent only where nothing can
+   * observe the harness's transcript at all — and then every send answers
+   * `unverified`. That is the honest answer: the bytes went out and nothing
+   * confirmed them.
    */
   echoAccept?: AcceptPort
   /** Grok's fresh TUI ignores bracketed paste until a native first turn
@@ -358,7 +353,6 @@ export type QueueDrainAbandonedReason = Extract<
 >
 
 export interface DeliverOptions {
-  durable?: boolean
   initialPrompt?: boolean
   signal?: AbortSignal
   origin: InputOrigin
@@ -368,8 +362,12 @@ export interface DeliverOptions {
   /** Set by the interrupt path: the manifest key already went out, so the `needs_user`
    *  refusal below does not apply (the key is what clears the prompt). */
   afterEsc?: boolean
-  /** The entry, when a hook proved the send before its echo named it (POD-4774). */
-  onTranscriptItem?: (item: TranscriptItemRef) => void
+  /** The entry of a send answered `accepted` with `held`, once the harness
+   *  records it (POD-4774, POD-4905). Called at most once. */
+  onTranscriptItem?: (item: TranscriptItemRef, harnessRef?: HarnessRef) => void
+  /** A held send the harness will not record any more (POD-4849): its watch
+   *  closed first. Called at most once, never with `onTranscriptItem`. */
+  onUnrecorded?: (reason: string) => void
   /** The echo of a send that answered `unverified`, when it lands after the
    *  window (POD-4840). Called at most once. */
   onLateProof?: (seen: AcceptSeen) => void
@@ -418,6 +416,8 @@ export function createTerminalInjection(
   /** Driver-local turn counter. See `nextTurnEpoch`. */
   let localTurnEpoch = 0
   let disposed = false
+  /** Held sends still waiting for their record: told when the session ends. */
+  const heldWatches = new Set<() => void>()
 
   const setTimer = (fn: () => void, delayMs: number): TimerHandle => {
     const handle = ports.setTimer(() => {
@@ -451,40 +451,39 @@ export function createTerminalInjection(
   }
 
   /**
-   * The ported `scheduleSubmitVerify` ladder, plus the echo watch that turns it
-   * into evidence instead of a nudge.
+   * The ported `scheduleSubmitVerify` ladder, plus the history watch that
+   * turns it into evidence instead of a nudge.
    *
-   * Returns the proof that landed — with the history entry the echo named,
-   * when one did — or null when the window closed without one.
+   * Returns what the history showed — the prompt recorded (with its entry),
+   * or held in the harness's queue — or null when the window closed without
+   * either.
+   *
+   * THE WINDOW STAYS OPEN WHILE THE HARNESS IS BUSY (POD-4905, spec §5.3): a
+   * prompt typed during a running tool call or text stream is recorded only
+   * when that ends (+6–10 s measured), so every tick that reads the agent
+   * `working` or `compacting` moves the deadline out again, up to the
+   * 30-minute ceiling a running turn is believed to have.
    */
   async function awaitProof(
-    hookWatch: AcceptWatch | undefined,
     echoWatch: AcceptWatch | undefined,
     signal?: AbortSignal,
-    durable = false,
     initialPrompt = false,
   ): Promise<Proven | null> {
-    let hookSeen: AcceptSeen | undefined
-    let echoSeen: AcceptSeen | undefined
-    void hookWatch?.accepted.then((seen) => {
-      hookSeen ??= seen
+    if (!echoWatch) return null
+    let recorded: AcceptSeen | undefined
+    let held = false
+    void echoWatch.accepted.then((seen) => {
+      recorded ??= seen
     })
-    void echoWatch?.accepted.then((seen) => {
-      echoSeen ??= seen
+    void echoWatch.held?.then(() => {
+      held = true
     })
-    // THE DECLARED ORDER, and the hook wins a tie on purpose: it is the causal
-    // signal, so where both landed the stronger one is the honest attribution.
-    // The ITEM only ever comes from the echo — the harness's record of the
-    // prompt; the hook payload names none (POD-4774).
     const proven = (): Proven | null => {
-      const transcriptItem = echoSeen?.transcriptItem
-      const named = transcriptItem ? { transcriptItem } : {}
-      if (hookSeen) {
-        const ids = hookSeen.harnessRef
-        return { provenBy: 'hook', ...named, ...(ids?.length ? { harnessRef: ids } : {}) }
+      if (recorded) {
+        const transcriptItem = recorded.transcriptItem
+        return { kind: 'recorded', ...(transcriptItem ? { transcriptItem } : {}) }
       }
-      if (echoSeen) return { provenBy: 'transcript-echo', ...named }
-      return null
+      return held ? { kind: 'held' } : null
     }
     let retriesLeft = ports.needsSubmitVerification() ? SUBMIT_MAX_RETRIES : 0
     let nudging = true
@@ -493,24 +492,23 @@ export function createTerminalInjection(
     const heldUntil = ports.now() + 30 * 60_000
 
     while (ports.now() < deadline && ports.now() < heldUntil) {
-      // Race BOTH proofs against the tick so a proof that has already landed is
+      // Race the proof against the tick so a proof that has already landed is
       // not made to wait out a 1.6s poll it already answered.
       const tick = sleep(SUBMIT_VERIFY_DELAY_MS)
-      const settled: Promise<unknown>[] = [tick]
-      if (hookWatch) settled.push(hookWatch.accepted)
-      if (echoWatch) settled.push(echoWatch.accepted)
+      const settled: Promise<unknown>[] = [tick, echoWatch.accepted]
+      if (echoWatch.held) settled.push(echoWatch.held)
       await Promise.race(settled)
-      if (hookSeen || echoSeen) return proven()
+      if (recorded || held) return proven()
       if (signal?.aborted) return null
-      // A dead session cannot echo and cannot be nudged. Stop; the caller gets
+      // A dead session cannot record and cannot be nudged. Stop; the caller gets
       // `unverified`, which is the truth: the bytes went out, nothing confirmed.
       if (!ports.running()) return null
       const phase = ports.phase()
       // VERBATIM from `scheduleSubmitVerify`: a CLI that has left idle is busy,
       // and a stray CR into a busy composer is its own bug. Stop NUDGING — but
-      // keep watching, because the echo may still be a moment away.
+      // keep watching, because the record may still be a moment away.
       if (phase !== undefined && phase !== 'idle') nudging = false
-      if (durable && (phase === 'working' || phase === 'compacting')) deadline = ports.now() + windowMs
+      if (phase === 'working' || phase === 'compacting') deadline = ports.now() + windowMs
       if (nudging && retriesLeft > 0) {
         retriesLeft -= 1
         ports.write('\r', 'message')
@@ -543,29 +541,34 @@ export function createTerminalInjection(
     // applying the boundary first. `./paste.ts` carries the argument for why
     // dropping the ESC class is a proof rather than a pattern match.
     //
-    // BUILT BEFORE THE WATCHES ARE ARMED, not just before the write. The proofs
-    // below are matched against what the CLI RECEIVED — `payload.body` — and a
+    // BUILT BEFORE THE WATCHES ARE ARMED, not just before the write. The proof
+    // below is matched against what the CLI RECEIVED — `payload.body` — and a
     // watcher armed with the pre-boundary text would fail to recognise its own
-    // accept and report `unverified` for a turn that landed.
+    // record and report `unverified` for a turn that landed.
     const payload = injectionPayload(text, { rawFirstTurn: ports.rawFirstTurn() })
     // BOTH WATCHES ARE ARMED WITH `payload.body`, and both are started BEFORE the
     // write: a fast CLI can fire `UserPromptSubmit`, or record its user turn,
-    // before we would otherwise be listening, and a proof we missed reads as
-    // `unverified`. They are armed with the POST-boundary body for the reason the
-    // comment above gives — a watcher armed with the pre-boundary text would fail
-    // to recognise its own accept.
+    // before we would otherwise be listening, and a record we missed reads as
+    // `unverified`. The history watch is the proof; the hook watch only lends
+    // Claude's `prompt_id` to a send the history proved.
     const hookWatch = ports.hookAccept?.watch(payload.body)
-    const echoWatch = ports.echoAccept?.watch(payload.body)
+    const echoWatch = ports.echoAccept?.watch(payload.body, options.turnId)
+    let hookIds: HarnessRef | undefined
+    void hookWatch?.accepted.then((seen) => {
+      if (seen.harnessRef?.length) hookIds ??= seen.harnessRef
+    })
     /**
-     * WHETHER THE PROVING HOOK'S IDS CAN BE THIS PROMPT'S (POD-4841). Measured
-     * on Claude 2.1.284 (POD-4834): typed into an idle agent, the hook fires
-     * for this prompt with its own `prompt_id`; typed while a turn runs, the
-     * hook at Enter may carry the RUNNING turn's id. So only a send that began
-     * on an idle agent keeps them.
+     * WHETHER THE HOOK'S IDS CAN BE THIS PROMPT'S (POD-4841). Measured on
+     * Claude 2.1.284 (POD-4834): typed into an idle agent, the hook fires for
+     * this prompt with its own `prompt_id`; typed while a turn runs, the hook
+     * at Enter may carry the RUNNING turn's id. So only a send that began on
+     * an idle agent keeps them.
      */
     const idleAtSend = ports.phase() === 'idle'
-    /** The echo watch that outlives this call to name the entry late. */
-    let lateEcho: AcceptWatch | undefined
+    const ids = (): { harnessRef?: HarnessRef } =>
+      hookIds && idleAtSend ? { harnessRef: hookIds } : {}
+    /** The history watch that outlives this call: late proof, or a held send's record. */
+    let kept: AcceptWatch | undefined
     try {
       if (options.turnId !== undefined) ports.typingStarts?.(options.turnId)
       ports.write(payload.bytes, 'message')
@@ -579,11 +582,11 @@ export function createTerminalInjection(
       }, SUBMIT_CR_DELAY_MS)
 
       const verificationStartedAt = ports.now()
-      const proof = await awaitProof(hookWatch, echoWatch, options.signal, options.durable, options.initialPrompt)
+      const proof = await awaitProof(echoWatch, options.signal, options.initialPrompt)
       if (!proof) {
         if (echoWatch && options.onLateProof) {
           awaitLateProof(echoWatch, options.onLateProof)
-          lateEcho = echoWatch
+          kept = echoWatch
         }
         return {
           outcome: 'unverified',
@@ -592,39 +595,36 @@ export function createTerminalInjection(
           at: new Date(ports.now()).toISOString(),
         }
       }
-      if (
-        proof.provenBy === 'hook' &&
-        !proof.transcriptItem &&
-        echoWatch &&
-        options.onTranscriptItem
-      ) {
-        nameLate(echoWatch, options.onTranscriptItem)
-        lateEcho = echoWatch
+      if (proof.kind === 'held' && echoWatch) {
+        followHeld(echoWatch, options, ids)
+        kept = echoWatch
       }
       return {
         outcome: 'accepted',
         turnEpoch: nextTurnEpoch(),
         deliveredAs: options.delivery,
-        provenBy: proof.provenBy,
-        ...(proof.transcriptItem ? { transcriptItem: proof.transcriptItem } : {}),
-        ...(proof.harnessRef && idleAtSend ? { harnessRef: proof.harnessRef } : {}),
+        provenBy: 'transcript-echo',
+        ...(proof.kind === 'recorded' && proof.transcriptItem
+          ? { transcriptItem: proof.transcriptItem }
+          : {}),
+        ...(proof.kind === 'held' ? { held: 'memory' as const } : {}),
+        ...ids(),
         at: new Date(ports.now()).toISOString(),
       }
     } finally {
       hookWatch?.cancel()
-      if (echoWatch !== lateEcho) echoWatch?.cancel()
+      if (echoWatch !== kept) echoWatch?.cancel()
     }
   }
 
   /**
-   * Keep an `unverified` send's echo watch open, bounded, for late proof that
-   * it landed (POD-4840). The same match as inside the window — the prompt's
-   * content, recorded after the send started — so a late proof is exactly as
-   * strong as a timely one. It closes on the first of: the proof; the history
-   * moving past the send without it (`passed`); `LATE_PROOF_WAIT_MS`; the
-   * session's teardown. `passed` is attached first, so a history that moved
-   * on before the proof arrived closes the watch even when both are already
-   * settled.
+   * Keep an `unverified` send's history watch open, bounded, for late proof
+   * that it landed (POD-4840). The same match as inside the window — a frame
+   * id, or order plus text — so a late proof is exactly as strong as a timely
+   * one. It closes on the first of: the proof; the history moving past the
+   * send without it (`passed`); `LATE_PROOF_WAIT_MS`; the session's teardown.
+   * `passed` is attached first, so a history that moved on before the proof
+   * arrived closes the watch even when both are already settled.
    */
   function awaitLateProof(echoWatch: AcceptWatch, onProof: (seen: AcceptSeen) => void): void {
     let open = true
@@ -643,23 +643,43 @@ export function createTerminalInjection(
     })
   }
 
-  /** Keep a hook-proven send's echo watch open, bounded, to name its entry
-   *  when the harness records it (POD-4774). */
-  function nameLate(echoWatch: AcceptWatch, onItem: (item: TranscriptItemRef) => void): void {
+  /**
+   * FOLLOW A HELD SEND TO ITS RECORD (POD-4905, POD-4849). The harness holds
+   * the prompt in memory: it names the entry when it records it, and says it
+   * will not when the watch closes first — the history moved past it, the
+   * late-proof ceiling passed, or the session was torn down. Closing proves
+   * no "no": the delivery queue settles such a row as unconfirmed.
+   */
+  function followHeld(
+    echoWatch: AcceptWatch,
+    options: DeliverOptions,
+    ids: () => { harnessRef?: HarnessRef },
+  ): void {
     let open = true
-    let timer: TimerHandle | undefined
-    // Attached before the window opens: an echo that already landed is named
-    // ahead of anything the window's timer can do.
-    void echoWatch.accepted.then((seen) => {
+    const close = (reason: string): void => {
       if (!open) return
       open = false
-      if (timer !== undefined) ports.clearTimer(timer)
-      if (seen.transcriptItem) onItem(seen.transcriptItem)
-    })
-    timer = setTimer(() => {
-      open = false
+      ports.clearTimer(timer)
+      heldWatches.delete(onDispose)
       echoWatch.cancel()
-    }, HOOK_ECHO_ITEM_WAIT_MS)
+      options.onUnrecorded?.(reason)
+    }
+    const onDispose = (): void => close('the session ended before the harness recorded it')
+    heldWatches.add(onDispose)
+    const timer = setTimer(
+      () => close('the harness did not record it within the maximum wait'),
+      LATE_PROOF_WAIT_MS,
+    )
+    void echoWatch.passed?.then(() => close('the history moved past it without recording it'))
+    void echoWatch.accepted.then((seen) => {
+      if (!open || disposed) return
+      open = false
+      ports.clearTimer(timer)
+      heldWatches.delete(onDispose)
+      echoWatch.cancel()
+      if (seen.transcriptItem) options.onTranscriptItem?.(seen.transcriptItem, ids().harnessRef)
+      else options.onUnrecorded?.('the harness recorded it under no entry id')
+    })
   }
 
   /**
@@ -797,6 +817,7 @@ export function createTerminalInjection(
     queueDepth: () => queue.length,
     dispose() {
       if (disposed) return
+      for (const close of [...heldWatches]) close()
       disposed = true
       for (const handle of timers) ports.clearTimer(handle)
       timers.clear()

@@ -1,5 +1,5 @@
 import { pageHistory } from '@podium/harness/driver/host'
-import { AGENT_MANIFESTS } from '@podium/harness'
+import { AGENT_MANIFESTS, promptEchoCorrelation } from '@podium/harness'
 /**
  * THE TERMINAL DRIVER UNDER THE DRIVER CONFORMANCE CORPUS (POD-1761 W3).
  *
@@ -443,6 +443,9 @@ function makeWorld(options: WorldOptions): {
             writeBytes: () => {},
             resize: () => {},
             dispose: () => {},
+            // podium-host: this daemon holds the writer lease, so the
+            // foreign-write counter can be believed (POD-4888, POD-4905).
+            holdsWriterLease: () => true,
           } as unknown as DurableAttachment,
           sessionEntries.ensure(msg.sessionId),
           { onFrame: () => {} },
@@ -579,6 +582,9 @@ function makeWorld(options: WorldOptions): {
       check()
     }),
     userTurn: echoUserTurn,
+    foreignWrite: (sessionId) => {
+      bridgeOf.get(sessionId)?.write(new TextEncoder().encode('x'))
+    },
     hook: (sessionId, text) => runtime?.onHookPayload(sessionId, {
       hook_event_name: 'UserPromptSubmit', prompt: text,
     }),
@@ -653,13 +659,33 @@ function makeWorld(options: WorldOptions): {
  * cursor/pi: no instrumentation/context/poll lifecycle, and bracketed first turn.
  * Every shape runs the same ordinary AND adversarial contract properties. */
 const SHIPPED_ARMS = ['claude-code', 'codex', 'grok', 'opencode', 'cursor'] as const
+/**
+ * THE CURSOR ARM TYPES A PERSON'S WORDS, AND CURSOR'S HISTORY CANNOT CREDIT
+ * THEM (POD-4905, spec §7): its text tolerance was never measured, so the
+ * shipped profile confirms only a wrapped message's frame id. The corpus's
+ * sends are a person's own words, so this arm runs Cursor's shape with an
+ * exact-text tolerance; `terminal-driver.test.ts` pins that the shipped Cursor
+ * and Pi profiles never credit such words by order.
+ */
+const CURSOR_CORPUS_PROFILE: TerminalHarnessProfile = {
+  ...shippedProfile('cursor'),
+  acceptCorrelation: {
+    'transcript-echo': promptEchoCorrelation((submitted, recorded) => submitted === recorded),
+  },
+}
 const worlds = [
   makeWorld({
     harness: 'grok',
     profile: ADVERSARIAL_PROFILE,
     name: 'adversarial-pty (synthetic, no shipped harness)',
   }),
-  ...SHIPPED_ARMS.map((harness) => makeWorld({ harness, profile: shippedProfile(harness) })),
+  ...SHIPPED_ARMS.map((harness) =>
+    makeWorld({
+      harness,
+      profile: harness === 'cursor' ? CURSOR_CORPUS_PROFILE : shippedProfile(harness),
+      ...(harness === 'cursor' ? { name: 'cursor (generic-pty, exact-text tolerance)' } : {}),
+    }),
+  ),
 ]
 for (const { target } of worlds) {
   runConformance(target.createDriver, {

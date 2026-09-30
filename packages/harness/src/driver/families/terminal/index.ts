@@ -42,7 +42,6 @@ export {
   ESC,
   type HookAcceptPort,
   type HookAcceptWatch,
-  HOOK_ECHO_ITEM_WAIT_MS,
   LATE_PROOF_WAIT_MS,
   QUEUE_DRAIN_DEADLINE_MS,
   QUEUE_MESSAGE_SPACING_MS,

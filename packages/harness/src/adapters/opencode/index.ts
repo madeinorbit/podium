@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
+import { promptEchoCorrelation } from '../../accept-correlation.js'
 import { observeOpencodeState, opencodeStateProvider } from './state.js'
 import { withStateChannel } from '../../agent-state/types.js'
 import { createOpencodeConversationProvider } from '../../discovery/providers/opencode.js'
@@ -23,7 +23,7 @@ import { opencodeInstall } from './install.js'
 import { opencodeUsage } from './usage.js'
 import { opencodeCatalog } from './catalog.js'
 import { opencodeDescriptor } from './descriptor.js'
-import { opencodeTranscript } from './transcript.js'
+import { opencodePromptTextMatches, opencodeTranscript } from './transcript.js'
 
 export const opencodeManifest: AgentManifest = {
   kind: 'opencode',
@@ -298,7 +298,7 @@ export const opencodeManifest: AgentManifest = {
     terminal: {
       driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
-      acceptCorrelation: { 'transcript-echo': transcriptEchoAcceptCorrelation },
+      acceptCorrelation: { 'transcript-echo': promptEchoCorrelation(opencodePromptTextMatches) },
       // Parts carry epoch-ms `time_created`/`time_updated` columns; the
       // cursor offset is `time_created` itself.
       transcriptTimestamps: { resolutionMs: 1 },

@@ -115,11 +115,12 @@ import {
 } from '@podium/harness/driver/host'
 
 import { harnessCapabilitiesFor, isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from '@podium/harness/metadata'
-import { canonicalDriverId } from '@podium/harness'
+import { canonicalDriverId, podiumFrameId } from '@podium/harness'
 import type {
   AgentStateEvent,
   TerminalAcceptCorrelation,
   TerminalAcceptCorrelations,
+  TerminalEchoCorrelation,
   TranscriptTimestampFidelity,
 } from '@podium/harness'
 import { decodeCursor } from '@podium/harness/store'
@@ -343,8 +344,8 @@ type TranscriptPosition =
 /**
  * One open accept watch: the prompt text it credits, how to tell it, and where
  * the send started — the transcript position and the clock when the watch was
- * armed, before the first byte went out. Only the echo channel reads `start`;
- * see `echoIsAfterStart`.
+ * armed, before the first byte went out. Only the history channel reads
+ * `start`; see `echoIsAfterStart`.
  */
 type AcceptWaiter = {
   text: string
@@ -353,6 +354,21 @@ type AcceptWaiter = {
   /** The history moved past this prompt without it (POD-4840): see
    *  `AcceptWatch.passed`. Idempotent. */
   pass: () => void
+  /** The harness queued this prompt without recording it (POD-4905): see
+   *  `AcceptWatch.held`. Idempotent. */
+  hold: () => void
+  /** The id of the podium message this text is, when it is wrapped: the only
+   *  thing that confirms it (spec §5.1). Null for a person's own words. */
+  frameId: string | null
+  /** The foreign-write count when this send's typing started (spec §5.3):
+   *  the counter's own mark for a send with an id, else read when the watch
+   *  was armed — the same instant, before the first byte. */
+  typingMark: () => number | undefined
+  /** Order credit is decided on the FIRST prompt entry after the start, and
+   *  on the first queue record: set once each has been read. */
+  orderSpent: boolean
+  queueSpent: boolean
+  held: boolean
 }
 
 interface DriverSession {
@@ -398,26 +414,15 @@ interface DriverSession {
   observedStatePhase: AgentRuntimeState['phase'] | undefined
   transcriptVersions: Map<string, string>
   injection: TerminalInjectionMachine
-  /** Open waiters for a causal accept, keyed by the prompt text they watch. */
+  /** Open waiters for Claude's hook, keyed by the prompt text they watch. The
+   *  hook lends its prompt id to a send; it never proves one (POD-4905). */
   hookWaiters: Set<AcceptWaiter>
-  /** Open waiters for a transcript echo, keyed by the prompt text they watch.
-   *  Same shape and same reason as `hookWaiters` — see `creditEchoWaiters`. */
+  /** Open waiters for the send's record in the history — the proof. See
+   *  `creditEchoWaiters`. */
   echoWaiters: Set<AcceptWaiter>
   /** The furthest transcript position a delta has shown; each watch copies it
    *  when armed. See {@link TranscriptPosition}. */
   transcriptPosition: TranscriptPosition
-  /**
-   * Whether ANY `UserPromptSubmit` hook payload has reached this session.
-   *
-   * THE CHANNEL-ANSWERED FLAG (POD-3983). The hook is installed by a per-session
-   * settings file nothing verifies, so a Claude session whose install silently
-   * failed still boots and every send degrades to `unverified` with no reason
-   * named. This flips on the first causal payload — waiter or none — so the
-   * first silent downgrade can say the channel never answered, once, loudly.
-   */
-  hookSeen: boolean
-  /** The absence warning has been said. It is said ONCE per session, never per send. */
-  hookAbsenceWarned: boolean
   /**
    * USER turns in the harness's own transcript — the submit-verify baseline, and
    * the one number a receipt's `transcript-echo` proof rests on.
@@ -1189,18 +1194,25 @@ export function createTerminalRuntime(
           msg.reset ? (msg.items.length === 0 ? { kind: 'empty' } : { kind: 'unknown' }) : session.transcriptPosition,
           msg.items,
         )
+        // The conversation only: proof-only queue records stay here (POD-4905).
+        const shown = msg.items.filter((item) => !item.queued)
         if (msg.reset) {
           session.transcriptVersions.clear()
-          for (const item of msg.items) {
+          for (const item of shown) {
             session.transcriptVersions.set(item.cursor ?? item.id, JSON.stringify(item))
           }
-          emit(session, {
-            t: 'transcript-reset',
-            items: msg.items,
-            ...(msg.tail !== undefined ? { tail: msg.tail } : {}),
-          }, msg.items.at(-1)?.ts ?? observedAt(), 'bootstrap')
+          emit(
+            session,
+            {
+              t: 'transcript-reset',
+              items: shown,
+              ...(msg.tail !== undefined ? { tail: msg.tail } : {}),
+            },
+            shown.at(-1)?.ts ?? observedAt(),
+            'bootstrap',
+          )
         } else {
-          emitTranscriptItems(session, msg.items, 'live')
+          emitTranscriptItems(session, shown, 'live')
         }
         return
       }
@@ -1566,12 +1578,9 @@ export function createTerminalRuntime(
     if (!session) return
     const correlation = profiles.get(sessionId)?.acceptCorrelation?.hook
     if (!correlation?.accepts(payload)) return
-    // The channel answered even if its content cannot identify an open send.
-    // Preserve that distinction for the absent-instrumentation warning.
-    session.hookSeen = true
-    // A hook names no history entry; the echo that follows it does (POD-4774).
-    // It may carry the program's own id for the prompt (POD-4841); whether
-    // that id can be the send's is the injection machine's call.
+    // Never a receipt (POD-4905): the hook may carry the program's own id for
+    // the prompt (POD-4841), which a send the history proves may keep —
+    // whether that id can be the send's is the injection machine's call.
     const harnessRef = correlation.harnessRef?.(payload)
     creditAcceptWaiter(session.hookWaiters, correlation, payload, harnessRef ? { harnessRef } : {})
   }
@@ -1605,35 +1614,117 @@ export function createTerminalRuntime(
     return undefined
   }
 
+  /**
+   * THE HISTORY PROVES A SEND (spec §5.1–§5.3, POD-4905). For each prompt
+   * entry the harness wrote after a send started:
+   *
+   *   - A WRAPPED message is credited by the entry's own frame id and nothing
+   *     else — other text in the entry, or a foreign write, changes nothing.
+   *   - A PERSON'S OWN WORDS carry no id, so they are credited by ORDER: the
+   *     first prompt entry after the send's start is its record when nothing
+   *     else can have produced it — the foreign-write counter unchanged since
+   *     its typing started (on a terminal whose writer lease this daemon
+   *     holds: never on the abduco fallback), the entry's text equal to the
+   *     typed text within the program's measured tolerance, and no other open
+   *     send with the same text. Otherwise no credit, ever: that first entry
+   *     spends the send's order, and it may still end `unknown`. Text alone
+   *     never credits. The marks live in memory, so no order credit crosses a
+   *     daemon restart.
+   *
+   * A proof-only `queued` record (Claude's `enqueue`) is judged by the same
+   * two rules and only HOLDS a send: `accepted`, not delivered.
+   */
   function creditEchoWaiters(session: DriverSession, items: readonly TranscriptItem[]): void {
     const profile = profiles.get(session.sessionId)
     const correlation = profile?.acceptCorrelation?.['transcript-echo']
     if (!correlation || session.echoWaiters.size === 0) return
     const timestamps = profile?.transcriptTimestamps ?? 'absent'
     for (const item of items) {
-      // The manifest adapter excludes non-prompts, including interrupt markers.
-      // The echo IS the harness's record of the prompt, so it names the entry
-      // the send became — by the item's own id, never by its text (POD-4774).
-      if (!correlation.accepts(item)) continue
-      const transcriptItem = transcriptItemRefOf(item)
-      const credited = creditAcceptWaiter(
-        session.echoWaiters,
-        correlation,
-        item,
-        transcriptItem ? { transcriptItem } : {},
-        (waiter) => echoIsAfterStart(item, waiter.start, timestamps),
+      const queued = item.queued === true
+      if (!queued && !correlation.accepts(item)) continue
+      const after = [...session.echoWaiters].filter((waiter) =>
+        echoIsAfterStart(item, waiter.start, timestamps),
       )
+      if (after.length === 0) continue
+      const typed = queued ? item.text : correlation.typedText(item)
+      const credited = creditOne(session, correlation, typed, after, queued)
+      if (queued) {
+        if (credited) credited.hold()
+        continue
+      }
+      if (credited) {
+        session.echoWaiters.delete(credited)
+        const transcriptItem = transcriptItemRefOf(item)
+        credited.resolve(transcriptItem ? { transcriptItem } : {})
+      }
       // Every other watch this prompt came after has been passed by it
       // (POD-4840). Under the same floor as the credit: an older record a
       // re-read carries passes nothing.
-      for (const waiter of session.echoWaiters) {
-        if (waiter !== credited && echoIsAfterStart(item, waiter.start, timestamps)) waiter.pass()
-      }
+      for (const waiter of after) if (waiter !== credited) waiter.pass()
     }
   }
 
+  /** The one waiter `typed` (a prompt entry, or a queue record) is, or none. */
+  function creditOne(
+    session: DriverSession,
+    correlation: TerminalEchoCorrelation,
+    typed: string,
+    after: readonly AcceptWaiter[],
+    queued: boolean,
+  ): AcceptWaiter | undefined {
+    const frameId = podiumFrameId(typed)
+    // Order is decided on the first entry (or queue record) after the start,
+    // whatever it turns out to be: mark it spent for every unwrapped send.
+    const deciding = after.filter(
+      (waiter) => !waiter.frameId && !(queued ? waiter.queueSpent : waiter.orderSpent),
+    )
+    for (const waiter of deciding) {
+      if (queued) waiter.queueSpent = true
+      else waiter.orderSpent = true
+    }
+    if (frameId)
+      return after.find((waiter) => waiter.frameId === frameId && !(queued && waiter.held))
+    const matches = correlation.textMatches
+    if (!matches) return undefined
+    const sessionId = session.sessionId
+    const unchanged = (waiter: AcceptWaiter): boolean => {
+      const mark = waiter.typingMark()
+      return (
+        mark !== undefined &&
+        registry.orderTrustworthy(sessionId) &&
+        registry.foreignWrites(sessionId) === mark
+      )
+    }
+    const [candidate] = deciding.filter((waiter) => matches(waiter.text, typed))
+    if (!candidate) {
+      // THE SELF-CHECK (spec §6.3): nothing else was written, yet the entry
+      // is not the words typed — a prompt entry the counter did not explain.
+      if (!queued && deciding.some(unchanged)) {
+        log.warn('order gap: a prompt entry the foreign-write counter did not explain', {
+          sessionId,
+          sends: deciding.length,
+        })
+      }
+      return undefined
+    }
+    if (queued && candidate.held) return undefined
+    // NEVER GUESS: another open send with the same words could be this entry.
+    const twin = [...session.echoWaiters].some(
+      (waiter) => waiter !== candidate && !waiter.frameId && matches(waiter.text, typed),
+    )
+    if (!twin && unchanged(candidate)) return candidate
+    log.warn('order credit withheld', {
+      sessionId,
+      reason: twin
+        ? 'another open send has the same text'
+        : 'the terminal was written to, or is not ours alone',
+      queued,
+    })
+    return undefined
+  }
+
   const acceptFor = (session: DriverSession, waiters: DriverSession['hookWaiters']): AcceptPort => ({
-    watch(text: string) {
+    watch(text: string, turnId?: string) {
       let settle: ((seen: AcceptSeen) => void) | undefined
       const accepted = new Promise<AcceptSeen>((resolve) => {
         settle = resolve
@@ -1642,16 +1733,35 @@ export function createTerminalRuntime(
       const passed = new Promise<void>((resolve) => {
         pass = resolve
       })
+      let markHeld: (() => void) | undefined
+      const held = new Promise<void>((resolve) => {
+        markHeld = resolve
+      })
+      // Read before the first byte: `typingStarts` marks the same count.
+      const armedAt = registry.foreignWrites(session.sessionId)
       const waiter: AcceptWaiter = {
         text,
         resolve: (seen) => settle?.(seen),
         start: { atMs: host.now(), position: session.transcriptPosition },
         pass: () => pass?.(),
+        hold: () => {
+          waiter.held = true
+          markHeld?.()
+        },
+        frameId: podiumFrameId(text),
+        typingMark: () =>
+          turnId === undefined
+            ? armedAt
+            : registry.get(session.sessionId)?.foreignWrites.typingMark(turnId),
+        orderSpent: false,
+        queueSpent: false,
+        held: false,
       }
       waiters.add(waiter)
       return {
         accepted,
         passed,
+        held,
         cancel() {
           waiters.delete(waiter)
         },
@@ -1831,8 +1941,6 @@ export function createTerminalRuntime(
       // has not seen; it starts `unknown` until a delta places it.
       transcriptPosition:
         registration.resume || registration.rebind ? { kind: 'unknown' } : { kind: 'empty' },
-      hookSeen: false,
-      hookAbsenceWarned: false,
       userTurns: 0,
       alive: true,
       // STARTS FALSE EVEN ON AN ADOPT. The `bind` frame is what says the CLI is
@@ -1871,28 +1979,13 @@ export function createTerminalRuntime(
     const profile = profiles.get(session.sessionId)
     const refuse = (reason: Refusal['reason'], detail?: string): Refusal =>
       detail === undefined ? { reason } : { reason, detail }
-    /**
-     * THE ABSENT-CHANNEL WARNING (POD-3983), SAID ONCE PER SESSION.
-     *
-     * A hook-expecting session whose instrumentation channel never answered
-     * degrades every send to `unverified` — the honest receipt, but one that
-     * names no reason. The first such downgrade says the reason out loud: the
-     * per-session hook install did not take, so Claude is not calling back.
-     * Later sends stay `unverified` without a second line. Verified receipts
-     * are untouched — this changes what an absent channel costs, not what a
-     * proof means.
-     */
-    const reportHookAbsenceOnce = (receipt: TurnReceipt): TurnReceipt => {
-      if (receipt.outcome !== 'unverified') return receipt
-      if (!profile?.acceptCorrelation?.hook) return receipt
-      if (session.hookSeen || session.hookAbsenceWarned) return receipt
-      session.hookAbsenceWarned = true
-      log.warn('hook instrumentation channel never reported; sends degrade to unverified', {
-        sessionId: session.sessionId,
-        harness: session.agentKind,
-      })
-      return receipt
-    }
+    /** What a send hears after its receipt: a held send's record or its end
+     *  (POD-4905, POD-4849), an `unverified` send's late proof (POD-4840). */
+    const followUps = (options: SendOptions) => ({
+      ...(options.onTranscriptItem ? { onTranscriptItem: options.onTranscriptItem } : {}),
+      ...(options.onUnrecorded ? { onUnrecorded: options.onUnrecorded } : {}),
+      ...(options.onLateProof ? { onLateProof: options.onLateProof } : {}),
+    })
     const registration = (): TerminalSessionRegistration | undefined =>
       registrations.get(session.sessionId)
 
@@ -2180,30 +2273,23 @@ export function createTerminalRuntime(
           await new Promise<void>((resolve) => {
             host.setTimer(resolve, SUBMIT_CR_DELAY_MS)
           })
-          return reportHookAbsenceOnce(
-            await session.injection.deliver(text, {
-              origin: options.origin,
-              delivery: 'interrupt',
-              afterEsc: true,
-              ...(input.id !== undefined ? { turnId: input.id } : {}),
-              ...(options.onTranscriptItem ? { onTranscriptItem: options.onTranscriptItem } : {}),
-              ...(options.onLateProof ? { onLateProof: options.onLateProof } : {}),
-            }),
-          )
+          return session.injection.deliver(text, {
+            origin: options.origin,
+            delivery: 'interrupt',
+            afterEsc: true,
+            ...(input.id !== undefined ? { turnId: input.id } : {}),
+            ...followUps(options),
+          })
         }
 
-        return reportHookAbsenceOnce(
-          await session.injection.deliver(text, {
-            origin: options.origin,
-            delivery: 'when-ready',
-            signal: options.signal,
-            ...(input.id !== undefined ? { turnId: input.id } : {}),
-            durable: options.deliveryAttempt,
-            initialPrompt: input.initialPrompt,
-            ...(options.onTranscriptItem ? { onTranscriptItem: options.onTranscriptItem } : {}),
-            ...(options.onLateProof ? { onLateProof: options.onLateProof } : {}),
-          }),
-        )
+        return session.injection.deliver(text, {
+          origin: options.origin,
+          delivery: 'when-ready',
+          signal: options.signal,
+          ...(input.id !== undefined ? { turnId: input.id } : {}),
+          initialPrompt: input.initialPrompt,
+          ...followUps(options),
+        })
       },
 
       async stageAttachment(source) {

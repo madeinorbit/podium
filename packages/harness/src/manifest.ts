@@ -810,6 +810,13 @@ export interface HarnessTranscript {
   *  (Store → grammar, spec §5). `undefined` when no resume value names a
   *  session. */
   sqliteLocator: Declared<(input: TranscriptSourceInput) => SqliteTranscriptLocator | undefined>
+  /**
+   * PROOF-ONLY RECORDS for the terminal driver's receipts (POD-4905): items
+   * marked `queued` for a prompt the program holds in its queue (Claude's
+   * `queue-operation enqueue`). Only the daemon's live tail reads them, and
+   * the daemon strips them before anything is shown. Absent: none.
+   */
+  recordReceipts?: TranscriptRecordMapper
 }
 
 /** Build the common file-backed transcript declaration without restating its
@@ -1339,10 +1346,12 @@ export interface EmbeddedRuntimeSpec {
   auth: readonly ('subscription' | 'api-key' | 'bedrock' | 'vertex')[]
 }
 
-/** Content correlation shared by causal hooks and recorded transcript echoes.
- * `accepts` identifies an accept-shaped observation even when its content cannot
- * be attributed. Both fingerprints must be non-null and equal to credit a send.
- * Implementations own harness payload shapes and their normalization policy. */
+/** Content correlation for a hook payload. `accepts` identifies an
+ * accept-shaped observation even when its content cannot be attributed. Both
+ * fingerprints must be non-null and equal to attribute it to a send.
+ * Implementations own harness payload shapes and their normalization policy.
+ * A hook is never a receipt for a terminal agent (spec §3.3, POD-4905): the
+ * driver reads it only for the program's own ids. */
 export interface TerminalAcceptCorrelation<Observation> {
   accepts(observation: Observation): boolean
   fingerprint(observation: Observation): string | null
@@ -1355,9 +1364,26 @@ export interface TerminalAcceptCorrelation<Observation> {
   harnessRef?(observation: Observation): HarnessRef | undefined
 }
 
+/**
+ * HOW A PROGRAM'S HISTORY PROVES A TERMINAL SEND (spec §5.1, §5.3, POD-4905).
+ * A wrapped message is confirmed by the frame id of a prompt entry; a person's
+ * own words by order plus text, where the program's tolerance was measured.
+ */
+export interface TerminalEchoCorrelation {
+  /** A prompt entry: an item holding a message somebody sent. Entries nobody
+   *  typed (compaction summaries, slash-command records, interrupt markers,
+   *  hook feedback) and proof-only queue records are not. */
+  accepts(item: TranscriptItem): boolean
+  /** The entry's text as it was typed (a recorder may have lifted parts out). */
+  typedText(item: TranscriptItem): string
+  /** Whether a recorded text is the submitted one, within the program's
+   *  measured tolerance. Absent: no order credit for this program. */
+  textMatches?(submitted: string, recorded: string): boolean
+}
+
 export interface TerminalAcceptCorrelations {
   hook?: TerminalAcceptCorrelation<unknown>
-  'transcript-echo'?: TerminalAcceptCorrelation<TranscriptItem>
+  'transcript-echo'?: TerminalEchoCorrelation
 }
 
 /**
@@ -1382,12 +1408,11 @@ export type TranscriptTimestampFidelity = { resolutionMs: number } | 'absent'
 export interface TerminalRuntimeSpec {
   driverId: DriverId
   /**
-   * How this harness's terminal driver proves a send was accepted, in preference
-   * order. `hook` is available only where a CAUSAL hook exists — Claude's
-   * `UserPromptSubmit` — and where it does not, `transcript-echo` is the
-   * fallback and `unverified` is the honest outcome when even that times out.
+   * How this harness's terminal driver proves a send. Only `transcript-echo`:
+   * a terminal receipt comes from the program's own history (spec §3.3,
+   * POD-4905), and `unverified` is the honest outcome when it does not come.
    */
-  sendProof: readonly ('hook' | 'transcript-echo')[]
+  sendProof: readonly 'transcript-echo'[]
   /** Omitted matchers cannot prove an accept; the driver never guesses one. */
   acceptCorrelation?: TerminalAcceptCorrelations
   /** Whether the transcript the echo proof reads says when each entry was

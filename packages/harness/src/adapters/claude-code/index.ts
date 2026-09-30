@@ -29,7 +29,11 @@ import { claudeCodeInstall } from './install.js'
 import { claudeCodeCatalog } from './catalog.js'
 import { claudeCodeDescriptor } from './descriptor.js'
 import { claudeUsage } from './usage.js'
-import { claudeHookAcceptCorrelation, transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
+import {
+  claudeHookAcceptCorrelation,
+  claudePromptTextMatches,
+  promptEchoCorrelation,
+} from '../../accept-correlation.js'
 import { claudeTranscriptClassifierRules } from '../../manifests/claude-code-classifier.js'
 import { classifyClaudeLoginStatus } from '../../manifests/claude-login-status.js'
 
@@ -216,17 +220,18 @@ export const claudeCodeManifest: AgentManifest = {
     terminal: {
       driverId: 'generic-pty',
       acceptCorrelation: {
+        // Read for Claude's own prompt id only: never a receipt (POD-4905).
         hook: claudeHookAcceptCorrelation,
-        'transcript-echo': transcriptEchoAcceptCorrelation,
+        'transcript-echo': promptEchoCorrelation(claudePromptTextMatches),
       },
       // Every record carries an ISO `timestamp` at millisecond resolution
       // (checked against real transcripts, 2026-09-29).
       transcriptTimestamps: { resolutionMs: 1 },
-      // Claude's hook channel is the richest of any harness, so `UserPromptSubmit`
-      // anchors an accept the way a protocol ack would — the same signal
-      // reattachment-design anchors turn epochs to. Transcript echo is the
-      // fallback, and `unverified` is the honest answer when even that times out.
-      sendProof: ['hook', 'transcript-echo'],
+      // The history alone proves a send (spec §3.3): `UserPromptSubmit` fired
+      // for a prompt a SIGKILL then left out of the transcript (POD-4862), so
+      // the hook serves turn tracking, and `unverified` is the honest answer
+      // when no record comes.
+      sendProof: ['transcript-echo'],
     },
     // An explicit terminal preference still opts out; a machine-wide SDK
     // default is stripped before this function runs, so unknown auth cannot

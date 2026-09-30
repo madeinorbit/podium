@@ -249,3 +249,89 @@ it('publishes contract-owned identity only through the driver while leaving lega
   sink(receipt)
   expect(upstream).toHaveBeenCalledWith(receipt)
 })
+
+describe('proof-only transcript items (POD-4905)', () => {
+  const item = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    role: 'user' as const,
+    text: id,
+    cursor: `cursor-${id}`,
+    ...extra,
+  })
+  const queued = item('enqueue', { role: 'system', promptEntry: false, queued: true })
+  function sink() {
+    const upstream: DaemonMessage[] = []
+    const observed: DaemonMessage[] = []
+    const send = createFrameSink({
+      upstream: (message) => upstream.push(message),
+      runtime: () => ({ observe: (message) => void observed.push(message) }),
+      context: () => undefined,
+    })
+    return { send, upstream, observed }
+  }
+
+  it('the terminal driver sees a queue record; the server never does', () => {
+    const { send, upstream, observed } = sink()
+    const delta = {
+      type: 'transcriptDelta',
+      sessionId: SESSION,
+      items: [item('before'), queued, item('after')],
+      tail: 'cursor-after',
+    } as DaemonMessage
+    send(delta)
+    expect(observed).toEqual([delta])
+    expect(upstream).toEqual([
+      {
+        type: 'transcriptDelta',
+        sessionId: SESSION,
+        items: [item('before'), item('after')],
+        tail: 'cursor-after',
+      },
+    ])
+  })
+
+  it('a delta holding only queue records is not sent, and its tail never names one', () => {
+    const { send, upstream } = sink()
+    send({
+      type: 'transcriptDelta',
+      sessionId: SESSION,
+      items: [queued],
+      tail: 'cursor-enqueue',
+    } as DaemonMessage)
+    expect(upstream).toEqual([])
+    send({
+      type: 'transcriptDelta',
+      sessionId: SESSION,
+      items: [item('shown'), queued],
+      tail: 'cursor-enqueue',
+    } as DaemonMessage)
+    expect(upstream).toEqual([
+      { type: 'transcriptDelta', sessionId: SESSION, items: [item('shown')], tail: 'cursor-shown' },
+    ])
+  })
+
+  it('a reset left empty by the strip is still sent: the store was replaced', () => {
+    const { send, upstream } = sink()
+    send({
+      type: 'transcriptDelta',
+      sessionId: SESSION,
+      items: [queued],
+      reset: true,
+    } as DaemonMessage)
+    expect(upstream).toEqual([
+      { type: 'transcriptDelta', sessionId: SESSION, items: [], reset: true },
+    ])
+  })
+
+  it('a delta with no queue record passes through untouched', () => {
+    const { send, upstream } = sink()
+    const delta = {
+      type: 'transcriptDelta',
+      sessionId: SESSION,
+      items: [item('a')],
+      tail: 'cursor-a',
+    } as DaemonMessage
+    send(delta)
+    expect(upstream[0]).toBe(delta)
+  })
+})
