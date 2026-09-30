@@ -16,6 +16,12 @@
  * the suite, so a fix takes its allowance with it. The check still prints
  * every allowed failure with its counts.
  *
+ * A MEASURED roster arm (`RosterArm.measuredOnly`, POD-4934) runs every
+ * scenario with parity asserted, but each work verdict is reported (pass or
+ * fail, with rows, derivations and elements at 1x and 4x against the
+ * neighbourhood bound) instead of failing the suite: the first measurement
+ * of an arm before its rework.
+ *
  * THE NO is the legacy control: one whole-world derive per publication, so
  * every step that publishes reads the whole corpus and walks every row, at
  * both scales. It must fail on rows and on elements (never weakened: if it goes
@@ -57,6 +63,7 @@ import {
   assertScaleInvariantWith,
   describeCells,
   describeSites,
+  describeVerdict,
   type ScaleCell,
   scaleCell,
   scaleFailures,
@@ -189,15 +196,32 @@ async function checkWork(
   mode: RowSourceMode,
   build: ArmBuilder,
   allowances: RosterAllowances | undefined,
+  measuredOnly: boolean,
 ): Promise<void> {
   const at1x = await cellsAt(1, mode, build)
   const at4x = await cellsAt(4, mode, build)
   const verdicts = scaleVerdicts(at1x, at4x)
   const known = allowances?.work ?? []
-  writeCells(`work-${file}.json`, { at1x, at4x, verdicts, allowed: known })
+  writeCells(`work-${file}.json`, {
+    at1x,
+    at4x,
+    verdicts,
+    allowed: known,
+    ...(measuredOnly ? { measuredOnly: true } : {}),
+  })
   console.info(`[work] ${name}\n${describeCells(at1x, at4x)}`)
   // Not vacuous: the counters see the arm's work.
   expect(at1x.some((cell) => cell.work.derivations > 0 && cell.work.elements > 0)).toBe(true)
+  if (measuredOnly) {
+    // POD-4934: a measured arm reports each verdict instead of failing on it.
+    const failing = scaleFailures(verdicts)
+    console.info(
+      `[work] ${name}: measured only — ${verdicts.length} verdicts, ` +
+        `${failing.length} failing, reported not failed`,
+    )
+    for (const verdict of failing) console.info(`[work] ${name}: FAILS ${describeVerdict(verdict)}`)
+    return
+  }
   // Every failing count inside a sized allowance, and no allowance stale.
   const applied = assertScaleInvariantWith(verdicts, known)
   if (applied.length > 0) console.info(`[work] ${name}: allowances applied: ${applied.join('; ')}`)
@@ -212,6 +236,7 @@ for (const entry of ROUND_THREE_ARMS) {
         entry.mode,
         (ctx) => ({ arm: entry.armFor(ctx) }),
         entry.allowances,
+        entry.measuredOnly === true,
       )
     }, 1_200_000)
   })
@@ -225,6 +250,7 @@ for (const entry of ROUND_THREE_ARMS) {
           entry.mode,
           writableBuilder(entry, variant),
           entry.allowances,
+          entry.measuredOnly === true,
         )
       }, 1_200_000)
     })

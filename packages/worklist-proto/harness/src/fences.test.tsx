@@ -276,14 +276,10 @@ describe('wall-clock independence of the #9 steps', () => {
  * Arm folders that carry a fence manifest (so the lint fence covers them) but
  * are not on the roster yet, each with the issue that adds the entry and
  * removes the exception. (The MobX pool's, from POD-4565, was removed by
- * POD-4572 (Mb4), which put the pool on the roster.)
+ * POD-4572 (Mb4), which put the pool on the roster; the hand pool's, from
+ * POD-4585, by POD-4934, which put it on the roster as a measured arm.)
  */
-const PENDING_ROSTER: Readonly<Record<string, string>> = {
-  // Coordinator ruling on POD-4578 (symmetric with POD-4565): the a1 hand pool
-  // has no order or roll-ups either. Moved from Ha4 to Hb4 by the coordinator's
-  // correction of 2026-09-23 (parity needs the b phase's worklist).
-  hand: 'POD-4585 (Hb4) adds the hand-rolled pool with every scenario and parity, and removes this exception',
-}
+const PENDING_ROSTER: Readonly<Record<string, string>> = {}
 
 describe('roster', () => {
   it('names exactly the arm folders that carry a fence manifest, less the named pending ones', () => {

@@ -23,6 +23,8 @@
  */
 
 import { harnessMobxPoolArm, harnessWritableMobxPoolArm } from './adapters/mobx-pool'
+import { handPoolArm } from '../../arms/hand/pool/arm'
+import { writableHandPoolArm } from '../../arms/hand/pool/write/arm'
 import type { ArmHandle, CheckableArm } from '../../shared/src/arm'
 import type { RowSourceMode } from '../../shared/src/row-source'
 import type { ScenarioEngine } from '../../shared/src/scenarios'
@@ -92,6 +94,15 @@ export interface RosterArm {
    * feed as `armFor`.
    */
   writable?(transport: WriteTransport): CheckableArm
+  /**
+   * POD-4934 — a measured arm: the work-per-change check (`work-per-change.test.tsx`)
+   * still runs every scenario and asserts parity, but REPORTS each work
+   * verdict (pass or fail, with rows, derivations and elements at 1x and 4x
+   * against the neighbourhood bound) instead of failing on it. The hand
+   * rework removes this flag; with it removed, the scenarios the arm fails go
+   * red. Never an allowance, never a widened bound.
+   */
+  measuredOnly?: boolean
   /** Named exceptions, each removed by the issue it names (above). */
   allowances?: RosterAllowances
 }
@@ -105,5 +116,18 @@ export const ROUND_THREE_ARMS: readonly RosterArm[] = [
     mode: 'overlaid',
     armFor: () => harnessMobxPoolArm,
     writable: (transport) => harnessWritableMobxPoolArm(transport),
+  },
+  {
+    // POD-4934: the round-three hand-rolled pool, measured on the same bar as
+    // MobX BEFORE any hand rework (pre-review design). It is EXPECTED to fail
+    // some work-per-change scenarios: measuredOnly reports each verdict
+    // instead of failing, with no allowances and no widened bound. The hand
+    // rework removes the flag.
+    name: 'Hand pool',
+    folder: 'hand',
+    mode: 'overlaid',
+    armFor: () => handPoolArm,
+    writable: (transport) => writableHandPoolArm(transport),
+    measuredOnly: true,
   },
 ]
