@@ -218,3 +218,14 @@ prompt id; rollout records carry a Codex-minted `client_id`; the TUI's Enter-whi
 ("messages to be submitted after next tool call") joins the running turn, its Tab queue runs as
 the next turn, both only in memory; Escape re-submits held messages (unlike the app-server's
 dropped steer, POD-4849).
+
+
+## Expanded input rerun (2026-09-30, POD-4984)
+
+The installed CLI advanced to **0.159.0**; the new measurements are versioned in
+[Codex 0.159.0 results](../codex-0.159.0/results.md). They cover 2/10/200 lines,
+1/16/100 KiB, tabs, CRLF and final LF, each plain and framed, through app-server,
+bracketed terminal paste, unbracketed input, and a separately labelled startup argument.
+The app-server keeps every input byte and our id. Terminal CRLF/tab changes need
+POD-5003; long unbracketed editor observations are bounded pending-input results.
+These new facts do not retroactively change this file's 0.155.0 timing/version pin.

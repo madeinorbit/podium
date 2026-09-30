@@ -131,3 +131,31 @@ Not run: scheduler fires (the fake never created a schedule, so `/loop` never fi
 - Side note: `turn_completed` was seen within 0.35 s of `events.jsonl` `turn_ended` in all 37 turns
   (most 20–45 ms); the "~17 s later" in `packages/harness/src/adapters/grok/state-causal.ts:78` did not show in 1.0.44's
   terminal UI.
+
+
+## Expanded input storage (2026-09-30, POD-4984)
+
+[Corpus and exact byte definitions](../expanded-input/README.md). All 18 bracketed-paste
+cases and all 18 bounded unbracketed cases produce **one** `updates.jsonl` user chunk each,
+including 200 lines and 100 KiB. There is no primary-history wrapper, split, or truncation.
+Every one of the nine framed inputs retains its strict frame id in each method.
+[Paste and early key observations](../expanded-input/grok-terminal/results.md),
+[completed bounded keyboard/drain table](../expanded-input/grok-terminal-paced/results.md).
+
+- Bracketed paste keeps LF, CRLF, final LF, and long text. Three tabs expand to four spaces
+  each: 35→44 B plain, 179→188 B framed.
+- Unbracketed input removes those tabs (35→32 B, 179→176 B) and converts CRLF to LF
+  (52→50 B, 196→194 B); final LF stays in the native chunk. The 100 KiB plain editor took
+  about 196 s to reach its final marker; the measured prompt still stored all 102,400 bytes.
+- `prompt_history.jsonl` trims outer whitespace (including final LF); its exact records are
+  included as auxiliary `input-history`, separately from the chunk.
+- `chat_history.jsonl` and model input wrap ordinary text in `<user_query>` (27 additional
+  UTF-8 bytes). At 100 KiB they instead store an excerpt plus an offload note, with the complete
+  wrapped request saved to `prompts/prompt_0.txt` (102,427/102,571 B plain/framed). The native
+  chunk remains full. The fake never reads the omitted portion through a tool call.
+  [Offload byte details and ACP comparison](../grok-acp-1.0.44/results.md).
+
+**POD-5005 — Grok terminal text matching** owns the tab/CRLF tolerance change. The reader
+already uses the full `updates.jsonl` chunk, so the offload needs no reader switch. Plain
+control-byte inputs miss the current trim-only matcher; every stored framed prompt still
+matches by its frame id. No reader code changes in this issue.

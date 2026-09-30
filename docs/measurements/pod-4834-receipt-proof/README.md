@@ -4,6 +4,11 @@
 first run (S1–S3); its idle order is superseded by `claude-2.1.284/results.md` (17 runs: the hook
 comes before the record, and the record usually after the model request).
 
+**Expanded inputs (2026-09-30, POD-4984): [byte corpus, per-program results and limits](expanded-input/README.md),
+[grid §7](grid.md#7-expanded-input-storage-2026-09-30-pod-4984).** These runs add long and
+multi-line text, control bytes, and bracketed/unbracketed terminal input for Codex, OpenCode
+and Grok. Claude terminal's expanded-input work belongs to POD-4982.
+
 Ground truth for "the model received the prompt" is the fake model server: it logs every model
 request with the messages it carries (`fake-model-server.ts`). Hooks are logged by `hooklog.sh`
 (set `HOOK_LOG`), the harness's own history file is read in **file order** (a record's

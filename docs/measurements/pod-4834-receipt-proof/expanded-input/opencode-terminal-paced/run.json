@@ -1,0 +1,66 @@
+{
+  "lane": "opencode-terminal-paced",
+  "version": "1.18.33",
+  "commandPath": "/home/mgw/.opencode/bin/opencode",
+  "startedAt": "2026-09-30T17:25:53.960Z",
+  "root": "/tmp/podium-4984-opencode-terminal-paced-YPfBjJ",
+  "fakePort": 50006,
+  "appPort": 50007,
+  "env": {
+    "PATH": "/home/mgw/.bun/install/global/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/mgw/.local/share/mise/installs/bun/1.4.2/bin:/home/mgw/.local/share/mise/installs/zig/0.16.0/bin:/home/mgw/.local/share/mise/installs/github-indygreg-apple-platform-rs/apple-codesign-0.29.0:/home/mgw/.local/share/mise/installs/conda-pigz/2.8/.mise-bins:/home/mgw/.cargo/bin:/home/mgw/.local/share/mise/installs/github-rust-cross-cargo-zigbuild/0.23.4:/home/mgw/.local/share/mise/shims:/home/mgw/google-cloud-sdk/bin:/home/mgw/.local/bin:/home/mgw/.codex/tmp/arg0/codex-arg0Zq4v2T:/home/mgw/.podium/hooks/browser-shims:/home/mgw/.bun/bin:/home/mgw/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin",
+    "HOME": "/tmp/podium-4984-opencode-terminal-paced-YPfBjJ/home",
+    "CODEX_HOME": "/tmp/podium-4984-opencode-terminal-paced-YPfBjJ/home/.codex",
+    "GROK_HOME": "/tmp/podium-4984-opencode-terminal-paced-YPfBjJ/home/.grok",
+    "XDG_CONFIG_HOME": "/tmp/podium-4984-opencode-terminal-paced-YPfBjJ/home/.config",
+    "XDG_CACHE_HOME": "/tmp/podium-4984-opencode-terminal-paced-YPfBjJ/home/.cache",
+    "XDG_DATA_HOME": "/tmp/podium-4984-opencode-terminal-paced-YPfBjJ/home/.local/share",
+    "XDG_STATE_HOME": "/tmp/podium-4984-opencode-terminal-paced-YPfBjJ/home/.local/state",
+    "TERM": "xterm-256color",
+    "COLORTERM": "truecolor",
+    "LANG": "C.UTF-8",
+    "FAKE_KEY": "dummy-not-a-key",
+    "OPENCODE_DISABLE_AUTOUPDATE": "1",
+    "OPENCODE_DISABLE_MODELS_FETCH": "1",
+    "OPENCODE_SERVER_PASSWORD": "dummy-local-password",
+    "OPENCODE_CONFIG": "/tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work/opencode.json"
+  },
+  "config": {
+    "provider": {
+      "fake": {
+        "npm": "@ai-sdk/openai-compatible",
+        "name": "fake",
+        "options": {
+          "baseURL": "http://127.0.0.1:50006/v1",
+          "apiKey": "dummy-not-a-key"
+        },
+        "models": {
+          "fake": {
+            "name": "fake",
+            "tool_call": true,
+            "limit": {
+              "context": 1000000,
+              "output": 1000
+            }
+          }
+        }
+      }
+    },
+    "model": "fake/fake",
+    "small_model": "fake/fake",
+    "enabled_providers": [
+      "fake"
+    ],
+    "autoupdate": false,
+    "share": "disabled",
+    "permission": "allow"
+  },
+  "tty": "180x45, independent tmux server; new terminal process for every case",
+  "methods": [
+    "paste: tmux paste-buffer -r -p, exact input bytes including LF and CR",
+    "typed: tmux send-keys -l, unbracketed literal bytes in 256-character chunks, 40ms between writes; 650ms pause then Enter",
+    "typed-paced: unbracketed literal bytes in 256-character chunks, 40ms between writes; 650ms pause then Enter",
+    "typed-buffer: tmux paste-buffer -r WITHOUT -p: unbracketed literal byte stream, no escape wrappers; programs can detect a fast burst as paste"
+  ],
+  "editorDrain": "Unbracketed input waits for its final marker in the fresh editor before Enter (up to max(60s, 5ms per byte)); pending input is not a storage result.",
+  "finishedAt": "2026-09-30T17:55:47.997Z"
+}

@@ -26,6 +26,7 @@ function change(sent: string, recorded: string): string {
   if (sent.endsWith('\n') && recorded === `${sent.slice(0, -1)} `) return 'final LF → SP'
   if (recorded === sent.replace(/\r\n?/g, '\n')) return 'CRLF/CR → LF'
   if (recorded === sent.replace(/\r\n?/g, '\n').trim()) return 'CRLF/CR → LF; trim'
+  if (recorded === sent.replace(/\r\n/g, '\n\n')) return 'CRLF → two LFs'
   if (recorded === sent.replace(/\t/g, '    ')) return 'TAB → 4 SP'
   if (recorded === sent.replace(/\t/g, '')) return 'TAB removed'
   if (recorded === `${sent.replace(/\r\n?/g, '\n')} `) return 'CRLF/CR → LF; append SP'
@@ -61,14 +62,17 @@ for (const lane of lanes) {
       frameIdStored: input.framed && texts.length ? texts.some(t => t.includes(input.id)) : null,
       strictFrameMatches: input.framed && texts.length ? texts.some(t => frameId(t) === input.id) : null,
       exactBodyStored: texts.length ? texts.some(t => t.includes(input.body)) : null,
-      exactTextStored: texts.some(t => t === input.text),
+      exactTextStored: texts.length ? texts.some(t => t === input.text) : null,
       currentTextRuleMatches: texts.length ? texts.some(t => textMatches(lane, input.text, t)) : null,
       protocolIdStored: lane.includes('terminal') ? null : native.some(r => r.id === input.id),
       modelExactBody: modelTexts.length ? modelTexts.some(t => t.includes(input.body)) : null,
       modelContainsStored: texts.map(t => modelTexts.some(m => m.includes(t))),
       otherRecords: native.filter(r => r.kind !== 'prompt').map(r => ({ source: r.source, position: r.position, kind: r.kind, id: r.id,
         texts: r.texts.map((t: string) => ({ bytes: bytes(t), sha256: sha(t), first: t.slice(0, 70), last: t.slice(-70) })) })),
-      error: o.error, status: o.status, extraEnterAt: o.extraEnterAt, editorDrainComplete: o.editorDrainComplete,
+      error: o.error, status: o.status, extraEnterAt: o.extraEnterAt, initialSubmitAt: o.initialSubmitAt,
+      editorDrainComplete: o.editorDrainComplete,
+      editorDrainMs: o.editorDrainedAt ? o.editorDrainedAt - o.sentAt : null,
+      observationMs: o.finishedAt - o.sentAt,
     }
   })
   writeFileSync(`${base}/summary.jsonl`, summaries.map(s => JSON.stringify(s)).join('\n') + '\n')
@@ -76,6 +80,7 @@ for (const lane of lanes) {
   const md = [`# ${lane} — ${run.version}`, '',
     `Measured ${run.startedAt}–${run.finishedAt ?? 'in progress'}. [Run/config](run.json), [native records](native-records.jsonl), [full model inputs](model-requests.jsonl), [protocol](protocol.jsonl), [machine comparisons](summary.jsonl).`, '',
     'Bytes are UTF-8 after JSON decoding, not JSON escape length. `SP`, `LF`, `CR`, `TAB` mean bytes 20, 0a, 0d, 09. Frame id checks use the native prompt text and the strict closing-line rule. “Text rule” applies the current terminal matching source to native text (Codex/Grok readers trim it). It is not a test of the full delivery pipeline.', '',
+    '“Model body exact” checks all captured user messages, including auxiliary title requests; it does not establish that the main conversation request carried the body. Missing prompt records have no stored-byte, frame, or matching verdict. Bounded drain/submit timings and errors are in [observations](observations.jsonl) and the machine comparisons. [Method and limits](../README.md).', '',
     '| Method / case | Sent B | Prompt records / stored B | Storage change | Body exact | Frame matches | Text rule | Model body exact |',
     '|---|---:|---|---|---|---|---|---|',
     ...summaries.map(s => `| ${s.label} | ${s.inputBytes} | ${s.promptRecords} / ${s.stored.flatMap(r => r.texts.map((t: any) => t.bytes)).join(', ') || '—'} | ${s.stored.flatMap(r => r.texts.map((t: any) => t.change)).join('; ') || 'no prompt'} | ${yes(s.exactBodyStored)} | ${yes(s.strictFrameMatches)} | ${yes(s.currentTextRuleMatches)} | ${yes(s.modelExactBody)} |`), '',

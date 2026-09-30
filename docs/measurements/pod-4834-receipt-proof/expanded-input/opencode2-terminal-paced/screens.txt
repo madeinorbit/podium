@@ -1,0 +1,1972 @@
+START typed-paced/lines-2-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/lines-2-plain
+   ok-1                          +
+
+  ┃                                                                                                                                         ok-1
+  ┃  P4984-lines-2 line-001 payload-END-1
+  ┃  P4984-lines-2 line-002 payload-END-2                                                                                                   Context
+  ┃                                                                                                                                         15 tokens
+                                                                                                                                            0% used
+     ok-2
+
+     Build · fake · 915ms · 87.7 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-paced-5hOsFS/work:master                                                  15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed-paced/lines-2-frame
+   ok-1                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/lines-2-frame
+   ok-1                            ok-3                          +
+
+  ┃                                                                                                                                         ok-3
+  ┃  [podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7 · from agent · to you]
+  ┃  P4984-lines-2 line-001 payload-END-1                                                                                                   Context
+  ┃  P4984-lines-2 line-002 payload-END-2                                                                                                   15 tokens
+  ┃  [end podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7]                                                                          0% used
+  ┃
+
+     ok-4
+
+     Build · fake · 581ms · 104.2 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-paced-5hOsFS/work:master                                                  15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed-paced/lines-10-plain
+   ok-1                            ok-3                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/lines-10-plain
+   ok-1                            ok-3                            ok-5                          +
+
+  ┃                                                                                                                                         ok-5
+  ┃  P4984-lines-10 line-001 payload-END-1
+  ┃  P4984-lines-10 line-002 payload-END-2                                                                                                  Context
+  ┃  P4984-lines-10 line-003 payload-END-3                                                                                                  15 tokens
+  ┃  P4984-lines-10 line-004 payload-END-4                                                                                                  0% used
+  ┃  P4984-lines-10 line-005 payload-END-5
+  ┃  P4984-lines-10 line-006 payload-END-6
+  ┃  P4984-lines-10 line-007 payload-END-7
+  ┃  P4984-lines-10 line-008 payload-END-8
+  ┃  P4984-lines-10 line-009 payload-END-9
+  ┃  P4984-lines-10 line-010 payload-END-10
+  ┃
+
+     ok-6
+
+     Build · fake · 459ms · 79.4 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-paced-5hOsFS/work:master                                                  15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed-paced/lines-10-frame
+   ok-1                            ok-3                            ok-5                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/lines-10-frame
+   ok-1                            ok-3                            ok-5                            ok-7                          +
+
+  ┃                                                                                                                                         ok-7
+  ┃  [podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b · from agent · to you]
+  ┃  P4984-lines-10 line-001 payload-END-1                                                                                                  Context
+  ┃  P4984-lines-10 line-002 payload-END-2                                                                                                  15 tokens
+  ┃  P4984-lines-10 line-003 payload-END-3                                                                                                  0% used
+  ┃  P4984-lines-10 line-004 payload-END-4
+  ┃  P4984-lines-10 line-005 payload-END-5
+  ┃  P4984-lines-10 line-006 payload-END-6
+  ┃  P4984-lines-10 line-007 payload-END-7
+  ┃  P4984-lines-10 line-008 payload-END-8
+  ┃  P4984-lines-10 line-009 payload-END-9
+  ┃  P4984-lines-10 line-010 payload-END-10
+  ┃  [end podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b]
+  ┃
+
+     ok-8
+
+     Build · fake · 292ms · 200.0 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-paced-5hOsFS/work:master                                                  15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed-paced/lines-200-plain
+   ok-1                            ok-3                            ok-5                            ok-7                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER typed-paced/lines-200-plain
+   ok-1                            ok-3                            ok-5                            ok-7                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-lines-200 line-001 payload-END-1
+                                                     ┃  P4984-lines-200 line-002 payload-END-2
+                                                     ┃  P4984-lines-200 line-003 payload-END-3
+                                                     ┃  P4984-lines-200 line-004 payload-END-4
+                                                     ┃  P4984-lines-200 line-005 payload-END-5
+                                                     ┃  P4984-lines-200 line-006 payload-END-6
+                                                     ┃  P4984-lines-200 line-0
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/lines-200-plain
+   ok-1                            ok-3                            ok-5                            ok-7                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-lines-200 line-001 payload-END-1
+                                                     ┃  P4984-lines-200 line-002 payload-END-2
+                                                     ┃  P4984-lines-200 line-003 payload-END-3
+                                                     ┃  P4984-lines-200 line-004 payload-END-4
+                                                     ┃  P4984-lines-200 line-005 payload-END-5
+                                                     ┃  P4984-lines-200 line-006 payload-END-6
+                                                     ┃  P4984-lines-200 line-0
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START typed-paced/lines-200-frame
+   ok-1                            ok-3                            ok-5                            ok-7                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER typed-paced/lines-200-frame
+   ok-1                            ok-3                            ok-5                            ok-7                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_f67aa431-8f6c-4000-8000-900c5b28cc6a · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-lines-200 line-001 payload-END-1
+                                                     ┃  P4984-lines-200 line-002 payload-END-2
+                                                     ┃  P4984-lines-200 line-003 payload-END-3
+                                                     ┃  P4984-lines-200 line-004 payload-END-4
+                                                     ┃  P4984-lines-200 line
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/lines-200-frame
+   ok-1                            ok-3                            ok-5                            ok-7                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_f67aa431-8f6c-4000-8000-900c5b28cc6a · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-lines-200 line-001 payload-END-1
+                                                     ┃  P4984-lines-200 line-002 payload-END-2
+                                                     ┃  P4984-lines-200 line-003 payload-END-3
+                                                     ┃  P4984-lines-200 line-004 payload-END-4
+                                                     ┃  P4984-lines-200 line
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START typed-paced/single-1024-plain
+   ok-1                            ok-3                            ok-5                            ok-7                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/single-1024-plain
+   ok-1                            ok-3                            ok-5                            ok-7                            ok-9                          +
+
+  ┃                                                                                                                                         ok-9
+  ┃  P4984-single-1024 BEGIN
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    Context
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    15 tokens
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    0% used
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
+  ┃
+
+     ok-10
+
+     Build · fake · 1.2s · 116.3 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-paced-5hOsFS/work:master                                                  15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed-paced/single-1024-frame
+   ok-1                          ok-3                          ok-5                          ok-7                          ok-9                        + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/single-1024-frame
+   ok-1                          ok-3                          ok-5                          ok-7                         ok-9                         ok-11                      +
+
+  ┃                                                                                                                                         ok-11
+  ┃  [podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016 · from agent · to you]
+  ┃  P4984-single-1024 BEGIN                                                                                                                Context
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    15 tokens
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    0% used
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
+  ┃  [end podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016]
+  ┃
+
+     ok-12
+
+     Build · fake · 373ms · 208.3 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-paced-5hOsFS/work:master                                                  15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed-paced/single-16384-plain
+   ok-1                      ok-3                      ok-5                      ok-7                      ok-9                      ok-11                  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER typed-paced/single-16384-plain
+   ok-1                      ok-3                      ok-5                      ok-7                      ok-9                      ok-11                  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-single-16384 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/single-16384-plain
+   ok-1                      ok-3                      ok-5                      ok-7                      ok-9                      ok-11                  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-single-16384 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START typed-paced/single-16384-frame
+   ok-1                      ok-3                      ok-5                      ok-7                      ok-9                      ok-11                  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER typed-paced/single-16384-frame
+   ok-1                      ok-3                      ok-5                      ok-7                      ok-9                      ok-11                  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_5adbbb1d-c982-4000-8000-156aeb90992d · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-single-16384 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/single-16384-frame
+   ok-1                      ok-3                      ok-5                      ok-7                      ok-9                      ok-11                  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_5adbbb1d-c982-4000-8000-156aeb90992d · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-single-16384 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START typed-paced/single-102400-plain
+   ok-1                      ok-3                      ok-5                      ok-7                      ok-9                      ok-11                  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER typed-paced/single-102400-plain
+   ok-1                      ok-3                      ok-5                      ok-7                      ok-9                      ok-11                  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-single-102400 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef012345
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/single-102400-plain
+   ok-1                      ok-3                      ok-5                      ok-7                      ok-9                      ok-11                  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-single-102400 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef012345
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START typed-paced/single-102400-frame
+   ok-1                      ok-3                      ok-5                      ok-7                      ok-9                      ok-11                  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER typed-paced/single-102400-frame
+   ok-1                      ok-3                      ok-5                      ok-7                      ok-9                      ok-11                  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_6f4d5b41-20f5-4000-8000-c5775c5d5d39 · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-single-102400 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef012345
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/single-102400-frame
+   ok-1                      ok-3                      ok-5                      ok-7                      ok-9                      ok-11                  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_6f4d5b41-20f5-4000-8000-c5775c5d5d39 · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-single-102400 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef012345
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START typed-paced/tabs-plain
+   ok-1                      ok-3                      ok-5                      ok-7                      ok-9                      ok-11                  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/tabs-plain
+   ok-1                      ok-3                      ok-5                     ok-7                     ok-9                     ok-11                    ok-13                  +
+
+  ┃                                                                                                                                         ok-13
+  ┃  P4984-tabsmiddleindentedEND-tabs
+  ┃                                                                                                                                         Context
+                                                                                                                                            15 tokens
+     ok-14                                                                                                                                  0% used
+
+     Build · fake · 427ms · 113.6 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-paced-5hOsFS/work:master                                                  15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed-paced/tabs-frame
+   ok-1                   ok-3                   ok-5                   ok-7                   ok-9                  ok-11                 ok-13               + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/tabs-frame
+   ok-1                   ok-3                  ok-5                  ok-7                  ok-9                  ok-11                 ok-13                 ok-15               +
+
+  ┃                                                                                                                                         ok-15
+  ┃  [podium message msg_54e39917-0723-4000-8000-1decc0ae1649 · from agent · to you]
+  ┃  P4984-tabsmiddleindentedEND-tabs                                                                                                       Context
+  ┃  [end podium message msg_54e39917-0723-4000-8000-1decc0ae1649]                                                                          15 tokens
+  ┃                                                                                                                                         0% used
+
+     ok-16
+
+     Build · fake · 706ms · 32.7 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-paced-5hOsFS/work:master                                                  15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed-paced/crlf-plain
+   ok-1               ok-3               ok-5               ok-7               ok-9               ok-11              ok-13              ok-15            + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/crlf-plain
+   ok-1               ok-3               ok-5               ok-7               ok-9               ok-11              ok-13              ok-15              ok-17                  +
+
+  ┃                                                                                                                                         ok-17
+  ┃  P4984-crlf line-1
+  ┃  P4984-crlf line-2                                                                                                                      Context
+  ┃  P4984-crlf END                                                                                                                         15 tokens
+  ┃                                                                                                                                         0% used
+
+     ok-18
+
+     Build · fake · 841ms · 50.0 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-paced-5hOsFS/work:master                                                  15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed-paced/crlf-frame
+   ok-1             ok-3             ok-5             ok-7             ok-9             ok-11            ok-13            ok-15            ok-17          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/crlf-frame
+   ok-1             ok-3             ok-5             ok-7             ok-9             ok-11            ok-13            ok-15            ok-17            ok-19                 +
+
+  ┃                                                                                                                                         ok-19
+  ┃  [podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd · from agent · to you]
+  ┃  P4984-crlf line-1                                                                                                                      Context
+  ┃  P4984-crlf line-2                                                                                                                      15 tokens
+  ┃  P4984-crlf END                                                                                                                         0% used
+  ┃  [end podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd]
+  ┃
+
+     ok-20
+
+     Build · fake · 615ms · 87.7 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-paced-5hOsFS/work:master                                                  15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed-paced/trailing-lf-plain
+   ok-1           ok-3           ok-5           ok-7           ok-9           ok-11          ok-13          ok-15          ok-17          ok-19        + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/trailing-lf-plain
+   ok-1           ok-3           ok-5           ok-7           ok-9           ok-11          ok-13          ok-15          ok-17          ok-19          ok-21                    +
+
+  ┃                                                                                                                                         ok-21
+  ┃  P4984-trailing-lf first
+  ┃  P4984-trailing-lf END                                                                                                                  Context
+  ┃                                                                                                                                         15 tokens
+  ┃                                                                                                                                         0% used
+
+     ok-22
+
+     Build · fake · 350ms · 147.1 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-paced-5hOsFS/work:master                                                  15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed-paced/trailing-lf-frame
+   ok-1          ok-3          ok-5          ok-7          ok-9          ok-11         ok-13         ok-15         ok-17         ok-19         ok-21       + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed-paced/trailing-lf-frame
+   ok-1          ok-3          ok-5          ok-7          ok-9          ok-11         ok-13         ok-15         ok-17         ok-19         ok-21         ok-23                +
+
+  ┃                                                                                                                                         ok-23
+  ┃  [podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404 · from agent · to you]
+  ┃  P4984-trailing-lf first                                                                                                                Context
+  ┃  P4984-trailing-lf END                                                                                                                  15 tokens
+  ┃                                                                                                                                         0% used
+  ┃  [end podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404]
+  ┃
+
+     ok-24
+
+     Build · fake · 548ms · 111.1 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-paced-5hOsFS/work:master                                                  15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master

@@ -1,0 +1,3711 @@
+START paste/lines-2-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-terminal-…/work  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER paste/lines-2-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-lines-2 line-001 payload-END-1
+                                                     ┃  P4984-lines-2 line-002 payload-END-2
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/lines-2-plain
+ ⠋ New session                   +
+
+  ┃                                                                                                                                         New session - 2026-09-30T16:48:28.
+  ┃  P4984-lines-2 line-001 payload-END-1                                                                                                   967Z
+  ┃  P4984-lines-2 line-002 payload-END-2
+  ┃
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                               shift+tab agents  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/lines-2-frame
+   ok-1                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-terminal-…/work  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER paste/lines-2-frame
+   ok-1                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [Pasted ~4 lines]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/lines-2-frame
+   ok-1                          ⠴ ok-2                          +
+
+  ┃                                                                                                                                         ok-2
+  ┃  [podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7 · from agent · to you]
+  ┃  P4984-lines-2 line-001 payload-END-1
+  ┃  P4984-lines-2 line-002 payload-END-2
+  ┃  [end podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7]
+  ┃
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt                                                                              shift+tab agents  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/lines-10-plain
+   ok-1                            ok-2                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-terminal-…/work  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER paste/lines-10-plain
+   ok-1                          • ok-2                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [Pasted ~10 lines]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/lines-10-plain
+   ok-1                          • ok-2                          • ok-4                          +
+
+  ┃                                                                                                                                         ok-4
+  ┃  P4984-lines-10 line-001 payload-END-1
+  ┃  P4984-lines-10 line-002 payload-END-2                                                                                                  Context
+  ┃  P4984-lines-10 line-003 payload-END-3                                                                                                  15 tokens
+  ┃  P4984-lines-10 line-004 payload-END-4                                                                                                  0% used
+  ┃  P4984-lines-10 line-005 payload-END-5
+  ┃  P4984-lines-10 line-006 payload-END-6
+  ┃  P4984-lines-10 line-007 payload-END-7
+  ┃  P4984-lines-10 line-008 payload-END-8
+  ┃  P4984-lines-10 line-009 payload-END-9
+  ┃  P4984-lines-10 line-010 payload-END-10
+  ┃
+
+
+
+     Build · fake · 1.3s · 172.4 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/lines-10-frame
+   ok-1                          • ok-2                          • ok-4                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-terminal-…/work  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER paste/lines-10-frame
+   ok-1                          • ok-2                          • ok-4                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [Pasted ~12 lines]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/lines-10-frame
+   ok-1                          • ok-2                          • ok-4                          • ok-6                          +
+
+  ┃                                                                                                                                         ok-6
+  ┃  [podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b · from agent · to you]
+  ┃  P4984-lines-10 line-001 payload-END-1                                                                                                  Context
+  ┃  P4984-lines-10 line-002 payload-END-2                                                                                                  15 tokens
+  ┃  P4984-lines-10 line-003 payload-END-3                                                                                                  0% used
+  ┃  P4984-lines-10 line-004 payload-END-4
+  ┃  P4984-lines-10 line-005 payload-END-5
+  ┃  P4984-lines-10 line-006 payload-END-6
+  ┃  P4984-lines-10 line-007 payload-END-7
+  ┃  P4984-lines-10 line-008 payload-END-8
+  ┃  P4984-lines-10 line-009 payload-END-9
+  ┃  P4984-lines-10 line-010 payload-END-10
+  ┃  [end podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b]
+  ┃
+
+     ok-7
+
+     Build · fake · 2.9s · 7.5 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/lines-200-plain
+   ok-1                          • ok-2                          • ok-4                          • ok-6                          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/lines-200-plain
+   ok-1                          • ok-2                          • ok-4                          • ok-6                          ⠼ ok-8                          +
+  ┃  P4984-lines-200 line-168 payload-END-168
+  ┃  P4984-lines-200 line-169 payload-END-169                                                                                               ok-8
+  ┃  P4984-lines-200 line-170 payload-END-170
+  ┃  P4984-lines-200 line-171 payload-END-171
+  ┃  P4984-lines-200 line-172 payload-END-172
+  ┃  P4984-lines-200 line-173 payload-END-173
+  ┃  P4984-lines-200 line-174 payload-END-174
+  ┃  P4984-lines-200 line-175 payload-END-175
+  ┃  P4984-lines-200 line-176 payload-END-176
+  ┃  P4984-lines-200 line-177 payload-END-177
+  ┃  P4984-lines-200 line-178 payload-END-178
+  ┃  P4984-lines-200 line-179 payload-END-179
+  ┃  P4984-lines-200 line-180 payload-END-180
+  ┃  P4984-lines-200 line-181 payload-END-181
+  ┃  P4984-lines-200 line-182 payload-END-182
+  ┃  P4984-lines-200 line-183 payload-END-183
+  ┃  P4984-lines-200 line-184 payload-END-184
+  ┃  P4984-lines-200 line-185 payload-END-185
+  ┃  P4984-lines-200 line-186 payload-END-186
+  ┃  P4984-lines-200 line-187 payload-END-187
+  ┃  P4984-lines-200 line-188 payload-END-188
+  ┃  P4984-lines-200 line-189 payload-END-189
+  ┃  P4984-lines-200 line-190 payload-END-190
+  ┃  P4984-lines-200 line-191 payload-END-191
+  ┃  P4984-lines-200 line-192 payload-END-192
+  ┃  P4984-lines-200 line-193 payload-END-193
+  ┃  P4984-lines-200 line-194 payload-END-194
+  ┃  P4984-lines-200 line-195 payload-END-195
+  ┃  P4984-lines-200 line-196 payload-END-196
+  ┃  P4984-lines-200 line-197 payload-END-197
+  ┃  P4984-lines-200 line-198 payload-END-198
+  ┃  P4984-lines-200 line-199 payload-END-199
+  ┃  P4984-lines-200 line-200 payload-END-200
+  ┃
+
+     ok-9
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝■■■■■ esc interrupt                                                                              shift+tab agents  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/lines-200-frame
+   ok-1                        • ok-2                        • ok-4                        • ok-6                        • ok-8                        + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/lines-200-frame
+   ok-1                        • ok-2                        • ok-4                        • ok-6                       • ok-8                       • ok-10                      +
+  ┃  P4984-lines-200 line-171 payload-END-171
+  ┃  P4984-lines-200 line-172 payload-END-172                                                                                               ok-10
+  ┃  P4984-lines-200 line-173 payload-END-173
+  ┃  P4984-lines-200 line-174 payload-END-174                                                                                               Context
+  ┃  P4984-lines-200 line-175 payload-END-175                                                                                               15 tokens
+  ┃  P4984-lines-200 line-176 payload-END-176                                                                                               0% used
+  ┃  P4984-lines-200 line-177 payload-END-177
+  ┃  P4984-lines-200 line-178 payload-END-178
+  ┃  P4984-lines-200 line-179 payload-END-179
+  ┃  P4984-lines-200 line-180 payload-END-180
+  ┃  P4984-lines-200 line-181 payload-END-181
+  ┃  P4984-lines-200 line-182 payload-END-182
+  ┃  P4984-lines-200 line-183 payload-END-183
+  ┃  P4984-lines-200 line-184 payload-END-184
+  ┃  P4984-lines-200 line-185 payload-END-185
+  ┃  P4984-lines-200 line-186 payload-END-186
+  ┃  P4984-lines-200 line-187 payload-END-187
+  ┃  P4984-lines-200 line-188 payload-END-188
+  ┃  P4984-lines-200 line-189 payload-END-189
+  ┃  P4984-lines-200 line-190 payload-END-190
+  ┃  P4984-lines-200 line-191 payload-END-191
+  ┃  P4984-lines-200 line-192 payload-END-192
+  ┃  P4984-lines-200 line-193 payload-END-193
+  ┃  P4984-lines-200 line-194 payload-END-194
+  ┃  P4984-lines-200 line-195 payload-END-195
+  ┃  P4984-lines-200 line-196 payload-END-196
+  ┃  P4984-lines-200 line-197 payload-END-197
+  ┃  P4984-lines-200 line-198 payload-END-198
+  ┃  P4984-lines-200 line-199 payload-END-199
+  ┃  P4984-lines-200 line-200 payload-END-200
+  ┃  [end podium message msg_f67aa431-8f6c-4000-8000-900c5b28cc6a]
+  ┃
+
+     ok-11
+
+     Build · fake · 4.5s · 20.2 tok/s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/single-1024-plain
+   ok-1                      ok-2                      ok-4                      ok-6                      ok-8                    • ok-10                  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/single-1024-plain
+   ok-1                    • ok-2                    • ok-4                   • ok-6                   • ok-8                   • ok-10                  • ok-12                  +
+
+  ┃                                                                                                                                         ok-12
+  ┃  P4984-single-1024 BEGIN
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    Context
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    15 tokens
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    0% used
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
+  ┃
+
+
+
+     Build · fake · 1.2s · 116.3 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/single-1024-frame
+   ok-1                 • ok-2                 • ok-4                 • ok-6                 • ok-8                • ok-10               • ok-12               + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-terminal-…/work  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER paste/single-1024-frame
+   ok-1                 • ok-2                 • ok-4                 • ok-6                 • ok-8                • ok-10               • ok-12               + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [Pasted ~3 lines]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/single-1024-frame
+   ok-1                 • ok-2                • ok-4                • ok-6                • ok-8                • ok-10               • ok-12               • ok-14               +
+
+  ┃                                                                                                                                         ok-14
+  ┃  [podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016 · from agent · to you]
+  ┃  P4984-single-1024 BEGIN                                                                                                                Context
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    15 tokens
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    0% used
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
+  ┃  [end podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016]
+  ┃
+
+
+
+     Build · fake · 2.6s · 18.3 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/single-16384-plain
+   ok-1               ok-2               ok-4               ok-6               ok-8               ok-10              ok-12            • ok-14            + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-terminal-…/work  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER paste/single-16384-plain
+   ok-1             • ok-2             • ok-4             • ok-6             • ok-8             • ok-10            • ok-12            • ok-14            + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [Pasted ~1 lines]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/single-16384-plain
+   ok-1             • ok-2             • ok-4             • ok-6             • ok-8             • ok-10            • ok-12            • ok-14            • ok-16                  +
+  ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef    ok-16
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    Context
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    15 tokens
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab    0% used
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  ┃  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc END-16384
+  ┃
+
+     ok-17
+
+     Build · fake · 1.1s · 26.9 tok/s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/single-16384-frame
+   ok-1           • ok-2           • ok-4           • ok-6           • ok-8           • ok-10          • ok-12          • ok-14          • ok-16          + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/single-16384-frame
+   ok-1           • ok-2           • ok-4           • ok-6           • ok-8           • ok-10          • ok-12          • ok-14          • ok-16          • ok-18                 +
+  ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    ok-18
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    Context
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab    15 tokens
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde    0% used
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  ┃  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc END-16384
+  ┃  [end podium message msg_5adbbb1d-c982-4000-8000-156aeb90992d]
+  ┃
+
+     ok-19
+
+     Build · fake · 2.8s · 14.4 tok/s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/single-102400-plain
+   ok-1         • ok-2         • ok-4         • ok-6         • ok-8         • ok-10        • ok-12        • ok-14        • ok-16        • ok-18        + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/single-102400-plain
+   ok-1         • ok-2         • ok-4         • ok-6         • ok-8         • ok-10        • ok-12        • ok-14        • ok-16        • ok-18        • ok-20                    +
+  ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    ok-20
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    Context
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab    15 tokens
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde    0% used
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  ┃  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  ┃  789abcdef0123456789abcdef0123456789abcdef0123456789a END-102400
+  ┃
+
+     ok-21
+
+     Build · fake · 1.4s · 14.5 tok/s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/single-102400-frame
+   ok-1        • ok-2        • ok-4        • ok-6        • ok-8        • ok-10       • ok-12       • ok-14       • ok-16       • ok-18       • ok-20       + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/single-102400-frame
+   ok-1        • ok-2        • ok-4        • ok-6        • ok-8        • ok-10       • ok-12       • ok-14       • ok-16       • ok-18       • ok-20       • ok-22                +
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    ok-22
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab    Context
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde    15 tokens
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01    0% used
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  ┃  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  ┃  789abcdef0123456789abcdef0123456789abcdef0123456789a END-102400
+  ┃  [end podium message msg_6f4d5b41-20f5-4000-8000-c5775c5d5d39]
+  ┃
+
+     ok-23
+
+     Build · fake · 2.3s · 108.7 tok/s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/tabs-plain
+   ok-1         ok-2         ok-4         ok-6         ok-8         ok-10        ok-12        ok-14        ok-16        ok-18        ok-20      • ok-22      + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-terminal-…/work  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER paste/tabs-plain
+   ok-1       • ok-2       • ok-4       • ok-6       • ok-8       • ok-10      • ok-12      • ok-14      • ok-16      • ok-18      • ok-20      • ok-22      + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-tabs  middle  indented  END-tabs
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/tabs-plain
+   ok-1      • ok-2      • ok-4      • ok-6      • ok-8      • ok-10     • ok-12     • ok-14     • ok-16     • ok-18     • ok-20     • ok-22     • ok-24                          +
+
+  ┃                                                                                                                                         ok-24
+  ┃  P4984-tabs  middle  indented  END-tabs
+  ┃                                                                                                                                         Context
+                                                                                                                                            15 tokens
+     ok-25                                                                                                                                  0% used
+
+     Build · fake · 2.2s · 14.3 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/tabs-frame
+   ok-1      • ok-2      • ok-4      • ok-6      • ok-8      • ok-10     • ok-12     • ok-14     • ok-16     • ok-18     • ok-20     • ok-22     • ok-24     + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/tabs-frame
+   ok-1     • ok-2     • ok-4     • ok-6     • ok-8     • ok-10    • ok-12    • ok-14    • ok-16    • ok-18    • ok-20    • ok-22    • ok-24    • ok-26                           +
+
+  ┃                                                                                                                                         ok-26
+  ┃  [podium message msg_54e39917-0723-4000-8000-1decc0ae1649 · from agent · to you]
+  ┃  P4984-tabs  middle  indented  END-tabs                                                                                                 Context
+  ┃  [end podium message msg_54e39917-0723-4000-8000-1decc0ae1649]                                                                          15 tokens
+  ┃                                                                                                                                         0% used
+
+     ok-27
+
+     Build · fake · 1.7s · 48.5 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/crlf-plain
+   ok-1     • ok-2     • ok-4     • ok-6     • ok-8     • ok-10    • ok-12    • ok-14    • ok-16    • ok-18    • ok-20    • ok-22    • ok-24    • ok-26    + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/crlf-plain
+   ok-1     • ok-2     • ok-4     • ok-6     • ok-8     • ok-10    • ok-12    • ok-14    • ok-16    • ok-18    • ok-20    • ok-22    • ok-24    • ok-26    • ok-28                +
+
+  ┃                                                                                                                                         ok-28
+  ┃  P4984-crlf line-1
+  ┃  P4984-crlf line-2                                                                                                                      Context
+  ┃  P4984-crlf END                                                                                                                         15 tokens
+  ┃                                                                                                                                         0% used
+
+     ok-29
+
+     Build · fake · 553ms · 178.6 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/crlf-frame
+   ok-1    • ok-2    • ok-4    • ok-6    • ok-8    • ok-10   • ok-12   • ok-14   • ok-16   • ok-18   • ok-20   • ok-22   • ok-24   • ok-26   • ok-28   + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/crlf-frame
+   ok-1    • ok-2    • ok-4    • ok-6    • ok-8    • ok-10   • ok-12   • ok-14   • ok-16   • ok-18   • ok-20   • ok-22   • ok-24   • ok-26   • ok-28   • ok-30                    +
+
+  ┃                                                                                                                                         ok-30
+  ┃  [podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd · from agent · to you]
+  ┃  P4984-crlf line-1                                                                                                                      Context
+  ┃  P4984-crlf line-2                                                                                                                      15 tokens
+  ┃  P4984-crlf END                                                                                                                         0% used
+  ┃  [end podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd]
+  ┃
+
+     ok-31
+
+     Build · fake · 346ms · 106.4 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/trailing-lf-plain
+   ok-1   • ok-2   • ok-4   • ok-6   • ok-8   • ok-10  • ok-12  • ok-14  • ok-16  • ok-18  • ok-20  • ok-22  • ok-24  • ok-26  • ok-28  • ok-30  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/trailing-lf-plain
+   ok-1   • ok-2   • ok-4   • ok-6   • ok-8   • ok-10  • ok-12  • ok-14  • ok-16  • ok-18  • ok-20  • ok-22  • ok-24  • ok-26  • ok-28  • ok-30  • ok-32                          +
+
+  ┃                                                                                                                                         ok-32
+  ┃  P4984-trailing-lf first
+  ┃  P4984-trailing-lf END                                                                                                                  Context
+  ┃                                                                                                                                         15 tokens
+  ┃                                                                                                                                         0% used
+
+     ok-33
+
+     Build · fake · 252ms · 227.3 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START paste/trailing-lf-frame
+   ok-1   • ok-2   • ok-4   • ok-6   • ok-8   • ok-10  • ok-12  • ok-14  • ok-16  • ok-18  • ok-20  • ok-22  • ok-24  • ok-26  • ok-28  • ok-30  • ok-32  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+paste/trailing-lf-frame
+   ok-1   • ok-2   • ok-4   • ok-6   • ok-8   • ok-10  • ok-12  • ok-14  • ok-16  • ok-18  • ok-20  • ok-22  • ok-24  • ok-26  • ok-28  • ok-30  • ok-32  • ok-34                 +
+
+  ┃                                                                                                                                         ok-34
+  ┃  [podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404 · from agent · to you]
+  ┃  P4984-trailing-lf first                                                                                                                Context
+  ┃  P4984-trailing-lf END                                                                                                                  15 tokens
+  ┃                                                                                                                                         0% used
+  ┃  [end podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404]
+  ┃
+
+     ok-35
+
+     Build · fake · 367ms · 147.1 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed/lines-2-plain
+   ok-1  • ok-2  • ok-4  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed/lines-2-plain
+   ok-1  • ok-2  • ok-4  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36                          +
+
+  ┃                                                                                                                                         ok-36
+  ┃  P4984-lines-2 line-001 payload-END-1
+  ┃  P4984-lines-2 line-002 payload-END-2                                                                                                   Context
+  ┃                                                                                                                                         15 tokens
+                                                                                                                                            0% used
+     ok-37
+
+     Build · fake · 583ms · 90.9 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed/lines-2-frame
+   ok-1  • ok-2  • ok-4  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed/lines-2-frame
+   ok-1  • ok-2  • ok-4  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38                  +
+
+  ┃                                                                                                                                         ok-38
+  ┃  [podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7 · from agent · to you]
+  ┃  P4984-lines-2 line-001 payload-END-1                                                                                                   Context
+  ┃  P4984-lines-2 line-002 payload-END-2                                                                                                   15 tokens
+  ┃  [end podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7]                                                                          0% used
+  ┃
+
+     ok-39
+
+     Build · fake · 246ms · 185.2 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed/lines-10-plain
+‹1  • ok-2  • ok-4  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed/lines-10-plain
+‹1  • ok-2  • ok-4  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40               +
+
+  ┃                                                                                                                                         ok-40
+  ┃  P4984-lines-10 line-001 payload-END-1
+  ┃  P4984-lines-10 line-002 payload-END-2                                                                                                  Context
+  ┃  P4984-lines-10 line-003 payload-END-3                                                                                                  15 tokens
+  ┃  P4984-lines-10 line-004 payload-END-4                                                                                                  0% used
+  ┃  P4984-lines-10 line-005 payload-END-5
+  ┃  P4984-lines-10 line-006 payload-END-6
+  ┃  P4984-lines-10 line-007 payload-END-7
+  ┃  P4984-lines-10 line-008 payload-END-8
+  ┃  P4984-lines-10 line-009 payload-END-9
+  ┃  P4984-lines-10 line-010 payload-END-10
+  ┃
+
+     ok-41
+
+     Build · fake · 388ms · 104.2 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed/lines-10-frame
+‹2  • ok-4  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed/lines-10-frame
+‹2  • ok-4  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42               +
+
+  ┃                                                                                                                                         ok-42
+  ┃  [podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b · from agent · to you]
+  ┃  P4984-lines-10 line-001 payload-END-1                                                                                                  Context
+  ┃  P4984-lines-10 line-002 payload-END-2                                                                                                  15 tokens
+  ┃  P4984-lines-10 line-003 payload-END-3                                                                                                  0% used
+  ┃  P4984-lines-10 line-004 payload-END-4
+  ┃  P4984-lines-10 line-005 payload-END-5
+  ┃  P4984-lines-10 line-006 payload-END-6
+  ┃  P4984-lines-10 line-007 payload-END-7
+  ┃  P4984-lines-10 line-008 payload-END-8
+  ┃  P4984-lines-10 line-009 payload-END-9
+  ┃  P4984-lines-10 line-010 payload-END-10
+  ┃  [end podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b]
+  ┃
+
+     ok-43
+
+     Build · fake · 477ms · 58.1 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed/lines-200-plain
+‹3  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER typed/lines-200-plain
+‹3  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed/lines-200-plain
+‹3  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START typed/lines-200-frame
+‹3  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER typed/lines-200-frame
+‹3  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed/lines-200-frame
+‹3  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START typed/single-1024-plain
+‹3  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER typed/single-1024-plain
+‹3  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed/single-1024-plain
+‹3  • ok-6  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44               +
+
+  ┃                                                                                                                                         ok-44
+  ┃  P4984-single-1024 BEGIN
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    Context
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    15 tokens
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    0% used
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
+  ┃
+
+     ok-45
+
+     Build · fake · 1.1s · 86.2 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed/single-1024-frame
+‹4  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+NO RECORD AFTER FIRST ENTER typed/single-1024-frame
+‹4  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed/single-1024-frame
+‹4  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START typed/single-16384-plain
+‹4  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START typed/single-16384-frame
+‹4  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START typed/single-102400-plain
+‹4  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START typed/single-102400-frame
+‹4  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START typed/tabs-plain
+‹4  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed/tabs-plain
+‹4  • ok-8  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44   ok-46               +
+
+  ┃                                                                                                                                         ok-46
+  ┃  P4984-tabsmiddleindentedEND-tabs
+  ┃                                                                                                                                         Context
+                                                                                                                                            15 tokens
+     ok-47                                                                                                                                  0% used
+
+     Build · fake · 1.2s · 36.0 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed/tabs-frame
+‹5  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44   ok-46 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed/tabs-frame
+‹5  • ok-10 • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44   ok-46   ok-48               +
+
+  ┃                                                                                                                                         ok-48
+  ┃  [podium message msg_54e39917-0723-4000-8000-1decc0ae1649 · from agent · to you]
+  ┃  P4984-tabsmiddleindentedEND-tabs                                                                                                       Context
+  ┃  [end podium message msg_54e39917-0723-4000-8000-1decc0ae1649]                                                                          15 tokens
+  ┃                                                                                                                                         0% used
+
+     ok-49
+
+     Build · fake · 2.0s · 24.3 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed/crlf-plain
+‹6  • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44   ok-46   ok-48 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed/crlf-plain
+‹6  • ok-12 • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44   ok-46   ok-48   ok-50               +
+
+  ┃                                                                                                                                         ok-50
+  ┃  P4984-crlf line-1
+  ┃  P4984-crlf line-2                                                                                                                      Context
+  ┃  P4984-crlf END                                                                                                                         15 tokens
+  ┃                                                                                                                                         0% used
+
+     ok-51
+
+     Build · fake · 637ms · 135.1 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed/crlf-frame
+‹7    ok-14   ok-16   ok-18   ok-20   ok-22   ok-24   ok-26   ok-28   ok-30   ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44   ok-46   ok-48   ok-50 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-terminal-…/work  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed/crlf-frame
+‹7  • ok-14 • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44   ok-46   ok-48   ok-50   ok-52               +
+
+  ┃                                                                                                                                         ok-52
+  ┃  [podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd · from agent · to you]
+  ┃  P4984-crlf line-1                                                                                                                      Context
+  ┃  P4984-crlf line-2                                                                                                                      15 tokens
+  ┃  P4984-crlf END                                                                                                                         0% used
+  ┃  [end podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd]
+  ┃
+
+     ok-53
+
+     Build · fake · 1.3s · 35.7 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed/trailing-lf-plain
+‹8  • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44   ok-46   ok-48   ok-50   ok-52 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed/trailing-lf-plain
+‹8  • ok-16 • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44   ok-46   ok-48   ok-50   ok-52   ok-54               +
+
+  ┃                                                                                                                                         ok-54
+  ┃  P4984-trailing-lf first
+  ┃  P4984-trailing-lf END                                                                                                                  Context
+  ┃                                                                                                                                         15 tokens
+  ┃                                                                                                                                         0% used
+
+     ok-55
+
+     Build · fake · 597ms · 96.2 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START typed/trailing-lf-frame
+‹9  • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44   ok-46   ok-48   ok-50   ok-52   ok-54 + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+typed/trailing-lf-frame
+‹9  • ok-18 • ok-20 • ok-22 • ok-24 • ok-26 • ok-28 • ok-30 • ok-32 • ok-34   ok-36   ok-38   ok-40   ok-42   ok-44   ok-46   ok-48   ok-50   ok-52   ok-54   ok-56               +
+
+  ┃                                                                                                                                         ok-56
+  ┃  [podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404 · from agent · to you]
+  ┃  P4984-trailing-lf first                                                                                                                Context
+  ┃  P4984-trailing-lf END                                                                                                                  15 tokens
+  ┃                                                                                                                                         0% used
+  ┃  [end podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404]
+  ┃
+
+     ok-57
+
+     Build · fake · 508ms · 64.1 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-SF127Q/work:master                                                        15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master

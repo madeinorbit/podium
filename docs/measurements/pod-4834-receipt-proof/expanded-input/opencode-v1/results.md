@@ -4,6 +4,8 @@ Measured 2026-09-30T16:25:44.082Z–2026-09-30T16:26:24.246Z. [Run/config](run.j
 
 Bytes are UTF-8 after JSON decoding, not JSON escape length. `SP`, `LF`, `CR`, `TAB` mean bytes 20, 0a, 0d, 09. Frame id checks use the native prompt text and the strict closing-line rule. “Text rule” applies the current terminal matching source to native text (Codex/Grok readers trim it). It is not a test of the full delivery pipeline.
 
+“Model body exact” checks all captured user messages, including auxiliary title requests; it does not establish that the main conversation request carried the body. Missing prompt records have no stored-byte, frame, or matching verdict. Bounded drain/submit timings and errors are in [observations](observations.jsonl) and the machine comparisons. [Method and limits](../README.md).
+
 | Method / case | Sent B | Prompt records / stored B | Storage change | Body exact | Frame matches | Text rule | Model body exact |
 |---|---:|---|---|---|---|---|---|
 | protocol/lines-2-plain | 73 | 1 / 73 | exact | yes | — | yes | yes |

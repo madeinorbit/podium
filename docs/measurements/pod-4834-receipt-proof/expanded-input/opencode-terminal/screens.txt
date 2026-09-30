@@ -22,7 +22,7 @@ START paste/lines-2-plain
 
 
                                                      ┃
-                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
                                                      ┃
                                                      ┃  Build · fake fake
                                                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -42,7 +42,7 @@ START paste/lines-2-plain
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/lines-2-plain
@@ -87,7 +87,7 @@ paste/lines-2-plain
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
    ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
@@ -123,7 +123,7 @@ START paste/lines-2-frame
 
 
 
-                                                          ● Tip Use plugins to send OS notifications when sessions complete
+                                                              ● Tip Configure model in config to set your default model
 
 
 
@@ -136,7 +136,7 @@ START paste/lines-2-frame
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/lines-2-frame
@@ -181,7 +181,7 @@ paste/lines-2-frame
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
    ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
@@ -209,7 +209,7 @@ START paste/lines-10-plain
 
 
                                                      ┃
-                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃  Ask anything… "Fix broken tests"
                                                      ┃
                                                      ┃  Build · fake fake
                                                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -217,7 +217,7 @@ START paste/lines-10-plain
 
 
 
-                                                         ● Tip Create opencode.json for server settings, and tui.json for TUI
+                                                         ● Tip Tool definitions can invoke scripts written in Python, Go, etc
 
 
 
@@ -230,21 +230,21 @@ START paste/lines-10-plain
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/lines-10-plain
 
-  ┃                                                                                                                                         New session - 2026-09-30T16:42:36.
-  ┃  P4984-lines-10 line-001 payload-END-1                                                                                                  574Z
-  ┃  P4984-lines-10 line-002 payload-END-2
-  ┃  P4984-lines-10 line-003 payload-END-3                                                                                                  Context
-  ┃  P4984-lines-10 line-004 payload-END-4                                                                                                  0 tokens
-  ┃  P4984-lines-10 line-005 payload-END-5                                                                                                  0% used
-  ┃  P4984-lines-10 line-006 payload-END-6                                                                                                  $0.00 spent
-  ┃  P4984-lines-10 line-007 payload-END-7
-  ┃  P4984-lines-10 line-008 payload-END-8                                                                                                  LSP
-  ┃  P4984-lines-10 line-009 payload-END-9                                                                                                  LSPs are disabled
+  ┃                                                                                                                                         ok-3
+  ┃  P4984-lines-10 line-001 payload-END-1
+  ┃  P4984-lines-10 line-002 payload-END-2                                                                                                  Context
+  ┃  P4984-lines-10 line-003 payload-END-3                                                                                                  0 tokens
+  ┃  P4984-lines-10 line-004 payload-END-4                                                                                                  0% used
+  ┃  P4984-lines-10 line-005 payload-END-5                                                                                                  $0.00 spent
+  ┃  P4984-lines-10 line-006 payload-END-6
+  ┃  P4984-lines-10 line-007 payload-END-7                                                                                                  LSP
+  ┃  P4984-lines-10 line-008 payload-END-8                                                                                                  LSPs are disabled
+  ┃  P4984-lines-10 line-009 payload-END-9
   ┃  P4984-lines-10 line-010 payload-END-10
   ┃
 
@@ -275,9 +275,9 @@ paste/lines-10-plain
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-   ■■⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
 
 START paste/lines-10-frame
@@ -311,7 +311,7 @@ START paste/lines-10-frame
 
 
 
-                                                        ● Tip Press ctrl+v to paste images from your clipboard into the prompt
+                                                              ● Tip Run /unshare to remove a session from public access
 
 
 
@@ -324,7 +324,7 @@ START paste/lines-10-frame
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/lines-10-frame
@@ -369,7 +369,7 @@ paste/lines-10-frame
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
    ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
@@ -405,7 +405,7 @@ START paste/lines-200-plain
 
 
 
-                                                              ● Tip Run opencode upgrade to update to the latest version
+                                                           ● Tip Run opencode github install to set up the GitHub workflow
 
 
 
@@ -418,7 +418,7 @@ START paste/lines-200-plain
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/lines-200-plain
@@ -463,7 +463,7 @@ paste/lines-200-plain
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
    ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
@@ -499,7 +499,7 @@ START paste/lines-200-frame
 
 
 
-                                                         ● Tip Use /models or ctrl+x m to switch between available AI models
+                                                                    ● Tip Press escape to stop the AI mid-response
 
 
 
@@ -512,7 +512,7 @@ START paste/lines-200-frame
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/lines-200-frame
@@ -557,9 +557,9 @@ paste/lines-200-frame
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+   ■■■⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
 
 START paste/single-1024-plain
@@ -585,7 +585,7 @@ START paste/single-1024-plain
 
 
                                                      ┃
-                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
                                                      ┃
                                                      ┃  Build · fake fake
                                                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -593,7 +593,7 @@ START paste/single-1024-plain
 
 
 
-                                                                ● Tip Set any keybind to none to disable it completely
+                                                           ● Tip Use /new or ctrl+x n to start a fresh conversation session
 
 
 
@@ -606,7 +606,7 @@ START paste/single-1024-plain
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/single-1024-plain
@@ -651,9 +651,9 @@ paste/single-1024-plain
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+   ■⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
 
 START paste/single-1024-frame
@@ -687,7 +687,7 @@ START paste/single-1024-frame
 
 
 
-                                                            ● Tip Press f2 to quickly switch between recently used models
+                                                        ● Tip Configure local or remote MCP servers in the mcp config section
 
 
 
@@ -700,21 +700,21 @@ START paste/single-1024-frame
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/single-1024-frame
 
-  ┃                                                                                                                                         ok-9
-  ┃  [podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016 · from agent · to you]
-  ┃  P4984-single-1024 BEGIN                                                                                                                Context
-  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    0 tokens
-  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    0% used
-  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    $0.00 spent
-  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
-  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde    LSP
-  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01    LSPs are disabled
-  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃                                                                                                                                         New session - 2026-09-30T17:02:11.
+  ┃  [podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016 · from agent · to you]                                                        765Z
+  ┃  P4984-single-1024 BEGIN
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    Context
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    0 tokens
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    0% used
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab    $0.00 spent
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01    LSP
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234    LSPs are disabled
   ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
   ┃  [end podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016]
   ┃
@@ -745,7 +745,7 @@ paste/single-1024-frame
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
    ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
@@ -773,7 +773,7 @@ START paste/single-16384-plain
 
 
                                                      ┃
-                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
                                                      ┃
                                                      ┃  Build · fake fake
                                                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -781,7 +781,7 @@ START paste/single-16384-plain
 
 
 
-                                                              ● Tip Run /unshare to remove a session from public access
+                                                         ● Tip Press ctrl+z to suspend the terminal and return to your shell
 
 
 
@@ -794,12 +794,12 @@ START paste/single-16384-plain
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/single-16384-plain
   ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
-  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456    ok-10
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456    ok-9
   ┃  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
   ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc    Context
   ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef    0 tokens
@@ -839,7 +839,7 @@ paste/single-16384-plain
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
    ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
@@ -875,7 +875,7 @@ START paste/single-16384-frame
 
 
 
-                                                            ● Tip Set "share": "auto" to automatically share all sessions
+                                                           ● Tip Use instructions in config to load additional rules files
 
 
 
@@ -888,12 +888,12 @@ START paste/single-16384-frame
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/single-16384-frame
   ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
-  ┃  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789    ok-11
+  ┃  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789    ok-10
   ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
   ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef    Context
   ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    0 tokens
@@ -933,7 +933,7 @@ paste/single-16384-frame
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
    ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
@@ -969,7 +969,7 @@ START paste/single-102400-plain
 
 
 
-                                                              ● Tip Set "formatter": true to enable built-in formatters
+                                                        ● Tip Press ctrl+v to paste images from your clipboard into the prompt
 
 
 
@@ -982,20 +982,22 @@ START paste/single-102400-plain
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/single-102400-plain
-  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
-  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde    ok-12
-  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
-  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234    Context
-  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567    0 tokens
-  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a    0% used
-  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd    $0.00 spent
-  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
-  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123    LSP
-  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456    LSPs are disabled
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    New session - 2026-09-30T17:03:03.
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab    733Z
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01    Context
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234    0 tokens
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567    0% used
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a    $0.00 spent
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0    LSP
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123    LSPs are disabled
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
   ┃  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
   ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
   ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
@@ -1022,14 +1024,12 @@ paste/single-102400-plain
   ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
   ┃
 
-     ▣  Build · fake
-
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+   /tmp/podium-4984-opencode-terminal-HBmURv/work                                                            tab agents  ctrl+p commands    • OpenCode 1.18.33
 
 
 START paste/single-102400-frame
@@ -1055,7 +1055,7 @@ START paste/single-102400-frame
 
 
                                                      ┃
-                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
                                                      ┃
                                                      ┃  Build · fake fake
                                                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -1063,7 +1063,7 @@ START paste/single-102400-frame
 
 
 
-                                                          ● Tip Use /review to review uncommitted changes, branches, or PRs
+                                                             ● Tip Set "share": "disabled" to prevent any session sharing
 
 
 
@@ -1076,12 +1076,12 @@ START paste/single-102400-frame
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/single-102400-frame
   ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
-  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01    ok-13
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01    ok-11
   ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
   ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567    Context
   ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a    0 tokens
@@ -1121,7 +1121,7 @@ paste/single-102400-frame
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
    ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
@@ -1149,7 +1149,7 @@ START paste/tabs-plain
 
 
                                                      ┃
-                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
                                                      ┃
                                                      ┃  Build · fake fake
                                                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -1157,7 +1157,7 @@ START paste/tabs-plain
 
 
 
-                                                             ● Tip Set "share": "disabled" to prevent any session sharing
+                                                              ● Tip Run opencode upgrade to update to the latest version
 
 
 
@@ -1170,12 +1170,12 @@ START paste/tabs-plain
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/tabs-plain
 
-  ┃                                                                                                                                         ok-14
+  ┃                                                                                                                                         ok-12
   ┃  P4984-tabs  middle  indented  END-tabs
   ┃                                                                                                                                         Context
                                                                                                                                             0 tokens
@@ -1215,7 +1215,7 @@ paste/tabs-plain
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
    ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
@@ -1243,7 +1243,7 @@ START paste/tabs-frame
 
 
                                                      ┃
-                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃  Ask anything… "Fix broken tests"
                                                      ┃
                                                      ┃  Build · fake fake
                                                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -1251,7 +1251,8 @@ START paste/tabs-frame
 
 
 
-                                                            ● Tip Run opencode debug config to troubleshoot configuration
+                                                     ● Tip Use pgup , ctrl+alt+b/pgdn , ctrl+alt+f to navigate through
+                                                           conversation history
 
 
 
@@ -1263,13 +1264,12 @@ START paste/tabs-frame
 
 
 
-
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/tabs-frame
 
-  ┃                                                                                                                                         ok-15
+  ┃                                                                                                                                         ok-13
   ┃  [podium message msg_54e39917-0723-4000-8000-1decc0ae1649 · from agent · to you]
   ┃  P4984-tabs  middle  indented  END-tabs                                                                                                 Context
   ┃  [end podium message msg_54e39917-0723-4000-8000-1decc0ae1649]                                                                          0 tokens
@@ -1309,9 +1309,9 @@ paste/tabs-frame
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-   ■■■⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
 
 START paste/crlf-plain
@@ -1337,7 +1337,7 @@ START paste/crlf-plain
 
 
                                                      ┃
-                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
                                                      ┃
                                                      ┃  Build · fake fake
                                                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -1345,7 +1345,7 @@ START paste/crlf-plain
 
 
 
-                                                             ● Tip Press ctrl+p to see all available actions and commands
+                                                             ● Tip Comment /oc on PR code lines for targeted code reviews
 
 
 
@@ -1358,21 +1358,21 @@ START paste/crlf-plain
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/crlf-plain
 
-  ┃                                                                                                                                         New session - 2026-09-30T16:46:55.
-  ┃  P4984-crlf line-1                                                                                                                      113Z
-  ┃  P4984-crlf line-2
-  ┃  P4984-crlf END                                                                                                                         Context
-  ┃                                                                                                                                         0 tokens
-                                                                                                                                            0% used
-     ▣  Build · fake                                                                                                                        $0.00 spent
-
+  ┃                                                                                                                                         ok-14
+  ┃  P4984-crlf line-1
+  ┃  P4984-crlf line-2                                                                                                                      Context
+  ┃  P4984-crlf END                                                                                                                         0 tokens
+  ┃                                                                                                                                         0% used
+                                                                                                                                            $0.00 spent
+     ▣  Build · fake
                                                                                                                                             LSP
                                                                                                                                             LSPs are disabled
+
 
 
 
@@ -1403,9 +1403,9 @@ paste/crlf-plain
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-   ■■■■■■⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
 
 START paste/crlf-frame
@@ -1431,7 +1431,7 @@ START paste/crlf-frame
 
 
                                                      ┃
-                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃  Ask anything… "Fix broken tests"
                                                      ┃
                                                      ┃  Build · fake fake
                                                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -1439,7 +1439,7 @@ START paste/crlf-frame
 
 
 
-                                                        ● Tip Press ctrl+g , home to jump to the beginning of the conversation
+                                                           ● Tip Press ctrl+alt+g , end to jump to the most recent message
 
 
 
@@ -1452,12 +1452,12 @@ START paste/crlf-frame
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/crlf-frame
 
-  ┃                                                                                                                                         ok-17
+  ┃                                                                                                                                         ok-15
   ┃  [podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd · from agent · to you]
   ┃  P4984-crlf line-1                                                                                                                      Context
   ┃  P4984-crlf line-2                                                                                                                      0 tokens
@@ -1497,7 +1497,7 @@ paste/crlf-frame
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
    ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
@@ -1525,7 +1525,7 @@ START paste/trailing-lf-plain
 
 
                                                      ┃
-                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
                                                      ┃
                                                      ┃  Build · fake fake
                                                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -1533,7 +1533,7 @@ START paste/trailing-lf-plain
 
 
 
-                                                                ● Tip Press tab to cycle between Build and Plan agents
+                                                              ● Tip Run opencode agent create for guided agent creation
 
 
 
@@ -1546,12 +1546,12 @@ START paste/trailing-lf-plain
 
 
 
-  /tmp/podium-4984-opencode-terminal-85v2C7/work:master                                                                                                                    1.18.33
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
 
 
 paste/trailing-lf-plain
 
-  ┃                                                                                                                                         ok-18
+  ┃                                                                                                                                         ok-16
   ┃  P4984-trailing-lf first
   ┃  P4984-trailing-lf END                                                                                                                  Context
   ┃                                                                                                                                         0 tokens
@@ -1591,8 +1591,2074 @@ paste/trailing-lf-plain
   ┃
   ┃
   ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
-  ┃  Build · fake fake                                                                                                                      85v2C7/work:master
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
    ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
 
 
+START paste/trailing-lf-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                              ● Tip Set "formatter": true to enable built-in formatters
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+paste/trailing-lf-frame
+
+  ┃                                                                                                                                         ok-17
+  ┃  [podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404 · from agent · to you]
+  ┃  P4984-trailing-lf first                                                                                                                Context
+  ┃  P4984-trailing-lf END                                                                                                                  0 tokens
+  ┃                                                                                                                                         0% used
+  ┃  [end podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404]                                                                          $0.00 spent
+  ┃
+                                                                                                                                            LSP
+     ▣  Build · fake                                                                                                                        LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed/lines-2-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                         ● Tip Add .md files to .opencode/agents/ for specialized AI personas
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/lines-2-plain
+
+  ┃                                                                                                                                         ok-18
+  ┃  P4984-lines-2 line-001 payload-END-1
+  ┃  P4984-lines-2 line-002 payload-END-2                                                                                                   Context
+  ┃                                                                                                                                         0 tokens
+                                                                                                                                            0% used
+     ▣  Build · fake                                                                                                                        $0.00 spent
+
+                                                                                                                                            LSP
+                                                                                                                                            LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed/lines-2-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                            ● Tip Use ctrl+x 1 through ctrl+x 9 to switch pinned sessions
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/lines-2-frame
+
+  ┃                                                                                                                                         ok-19
+  ┃  [podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7 · from agent · to you]
+  ┃  P4984-lines-2 line-001 payload-END-1                                                                                                   Context
+  ┃  P4984-lines-2 line-002 payload-END-2                                                                                                   0 tokens
+  ┃  [end podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7]                                                                          0% used
+  ┃                                                                                                                                         $0.00 spent
+
+     ▣  Build · fake                                                                                                                        LSP
+                                                                                                                                            LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed/lines-10-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                           ● Tip Run opencode github install to set up the GitHub workflow
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/lines-10-plain
+
+  ┃                                                                                                                                         ok-20
+  ┃  P4984-lines-10 line-001 payload-END-1
+  ┃  P4984-lines-10 line-002 payload-END-2                                                                                                  Context
+  ┃  P4984-lines-10 line-003 payload-END-3                                                                                                  0 tokens
+  ┃  P4984-lines-10 line-004 payload-END-4                                                                                                  0% used
+  ┃  P4984-lines-10 line-005 payload-END-5                                                                                                  $0.00 spent
+  ┃  P4984-lines-10 line-006 payload-END-6
+  ┃  P4984-lines-10 line-007 payload-END-7                                                                                                  LSP
+  ┃  P4984-lines-10 line-008 payload-END-8                                                                                                  LSPs are disabled
+  ┃  P4984-lines-10 line-009 payload-END-9
+  ┃  P4984-lines-10 line-010 payload-END-10
+  ┃
+
+     ▣  Build · fake
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed/lines-10-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                           ● Tip Use {file:path} to include file contents in config values
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/lines-10-frame
+
+  ┃                                                                                                                                         ok-21
+  ┃  [podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b · from agent · to you]
+  ┃  P4984-lines-10 line-001 payload-END-1                                                                                                  Context
+  ┃  P4984-lines-10 line-002 payload-END-2                                                                                                  0 tokens
+  ┃  P4984-lines-10 line-003 payload-END-3                                                                                                  0% used
+  ┃  P4984-lines-10 line-004 payload-END-4                                                                                                  $0.00 spent
+  ┃  P4984-lines-10 line-005 payload-END-5
+  ┃  P4984-lines-10 line-006 payload-END-6                                                                                                  LSP
+  ┃  P4984-lines-10 line-007 payload-END-7                                                                                                  LSPs are disabled
+  ┃  P4984-lines-10 line-008 payload-END-8
+  ┃  P4984-lines-10 line-009 payload-END-9
+  ┃  P4984-lines-10 line-010 payload-END-10
+  ┃  [end podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b]
+  ┃
+
+     ▣  Build · fake
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed/lines-200-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                          ● Tip Run /connect to add API keys for 75+ supported LLM providers
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+NO RECORD AFTER FIRST ENTER typed/lines-200-plain
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-lines-200 line-001 payload-END-1
+                                                     ┃  P4984-lines-200 line-002 payload-END-2
+                                                     ┃  P4984-lines-200 line-003 payload-END-3
+                                                     ┃  P4984-lines-200 line-004 payload-END-4
+                                                     ┃  P4984-lines-200 line-005 payload-END-5
+                                                     ┃  P4984-lines-200 line-006 payload-END-6
+                                                     ┃  P4984-lines-200 line-0
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                          ● Tip Run /connect to add API keys for 75+ supported LLM providers
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/lines-200-plain
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-lines-200 line-001 payload-END-1
+                                                     ┃  P4984-lines-200 line-002 payload-END-2
+                                                     ┃  P4984-lines-200 line-003 payload-END-3
+                                                     ┃  P4984-lines-200 line-004 payload-END-4
+                                                     ┃  P4984-lines-200 line-005 payload-END-5
+                                                     ┃  P4984-lines-200 line-006 payload-END-6
+                                                     ┃  P4984-lines-200 line-0
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                          ● Tip Run /connect to add API keys for 75+ supported LLM providers
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+START typed/lines-200-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                         ● Tip Add .md files to .opencode/agents/ for specialized AI personas
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+NO RECORD AFTER FIRST ENTER typed/lines-200-frame
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_f67aa431-8f6c-4000-8000-900c5b28cc6a · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-lines-200 line-001 payload-END-1
+                                                     ┃  P4984-lines-200 line-002 payload-END-2
+                                                     ┃  P4984-lines-200 line-003 payload-END-3
+                                                     ┃  P4984-lines-200 line-004 payload-END-4
+                                                     ┃  P4984-lines-200 line
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                         ● Tip Add .md files to .opencode/agents/ for specialized AI personas
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/lines-200-frame
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_f67aa431-8f6c-4000-8000-900c5b28cc6a · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-lines-200 line-001 payload-END-1
+                                                     ┃  P4984-lines-200 line-002 payload-END-2
+                                                     ┃  P4984-lines-200 line-003 payload-END-3
+                                                     ┃  P4984-lines-200 line-004 payload-END-4
+                                                     ┃  P4984-lines-200 line
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                         ● Tip Add .md files to .opencode/agents/ for specialized AI personas
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+START typed/single-1024-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                              ● Tip Run opencode agent create for guided agent creation
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/single-1024-plain
+
+  ┃                                                                                                                                         ok-22
+  ┃  P4984-single-1024 BEGIN
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    Context
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    0 tokens
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    0% used
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab    $0.00 spent
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01    LSP
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234    LSPs are disabled
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
+  ┃
+
+     ▣  Build · fake
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed/single-1024-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                        ● Tip Use patterns like "git *": "allow" for granular bash permissions
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/single-1024-frame
+
+  ┃                                                                                                                                         ok-23
+  ┃  [podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016 · from agent · to you]
+  ┃  P4984-single-1024 BEGIN                                                                                                                Context
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    0 tokens
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    0% used
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    $0.00 spent
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde    LSP
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01    LSPs are disabled
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
+  ┃  [end podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016]
+  ┃
+
+     ▣  Build · fake
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed/single-16384-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                            ● Tip Comment /opencode fix this on issues to auto-create PRs
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+NO RECORD AFTER FIRST ENTER typed/single-16384-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-single-16384 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                            ● Tip Comment /opencode fix this on issues to auto-create PRs
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/single-16384-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-single-16384 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                            ● Tip Comment /opencode fix this on issues to auto-create PRs
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+START typed/single-16384-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                        ● Tip Press ctrl+g , home to jump to the beginning of the conversation
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+NO RECORD AFTER FIRST ENTER typed/single-16384-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_5adbbb1d-c982-4000-8000-156aeb90992d · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-single-16384 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                        ● Tip Press ctrl+g , home to jump to the beginning of the conversation
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/single-16384-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_5adbbb1d-c982-4000-8000-156aeb90992d · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-single-16384 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                        ● Tip Press ctrl+g , home to jump to the beginning of the conversation
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+START typed/single-102400-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                         ● Tip Type @ followed by a filename to fuzzy search and attach files
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+NO RECORD AFTER FIRST ENTER typed/single-102400-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-single-102400 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef012345
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                         ● Tip Type @ followed by a filename to fuzzy search and attach files
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/single-102400-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-single-102400 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef012345
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                         ● Tip Type @ followed by a filename to fuzzy search and attach files
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+START typed/single-102400-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                              ● Tip Use --print-logs flag to see detailed logs in stderr
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+NO RECORD AFTER FIRST ENTER typed/single-102400-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_6f4d5b41-20f5-4000-8000-c5775c5d5d39 · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-single-102400 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef012345
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                              ● Tip Use --print-logs flag to see detailed logs in stderr
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/single-102400-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_6f4d5b41-20f5-4000-8000-c5775c5d5d39 · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-single-102400 BEGIN
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef012345
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                              ● Tip Use --print-logs flag to see detailed logs in stderr
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+START typed/tabs-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                        ● Tip Toggle username display in chat via the command palette (ctrl+p)
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/tabs-plain
+
+  ┃                                                                                                                                         ok-24
+  ┃  P4984-tabsmiddleindentedEND-tabs
+  ┃                                                                                                                                         Context
+                                                                                                                                            0 tokens
+     ▣  Plan · fake                                                                                                                         0% used
+                                                                                                                                            $0.00 spent
+
+                                                                                                                                            LSP
+                                                                                                                                            LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Plan · fake fake                                                                                                                       HBmURv/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed/tabs-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                          ● Tip Use /themes or ctrl+x t to switch between 33 built-in themes
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/tabs-frame
+
+  ┃                                                                                                                                         ok-25
+  ┃  [podium message msg_54e39917-0723-4000-8000-1decc0ae1649 · from agent · to you]
+  ┃  P4984-tabsmiddleindentedEND-tabs                                                                                                       Context
+  ┃  [end podium message msg_54e39917-0723-4000-8000-1decc0ae1649]                                                                          0 tokens
+  ┃                                                                                                                                         0% used
+                                                                                                                                            $0.00 spent
+     ▣  Plan · fake
+                                                                                                                                            LSP
+                                                                                                                                            LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Plan · fake fake                                                                                                                       HBmURv/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed/crlf-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                            ● Tip Comment /opencode fix this on issues to auto-create PRs
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/crlf-plain
+
+  ┃                                                                                                                                         ok-26
+  ┃  P4984-crlf line-1
+  ┃  P4984-crlf line-2                                                                                                                      Context
+  ┃  P4984-crlf END                                                                                                                         0 tokens
+  ┃                                                                                                                                         0% used
+                                                                                                                                            $0.00 spent
+     ▣  Build · fake
+                                                                                                                                            LSP
+                                                                                                                                            LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed/crlf-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                          ● Tip Use /export or ctrl+x x to save the conversation as Markdown
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/crlf-frame
+
+  ┃                                                                                                                                         ok-27
+  ┃  [podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd · from agent · to you]
+  ┃  P4984-crlf line-1                                                                                                                      Context
+  ┃  P4984-crlf line-2                                                                                                                      0 tokens
+  ┃  P4984-crlf END                                                                                                                         0% used
+  ┃  [end podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd]                                                                          $0.00 spent
+  ┃
+                                                                                                                                            LSP
+     ▣  Build · fake                                                                                                                        LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed/trailing-lf-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                              ● Tip Set "rm -rf *": "deny" to block destructive commands
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/trailing-lf-plain
+
+  ┃                                                                                                                                         ok-28
+  ┃  P4984-trailing-lf first
+  ┃  P4984-trailing-lf END                                                                                                                  Context
+  ┃                                                                                                                                         0 tokens
+  ┃                                                                                                                                         0% used
+                                                                                                                                            $0.00 spent
+     ▣  Build · fake
+                                                                                                                                            LSP
+                                                                                                                                            LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed/trailing-lf-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                            ● Tip Use opencode run --attach to connect to a running server
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-HBmURv/work:master                                                                                                                    1.18.33
+
+
+typed/trailing-lf-frame
+
+  ┃                                                                                                                                         ok-29
+  ┃  [podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404 · from agent · to you]
+  ┃  P4984-trailing-lf first                                                                                                                Context
+  ┃  P4984-trailing-lf END                                                                                                                  0 tokens
+  ┃                                                                                                                                         0% used
+  ┃  [end podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404]                                                                          $0.00 spent
+  ┃
+                                                                                                                                            LSP
+     ▣  Build · fake                                                                                                                        LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      HBmURv/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33

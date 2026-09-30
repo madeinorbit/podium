@@ -301,3 +301,38 @@ v2 prompts fire no `chat.message` hook.
 - During the TUI S6 restarts one restart was launched in the wrong directory by my script (the TUI
   then offered OpenCode Zen models); nothing was submitted there, and the S6 results come from the
   correctly started runs. `enabled_providers: ["fake"]` was added to the config afterwards.
+
+
+## Expanded input storage (2026-09-30, POD-4984)
+
+[Corpus, exact bytes, method and reader follow-ups](../expanded-input/README.md).
+Every shape is measured plain and framed: 2/10/200 lines, 1/16/100 KiB single lines,
+three tabs, two CRLF separators, and a final LF. Both installed builds are pinned:
+**1.18.33** and **0.0.0-beta-18866**. No real credentials or production reader changes.
+
+| Path | Native storage and text | Evidence |
+|---|---|---|
+| HTTP v1 1.18.33 | One user text part per input, byte-exact through 100 KiB; our message and part ids survive | [v1 table](../expanded-input/opencode-v1/results.md) |
+| HTTP v2 1.18.33 | Admission plus one `session_message` user row, byte-exact; our id survives | [stable v2 table](../expanded-input/opencode-v2/results.md) |
+| HTTP v2 beta-18866 | One delivered user row, byte-exact; our id survives (pending inbox consumed) | [beta v2 table](../expanded-input/opencode2-v2/results.md) |
+| Terminal 1.18.33 | One full user text part when submitted. Most pastes add SP; pasted CRLF → LF. Unbracketed tabs disappear and CRLF → LF. Frames in every stored prompt remain valid | [paste/key table](../expanded-input/opencode-terminal/results.md), [bounded typing](../expanded-input/opencode-terminal-paced/results.md) |
+| Terminal beta-18866 | Same measured paste/control forms and full text parts. Standalone terminal uses its supported `--standalone --auto` entry point | [paste/key table](../expanded-input/opencode2-terminal/results.md), [bounded typing](../expanded-input/opencode2-terminal-paced/results.md) |
+| Literal startup `--prompt` | Separate storage probe through the same native user rows; does not establish keyboard ingestion. Stable submitted 16/18 automatically, byte-exact; its CRLF cases stayed in the editor with no record within 48 s. Beta prefills and needs Enter: 18/18 recorded, CRLF → LF, other bytes exact | [stable startup](../expanded-input/opencode-terminal-initial/results.md), [beta startup](../expanded-input/opencode2-terminal-initial/results.md) |
+
+Pastes of 200 lines and 100 KiB produce full native text, one part, without a wrapper,
+truncation or split prompt. The UI/edit history can use `[Pasted ~N lines] `, while preserving
+all pasted text in `parts[]` (stable) or `pasted[]` (beta). Those exact auxiliary history
+objects are in [stable](../expanded-input/opencode-terminal/auxiliary-history.jsonl) and
+[beta](../expanded-input/opencode2-terminal/auxiliary-history.jsonl); they are not the
+conversation proof text. A two-line plain paste stayed literal in the measured edit history.
+The plain final-LF case also stayed exact (46 B) in both builds; its framed paste gained SP
+(190→191 B). The earlier short-prompt ending-LF-to-SP observation is not universal.
+
+**POD-5004 — OpenCode terminal text matching** covers internal CRLF normalization and
+unbracketed tab removal. The current matcher already accepts exact text and the ending-space
+form, but misses these additional control-byte forms. API text stays byte-exact.
+The large unbracketed cases can remain in the editor with no prompt record inside the stated
+drain/submit window; those observations are listed explicitly, not called history truncation.
+The final 100 KiB key-chunk observations lasted 538–539 s before submit attempts, with no
+visible editor tail or native prompt. **POD-5011 — Long terminal input drain** keeps this
+separate boundary discovery in Proposed.

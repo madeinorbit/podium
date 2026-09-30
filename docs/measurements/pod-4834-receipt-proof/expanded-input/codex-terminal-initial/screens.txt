@@ -1,0 +1,1691 @@
+START initial-argument/lines-2-plain
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  A half-formed idea will do.
+
+
+
+
+
+
+
+
+                                                                                     ⣀⣤⣤⣤⣀⣀
+                                                                                  ⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣦⣤⣤⣤⣤⣤⣤⡀
+                                                                                ⢀⣾⣿⣿⠿⠋⠉⠉⢉⣭⣿⣿⣿⣿⣿⠿⣿⣿⣿⣿⣷⣄
+                                                                               ⣀⣾⣿⣿⠃ ⣀⣴⣾⣿⣿⡿⠟⠋ ⣀⡀ ⠈⠙⢿⣿⣿⣧
+                                                                            ⣀⣶⣿⣿⣿⣿⡇ ⢸⣿⣿⡿⠛⠉⢀⣠⣴⣿⣿⣿⣷⣦⣀⠈⢻⣿⣿⡇
+                                                                           ⣰⣿⣿⡿⢿⣿⣿⡇ ⢸⣿⣿⢀⣤⣶⣿⣿⣿⠟⠛⠻⣿⣿⣿⣿⣮⣿⣿⡷
+                                                                          ⢰⣿⣿⡟⠁⢸⣿⣿⡇ ⢸⣿⣿⣿⣿⠿⠿⣿⣿⣿⣦⣄⡀⠈⠛⠿⣿⣿⣿⣧⡀
+                                                                          ⣾⣿⣿⠃ ⢸⣿⣿⡇ ⢸⣿⣿⠋⠁  ⠈⠙⢻⣿⣿⣿⣶⣤⡀ ⠹⢿⣿⣷⡄
+                                                                          ⢸⣿⣿⣇ ⠸⣿⣿⣷⣦⣼⣿⣿      ⢸⣿⣿⠻⢿⣿⣿⡇ ⠘⣿⣿⣿
+                                                                          ⠈⢿⣿⣿⣦⡀⠈⠛⠿⣿⣿⣿⣿⣄⡀  ⢀⣠⣼⣿⣿  ⣿⣿⡇  ⣿⣿⣿⠇
+                                                                            ⢻⣿⣿⣿⣷⣦⣀⠈⠙⠻⣿⣿⣿⣶⣶⣿⣿⣿⣿⣿  ⣿⣿⡇ ⣠⣿⣿⣿
+                                                                            ⢸⣿⣿⡿⢿⣿⣿⣿⣦⣠⣴⣿⣿⣿⡿⠟⠋⢸⣿⣿  ⣿⣿⣷⣴⣿⣿⣿⠃
+                                                                            ⠘⣿⣿⣷ ⠈⠛⢿⣿⣿⣿⠿⠋⠉ ⣠⣴⣿⣿⣿  ⣿⣿⣿⣿⣿⠟⠁
+                                                                             ⠻⣿⣿⣿⣤⣀ ⠈⠉ ⢀⣤⣶⣿⣿⣿⠿⠟⠁ ⣰⣿⣿⡟⠋⠁
+                                                                              ⠈⠿⣿⣿⣿⣿⣶⣾⣿⣿⣿⣿⠟⠋⠁  ⣠⣼⣿⣿⡟
+                                                                                 ⠙⠛⠛⠛⠻⠛⢿⣿⣿⣿⣿⣷⣾⣿⣿⣿⡿⠏
+                                                                                        ⠈⠙⠛⠿⠿⠿⠿⠛⠉
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+
+  ? for shortcuts
+
+initial-argument/lines-2-plain
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  A half-formed idea will do.
+
+
+› P4984-lines-2 line-001 payload-END-1
+  P4984-lines-2 line-002 payload-END-2
+
+
+• ok-1
+
+  Worked for <1s • 19:36
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/lines-2-frame
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  A fresh prompt. An open question.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts
+
+initial-argument/lines-2-frame
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  A fresh prompt. An open question.
+
+
+› [podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7 · from agent · to you]
+  P4984-lines-2 line-001 payload-END-1
+  P4984-lines-2 line-002 payload-END-2
+  [end podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7]
+
+
+• ok-3
+
+  Worked for <1s • 19:36
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/lines-10-plain
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  Forty-two is an answer. What’s the question?
+
+
+› P4984-lines-10 line-001 payload-END-1
+  P4984-lines-10 line-002 payload-END-2
+  P4984-lines-10 line-003 payload-END-3
+  P4984-lines-10 line-004 payload-END-4
+  P4984-lines-10 line-005 payload-END-5
+  P4984-lines-10 line-006 payload-END-6
+  P4984-lines-10 line-007 payload-END-7
+  P4984-lines-10 line-008 payload-END-8
+  P4984-lines-10 line-009 payload-END-9
+  P4984-lines-10 line-010 payload-END-10
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+• Working (0s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+initial-argument/lines-10-plain
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  Forty-two is an answer. What’s the question?
+
+
+› P4984-lines-10 line-001 payload-END-1
+  P4984-lines-10 line-002 payload-END-2
+  P4984-lines-10 line-003 payload-END-3
+  P4984-lines-10 line-004 payload-END-4
+  P4984-lines-10 line-005 payload-END-5
+  P4984-lines-10 line-006 payload-END-6
+  P4984-lines-10 line-007 payload-END-7
+  P4984-lines-10 line-008 payload-END-8
+  P4984-lines-10 line-009 payload-END-9
+  P4984-lines-10 line-010 payload-END-10
+
+
+• ok-5
+
+  Worked for <1s • 19:36
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/lines-10-frame
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  Shall we see where this goes?
+
+
+› [podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b · from agent · to you]
+  P4984-lines-10 line-001 payload-END-1
+  P4984-lines-10 line-002 payload-END-2
+  P4984-lines-10 line-003 payload-END-3
+  P4984-lines-10 line-004 payload-END-4
+  P4984-lines-10 line-005 payload-END-5
+  P4984-lines-10 line-006 payload-END-6
+  P4984-lines-10 line-007 payload-END-7
+  P4984-lines-10 line-008 payload-END-8
+  P4984-lines-10 line-009 payload-END-9
+  P4984-lines-10 line-010 payload-END-10
+  [end podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+• Working (0s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts
+
+initial-argument/lines-10-frame
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  Shall we see where this goes?
+
+
+› [podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b · from agent · to you]
+  P4984-lines-10 line-001 payload-END-1
+  P4984-lines-10 line-002 payload-END-2
+  P4984-lines-10 line-003 payload-END-3
+  P4984-lines-10 line-004 payload-END-4
+  P4984-lines-10 line-005 payload-END-5
+  P4984-lines-10 line-006 payload-END-6
+  P4984-lines-10 line-007 payload-END-7
+  P4984-lines-10 line-008 payload-END-8
+  P4984-lines-10 line-009 payload-END-9
+  P4984-lines-10 line-010 payload-END-10
+  [end podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b]
+
+
+• ok-7
+
+  Worked for <1s • 19:36
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/lines-200-plain
+  P4984-lines-200 line-165 payload-END-165
+  P4984-lines-200 line-166 payload-END-166
+  P4984-lines-200 line-167 payload-END-167
+  P4984-lines-200 line-168 payload-END-168
+  P4984-lines-200 line-169 payload-END-169
+  P4984-lines-200 line-170 payload-END-170
+  P4984-lines-200 line-171 payload-END-171
+  P4984-lines-200 line-172 payload-END-172
+  P4984-lines-200 line-173 payload-END-173
+  P4984-lines-200 line-174 payload-END-174
+  P4984-lines-200 line-175 payload-END-175
+  P4984-lines-200 line-176 payload-END-176
+  P4984-lines-200 line-177 payload-END-177
+  P4984-lines-200 line-178 payload-END-178
+  P4984-lines-200 line-179 payload-END-179
+  P4984-lines-200 line-180 payload-END-180
+  P4984-lines-200 line-181 payload-END-181
+  P4984-lines-200 line-182 payload-END-182
+  P4984-lines-200 line-183 payload-END-183
+  P4984-lines-200 line-184 payload-END-184
+  P4984-lines-200 line-185 payload-END-185
+  P4984-lines-200 line-186 payload-END-186
+  P4984-lines-200 line-187 payload-END-187
+  P4984-lines-200 line-188 payload-END-188
+  P4984-lines-200 line-189 payload-END-189
+  P4984-lines-200 line-190 payload-END-190
+  P4984-lines-200 line-191 payload-END-191
+  P4984-lines-200 line-192 payload-END-192
+  P4984-lines-200 line-193 payload-END-193
+  P4984-lines-200 line-194 payload-END-194
+  P4984-lines-200 line-195 payload-END-195
+  P4984-lines-200 line-196 payload-END-196
+  P4984-lines-200 line-197 payload-END-197
+  P4984-lines-200 line-198 payload-END-198
+  P4984-lines-200 line-199 payload-END-199
+  P4984-lines-200 line-200 payload-END-200
+
+
+• Working (0s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work · ⠴
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+initial-argument/lines-200-plain
+  P4984-lines-200 line-167 payload-END-167
+  P4984-lines-200 line-168 payload-END-168
+  P4984-lines-200 line-169 payload-END-169
+  P4984-lines-200 line-170 payload-END-170
+  P4984-lines-200 line-171 payload-END-171
+  P4984-lines-200 line-172 payload-END-172
+  P4984-lines-200 line-173 payload-END-173
+  P4984-lines-200 line-174 payload-END-174
+  P4984-lines-200 line-175 payload-END-175
+  P4984-lines-200 line-176 payload-END-176
+  P4984-lines-200 line-177 payload-END-177
+  P4984-lines-200 line-178 payload-END-178
+  P4984-lines-200 line-179 payload-END-179
+  P4984-lines-200 line-180 payload-END-180
+  P4984-lines-200 line-181 payload-END-181
+  P4984-lines-200 line-182 payload-END-182
+  P4984-lines-200 line-183 payload-END-183
+  P4984-lines-200 line-184 payload-END-184
+  P4984-lines-200 line-185 payload-END-185
+  P4984-lines-200 line-186 payload-END-186
+  P4984-lines-200 line-187 payload-END-187
+  P4984-lines-200 line-188 payload-END-188
+  P4984-lines-200 line-189 payload-END-189
+  P4984-lines-200 line-190 payload-END-190
+  P4984-lines-200 line-191 payload-END-191
+  P4984-lines-200 line-192 payload-END-192
+  P4984-lines-200 line-193 payload-END-193
+  P4984-lines-200 line-194 payload-END-194
+  P4984-lines-200 line-195 payload-END-195
+  P4984-lines-200 line-196 payload-END-196
+  P4984-lines-200 line-197 payload-END-197
+  P4984-lines-200 line-198 payload-END-198
+  P4984-lines-200 line-199 payload-END-199
+  P4984-lines-200 line-200 payload-END-200
+
+
+• ok-9
+
+  Worked for <1s • 19:36
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/lines-200-frame
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  You rang? Metaphorically. You typed.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts
+
+initial-argument/lines-200-frame
+  P4984-lines-200 line-168 payload-END-168
+  P4984-lines-200 line-169 payload-END-169
+  P4984-lines-200 line-170 payload-END-170
+  P4984-lines-200 line-171 payload-END-171
+  P4984-lines-200 line-172 payload-END-172
+  P4984-lines-200 line-173 payload-END-173
+  P4984-lines-200 line-174 payload-END-174
+  P4984-lines-200 line-175 payload-END-175
+  P4984-lines-200 line-176 payload-END-176
+  P4984-lines-200 line-177 payload-END-177
+  P4984-lines-200 line-178 payload-END-178
+  P4984-lines-200 line-179 payload-END-179
+  P4984-lines-200 line-180 payload-END-180
+  P4984-lines-200 line-181 payload-END-181
+  P4984-lines-200 line-182 payload-END-182
+  P4984-lines-200 line-183 payload-END-183
+  P4984-lines-200 line-184 payload-END-184
+  P4984-lines-200 line-185 payload-END-185
+  P4984-lines-200 line-186 payload-END-186
+  P4984-lines-200 line-187 payload-END-187
+  P4984-lines-200 line-188 payload-END-188
+  P4984-lines-200 line-189 payload-END-189
+  P4984-lines-200 line-190 payload-END-190
+  P4984-lines-200 line-191 payload-END-191
+  P4984-lines-200 line-192 payload-END-192
+  P4984-lines-200 line-193 payload-END-193
+  P4984-lines-200 line-194 payload-END-194
+  P4984-lines-200 line-195 payload-END-195
+  P4984-lines-200 line-196 payload-END-196
+  P4984-lines-200 line-197 payload-END-197
+  P4984-lines-200 line-198 payload-END-198
+  P4984-lines-200 line-199 payload-END-199
+  P4984-lines-200 line-200 payload-END-200
+  [end podium message msg_f67aa431-8f6c-4000-8000-900c5b28cc6a]
+
+
+• ok-11
+
+  Worked for <1s • 19:36
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/single-1024-plain
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  What are we cooking up?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts
+
+initial-argument/single-1024-plain
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  What are we cooking up?
+
+
+› P4984-single-1024 BEGIN
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
+
+
+• ok-13
+
+  Worked for <1s • 19:36
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/single-1024-frame
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  Bring a question. Bonus points if it’s a weird one.
+
+
+› [podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016 · from agent · to you]
+  P4984-single-1024 BEGIN
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
+  [end podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016]
+
+
+• ok-15
+
+  Worked for <1s • 19:36
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work · ⠴
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+initial-argument/single-1024-frame
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  Bring a question. Bonus points if it’s a weird one.
+
+
+› [podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016 · from agent · to you]
+  P4984-single-1024 BEGIN
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
+  [end podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016]
+
+
+• ok-15
+
+  Worked for <1s • 19:36
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/single-16384-plain
+  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc END-16384
+
+
+• Working (0s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+initial-argument/single-16384-plain
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc END-16384
+
+
+• ok-17
+
+  Worked for <1s • 19:37
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/single-16384-frame
+  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc END-16384
+  [end podium message msg_5adbbb1d-c982-4000-8000-156aeb90992d]
+
+
+• Working (0s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work · ⠼
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+initial-argument/single-16384-frame
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc END-16384
+  [end podium message msg_5adbbb1d-c982-4000-8000-156aeb90992d]
+
+
+• ok-19
+
+  Worked for <1s • 19:37
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/single-102400-plain
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  What are we cooking up?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts
+
+initial-argument/single-102400-plain
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789a END-102400
+
+
+• ok-21
+
+  Worked for <1s • 19:37
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/single-102400-frame
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  Welcome to our little rectangle of possibility.
+
+
+
+
+
+
+
+
+                                                                                     ⣀⣤⣤⣤⣀⣀
+                                                                                  ⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣦⣤⣤⣤⣤⣤⣤⡀
+                                                                                ⢀⣾⣿⣿⠿⠋⠉⠉⢉⣭⣿⣿⣿⣿⣿⠿⣿⣿⣿⣿⣷⣄
+                                                                               ⣀⣾⣿⣿⠃ ⣀⣴⣾⣿⣿⡿⠟⠋ ⣀⡀ ⠈⠙⢿⣿⣿⣧
+                                                                            ⣀⣶⣿⣿⣿⣿⡇ ⢸⣿⣿⡿⠛⠉⢀⣠⣴⣿⣿⣿⣷⣦⣀⠈⢻⣿⣿⡇
+                                                                           ⣰⣿⣿⡿⢿⣿⣿⡇ ⢸⣿⣿⢀⣤⣶⣿⣿⣿⠟⠛⠻⣿⣿⣿⣿⣮⣿⣿⡷
+                                                                          ⢰⣿⣿⡟⠁⢸⣿⣿⡇ ⢸⣿⣿⣿⣿⠿⠿⣿⣿⣿⣦⣄⡀⠈⠛⠿⣿⣿⣿⣧⡀
+                                                                          ⣾⣿⣿⠃ ⢸⣿⣿⡇ ⢸⣿⣿⠋⠁  ⠈⠙⢻⣿⣿⣿⣶⣤⡀ ⠹⢿⣿⣷⡄
+                                                                          ⢸⣿⣿⣇ ⠸⣿⣿⣷⣦⣼⣿⣿      ⢸⣿⣿⠻⢿⣿⣿⡇ ⠘⣿⣿⣿
+                                                                          ⠈⢿⣿⣿⣦⡀⠈⠛⠿⣿⣿⣿⣿⣄⡀  ⢀⣠⣼⣿⣿  ⣿⣿⡇  ⣿⣿⣿⠇
+                                                                            ⢻⣿⣿⣿⣷⣦⣀⠈⠙⠻⣿⣿⣿⣶⣶⣿⣿⣿⣿⣿  ⣿⣿⡇ ⣠⣿⣿⣿
+                                                                            ⢸⣿⣿⡿⢿⣿⣿⣿⣦⣠⣴⣿⣿⣿⡿⠟⠋⢸⣿⣿  ⣿⣿⣷⣴⣿⣿⣿⠃
+                                                                            ⠘⣿⣿⣷ ⠈⠛⢿⣿⣿⣿⠿⠋⠉ ⣠⣴⣿⣿⣿  ⣿⣿⣿⣿⣿⠟⠁
+                                                                             ⠻⣿⣿⣿⣤⣀ ⠈⠉ ⢀⣤⣶⣿⣿⣿⠿⠟⠁ ⣰⣿⣿⡟⠋⠁
+                                                                              ⠈⠿⣿⣿⣿⣿⣶⣾⣿⣿⣿⣿⠟⠋⠁  ⣠⣼⣿⣿⡟
+                                                                                 ⠙⠛⠛⠛⠻⠛⢿⣿⣿⣿⣿⣷⣾⣿⣿⣿⡿⠏
+                                                                                        ⠈⠙⠛⠿⠿⠿⠿⠛⠉
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+
+  ? for shortcuts
+
+initial-argument/single-102400-frame
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  23456789abcdef0123456789abcdef0123456789abcdef0123456789a END-102400
+  [end podium message msg_6f4d5b41-20f5-4000-8000-c5775c5d5d39]
+
+
+• ok-23
+
+  Worked for <1s • 19:37
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/tabs-plain
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  Your move, teammate.
+
+
+
+
+
+
+
+
+                                                                                     ⣀⣤⣤⣤⣀⣀
+                                                                                  ⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣦⣤⣤⣤⣤⣤⣤⡀
+                                                                                ⢀⣾⣿⣿⠿⠋⠉⠉⢉⣭⣿⣿⣿⣿⣿⠿⣿⣿⣿⣿⣷⣄
+                                                                               ⣀⣾⣿⣿⠃ ⣀⣴⣾⣿⣿⡿⠟⠋ ⣀⡀ ⠈⠙⢿⣿⣿⣧
+                                                                            ⣀⣶⣿⣿⣿⣿⡇ ⢸⣿⣿⡿⠛⠉⢀⣠⣴⣿⣿⣿⣷⣦⣀⠈⢻⣿⣿⡇
+                                                                           ⣰⣿⣿⡿⢿⣿⣿⡇ ⢸⣿⣿⢀⣤⣶⣿⣿⣿⠟⠛⠻⣿⣿⣿⣿⣮⣿⣿⡷
+                                                                          ⢰⣿⣿⡟⠁⢸⣿⣿⡇ ⢸⣿⣿⣿⣿⠿⠿⣿⣿⣿⣦⣄⡀⠈⠛⠿⣿⣿⣿⣧⡀
+                                                                          ⣾⣿⣿⠃ ⢸⣿⣿⡇ ⢸⣿⣿⠋⠁  ⠈⠙⢻⣿⣿⣿⣶⣤⡀ ⠹⢿⣿⣷⡄
+                                                                          ⢸⣿⣿⣇ ⠸⣿⣿⣷⣦⣼⣿⣿      ⢸⣿⣿⠻⢿⣿⣿⡇ ⠘⣿⣿⣿
+                                                                          ⠈⢿⣿⣿⣦⡀⠈⠛⠿⣿⣿⣿⣿⣄⡀  ⢀⣠⣼⣿⣿  ⣿⣿⡇  ⣿⣿⣿⠇
+                                                                            ⢻⣿⣿⣿⣷⣦⣀⠈⠙⠻⣿⣿⣿⣶⣶⣿⣿⣿⣿⣿  ⣿⣿⡇ ⣠⣿⣿⣿
+                                                                            ⢸⣿⣿⡿⢿⣿⣿⣿⣦⣠⣴⣿⣿⣿⡿⠟⠋⢸⣿⣿  ⣿⣿⣷⣴⣿⣿⣿⠃
+                                                                            ⠘⣿⣿⣷ ⠈⠛⢿⣿⣿⣿⠿⠋⠉ ⣠⣴⣿⣿⣿  ⣿⣿⣿⣿⣿⠟⠁
+                                                                             ⠻⣿⣿⣿⣤⣀ ⠈⠉ ⢀⣤⣶⣿⣿⣿⠿⠟⠁ ⣰⣿⣿⡟⠋⠁
+                                                                              ⠈⠿⣿⣿⣿⣿⣶⣾⣿⣿⣿⣿⠟⠋⠁  ⣠⣼⣿⣿⡟
+                                                                                 ⠙⠛⠛⠛⠻⠛⢿⣿⣿⣿⣿⣷⣾⣿⣿⣿⡿⠏
+                                                                                        ⠈⠙⠛⠿⠿⠿⠿⠛⠉
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+
+  ? for shortcuts
+
+initial-argument/tabs-plain
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  Your move, teammate.
+
+
+› P4984-tabs    middle  indented        END-tabs
+
+
+• ok-25
+
+  Worked for <1s • 19:37
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/tabs-frame
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  A half-formed idea will do.
+
+
+
+
+
+
+
+
+                                                                                     ⣀⣤⣤⣤⣀⣀
+                                                                                  ⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣦⣤⣤⣤⣤⣤⣤⡀
+                                                                                ⢀⣾⣿⣿⠿⠋⠉⠉⢉⣭⣿⣿⣿⣿⣿⠿⣿⣿⣿⣿⣷⣄
+                                                                               ⣀⣾⣿⣿⠃ ⣀⣴⣾⣿⣿⡿⠟⠋ ⣀⡀ ⠈⠙⢿⣿⣿⣧
+                                                                            ⣀⣶⣿⣿⣿⣿⡇ ⢸⣿⣿⡿⠛⠉⢀⣠⣴⣿⣿⣿⣷⣦⣀⠈⢻⣿⣿⡇
+                                                                           ⣰⣿⣿⡿⢿⣿⣿⡇ ⢸⣿⣿⢀⣤⣶⣿⣿⣿⠟⠛⠻⣿⣿⣿⣿⣮⣿⣿⡷
+                                                                          ⢰⣿⣿⡟⠁⢸⣿⣿⡇ ⢸⣿⣿⣿⣿⠿⠿⣿⣿⣿⣦⣄⡀⠈⠛⠿⣿⣿⣿⣧⡀
+                                                                          ⣾⣿⣿⠃ ⢸⣿⣿⡇ ⢸⣿⣿⠋⠁  ⠈⠙⢻⣿⣿⣿⣶⣤⡀ ⠹⢿⣿⣷⡄
+                                                                          ⢸⣿⣿⣇ ⠸⣿⣿⣷⣦⣼⣿⣿      ⢸⣿⣿⠻⢿⣿⣿⡇ ⠘⣿⣿⣿
+                                                                          ⠈⢿⣿⣿⣦⡀⠈⠛⠿⣿⣿⣿⣿⣄⡀  ⢀⣠⣼⣿⣿  ⣿⣿⡇  ⣿⣿⣿⠇
+                                                                            ⢻⣿⣿⣿⣷⣦⣀⠈⠙⠻⣿⣿⣿⣶⣶⣿⣿⣿⣿⣿  ⣿⣿⡇ ⣠⣿⣿⣿
+                                                                            ⢸⣿⣿⡿⢿⣿⣿⣿⣦⣠⣴⣿⣿⣿⡿⠟⠋⢸⣿⣿  ⣿⣿⣷⣴⣿⣿⣿⠃
+                                                                            ⠘⣿⣿⣷ ⠈⠛⢿⣿⣿⣿⠿⠋⠉ ⣠⣴⣿⣿⣿  ⣿⣿⣿⣿⣿⠟⠁
+                                                                             ⠻⣿⣿⣿⣤⣀ ⠈⠉ ⢀⣤⣶⣿⣿⣿⠿⠟⠁ ⣰⣿⣿⡟⠋⠁
+                                                                              ⠈⠿⣿⣿⣿⣿⣶⣾⣿⣿⣿⣿⠟⠋⠁  ⣠⣼⣿⣿⡟
+                                                                                 ⠙⠛⠛⠛⠻⠛⢿⣿⣿⣿⣿⣷⣾⣿⣿⣿⡿⠏
+                                                                                        ⠈⠙⠛⠿⠿⠿⠿⠛⠉
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+
+  ? for shortcuts
+
+initial-argument/tabs-frame
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  A half-formed idea will do.
+
+
+› [podium message msg_54e39917-0723-4000-8000-1decc0ae1649 · from agent · to you]
+  P4984-tabs    middle  indented        END-tabs
+  [end podium message msg_54e39917-0723-4000-8000-1decc0ae1649]
+
+
+• ok-27
+
+  Worked for <1s • 19:37
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/crlf-plain
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  A hunch is a perfectly respectable starting point.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts
+
+initial-argument/crlf-plain
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  A hunch is a perfectly respectable starting point.
+
+
+› P4984-crlf line-1
+  P4984-crlf line-2
+  P4984-crlf END
+
+
+• ok-29
+
+  Worked for <1s • 19:37
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/crlf-frame
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  What are we getting into today?
+
+
+
+
+
+
+
+
+                                                                                     ⣀⣤⣤⣤⣀⣀
+                                                                                  ⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣦⣤⣤⣤⣤⣤⣤⡀
+                                                                                ⢀⣾⣿⣿⠿⠋⠉⠉⢉⣭⣿⣿⣿⣿⣿⠿⣿⣿⣿⣿⣷⣄
+                                                                               ⣀⣾⣿⣿⠃ ⣀⣴⣾⣿⣿⡿⠟⠋ ⣀⡀ ⠈⠙⢿⣿⣿⣧
+                                                                            ⣀⣶⣿⣿⣿⣿⡇ ⢸⣿⣿⡿⠛⠉⢀⣠⣴⣿⣿⣿⣷⣦⣀⠈⢻⣿⣿⡇
+                                                                           ⣰⣿⣿⡿⢿⣿⣿⡇ ⢸⣿⣿⢀⣤⣶⣿⣿⣿⠟⠛⠻⣿⣿⣿⣿⣮⣿⣿⡷
+                                                                          ⢰⣿⣿⡟⠁⢸⣿⣿⡇ ⢸⣿⣿⣿⣿⠿⠿⣿⣿⣿⣦⣄⡀⠈⠛⠿⣿⣿⣿⣧⡀
+                                                                          ⣾⣿⣿⠃ ⢸⣿⣿⡇ ⢸⣿⣿⠋⠁  ⠈⠙⢻⣿⣿⣿⣶⣤⡀ ⠹⢿⣿⣷⡄
+                                                                          ⢸⣿⣿⣇ ⠸⣿⣿⣷⣦⣼⣿⣿      ⢸⣿⣿⠻⢿⣿⣿⡇ ⠘⣿⣿⣿
+                                                                          ⠈⢿⣿⣿⣦⡀⠈⠛⠿⣿⣿⣿⣿⣄⡀  ⢀⣠⣼⣿⣿  ⣿⣿⡇  ⣿⣿⣿⠇
+                                                                            ⢻⣿⣿⣿⣷⣦⣀⠈⠙⠻⣿⣿⣿⣶⣶⣿⣿⣿⣿⣿  ⣿⣿⡇ ⣠⣿⣿⣿
+                                                                            ⢸⣿⣿⡿⢿⣿⣿⣿⣦⣠⣴⣿⣿⣿⡿⠟⠋⢸⣿⣿  ⣿⣿⣷⣴⣿⣿⣿⠃
+                                                                            ⠘⣿⣿⣷ ⠈⠛⢿⣿⣿⣿⠿⠋⠉ ⣠⣴⣿⣿⣿  ⣿⣿⣿⣿⣿⠟⠁
+                                                                             ⠻⣿⣿⣿⣤⣀ ⠈⠉ ⢀⣤⣶⣿⣿⣿⠿⠟⠁ ⣰⣿⣿⡟⠋⠁
+                                                                              ⠈⠿⣿⣿⣿⣿⣶⣾⣿⣿⣿⣿⠟⠋⠁  ⣠⣼⣿⣿⡟
+                                                                                 ⠙⠛⠛⠛⠻⠛⢿⣿⣿⣿⣿⣷⣾⣿⣿⣿⡿⠏
+                                                                                        ⠈⠙⠛⠿⠿⠿⠿⠛⠉
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+
+  ? for shortcuts
+
+initial-argument/crlf-frame
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  What are we getting into today?
+
+
+› [podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd · from agent · to you]
+  P4984-crlf line-1
+  P4984-crlf line-2
+  P4984-crlf END
+  [end podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd]
+
+
+• ok-31
+
+  Worked for 1s • 19:38
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/trailing-lf-plain
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  This looks like the start of a perfectly reasonable rabbit hole.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts
+
+initial-argument/trailing-lf-plain
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  This looks like the start of a perfectly reasonable rabbit hole.
+
+
+› P4984-trailing-lf first
+  P4984-trailing-lf END
+
+
+• ok-33
+
+  Worked for <1s • 19:38
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+START initial-argument/trailing-lf-frame
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  You, me, and a blinking cursor.
+
+
+› [podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404 · from agent · to you]
+  P4984-trailing-lf first
+  P4984-trailing-lf END
+
+  [end podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+• Working (0s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
+
+initial-argument/trailing-lf-frame
+
+  >_ OpenAI Codex (v0.159.0)
+     /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  permissions: YOLO mode
+
+  You, me, and a blinking cursor.
+
+
+› [podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404 · from agent · to you]
+  P4984-trailing-lf first
+  P4984-trailing-lf END
+
+  [end podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404]
+
+
+• ok-35
+
+  Worked for <1s • 19:38
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  fake default · /tmp/podium-4984-codex-terminal-initial-b7sMq4/work
+  ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view

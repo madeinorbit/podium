@@ -1,0 +1,1972 @@
+START typed-paced/lines-2-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/lines-2-plain
+
+  ┃                                                                                                                                         ok-1
+  ┃  P4984-lines-2 line-001 payload-END-1
+  ┃  P4984-lines-2 line-002 payload-END-2                                                                                                   Context
+  ┃                                                                                                                                         0 tokens
+                                                                                                                                            0% used
+     ▣  Build · fake                                                                                                                        $0.00 spent
+
+                                                                                                                                            LSP
+                                                                                                                                            LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      paced-YPfBjJ/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed-paced/lines-2-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                           ● Tip Use {file:path} to include file contents in config values
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/lines-2-frame
+
+  ┃                                                                                                                                         ok-2
+  ┃  [podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7 · from agent · to you]
+  ┃  P4984-lines-2 line-001 payload-END-1                                                                                                   Context
+  ┃  P4984-lines-2 line-002 payload-END-2                                                                                                   0 tokens
+  ┃  [end podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7]                                                                          0% used
+  ┃                                                                                                                                         $0.00 spent
+
+     ▣  Build · fake                                                                                                                        LSP
+                                                                                                                                            LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      paced-YPfBjJ/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed-paced/lines-10-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                         ● Tip Use /sessions or ctrl+x l to list, pin, and continue sessions
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/lines-10-plain
+
+  ┃                                                                                                                                         ok-3
+  ┃  P4984-lines-10 line-001 payload-END-1
+  ┃  P4984-lines-10 line-002 payload-END-2                                                                                                  Context
+  ┃  P4984-lines-10 line-003 payload-END-3                                                                                                  0 tokens
+  ┃  P4984-lines-10 line-004 payload-END-4                                                                                                  0% used
+  ┃  P4984-lines-10 line-005 payload-END-5                                                                                                  $0.00 spent
+  ┃  P4984-lines-10 line-006 payload-END-6
+  ┃  P4984-lines-10 line-007 payload-END-7                                                                                                  LSP
+  ┃  P4984-lines-10 line-008 payload-END-8                                                                                                  LSPs are disabled
+  ┃  P4984-lines-10 line-009 payload-END-9
+  ┃  P4984-lines-10 line-010 payload-END-10
+  ┃
+
+     ▣  Build · fake
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      paced-YPfBjJ/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed-paced/lines-10-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                        ● Tip Configure local or remote MCP servers in the mcp config section
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/lines-10-frame
+
+  ┃                                                                                                                                         ok-4
+  ┃  [podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b · from agent · to you]
+  ┃  P4984-lines-10 line-001 payload-END-1                                                                                                  Context
+  ┃  P4984-lines-10 line-002 payload-END-2                                                                                                  0 tokens
+  ┃  P4984-lines-10 line-003 payload-END-3                                                                                                  0% used
+  ┃  P4984-lines-10 line-004 payload-END-4                                                                                                  $0.00 spent
+  ┃  P4984-lines-10 line-005 payload-END-5
+  ┃  P4984-lines-10 line-006 payload-END-6                                                                                                  LSP
+  ┃  P4984-lines-10 line-007 payload-END-7                                                                                                  LSPs are disabled
+  ┃  P4984-lines-10 line-008 payload-END-8
+  ┃  P4984-lines-10 line-009 payload-END-9
+  ┃  P4984-lines-10 line-010 payload-END-10
+  ┃  [end podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b]
+  ┃
+
+     ▣  Build · fake
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      paced-YPfBjJ/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed-paced/lines-200-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                                 ● Tip Use opencode run for non-interactive scripting
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+NO RECORD AFTER FIRST ENTER typed-paced/lines-200-plain
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-lines-200 line-001 payload-END-1
+                                                     ┃  P4984-lines-200 line-002 payload-END-2
+                                                     ┃  P4984-lines-200 line-003 payload-END-3
+                                                     ┃  P4984-lines-200 line-004 payload-END-4
+                                                     ┃  P4984-lines-200 line-005 payload-END-5
+                                                     ┃  P4984-lines-200 line-006 payload-END-6
+                                                     ┃  P4984-lines-200 line-0
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                                 ● Tip Use opencode run for non-interactive scripting
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/lines-200-plain
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-lines-200 line-001 payload-END-1
+                                                     ┃  P4984-lines-200 line-002 payload-END-2
+                                                     ┃  P4984-lines-200 line-003 payload-END-3
+                                                     ┃  P4984-lines-200 line-004 payload-END-4
+                                                     ┃  P4984-lines-200 line-005 payload-END-5
+                                                     ┃  P4984-lines-200 line-006 payload-END-6
+                                                     ┃  P4984-lines-200 line-0
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                                 ● Tip Use opencode run for non-interactive scripting
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+START typed-paced/lines-200-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                         ● Tip Tool definitions can invoke scripts written in Python, Go, etc
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+NO RECORD AFTER FIRST ENTER typed-paced/lines-200-frame
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_f67aa431-8f6c-4000-8000-900c5b28cc6a · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-lines-200 line-001 payload-END-1
+                                                     ┃  P4984-lines-200 line-002 payload-END-2
+                                                     ┃  P4984-lines-200 line-003 payload-END-3
+                                                     ┃  P4984-lines-200 line-004 payload-END-4
+                                                     ┃  P4984-lines-200 line
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                         ● Tip Tool definitions can invoke scripts written in Python, Go, etc
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/lines-200-frame
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_f67aa431-8f6c-4000-8000-900c5b28cc6a · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-lines-200 line-001 payload-END-1
+                                                     ┃  P4984-lines-200 line-002 payload-END-2
+                                                     ┃  P4984-lines-200 line-003 payload-END-3
+                                                     ┃  P4984-lines-200 line-004 payload-END-4
+                                                     ┃  P4984-lines-200 line
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                         ● Tip Tool definitions can invoke scripts written in Python, Go, etc
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+START typed-paced/single-1024-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                           ● Tip Press ctrl+alt+g , end to jump to the most recent message
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/single-1024-plain
+
+  ┃                                                                                                                                         ok-5
+  ┃  P4984-single-1024 BEGIN
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    Context
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    0 tokens
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    0% used
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab    $0.00 spent
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01    LSP
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234    LSPs are disabled
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
+  ┃
+
+     ▣  Build · fake
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      paced-YPfBjJ/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed-paced/single-1024-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                          ● Tip Use $ARGUMENTS, $1, $2 in custom commands for dynamic input
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/single-1024-frame
+
+  ┃                                                                                                                                         ok-6
+  ┃  [podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016 · from agent · to you]
+  ┃  P4984-single-1024 BEGIN                                                                                                                Context
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    0 tokens
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    0% used
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    $0.00 spent
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde    LSP
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01    LSPs are disabled
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
+  ┃  [end podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016]
+  ┃
+
+     ▣  Build · fake
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      paced-YPfBjJ/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed-paced/single-16384-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                             ● Tip Run opencode serve for headless API access to OpenCode
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+NO RECORD AFTER FIRST ENTER typed-paced/single-16384-plain
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                             ● Tip Run opencode serve for headless API access to OpenCode
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/single-16384-plain
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                             ● Tip Run opencode serve for headless API access to OpenCode
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+START typed-paced/single-16384-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                            ● Tip Comment /opencode fix this on issues to auto-create PRs
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+NO RECORD AFTER FIRST ENTER typed-paced/single-16384-frame
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                            ● Tip Comment /opencode fix this on issues to auto-create PRs
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/single-16384-frame
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                            ● Tip Comment /opencode fix this on issues to auto-create PRs
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+START typed-paced/single-102400-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                             ● Tip Press ctrl+f in the session list to pin one at the top
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+NO RECORD AFTER FIRST ENTER typed-paced/single-102400-plain
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  012345
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                             ● Tip Press ctrl+f in the session list to pin one at the top
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/single-102400-plain
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  012345
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                             ● Tip Press ctrl+f in the session list to pin one at the top
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+START typed-paced/single-102400-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                      ● Tip Use /editor or ctrl+x e to compose messages in your external editor
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+NO RECORD AFTER FIRST ENTER typed-paced/single-102400-frame
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                      ● Tip Use /editor or ctrl+x e to compose messages in your external editor
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/single-102400-frame
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                      ● Tip Use /editor or ctrl+x e to compose messages in your external editor
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+START typed-paced/tabs-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                             ● Tip Use /undo to revert the last message and file changes
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/tabs-plain
+
+  ┃                                                                                                                                         ok-7
+  ┃  P4984-tabsmiddleindentedEND-tabs
+  ┃                                                                                                                                         Context
+                                                                                                                                            0 tokens
+     ▣  Plan · fake                                                                                                                         0% used
+                                                                                                                                            $0.00 spent
+
+                                                                                                                                            LSP
+                                                                                                                                            LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Plan · fake fake                                                                                                                       paced-YPfBjJ/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed-paced/tabs-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                            ● Tip Run opencode debug config to troubleshoot configuration
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/tabs-frame
+
+  ┃                                                                                                                                         ok-8
+  ┃  [podium message msg_54e39917-0723-4000-8000-1decc0ae1649 · from agent · to you]
+  ┃  P4984-tabsmiddleindentedEND-tabs                                                                                                       Context
+  ┃  [end podium message msg_54e39917-0723-4000-8000-1decc0ae1649]                                                                          0 tokens
+  ┃                                                                                                                                         0% used
+                                                                                                                                            $0.00 spent
+     ▣  Plan · fake
+                                                                                                                                            LSP
+                                                                                                                                            LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Plan · fake fake                                                                                                                       paced-YPfBjJ/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed-paced/crlf-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "What is the tech stack of this project?"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                                 ● Tip Run /share to create a public opencode.ai link
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/crlf-plain
+
+  ┃                                                                                                                                         ok-9
+  ┃  P4984-crlf line-1
+  ┃  P4984-crlf line-2                                                                                                                      Context
+  ┃  P4984-crlf END                                                                                                                         0 tokens
+  ┃                                                                                                                                         0% used
+                                                                                                                                            $0.00 spent
+     ▣  Build · fake
+                                                                                                                                            LSP
+                                                                                                                                            LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      paced-YPfBjJ/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed-paced/crlf-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                              ● Tip Run opencode agent create for guided agent creation
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/crlf-frame
+
+  ┃                                                                                                                                         ok-10
+  ┃  [podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd · from agent · to you]
+  ┃  P4984-crlf line-1                                                                                                                      Context
+  ┃  P4984-crlf line-2                                                                                                                      0 tokens
+  ┃  P4984-crlf END                                                                                                                         0% used
+  ┃  [end podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd]                                                                          $0.00 spent
+  ┃
+                                                                                                                                            LSP
+     ▣  Build · fake                                                                                                                        LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      paced-YPfBjJ/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed-paced/trailing-lf-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix broken tests"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                           ● Tip Press ctrl+alt+g , end to jump to the most recent message
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/trailing-lf-plain
+
+  ┃                                                                                                                                         ok-11
+  ┃  P4984-trailing-lf first
+  ┃  P4984-trailing-lf END                                                                                                                  Context
+  ┃                                                                                                                                         0 tokens
+  ┃                                                                                                                                         0% used
+                                                                                                                                            $0.00 spent
+     ▣  Build · fake
+                                                                                                                                            LSP
+                                                                                                                                            LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      paced-YPfBjJ/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33
+
+
+START typed-paced/trailing-lf-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  Ask anything… "Fix a TODO in the codebase"
+                                                     ┃
+                                                     ┃  Build · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                                                                     tab agents  ctrl+p commands
+
+
+
+                                                        ● Tip Toggle username display in chat via the command palette (ctrl+p)
+
+
+
+
+
+
+
+
+
+
+
+
+  /tmp/podium-4984-opencode-terminal-paced-YPfBjJ/work:master                                                                                                              1.18.33
+
+
+typed-paced/trailing-lf-frame
+
+  ┃                                                                                                                                         ok-12
+  ┃  [podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404 · from agent · to you]
+  ┃  P4984-trailing-lf first                                                                                                                Context
+  ┃  P4984-trailing-lf END                                                                                                                  0 tokens
+  ┃                                                                                                                                         0% used
+  ┃  [end podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404]                                                                          $0.00 spent
+  ┃
+                                                                                                                                            LSP
+     ▣  Build · fake                                                                                                                        LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃                                                                                                                                         /tmp/podium-4984-opencode-terminal-
+  ┃  Build · fake fake                                                                                                                      paced-YPfBjJ/work:master
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                                                   tab agents  ctrl+p commands    • OpenCode 1.18.33

@@ -3334,4 +3334,3 @@ typed/trailing-lf-frame
 
   fake default · /tmp/podium-4984-codex-terminal-eusoqb/work
   ← for agents · ? for shortcuts                                                                                                                           ⚠ 1 warning · f2 to view
-

@@ -4,6 +4,8 @@ What each agent program reports when it takes a message, measured on the real CL
 2026-09-29 against a fake model server (ground truth for "the model got it"). This page only
 summarises; every cell comes from the lane's `results.md`, which has the evidence files, the
 ranges and the scenarios behind it. Times are ms after the send (Enter, or our protocol write).
+Expanded-input measurements from 2026-09-30 are in [§7](#7-expanded-input-storage-2026-09-30-pod-4984).
+They extend the short-prompt text claims in §3; the original versioned timing runs remain separate.
 
 Lanes: Claude terminal + SDK `claude-2.1.284/results.md` (POD-4862); Codex app-server + terminal
 `codex-0.155.0/results.md` (POD-4863, builds on POD-4835); Grok ACP `README.md` §Grok and
@@ -97,3 +99,53 @@ N4 nothing held survives a restart.
 - **Pi**: not installed.
 - Claude: auto-compact, Desktop's queued-prompt merging (upstream #53670), any version but 2.1.284.
 - Grok terminal: a blocking `UserPromptSubmit` / `Stop` hook; scheduler (`/loop`) fires.
+
+## 7. Expanded input storage (2026-09-30, POD-4984)
+
+Measured with fresh scratch HOMEs, dummy keys and a localhost fake model: **2, 10, 200 lines;
+1, 16, 100 KiB single lines; tabs; CRLF; final LF**. Each shape is sent plain and with a
+strict Podium frame: **18 inputs per method**. The frame adds 144 UTF-8 bytes; 100 KiB is
+102,400 B plain / 102,544 B framed. [Exact corpus, hashes, methods and bounded observations](expanded-input/README.md).
+Codex here is **0.159.0**, separate from the 0.155.0 timing baseline. Claude terminal's row
+belongs to POD-4982 and is not changed by this issue.
+
+| Program · path | Native prompt records | Length, wrappers and splitting | Control bytes | Our id / frame | Results |
+|---|---|---|---|---|---|
+| Codex app-server 0.159.0 | 18/18, one `UserMessage` each | Every input byte-exact through 100 KiB; no wrapper, truncation or split | Tabs, CRLF, final LF exact | `client_id` = ours; 9/9 frames | [Codex](codex-0.159.0/results.md), [API bytes](expanded-input/codex-app-server/results.md) |
+| OpenCode HTTP v1 1.18.33 | 18/18, one user text part each | Every input byte-exact through 100 KiB; no wrapper, truncation or split | All exact | Message and part ids survive; 9/9 frames | [v1 bytes](expanded-input/opencode-v1/results.md) |
+| OpenCode HTTP v2 1.18.33 | 18/18, admission plus one delivered user row | Every input byte-exact through 100 KiB; no wrapper, truncation or split | All exact | Our id survives; 9/9 frames | [v2 bytes](expanded-input/opencode-v2/results.md) |
+| OpenCode HTTP v2 beta-18866 | 18/18, one delivered user row | Every input byte-exact through 100 KiB; inbox consumed, no wrapper, truncation or split | All exact | Our id survives; 9/9 frames | [beta bytes](expanded-input/opencode2-v2/results.md) |
+| Grok ACP 1.0.44 | 18/18, one `updates.jsonl` user chunk | Full native bytes, no wrapper/split. Model history uses `user_query`; 100 KiB spills full text to file and sends an excerpt | All native bytes exact | Our `promptId` on turn record; 9/9 frames | [Grok ACP / offload](grok-acp-1.0.44/results.md) |
+| Codex terminal 0.159.0 | Paste 18/18; final unbracketed buffer 12/18 | Full paste through 100 KiB, one record, no wrapper/split. 200 lines and 16/100 KiB unbracketed: no record within bound | Paste CRLF → LF, final LF trim. Unbracketed CRLF → two LFs; key-chunk tab case drops tabs | TUI id; every stored frame valid (paste 9/9, buffer 6/6) | [Codex](codex-0.159.0/results.md), [final buffer](expanded-input/codex-terminal-raw/results.md) |
+| OpenCode terminal 1.18.33 | Paste 18/18; final key chunks 12/18 | Full paste through 100 KiB, one text part, no conversation wrapper/split. Edit history has paste placeholders. Larger key-input cases: no record within bound | Most pastes +SP; CRLF → LF; key-input tabs removed. Plain final LF kept | CLI id; every stored frame valid (paste 9/9, key chunks 6/6) | [Both-build report](opencode-1.18.33/results.md#expanded-input-storage-2026-09-30-pod-4984), [paste](expanded-input/opencode-terminal/results.md), [key chunks](expanded-input/opencode-terminal-paced/results.md) |
+| OpenCode terminal beta-18866 | Paste 18/18; final key chunks 12/18 | Same measured full native text and auxiliary placeholder distinction; larger key-input cases: no record within bound | Same measured forms as stable | CLI id; every stored frame valid (paste 9/9, key chunks 6/6) | [Paste](expanded-input/opencode2-terminal/results.md), [key chunks](expanded-input/opencode2-terminal-paced/results.md) |
+| Grok terminal 1.0.44 | Paste 18/18; final key chunks 18/18 | One full native chunk through 100 KiB, no native wrapper/split. Same model-history offload as ACP | Paste TAB → four SP, CRLF/final LF kept; key-input TAB removed, CRLF → LF, final LF kept | Grok id; 9/9 frames in both methods | [Grok terminal](grok-tui-1.0.44/results.md#expanded-input-storage-2026-09-30-pod-4984), [key chunks](expanded-input/grok-terminal-paced/results.md) |
+
+Byte counts and all control variants are in the [control-byte table](expanded-input/README.md#results-across-programs)
+and linked per-case reports. “No record within bound” has **no** frame or matching verdict;
+it is not persisted truncation. The final 100 KiB unbracketed windows were 512–539 s without
+a visible editor tail for Codex/OpenCode; two subsequent Enter attempts produced no prompt.
+Grok reached its plain/framed tail at 196/250 s and stored all bytes. **POD-5011 — Long terminal
+input drain** is an unclaimed top-level Proposed discovery for Podium's injection/pacing boundary.
+Earlier short-window and tmux command-limit diagnostics are retained separately.
+
+Literal startup-argument storage probes bypass keyboard ingestion. Codex and beta OpenCode
+record 18/18 complete prompts (CRLF → LF; other bytes retained); beta needs Enter after its
+prefill. Stable OpenCode records 16/18 byte-exact; its two CRLF inputs stay prefilled with no
+record within 48 s. These do not replace the terminal keyboard observations.
+
+At 100 KiB, Grok's `updates.jsonl` stores 102,400/102,544 B; the spill file stores the full
+`<user_query>` wrapper, 102,427/102,571 B. Its model history and main model request instead
+contain a **99,095 B** excerpt plus offload note. The strict frame is reliable in the full
+native chunk; proof must keep reading that chunk. [Exact offload evidence](grok-acp-1.0.44/results.md#model-history-and-100-kib-offload).
+
+Reader/matching changes are filed as unclaimed sub-issues under POD-4819:
+
+- **POD-5003 — Codex terminal text matching:** one/two-LF CRLF forms and the measured tab-removal form.
+- **POD-5004 — OpenCode terminal text matching:** CRLF normalization and unbracketed tab removal in both builds.
+- **POD-5005 — Grok terminal text matching:** pasted tab expansion, unbracketed tab removal and CRLF normalization.
+
+This issue changes only measurement files. The full decoded bytes, native record objects,
+file positions/rowids, protocol ids, model inputs and per-case SHA-256 comparisons are saved.
+No production reader or driver is fixed here; no runtime test gate was run for this docs-only work.
+POD-4720 receives the tip for operator-approved ff-only landing onto `dev/mw`.

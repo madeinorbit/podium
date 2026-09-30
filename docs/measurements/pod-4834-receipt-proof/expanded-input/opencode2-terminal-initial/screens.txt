@@ -46,6 +46,16 @@ START initial-argument/lines-2-plain
 
 
 initial-argument/lines-2-plain
+ • ok-1                          +
+
+  ┃                                                                                                                                         ok-1
+  ┃  P4984-lines-2 line-001 payload-END-1
+  ┃  P4984-lines-2 line-002 payload-END-2                                                                                                   Context
+  ┃                                                                                                                                         15 tokens
+                                                                                                                                            0% used
+     ok-2
+
+     Build · fake · 763ms · 71.4 tok/s
 
 
 
@@ -63,19 +73,6 @@ initial-argument/lines-2-plain
 
 
 
-                                                                                                        ▄
-                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
-                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
-                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
-
-
-                                                     ┃
-                                                     ┃  P4984-lines-2 line-001 payload-END-1
-                                                     ┃  P4984-lines-2 line-002 payload-END-2
-                                                     ┃
-                                                     ┃  Build auto · fake fake
-                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
 
 
 
@@ -87,12 +84,16 @@ initial-argument/lines-2-plain
 
 
 
-
-
-                                                                                                                                                                  0.0.0-beta-18866
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
 
 
 START initial-argument/lines-2-frame
+ • ok-1                          + New session
 
 
 
@@ -124,7 +125,6 @@ START initial-argument/lines-2-frame
                                                      ┃  Build auto · fake fake
                                                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
                                                      /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
-
 
 
 
@@ -140,6 +140,18 @@ START initial-argument/lines-2-frame
 
 
 initial-argument/lines-2-frame
+ • ok-1                          • ok-3                          +
+
+  ┃                                                                                                                                         ok-3
+  ┃  [podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7 · from agent · to you]
+  ┃  P4984-lines-2 line-001 payload-END-1                                                                                                   Context
+  ┃  P4984-lines-2 line-002 payload-END-2                                                                                                   15 tokens
+  ┃  [end podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7]                                                                          0% used
+  ┃
+
+     ok-4
+
+     Build · fake · 542ms · 79.4 tok/s
 
 
 
@@ -155,22 +167,6 @@ initial-argument/lines-2-frame
 
 
 
-                                                                                                        ▄
-                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
-                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
-                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
-
-
-                                                     ┃
-                                                     ┃  [podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7 · from agent
-                                                     ┃  · to you]
-                                                     ┃  P4984-lines-2 line-001 payload-END-1
-                                                     ┃  P4984-lines-2 line-002 payload-END-2
-                                                     ┃  [end podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7]
-                                                     ┃
-                                                     ┃  Build auto · fake fake
-                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
 
 
 
@@ -182,12 +178,16 @@ initial-argument/lines-2-frame
 
 
 
-
-                                                                                                                                                                  0.0.0-beta-18866
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
 
 
 START initial-argument/lines-10-plain
-
+ • ok-1                          • ok-3                          + New session
 
 
 
@@ -234,6 +234,24 @@ START initial-argument/lines-10-plain
 
 
 initial-argument/lines-10-plain
+ • ok-1                          • ok-3                          • ok-5                          +
+
+  ┃                                                                                                                                         ok-5
+  ┃  P4984-lines-10 line-001 payload-END-1
+  ┃  P4984-lines-10 line-002 payload-END-2                                                                                                  Context
+  ┃  P4984-lines-10 line-003 payload-END-3                                                                                                  15 tokens
+  ┃  P4984-lines-10 line-004 payload-END-4                                                                                                  0% used
+  ┃  P4984-lines-10 line-005 payload-END-5
+  ┃  P4984-lines-10 line-006 payload-END-6
+  ┃  P4984-lines-10 line-007 payload-END-7
+  ┃  P4984-lines-10 line-008 payload-END-8
+  ┃  P4984-lines-10 line-009 payload-END-9
+  ┃  P4984-lines-10 line-010 payload-END-10
+  ┃
+
+     ok-6
+
+     Build · fake · 502ms · 40.3 tok/s
 
 
 
@@ -247,27 +265,6 @@ initial-argument/lines-10-plain
 
 
 
-                                                                                                        ▄
-                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
-                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
-                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
-
-
-                                                     ┃
-                                                     ┃  P4984-lines-10 line-001 payload-END-1
-                                                     ┃  P4984-lines-10 line-002 payload-END-2
-                                                     ┃  P4984-lines-10 line-003 payload-END-3
-                                                     ┃  P4984-lines-10 line-004 payload-END-4
-                                                     ┃  P4984-lines-10 line-005 payload-END-5
-                                                     ┃  P4984-lines-10 line-006 payload-END-6
-                                                     ┃  P4984-lines-10 line-007 payload-END-7
-                                                     ┃  P4984-lines-10 line-008 payload-END-8
-                                                     ┃  P4984-lines-10 line-009 payload-END-9
-                                                     ┃  P4984-lines-10 line-010 payload-END-10
-                                                     ┃
-                                                     ┃  Build auto · fake fake
-                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
 
 
 
@@ -275,12 +272,16 @@ initial-argument/lines-10-plain
 
 
 
-
-
-                                                                                                                                                                  0.0.0-beta-18866
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
 
 
 START initial-argument/lines-10-frame
+ • ok-1                          • ok-3                          • ok-5                          + New session
 
 
 
@@ -316,7 +317,6 @@ START initial-argument/lines-10-frame
                                                      ┃  Build auto · fake fake
                                                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
                                                      /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
-
 
 
 
@@ -328,6 +328,26 @@ START initial-argument/lines-10-frame
 
 
 initial-argument/lines-10-frame
+ • ok-1                          • ok-3                          • ok-5                          • ok-7                          +
+
+  ┃                                                                                                                                         ok-7
+  ┃  [podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b · from agent · to you]
+  ┃  P4984-lines-10 line-001 payload-END-1                                                                                                  Context
+  ┃  P4984-lines-10 line-002 payload-END-2                                                                                                  15 tokens
+  ┃  P4984-lines-10 line-003 payload-END-3                                                                                                  0% used
+  ┃  P4984-lines-10 line-004 payload-END-4
+  ┃  P4984-lines-10 line-005 payload-END-5
+  ┃  P4984-lines-10 line-006 payload-END-6
+  ┃  P4984-lines-10 line-007 payload-END-7
+  ┃  P4984-lines-10 line-008 payload-END-8
+  ┃  P4984-lines-10 line-009 payload-END-9
+  ┃  P4984-lines-10 line-010 payload-END-10
+  ┃  [end podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b]
+  ┃
+
+     ok-8
+
+     Build · fake · 485ms · 166.7 tok/s
 
 
 
@@ -339,30 +359,6 @@ initial-argument/lines-10-frame
 
 
 
-                                                                                                        ▄
-                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
-                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
-                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
-
-
-                                                     ┃
-                                                     ┃  [podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b · from agent
-                                                     ┃  · to you]
-                                                     ┃  P4984-lines-10 line-001 payload-END-1
-                                                     ┃  P4984-lines-10 line-002 payload-END-2
-                                                     ┃  P4984-lines-10 line-003 payload-END-3
-                                                     ┃  P4984-lines-10 line-004 payload-END-4
-                                                     ┃  P4984-lines-10 line-005 payload-END-5
-                                                     ┃  P4984-lines-10 line-006 payload-END-6
-                                                     ┃  P4984-lines-10 line-007 payload-END-7
-                                                     ┃  P4984-lines-10 line-008 payload-END-8
-                                                     ┃  P4984-lines-10 line-009 payload-END-9
-                                                     ┃  P4984-lines-10 line-010 payload-END-10
-                                                     ┃  [end podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b]
-                                                     ┃
-                                                     ┃  Build auto · fake fake
-                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
 
 
 
@@ -370,11 +366,16 @@ initial-argument/lines-10-frame
 
 
 
-
-                                                                                                                                                                  0.0.0-beta-18866
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
 
 
 START initial-argument/lines-200-plain
+ • ok-1                          • ok-3                          • ok-5                          • ok-7                          + New session
 
 
 
@@ -411,7 +412,6 @@ START initial-argument/lines-200-plain
                                                      ┃  Build auto · fake fake
                                                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
                                                      /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
-
 
 
 
@@ -422,53 +422,54 @@ START initial-argument/lines-200-plain
 
 
 initial-argument/lines-200-plain
+ • ok-1                          • ok-3                          • ok-5                          • ok-7                          • ok-9                          +
+  ┃  P4984-lines-200 line-170 payload-END-170
+  ┃  P4984-lines-200 line-171 payload-END-171                                                                                               ok-9
+  ┃  P4984-lines-200 line-172 payload-END-172
+  ┃  P4984-lines-200 line-173 payload-END-173                                                                                               Context
+  ┃  P4984-lines-200 line-174 payload-END-174                                                                                               15 tokens
+  ┃  P4984-lines-200 line-175 payload-END-175                                                                                               0% used
+  ┃  P4984-lines-200 line-176 payload-END-176
+  ┃  P4984-lines-200 line-177 payload-END-177
+  ┃  P4984-lines-200 line-178 payload-END-178
+  ┃  P4984-lines-200 line-179 payload-END-179
+  ┃  P4984-lines-200 line-180 payload-END-180
+  ┃  P4984-lines-200 line-181 payload-END-181
+  ┃  P4984-lines-200 line-182 payload-END-182
+  ┃  P4984-lines-200 line-183 payload-END-183
+  ┃  P4984-lines-200 line-184 payload-END-184
+  ┃  P4984-lines-200 line-185 payload-END-185
+  ┃  P4984-lines-200 line-186 payload-END-186
+  ┃  P4984-lines-200 line-187 payload-END-187
+  ┃  P4984-lines-200 line-188 payload-END-188
+  ┃  P4984-lines-200 line-189 payload-END-189
+  ┃  P4984-lines-200 line-190 payload-END-190
+  ┃  P4984-lines-200 line-191 payload-END-191
+  ┃  P4984-lines-200 line-192 payload-END-192
+  ┃  P4984-lines-200 line-193 payload-END-193
+  ┃  P4984-lines-200 line-194 payload-END-194
+  ┃  P4984-lines-200 line-195 payload-END-195
+  ┃  P4984-lines-200 line-196 payload-END-196
+  ┃  P4984-lines-200 line-197 payload-END-197
+  ┃  P4984-lines-200 line-198 payload-END-198
+  ┃  P4984-lines-200 line-199 payload-END-199
+  ┃  P4984-lines-200 line-200 payload-END-200
+  ┃
 
+     ok-10
 
+     Build · fake · 678ms · 45.5 tok/s
 
-
-
-
-
-
-
-
-                                                                                                        ▄
-                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
-                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
-                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
-
-
-                                                     ┃
-                                                     ┃  P4984-lines-200 line-186 payload-END-186
-                                                     ┃  P4984-lines-200 line-187 payload-END-187
-                                                     ┃  P4984-lines-200 line-188 payload-END-188
-                                                     ┃  P4984-lines-200 line-189 payload-END-189
-                                                     ┃  P4984-lines-200 line-190 payload-END-190
-                                                     ┃  P4984-lines-200 line-191 payload-END-191
-                                                     ┃  P4984-lines-200 line-192 payload-END-192
-                                                     ┃  P4984-lines-200 line-193 payload-END-193
-                                                     ┃  P4984-lines-200 line-194 payload-END-194
-                                                     ┃  P4984-lines-200 line-195 payload-END-195
-                                                     ┃  P4984-lines-200 line-196 payload-END-196
-                                                     ┃  P4984-lines-200 line-197 payload-END-197
-                                                     ┃  P4984-lines-200 line-198 payload-END-198
-                                                     ┃  P4984-lines-200 line-199 payload-END-199
-                                                     ┃  P4984-lines-200 line-200 payload-END-200
-                                                     ┃
-                                                     ┃  Build auto · fake fake
-                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
-
-
-
-
-
-
-
-                                                                                                                                                                  0.0.0-beta-18866
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
 
 
 START initial-argument/lines-200-frame
+ • ok-1                        • ok-3                        • ok-5                        • ok-7                        • ok-9                        + New session
 
 
 
@@ -511,7 +512,1179 @@ START initial-argument/lines-200-frame
 
 
 
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/lines-200-frame
+ • ok-1                        • ok-3                        • ok-5                        • ok-7                       • ok-9                       • ok-11                      +
+  ┃  P4984-lines-200 line-171 payload-END-171
+  ┃  P4984-lines-200 line-172 payload-END-172                                                                                               ok-11
+  ┃  P4984-lines-200 line-173 payload-END-173
+  ┃  P4984-lines-200 line-174 payload-END-174                                                                                               Context
+  ┃  P4984-lines-200 line-175 payload-END-175                                                                                               15 tokens
+  ┃  P4984-lines-200 line-176 payload-END-176                                                                                               0% used
+  ┃  P4984-lines-200 line-177 payload-END-177
+  ┃  P4984-lines-200 line-178 payload-END-178
+  ┃  P4984-lines-200 line-179 payload-END-179
+  ┃  P4984-lines-200 line-180 payload-END-180
+  ┃  P4984-lines-200 line-181 payload-END-181
+  ┃  P4984-lines-200 line-182 payload-END-182
+  ┃  P4984-lines-200 line-183 payload-END-183
+  ┃  P4984-lines-200 line-184 payload-END-184
+  ┃  P4984-lines-200 line-185 payload-END-185
+  ┃  P4984-lines-200 line-186 payload-END-186
+  ┃  P4984-lines-200 line-187 payload-END-187
+  ┃  P4984-lines-200 line-188 payload-END-188
+  ┃  P4984-lines-200 line-189 payload-END-189
+  ┃  P4984-lines-200 line-190 payload-END-190
+  ┃  P4984-lines-200 line-191 payload-END-191
+  ┃  P4984-lines-200 line-192 payload-END-192
+  ┃  P4984-lines-200 line-193 payload-END-193
+  ┃  P4984-lines-200 line-194 payload-END-194
+  ┃  P4984-lines-200 line-195 payload-END-195
+  ┃  P4984-lines-200 line-196 payload-END-196
+  ┃  P4984-lines-200 line-197 payload-END-197
+  ┃  P4984-lines-200 line-198 payload-END-198
+  ┃  P4984-lines-200 line-199 payload-END-199
+  ┃  P4984-lines-200 line-200 payload-END-200
+  ┃  [end podium message msg_f67aa431-8f6c-4000-8000-900c5b28cc6a]
+  ┃
+
+     ok-12
+
+     Build · fake · 437ms · 178.6 tok/s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START initial-argument/single-1024-plain
+ • ok-1                    • ok-3                    • ok-5                    • ok-7                    • ok-9                    • ok-11                  + New session
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcde END-1024
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
 
                                                                                                                                                                   0.0.0-beta-18866
 
 
+initial-argument/single-1024-plain
+ • ok-1                    • ok-3                    • ok-5                   • ok-7                   • ok-9                   • ok-11                  • ok-13                  +
+
+  ┃                                                                                                                                         ok-13
+  ┃  P4984-single-1024 BEGIN
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    Context
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    15 tokens
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    0% used
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
+  ┃
+
+     ok-14
+
+     Build · fake · 633ms · 48.1 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START initial-argument/single-1024-frame
+ • ok-1                 • ok-3                 • ok-5                 • ok-7                 • ok-9                • ok-11               • ok-13               + New session
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcde END-1024
+                                                     ┃  [end podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/single-1024-frame
+ • ok-1                 • ok-3                • ok-5                • ok-7                • ok-9                • ok-11               • ok-13               • ok-15               +
+
+  ┃                                                                                                                                         ok-15
+  ┃  [podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016 · from agent · to you]
+  ┃  P4984-single-1024 BEGIN                                                                                                                Context
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    15 tokens
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    0% used
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde END-1024
+  ┃  [end podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016]
+  ┃
+
+     ok-16
+
+     Build · fake · 601ms · 131.6 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START initial-argument/single-16384-plain
+ • ok-1             • ok-3             • ok-5             • ok-7             • ok-9             • ok-11            • ok-13            • ok-15            + New session
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abc END-16384
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/single-16384-plain
+ • ok-1             • ok-3             • ok-5             • ok-7             • ok-9             • ok-11            • ok-13            • ok-15            • ok-17                  +
+  ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef    ok-17
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    Context
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    15 tokens
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab    0% used
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  ┃  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc END-16384
+  ┃
+
+     ok-18
+
+     Build · fake · 650ms · 79.4 tok/s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START initial-argument/single-16384-frame
+ • ok-1           • ok-3           • ok-5           • ok-7           • ok-9           • ok-11          • ok-13          • ok-15          • ok-17          + New session
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abc END-16384
+                                                     ┃  [end podium message msg_5adbbb1d-c982-4000-8000-156aeb90992d]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/single-16384-frame
+ • ok-1           • ok-3           • ok-5           • ok-7           • ok-9           • ok-11          • ok-13          • ok-15          • ok-17          • ok-19                 +
+  ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    ok-19
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    Context
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab    15 tokens
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde    0% used
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  ┃  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc END-16384
+  ┃  [end podium message msg_5adbbb1d-c982-4000-8000-156aeb90992d]
+  ┃
+
+     ok-20
+
+     Build · fake · 410ms · 98.0 tok/s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START initial-argument/single-102400-plain
+ • ok-1         • ok-3         • ok-5         • ok-7         • ok-9         • ok-11        • ok-13        • ok-15        • ok-17        • ok-19        + New session
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789a END-102400
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/single-102400-plain
+ • ok-1         • ok-3         • ok-5         • ok-7         • ok-9         • ok-11        • ok-13        • ok-15        • ok-17        • ok-19        • ok-21                    +
+  ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012    ok-21
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678    Context
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab    15 tokens
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde    0% used
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  ┃  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  ┃  789abcdef0123456789abcdef0123456789abcdef0123456789a END-102400
+  ┃
+
+     ok-22
+
+     Build · fake · 395ms · 122.0 tok/s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START initial-argument/single-102400-frame
+ • ok-1        • ok-3        • ok-5        • ok-7        • ok-9        • ok-11       • ok-13       • ok-15       • ok-17       • ok-19       • ok-21       + New session
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+                                                     ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                                                     ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+                                                     ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+                                                     ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+                                                     ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+                                                     ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+                                                     ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+                                                     ┃  456789abcdef0123456789a END-102400
+                                                     ┃  [end podium message msg_6f4d5b41-20f5-4000-8000-c5775c5d5d39]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/single-102400-frame
+ • ok-1        • ok-3        • ok-5        • ok-7        • ok-9        • ok-11       • ok-13       • ok-15       • ok-17       • ok-19       • ok-21       • ok-23                +
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345    ok-23
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab    Context
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde    15 tokens
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01    0% used
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  ┃  789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+  ┃  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
+  ┃  def0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  ┃  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012
+  ┃  3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
+  ┃  6789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678
+  ┃  9abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab
+  ┃  cdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+  ┃  f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01
+  ┃  23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234
+  ┃  56789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567
+  ┃  89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
+  ┃  bcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  ┃  ef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+  ┃  123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
+  ┃  456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456
+  ┃  789abcdef0123456789abcdef0123456789abcdef0123456789a END-102400
+  ┃  [end podium message msg_6f4d5b41-20f5-4000-8000-c5775c5d5d39]
+  ┃
+
+     ok-24
+
+     Build · fake · 361ms · 166.7 tok/s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START initial-argument/tabs-plain
+ • ok-1       • ok-3       • ok-5       • ok-7       • ok-9       • ok-11      • ok-13      • ok-15      • ok-17      • ok-19      • ok-21      • ok-23      + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-tabs  middle  indented  END-tabs
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/tabs-plain
+ • ok-1      • ok-3      • ok-5      • ok-7      • ok-9      • ok-11     • ok-13     • ok-15     • ok-17     • ok-19     • ok-21     • ok-23     • ok-25                          +
+
+  ┃                                                                                                                                         ok-25
+  ┃  P4984-tabs  middle  indented  END-tabs
+  ┃                                                                                                                                         Context
+                                                                                                                                            15 tokens
+     ok-26                                                                                                                                  0% used
+
+     Build · fake · 459ms · 94.3 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START initial-argument/tabs-frame
+ • ok-1      • ok-3      • ok-5      • ok-7      • ok-9      • ok-11     • ok-13     • ok-15     • ok-17     • ok-19     • ok-21     • ok-23     • ok-25     + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_54e39917-0723-4000-8000-1decc0ae1649 · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-tabs  middle  indented  END-tabs
+                                                     ┃  [end podium message msg_54e39917-0723-4000-8000-1decc0ae1649]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/tabs-frame
+ • ok-1     • ok-3     • ok-5     • ok-7     • ok-9     • ok-11    • ok-13    • ok-15    • ok-17    • ok-19    • ok-21    • ok-23    • ok-25    • ok-27                           +
+
+  ┃                                                                                                                                         ok-27
+  ┃  [podium message msg_54e39917-0723-4000-8000-1decc0ae1649 · from agent · to you]
+  ┃  P4984-tabs  middle  indented  END-tabs                                                                                                 Context
+  ┃  [end podium message msg_54e39917-0723-4000-8000-1decc0ae1649]                                                                          15 tokens
+  ┃                                                                                                                                         0% used
+
+     ok-28
+
+     Build · fake · 328ms · 142.9 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START initial-argument/crlf-plain
+ • ok-1     • ok-3     • ok-5     • ok-7     • ok-9     • ok-11    • ok-13    • ok-15    • ok-17    • ok-19    • ok-21    • ok-23    • ok-25    • ok-27    + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-crlf line-1
+                                                     ┃  P4984-crlf line-2
+                                                     ┃  P4984-crlf END
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/crlf-plain
+ • ok-1     • ok-3     • ok-5     • ok-7     • ok-9     • ok-11    • ok-13    • ok-15    • ok-17    • ok-19    • ok-21    • ok-23    • ok-25    • ok-27    • ok-29                +
+
+  ┃                                                                                                                                         ok-29
+  ┃  P4984-crlf line-1
+  ┃  P4984-crlf line-2                                                                                                                      Context
+  ┃  P4984-crlf END                                                                                                                         15 tokens
+  ┃                                                                                                                                         0% used
+
+     ok-30
+
+     Build · fake · 757ms · 200.0 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START initial-argument/crlf-frame
+ • ok-1    • ok-3    • ok-5    • ok-7    • ok-9    • ok-11   • ok-13   • ok-15   • ok-17   • ok-19   • ok-21   • ok-23   • ok-25   • ok-27   • ok-29   + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-crlf line-1
+                                                     ┃  P4984-crlf line-2
+                                                     ┃  P4984-crlf END
+                                                     ┃  [end podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/crlf-frame
+ • ok-1    • ok-3    • ok-5    • ok-7    • ok-9    • ok-11   • ok-13   • ok-15   • ok-17   • ok-19   • ok-21   • ok-23   • ok-25   • ok-27   • ok-29   • ok-31                    +
+
+  ┃                                                                                                                                         ok-31
+  ┃  [podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd · from agent · to you]
+  ┃  P4984-crlf line-1                                                                                                                      Context
+  ┃  P4984-crlf line-2                                                                                                                      15 tokens
+  ┃  P4984-crlf END                                                                                                                         0% used
+  ┃  [end podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd]
+  ┃
+
+     ok-32
+
+     Build · fake · 455ms · 156.3 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START initial-argument/trailing-lf-plain
+ • ok-1   • ok-3   • ok-5   • ok-7   • ok-9   • ok-11  • ok-13  • ok-15  • ok-17  • ok-19  • ok-21  • ok-23  • ok-25  • ok-27  • ok-29  • ok-31  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-trailing-lf first
+                                                     ┃  P4984-trailing-lf END
+                                                     ┃
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/trailing-lf-plain
+ • ok-1   • ok-3   • ok-5   • ok-7   • ok-9   • ok-11  • ok-13  • ok-15  • ok-17  • ok-19  • ok-21  • ok-23  • ok-25  • ok-27  • ok-29  • ok-31  • ok-33                          +
+
+  ┃                                                                                                                                         ok-33
+  ┃  P4984-trailing-lf first
+  ┃  P4984-trailing-lf END                                                                                                                  Context
+  ┃                                                                                                                                         15 tokens
+  ┃                                                                                                                                         0% used
+
+     ok-34
+
+     Build · fake · 451ms · 151.5 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
+
+
+START initial-argument/trailing-lf-frame
+ • ok-1   • ok-3   • ok-5   • ok-7   • ok-9   • ok-11  • ok-13  • ok-15  • ok-17  • ok-19  • ok-21  • ok-23  • ok-25  • ok-27  • ok-29  • ok-31  • ok-33  + New session
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404 · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-trailing-lf first
+                                                     ┃  P4984-trailing-lf END
+                                                     ┃
+                                                     ┃  [end podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/trailing-lf-frame
+ • ok-1   • ok-3   • ok-5   • ok-7   • ok-9   • ok-11  • ok-13  • ok-15  • ok-17  • ok-19  • ok-21  • ok-23  • ok-25  • ok-27  • ok-29  • ok-31  • ok-33  • ok-35                 +
+
+  ┃                                                                                                                                         ok-35
+  ┃  [podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404 · from agent · to you]
+  ┃  P4984-trailing-lf first                                                                                                                Context
+  ┃  P4984-trailing-lf END                                                                                                                  15 tokens
+  ┃                                                                                                                                         0% used
+  ┃  [end podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404]
+  ┃
+
+     ok-36
+
+     Build · fake · 678ms · 113.6 tok/s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · fake fake
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/podium-4984-opencode2-terminal-initial-sBLJjD/work:master                                                15 (0%)  ctrl+p commands    /…/podium-4984-opencode2-…/work:master
