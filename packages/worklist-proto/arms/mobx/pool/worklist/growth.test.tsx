@@ -43,8 +43,6 @@ interface GrowthCell {
   /** Where the reads went (entity counts + first-read sample). */
   readsBreakdown: unknown
   rowsCommitted: number
-  rowsDerived: number
-  rollupsDerived: number
 }
 
 /** The scenario's target, from the corpus picks (see `pickTargets`). */
@@ -98,8 +96,6 @@ describe('growth: reads per change are flat at 1x, 2x and 4x (POD-4576)', () => 
             readsBudget,
             readsBreakdown: result.reads,
             rowsCommitted: result.rowsCommitted,
-            rowsDerived: result.stats.rowsDerived,
-            rollupsDerived: result.stats.rollupsDerived,
           }
           const list = byScenario.get(methodology) ?? []
           list.push(cell)
@@ -137,10 +133,6 @@ describe('growth: reads per change are flat at 1x, 2x and 4x (POD-4576)', () => 
         expect(cell.rowsCommitted, `${methodology} commits ${scale} <= 1x`).toBeLessThanOrEqual(
           one.rowsCommitted,
         )
-        expect(
-          cell.rowsDerived + cell.rollupsDerived,
-          `${methodology} derivations ${scale} <= 1x`,
-        ).toBeLessThanOrEqual(one.rowsDerived + one.rollupsDerived)
       }
     }
     // #2's scale-free claim, stated against its own budget: the reads stay

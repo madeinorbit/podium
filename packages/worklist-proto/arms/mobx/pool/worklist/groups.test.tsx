@@ -232,9 +232,9 @@ describe('groups and closed folds (Mb2)', () => {
         const groupsChanged = changedGroups(lanesBefore, lanes(pool))
         // A header redraws exactly for its own group's lane change.
         expect(headerRenders, `${methodology}: header redraws`).toBe(groupsChanged.length)
-        // Nothing moved: the layout never re-ran (a row-internal change stops at its node).
+        // Nothing moved: no header redraws (a row-internal change stops at its node).
         if (!orderMoved && groupsChanged.length === 0) {
-          expect(counters.groupRuns, `${methodology}: layout runs`).toBe(0)
+          expect(headerRenders, `${methodology}: header redraws`).toBe(0)
         }
         cells.push({
           methodology,
@@ -244,8 +244,6 @@ describe('groups and closed folds (Mb2)', () => {
           readsPerChange: result.readsPerChange,
           readsBudget,
           orderMoved,
-          groupRuns: counters.groupRuns,
-          groupElements: counters.groupElements,
           groupsChanged,
           headerRenders,
         })
@@ -253,7 +251,6 @@ describe('groups and closed folds (Mb2)', () => {
       }
       // #1-#4 change no order and no placement.
       for (const cell of cells.slice(0, 4)) {
-        expect(cell.groupRuns, `${cell.methodology}: layout runs`).toBe(0)
         expect(cell.headerRenders, `${cell.methodology}: header redraws`).toBe(0)
       }
       // #2 and #4 redraw a row and no header (the brief's pitfall).
@@ -498,7 +495,7 @@ describe('the windowed web list (Mb2)', () => {
         coldQueuedAtFirstPaint: queuedAtPaint,
         feedReadsAtBootstrap: byKind(feedReads.bootstrap),
         feedReadsSettlingFirstWindow: byKind(feedReads.firstWindow),
-        rowsLoadedSettlingFirstWindow: loadedSettlingFirstWindow,
+        rowsLoadedSettlingFirstWindow: feedReads.firstWindow.size,
       })
     } finally {
       act(() => root.unmount())

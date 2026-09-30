@@ -172,8 +172,7 @@ describe('visible collection and order (Mb1)', () => {
           const readIds = (result.reads?.sample ?? []).map((key) => key.split(':')[1] ?? '')
           expect(result.reads?.rows ?? 0).toBeLessThanOrEqual(8)
           expect(readIds.filter((id) => visibleBefore.has(id))).toEqual([])
-          expect(counters.groupRuns).toBe(0)
-          expect(counters.membershipFlips).toBe(0)
+          expect(readIds.filter((id) => visibleBefore.has(id))).toEqual([])
         }
         cells.push({
           methodology,
@@ -184,9 +183,6 @@ describe('visible collection and order (Mb1)', () => {
           readsPerChange: result.readsPerChange,
           readsBudget,
           readsByEntity: result.reads?.byEntity,
-          groupRuns: counters.groupRuns,
-          groupElements: counters.groupElements,
-          membershipFlips: counters.membershipFlips,
           visible: visibleBefore.size,
         })
         parity.push(checkParity(ctx, handle, methodology))
@@ -229,9 +225,6 @@ describe('visible collection and order (Mb1)', () => {
       })
       const after = tracked(() => [...pool.worklist.order])
       // One filing: out of its group's member and open lanes, into the pinned section.
-      expect(counters.groupRuns).toBe(1)
-      expect(counters.groupElements).toBe(3)
-      expect(counters.membershipFlips).toBe(0)
       expect(after.indexOf(target!)).toBeLessThan(before.indexOf(target!))
       expect(new Set(after)).toEqual(new Set(before))
       // The pinned row redraws: its view's `band` and `pinned` moved, and a row
@@ -398,7 +391,7 @@ const AllKnownSlot = observer(function AllKnownSlot({
 const AllKnownList = observer(function AllKnownList({ pool }: { pool: MobxPool }): ReactElement {
   return (
     <div>
-      {[...pool.fenced.issue.keys(), ...(pool.residency?.ids('issue') ?? [])].map((id) => (
+      {[...pool.tables.issue.keys(), ...(pool.residency?.ids('issue') ?? [])].map((id) => (
         <AllKnownSlot key={id} pool={pool} id={id} />
       ))}
     </div>

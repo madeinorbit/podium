@@ -1,8 +1,8 @@
 /**
  * POD-4705, POD-4757 — the filing reactions cover the issues in memory, not
  * every issue the pool knows. Boots the lazy pool at 1x over the replay feed
- * and counts from outside (the pool's own counters and tracked ids, as the
- * first-paint test does — nothing asks the pool what it *should* have built).
+ * and counts from outside (tracked ids and table keys, as the first-paint
+ * test does — nothing asks the pool what it *should* have built).
  *
  * - every issue in memory holds one filing reaction and no cold issue holds
  *   one (a cold row is hidden by the cold rule), so bootstrap builds fewer

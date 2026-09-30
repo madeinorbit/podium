@@ -160,11 +160,10 @@ async function measure(scale: 1 | 4) {
       },
       loadWindows: windows,
       settledLoading,
-      poolCounters: {
+      poolHeld: {
         ...held,
         modelsAtFirstPaint: modelsAtPaint,
         modelsSettled,
-        hydratedBySettle: pool.residency?.counters.hydrated,
       },
     }
   } finally {

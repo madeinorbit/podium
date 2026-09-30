@@ -323,17 +323,14 @@ const chainUntracked: CheckableArm = {
 
 /** What the gated arms did with cold rows, summed over every arm a run created. */
 interface ColdTally {
-  coldWrites: number
-  requests: number
-  batches: number
-  hydrated: number
-  warmed: number
+  /** Per-row feed reads (`RowSource.row`): cold rows loaded, counted outside the pool. */
+  loads: number
   /** Full-residency checkpoints passed. */
   checkpoints: number
 }
 
 function emptyTally(): ColdTally {
-  return { coldWrites: 0, requests: 0, batches: 0, hydrated: 0, warmed: 0, checkpoints: 0 }
+  return { loads: 0, checkpoints: 0 }
 }
 
 /**
@@ -386,7 +383,16 @@ function checked(
       locals: Parameters<CheckableArm['create']>[1],
       reads?: Parameters<CheckableArm['create']>[2],
     ) {
-      const handle = arm.create(source, locals, reads) as HarnessMobxPoolHandle
+      const counted: RowSource = {
+        ...source,
+        row: source.row === undefined
+          ? undefined
+          : ((kind, id) => {
+              wrapper.cold.loads += 1
+              return source.row!(kind, id)
+            }) as RowSource['row'],
+      }
+      const handle = arm.create(counted, locals, reads) as HarnessMobxPoolHandle
       const { pool } = handle
       // Kept alive as the mounted list keeps it (see OBSERVED).
       const stop = reaction(
@@ -394,25 +400,13 @@ function checked(
         () => {},
         { name: 'gate.observer' },
       )
-      const tally = (count = true): void => {
-        const counters = handle.pool.residency?.counters
-        if (counters === undefined) return
-        for (const key of Object.keys(counters) as (keyof typeof counters)[]) {
-          if (count) wrapper.cold[key] += counters[key]
-          counters[key] = 0
-        }
-      }
-      // The bootstrap's registrations are the bootstrap test's, not the run's.
-      tally(false)
       return {
         ...handle,
         snapshot() {
           wrapper.snapshots += 1
           // The checker snapshots once at boot and once per step.
           if (checks.full && wrapper.snapshots === STEPS + 1) {
-            tally()
-            fullResidencyCheck(handle, source, locals, `step ${STEPS - 1}`)
-            tally(false)
+            fullResidencyCheck(handle, counted, locals, `step ${STEPS - 1}`)
             wrapper.cold.checkpoints += 1
           }
           const settled = handle.snapshot()
@@ -528,7 +522,7 @@ describe('correctness gate (L4b), rebuild every step and the oracle at its defau
         expect(relationChecked.views).toBeGreaterThan(relationChecked.snapshots)
         const cold = { ...relationChecked.cold }
         // The run must have exercised cold rows, or its green says nothing about them.
-        expect(cold.coldWrites, `seed ${seed} touched no cold row`).toBeGreaterThan(0)
+        expect(cold.loads, `seed ${seed} loaded no cold row`).toBeGreaterThan(0)
         expect(cold.checkpoints, `seed ${seed} ran no full-residency checkpoint`).toBeGreaterThan(0)
         const plant = await checkArm(planted, sequence, { oracleEvery: 0, shrink: false })
         if (!plant.ok) plantedFailures += 1

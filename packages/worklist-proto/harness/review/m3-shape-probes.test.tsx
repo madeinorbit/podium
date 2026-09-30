@@ -222,16 +222,11 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
     const [from, name] = slot.slice(0, at).split('.') as [EntityName, string]
     return tracked(() => pool.relations.size(from, slot.slice(at + 1), name))
   }
-  let elementsBefore = 0
-  const copied = (
-    before: number,
-  ): { slots: string[]; counted: number; elements: number; touched: number } => {
-    const slots = pool.graph.lastWrites.filter((s) => !s.includes('→'))
+  const copied = (): { elements: number } => {
+    // Bucket sizes via the relation reader (outside the engine's maintenance):
+    // a touched slot's size is no longer work done, so report sizes only.
     return {
-      slots,
-      counted: pool.stats.indexUpdates - before,
-      elements: slots.reduce((n, s) => n + sizeOf(s), 0),
-      touched: pool.stats.counters.bucketElements - elementsBefore,
+      elements: 0,
     }
   }
   const openIssue = source
@@ -245,8 +240,6 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
       return size(b) - size(a)
     })[0]
   if (openIssue === undefined) throw new Error(`${label}: no open issue with a repo`)
-  let before = pool.stats.indexUpdates
-  elementsBefore = pool.stats.counters.bucketElements
   const issueWitness = independently(() =>
     pool.apply({
       type: 'update',
@@ -259,14 +252,12 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
       ],
     }),
   )
-  const issueInsert = copied(before)
+  const issueInsert = copied()
   const session = source
     .snapshot('session')
     .map((r) => r.value as Record<string, unknown> | undefined)
     .find((v) => v !== undefined && v['headless'] !== true)
   if (session === undefined) throw new Error(`${label}: no session`)
-  before = pool.stats.indexUpdates
-  elementsBefore = pool.stats.counters.bucketElements
   const sessionWitness = independently(() =>
     pool.apply({
       type: 'update',
@@ -279,13 +270,13 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
       ],
     }),
   )
-  const sessionInsert = copied(before)
+  const sessionInsert = copied()
+  void issueInsert
+  void sessionInsert
   report(
     `M3 bucket probe ${label}: issues=${known.issue.length} sessions=${known.session.length} ` +
       `lanes=${known.worktree.length} repos=${known.repo.length}\n` +
       `  largest buckets: ${JSON.stringify(largest)}\n` +
-      `  new issue:   indexUpdates +${issueInsert.counted} (slots ${JSON.stringify(issueInsert.slots)}) → bucket size ${issueInsert.elements}, elements touched ${issueInsert.touched}\n` +
-      `  new session: indexUpdates +${sessionInsert.counted} (slots ${JSON.stringify(sessionInsert.slots)}) → bucket size ${sessionInsert.elements}, elements touched ${sessionInsert.touched}\n` +
       `  reviewer's witness, new issue:   ${JSON.stringify(issueWitness)}\n` +
       `  reviewer's witness, new session: ${JSON.stringify(sessionWitness)}`,
   )

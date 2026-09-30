@@ -169,15 +169,14 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
     }
     if (planted) plant.target = target
 
-    const hydratedBefore = residency.counters.hydrated
-    let hydratedInStep = -1
-    // Count loads that land before runCountScenario samples its reads: the
+    const rowsBefore = pool.tables.issue.size + pool.tables.session.size
+    let rowsInStep = -1
+    // Count rows installed before runCountScenario samples its reads: the
     // sample is taken right after the step's act, so a load inside the act
-    // happens before the first `snapshot()` call (the harness handle's: the
-    // product pool has no snapshot).
+    // happens before the first `snapshot()` call.
     const snapshot = mounted.handle.snapshot.bind(mounted.handle)
     mounted.handle.snapshot = () => {
-      if (hydratedInStep < 0) hydratedInStep = residency.counters.hydrated - hydratedBefore
+      if (rowsInStep < 0) rowsInStep = pool.tables.issue.size + pool.tables.session.size - rowsBefore
       return snapshot()
     }
     const { result, readsBudget } = await step('#2')
@@ -188,6 +187,7 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
     } catch (error) {
       fence = (error as Error).message
     }
+    const rowsAfter = pool.tables.issue.size + pool.tables.session.size - rowsBefore
     const out: ArmResult = {
       arm: name,
       target,
@@ -195,8 +195,8 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
       chargedByEntity: result.reads?.byEntity,
       after: after.rows,
       afterByEntity: after.byEntity,
-      hydratedInStep,
-      hydratedAfterSample: residency.counters.hydrated - hydratedBefore - hydratedInStep,
+      hydratedInStep: rowsInStep,
+      hydratedAfterSample: rowsAfter - rowsInStep,
       rowsCommitted: result.rowsCommitted,
       plantRuns: plant.runs,
       plantLoadedRuns: plant.loadedRuns,
@@ -257,27 +257,27 @@ describe('a fence step counts the load its own change triggers (M3 re-review 2)'
         const residency = pool.residency!
         while (residency.hasQueued()) act(() => pool.hydrate())
         mounted.log.reset()
-        mounted.handle.stats.reset()
         mounted.reads.reset()
         const snapshot = mounted.handle.snapshot.bind(mounted.handle)
         let atSample = -1
         mounted.handle.snapshot = () => {
-          if (atSample < 0) atSample = residency.counters.hydrated
+          if (atSample < 0) atSample = pool.tables.issue.size + pool.tables.session.size
           return snapshot()
         }
         const cells = []
         for (const methodology of ['#1', '#2', '#3', '#4']) {
           const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)!
-          const before = residency.counters.hydrated
+          const before = pool.tables.issue.size + pool.tables.session.size
           atSample = -1
           const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry)
+          const afterStep = pool.tables.issue.size + pool.tables.session.size
           cells.push({
             methodology,
             charged: result.readsPerChange,
             readsBudget,
             rowsCommitted: result.rowsCommitted,
             hydratedInStep: atSample - before,
-            hydratedAfterSample: residency.counters.hydrated - atSample,
+            hydratedAfterSample: afterStep - atSample,
           })
         }
         const line = `[m3-step-load clean] ${name} ${JSON.stringify(cells)}\n`

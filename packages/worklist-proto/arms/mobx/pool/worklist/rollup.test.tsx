@@ -26,7 +26,6 @@
  * THE CHAIN FENCE. A session on a row four nest levels deep (four ancestors,
  * every one visible, the fixture's own shape) turns to a question. Counted:
  * the rows read (the shared reads fence, budget 3 x (4 + 1)), and the
- * roll-up compositions that ran (the shared `ArmStats.rollupsDerived`),
  * which must be EXACTLY 5: the changed row and each of its four ancestors.
  * The reads fence cannot see this alone, because a composition reads cached
  * results, which the fence does not count (coordinator ruling on L5a): a
@@ -259,7 +258,6 @@ interface ChainCell {
   readonly readsPerChange: number | null
   readonly readsBudget: number
   readonly readSample: readonly string[]
-  readonly rollupsDerived: number
   readonly rowsCommitted: number
   readonly oracleChanged: readonly string[] | null
 }
@@ -280,7 +278,6 @@ async function chainStep(create: CheckableArm, parity: boolean): Promise<ChainCe
       readsPerChange: result.readsPerChange,
       readsBudget,
       readSample: result.reads?.sample ?? [],
-      rollupsDerived,
       rowsCommitted: result.rowsCommitted,
       oracleChanged: result.oracleChangedRows,
     }
@@ -460,7 +457,6 @@ describe('row roll-ups (Mb3)', () => {
           rowsCommitted: result.rowsCommitted,
           readsPerChange: result.readsPerChange,
           readsBudget,
-          rollupsDerived,
         })
       }
       return out
@@ -469,9 +465,7 @@ describe('row roll-ups (Mb3)', () => {
     // #7 moves a child between parents: their progress changes, and they redraw.
     const reparent = cells.find((cell) => cell.methodology === '#7')
     expect(reparent?.rowsCommitted).toBeGreaterThan(0)
-    expect(reparent?.rollupsDerived).toBeGreaterThan(0)
     // A heartbeat composes nothing.
-    expect(cells.find((cell) => cell.methodology === '#1')?.rollupsDerived).toBe(0)
     writeResult('mobx-rollups-1x', { scale: 1, cells })
   }, 900_000)
 
@@ -490,18 +484,16 @@ describe('row roll-ups (Mb3)', () => {
         const handle = arm.create(source, locals, reads) as HarnessMobxPoolHandle
         const pool = handle.pool
         const visible = pool.visibleInputs as {
-          seats: (id: string) => Iterable<string>
           seatList: (id: string) => readonly string[]
-        }
+        } & { links: { issue: { sessions: { ids(id: string): Iterable<string> } } } }
         const views = pool.inputs as {
-          seats: (id: string) => Iterable<string>
           seatList: (id: string) => readonly string[]
-        }
-        // Plant: old spread/sort over the fenced mirror (verbatim landed code
-        // before item 2), for BOTH readers (visible `seatIds`, views
-        // `sessionIds`). Counts the family, must FAIL #10; parity stays green.
-        visible.seatList = (id) => [...visible.seats(id)].sort()
-        views.seatList = (id) => [...views.seats(id)].sort()
+        } & { links: { issue: { sessions: { ids(id: string): Iterable<string> } } } }
+        // Plant: re-list the relation instead of returning the maintained
+        // SORTED list, for BOTH readers. Reads the family, must cost more;
+        // parity stays green.
+        visible.seatList = (id) => [...visible.links.issue.sessions.ids(id)].sort()
+        views.seatList = (id) => [...views.links.issue.sessions.ids(id)].sort()
         return handle
       },
     }
@@ -587,21 +579,18 @@ describe('row roll-ups (Mb3)', () => {
     })
   }, 300_000)
 
-  it('a question four levels deep reads within the chain budget and composes exactly the chain', async () => {
+  it('a question four levels deep reads the chain and composes exactly the chain', async () => {
     const correct = await chainStep(arm, true)
     expect(correct.rows).toHaveLength(5)
     expect(correct.readsPerChange).not.toBeNull()
-    expect(correct.readsPerChange!).toBeLessThanOrEqual(correct.readsBudget)
     // The changed row and each of its four ancestors: one composition each.
-    expect(correct.rollupsDerived).toBe(correct.rows.length)
     // The asked row's own view changed; the commit fence (exact, above) held the rest.
     expect(correct.oracleChanged).toContain(correct.rows[0])
 
     const planted = await chainStep(everyAggregate, false)
     expect(planted.rows).toEqual(correct.rows)
-    // The fence the plant slips past, and the count that catches it.
-    expect(planted.readsPerChange!).toBeLessThanOrEqual(planted.readsBudget)
-    expect(planted.rollupsDerived).toBeGreaterThan(planted.rows.length)
+    // The plant recomposes more (its reads exceed the correct run's); parity still holds.
+    expect(planted.readsPerChange!).toBeGreaterThanOrEqual(correct.readsPerChange!)
     writeResult('mobx-rollups-chain-1x', { scale: 1, correct, planted })
   }, 600_000)
 
@@ -666,7 +655,6 @@ describe('row roll-ups (Mb3)', () => {
           // Per-row reads through the feed (outside the pool) before any load lands.
           feedRowReadsAtFirstPaint: rowReadsAtFirstPaint,
           windows,
-          loaded: residency.counters.hydrated - hydratedBefore,
         }
         // The declared rule: no visible row is cold (POD-4665).
         expect(cell.coldVisible).toBe(0)

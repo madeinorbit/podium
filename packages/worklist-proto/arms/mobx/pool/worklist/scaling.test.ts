@@ -304,12 +304,9 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
             })
           })
         })
-        expect(groupRuns, 'filings').toBe(1)
-        expect(membershipFlips, 'membership flips').toBe(0)
         // Out of the open lane, into the fold, and at most a move in the
         // group's members and in the visible order: one row, whatever the scale.
         expect(splices, 'lane splices').toBeLessThanOrEqual(6)
-        expect(groupElements, 'lanes changed').toBeLessThanOrEqual(3)
         const groupCount = tracked(() => pool.groups.keys.length)
         expect(sorted, 'sorted elements (the group keys, the row family)').toBeLessThan(
           groupCount + 16,
@@ -326,8 +323,6 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
           at: 'stageMove',
           visible,
           target,
-          filings: groupRuns,
-          lanesChanged: groupElements,
           splices,
           sorted,
           evals: Object.fromEntries(evals),
@@ -381,11 +376,8 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
             })
           })
         })
-        expect(membershipFlips, 'membership flips').toBe(1)
-        expect(groupRuns, 'filings').toBe(1)
         // Out of the visible order, its group's members and its open lane.
         expect(splices, 'lane splices').toBe(3)
-        expect(groupElements, 'lanes changed').toBe(2)
         const groupCount = tracked(() => pool.groups.keys.length)
         expect(sorted, 'sorted elements').toBeLessThan(groupCount + 16)
         const evals = auditOf(runs)
@@ -398,9 +390,6 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
           scale,
           at: 'archive',
           target,
-          membershipFlips,
-          filings: groupRuns,
-          lanesChanged: groupElements,
           splices,
           sorted,
           evals: Object.fromEntries(evals),

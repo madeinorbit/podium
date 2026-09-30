@@ -258,7 +258,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
           issue: handle.pool.residency?.size('issue') ?? 0,
           session: handle.pool.residency?.size('session') ?? 0,
         },
-        models: handle.pool.stats.counters.modelsCreated,
+        models: handle.pool.modelCount('issue') + handle.pool.modelCount('session'),
         observables: Object.values(built).reduce((a, b) => a + b, 0),
         byMap: built,
         drawn: drawn.length,
