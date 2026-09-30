@@ -10,7 +10,7 @@ import { createEngineLocals } from '../src/engine-locals'
 import { createRowSource } from '../../shared/src/row-source'
 import { startScenarioEngine, writeNewIssue } from '../../shared/src/scenarios'
 import { WindowPlan } from '../../arms/mobx/pool/react/list'
-import type { WorklistGroups } from '../../arms/mobx/pool/worklist/groups'
+import type { WorklistGroups } from '@podium/client-graph/worklist/groups'
 import { pageEngineOptions } from '../web/entrylib'
 
 interface Sample { ms: number | undefined; keyCalls: number; sizeCalls: number; count: number }

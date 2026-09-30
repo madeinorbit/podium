@@ -1,7 +1,7 @@
 /** Fixed geometry has no row measurement cache, including after same-count moves. */
 import { describe, expect, it } from 'vitest'
 import { HEADER_HEIGHT, ROW_HEIGHT, WindowPlan } from '../react/list'
-import type { WorklistGroups } from './groups'
+import type { WorklistGroups } from '@podium/client-graph/worklist/groups'
 
 // Declared lane summaries only: the plan never needs a row or a known-row index.
 function lanes(pinnedIds: readonly string[], groups: { key: string; rowIds: readonly string[]; closedIds: readonly string[] }[]): WorklistGroups {

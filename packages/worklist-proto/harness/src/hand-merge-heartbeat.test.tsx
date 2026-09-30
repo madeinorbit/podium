@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
-import { awaitingMergeOf } from '../../shared/src/schema'
+import { awaitingMergeOf } from '@podium/client-graph/shared/schema'
 import { startScenarioEngine } from '../../shared/src/scenarios'
 import { diffSnapshots } from '../../shared/src/gen/check'
-import type { SliceIssue, SliceSnapshot } from '../../shared/src/slice-types'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
+import type { SliceSnapshot } from '../../shared/src/slice-types'
 import { harnessHandPoolArm } from './adapters/hand-pool'
 import { assertCommits, mountArmForCounts } from './count-harness'
 import {
