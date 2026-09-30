@@ -274,7 +274,7 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
       let audit: { stop(): void } | undefined
       try {
         const { pool } = r.handle
-        const visible = visibleOrderOf(pool).length
+        const visible = tracked(() => visibleOrderOf(pool).length)
         const target = stageTarget(pool)
         const key = tracked(() => groupOf(pool, target)) as string
         const base = corpusIssue(r, target)
@@ -385,7 +385,7 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
         expect(evals.get('latchedOpenId') ?? 0, 'latch executions').toBe(0)
         expectOnlyGroup(evals, key)
         expect(tracked(() => pool.knownIssue(target)?.visible), 'archived row leaves').toBe(false)
-        expect(visibleOrderOf(pool).includes(target)).toBe(false)
+        expect(tracked(() => visibleOrderOf(pool).includes(target))).toBe(false)
         writeResult(`mobx-scaling-4686-${scale}x-archive`, {
           scale,
           at: 'archive',

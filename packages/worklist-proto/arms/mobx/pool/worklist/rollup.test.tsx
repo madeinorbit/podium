@@ -364,7 +364,7 @@ async function familyRig(eagerRollups = false) {
       pool.hydrate()
     }
     windows.length = 0
-    return Object.assign(asked, { visible: new Set(visibleOrderOf(pool)) })
+    return Object.assign(asked, { visible: new Set(tracked(() => visibleOrderOf(pool))) })
   }
   return {
     ctx,
@@ -490,7 +490,7 @@ describe('row roll-ups (Mb3)', () => {
       try {
         const residency = pool.residency!
         // Mounted, nothing landed yet: what every drawn row shows.
-        const visible = [...visibleOrderOf(pool)]
+        const visible = tracked(() => [...visibleOrderOf(pool)])
         const firstPaint = tracked(() =>
           visible.map((id) => {
             const view = rowViewOf(pool.issue(id))

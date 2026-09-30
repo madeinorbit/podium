@@ -443,7 +443,7 @@ describe('dispose', () => {
     r.locals.flush()
     expect(r.listeners()).toBe(2)
     expect(getObserverTree(pool.groups, 'keys').observers?.length ?? 0).toBeGreaterThan(0)
-    expect(visibleOrderOf(pool).length).toBeGreaterThan(0)
+    expect(tracked(() => visibleOrderOf(pool).length)).toBeGreaterThan(0)
 
     await act(async () => {
       r.dispose()
@@ -457,7 +457,7 @@ describe('dispose', () => {
     }
     expect(tracked(() => pool.selection.size)).toBe(0)
     expect(getObserverTree(pool.groups, 'keys').observers ?? []).toEqual([])
-    expect(visibleOrderOf(pool)).toEqual([])
+    expect(tracked(() => visibleOrderOf(pool))).toEqual([])
     expect(tracked(() => pool.issue(models[0]!.id))).toBeUndefined()
     // A row view is a cached group on its issue, dropped once unobserved; one
     // still observed would observe its table slots, which the check above

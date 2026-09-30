@@ -193,7 +193,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
         },
         { timeout: 20_000, interval: 50 },
       )
-      const visible = visibleOrderOf(clean.pool).length
+      const visible = tracked(() => visibleOrderOf(clean.pool).length)
       // The plant draws the whole visible list: every drawn row is visible,
       // and far more than the real mount's window draws.
       const plantedIds = drawnIds(list)
@@ -263,7 +263,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
         observables: Object.values(built).reduce((a, b) => a + b, 0),
         byMap: built,
         drawn: drawn.length,
-        visible: visibleOrderOf(handle.pool).length,
+        visible: tracked(() => visibleOrderOf(handle.pool).length),
         pendingLoads: handle.pendingLoads(),
       }
       // The lazy baseline (POD-4567, POD-4705): cold rows stay out, the mount

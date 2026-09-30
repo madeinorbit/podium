@@ -329,7 +329,7 @@ describe('groups and closed folds (Mb2)', () => {
       expect(latched?.lane).toBe('open')
       // At its rank: every open neighbour before it ranks before it.
       const open = tracked(() => pool.groups.group(latched!.key).rowIds)
-      const rank = visibleOrderOf(pool)
+      const rank = tracked(() => visibleOrderOf(pool))
       for (let i = 1; i < open.length; i += 1) {
         expect(rank.indexOf(open[i - 1]!)).toBeLessThan(rank.indexOf(open[i]!))
       }
@@ -412,7 +412,7 @@ describe('the windowed web list (Mb2)', () => {
           </CommitLogContext.Provider>,
         )
       })
-      const visible = visibleOrderOf(pool).length
+      const visible = tracked(() => visibleOrderOf(pool).length)
       const drawn = () => el.querySelectorAll('[data-issue-row], [data-loading-row]').length
       const firstWindow = drawn()
       // A window, not the list: the viewport's worth of items plus overscan.
