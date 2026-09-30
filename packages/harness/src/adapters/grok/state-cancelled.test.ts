@@ -63,7 +63,9 @@ const completions = observed.filter(
     row.file.endsWith('/updates.jsonl') &&
     row.rec.params?.update.sessionUpdate === 'turn_completed',
 )
-const cancelRecord = required(completions.find((row) => row.rec.params?.update.prompt_id === promptId))
+const cancelRecord = required(
+  completions.find((row) => row.rec.params?.update.prompt_id === promptId),
+)
 const tmpDirs: string[] = []
 
 afterEach(async () => {
