@@ -24,10 +24,13 @@ function nativeList(): string {
 }
 
 describe('native entry mounts the round-three MobX pool', () => {
-  it('harness adapter exposes mountNative from the pool native list', () => {
+  it('harness adapter wraps the product arm and exposes its mounts', () => {
     const code = harnessAdapter()
     expect(code, 'the harness arm value').toContain('harnessMobxPoolArm')
-    expect(code, 'the native list chunk').toContain('native/list')
+    // POD-4944: the adapter wraps the product entry point (the ONE create)
+    // and delegates the mounts to it, so it names the product arm, not the
+    // native list chunk.
+    expect(code, 'the product arm under the adapter').toContain('arms/mobx/pool/arm')
     expect(code, 'the native entry').toContain('mountNative')
   })
 
@@ -38,12 +41,16 @@ describe('native entry mounts the round-three MobX pool', () => {
     expect(code, 'not the unenforcing boundary').not.toContain('CommitBoundary')
   })
 
-  it('the harness adapter module reaches the native list', () => {
+  it('the harness adapter module reaches the native list through the product arm', () => {
     // By module, not by spelling (POD-4577: a text grep misses a relative
     // import of the same file). Renderer-free: the graph walk reads source,
-    // it never executes arm code. The adapter lazy-imports the product
-    // native list directly (`HarnessPoolNativeList`).
+    // it never executes arm code. The adapter delegates `mountNative` to the
+    // product arm, which lazy-imports the product native list (POD-4944: the
+    // adapter holds no list chunk of its own).
     const graph = moduleGraphOf(join(PACKAGE_DIR, 'harness/src/adapters/mobx-pool.ts'))
+    expect(graph, 'the product arm under the adapter').toContain(
+      join(PACKAGE_DIR, 'arms/mobx/pool/arm.ts'),
+    )
     expect(graph, 'the native entry').toContain(join(PACKAGE_DIR, 'arms/mobx/pool/native/list.tsx'))
   })
 

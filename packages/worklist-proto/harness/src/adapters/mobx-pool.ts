@@ -1,6 +1,6 @@
 /**
- * POD-4760 — the MobX pool's harness adapter: helpers that exist only for the
- * test harness, on top of the pool's public product API.
+ * POD-4760 + POD-4944 — the MobX pool's harness adapter: helpers that exist
+ * only for the test harness, on top of the pool's public product API.
  *
  * The product pool (`arms/mobx/pool/pool.ts`) keeps only what production
  * needs: tables, relations, visibility maintenance, the load window
@@ -14,15 +14,15 @@
  * - the drain helpers (`settlePoolLoads`, `poolPendingLoads`,
  *   `residentIssueIdsOf`) and the settling snapshot (`snapshotPool`);
  * - `harnessMobxPoolArm`: the full `CheckableArm` + `LazyArmHandle` the
- *   fences, gates and lanes run, wrapping the product arm's pool creation
- *   and mounts and adding the harness snapshot / rebuild / drain hooks;
- * - `harnessWritableMobxPoolArm`: the same with the write layer attached
- *   (optimism-aware rebuild), for the write gates.
+ *   fences, gates and lanes run. It wraps the product arm's handle
+ *   (`mobxPoolArm.create`) — the ONE entry point — and adds only the
+ *   harness snapshot / rebuild / drain hooks plus the flush bookkeeping;
+ * - `harnessWritableMobxPoolArm`: the same over the product write arm
+ *   (`writableMobxPoolArm(...).create(...)`), with the optimism-aware
+ *   rebuild on top.
  */
 
-import { createElement, lazy, type ReactElement, Suspense } from 'react'
 import { flushSync } from 'react-dom'
-import { createRoot, type Root } from 'react-dom/client'
 import { autorun } from 'mobx'
 import type {
   CheckableArm,
@@ -32,18 +32,17 @@ import type {
   RowSource,
 } from '../../../shared/src/arm'
 import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
-import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
-import { sliceRowOf } from '../../../shared/src/row-view'
 import type { SliceSnapshot } from '../../../shared/src/slice-types'
 import type { RowRecord } from '../../../shared/src/stats'
 import type { WriteTransport } from '../../../shared/src/write-contract'
-import { MobxPool, type PoolLazyOptions, type WriteSeam } from '../../../arms/mobx/pool/pool'
-import { PoolList } from '../../../arms/mobx/pool/react/list'
+import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
+import type { MobxPool, PoolLazyOptions, WriteSeam } from '../../../arms/mobx/pool/pool'
 import { rebuildSnapshot } from '../../../arms/mobx/pool/rebuild'
 import { rowViewOf } from '../../../arms/mobx/pool/models'
 import { sliceOrderOf } from '../../../arms/mobx/pool/worklist/groups'
-import { createMobxWriteApi, type MobxWriteApi } from '../../../arms/mobx/pool/write/edit'
-import { PendingOverlay } from '../../../arms/mobx/pool/write/overlay'
+import { sliceRowOf } from '../../../shared/src/row-view'
+import type { MobxWriteApi } from '../../../arms/mobx/pool/write/edit'
+import { writableMobxPoolArm } from '../../../arms/mobx/pool/write/arm'
 import type { SliceIssue } from '../../../shared/src/slice-types'
 
 /** Load rounds the harness drain allows before it gives up (a load that never lands). */
@@ -136,8 +135,20 @@ export function snapshotPool(pool: MobxPool): SliceSnapshot {
   }
 }
 
-/** Loaded on first native mount only: the node lanes cannot parse `react-native`. */
-const HarnessPoolNativeList = lazy(() => import('../../../arms/mobx/pool/native/list'))
+/**
+ * The harness drain over a product-mounted pool: flush the mounted roots,
+ * then close the load window, until nothing is queued.
+ */
+function settleWithFlush(pool: MobxPool, isMounted: () => boolean): void {
+  for (let round = 0; ; round += 1) {
+    if (isMounted()) flushSync(() => {})
+    if (poolPendingLoads(pool) === 0) return
+    if (round >= REDRAW_ROUNDS) {
+      throw new Error(`[pool] loads did not settle in ${REDRAW_ROUNDS} redraw rounds`)
+    }
+    settlePoolLoads(pool)
+  }
+}
 
 /** The harness handle: the live pool beside the full checker + lazy hooks. */
 export type HarnessMobxPoolHandle = CheckableArmHandle & LazyArmHandle & {
@@ -151,16 +162,14 @@ export type HarnessWritableMobxPoolHandle = CheckableArmHandle & LazyArmHandle &
   readonly write: MobxWriteApi
 }
 
-function editableOf(value: SliceIssue): { title: string; stage: string; readAt: string | null } {
-  return { title: value.title, stage: value.stage, readAt: (value.readAt ?? null) as string | null }
-}
-
 /**
  * The harness MobX arm over the product pool: a `CheckableArm` +
- * `LazyArmHandle` for the fences, gates and lanes. It creates the product
- * pool exactly as the product arm does (seed + feed/locals subscriptions),
- * mounts the product lists, and adds the harness snapshot / rebuild / drain
- * hooks on top of the pool's public API.
+ * `LazyArmHandle` for the fences, gates and lanes. It creates the pool
+ * through the product arm (`mobxPoolArm.create`, the ONE entry point) and
+ * adds only what the harness needs on top of the returned product handle:
+ * the settling snapshot, the rebuild, the drain hooks, and the
+ * mounted-roots flush bookkeeping (kept here by wrapping `mountWeb`, so the
+ * product handle needs no test-only seam).
  */
 export const harnessMobxPoolArm = {
   create(
@@ -170,84 +179,46 @@ export const harnessMobxPoolArm = {
     loader: Omit<PoolLazyOptions, 'load'> = {},
     writes?: WriteSeam,
   ): HarnessMobxPoolHandle {
-    const row = source.row?.bind(source)
-    if (row === undefined) {
-      throw new Error(
-        '[pool] the feed has no per-row read (RowSource.row): a lazy pool cannot load a cold row',
-      )
-    }
-    const pool = new MobxPool(locals.get(), undefined, { ...loader, load: row }, writes)
-    pool.apply({
-      type: 'replace',
-      rows: [
-        ...source.snapshot('session'),
-        ...source.snapshot('issue'),
-        ...source.snapshot('worktree'),
-      ],
-    })
-    const offRows = source.subscribe((event) => pool.apply(event))
-    const offLocals = locals.subscribe((changed) => pool.applyLocals(locals.get(), changed))
-    const roots = new Set<Root>()
+    const base = mobxPoolArm.create(source, locals, _reads, loader, writes)
+    const pool = base.pool
     let webMounts = 0
-    const stats = {
-      rowsDerived: 0,
-      rollupsDerived: 0,
-      indexUpdates: 0,
-      notifications: 0,
-      reset(): void {},
-    }
+    const originalMountWeb = base.mountWeb.bind(base)
+    const originalDispose = base.dispose.bind(base)
     return {
       pool,
-      stats,
+      stats: base.stats,
       snapshot: () => snapshotPool(pool),
       rebuildFromScratch: () => rebuildSnapshot(source, locals, residentIssueIdsOf(pool)),
-      settleLoads: () => {
-        for (let round = 0; ; round += 1) {
-          if (webMounts > 0 || roots.size > 0) flushSync(() => {})
-          if (poolPendingLoads(pool) === 0) return
-          if (round >= REDRAW_ROUNDS) {
-            throw new Error(`[pool] loads did not settle in ${REDRAW_ROUNDS} redraw rounds`)
-          }
-          settlePoolLoads(pool)
-        }
-      },
+      settleLoads: () => settleWithFlush(pool, () => webMounts > 0),
       pendingLoads: () => poolPendingLoads(pool),
       dispose(): void {
-        offRows()
-        offLocals()
-        for (const root of roots) root.unmount()
-        roots.clear()
         webMounts = 0
-        pool.dispose()
+        originalDispose()
       },
       mountWeb(el: Element): () => void {
-        const root = createRoot(el)
-        roots.add(root)
         webMounts += 1
-        root.render(
-          createElement(
-            CommitLogContext.Provider,
-            { value: currentCommitLog() },
-            createElement(PoolList, { pool }),
-          ),
-        )
+        const unmount = originalMountWeb(el)
+        let done = false
         return () => {
-          if (!roots.delete(root)) return
+          if (done) return
+          done = true
           webMounts -= 1
-          root.unmount()
+          unmount()
         }
       },
-      mountNative(): ReactElement {
-        return createElement(Suspense, { fallback: null }, createElement(HarnessPoolNativeList, { pool }))
-      },
+      mountNative: () => base.mountNative(),
     }
   },
 } satisfies CheckableArm
 
 /**
  * The harness writable MobX arm: the product pool with the write layer
- * attached, for the write gates. The optimism-aware rebuild overlays the
- * pending display onto the feed's server rows before deriving, so a gate with
+ * attached, for the write gates. It creates the pool through the product
+ * write arm (`writableMobxPoolArm(...).create(...)`, the ONE writable entry
+ * point — including its feed and receipt wiring) and adds only what the
+ * harness needs: the settling snapshot, the drain hooks, the flush
+ * bookkeeping, and the optimism-aware rebuild, which overlays the pending
+ * display onto the feed's server rows before deriving, so a gate with
  * pending edits outstanding compares the live pending view with a pending
  * rebuild — never with server truth.
  */
@@ -257,22 +228,12 @@ export function harnessWritableMobxPoolArm(
 ): CheckableArm {
   return {
     create(source: RowSource, locals: LocalsSource, reads?: ReadFence): HarnessWritableMobxPoolHandle {
-      const overlay = new PendingOverlay()
-      const base = harnessMobxPoolArm.create(source, locals, reads, loader, overlay)
-      const pool = base.pool
-      const write = createMobxWriteApi(pool, overlay, transport)
-      write.bootstrap(source)
-      const offRemote = source.subscribe((event) => {
-        for (const row of event.rows) {
-          if (row.kind !== 'issue' || row.value === undefined) continue
-          write.handleRemote('issue', row.id, editableOf(row.value as SliceIssue))
-        }
-      })
-      const offReceipts = transport.subscribe((event) => {
-        if (event.type === 'accepted') write.handleAccepted(event.txId)
-        else if (event.type === 'rejected') write.reject({ txId: event.txId, error: event.error })
-        else write.handleSuperseded(event.txId)
-      })
+      const product = writableMobxPoolArm(transport, loader).create(source, locals, reads)
+      const pool = product.pool
+      const write = product.write
+      let webMounts = 0
+      const originalMountWeb = product.mountWeb.bind(product)
+      const originalDispose = product.dispose.bind(product)
       const pendingSource: RowSource = {
         ...source,
         snapshot: (kind: RowRecord['kind']): RowRecord[] => {
@@ -300,20 +261,30 @@ export function harnessWritableMobxPoolArm(
               }) as RowSource['row'],
             }),
       }
-      const originalDispose = base.dispose.bind(base)
-      const originalRebuild = base.rebuildFromScratch.bind(base)
-      void originalRebuild
       return {
-        ...base,
         pool,
         write,
+        stats: product.stats,
+        snapshot: () => snapshotPool(pool),
         rebuildFromScratch: () => rebuildSnapshot(pendingSource, locals),
+        settleLoads: () => settleWithFlush(pool, () => webMounts > 0),
+        pendingLoads: () => poolPendingLoads(pool),
         dispose(): void {
-          offRemote()
-          offReceipts()
-          write.dispose()
+          webMounts = 0
           originalDispose()
         },
+        mountWeb(el: Element): () => void {
+          webMounts += 1
+          const unmount = originalMountWeb(el)
+          let done = false
+          return () => {
+            if (done) return
+            done = true
+            webMounts -= 1
+            unmount()
+          }
+        },
+        mountNative: () => product.mountNative(),
       }
     },
   }
