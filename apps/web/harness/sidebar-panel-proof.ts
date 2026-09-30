@@ -64,11 +64,12 @@ try {
   await page.waitForTimeout(2500)
   // Start once startup/mount work has settled. Sampling calls ONLY the same
   // scalar reader as the panel. It never derives or snapshots the sidebar.
-  const readReport = () => page.evaluate(() => {
-    const perf = globalThis.__podiumSidebarPerf
-    if (!perf) throw new Error('Performance counter reader not installed')
-    return perf.read()
-  })
+  const readReport = () =>
+    page.evaluate(() => {
+      const perf = globalThis.__podiumSidebarPerf
+      if (!perf) throw new Error('Performance counter reader not installed')
+      return perf.read()
+    })
   const before = await readReport()
   const samples: unknown[] = []
   const began = Date.now()

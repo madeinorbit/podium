@@ -150,22 +150,23 @@ export function createSidebarPerf(clock: () => number = () => performance.now())
     read() {
       const at = clock()
       prune(at)
+      const update = lastUpdate
       return {
         observedMs: at - openedAt,
         windowMs: Math.min(WINDOW_MS, at - openedAt),
         complete: at - overflowAt >= WINDOW_MS,
         idle: workOf(entries.filter((entry) => entry.idle && !entry.check)),
         checkWork: workOf(entries.filter((entry) => entry.check)),
-        lastUpdate: lastUpdate
+        lastUpdate: update
           ? {
-              changed: [...lastUpdate.changed],
-              at: lastUpdate.at,
-              pending: updates.has(lastUpdate.token),
-              work: updates.has(lastUpdate.token)
+              changed: [...update.changed],
+              at: update.at,
+              pending: updates.has(update.token),
+              work: updates.has(update.token)
                 ? workOf(
-                    entries.filter((entry) => entry.update === lastUpdate.token && !entry.check),
+                    entries.filter((entry) => entry.update === update.token && !entry.check),
                   )
-                : { ...lastUpdate.work },
+                : { ...update.work },
             }
           : null,
         input: {

@@ -64,14 +64,20 @@ describe('sidebar measurement boundary', () => {
     perf.record({ rows: 1 })
     expect(perf.read().idle.rows).toBe(0)
     at = 200
-    paints.splice(0).forEach((done) => { done() })
+    paints.splice(0).forEach((done) => {
+      done()
+    })
     fireEvent.keyDown(screen.getByText('Row'), { key: 'Enter' })
     at = 300
-    paints.splice(0).forEach((done) => { done() })
+    paints.splice(0).forEach((done) => {
+      done()
+    })
     expect(perf.read().input.count).toBe(2)
     fireEvent.click(screen.getByText('Other'))
     fireEvent.click(screen.getByText('Panel'))
-    paints.splice(0).forEach((done) => { done() })
+    paints.splice(0).forEach((done) => {
+      done()
+    })
     expect(perf.read().input.count).toBe(2)
     stop()
     fireEvent.click(screen.getByText('Row'))
