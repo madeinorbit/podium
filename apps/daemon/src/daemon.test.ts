@@ -1,3 +1,4 @@
+import { hasLegacyAbduco, legacyAbducoBin } from '../../../packages/pty/src/legacy-abduco-fixture'
 import { execFileSync } from 'node:child_process'
 import {
   chmodSync,
@@ -38,13 +39,11 @@ import {
   abducoHasSession,
   directPtyDurableForTests,
   hostHasSession,
-  isAbducoAvailable,
   isHostAvailable,
   killAbducoSession,
   killHostSession,
   listLiveHostLabels,
   reapAbducoTestSessions,
-  resolveAbducoBin,
   waitForAbducoSocket,
 } from '@podium/process/durable'
 import { stateDir } from '@podium/runtime/config'
@@ -2512,32 +2511,61 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
  * a private SHORT socket root, and then drives a daemon on the host backend
  * against it.
  */
-describe.skipIf(!isAbducoAvailable() || !isHostAvailable())('daemon adopts a running abduco session', () => {
+describe.skipIf(!hasLegacyAbduco)('daemon adopts a running abduco session', () => {
+  const legacyBinding = (sessionId: SessionId) => ({
+    transitionId: `test:legacy-adopt:${sessionId}`,
+    machineAccess: 'allowed' as const,
+    sessionAccess: 'allowed' as const,
+    principal: { kind: 'user' as const, userId: TEST_BINDING_USER },
+    delegation: {
+      actor: asAgentIdentityId(`legacy:${sessionId}`),
+      onBehalfOf: TEST_BINDING_USER,
+      grantedScope: { kind: 'none' as const },
+      parentBindingId: null,
+      revision: 1,
+    },
+    adopt: { ownerUserId: TEST_BINDING_USER },
+  })
   const savedSocketDir = process.env.ABDUCO_SOCKET_DIR
   let socketRoot = ''
+  const envKeys = ['HOME', 'PATH', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_STATE_DIR', 'PODIUM_NO_SCOPE'] as const
+  const savedEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]))
   beforeAll(() => {
     // Short and private: abduco composes `<root>/abduco/<user>/<label>@<host>`
     // into a sun_path, and a session here must never land in a live root.
     socketRoot = mkdtempSync('/tmp/pdab-')
     process.env.ABDUCO_SOCKET_DIR = socketRoot
+    process.env.HOME = join(socketRoot, 'home')
+    process.env.PODIUM_HOST_SOCKET_DIR = join(socketRoot, 'host')
+    process.env.PODIUM_STATE_DIR = join(socketRoot, 'state')
+    process.env.PODIUM_NO_SCOPE = '1'
+    // The fixture is invoked by absolute path; neither daemon generation can
+    // resolve an abduco executable, or any tool, from PATH.
+    process.env.PATH = join(socketRoot, 'empty-path')
+    mkdirSync(process.env.PATH, { recursive: true })
   })
   afterAll(async () => {
     await reapAbducoTestSessions([/^podium-ab-(?:mixed|noexit)-(\d+)$/])
     if (savedSocketDir === undefined) delete process.env.ABDUCO_SOCKET_DIR
     else process.env.ABDUCO_SOCKET_DIR = savedSocketDir
+    for (const key of envKeys) {
+      const value = savedEnv[key]
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
     if (socketRoot) rmSync(socketRoot, { recursive: true, force: true })
   })
 
   /** What an older Podium's spawn left running: a detached abduco master. */
   async function startAbducoSessionLikeAnOlderPodium(label: string): Promise<void> {
-    const bin = resolveAbducoBin()
+    const bin = legacyAbducoBin
     if (!bin) throw new Error('no abduco binary')
     execFileSync(bin, ['-n', label, process.execPath, FIXTURE], { env: process.env, stdio: 'ignore' })
     await waitForAbducoSocket(label, process.env, { timeoutMs: 5000 })
   }
 
   it(
-    'MIXED FLEET (SPEC-6 item 14): a session an older Podium created under abduco reattaches onto a host-backend daemon',
+    're-adopts a running session after a daemon restart with no abduco binary on PATH',
     async () => {
       const sessionId = asSessionId(`ab-mixed-${process.pid}`)
       const label = `podium-${sessionId}`
@@ -2592,8 +2620,15 @@ describe.skipIf(!isAbducoAvailable() || !isHostAvailable())('daemon adopts a run
           agentKind: 'claude-code',
           cwd: '/tmp',
           lastKnownGeometry: G,
+        binding: legacyBinding(sessionId),
         })
-        await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+        await waitFor(() =>
+          received.some(
+            (m) =>
+              (m.type === 'bind' || m.type === 'reattachFailed') && m.sessionId === sessionId,
+          ),
+        )
+      expect(received.find((m) => m.type === 'reattachFailed')).toBeUndefined()
         expect(received.some((m) => m.type === 'reattachFailed')).toBe(false)
         // It came back through the abduco adoption adapter — and behaves as an
         // abduco session: an attach client that cannot read the size back.
@@ -2606,6 +2641,50 @@ describe.skipIf(!isAbducoAvailable() || !isHostAvailable())('daemon adopts a run
         received.length = 0
         send({ type: 'resize', sessionId, cols: 120, rows: 45 })
         await waitFor(() => painted().includes('cols=120 rows=45'))
+        await daemon.close()
+        expect(await abducoHasSession(label)).toBe(true)
+        expect(received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId)).toBe(false)
+        received.length = 0
+        const reconnected = new Promise<void>((resolve) => {
+          wss.once('connection', (ws) => {
+            serverSocket = ws
+            handshakeAndCollect(ws, received)
+            resolve()
+          })
+        })
+        daemon = await startDaemon({
+          serverUrl: `ws://localhost:${port}`,
+          machineToken: 'test',
+          agentRelay: { port: 0 },
+          discovery: { background: false, cachePath: ':memory:' },
+          hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
+          backend: 'host',
+        })
+        await reconnected
+        send({
+          type: 'reattach',
+          sessionId,
+          durableLabel: label,
+          agentKind: 'claude-code',
+          cwd: '/tmp',
+          lastKnownGeometry: { cols: 90, rows: 20 },
+          binding: legacyBinding(sessionId),
+        })
+        await waitFor(() =>
+          received.some(
+            (m) =>
+              (m.type === 'bind' || m.type === 'reattachFailed') && m.sessionId === sessionId,
+          ),
+        )
+      expect(received.find((m) => m.type === 'reattachFailed')).toBeUndefined()
+        expect(received.some((m) => m.type === 'reattachFailed')).toBe(false)
+        send({
+          type: 'input',
+          sessionId,
+          inputOrigin: 'human',
+          data: Buffer.from('restart\r').toString('base64'),
+        })
+        await waitFor(() => painted().includes('last-input=726573746172740d'))
       } finally {
         await daemon?.close()
         await killAbducoSession(label)
@@ -2615,15 +2694,14 @@ describe.skipIf(!isAbducoAvailable() || !isHostAvailable())('daemon adopts a run
     40000,
   )
 
-  it('does NOT report agentExit when the attach client of an adopted abduco session dies but the master survives', async () => {
+  it('does NOT report agentExit when the daemon detaches but the master survives', async () => {
     // Regression: a backend restart (disposeAll), a user detach, or a client crash
-    // all kill an adopted session's abduco ATTACH CLIENT. The master + agent live
+    // all close an adopted session's native attachment. The master + agent live
     // on, so the daemon must stay silent — a stray agentExit makes the relay
     // persist a LIVE session as 'exited' and orphan the still-running agent (boot
     // never reattaches an 'exited' row). Only a vanished master is a real exit. We
-    // reproduce the client death directly (SIGKILL the `abduco -a` process) while
-    // the daemon's control channel stays open, so any wrongful agentExit is
-    // observable.
+    // shut down the daemon while its control channel remains observable and
+    // require the surviving master to remain live without an agentExit.
     const sessionId = asSessionId(`ab-noexit-${process.pid}`)
     const label = `podium-${sessionId}`
     const wss = new WebSocketServer({ port: 0 })
@@ -2669,39 +2747,21 @@ describe.skipIf(!isAbducoAvailable() || !isHostAvailable())('daemon adopts a run
         agentKind: 'claude-code',
         cwd: '/tmp',
         lastKnownGeometry: G,
+        binding: legacyBinding(sessionId),
       })
-      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      await waitFor(() =>
+        received.some(
+          (m) =>
+            (m.type === 'bind' || m.type === 'reattachFailed') && m.sessionId === sessionId,
+        ),
+      )
+      expect(received.find((m) => m.type === 'reattachFailed')).toBeUndefined()
       expect(await abducoHasSession(label)).toBe(true)
       received.length = 0
 
-      // Kill ONLY the attach client, not the master (`abduco -n <label> …`). The
-      // client is `abduco …-a <label>` once exec'd, or briefly `sh -c '…-a "$0"'
-      // <label>` before that — so identify it as "matches the label but is not the
-      // master." Its onExit fires while the daemon's control channel is open.
-      let listing = ''
-      try {
-        listing = execFileSync('pgrep', ['-af', '--', label], { encoding: 'utf8' })
-      } catch {
-        // pgrep exits 1 when nothing matches; the length check below says so.
-      }
-      const clientPids = listing
-        .trim()
-        .split('\n')
-        .filter(Boolean)
-        // The client cmdline contains "abduco" (the `sh -c 'exec …abduco…'` form
-        // before exec, the `abduco …-a <label>` form after). This excludes the
-        // master (`abduco -n <label>`).
-        .filter((line) => line.includes('abduco') && !line.includes(`-n ${label}`))
-        .map((line) => Number(line.split(/\s+/)[0]))
-        .filter((p) => Number.isInteger(p) && p !== process.pid)
-      expect(clientPids.length).toBeGreaterThan(0)
-      for (const p of clientPids) {
-        try {
-          process.kill(p, 'SIGKILL')
-        } catch {
-          // already gone — fine
-        }
-      }
+      // There is no attach subprocess now. Closing the daemon detaches its
+      // socket while the legacy master and child survive for the next daemon.
+      await daemon.close()
 
       // Give a generous window for a (wrongful) agentExit to arrive over the open
       // channel, then assert the master is still alive and the daemon stayed silent.

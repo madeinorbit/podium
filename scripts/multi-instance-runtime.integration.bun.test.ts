@@ -1,3 +1,4 @@
+import { legacyAbducoBin } from '../packages/pty/src/legacy-abduco-fixture'
 import { readOrCreateUpdateSigningKey } from '@podium/runtime/update-signing-key'
 import { completePreauthorizedSetup } from '../apps/server/src/setup-enrollment'
 import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
@@ -39,7 +40,6 @@ import {
   hostSocketPath,
   killAbducoSession,
   killHostSession,
-  resolveAbducoBin,
   resolveHostBin,
   spawnHostAgent,
 } from '@podium/process/durable'
@@ -58,7 +58,6 @@ import { updateFingerprint } from '@podium/runtime/machine-update'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { AppRouter } from '../apps/server/src/router'
 import { machineFileKey } from '../apps/server/src/modules/logs/fleet-store'
-import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
 import {
   MachineUpdateExecutor,
@@ -203,8 +202,7 @@ function instanceEnv(
   return env
 }
 
-/** Compile the real packaged entry in an isolated tree so its fixed embedded-file
- *  path cannot race with or depend on a developer's dist-bun artifacts. */
+/** Compile the real packaged entry in an isolated tree, independent of dist-bun artifacts. */
 function buildPackagedCli(): string {
   if (packagedCli) return packagedCli
   const buildRoot = join(TEST_ROOT, 'compiled-cli-build')
@@ -212,18 +210,14 @@ function buildPackagedCli(): string {
   const distDir = join(buildRoot, 'dist-bun')
   mkdirSync(scriptsDir, { recursive: true })
   mkdirSync(distDir, { recursive: true })
-  // The packaged CLI embeds only the abduco attach client, kept to adopt
-  // sessions started by older releases; podium-host ships beside podium-cli
-  // in the release payload instead (POD-4986).
-  for (const file of ['cli-compiled.ts', 'cli.ts', 'embedded-abduco.ts']) {
+  // Native helpers ship beside podium-cli; the legacy adopter embeds no executable.
+  for (const file of ['cli-compiled.ts', 'cli.ts']) {
     cpSync(join(ROOT, 'scripts', file), join(scriptsDir, file))
   }
   for (const dir of ['apps', 'packages']) {
     symlinkSync(join(ROOT, dir), join(buildRoot, dir), 'dir')
   }
 
-  const embeddedAbduco = join(distDir, 'abduco.bin')
-  expect(buildVendoredAbduco(embeddedAbduco)).toBe(embeddedAbduco)
 
   const executable = join(buildRoot, 'podium-cli')
   execFileSync(
@@ -634,8 +628,8 @@ describe('long instance durable sockets', () => {
     // before it did, and a customer who upgrades keeps each running one. The
     // daemon must find a named instance's abduco master where the older daemon
     // put it: under the ABDUCO_SOCKET_DIR `applyInstanceRuntimeEnv` pins.
-    const bin = resolveAbducoBin({ fresh: true })
-    if (!bin) throw new Error('multi-instance acceptance requires the abduco attach client')
+    const bin = legacyAbducoBin
+    if (!bin) throw new Error('set PODIUM_TEST_ABDUCO_BIN for legacy adoption acceptance')
 
     const instanceId = `update-e2e-${'x'.repeat(21)}`
     const sessionId = asSessionId(randomUUID())
@@ -832,7 +826,7 @@ describe('multi-instance runtime isolation', () => {
     expect(helpResult.stdout).toContain('Usage: podium [command] [--flags]')
 
     // Neither diagnostic may claim or otherwise populate the foreign root, including
-    // the packaged entry's embedded-abduco initialization.
+    // the packaged entry's instance initialization.
     expect(existsSync(join(foreign.stateDir, 'instance.json'))).toBe(false)
     expect(existsSync(join(foreign.stateDir, 'bin', 'abduco'))).toBe(false)
 

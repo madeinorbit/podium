@@ -5,7 +5,7 @@
  * from it (`mise install`), CI installs from it (jdx/mise-action), and resolveZig/
  * resolveRcodesign (below) assert against it so a drifted local install fails loudly
  * instead of shipping different bytes. Every native cross build — rust-host-cross.ts,
- * tunnel-cross.ts and abduco-cross.ts (the abduco attach client) — resolves its tools here: a cross build once carried its own copy of the
+ * tunnel-cross.ts — resolves its tools here: a cross build once carried its own copy of the
  * lookup, from before the POD-3771 fix, and so could not find a zig its sibling could. This module is that assertion's
  * source of truth — a deliberately narrow parser, not a TOML library: it reads exactly
  * the two pins and throws on anything unexpected, so an edit that breaks the shape is
@@ -63,7 +63,7 @@ function findTool(
   }
   throw new Error(
     `${binary} is required to cross-compile the native binaries ` +
-      '(podium-host, podium-tunnel, the abduco attach client) but was not found. ' +
+      '(podium-host, podium-tunnel) but was not found. ' +
       `Install it, put it on PATH, or set ${envName} to its path.`,
   )
 }

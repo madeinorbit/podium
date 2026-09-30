@@ -639,7 +639,7 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // config/sqlite plumbing.
   'packages/sync -> packages/runtime',
   'packages/telemetry -> packages/runtime',
-  // L2: pty resolves the host socket fallback and the abduco attach-client cache
+  // L2: pty resolves the host socket fallback and native legacy adoption
   // under runtime's stateDir() rather than re-deriving the state directory (the
   // `state-dir-defs` audit item is at 0 and must stay there).
   'packages/pty -> packages/runtime',

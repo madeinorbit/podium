@@ -7,17 +7,9 @@
  * `--publish-dir <dir>` over the prepared set. Keeping the publish step singular avoids
  * release/manifest races.
  *
- * WHY THIS USED TO BE A MATRIX. The compiled daemon embeds a native abduco helper
- * (today the attach client, kept only to adopt sessions started by older releases), so
- * the helper — and therefore the whole bundle — had to be produced on the architecture
- * that would run it. `zig cc` now builds that client for every target from Linux, the
- * native pieces shipped beside it (the Rust process host and podium-tunnel) are
- * cross-built with `cargo zigbuild`, and `rcodesign`
- * re-signs each Darwin Mach-O with Bun's JIT entitlements (Bun's own compile already
- * emitted an ad-hoc LINKER_SIGNED signature; dropping rcodesign breaks JIT at runtime,
- * not code signing at build time), so the architecture of the runner stopped meaning
- * anything. The native `--prepare-arch` leg that was kept
- * for one release as an A/B control against the cross build is gone (POD-4789).
+ * Native helpers (the Rust process host and podium-tunnel) are cross-built
+ * with cargo zigbuild. rcodesign re-signs Darwin binaries with Bun's JIT
+ * entitlements; legacy abduco adoption needs no embedded executable.
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -414,10 +406,7 @@ export function writeClientBuildRecord(
  * a build can actually satisfy, and it means a Mac user and a Linux user on the same
  * release are served byte-identical web assets.
  *
- * The per-platform builds run in SEQUENCE. They share dist-bun/abduco.bin — the fixed
- * path the compiled binary embeds its abduco attach client from — so running them
- * concurrently would race to leave the wrong architecture's client inside a bundle.
- * See scripts/build-bun.ts.
+ * The per-platform builds run in sequence from one verified client build.
  */
 export async function prepareHeadlessCross(
   platforms: readonly HeadlessPlatform[] = RELEASE_PLATFORMS,

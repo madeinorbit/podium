@@ -111,11 +111,11 @@ cat /bin/true >> "$WORK/headless/podium-cli"; repack
 expect_fail "Linux ELF embedded in the shipped binary" \
   "Linux ELF header" "$WORK/t.tar.gz"
 
-# (c3) A second abduco attach client embedded: the CLI must carry exactly one.
+# (c3) An abduco executable embedded: the CLI must carry none.
 fresh
 printf 'abduco-0.6-podium' >> "$WORK/headless/podium-cli"; repack
-expect_fail "second abduco embedded in the shipped binary" \
-  "exactly one embedded abduco" "$WORK/t.tar.gz"
+expect_fail "abduco embedded in the shipped binary" \
+  "expected no embedded abduco" "$WORK/t.tar.gz"
 
 # (c4) The retired C podium-host embedded in the CLI: its `version` format appended.
 fresh

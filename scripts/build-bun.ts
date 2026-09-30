@@ -1,37 +1,8 @@
 /**
- * Build the single-file `bun build --compile` binaries.
- *
- *   1. Prebuild the vendored abduco ATTACH CLIENT (cc → dist-bun/abduco.bin) so the CLI
- *      can embed it — the compiled binary has no abduco.c on disk to compile at runtime.
- *      Kept only to adopt sessions started by older releases (POD-4986): nothing spawns
- *      on abduco, but the daemon re-attaches the abduco sessions an upgrade finds running.
- *   2. Build the Rust process host (`podium-host`) for the target. It ships as its
- *      own file beside `podium-cli` in the headless bundle, not embedded; a POSIX
- *      bundle without it cannot run a durable session, so a missing host fails the
- *      build. Windows has no durable host (ConPTY) and ships neither.
- *   3. Compile the one `podium` CLI via scripts/cli-compiled.ts (every role: server,
- *      daemon, all-in-one; embeds + materializes the abduco attach client).
- *   4. Assemble the headless bundle: binaries, web + mobile clients, launcher.
- *
- * Run with: bun run package:headless                            (this machine's platform)
- *           bun scripts/package-headless.ts --target=bun-darwin-arm64 (cross, from Linux)
- *
- * CROSS-COMPILATION [spec:SP-6144 §8b]. With `--target` this builds the bundle for
- * ANOTHER platform from a Linux box: `bun build --compile --target=…` produces the
- * foreign executable, `scripts/rust-host-cross.ts` produces the foreign Rust host with
- * `cargo zigbuild`, `scripts/abduco-cross.ts` produces the foreign abduco attach client
- * with `zig cc`, and a Darwin target is re-signed with `rcodesign`. bun build --compile
- * already emits an ad-hoc LINKER_SIGNED Mach-O (identifier a.out, no entitlements);
- * rcodesign replaces that signature with identifier podium plus the five Bun JIT
- * entitlement keys. Drop rcodesign and the binary still "signs" — what breaks is JIT,
- * at runtime, not code signing at build time. That is what collapses the release
- * matrix from one runner per architecture to one Linux job for all four.
- *
- * ONE TARGET PER INVOCATION, and deliberately so: the compiled binary embeds the abduco
- * attach client through a static `with { type: 'file' }` import of the FIXED path
- * dist-bun/abduco.bin, so two targets building at once would race to leave the wrong
- * client there. Callers that want several platforms (scripts/release.ts, the dev
- * publisher) run this script once per platform, in sequence.
+ * Build the compiled CLI and production headless bundle. Only the Rust
+ * podium-host and podium-tunnel ship as native helpers; legacy abduco sessions
+ * are adopted through a native TypeScript socket client.
+ * Cross targets are packaged sequentially into their own output roots.
  */
 import { execFileSync } from 'node:child_process'
 import { sign as cryptoSign } from 'node:crypto'
@@ -65,7 +36,6 @@ import {
   commitShaFromDevVersion,
   isDevChannelVersion,
 } from '../packages/protocol/src/update/dev-version.js'
-import { abducoSupported, buildVendoredAbduco } from '../packages/pty/src/abduco-bin.js'
 import {
   bunVersion,
   hasBunTerminal,
@@ -73,7 +43,8 @@ import {
 } from '../packages/pty/src/backends/bun-terminal-backend.js'
 import { hostSupported, RUST_HOST_BINARY } from '../packages/pty/src/host-bin.js'
 import { developmentSourceSha } from '../packages/runtime/src/source-version'
-import { crossBuildAbduco, type HeadlessPlatform, resolveRcodesign } from './abduco-cross'
+import type { HeadlessPlatform } from '../packages/protocol/src/update/platforms'
+import { resolveRcodesign } from './tool-pins'
 import { buildClients } from './build-clients'
 import {
   assertNoCallerSuppliedClientRootDigest,
@@ -507,7 +478,7 @@ export function packageHeadlessForFreshClients(
   // The bundle packs `apps/web/dist`, and a dev+<sha> tarball may only pack the
   // website built from that same commit — packing yesterday's under today's sha
   // is the lie the source-identity gate exists to prevent. That check used to
-  // sit after the abduco prebuild AND after `bun build --compile`, so every
+  // sit after host preparation AND after `bun build --compile`, so every
   // refusal paid for a full compile and threw it away: 28 of 112 attempts in the
   // week to 2026-08-13, each ~50 s, re-asked every 60 s by /version (POD-1985).
   // Nothing below this point can change the answer, so it belongs up here.
@@ -567,49 +538,10 @@ export function packageHeadlessForFreshClients(
         `(captured=${session.clientRootDigest}, current=${currentClientRootDigest})`,
     )
   }
-  // One dependency-preparation phase, two tasks: the abduco attach client, then the
-  // process host.
+  // Prepare the Rust process host before compiling the CLI.
   const rustHost = timeReleaseBuildSync(
     { granularity: 'phase', phase: 'dependency-preparation', target: spec?.platform ?? 'local' },
     () => {
-      timeReleaseBuildSync(
-        {
-          granularity: 'task',
-          phase: 'dependency-preparation',
-          task: 'abduco-helper',
-          target: spec?.platform ?? 'local',
-        },
-        () => {
-          // The abduco ATTACH CLIENT, kept only to adopt sessions started by older
-          // releases (POD-4986); nothing spawns on abduco.
-          if (spec) {
-            // Cross build: the client cannot be compiled by the host cc (wrong architecture,
-            // wrong object format), so it comes from the zig-cc cache — built from the SAME
-            // vendored abduco.c, keyed on that source's hash. Copied to the fixed path the
-            // compiled binary's `with { type: 'file' }` import reads.
-            const helper = crossBuildAbduco(spec.platform, { root })
-            cpSync(helper, `${out}/abduco.bin`)
-            console.log(`[build-bun] embedded abduco (${spec.platform}) <- ${helper}`)
-          } else if (!abducoSupported()) {
-            // No abduco on Windows (POSIX forkpty) — sessions run on the ConPTY PTY backend
-            // without a durable host [spec:SP-7f2c]. The compiled CLI still embeds
-            // dist-bun/abduco.bin (a static `with {type:'file'}` import), so write an empty
-            // placeholder for the bundler; materializeEmbeddedAbduco skips it at runtime.
-            console.log(
-              '[build-bun] windows: skipping abduco prebuild (ConPTY backend, no durable host)',
-            )
-            writeFileSync(`${out}/abduco.bin`, '')
-          } else {
-            console.log('[build-bun] prebuilding abduco…')
-            const abduco = buildVendoredAbduco(`${out}/abduco.bin`)
-            if (!abduco)
-              throw new Error(
-                'build-bun: failed to prebuild abduco (missing C compiler, or a compile error — see the [podium] abduco build output above)',
-              )
-            console.log(`[build-bun] abduco -> ${abduco}`)
-          }
-        },
-      )
       // THE PROCESS HOST, BUILT BEFORE THE COMPILE so a toolchain that cannot produce
       // it fails the build before paying for `bun build --compile`. The Rust host is the
       // only durable host a POSIX bundle has: without it no new session survives a daemon

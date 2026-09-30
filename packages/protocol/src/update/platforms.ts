@@ -3,8 +3,7 @@
  *
  * A machine asking for an update names its platform; a manifest keys its
  * artifacts by that name; a release asset is built for it; the podium-host
- * binary shipped in that release, and the abduco attach client embedded in it
- * (kept only to adopt sessions started by older releases), are built for it.
+ * and podium-tunnel binaries shipped in that release are built for it.
  * Four separate places have
  * to agree, and the failure when they do not is silent and total: a machine is
  * told, forever, that its platform was never published.

@@ -3,7 +3,7 @@
 // `sh -c 'exec abduco -a'` attach, alt-screen chrome strip, OSC title, input
 // round-trip, detach-survive, reattach repaint, kill — works when the attach
 // client's PTY is Bun.Terminal, matching the shipped daemon. Each master is
-// created the way those releases did, `abduco -n`, with the vendored build in a
+// created the way those releases did, `abduco -n`, with the external legacy fixture in a
 // private short ABDUCO_SOCKET_DIR, never the user's own.
 
 import { afterAll, describe, expect, it } from 'bun:test'
@@ -18,28 +18,25 @@ import {
   reapAbducoTestSessions,
   waitForAbducoSocket,
 } from '../../src/abduco'
-import { abducoSupported, buildVendoredAbduco, resolveAbducoBin } from '../../src/abduco-bin'
-import { bunTerminalBackend } from '../../src/backends/bun-terminal-backend'
+import { hasLegacyAbduco, legacyAbducoBin } from '../../src/legacy-abduco-fixture'
 
 const FIXTURE = fileURLToPath(new URL('../fixtures/echo-title.mjs', import.meta.url))
 const TUI_FIXTURE = fileURLToPath(new URL('../fixtures/fixture-tui.mjs', import.meta.url))
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
-const backend = bunTerminalBackend()
 
 // SHORT on purpose: abduco composes `<dir>/abduco/<user>/<label>@<host>` into a
 // 108-byte sun_path. It exists, so abduco never falls through to $HOME/.abduco.
-const root = abducoSupported() ? mkdtempSync('/tmp/pab-') : ''
+const root = hasLegacyAbduco ? mkdtempSync('/tmp/pab-') : ''
 // No compiler, no build: the suite skips (bun:test has no describe.skipIf).
-const bin = root ? buildVendoredAbduco(join(root, 'bin', 'abduco')) : undefined
-const ENV_KEYS = ['PODIUM_ABDUCO', 'ABDUCO_SOCKET_DIR', 'PODIUM_NO_SCOPE'] as const
+const bin = root ? legacyAbducoBin : undefined
+const ENV_KEYS = ['HOME', 'ABDUCO_SOCKET_DIR', 'PODIUM_NO_SCOPE'] as const
 const savedEnv: Partial<Record<(typeof ENV_KEYS)[number], string>> = {}
 for (const k of ENV_KEYS) savedEnv[k] = process.env[k]
 if (bin) {
-  process.env.PODIUM_ABDUCO = bin
+  process.env.HOME = join(root, 'home')
   process.env.ABDUCO_SOCKET_DIR = root
   process.env.PODIUM_NO_SCOPE = '1'
-  resolveAbducoBin({ fresh: true })
-}
+  }
 const d = bin ? describe : describe.skip
 
 // POD-107: the in-test kills sit on the happy path — a failed assertion leaks the
@@ -51,8 +48,7 @@ afterAll(async () => {
     if (v === undefined) delete process.env[k]
     else process.env[k] = v
   }
-  resolveAbducoBin({ fresh: true })
-  if (root) rmSync(root, { recursive: true, force: true })
+    if (root) rmSync(root, { recursive: true, force: true })
 })
 
 /**
@@ -67,7 +63,7 @@ async function createAndAttach(label: string, script: string) {
     env: { ...process.env, TERM: 'xterm-256color' },
   })
   const socketPath = await waitForAbducoSocket(label, { ABDUCO_SOCKET_DIR: root })
-  return attachAbducoAgent({ label, socketPath, cols: 80, rows: 24, backend })
+  return attachAbducoAgent({ label, socketPath, cols: 80, rows: 24 })
 }
 
 d('adopting an abduco session [bun-terminal]', () => {
@@ -85,7 +81,7 @@ d('adopting an abduco session [bun-terminal]', () => {
     })
     await wait(900)
     expect(out).toContain('READY') // byte-transparency through the Bun.Terminal attach client
-    expect(out).not.toContain('\x1b[?1049h') // attach chrome stripped
+    expect(out).not.toContain('\x1b[?1049h') // the shell produces no alternate-screen bytes
     expect(title).toContain('FIXTURE-TITLE') // OSC title surfaces through the durable chain
 
     session.write(Buffer.from('hi\r', 'utf8').toString('base64'))
@@ -98,7 +94,7 @@ d('adopting an abduco session [bun-terminal]', () => {
     expect(await abducoHasSession(label)).toBe(true)
 
     // Reattach via a fresh Bun.Terminal client; prove liveness with a new round-trip.
-    const re = attachAbducoAgent({ label, cols: 80, rows: 24, backend })
+    const re = attachAbducoAgent({ label, cols: 80, rows: 24 })
     let out2 = ''
     re.onFrame((f) => {
       out2 += Buffer.from(f.data).toString('utf8')
@@ -115,7 +111,7 @@ d('adopting an abduco session [bun-terminal]', () => {
     expect(await abducoHasSession(label)).toBe(false)
   }, 20000)
 
-  it('reattach at UNCHANGED geometry still repaints (the attach packet signals the program)', async () => {
+  it('size-neutral reattach leaves the TUI alone; an explicit viewer resize repaints', async () => {
     // The vendored master SIGWINCHes the program on every resize packet, even
     // one that changes nothing, so a same-size reattach still repaints a TUI.
     const label = `podium-abduco-bun-repaint-${process.pid}`
@@ -125,14 +121,18 @@ d('adopting an abduco session [bun-terminal]', () => {
     session.dispose()
     await wait(400)
 
-    const re = attachAbducoAgent({ label, cols: 80, rows: 24, backend }) // same geometry
+    const re = attachAbducoAgent({ label, sizeNeutral: true })
     let out = ''
     re.onFrame((f) => {
       out += Buffer.from(f.data).toString('utf8')
     })
     await wait(1400)
-    expect(out).toContain('PODIUM-FIXTURE') // repainted despite unchanged size
-    expect(out).toContain('rows=24')
+    expect(out).toBe('')
+    re.resize(120, 40)
+    const repaintDeadline = Date.now() + 5000
+    while (!out.includes('rows=40') && Date.now() < repaintDeadline) await wait(20)
+    expect(out).toContain('PODIUM-FIXTURE')
+    expect(out).toContain('rows=40')
     re.dispose()
     await killAbducoSession(label)
   }, 20000)

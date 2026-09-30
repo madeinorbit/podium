@@ -3,7 +3,6 @@ import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { killAbducoSession, listLiveAbducoLabels } from './abduco.js'
-import { resolveAbducoBin } from './abduco-bin.js'
 import type { SystemctlRunner } from './scope.js'
 
 /**
@@ -23,30 +22,9 @@ describe('killAbducoSession', () => {
     for (const fn of cleanups.splice(0)) fn()
   })
 
-  /** Point abduco at a script that never returns, and restore the memoized bin. */
-  function useHangingAbduco(root: string): void {
-    const fakeAbduco = join(root, 'abduco-hang')
-    writeFileSync(
-      fakeAbduco,
-      // `exec`, so the listing's timeout kills the sleep itself rather than
-      // leaving it orphaned behind a killed shell.
-      `#!/bin/sh\nif [ "$1" = "-v" ]; then echo "abduco-0.6-fake"; exit 0; fi\nexec sleep 300\n`,
-    )
-    chmodSync(fakeAbduco, 0o755)
-    const prevBin = process.env.PODIUM_ABDUCO
-    process.env.PODIUM_ABDUCO = fakeAbduco
-    expect(resolveAbducoBin({ fresh: true })).toBe(fakeAbduco)
-    cleanups.push(() => {
-      if (prevBin === undefined) delete process.env.PODIUM_ABDUCO
-      else process.env.PODIUM_ABDUCO = prevBin
-      resolveAbducoBin({ fresh: true })
-    })
-  }
-
-  it('sweeps the scope while the global listing is still hanging', async () => {
+  it('sweeps the scope even when no master can be found', async () => {
     const root = mkdtempSync(join(tmpdir(), 'podium-abduco-kill-'))
     cleanups.push(() => rmSync(root, { recursive: true, force: true }))
-    useHangingAbduco(root)
 
     const run = vi.fn<SystemctlRunner>(async () => undefined)
     const kill = killAbducoSession('podium-wedged', run)

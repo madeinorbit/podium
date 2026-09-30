@@ -9,8 +9,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # CI installs with --ignore-scripts: Podium's real PTYs use Bun.Terminal, and its Rust
-# process host (cargo) and the abduco attach client it keeps to adopt sessions older
-# releases started (cc) are built from vendored sources on first use, so validation has
+# process host (cargo) is built from the vendored Rust crate on first use, so validation has
 # no package lifecycle prerequisite.
 jobs:
   lint:
@@ -443,8 +442,7 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-      # Podium builds its Rust process host and abduco attach client on first use;
-      # Ubuntu 24.04 no longer provides abduco in the runner's configured apt repositories.
+      # Podium builds its Rust process host on first use.
       - run: bun install --frozen-lockfile --ignore-scripts
       # No playwright install here on purpose: the e2e LANE is browser-free — it
       # is 7 vitest files under tests/e2e (verified: none of them, nor their

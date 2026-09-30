@@ -189,8 +189,7 @@ jobs:
               apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz
               apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
           # Intel macs build natively on GitHub's Intel runner. Cross-compiling from arm64 would
-          # also need an x64 Bun sidecar, an x64 Rust process host and an x64 abduco attach
-          # client, none of which build-bun plumbs through on a Mac.
+          # also need an x64 Bun sidecar, an x64 Rust process host, neither of which build-bun plumbs through on a Mac.
           - target: darwin-x86_64
             runner: macos-15-intel
             build_args: "-- --target x86_64-apple-darwin"

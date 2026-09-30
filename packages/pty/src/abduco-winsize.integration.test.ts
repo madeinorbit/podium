@@ -27,40 +27,30 @@ import {
   killAbducoSession,
   waitForAbducoSocket,
 } from './abduco.js'
-import { buildVendoredAbduco, resolveAbducoBin } from './abduco-bin.js'
-import { bunTerminalBackend } from './backends/bun-terminal-backend.js'
+import { hasLegacyAbduco, legacyAbducoBin } from './legacy-abduco-fixture.js'
 import { type DurableAttachment, spawnAgent } from './session.js'
 
 const FIXTURE = fileURLToPath(new URL('../test/fixtures/winsize-log.mjs', import.meta.url))
-const backend = bunTerminalBackend()
 const LABEL = `podium-abduco-winsize-${process.pid}`
 
 let dir = ''
 let bin: string | undefined
-const ENV_KEYS = ['PODIUM_ABDUCO', 'ABDUCO_SOCKET_DIR', 'PODIUM_NO_SCOPE'] as const
+const ENV_KEYS = ['HOME', 'ABDUCO_SOCKET_DIR', 'PODIUM_NO_SCOPE'] as const
 const savedEnv: Partial<Record<(typeof ENV_KEYS)[number], string>> = {}
 
-const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
-  try {
-    execFileSync(c, ['--version'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
-})
+const hasCompiler = hasLegacyAbduco
 
 beforeAll(() => {
   if (!hasCompiler) return
   // SHORT on purpose: abduco composes `<dir>/abduco/<user>/<label>@<host>`
   // into a 108-byte sun_path, and a hermetic TMPDIR can be long.
   dir = mkdtempSync('/tmp/paw-')
-  bin = buildVendoredAbduco(join(dir, 'bin', 'abduco'))
+  bin = legacyAbducoBin
   for (const k of ENV_KEYS) savedEnv[k] = process.env[k]
-  if (bin) process.env.PODIUM_ABDUCO = bin
+  process.env.HOME = join(dir, 'home')
   // It exists, so abduco never falls through to $HOME/.abduco.
   process.env.ABDUCO_SOCKET_DIR = dir
   process.env.PODIUM_NO_SCOPE = '1'
-  resolveAbducoBin({ fresh: true })
 })
 
 afterAll(async () => {
@@ -74,7 +64,6 @@ afterAll(async () => {
     if (v === undefined) delete process.env[k]
     else process.env[k] = v
   }
-  resolveAbducoBin({ fresh: true })
   if (dir) rmSync(dir, { recursive: true, force: true })
 })
 
@@ -112,7 +101,7 @@ async function createAndAttach(
     env: { ...process.env, TERM: 'xterm-256color', ...childEnv },
   })
   const socketPath = await waitForAbducoSocket(label, { ABDUCO_SOCKET_DIR: dir })
-  return attachAbducoAgent({ label, socketPath, cols, rows, backend })
+  return attachAbducoAgent({ label, socketPath, cols, rows })
 }
 
 async function waitFor(pred: () => boolean, timeoutMs = 8000): Promise<void> {
@@ -143,7 +132,7 @@ function winches(text: string): Array<{ n: number; cols: number; rows: number }>
 }
 
 describe.skipIf(!hasCompiler)(
-  'C14: what an abduco attach does to the agent (vendored build)',
+  'C14: what an abduco attach does to the agent (external legacy fixture)',
   () => {
     it('a different-size attach resizes AND signals; a same-size attach signals anyway; a read-only attach signals WITHOUT resizing', async () => {
       expect(bin).toBeDefined()
@@ -169,7 +158,6 @@ describe.skipIf(!hasCompiler)(
         label: LABEL,
         cols: 120,
         rows: 40,
-        backend,
         repaintOnAttach: false,
       })
       const biggerText = bornText // the child's own log: nothing it says is missed
@@ -195,7 +183,6 @@ describe.skipIf(!hasCompiler)(
         label: LABEL,
         cols: 120,
         rows: 40,
-        backend,
         repaintOnAttach: false,
       })
       const sameText = bornText
@@ -218,7 +205,7 @@ describe.skipIf(!hasCompiler)(
       // CORRECTION TO SPEC-0b C14, which predicted "neither". The vendored
       // server applies TIOCSWINSZ only for a writable head client, but the
       // `kill(-server.pid, SIGWINCH)` on the next line is UNCONDITIONAL
-      // (vendor/abduco/server.c: the kill sits outside the readonly guard), so a
+      // (the released server signals outside the readonly guard), so a
       // read-only attach signals the agent while leaving its winsize alone.
       const readonly = spawnAgent(
         {
@@ -227,7 +214,6 @@ describe.skipIf(!hasCompiler)(
           cols: 200,
           rows: 60,
         },
-        backend,
       )
       const roText = bornText
       try {
@@ -298,7 +284,7 @@ describe.skipIf(!hasCompiler)(
         // Default repaintOnAttach: the attach's own resize packet (vendored
         // abduco signals even at the same size) and NOTHING added — the old
         // shrink/restore nudge made it three.
-        const again = attachAbducoAgent({ label, cols: 80, rows: 24, backend })
+        const again = attachAbducoAgent({ label, cols: 80, rows: 24 })
         await waitFor(() => winches(log.text()).length > before, 10_000)
         await wait(1500) // give a nudge time to show up if one were coming
         expect(winches(log.text()).length).toBe(before + 1)

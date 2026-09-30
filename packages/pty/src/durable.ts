@@ -57,11 +57,6 @@ export {
   type DurableSpawnOptions,
 } from './scope.js'
 export {
-  abducoAttachArgv,
-  resolveAttachBin,
-  isAbducoAvailable,
-  type AbducoSessionEntry,
-  parseAbducoList,
   abducoSocketPath,
   reapStaleAbducoBindTemps,
   waitForAbducoSocket,
@@ -73,18 +68,6 @@ export {
   type AbducoAttachOptions,
   attachAbducoAgent,
 } from './abduco.js'
-export {
-  ABDUCO_FEATURES,
-  type AbducoManifest,
-  abducoSupported,
-  defaultAbducoCachePath,
-  managedAbducoDir,
-  abducoBinFeatures,
-  vendoredAbducoSourceHash,
-  buildVendoredAbduco,
-  ensureManagedAbduco,
-  resolveAbducoBin,
-} from './abduco-bin.js'
 export {
   HOST_PROTO_VERSION,
   HostFrame,

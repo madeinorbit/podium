@@ -9,7 +9,7 @@
  * which is where every NEW spawn goes.
  *
  * Each master here is created the way those releases did: `abduco -n <label>
- * <cmd>` with the vendored build, no scope, in a private SHORT
+ * <cmd>` with the external legacy fixture, no scope, in a private SHORT
  * ABDUCO_SOCKET_DIR (it exists, so abduco never falls through to
  * $HOME/.abduco). Host sockets go to a private PODIUM_HOST_SOCKET_DIR under the
  * same root, never the live runtime directory. Only the sessions and host pids
@@ -19,7 +19,7 @@
  * lane. Without a C compiler there is no abduco to build and the real-session
  * suites skip.
  */
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,25 +29,18 @@ import {
   abducoSocketPath,
   attachAbducoAgent,
   killAbducoSession,
-  parseAbducoList,
   reapAbducoTestSessions,
   waitForAbducoSocket,
 } from './abduco.js'
-import { buildVendoredAbduco, resolveAbducoBin } from './abduco-bin.js'
+import { hasLegacyAbduco, legacyAbducoBin } from './legacy-abduco-fixture.js'
+import { probeAbducoPid } from './abduco-client.js'
 import { bunTerminalBackend } from './backends/index.js'
 import { abducoAdoptionAdapter, createDurableProcess } from './durable-process.js'
 import { type HostDurableAttachment, hostSocketDir, hostSocketPath } from './host.js'
 import { hostBinFeatures, resolveHostBin } from './host-bin.js'
 import { type DurableAttachment, spawnAgent } from './session.js'
 
-const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
-  try {
-    execFileSync(c, ['--version'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
-})
+const hasCompiler = hasLegacyAbduco
 
 const bunPty = bunTerminalBackend()
 const bunBin = process.execPath
@@ -67,7 +60,7 @@ async function waitFor(pred: () => boolean, what: string, timeoutMs = 8000): Pro
 let root = ''
 let bin: string | undefined
 const ENV_KEYS = [
-  'PODIUM_ABDUCO',
+  'HOME',
   'ABDUCO_SOCKET_DIR',
   'PODIUM_NO_SCOPE',
   'PODIUM_HOST_SOCKET_DIR',
@@ -82,15 +75,14 @@ beforeAll(() => {
   // SHORT on purpose: abduco composes `<root>/abduco/<user>/<label>@<host>`
   // into a 108-byte sun_path, and a hermetic TMPDIR can be long.
   root = mkdtempSync('/tmp/pab-')
-  bin = buildVendoredAbduco(join(root, 'bin', 'abduco'))
+  bin = legacyAbducoBin
   for (const k of ENV_KEYS) savedEnv[k] = process.env[k]
-  if (bin) process.env.PODIUM_ABDUCO = bin
+  process.env.HOME = join(root, 'home')
   process.env.ABDUCO_SOCKET_DIR = root
   process.env.PODIUM_NO_SCOPE = '1'
   process.env.PODIUM_HOST_SOCKET_DIR = join(root, 's')
   process.env.PODIUM_STATE_DIR = join(root, 'st')
   mkdirSync(hostSocketDir(), { recursive: true, mode: 0o700 })
-  resolveAbducoBin({ fresh: true })
 })
 
 // POD-107: the in-test kills sit on the happy path — a failed assertion or
@@ -120,7 +112,6 @@ afterAll(async () => {
     if (v === undefined) delete process.env[k]
     else process.env[k] = v
   }
-  resolveAbducoBin({ fresh: true })
   if (root) rmSync(root, { recursive: true, force: true })
 })
 
@@ -157,11 +148,8 @@ async function createAndAttach(
  */
 const probeEnv = (): NodeJS.ProcessEnv => ({ ...process.env, HOME: join(root, 'home') })
 
-function masterPid(label: string): number {
-  const listing = spawnSync(bin as string, [], { encoding: 'utf8', env: { ...process.env } })
-  const entry = parseAbducoList(listing.stdout ?? '').find((s) => s.name === label)
-  expect(entry, `abduco lists ${label}`).toBeDefined()
-  return (entry as { pid: number }).pid
+async function masterPid(label: string): Promise<number> {
+  return probeAbducoPid(abducoSocketPath(label) as string)
 }
 
 function pidAlive(pid: number): boolean {
@@ -201,7 +189,7 @@ describe('the abduco adapter adopts, and never creates (POD-4986)', () => {
 })
 
 describe.skipIf(!hasCompiler)(
-  'a running abduco session is adopted (needs a C compiler to build abduco)',
+  'a running abduco session is adopted (needs PODIUM_TEST_ABDUCO_BIN)',
   () => {
     it('locates, attaches size-neutrally, round-trips bytes through cat, lists and kills it', async () => {
       expect(bin).toBeDefined()
@@ -227,7 +215,7 @@ describe.skipIf(!hasCompiler)(
         attachment.onFrame((f) => {
           out += Buffer.from(f.data).toString('utf8')
         })
-        await wait(500) // the attach client takes its pty out of canonical mode
+        await wait(500) // let the child install its input handler
         attachment.writeBytes(Buffer.from('still abduco\r'))
         // At least twice: the program's tty echo and cat's own copy. An echo by
         // the attach pty alone, with nothing reaching cat, says it once.
@@ -247,7 +235,7 @@ describe.skipIf(!hasCompiler)(
       await wait(300)
       expect(await durable.has(label)).toBe(true)
 
-      const master = masterPid(label)
+      const master = await masterPid(label)
       await durable.kill(label)
       await waitFor(() => !existsSync(socket), 'the master to exit and unlink its socket')
       await waitFor(() => !pidAlive(master), 'the master process to end')
@@ -299,7 +287,7 @@ describe.skipIf(!hasCompiler)(
   },
 )
 
-describe.skipIf(!hasCompiler)('abduco integration (needs a C compiler to build abduco)', () => {
+describe.skipIf(!hasCompiler)('abduco integration (needs PODIUM_TEST_ABDUCO_BIN)', () => {
   // Resource-sensitive under concurrent suite load (abduco + many PTYs); one retry.
   it('streams frames, surfaces the OSC title, round-trips input, survives detach, reattaches, kills', {
     retry: 1,
@@ -319,7 +307,7 @@ describe.skipIf(!hasCompiler)('abduco integration (needs a C compiler to build a
     const readyStart = Date.now()
     while (!out.includes('READY') && Date.now() - readyStart < 8000) await wait(25)
     expect(out).toContain('READY') // byte-transparency
-    expect(out).not.toContain('\x1b[?1049h') // client attach chrome stripped
+    expect(out).not.toContain('\x1b[?1049h') // the shell produces no alternate-screen bytes
     expect(title).toContain('FIXTURE-TITLE') // OSC passes through verbatim
 
     session.write(Buffer.from('hi\r', 'utf8').toString('base64'))
@@ -351,7 +339,7 @@ describe.skipIf(!hasCompiler)('abduco integration (needs a C compiler to build a
     expect(await abducoHasSession(label)).toBe(false)
   })
 
-  it('reattach at UNCHANGED geometry still repaints (the attach packet signals the program)', async () => {
+  it('size-neutral reattach leaves the TUI alone; an explicit viewer resize repaints', async () => {
     // The vendored master SIGWINCHes the program on every resize packet, even
     // one that changes nothing, and fixture-tui repaints exclusively on a
     // signal — so this proves a same-size reattach still repaints a TUI.
@@ -362,14 +350,18 @@ describe.skipIf(!hasCompiler)('abduco integration (needs a C compiler to build a
     session.dispose()
     await wait(300)
 
-    const re = attachAbducoAgent({ label, cols: 80, rows: 24 }) // same geometry
+    const re = attachAbducoAgent({ label, sizeNeutral: true })
     let out = ''
     re.onFrame((f) => {
       out += Buffer.from(f.data).toString('utf8')
     })
     await wait(1200)
-    expect(out).toContain('PODIUM-FIXTURE') // repainted despite unchanged size
-    expect(out).toContain('rows=24') // and settled back at the requested geometry
+    expect(out).toBe('')
+    re.resize(120, 40)
+    const repaintDeadline = Date.now() + 5000
+    while (!out.includes('rows=40') && Date.now() < repaintDeadline) await wait(20)
+    expect(out).toContain('PODIUM-FIXTURE')
+    expect(out).toContain('rows=40') // and settled back at the requested geometry
     re.dispose()
     await killAbducoSession(label)
   }, 15000)
@@ -401,10 +393,10 @@ describe.skipIf(!hasCompiler)('abduco integration (needs a C compiler to build a
 })
 
 describe.skipIf(!hasCompiler)(
-  'abduco input-fidelity parity (needs a C compiler to build abduco)',
+  'abduco input-fidelity parity (needs PODIUM_TEST_ABDUCO_BIN)',
   () => {
     // The byte sequences that matter for agent control — including 0x1c (Ctrl-\),
-    // abduco's DEFAULT detach key, which must arrive because we remap it to 0xff.
+    // abduco's DEFAULT detach key, which must arrive as content, with no detach-key interpretation.
     const SAMPLES: Record<string, string> = {
       ctrlC: '03',
       ctrlBackslash: '1c',
@@ -422,16 +414,14 @@ describe.skipIf(!hasCompiler)(
         label = `podium-abfid-${process.pid}-${hex}`
         await killAbducoSession(label)
         // Adopted the way the daemon now attaches: size-neutral (`-N`), so the
-        // detach-key remap is proven on the argv the adoption path runs.
+        // control bytes are proven on the native socket the adoption path uses.
         const socketPath = await createOnAbduco(label, bunBin, [HEX_FIXTURE])
         session = attachAbducoAgent({
           label,
           socketPath,
           sizeNeutral: true,
-          fallbackGeometry: { cols: 80, rows: 24 },
-          backend: bunPty,
         })
-        await wait(300) // the attach client takes its pty out of canonical mode
+        await wait(300) // the child installs its raw-input handler
       } else {
         session = spawnAgent({ cmd: bunBin, args: [HEX_FIXTURE], cols: 80, rows: 24 }, bunPty)
       }

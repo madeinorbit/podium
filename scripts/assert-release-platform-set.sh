@@ -14,7 +14,7 @@
 #   - the tarball verifies under Podium's release key — the check `podium update` will
 #     make on the target machine, run with the same primitive
 #   - the bundle survives the shipped-bundle assertions (architecture, the Rust process
-#     host, the embedded abduco attach client, no C podium-host, and for Darwin the ad-hoc
+#     host, no retired helpers, and for Darwin the ad-hoc
 #     code signature and its JIT entitlements)
 #   - the VERSION inside agrees with the manifest
 #
@@ -69,14 +69,6 @@ EXPECTED_PLATFORMS="$(for pair in $PLATFORMS; do echo "${pair%%:*}"; done | sort
   || fail "manifest declares [$MANIFEST_PLATFORMS], expected exactly [$EXPECTED_PLATFORMS]"
 echo "manifest version $TARGET_VERSION declares exactly: $MANIFEST_PLATFORMS"
 
-# Reference abduco attach clients, rebuilt from the vendored source at THIS commit. The
-# client is kept only to adopt sessions started by older releases (POD-4986), and these
-# references are what make "the right architecture's client is inside the shipped binary"
-# checkable rather than assumed — without them the check could only be waived, and a
-# waived check reads as a pass. Content-addressed, so a warm cache makes this a no-op.
-bun scripts/abduco-cross.ts >/dev/null || fail "could not build the reference abduco attach clients"
-ABDUCO_HASH="$(bun -e 'import{abducoSourceHash}from"./scripts/abduco-cross.ts";console.log(abducoSourceHash().slice(0,16))')"
-ABDUCO_CACHE="$(bun scripts/abduco-cross.ts --print-cache-dir)"
 
 for pair in $PLATFORMS; do
   platform="${pair%%:*}"
@@ -106,7 +98,7 @@ for pair in $PLATFORMS; do
 
   bash scripts/assert-headless-bundle.sh "$DIR/$asset" "$platform" \
     --source-commit "$TARGET_SOURCE" \
-    --abduco "$ABDUCO_CACHE/${platform}-${ABDUCO_HASH}" || exit 1
+    || exit 1
 
   BUNDLE_VERSION="$(tar -xzOf "$DIR/$asset" headless/VERSION | tr -d '\n')"
   [ "$BUNDLE_VERSION" = "$TARGET_VERSION" ] \

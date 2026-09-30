@@ -14,7 +14,7 @@ import { ptySmokeTests, realAgentSmokeTests } from './vitest.smoke-requirements'
  *   - *.integration.*         → spawns real processes / systemd scopes
  *   - real-agent smoke tests  → require a real agent binary (claude/codex); opt-in only
  *   - PTY smoke tests         → spawn a real PTY; integration lane
- *   - *.pty.test.ts, pty-behavior/, session.test, abduco-bin.test
+ *   - *.pty.test.ts, pty-behavior/, session.test
  *                             → spawn real Bun.Terminal PTYs or build the abduco attach client.
  *   - *.bun.test.ts           → `bun test` only (import bun:test); excluded in the base config
  *
@@ -45,7 +45,6 @@ export const unitTestExclude = [
   'packages/pty/test/pty-behavior/**',
   'packages/pty/test/session.test.ts',
   // Compiles the vendored abduco attach client.
-  'packages/pty/src/abduco-bin.test.ts',
   // Drives the real claude binary (self-skips without PODIUM_REAL_CLI=1);
   // the agent-smoke lane owns it.
   'packages/pty/test/harness-smoke/**',

@@ -96,11 +96,7 @@ size="$(stat -c%s "$CLI")"
   || fail "shipped podium-cli is only $size bytes — far too small to embed the Bun runtime"
 pass "shipped podium-cli is $size bytes"
 
-# --- The CLI embeds exactly one Darwin abduco attach client and nothing Linux ---
-# The one thing embedded is the abduco attach client (kept only to adopt sessions older
-# releases started; a Darwin Mach-O, so it adds no ELF header). A Linux ELF header means
-# a Linux binary — typically the build machine's abduco — was embedded instead, and the
-# C podium-host's `version` format means the retired C host came back.
+# --- No retired helper is embedded in the CLI ---
 embed_report="$(python3 - "$CLI" <<'PY'
 import sys
 data = open(sys.argv[1], 'rb').read()
@@ -116,9 +112,9 @@ eval "$(echo "$embed_report" | sed 's/^/EMB_/')"
 [[ "${EMB_elf_headers}" == "0" ]] \
   || fail "shipped binary contains ${EMB_elf_headers} Linux ELF header(s) — a linux binary was embedded"
 pass "shipped binary contains no Linux ELF header"
-[[ "${EMB_abduco_banner}" == "1" ]] \
-  || fail "expected exactly one embedded abduco attach client, found ${EMB_abduco_banner} banner strings"
-pass "shipped binary carries exactly one abduco attach client"
+[[ "${EMB_abduco_banner}" == "0" ]] \
+  || fail "expected no embedded abduco, found ${EMB_abduco_banner} banner strings"
+pass "shipped binary carries no abduco"
 [[ "${EMB_c_host}" == "0" ]] \
   || fail "shipped binary carries a retired C podium-host"
 pass "shipped binary carries no C podium-host"

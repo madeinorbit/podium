@@ -1605,7 +1605,6 @@
         "$TURBO_ROOT$/packages/runtime/src/**",
         "$TURBO_ROOT$/packages/sync/src/**",
         "$TURBO_ROOT$/packages/telemetry/src/**",
-        "$TURBO_ROOT$/scripts/abduco-cross.ts",
         "$TURBO_ROOT$/scripts/audit-automation-commands.test.ts",
         "$TURBO_ROOT$/scripts/audit-automation-commands.ts",
         "$TURBO_ROOT$/scripts/audit-mail-commands.ts",

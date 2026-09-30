@@ -2,7 +2,7 @@
 #
 # workflow_dispatch only — this is NOT a per-release gate. The whole point of spec
 # section 8b is that no Mac sits in the per-release build loop; this job exists so the
-# EXECUTION proof can be re-run on demand (after a Bun bump, a Rust host or abduco change, or a
+# EXECUTION proof can be re-run on demand (after a Bun bump, a Rust host or legacy adopter change, or a
 # change to the signing step) without waiting for a physical Mac.
 #
 # The runner labels are the ones apps/desktop already releases on:
@@ -112,7 +112,7 @@ jobs:
           grep -Eq '^(PASS|WARN)  gatekeeper: quarantine (blocked execution|did not block)' "$log"
           grep -Eq '^(PASS|WARN)  unsigned: a signature-stripped binary' "$log"
           grep -q 'PASS  daemon: all-in-one boot' "$log"
-          grep -q 'PASS  abduco: embedded attach client materialized' "$log"
+          grep -q 'PASS  legacy adoption: no abduco executable materialized' "$log"
           grep -q 'PASS  host: bundled podium-host runs' "$log"
           grep -q 'PASS  host: codesign --verify --strict accepts podium-host' "$log"
           grep -q 'PASS  host: session survives daemon kill' "$log"

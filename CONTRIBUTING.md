@@ -22,12 +22,8 @@ bot: just open a pull request.
   `rust-toolchain.toml`). Set `PODIUM_HOST_BIN` to a prebuilt Rust podium-host (feature level 2)
   to skip the build. On macOS, cargo links through the Xcode Command Line Tools
   (`xcode-select --install`).
-- **Linux and macOS: a C compiler (`cc`/clang), for the abduco attach client only.** Nothing
-  starts sessions on abduco any more, but sessions an older Podium release started on abduco are
-  adopted through the vendored abduco client, which the daemon compiles from
-  `packages/pty/vendor/abduco` into `~/.podium/bin/` on first need. Without a compiler those
-  sessions are logged once and left running, not attached. Set `PODIUM_ABDUCO=/path/to/abduco`
-  to use a prebuilt client instead. A later issue replaces the client with a native one.
+- Sessions left running by older Podium releases are adopted through a native TypeScript unix
+  socket client. They need no abduco binary or compiler.
 - **Windows desktop:** Microsoft C++ Build Tools with the "Desktop development with C++"
   workload, Microsoft Edge WebView2, and the Rust MSVC host toolchain. Windows sessions use
   ConPTY, so they need no podium-host build.

@@ -27,9 +27,6 @@ env:
   # Pin the build caches back inside the checkout so actions/cache can name them as a
   # `path`. The defaults are durable and outside the checkout (POD-3162), which is what a
   # developer box and a /tmp release worktree need and what an ephemeral runner cannot use.
-  # The abduco cache holds the abduco ATTACH CLIENT, kept only to adopt sessions started
-  # by older releases (POD-4986); nothing spawns on abduco.
-  PODIUM_ABDUCO_CACHE_DIR: dist-bun/abduco-cache
   PODIUM_RUST_HOST_CACHE_DIR: dist-bun/rust-host-cache
   # `inputs.channel` is a required choice with a default, so it is never the empty string and
   # cannot trip the Actions ternary bug the desktop workflow documents. A rolling channel's TAG
@@ -45,8 +42,7 @@ jobs:
   # This used to be a matrix — x64 on Blacksmith Ubuntu, arm64 on a native ARM runner —
   # because the compiled daemon embeds native helpers and each helper had to be built on
   # the architecture that would run it. Everything native a bundle ships is now built for
-  # every target from here: podium-host and podium-tunnel by cargo-zigbuild, and the
-  # embedded abduco attach client by `zig cc`.
+  # every target from here: podium-host and podium-tunnel by cargo-zigbuild.
   # `rcodesign` does not add the Darwin signature — `bun build --compile` already emits
   # an ad-hoc LINKER_SIGNED Mach-O (identifier a.out). rcodesign REPLACES
   # that with identifier podium plus the five Bun JIT entitlement keys. Drop rcodesign
@@ -59,7 +55,7 @@ jobs:
       TURBO_CACHE_DIR: /tmp/podium-cache/podium/turbo
     steps:
       - uses: actions/checkout@v4
-      # zig links the Rust binaries (cargo-zigbuild) and compiles the abduco attach client.
+      # zig links the Rust binaries (cargo-zigbuild).
       # rcodesign re-signs Darwin Mach-Os with
       # Bun's JIT entitlements — it does not add the signature (Bun already did).
       # All tool versions come from mise.toml — the one pin site dev machines share.
@@ -73,15 +69,11 @@ jobs:
           mise trust packages/pty/vendor/podium-host/mise.toml
           mise -C packages/pty/vendor/podium-host install rust
       # The build caches are content-addressed on their sources, so these keys are the
-      # honest ones: touch abduco.c, or the Rust crate, its pins or its build script, and
+      # honest ones: touch the Rust crate, its pins or its build script, and
       # every platform's binary for that source is rebuilt. PODIUM_*_CACHE_DIR pins them
       # back inside the checkout: locally the defaults are durable per-repository paths
       # outside it (POD-3162), which buy nothing on an ephemeral runner and cannot be named
       # by an actions/cache `path`.
-      - uses: actions/cache@v4
-        with:
-          path: dist-bun/abduco-cache
-          key: abduco-cross-${{ hashFiles('packages/pty/vendor/abduco/abduco.c') }}
       - uses: actions/cache@v4
         with:
           path: dist-bun/rust-host-cache
@@ -119,14 +111,12 @@ jobs:
       - name: Assert every bundle is what it claims to be
         run: |
           set -euo pipefail
-          HASH="$(bun -e 'import{abducoSourceHash}from"./scripts/abduco-cross.ts";console.log(abducoSourceHash().slice(0,16))')"
           for pair in "linux-x86_64:linux-x64" "linux-aarch64:linux-arm64" \
                       "darwin-aarch64:darwin-arm64" "darwin-x86_64:darwin-x64"; do
             platform="${pair%%:*}"; asset="${pair##*:}"
             bash scripts/assert-headless-bundle.sh \
               "dist-bun/release/podium-headless-${asset}.tar.gz" "$platform" \
-              --source-commit "$GITHUB_SHA" \
-              --abduco "dist-bun/abduco-cache/${platform}-${HASH}"
+              --source-commit "$GITHUB_SHA"
           done
       # RUN the one bundle this runner can run, BEFORE publishing it. Everything above
       # interrogates tarballs without executing anything — the only option for the three
@@ -268,14 +258,8 @@ jobs:
         with:
           install_args: bun
       # The published smoke opens the Darwin bundles it cannot execute, so it needs the
-      # Mach-O signature reader — and zig, to rebuild the reference abduco attach clients
-      # it checks the published binaries against. Without those references the
-      # embedded-client check could only be waived, and a waived check reads as a pass.
+      # Mach-O signature reader for the published Darwin binaries.
       - uses: jdx/mise-action@v2
-      - uses: actions/cache@v4
-        with:
-          path: dist-bun/abduco-cache
-          key: abduco-cross-${{ hashFiles('packages/pty/vendor/abduco/abduco.c') }}
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: Verify the published assets and signature
         env:

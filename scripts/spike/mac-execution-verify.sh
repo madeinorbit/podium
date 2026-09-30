@@ -164,13 +164,11 @@ if [[ $alive -eq 1 ]] && kill -0 "$(cat "$WORK/daemon.pid")" 2>/dev/null; then
 else
   fail "daemon: all-in-one did not stay up / no server|daemon up line"
 fi
-# --- the embedded abduco attach client (kept only to adopt sessions older releases
-#     started) materialized under the state dir and runs ---
-if [[ -x "$PODIUM_STATE_DIR/bin/abduco" ]]; then
-  "$PODIUM_STATE_DIR/bin/abduco" -v 2>&1 | head -3
-  pass "abduco: embedded attach client materialized under state dir"
+# --- legacy adoption requires no materialized abduco binary ---
+if [[ ! -e "$PODIUM_STATE_DIR/bin/abduco" ]]; then
+  pass "legacy adoption: no abduco executable materialized"
 else
-  fail "abduco: embedded attach client not materialized"
+  fail "legacy adoption: retired abduco executable materialized"
 fi
 
 # --- the bundled Rust process host: runs, signed, hosts a session that survives ---

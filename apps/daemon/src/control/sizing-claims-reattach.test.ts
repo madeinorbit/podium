@@ -18,7 +18,7 @@
  *
  * WHAT CHANGED AT STAGE 4 (POD-3276): last-known no longer reaches the attach as
  * a `cols`/`rows` it could apply — for an adopted abduco session only as
- * `fallbackGeometry`, read on the one path where there is no `-N` abduco build.
+ * no geometry to announce to a running legacy master.
  *
  * WHAT CHANGED WITH POD-4723 (design rev 3): the bind carries the CONNECTION's
  * size — what the host's WELCOME read back from the kernel — and nothing else;
@@ -77,7 +77,7 @@ const stub = vi.hoisted(() => {
     listLiveHostLabels: async () => [],
     attachHostAgent: (opts: unknown) => {
       state.attachedAt.push(opts)
-      return session
+      return { ...session, ready: Promise.resolve(4242) }
     },
     killHostSession: async () => {},
     spawnHostAgent: async () => session,
@@ -88,9 +88,9 @@ const stub = vi.hoisted(() => {
     abducoSocketPath: () => (state.holder === 'abduco' ? SOCKET : undefined),
     attachAbducoAgent: (opts: unknown) => {
       state.attachedAt.push(opts)
-      return session
+      return { ...session, ready: Promise.resolve(4242) }
     },
-    isAbducoAvailable: () => true,
+
     killAbducoSession: async () => {},
     listLiveAbducoLabels: () => [],
     reapStaleAbducoBindTemps: () => [],
@@ -124,7 +124,7 @@ vi.mock('@podium/process/host', async (importOriginal) => {
 })
 
 // Same for the abduco adoption adapter, which reaches its leaves through
-// `./abduco.js`; the real adapter adds sizeNeutral/fallbackGeometry itself on its
+// `./abduco.js`; the real adapter adds sizeNeutral itself on its
 // way down to the stubbed attachAbducoAgent.
 vi.mock('@podium/process/abduco', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@podium/process/durable')>()
@@ -237,7 +237,7 @@ describe('C16 (rev 3): a reattach binds the connection size and never touches th
     expect(stub.state.attachedAt[0]).not.toHaveProperty('rows')
   })
 
-  it('binds BARE for an adopted abduco session: the attach is size-neutral, last-known only a fallback', async () => {
+  it('binds BARE for an adopted abduco session: the attach is size-neutral, last-known is never applied', async () => {
     reset()
     stub.state.holder = 'abduco'
     const sent: Array<{ type: string; resizesBefore: number }> = []
@@ -252,11 +252,10 @@ describe('C16 (rev 3): a reattach binds the connection size and never touches th
     expect(stub.state.resizes).toEqual([])
     expect(stub.state.writes).toBe(0)
     // The attach is SIZE-NEUTRAL: last-known reaches it only as
-    // `fallbackGeometry`, never as a `cols`/`rows` it could apply.
+    // no `cols`/`rows` it could apply.
     expect(stub.state.attachedAt).toHaveLength(1)
     expect(stub.state.attachedAt[0]).toMatchObject({
       sizeNeutral: true,
-      fallbackGeometry: { cols: 132, rows: 43 },
     })
     expect(stub.state.attachedAt[0]).not.toHaveProperty('cols')
     expect(stub.state.attachedAt[0]).not.toHaveProperty('rows')

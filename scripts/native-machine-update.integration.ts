@@ -16,7 +16,6 @@ import {
 import { join, resolve } from "node:path";
 import { requestMachineUpdate } from "../packages/runtime/src/machine-update-control";
 import { readMachineUpdateJournal } from "../packages/runtime/src/machine-update";
-import { buildVendoredAbduco } from "../packages/pty/src/abduco-bin";
 import { RUST_HOST_BINARY } from "../packages/pty/src/host-bin";
 import { launcherShim } from "./build-bun";
 import { buildLocalRustHost } from "./rust-host-cross";
@@ -325,14 +324,11 @@ try {
   const distDir = join(buildRoot, "dist-bun");
   mkdirSync(scriptsDir, { recursive: true });
   mkdirSync(distDir);
-  for (const file of ["cli-compiled.ts", "cli.ts", "embedded-abduco.ts"])
+  for (const file of ["cli-compiled.ts", "cli.ts"])
     cpSync(join(repo, "scripts", file), join(scriptsDir, file));
   for (const dir of ["apps", "packages"])
     symlinkSync(join(repo, dir), join(buildRoot, dir), "dir");
-  // The compiled CLI embeds the abduco attach client (kept only to adopt sessions older
-  // releases started) from the fixed dist-bun/abduco.bin; a real payload carries the
-  // Rust process host beside podium-cli.
-  buildVendoredAbduco(join(distDir, "abduco.bin"));
+  // A real payload carries the Rust process host beside podium-cli.
   cpSync(buildLocalRustHost(), join(payload, RUST_HOST_BINARY));
   chmodSync(join(payload, RUST_HOST_BINARY), 0o755);
   run(process.execPath, [

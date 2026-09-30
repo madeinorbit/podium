@@ -5,13 +5,11 @@ import {
   abducoHasSession,
   abducoSocketPath,
   attachAbducoAgent,
-  isAbducoAvailable,
   killAbducoSession,
   listLiveAbducoLabels,
   reapStaleAbducoBindTemps,
   waitForAbducoSocket,
 } from './abduco.js'
-import { noteUnadoptableAbducoSession } from './legacy-abduco.js'
 import type { DurableSpawnOptions } from './scope.js'
 import {
   type HostDurableAttachment,
@@ -42,8 +40,8 @@ import {
  *  - an abduco master (every Podium release before POD-4986 ran its sessions
  *    on abduco) is located, attached, listed and killed through the
  *    ADOPTION-ONLY {@link abducoAdoptionAdapter}, which refuses to create
- *    anything. Its attach client is the vendored abduco binary; where none can
- *    be had, the session is logged once by label and its process left alone.
+ *    anything. Its native socket client needs no abduco binary. Delete this
+ *    compatibility adapter once no running legacy session can remain.
  * So {@link DurableProcess.locate} probes the host's directory first and
  * abduco's second, and the census lists both.
  *
@@ -201,11 +199,8 @@ export function abducoAdoptionAdapter(): DurableAdapter {
         label: opts.label,
         socketPath: opts.socketPath,
         sizeNeutral: true,
-        // Read ONLY if this machine has no `-N` abduco build and the attach
-        // downgrades to one that does announce a size (POD-4723: abduco cannot
-        // read its size back).
-        fallbackGeometry: opts.lastKnownGeometry,
       })
+      await attachment.ready
       return { attachment, cmd: `abduco -a ${opts.socketPath}` }
     },
     async steal(opts) {
@@ -218,13 +213,7 @@ export function abducoAdoptionAdapter(): DurableAdapter {
     list: async () => listLiveAbducoLabels(),
     async socketPath(label, env) {
       reapStaleAbducoBindTemps(env)
-      const path = abducoSocketPath(label, env)
-      if (!path) return undefined
-      // Attaching needs the abduco client. Without one the session cannot be
-      // adopted: say so once, and leave the master and its program alone.
-      if (isAbducoAvailable()) return path
-      noteUnadoptableAbducoSession(label, path)
-      return undefined
+      return abducoSocketPath(label, env)
     },
     waitForSocket: (label, env, opts) => waitForAbducoSocket(label, env, opts),
     hasMasterSync: (label, env) => abducoSocketPath(label, env) !== undefined,
@@ -319,8 +308,7 @@ export function createDurableProcess(): DurableProcess {
       return false
     },
     async kill(label) {
-      // abduco's kill lists masters through the abduco client; ask it only when
-      // an abduco socket holds the label, so a host kill forks nothing extra.
+      // Probe only the matching legacy socket; a host kill needs no legacy probe.
       const abduco = all[1]
       await Promise.all([
         primary.kill(label),

@@ -15,9 +15,6 @@
 # Usage:
 #   scripts/prove-headless-assertions-can-fail.sh <darwin-arm64-tarball> [<linux-x64-tarball>]
 #
-# Needs the abduco attach-client cache (scripts/abduco-cross.ts) for the reference
-# clients. The abduco attach client is kept only to adopt sessions started by older
-# releases (POD-4986); the bundle still embeds it, so the gate still proves which one.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -33,12 +30,6 @@ for tool in rcodesign python3 tar file bun; do
   command -v "$tool" >/dev/null || { echo "ABORT: need $tool on PATH" >&2; exit 1; }
 done
 
-bun scripts/abduco-cross.ts >/dev/null || { echo "ABORT: could not build the reference abduco helpers" >&2; exit 1; }
-HASH="$(bun -e 'import{abducoSourceHash}from"./scripts/abduco-cross.ts";console.log(abducoSourceHash().slice(0,16))')"
-# Ask the builder where it put them; the cache is durable and outside the checkout.
-ABDUCO_CACHE="$(bun scripts/abduco-cross.ts --print-cache-dir)"
-DARWIN_REF="$ABDUCO_CACHE/darwin-aarch64-$HASH"
-LINUX_REF="$ABDUCO_CACHE/linux-x86_64-$HASH"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/podium-negctl-XXXXXX")"
 # When a case fails, the first question is always "what was actually in that tarball?".
@@ -70,13 +61,9 @@ tar -xzf "$DARWIN_TARBALL" -C "$WORK" || { echo "ABORT: cannot extract $DARWIN_T
 # `signature` or `digest` were being satisfied by output that is always there. Two cases
 # were in exactly that state.
 check() {
-  local label="$1" expect="$2" platform="$3" abduco="$4" tarball="$5"
+  local label="$1" expect="$2" platform="$3" tarball="$4"
   local out status line
-  if [ -n "$abduco" ]; then
-    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" --abduco "$abduco" 2>&1)"
-  else
-    out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" 2>&1)"
-  fi
+  out="$(bash scripts/assert-headless-bundle.sh "$tarball" "$platform" --source-commit "$SOURCE_COMMIT" 2>&1)"
   status=$?
   if [ "$status" -eq 0 ]; then
     echo "HARNESS FAILURE [$label]: the gate ACCEPTED a bundle it must reject"
@@ -106,7 +93,7 @@ check_caller_client_root() {
   local out status line
   out="$(bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 \
     --source-commit "$SOURCE_COMMIT" --client-root-digest "$(printf 'a%.0s' {1..64})" \
-    --abduco "$DARWIN_REF" 2>&1)"
+    2>&1)"
   status=$?
   line="$(printf '%s\n' "$out" | grep -iE '^(FAIL|ABORT)' | head -1)"
   if [ "$status" -ne 0 ] && printf '%s' "$line" | grep -qi -- 'unknown flag --client-root-digest'; then
@@ -189,7 +176,7 @@ echo
 # 1. A hello-world stub in place of the real binary. The case POD-2501's first
 #    assertion script would have PASSED, because it checked a sibling in the build dir.
 edit_stub() { printf '#!/bin/sh\necho hi\n' > "$CASE/headless/podium-cli"; chmod +x "$CASE/headless/podium-cli"; }
-check "hello-world stub" "shipped podium-cli is not Mach-O" darwin-aarch64 "$DARWIN_REF" "$(mutate stub edit_stub)"
+check "hello-world stub" "shipped podium-cli is not Mach-O" darwin-aarch64 "$(mutate stub edit_stub)"
 
 # 2. A Linux ELF shipped as the Darwin payload.
 if [ -n "$LINUX_TARBALL" ] && [ -f "$LINUX_TARBALL" ]; then
@@ -200,35 +187,11 @@ if [ -n "$LINUX_TARBALL" ] && [ -f "$LINUX_TARBALL" ]; then
     || { echo "ABORT: could not extract the linux payload" >&2; exit 1; }
   edit_elf() { cp "$WORK/linux/headless/podium-cli" "$CASE/headless/podium-cli"; }
   check "linux ELF as the darwin payload" "shipped podium-cli is not Mach-O" \
-    darwin-aarch64 "$DARWIN_REF" "$(mutate elf edit_elf)"
+    darwin-aarch64 "$(mutate elf edit_elf)"
   rm -rf "$WORK/linux"
 else
   echo "SKIPPED [linux ELF as the darwin payload]: no linux tarball passed"
 fi
-
-# 3a. THE WRONG PLATFORM'S HELPER ACTUALLY EMBEDDED IN THE BUNDLE.
-#
-#     The regression the matrix collapse most threatens, and the one no format check can
-#     see: a perfectly good Darwin Mach-O carrying the Linux abduco. It is also the case
-#     this harness got WRONG at first — it swapped the REFERENCE rather than the bundle,
-#     so the gate rejected its own input and the check that actually matters was never
-#     exercised per release at all.
-#
-#     The overwrite also breaks the code signature, but the embedded-helper check runs
-#     BEFORE the signature checks, so the failure line is unambiguous — and pinning that
-#     ordering is itself worth something.
-edit_wrong_helper() {
-  python3 scripts/embed-wrong-abduco.py "$CASE/headless/podium-cli" "$DARWIN_REF" "$LINUX_REF"
-}
-check "wrong-platform helper EMBEDDED in the bundle" "does NOT appear inside the shipped binary" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate wronghelper edit_wrong_helper)"
-
-# 3b. The reference the gate is asked to check AGAINST is the wrong platform's. Weaker
-#     than 3a, and a distinct failure: it proves the gate validates its own input rather
-#     than trusting whatever path CI hands it.
-edit_noop() { :; }
-check "wrong-platform abduco reference supplied" "reference abduco is not" \
-  darwin-aarch64 "$LINUX_REF" "$(mutate wrongref edit_noop)"
 
 # 4. Signature stripped off the shipped binary.
 # `bun build --compile` output is ALREADY ad-hoc signed, so there is no "unsigned"
@@ -239,7 +202,7 @@ edit_strip() {
     && chmod +x "$CASE/headless/podium-cli"
 }
 STRIPPED="$(mutate stripped edit_strip)"
-check "signature stripped" "has NO code signature" darwin-aarch64 "$DARWIN_REF" "$STRIPPED"
+check "signature stripped" "has NO code signature" darwin-aarch64 "$STRIPPED"
 
 # 5. A byte flipped INSIDE the sealed region: the signature is still there and still
 #    parses, but it no longer seals these bytes.
@@ -255,7 +218,7 @@ with open(p, 'r+b') as f:
 PY
 }
 check "byte flipped inside the sealed region" "does not seal the shipped bytes" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate flipped edit_flip)"
+  darwin-aarch64 "$(mutate flipped edit_flip)"
 
 # 6. Re-signed with EMPTY entitlements: ad-hoc, identifier podium, not LINKER_SIGNED —
 #    everything the other signature checks look for — and unable to JIT. This isolates
@@ -275,7 +238,7 @@ edit_noent() {
     && rcodesign sign --binary-identifier podium "$CASE/headless/podium-cli"
 }
 check "empty entitlements" "entitlements missing com.apple.security.cs.allow-jit" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate noent edit_noent)"
+  darwin-aarch64 "$(mutate noent edit_noent)"
 
 # 6b. All five keys still PRESENT, but explicitly false. Presence alone is not the
 #     policy: Bun's JIT needs each entitlement enabled. This is the closest false
@@ -301,33 +264,21 @@ PLIST
       --entitlements-xml-file "$CASE/false-entitlements.plist" "$CASE/headless/podium-cli"
 }
 check "all JIT entitlements false" "entitlement com.apple.security.cs.allow-jit is not enabled" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate falseentitlements edit_false_entitlements)"
+  darwin-aarch64 "$(mutate falseentitlements edit_false_entitlements)"
 
 # 7. Raw `bun build --compile` output: already ad-hoc signed, but LINKER_SIGNED with
 #    identifier a.out and NO entitlements. The regression that looks most like success.
 RAW="$WORK/raw-podium"
-# The compiled binary embeds dist-bun/abduco.bin, which holds whatever the LAST build
-# left there — often another platform's helper. Put the darwin one back first, so the
-# only thing wrong with this binary is its signature. Otherwise the embedded-helper
-# check fires first and this case silently stops testing LINKER_SIGNED at all.
-cp "$DARWIN_REF" dist-bun/abduco.bin 2>/dev/null
 if bun build --compile --target=bun-darwin-arm64 --conditions=@podium/source \
      scripts/cli-compiled.ts --outfile "$RAW" >/dev/null 2>&1; then
   edit_raw() { cp "$RAW" "$CASE/headless/podium-cli"; chmod +x "$CASE/headless/podium-cli"; }
   check "raw Bun output, never re-signed" "still carries Bun's LINKER_SIGNED" \
-    darwin-aarch64 "$DARWIN_REF" "$(mutate raw edit_raw)"
+    darwin-aarch64 "$(mutate raw edit_raw)"
   rm -f "$RAW"
 else
   echo "HARNESS FAILURE [raw Bun output]: could not produce the raw compile to test against"
   FAILED=$((FAILED + 1))
 fi
-
-# 8. The reference helper is missing, against an otherwise PERFECT bundle. A gate that
-#    skips here reads as a pass. It must be given a good tarball, or it dies on the
-#    tarball's own defects and this check is never reached — which is what the first
-#    version of this case did.
-check "reference abduco deleted" "reference abduco missing" \
-  darwin-aarch64 "$WORK/does-not-exist" "$DARWIN_TARBALL"
 
 # 9. Wrong archive layout: the updater joins the staged dir with `headless`, so any
 #    other root silently installs nothing.
@@ -338,48 +289,44 @@ cp -a "$WORK/headless/." "$WORK/case-layout/podium/" \
   || { echo "ABORT: could not pack the wrong-layout case (disk full?)" >&2; exit 1; }
 rm -rf "$WORK/case-layout"
 check "archive root is not headless/" "tarball missing headless/podium-cli" \
-  darwin-aarch64 "$DARWIN_REF" "$WORK/layout.tar.gz"
+  darwin-aarch64 "$WORK/layout.tar.gz"
 
 # 10. A file the bundle cannot work without is absent.
 edit_noversion() { rm -f "$CASE/headless/VERSION"; }
 check "VERSION removed" "tarball missing headless/VERSION" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate noversion edit_noversion)"
-
-# 11. (ours) No --abduco and no explicit waiver: an omitted input must be an ERROR,
-#     never a silent skip that reads as a green.
-check "no abduco flag" "pass --abduco" darwin-aarch64 "" "$DARWIN_TARBALL"
+  darwin-aarch64 "$(mutate noversion edit_noversion)"
 
 # 11a–11f. THE PROCESS HOST. The Rust podium-host is the only host a bundle ships
 #     (POD-4986): it must be there and built for this platform, and the retired C host
 #     must be nowhere — not embedded in the CLI the way it used to be, and not shipped
 #     under the Rust host's name, which the two share (so the gate refuses it by
-#     CONTENT). The abduco attach client is embedded, so a loose one is wrong too. The
+#     CONTENT). An abduco executable is retired, so a loose one is wrong too. The
 #     C-host cases APPEND its `version` printf format rather than rebuilding: that breaks
 #     the signature too, but the C-host scan runs before the signature checks, so the
 #     failure line is unambiguous.
 edit_norusthost() { rm -f "$CASE/headless/podium-host"; }
 check "Rust host removed" "tarball missing headless/podium-host" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate norusthost edit_norusthost)"
+  darwin-aarch64 "$(mutate norusthost edit_norusthost)"
 if [ -n "$LINUX_TARBALL" ] && [ -f "$LINUX_TARBALL" ]; then
   rm -rf "$WORK/linux"; mkdir -p "$WORK/linux"
   tar -xzf "$LINUX_TARBALL" -C "$WORK/linux" headless/podium-host \
     || { echo "ABORT: could not extract the linux Rust host" >&2; exit 1; }
   edit_linux_rusthost() { cp "$WORK/linux/headless/podium-host" "$CASE/headless/podium-host"; }
   check "linux Rust host in the darwin bundle" "shipped podium-host is not Mach-O" \
-    darwin-aarch64 "$DARWIN_REF" "$(mutate linuxrusthost edit_linux_rusthost)"
+    darwin-aarch64 "$(mutate linuxrusthost edit_linux_rusthost)"
   rm -rf "$WORK/linux"
 else
   echo "SKIPPED [linux Rust host in the darwin bundle]: no linux tarball passed"
 fi
-edit_loose_abduco() { cp "$DARWIN_REF" "$CASE/headless/abduco"; }
+edit_loose_abduco() { printf "retired" > "$CASE/headless/abduco"; }
 check "loose abduco beside the Rust host" "ships a loose abduco" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate looseabduco edit_loose_abduco)"
+  darwin-aarch64 "$(mutate looseabduco edit_loose_abduco)"
 edit_embedded_c_host() { printf 'podium-host %%s features=%%d\n' >> "$CASE/headless/podium-cli"; }
 check "C podium-host embedded in the CLI" "carries an embedded C podium-host" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate embeddedchost edit_embedded_c_host)"
+  darwin-aarch64 "$(mutate embeddedchost edit_embedded_c_host)"
 edit_c_host_as_rust_host() { printf 'podium-host %%s features=%%d\n' >> "$CASE/headless/podium-host"; }
 check "C podium-host shipped as podium-host" "is the retired C podium-host" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate chostasrusthost edit_c_host_as_rust_host)"
+  darwin-aarch64 "$(mutate chostasrusthost edit_c_host_as_rust_host)"
 
 # 12–14. THE PRODUCTION LAYOUT, not the spike layout. The spike packed no systemd/,
 #     no NOTICE, and stub web/mobile index.html files. A gate that only checked what
@@ -388,7 +335,7 @@ check "C podium-host shipped as podium-host" "is the retired C podium-host" \
 # 12. Packaged systemd units gone — a headless VPS cannot enable the parent unit.
 edit_nosystemd() { rm -rf "$CASE/headless/systemd"; }
 check "systemd/ removed" "tarball missing headless/systemd" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate nosystemd edit_nosystemd)"
+  darwin-aarch64 "$(mutate nosystemd edit_nosystemd)"
 
 # 13. The spike's stub web/index.html in place of the stamped production client.
 #     Existence of a file named index.html is the check that would have passed this.
@@ -397,7 +344,7 @@ edit_stub_web() {
     > "$CASE/headless/web/index.html"
 }
 check "stub web/index.html" "build provenance hash mismatch for index.html" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate stubweb edit_stub_web)"
+  darwin-aarch64 "$(mutate stubweb edit_stub_web)"
 
 # 13b. Forge plausible bytes, a public release stamp and an exact internal manifest.
 #      The archive is internally self-consistent; the raw packager must still refuse because
@@ -449,7 +396,7 @@ check_release_capture "padded forged web stub with matching forged manifest" \
 #      armedness proof: delete that check and this case reaches the binary unchanged.
 edit_nomanifest() { rm -f "$CASE/headless/web/podium-build-manifest.json"; }
 check "web build provenance manifest removed" "has no build provenance manifest" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate nomanifest edit_nomanifest)"
+  darwin-aarch64 "$(mutate nomanifest edit_nomanifest)"
 
 # 13d. SUCCESSOR TO THE NONCE CASES (POD-3052). The per-run invocation nonce is gone;
 #      what stands in its place is the checksum. One flipped byte in an asset the
@@ -467,7 +414,7 @@ victim.write_bytes(bytes(raw))
 MUT
 }
 check "one byte flipped in a manifested web asset" "build provenance hash mismatch for assets/" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate flippedasset edit_flipped_asset)"
+  darwin-aarch64 "$(mutate flippedasset edit_flipped_asset)"
 
 # 13e. fileCount is the inventory floor's input. A manifest that disagrees with its own
 #      inventory is refused before any floor is applied.
@@ -484,7 +431,7 @@ path.write_text(json.dumps(manifest) + '\n')
 MUT
 }
 check "manifest fileCount disagrees with its inventory" "fileCount" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate badcount edit_bad_filecount)"
+  darwin-aarch64 "$(mutate badcount edit_bad_filecount)"
 
 # 13f. A manifest from before the v2 inventory must not be read as one.
 edit_v1_manifest() {
@@ -500,7 +447,7 @@ path.write_text(json.dumps(manifest) + '\n')
 MUT
 }
 check "legacy v1 build provenance manifest" "unsupported build provenance manifestVersion" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate v1manifest edit_v1_manifest)"
+  darwin-aarch64 "$(mutate v1manifest edit_v1_manifest)"
 
 # 13g. A stamp carrying a per-run builtAt is not a reproducible dist, whatever else
 #      agrees. The manifest is re-hashed so the mutation is caught for THIS reason and
@@ -525,18 +472,18 @@ manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
 MUT
 }
 check "stamp carries a per-run builtAt" "not reproducible" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate builtat edit_builtat_stamp)"
+  darwin-aarch64 "$(mutate builtat edit_builtat_stamp)"
 
 # 14. NOTICE absent — Apache-2.0 convention, packed by build-bun.ts with LICENSE.
 edit_nonotice() { rm -f "$CASE/headless/NOTICE"; }
 check "NOTICE missing" "tarball missing headless/NOTICE" \
-  darwin-aarch64 "$DARWIN_REF" "$(mutate nonotice edit_nonotice)"
+  darwin-aarch64 "$(mutate nonotice edit_nonotice)"
 
 # THE CONTROL FOR THE CONTROLS: the pristine bundle must still PASS. Without this a
 # gate that rejected everything would score a perfect set above.
 echo
 if bash scripts/assert-headless-bundle.sh "$DARWIN_TARBALL" darwin-aarch64 \
-    --source-commit "$SOURCE_COMMIT" --abduco "$DARWIN_REF" >/dev/null 2>&1; then
+    --source-commit "$SOURCE_COMMIT" >/dev/null 2>&1; then
   echo "ACCEPTED (control): the unmutated bundle still passes"
   PASSED=$((PASSED + 1))
 else

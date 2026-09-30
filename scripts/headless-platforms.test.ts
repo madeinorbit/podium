@@ -9,7 +9,6 @@ import { describe, expect, it } from 'vitest'
 // drifting silently.
 import { bunTargetForPlatform as serverBunTargetForPlatform } from '../apps/server/src/modules/updates/dev-bundle'
 import { HEADLESS_PLATFORMS, isHeadlessPlatform } from '../packages/protocol/src/update/platforms'
-import { ABDUCO_TARGETS, abducoCachePath, abducoCompileFlags } from './abduco-cross'
 import { BUN_TARGETS, bunTargetForPlatform, parseBuildTarget, targetOutputRoot } from './build-bun'
 import { CLIENT_ROOT_DIGEST_FILE } from './client-build-root-digest'
 import { headlessAsset, loadPreparedHeadless, RELEASE_PLATFORMS } from './release'
@@ -17,7 +16,7 @@ import { RUST_HOST_TARGETS, rustHostCachePath } from './rust-host-cross'
 
 /**
  * The four platform names are spoken by six things — the Rust host cache, the
- * abduco attach-client cache, the bun --compile target table, the release asset
+ * bun --compile target table, the release asset
  * names, the manifest keys and the CLI's own host derivation. These tests exist
  * because a mismatch between any two of them is invisible until a machine asks for
  * an update and is told its platform was never published.
@@ -37,11 +36,8 @@ describe('the headless platform set', () => {
       const target = bunTargetForPlatform(platform)
       expect(BUN_TARGETS[target].platform).toBe(platform)
       expect(RUST_HOST_TARGETS[platform].rustTarget).toBeTruthy()
-      expect(ABDUCO_TARGETS[platform].zigTarget).toBeTruthy()
-      // The host ships beside the CLI and the abduco attach client inside it, so both
-      // are Mach-O exactly where the CLI is.
+      // The host is Mach-O exactly where the CLI is.
       expect(RUST_HOST_TARGETS[platform].darwin).toBe(BUN_TARGETS[target].nodePlatform === 'darwin')
-      expect(ABDUCO_TARGETS[platform].darwin).toBe(RUST_HOST_TARGETS[platform].darwin)
     }
   })
 
@@ -90,30 +86,6 @@ describe('Rust host cross-build inputs', () => {
   })
 })
 
-describe('abduco attach-client cross-build inputs', () => {
-  it('keys the cache on the source hash, so an edited abduco.c invalidates every platform', () => {
-    const a = abducoCachePath('linux-aarch64', 'a'.repeat(64), '/repo/')
-    const b = abducoCachePath('linux-aarch64', 'b'.repeat(64), '/repo/')
-    expect(a).not.toBe(b)
-    expect(a).toContain('linux-aarch64-')
-  })
-
-  it('reserves Mach-O header room and the util.h shim only for Darwin targets', () => {
-    // Without -headerpad the x86_64 link leaves no room for the code-signature load
-    // command and rcodesign fails; without the include dir zig cannot see forkpty.
-    const darwin = abducoCompileFlags(ABDUCO_TARGETS['darwin-x86_64'], '/inc')
-    expect(darwin).toContain('-Wl,-headerpad,0x8000')
-    expect(darwin).toContain('/inc')
-    const linux = abducoCompileFlags(ABDUCO_TARGETS['linux-x86_64'], '/inc')
-    expect(linux).not.toContain('-Wl,-headerpad,0x8000')
-    expect(linux).not.toContain('/inc')
-  })
-
-  it('links Linux clients against musl, so the bundle carries no glibc floor', () => {
-    expect(ABDUCO_TARGETS['linux-x86_64'].zigTarget).toContain('musl')
-    expect(ABDUCO_TARGETS['linux-aarch64'].zigTarget).toContain('musl')
-  })
-})
 
 describe('build-bun --target', () => {
   it('leaves a plain host build writing where it always did', () => {

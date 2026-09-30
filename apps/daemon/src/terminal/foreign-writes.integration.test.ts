@@ -1,3 +1,4 @@
+import { hasLegacyAbduco, legacyAbducoBin } from '../../../../packages/pty/src/legacy-abduco-fixture'
 /**
  * THE COUNTER OVER REAL BACKENDS (POD-4888): a real podium-host whose writer
  * lease is stolen, a second real attachment that never held the lease, and a
@@ -15,10 +16,8 @@ import {
   attachHostAgent,
   createDurableProcess,
   type DurableAttachment,
-  isAbducoAvailable,
   killAbducoSession,
   killHostSession,
-  resolveAbducoBin,
   resolveHostBin,
   spawnHostAgent,
 } from '@podium/process/durable'
@@ -29,7 +28,7 @@ import { Terminal } from './terminal.js'
 /** A Rust podium-host: $PODIUM_HOST_BIN, the release payload, or a checkout build. */
 const hasHost = resolveHostBin() !== undefined
 /** The abduco client adoption attaches with (vendored, built on first use). */
-const hasAbducoClient = isAbducoAvailable()
+const hasAbducoClient = hasLegacyAbduco
 
 const ENV_KEYS = [
   'PODIUM_STATE_DIR',
@@ -169,7 +168,7 @@ describe.skipIf(!hasHost)('the foreign-write counter over a real podium-host (PO
       abducoLabels.push(label)
       // Created the way an older Podium did — the abduco binary itself; nothing
       // in Podium creates one any more.
-      execFileSync(resolveAbducoBin() as string, ['-n', label, 'sleep', '30'], {
+      execFileSync(legacyAbducoBin as string, ['-n', label, 'sleep', '30'], {
         env: process.env,
         stdio: 'ignore',
       })

@@ -3439,8 +3439,7 @@ export function checkTerminalObjectsServer(file: string, source: string): Violat
  * the build tier. This rule closes the other route: a relative import that
  * walks into packages/pty/src bypasses the package entirely, and a bare
  * `node-pty` specifier skips both gates. scripts/ is exempt (L5 build tier
- * composes everything: scripts/build-bun.ts packages the Rust host and embeds the
- * abduco attach client), and
+ * composes everything: scripts/build-bun.ts packages the Rust host), and
  * tests are exempt (integration scaffolding drives the real backend).
  */
 export function checkTerminalObjectsPrimitives(file: string, source: string): Violation[] {
@@ -3748,8 +3747,7 @@ const CONSOLE_EXEMPT_FILES: ReadonlySet<string> = new Set([
   'apps/web/src/perf/large-state.frontend-perf.tsx',
   // Console output behind its own enable flag — the diagnostics ARE the feature.
   'packages/terminal-client/src/terminal-diagnostics.ts',
-  // Build-time stdout (the vendored abduco attach-client build step), i.e. the CLI category.
-  'packages/pty/src/abduco-bin.ts',
+  // Build-time stdout belongs to the CLI category.
   // Test-fixture BUILD output. Named as well as covered by the `test-support`
   // segment above, because it is the file the plan called out by path.
   'apps/server/src/test-support/pre-migrated-store.build.ts',

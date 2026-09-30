@@ -1,402 +1,89 @@
-/**
- * ATTACH IS NOT A RESIZE — the client x master compatibility matrix [spec:SP-6144].
- *
- * abduco's client announces its size the moment it connects, and the master
- * SIGWINCHes the running program on EVERY resize packet, even one that does not
- * change the size and even one from a read-only client (the `kill(-server.pid,
- * SIGWINCH)` sits outside the readonly/head guard in `vendor/abduco/server.c`).
- * So every reconnect repaints the agent, and a stale last-known size re-sizes it
- * wrongly. `-N` removes the announcement.
- *
- * Only the agent can answer whether it was signalled, so this runs real abduco
- * masters with a real child that logs its own TIOCGWINSZ and every SIGWINCH.
- * Both ends are built from the one vendored source: at feature level 1 podium's
- * patch is compiled out (an "old" abduco that rejects -N), at level 2 it is in.
- *
- * Nothing in Podium creates an abduco session any more (POD-4986): each master
- * here is created the way every release before it did, `abduco -n`, and the
- * attach is how an upgraded daemon ADOPTS it. Sockets go to a private short
- * ABDUCO_SOCKET_DIR, never the user's own.
- */
-
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { attachAbducoAgent, killAbducoSession } from './abduco.js'
-import { ABDUCO_FEATURES, buildVendoredAbduco, resolveAbducoBin } from './abduco-bin.js'
-import { bunTerminalBackend } from './backends/index.js'
-import type { PtyBackend, PtyProcess } from './backends/types.js'
+import { afterAll, describe, expect, it } from 'vitest'
+import { hasLegacyAbduco, legacyAbducoBin, oldAbducoBin } from './legacy-abduco-fixture.js'
+import { attachAbducoAgent } from './abduco.js'
+import { probeAbducoPid } from './abduco-client.js'
 import { createDurableProcess } from './durable-process.js'
 
-const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
-  try {
-    execFileSync(c, ['--version'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
-})
-
-const backend = bunTerminalBackend()
-let dir = ''
-let oldBin = '' // feature level 1: podium's -N patch compiled out
-let newBin = '' // feature level 2: the shipped build
-let fixture = ''
-let chattyFixture = ''
-const ENV_KEYS = ['PODIUM_ABDUCO', 'ABDUCO_SOCKET_DIR', 'PODIUM_NO_SCOPE'] as const
-const savedEnv: Partial<Record<(typeof ENV_KEYS)[number], string>> = {}
-
-/**
- * The only witness that can answer the question: it reports its own live
- * TIOCGWINSZ at startup and on every SIGWINCH, numbered so "signalled again" is
- * distinguishable from "the same line arrived twice".
- */
-const FIXTURE_SRC = `
-const size = () => {
-  const [cols, rows] = process.stdout.getWindowSize?.() ?? [0, 0]
-  return \`cols=\${cols} rows=\${rows}\`
-}
-process.stdout.write(\`WINSZ \${size()}\\n\`)
-let n = 0
-process.on('SIGWINCH', () => {
-  n += 1
-  process.stdout.write(\`SIGWINCH#\${n} \${size()}\\n\`)
-})
-setInterval(() => {}, 3600_000)
-`
-
-/**
- * The same witness, but talking. The repaint nudge restores the attach pty's size
- * on the child's NEXT FRAME, so a silent child hides the leak that a busy one
- * exposes — which is what makes a reconnect to a working agent the risky case.
- */
-const CHATTY_FIXTURE_SRC = FIXTURE_SRC.replace(
-  'setInterval(() => {}, 3600_000)',
-  "setInterval(() => process.stdout.write('.'), 200)",
-)
-
-beforeAll(() => {
-  if (!hasCompiler) return
-  // SHORT on purpose: abduco composes `<dir>/abduco/<user>/<label>@<host>`
-  // into a 108-byte sun_path, and a hermetic TMPDIR can be long.
-  dir = mkdtempSync('/tmp/pan-')
-  fixture = join(dir, 'winsize-log.mjs')
-  writeFileSync(fixture, FIXTURE_SRC)
-  chattyFixture = join(dir, 'winsize-log-chatty.mjs')
-  writeFileSync(chattyFixture, CHATTY_FIXTURE_SRC)
-  oldBin = buildVendoredAbduco(join(dir, 'old', 'abduco'), { features: 1 }) as string
-  newBin = buildVendoredAbduco(join(dir, 'new', 'abduco'), { features: 2 }) as string
-  for (const k of ENV_KEYS) savedEnv[k] = process.env[k]
-  process.env.PODIUM_ABDUCO = newBin
-  // Every master, attach client and listing below resolves this directory —
-  // it exists, so abduco never falls through to $HOME/.abduco.
-  process.env.ABDUCO_SOCKET_DIR = dir
-  process.env.PODIUM_NO_SCOPE = '1'
-  resolveAbducoBin({ fresh: true })
-})
-
-afterAll(() => {
-  for (const k of ENV_KEYS) {
-    const v = savedEnv[k]
-    if (v === undefined) delete process.env[k]
-    else process.env[k] = v
-  }
-  resolveAbducoBin({ fresh: true })
-  if (dir) rmSync(dir, { recursive: true, force: true })
-})
-
-const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
-
-async function waitFor(pred: () => boolean, what: string, timeoutMs = 8000): Promise<void> {
-  const started = Date.now()
-  while (!pred()) {
-    if (Date.now() - started > timeoutMs) throw new Error(`timed out waiting for ${what}`)
-    await wait(20)
+/** Real released masters only; no vendor source or compiler dependency in Podium. */
+const root = mkdtempSync('/tmp/an-')
+afterAll(() => rmSync(root, { recursive: true, force: true }))
+const waitFor = async (condition: () => boolean): Promise<void> => {
+  const deadline = Date.now() + 5000
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('legacy adoption timed out')
+    await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
 
-const labels: string[] = []
-const clients: PtyProcess[] = []
-/** Never reused: a master killed by the previous test may still hold its name. */
-let serial = 0
-
-/** A master created the way an older Podium did: `abduco -n`, no scope. */
-function createSession(masterBin: string, script = fixture, cols = 0, rows = 0): string {
-  const label = `podium-attach-neutral-${process.pid}-${serial++}`
-  labels.push(label)
-  // `-n` daemonizes the master and returns. It has no controlling tty, so the
-  // master's own pty is forked at abduco's 80x25 default whatever we pass.
-  execFileSync(masterBin, ['-n', label, process.execPath, script], {
-    stdio: 'ignore',
-    env: { ...process.env, TERM: 'xterm-256color', COLUMNS: String(cols), LINES: String(rows) },
+for (const [name, bin] of [
+  ['old master', oldAbducoBin],
+  ['latest released master', legacyAbducoBin],
+] as const) {
+  describe.skipIf(!hasLegacyAbduco || !bin)(`native adoption of ${name}`, () => {
+    it('is size-neutral, round-trips input, resizes the child tty, detaches, re-adopts and sees exit', async () => {
+      const socket = join(root, name === 'old master' ? 'old' : 'new')
+      // Absolute socket names have no fall-through to the operator's directories.
+      execFileSync(
+        bin as string,
+        [
+          '-n',
+          socket,
+          '/bin/sh',
+          '-c',
+          'while IFS= read -r line; do if [ "$line" = exit ]; then exit 23; fi; printf "ROUND:%s SIZE:" "$line"; stty size; done',
+        ],
+        { stdio: 'ignore' },
+      )
+      const pid = await probeAbducoPid(socket)
+      const first = attachAbducoAgent({ label: 'legacy', socketPath: socket, sizeNeutral: true })
+      let out = ''
+      first.onFrame((frame) => {
+        out += Buffer.from(frame.data).toString()
+      })
+      try {
+        await first.ready
+        first.writeBytes(Buffer.from('hello\n'))
+        await waitFor(() => out.includes('ROUND:hello SIZE:25 80'))
+        first.resize(133, 44)
+        first.writeBytes(Buffer.from('sized\n'))
+        await waitFor(() => out.includes('ROUND:sized SIZE:44 133'))
+        first.dispose()
+        process.kill(pid, 0)
+        const located = await createDurableProcess().locate('unused', {
+          ABDUCO_SOCKET_DIR: root,
+          HOME: root,
+        })
+        expect(located).toBeUndefined()
+        const again = attachAbducoAgent({ label: 'legacy', socketPath: socket, sizeNeutral: true })
+        let next = ''
+        let exitCode: number | undefined
+        again.onFrame((frame) => {
+          next += Buffer.from(frame.data).toString()
+        })
+        again.onExit((code) => {
+          exitCode = code
+        })
+        try {
+          await again.ready
+          again.writeBytes(Buffer.from('again\n'))
+          await waitFor(() => next.includes('ROUND:again SIZE:44 133'))
+          again.writeBytes(Buffer.from('exit\n'))
+          await waitFor(() => exitCode !== undefined)
+          expect(exitCode).toBe(23)
+        } finally {
+          again.dispose()
+        }
+      } finally {
+        first.dispose()
+        try {
+          process.kill(pid, 'SIGTERM')
+        } catch {
+          /* already exited */
+        }
+      }
+    }, 15000)
   })
-  return label
 }
-
-/** Attach a client of a chosen build, and capture what the agent says. */
-function attach(
-  bin: string,
-  label: string,
-  cols: number,
-  rows: number,
-  flags: string[] = [],
-): { text: () => string; proc: PtyProcess } {
-  const proc = backend.spawn({
-    file: 'sh',
-    args: ['-c', `exec ${bin} -q ${flags.join(' ')} -a "$0"`, label],
-    cols,
-    rows,
-    env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
-  })
-  clients.push(proc)
-  let buf = ''
-  proc.onData((d) => {
-    buf += Buffer.from(d).toString('utf8')
-  })
-  return { text: () => buf, proc }
-}
-
-/** A witness that never disturbs what it is watching: -N, so its own attach is silent. */
-async function observe(label: string): Promise<{ text: () => string; proc: PtyProcess }> {
-  const o = attach(newBin, label, 100, 30, ['-N'])
-  await waitFor(() => /WINSZ /.test(o.text()), 'the agent to report its startup size')
-  return o
-}
-
-const signals = (text: string): string[] => text.match(/SIGWINCH#\d+ cols=\d+ rows=\d+/g) ?? []
-const startup = (text: string): string =>
-  (text.match(/WINSZ (cols=\d+ rows=\d+)/) as RegExpMatchArray)[1] as string
-
-afterEach(async () => {
-  for (const c of clients.splice(0)) {
-    try {
-      c.kill('SIGKILL')
-    } catch {
-      // already gone
-    }
-  }
-  for (const l of labels.splice(0)) {
-    try {
-      await killAbducoSession(l)
-    } catch {
-      // the master may already have exited
-    }
-  }
-})
-
-describe.skipIf(!hasCompiler)('attach x master compatibility matrix', () => {
-  it('the shipped build is the feature level -N needs', () => {
-    expect(ABDUCO_FEATURES).toBeGreaterThanOrEqual(2)
-    // The "old" end really is old: it does not know -N at all.
-    expect(() =>
-      execFileSync(oldBin, ['-N', '-a', 'nope'], { stdio: ['ignore', 'ignore', 'ignore'] }),
-    ).toThrow()
-  })
-
-  for (const [masterName, master] of [
-    ['old master', () => oldBin],
-    ['new master', () => newBin],
-  ] as const) {
-    it(`${masterName} + old client: attaching resizes AND signals the agent (today)`, async () => {
-      const label = createSession(master())
-      const o = await observe(label)
-      const born = startup(o.text())
-      expect(signals(o.text())).toHaveLength(0)
-
-      attach(master(), label, 121, 41)
-      await waitFor(() => signals(o.text()).length > 0, 'the attach to signal the agent')
-      expect(signals(o.text())[0]).toContain('cols=121 rows=41')
-      expect(born).not.toContain('cols=121')
-    }, 30000)
-
-    it(`${masterName} + new client with -N: no packet, no signal, no resize`, async () => {
-      const label = createSession(master())
-      const o = await observe(label)
-      const born = startup(o.text())
-
-      const c = attach(newBin, label, 121, 41, ['-N'])
-      await wait(700) // an initial packet, if one were sent, would have landed
-      expect(signals(o.text())).toHaveLength(0)
-
-      // ...and the size is still settable afterwards: a viewer asking resizes the
-      // attach pty, the client SIGWINCHes, and the master applies and signals.
-      c.proc.resize(133, 44)
-      await waitFor(() => signals(o.text()).length > 0, 'the explicit resize to reach the agent')
-      expect(signals(o.text()).at(-1)).toContain('cols=133 rows=44')
-      expect(born).not.toContain('cols=133')
-    }, 30000)
-  }
-
-  it('a read-only attach signals the agent without resizing it — unless it is -N', async () => {
-    const label = createSession(newBin)
-    const o = await observe(label)
-    const born = startup(o.text())
-
-    // -r alone: the master declines the dimensions (readonly) but SIGWINCHes the
-    // agent's process group anyway. This is today's behaviour, and the reason a
-    // read-only viewer is not a silent one.
-    attach(newBin, label, 121, 41, ['-r'])
-    await waitFor(() => signals(o.text()).length > 0, 'the read-only attach to signal the agent')
-    expect(signals(o.text())[0]).toContain(born) // signalled, but the size did not move
-    const after = signals(o.text()).length
-
-    // -r -N: neither half happens.
-    attach(newBin, label, 122, 42, ['-r', '-N'])
-    await wait(700)
-    expect(signals(o.text())).toHaveLength(after)
-  }, 30000)
-
-  it('the size a viewer asked for still survives a client that leaves', async () => {
-    // When the head client goes, the master asks the next one for its size. A -N
-    // client stays silent, so the agent keeps the size the departing viewer set
-    // rather than being moved to a stale attach pty's dimensions.
-    const label = createSession(newBin)
-    const o = await observe(label)
-
-    const head = attach(newBin, label, 121, 41)
-    await waitFor(() => signals(o.text()).length > 0, 'the head client to set a size')
-    const settled = signals(o.text()).length
-    head.proc.kill('SIGKILL')
-    await wait(700)
-    expect(signals(o.text())).toHaveLength(settled)
-  }, 30000)
-})
-
-describe.skipIf(!hasCompiler)('reconnecting to a running agent', () => {
-  /**
-   * The whole point, end to end through the adoption path an upgraded daemon
-   * takes: a daemon that comes back believing a size the agent never had must
-   * not impose it. Neither the attach itself nor any attach-time repaint may
-   * reach the agent's size.
-   */
-  it('a reconnect at a stale size neither moves nor signals the agent', async () => {
-    const label = createSession(newBin, chattyFixture)
-    // The create attach an older Podium made right after `-n`: NOT size-neutral,
-    // since its resize packet is what moved the agent off abduco's 80x25.
-    const first = attachAbducoAgent({ label, cols: 137, rows: 43 })
-    let buf = ''
-    first.onFrame((f) => {
-      buf += Buffer.from(f.data).toString('utf8')
-    })
-    await waitFor(() => /cols=137 rows=43/.test(buf), 'the agent to reach the spawn size', 12000)
-    await wait(500)
-    const settled = signals(buf).length
-
-    // A reconnect whose last-known geometry is WRONG — a stale belief, which is
-    // exactly what survives a daemon restart — through `createDurableProcess`.
-    // A private env for the probe: no $HOME rung, no live host directory.
-    const durable = createDurableProcess()
-    const located = await durable.locate(
-      label,
-      { ABDUCO_SOCKET_DIR: dir, PODIUM_HOST_SOCKET_DIR: join(dir, 'h') },
-      { waitMs: 2000 },
-    )
-    expect(located?.adapter.kind).toBe('abduco')
-    const again = await located?.adapter.attach({
-      label,
-      socketPath: located.socketPath,
-      lastKnownGeometry: { cols: 90, rows: 20 },
-    })
-    await wait(1500) // any repaint would have landed by now; the agent is chatty
-
-    expect(signals(buf)).toHaveLength(settled)
-    expect(buf).not.toContain('cols=90')
-    again?.attachment.dispose()
-    first.dispose()
-  }, 40000)
-})
-
-describe.skipIf(!hasCompiler)('the first ask after a size-neutral attach', () => {
-  it('costs exactly one SIGWINCH and no reflow, even when it asks for the size the agent already has', async () => {
-    // The case a daemon restart actually produces: the server's last-known size
-    // IS the agent's size, so the viewer's first ask asks for exactly that. It
-    // must still reach the agent — the master signals on every packet, so the ask
-    // is also the repaint — and it must not cost a row of reflow on the way. That
-    // is why a size-neutral attach opens its pty at a sentinel rather than at the
-    // caller's geometry [spec:SP-6144].
-    const label = createSession(newBin)
-    labels.push(label)
-    const o = await observe(label)
-
-    // Put the agent at a known size the way a viewer would, then let that client go.
-    const mover = attach(newBin, label, 111, 37)
-    await waitFor(() => signals(o.text()).length > 0, 'the agent to reach a known size')
-    expect(signals(o.text()).at(-1)).toContain('cols=111 rows=37')
-    mover.proc.kill('SIGKILL')
-    await wait(400)
-    const settled = signals(o.text()).length
-
-    // The daemon-shaped reattach: size-neutral, carrying the size it believes.
-    const session = attachAbducoAgent({
-      label,
-      sizeNeutral: true,
-      fallbackGeometry: { cols: 111, rows: 37 },
-    })
-    try {
-      await wait(800)
-      expect(signals(o.text())).toHaveLength(settled) // the attach itself: silent
-
-      session.resize(111, 37) // the viewer asks — for what the agent already is
-      await waitFor(() => signals(o.text()).length > settled, 'the ask to reach the agent')
-      await wait(600) // a shrink-and-restore would land its second signal by now
-
-      expect(signals(o.text())).toHaveLength(settled + 1)
-      expect(signals(o.text()).at(-1)).toContain('cols=111 rows=37')
-      // Never a row short: no size but the one asked for ever reached the agent.
-      expect(o.text()).not.toContain('rows=36')
-    } finally {
-      session.dispose()
-    }
-  }, 40000)
-})
-
-describe.skipIf(!hasCompiler)('what a size-neutral attach does to its own pty', () => {
-  /**
-   * The agent-visible half of this is in the test above, but it can only say
-   * "one SIGWINCH": abduco's client coalesces resizes behind a flag, so a
-   * shrink-and-restore issued back-to-back usually reaches the agent as a single
-   * packet at the final size. Usually — the client is a separate process, and if
-   * its loop runs between the two, the agent reflows at the short size. The seam
-   * is where that race is decided, so pin it here: one ask, one resize.
-   */
-  it('opens at the sentinel and turns one ask into exactly one resize', () => {
-    const resizes: Array<[number, number]> = []
-    const proc: PtyProcess = {
-      pid: 99,
-      onData: () => {},
-      onExit: () => {},
-      write: () => {},
-      resize: (c, r) => {
-        resizes.push([c, r])
-      },
-      kill: () => {},
-    }
-    const spawns: Array<{ cols: number; rows: number }> = []
-    const backend: PtyBackend = {
-      name: 'bun-terminal',
-      spawn: (o) => {
-        spawns.push({ cols: o.cols, rows: o.rows })
-        return proc
-      },
-    }
-
-    const session = attachAbducoAgent({
-      label: 'podium-attach-neutral-seam',
-      sizeNeutral: true,
-      fallbackGeometry: { cols: 111, rows: 37 },
-      backend,
-    })
-    try {
-      // Not the caller's geometry: a size nobody can ask for.
-      expect(spawns).toEqual([{ cols: 1, rows: 1 }])
-      expect(resizes).toEqual([])
-
-      // The ask a daemon restart produces: for exactly the size the agent is at.
-      session.resize(111, 37)
-      expect(resizes).toEqual([[111, 37]])
-    } finally {
-      session.dispose()
-    }
-  })
-})

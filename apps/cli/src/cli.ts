@@ -1470,8 +1470,7 @@ export async function main(
 
   // Diagnostics must survive the exact failure this claim protects against: a foreign,
   // damaged, or non-empty unmarked root. They also exit before compiled initialization,
-  // which materializes the embedded abduco attach client (kept only to adopt sessions
-  // started by older releases) inside that root. Top-level help deliberately uses
+  // which claims and initializes that root. Top-level help deliberately uses
   // the state-free core command list; feature-decorated discovery is not worth making a
   // broken installation's help unavailable.
   const informational = resolveStateFreeInformationalPlan(argv)

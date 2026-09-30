@@ -2732,23 +2732,12 @@ main() {
   fi
 
   CURRENT_SCENARIO=environment
-  local container helper
+  local container
   for container in "$SOURCE" "$FLEET_A" "$FLEET_B"; do
     container_exec "$container" sh -lc 'command -v gzip >/dev/null'
   done
-  # The abduco ATTACH CLIENT, kept only to adopt sessions started by older releases: the
-  # cross-built reference runs on the source, and each fleet machine's release unpacked a
-  # working one into its state directory (materialized behind the instance state claim).
-  helper="$(container_exec "$SOURCE" sh -lc \
-    'cd /work/source && find "$(bun scripts/abduco-cross.ts --print-cache-dir)" \
-       -type f -name "linux-x86_64-*" -print -quit')"
-  [[ -n "$helper" ]]
-  container_exec "$SOURCE" test -x "$helper"
-  container_exec "$SOURCE" "$helper" -v >/dev/null
   local host_version
   for container in "$FLEET_A" "$FLEET_B"; do
-    container_exec "$container" test -x "$(state_path)/bin/abduco"
-    container_exec "$container" "$(state_path)/bin/abduco" -v >/dev/null
     # The process host ships beside podium-cli and is the Rust one: the retired C host
     # reports features=1, and is never unpacked into the state directory any more.
     container_exec "$container" test -x "$(install_path)/podium-host"
@@ -2759,7 +2748,7 @@ main() {
   container_exec "$SOURCE" sh -lc \
     'test -n "$(find /work/source/apps/mobile/dist -type f -name "*.gz" -print -quit)"'
   coordinator_healthy
-  pass environment "setup is complete; built and packaged abduco attach clients execute, the packaged Rust process host executes and no C host was unpacked, gzip is present, and mobile assets are precompressed"
+  pass environment "setup is complete; the packaged Rust process host executes and no C host was unpacked, gzip is present, and mobile assets are precompressed"
 
   if [[ "$ONLY" == legacy ]]; then
     prepare_legacy_machine

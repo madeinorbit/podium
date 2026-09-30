@@ -48,16 +48,13 @@ but `createDurableProcess()` carries an adoption-only `abducoAdoptionAdapter()` 
 the host, so locate probes the host's directory first and abduco's second, the census
 lists both, and attach, has and kill work (`attachAbducoAgent`, `abducoHasSession`,
 `killAbducoSession`, `listLiveAbducoLabels` in `src/abduco.ts`); its create paths refuse.
-Attaching needs the abduco attach client, the vendored `vendor/abduco/` kept only to adopt
-sessions started by older releases: `resolveAbducoBin()` (`src/abduco-bin.ts`) prefers
-`$PODIUM_ABDUCO`, then `abduco` on PATH, then a cached build, then compiles the vendored
-source with the system C compiler on first need — the one thing a dev machine still needs
-`cc` for, until a native TypeScript client replaces it — and releases keep shipping the
-client prebuilt. A named instance still pins `ABDUCO_SOCKET_DIR`, so its abduco sessions
-are found where the older daemon put them. Only where no abduco client can be had does
-`src/legacy-abduco.ts` log the session once by label and leave its process alone. The
-daemon's `--backend abduco` and `PODIUM_DURABLE_BACKEND=abduco` are ignored with a
-warning.
+The native TypeScript client in `src/abduco-client.ts` speaks the released masters'
+unix-socket protocol directly. Attachment is size-neutral and requires no abduco
+binary on PATH, compiler, vendored source or embedded helper. A named instance still
+pins `ABDUCO_SOCKET_DIR`, so its legacy sessions are found where the older daemon put
+them. This compatibility layer is marked for deletion once no running abduco session
+can remain. The daemon's `--backend abduco` and `PODIUM_DURABLE_BACKEND=abduco` are
+ignored with a warning.
 
 On Linux each host is additionally wrapped in a transient `systemd-run --user --scope`
 (`src/scope.ts`) so a redeploy's cgroup kill cannot reach it and an agent's CPU/IO

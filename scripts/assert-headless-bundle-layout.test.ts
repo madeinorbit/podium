@@ -192,7 +192,6 @@ function runGate(tarball: string): {
       'linux-x86_64',
       '--source-commit',
       TEST_SOURCE_SHA,
-      '--no-abduco-identity',
     ],
     { encoding: 'utf8', cwd: repoRoot },
   )
@@ -381,8 +380,7 @@ describe('assert-headless-bundle production layout', () => {
         TEST_SOURCE_SHA,
         '--client-root-digest',
         attackerDigest,
-        '--no-abduco-identity',
-      ],
+        ],
       { encoding: 'utf8', cwd: repoRoot },
     )
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
@@ -495,8 +493,7 @@ describe('assert-headless-bundle production layout', () => {
         'linux-x86_64',
         '--source-commit',
         'fffffff',
-        '--no-abduco-identity',
-      ],
+        ],
       { encoding: 'utf8', cwd: repoRoot },
     )
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
@@ -556,8 +553,6 @@ describe('the gate and the signing step name the same JIT keys', () => {
     expect(prove).toContain('C podium-host embedded in the CLI')
     expect(prove).toContain('C podium-host shipped as podium-host')
     expect(prove).toContain('loose abduco beside the Rust host')
-    expect(prove).toContain('wrong-platform helper EMBEDDED in the bundle')
-    expect(prove).toContain('reference abduco deleted')
   })
 
   it('says in the release job that rcodesign supplies entitlements, not the signature', () => {
