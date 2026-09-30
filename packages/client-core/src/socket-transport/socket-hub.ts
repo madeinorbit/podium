@@ -182,7 +182,6 @@ export interface ConnectionState {
   cols: number | undefined
   rows: number | undefined
   epoch: number
-  lastSeq: number
   /**
    * Has the PTY behind this session produced ANY output since it was spawned?
    * True as soon as a frame lands here, or when the attach reports the server's
@@ -209,9 +208,8 @@ export interface SessionCallbacks {
   onFrame?: (bytes: Uint8Array) => void
   onState?: (state: ConnectionState) => void
   /**
-   * The server is about to send a full replay (not a `resumed` catch-up): clear
-   * the screen before the buffered frames land. Not called on an incremental
-   * resume, where the view keeps its content and appends.
+   * Compatibility with older servers: `attached.resumed: false` (or omitted)
+   * clears before their output arrives. Host pictures reset through their own bytes.
    */
   onReset?: () => void
   /**
@@ -897,14 +895,9 @@ export class SocketHub {
       this.opts.feed?.connected(!this.opts.feed.syncHttp && helloFields === null)
       // The legacy adapter independently decides whether and how to catch up.
       this.legacyFeed?.connected()
-      // Re-attach with a resume cursor: the view survived the drop, so ask the
-      // server to catch us up from the last seq we rendered instead of wiping and
-      // replaying the whole buffer. A connection that has rendered nothing yet
-      // (lastSeq -1) omits the cursor → full replay.
-      for (const [sessionId, conn] of this.connections) {
+      for (const sessionId of this.connections.keys()) {
         if (this.terminalAttachDenials.has(sessionId)) continue
-        const sinceSeq = conn.resumeCursor
-        this.sendRaw({ type: 'attach', sessionId, ...(sinceSeq >= 0 ? { sinceSeq } : {}) })
+        this.sendRaw({ type: 'attach', sessionId })
       }
       // Transcript subscriptions survive reconnects the same way attaches do —
       // resume from the last cursor we forwarded (`since`) so the stream picks up
@@ -2425,7 +2418,6 @@ export class SessionConnection {
   private cols: number | undefined
   private rows: number | undefined
   private epoch = 0
-  private lastSeq = -1
   /** What the last attach said about the session's durable output counter. An
    *  older server omits the flag; that reads as "already produced", so the
    *  silent-startup affordance stays off rather than firing on no evidence. */
@@ -2443,11 +2435,6 @@ export class SessionConnection {
 
   setCallbacks(cb: SessionCallbacks): void {
     this.cb = cb
-  }
-
-  /** Last outputFrame seq rendered — the resume cursor the hub sends on reconnect. */
-  get resumeCursor(): number {
-    return this.lastSeq
   }
 
   sendInput(bytes: string, inputEventAt?: number): void {
@@ -2517,7 +2504,6 @@ export class SessionConnection {
       cols: this.cols,
       rows: this.rows,
       epoch: this.epoch,
-      lastSeq: this.lastSeq,
       outputSeen: this.attachOutputSeen || this.frameSeen,
     }
   }
@@ -2529,7 +2515,7 @@ export class SessionConnection {
 
   /** @internal Hub-internal: apply validated binary PTY output metadata + bytes. */
   _ingestBinaryOutput(metadata: PtyOutputBinaryMetadata, payload: Uint8Array): void {
-    this.ingestOutput(metadata.seq, metadata.epoch, payload)
+    this.ingestOutput(metadata.epoch, payload)
   }
 
   /** Total dispatch over the session-scoped subunion [spec:SP-3fe2] — the same
@@ -2543,15 +2529,13 @@ export class SessionConnection {
       this.rows = msg.geometry.rows
       this.epoch = msg.epoch
       this.attachOutputSeen = msg.outputSeen !== false
-      // A full replay (not a `resumed` catch-up) is about to re-send the whole
-      // buffer: clear the screen first so it rebuilds cleanly. A resume keeps the
-      // screen and appends the missed frames.
+      // Older servers need this reset; host pictures carry RIS in the stream.
       if (msg.resumed !== true) this.cb.onReset?.()
       this.emit()
       this.cb.onAttached?.()
     },
     outputFrame: (msg) => {
-      this.ingestOutput(msg.seq, msg.epoch, fromBase64Bytes(msg.data))
+      this.ingestOutput(msg.epoch, fromBase64Bytes(msg.data))
     },
     controllerChanged: (msg) => {
       this.controllerId = msg.controllerId
@@ -2570,8 +2554,7 @@ export class SessionConnection {
     },
   })
 
-  private ingestOutput(seq: number, epoch: number, bytes: Uint8Array): void {
-    this.lastSeq = seq
+  private ingestOutput(epoch: number, bytes: Uint8Array): void {
     this.epoch = epoch
     if (this.echo.enabled()) this.echo.onOutput(interactionNow())
     // Latch before emit so the state accompanying the first real bytes is current.

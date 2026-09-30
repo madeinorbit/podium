@@ -409,7 +409,6 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     view.forceRepaint()
   }
 
-  let lastEpoch = -1
   let firstFrameSeen = false
   let lastTracedState = ''
 
@@ -453,13 +452,10 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       }
       opts.onFrame?.()
     },
-    // A full replay is incoming (fresh mount, or a reconnect whose gap outran the
-    // server's buffer): wipe before the buffered frames rebuild the screen. A
-    // resuming reconnect does NOT fire this — it keeps the screen and appends only
-    // what it missed, so a network blip no longer flashes the whole terminal.
+    // Compatibility with older servers' `resumed: false` attaches only.
+    // Host pictures reset xterm through RIS in the ordinary output stream.
     onReset: () => {
       trace('connection:reset', { connection: connection.state() })
-      lastEpoch = connection.state().epoch
       view.clear()
     },
     onState: (state) => {
@@ -483,17 +479,6 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       // change asks nothing either: the server already holds this box, and
       // reconciles a new controller against it.
       if (authoritative) applyServerGrid(state, 'state')
-      // Clear only on an in-session epoch bump — a controller takeover repaints the
-      // grid for the new owner. The (re)attach clear is owned by onReset above, so a
-      // plain reconnect that resumes from our cursor leaves the screen intact.
-      if (state.connected) {
-        if (lastEpoch === -1) lastEpoch = state.epoch
-        else if (state.epoch !== lastEpoch) {
-          trace('connection:epoch-clear', { from: lastEpoch, to: state.epoch })
-          lastEpoch = state.epoch
-          view.clear()
-        }
-      }
       el.dataset.role = state.role
       el.dataset.epoch = String(state.epoch)
       opts.onState?.(state)

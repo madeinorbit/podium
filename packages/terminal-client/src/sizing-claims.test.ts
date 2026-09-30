@@ -120,7 +120,6 @@ function fakeHub(initial: { cols: number; rows: number } = { cols: 80, rows: 24 
     cols: initial.cols,
     rows: initial.rows,
     epoch: 0,
-    lastSeq: -1,
     outputSeen: true,
   }
   const calls = {

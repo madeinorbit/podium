@@ -88,7 +88,7 @@ export interface TerminalDomHandle {
   frame(b64: string): void
   /** The native SessionConnection's latest full state. */
   connState(state: BridgeConnectionState): void
-  /** A full replay is incoming — clear before the buffered frames land. */
+  /** Compatibility reset from an older server's `resumed: false` attach. */
   reset(): void
   /** The server confirmed the attach (PTY bound, ready for input). */
   attached(): void
@@ -125,7 +125,6 @@ export function initialBridgeState(sessionId: SessionId): BridgeConnectionState 
     cols: undefined,
     rows: undefined,
     epoch: 0,
-    lastSeq: -1,
     outputSeen: true,
   }
 }

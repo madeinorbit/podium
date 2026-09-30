@@ -103,6 +103,7 @@ export function TerminalPane({
     const conn = hub.attach(sessionId, {
       onFrame: (bytes) => domRef.current?.frame(encodeFrameBytes(bytes)),
       onState: (state: ConnectionState) => domRef.current?.connState(state),
+      // Only older servers use this callback; pictures reset through onFrame.
       onReset: () => domRef.current?.reset(),
       onAttached: () => domRef.current?.attached(),
     })
