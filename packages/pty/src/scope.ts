@@ -342,7 +342,3 @@ export async function execCreate(
     rmSync(dir, { recursive: true, force: true })
   }
 }
-
-/**
- * Say WHICH PATH was too long, and by how much (POD-2853).
- *

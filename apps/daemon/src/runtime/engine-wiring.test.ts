@@ -11,7 +11,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type SessionId } from '@podium/model'
-import { unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/abduco-socket'
+import { unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/unix-socket'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   codexScopeLabel,

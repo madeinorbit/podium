@@ -1,12 +1,12 @@
-import { ABDUCO_SUN_PATH_MAX, CLIENT_TERMINAL_LABEL_TOKEN_MAX } from '@podium/runtime/abduco-socket'
+import { CLIENT_TERMINAL_LABEL_TOKEN_MAX, SUN_PATH_MAX } from '@podium/runtime/unix-socket'
 import { describe, expect, it } from 'vitest'
 import { CLIENT_TERMINAL_HARNESSES, clientTerminalFor } from './registry.js'
 
 /**
  * POD-2853/POD-2777: A CLIENT TERMINAL'S LABEL IS IN THE SAME 108 BYTES.
  *
- * A named instance's abduco socket root is chosen at boot against the LONGEST
- * label the instance can mint, and that is not always the session's own:
+ * A named instance's socket root was budgeted against the LONGEST label the
+ * instance can mint, and that is not always the session's own:
  * `podium-<token>-attach-<uuid>` is 53 bytes and carries no instance prefix, so
  * below nine characters of instance id it is the long pole. Budget the session
  * label alone and the spawn succeeds while the native view silently overflows —
@@ -36,10 +36,10 @@ describe('client terminal labels fit the socket-path budget', () => {
   it('leaves the composed label inside sun_path with room for a directory', () => {
     // Not just "the token is short" — the whole label, against the ceiling the
     // root has to share with it. A label alone at 53 of 108 leaves 55 bytes for
-    // `<root>/abduco/<user>/` and the `@<host>` suffix.
+    // `<root>/hosts/<instance>/` and the `.sock` suffix.
     for (const kind of CLIENT_TERMINAL_HARNESSES) {
       const label = `podium-${clientTerminalFor(kind)?.labelToken}-attach-${'0'.repeat(36)}`
-      expect(label.length).toBeLessThan(ABDUCO_SUN_PATH_MAX)
+      expect(label.length).toBeLessThan(SUN_PATH_MAX)
       expect(label).toHaveLength(53)
     }
   })
