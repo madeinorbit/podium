@@ -1667,7 +1667,7 @@ describe('rebind to the surviving engine (POD-4433)', () => {
       await settle()
       expect(live).toBe(false)
       expect(w.liveHandle()).toBe(w.handle)
-      expect(w.recorded()).toBe(before)
+      expect(w.recorded()).toEqual(before)
       w.server.releaseResume()
       const adopted = await adopting
       expect(w.liveHandle()).toBe(adopted)
@@ -1688,7 +1688,7 @@ describe('rebind to the surviving engine (POD-4433)', () => {
       expect(w.server.closedClients).toBe(1)
       expect(w.server.alive).toBe(true)
       expect(w.liveHandle()).toBe(w.handle)
-      expect(w.recorded()).toBe(before)
+      expect(w.recorded()).toEqual(before)
       expect(w.counts()).toMatchObject({ launches: 1, stopped: 0 })
       const receipt = await w.handle.send(
         { text: 'old client still works' },
@@ -1711,7 +1711,7 @@ describe('rebind to the surviving engine (POD-4433)', () => {
         result: { thread: { id: 'someone-elses-thread', path: before.rolloutPath } },
       })
       await expect(w.adopt()).rejects.toThrow('journalled thread')
-      expect(w.recorded()).toBe(before)
+      expect(w.recorded()).toEqual(before)
       expect(w.server.alive).toBe(true)
       expect(w.server.closedClients).toBe(1)
     } finally {
@@ -1727,7 +1727,7 @@ describe('rebind to the surviving engine (POD-4433)', () => {
         result: { thread: { id: before.threadId, path: '/wrong-rollout.jsonl' } },
       })
       await expect(w.adopt()).rejects.toThrow('different rollout path')
-      expect(w.recorded()).toBe(before)
+      expect(w.recorded()).toEqual(before)
       expect(w.server.closedClients).toBe(1)
     } finally {
       w.dispose()

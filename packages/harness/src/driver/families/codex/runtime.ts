@@ -1917,12 +1917,8 @@ export function createCodexRuntime(
 
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
-        if (options.signal?.aborted)
-          return { outcome: 'refused', refusal: { reason: 'not_running' } }
-        if (
-          options.deliveryAttempt &&
-          (busy(session) || session.lease?.kind === 'human-controller')
-        ) {
+        if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
+        if (options.deliveryAttempt && (busy(session) || session.lease?.kind === 'human-controller')) {
           return { outcome: 'refused', refusal: { reason: busy(session) ? 'busy' : 'lease_held' } }
         }
         if (session.disposed) return refuse('not_running')
@@ -2464,12 +2460,7 @@ export function createCodexRuntime(
       },
     }
 
-    return withDeliveryQueue(
-      handle,
-      (event) => emit(session, event, iso()),
-      undefined,
-      () => !session.disposed,
-    )
+    return withDeliveryQueue(handle, (event) => emit(session, event, iso()), undefined, () => !session.disposed)
   }
 
   /** Ask Codex to stop the open turn. Idempotent-ish: a precondition failure
