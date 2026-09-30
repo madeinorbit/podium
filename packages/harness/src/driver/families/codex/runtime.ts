@@ -33,16 +33,17 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
  * `TerminalRuntimeHost` and `OpencodeRuntimeHost` apply.
  *
  * ---------------------------------------------------------------------------
- * WHY `adopt()` REBINDS WHEN THE ENGINE SURVIVED, AND RESUMES WHEN IT DID NOT
+ * WHY `adopt()` REJOINS EVEN WHEN THE ENGINE SURVIVED
  * ---------------------------------------------------------------------------
  *
  * The contract says `adopt()` rebinds a SURVIVING process tree on exact
  * identity. For this family there usually IS one now: the engine runs under
  * podium-host `--no-pty`, owned by the daemon's DurableProcess rather than by
  * the daemon's pipes, so a daemon restart leaves it running. `adopt()` opens a
- * second protocol client on the journalled listener and attaches to the thread
- * that never closed — no `thread/start`, no `thread/resume` — and an in-flight
- * turn continues on the engine instead of being abandoned with a fresh child.
+ * second protocol client on the journalled listener and calls `thread/resume`
+ * before publishing the session. Codex subscriptions belong to connections:
+ * a surviving engine may have unloaded the old client's thread. Resume rejoins
+ * a running thread or reloads an evicted one from its rollout (POD-4985).
  *
  * When nothing survived (an entry predating durable engines, a swept runtime
  * root, a host that is gone), adopt falls back to what it always did: a fresh
@@ -1916,8 +1917,12 @@ export function createCodexRuntime(
 
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
-        if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
-        if (options.deliveryAttempt && (busy(session) || session.lease?.kind === 'human-controller')) {
+        if (options.signal?.aborted)
+          return { outcome: 'refused', refusal: { reason: 'not_running' } }
+        if (
+          options.deliveryAttempt &&
+          (busy(session) || session.lease?.kind === 'human-controller')
+        ) {
           return { outcome: 'refused', refusal: { reason: busy(session) ? 'busy' : 'lease_held' } }
         }
         if (session.disposed) return refuse('not_running')
@@ -2459,7 +2464,12 @@ export function createCodexRuntime(
       },
     }
 
-    return withDeliveryQueue(handle, (event) => emit(session, event, iso()), undefined, () => !session.disposed)
+    return withDeliveryQueue(
+      handle,
+      (event) => emit(session, event, iso()),
+      undefined,
+      () => !session.disposed,
+    )
   }
 
   /** Ask Codex to stop the open turn. Idempotent-ish: a precondition failure
@@ -2763,38 +2773,63 @@ export function createCodexRuntime(
     return handle
   }
 
-  /** Start a fresh app-server and rejoin an existing thread on it. The one
-   *  primitive behind `resume()`, `adopt()` and the fine-watch upgrade. */
+  /** Rejoin a thread on the supplied survivor or a fresh app-server. Both
+   *  `resume()` and `adopt()` wait for this before publishing a live handle. */
   async function resumeThread(input: {
     sessionId: SessionId
     spec: SessionSpec
     threadId: CodexThreadId
     bindingVersion: number
     observerGeneration: number
+    endpoint?: CodexServerEndpoint
+    rolloutPath?: string
   }): Promise<AgentSessionHandle> {
-    const endpoint = await host.launch({
-      sessionId: input.sessionId,
-      workdir: input.spec.workdir,
-      ...(input.spec.env ? { env: input.spec.env } : {}),
-      ...mcpOf(input.spec),
-    })
-    const connection = await connect(endpoint, input.sessionId)
-    const resumed = await connection.client.call<{
-      thread?: { id?: string; path?: string | null }
-    }>(CODEX_METHODS.threadResume, { threadId: input.threadId })
-    return attachSession({
-      sessionId: input.sessionId,
-      spec: input.spec,
-      endpoint,
-      connection,
-      // The RESUMED thread's own id. Codex returns the thread it loaded, and
-      // trusting our input over its answer is how a driver ends up addressing a
-      // thread the server does not think it opened.
-      threadId: resumed.thread?.id ?? input.threadId,
-      rolloutPath: resumed.thread?.path ?? undefined,
-      bindingVersion: input.bindingVersion,
-      observerGeneration: input.observerGeneration,
-    })
+    const endpoint =
+      input.endpoint ??
+      (await host.launch({
+        sessionId: input.sessionId,
+        workdir: input.spec.workdir,
+        ...(input.spec.env ? { env: input.spec.env } : {}),
+        ...mcpOf(input.spec),
+      }))
+    let connection: CodexConnection | undefined
+    try {
+      connection = await connect(endpoint, input.sessionId)
+      const resumed = await connection.client.call<{
+        thread?: { id?: string; path?: string | null }
+      }>(CODEX_METHODS.threadResume, {
+        threadId: input.threadId,
+        // For a running thread Codex checks this against its active rollout.
+        // For an unloaded one path takes precedence, so check the returned id.
+        ...(input.rolloutPath ? { path: input.rolloutPath } : {}),
+      })
+      if (resumed.thread?.id !== input.threadId) {
+        throw new Error(
+          `codex app-server resumed ${resumed.thread?.id ?? 'no thread'} instead of journalled thread ${input.threadId}`,
+        )
+      }
+      if (input.rolloutPath && resumed.thread.path && resumed.thread.path !== input.rolloutPath) {
+        throw new Error(
+          `codex app-server resumed thread ${input.threadId} from a different rollout path`,
+        )
+      }
+      return await attachSession({
+        sessionId: input.sessionId,
+        spec: input.spec,
+        endpoint,
+        connection,
+        threadId: resumed.thread.id,
+        rolloutPath: resumed.thread.path ?? input.rolloutPath,
+        bindingVersion: input.bindingVersion,
+        observerGeneration: input.observerGeneration,
+      })
+    } catch (err) {
+      connection?.client.close()
+      // A failed rejoin must not kill the surviving engine. Only a child we
+      // launched for this attempt belongs to the failure cleanup.
+      if (input.endpoint === undefined) await endpoint.kill().catch(() => {})
+      throw err
+    }
   }
 
   const adoptedSpec = (workdir: string, model: ModelPolicy = {}): SessionSpec => ({
@@ -2837,8 +2872,7 @@ export function createCodexRuntime(
 
     /**
      * REBIND AFTER A SUPERVISOR RESTART — to the surviving engine when the
-     * host says it is alive and its address answers, by resuming only when
-     * nothing survived.
+     * host says it is alive and its address answers, otherwise a fresh engine.
      *
      * THE JOURNAL IS STILL CHECKED FOR EXACT IDENTITY, and that is not
      * ceremonial: a binding whose journal entry names a different process key
@@ -2847,10 +2881,8 @@ export function createCodexRuntime(
      * same failure the contract's "exact identity or nothing" rule exists to
      * prevent, arriving by a different route.
      *
-     * A REBIND SKIPS `thread/resume`: the engine never died, so the thread
-     * never closed. Handshake, attach to the journalled thread, and an
-     * in-flight turn continues on the engine — its events flow over the new
-     * connection — instead of being abandoned with a fresh child.
+     * Every new client must `thread/resume` before the session is live. A live
+     * process does not imply a loaded thread or a subscription on this client.
      */
     async adopt(binding: SessionBinding): Promise<AgentSessionHandle> {
       const journalled = host.bindings.recorded(binding.sessionId)
@@ -2865,28 +2897,15 @@ export function createCodexRuntime(
         )
       }
       const endpoint = await host.adopt?.(binding)
-      const handle =
-        endpoint === undefined
-          ? await resumeThread({
-              sessionId: binding.sessionId,
-              spec: adoptedSpec(journalled.workdir, journalled.model),
-              threadId: journalled.threadId,
-              bindingVersion: binding.bindingVersion + 1,
-              observerGeneration: binding.bindingVersion + 1,
-            })
-          : await attachSession({
-              sessionId: binding.sessionId,
-              spec: adoptedSpec(journalled.workdir, journalled.model),
-              endpoint,
-              connection: await connect(endpoint, binding.sessionId),
-              // The RESUMED thread's own id is what the engine holds open;
-              // trusting a fresh id over the journalled one is how a driver
-              // ends up addressing a thread the server never opened.
-              threadId: journalled.threadId,
-              rolloutPath: journalled.rolloutPath,
-              bindingVersion: binding.bindingVersion + 1,
-              observerGeneration: binding.bindingVersion + 1,
-            })
+      const handle = await resumeThread({
+        sessionId: binding.sessionId,
+        spec: adoptedSpec(journalled.workdir, journalled.model),
+        threadId: journalled.threadId,
+        rolloutPath: journalled.rolloutPath,
+        endpoint,
+        bindingVersion: binding.bindingVersion + 1,
+        observerGeneration: binding.bindingVersion + 1,
+      })
       const session = sessions.get(binding.sessionId)
       if (session) {
         // A REBIND IS A FACT A WATCHER NEEDS. The binding changed under anyone

@@ -22,11 +22,7 @@ import type { RuntimeEvent } from '../../events.js'
 import steerDropped from './__fixtures__/steer-dropped-thread-read.json' with { type: 'json' }
 import { codexAppServerCapabilities } from './capabilities.js'
 import { createCodexClient } from './client.js'
-import {
-  type CodexJournalEntry,
-  type CodexRuntimeHost,
-  createCodexRuntime,
-} from './runtime.js'
+import { type CodexJournalEntry, type CodexRuntimeHost, createCodexRuntime } from './runtime.js'
 import { type FakeAppServer, startFakeAppServer } from './test-support/fake-app-server.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
@@ -42,9 +38,7 @@ interface World {
   gateNextConnect(): void
   releaseConnect(): void
   attachedAddresses: string[]
-  /** The fake serving the session's connection. There is only ever one now —
-   *  nothing re-handshakes a session after it is built — but tests reach for it
-   *  through here so a future second connection cannot silently strand them. */
+  /** The engine serving the session, including after a client rejoin. */
   liveServer(): FakeAppServer
   authReports: { authMethod: string | undefined; subscription: boolean }[]
   /** Every pairing the driver reported: which history entry a send became,
@@ -1487,20 +1481,43 @@ describe('durable inbox rows on the owning driver', () => {
     const w = await world()
     try {
       await w.handle.send({ text: 'open turn' }, { origin: 'human', delivery: 'when-ready' })
-      expect(await w.handle.send({ text: 'raced attempt' }, { origin: 'human', delivery: 'when-ready', deliveryAttempt: true })).toEqual({ outcome: 'refused', refusal: { reason: 'busy' } })
-      expect((await w.handle.send({ id: 'row-cancel', rowId: 'row-cancel', text: 'cancel me' }, { origin: 'human', delivery: 'when-ready' })).outcome).toBe('queued')
+      expect(
+        await w.handle.send(
+          { text: 'raced attempt' },
+          { origin: 'human', delivery: 'when-ready', deliveryAttempt: true },
+        ),
+      ).toEqual({ outcome: 'refused', refusal: { reason: 'busy' } })
+      expect(
+        (
+          await w.handle.send(
+            { id: 'row-cancel', rowId: 'row-cancel', text: 'cancel me' },
+            { origin: 'human', delivery: 'when-ready' },
+          )
+        ).outcome,
+      ).toBe('queued')
       await w.handle.cancelDelivery!('row-cancel')
       w.server.completeTurn()
       await settle()
       expect(w.server.turnStarts).toBe(1)
-      expect(w.events().filter((event) => event.t === 'delivery')).toEqual([expect.objectContaining({ rowId: 'row-cancel', outcome: 'dropped' })])
-    } finally { w.dispose() }
+      expect(w.events().filter((event) => event.t === 'delivery')).toEqual([
+        expect.objectContaining({ rowId: 'row-cancel', outcome: 'dropped' }),
+      ])
+    } finally {
+      w.dispose()
+    }
   })
 
   it('emits delivery proof on the same runtime stream after immediate queue admission', async () => {
     const w = await world()
     try {
-      expect((await w.handle.send({ id: 'row-live', rowId: 'row-live', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })).outcome).toBe('queued')
+      expect(
+        (
+          await w.handle.send(
+            { id: 'row-live', rowId: 'row-live', text: 'hello' },
+            { origin: 'human', delivery: 'when-ready' },
+          )
+        ).outcome,
+      ).toBe('queued')
       await settle()
       expect(w.server.turnStarts).toBe(1)
       // Delivered once Codex records it, not on its answer (POD-4849).
@@ -1510,10 +1527,11 @@ describe('durable inbox rows on the owning driver', () => {
         expect.objectContaining({ rowId: 'row-live', outcome: 'accepted', held: 'memory' }),
         expect.objectContaining({ rowId: 'row-live', outcome: 'delivered' }),
       ])
-    } finally { w.dispose() }
+    } finally {
+      w.dispose()
+    }
   })
 })
-
 
 describe('boundary delivery', () => {
   it('declares support and queues until the provider closes the open turn', async () => {
@@ -1625,7 +1643,10 @@ describe('rebind to the surviving engine (POD-4433)', () => {
       const adopted = await w.adopt()
       expect(w.counts().launches).toBe(1)
       expect(adopted.binding.resume).toEqual(before.resume)
-      const receipt = await adopted.send({ text: 'after rejoin' }, { origin: 'human', delivery: 'when-ready' })
+      const receipt = await adopted.send(
+        { text: 'after rejoin' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
       expect(receipt.outcome).toBe('accepted')
       expect(w.server.turnStarts).toBe(1)
     } finally {
@@ -1639,7 +1660,10 @@ describe('rebind to the surviving engine (POD-4433)', () => {
       const before = w.recorded()
       w.server.gateNextResume()
       let live = false
-      const adopting = w.adopt().then((handle) => { live = true; return handle })
+      const adopting = w.adopt().then((handle) => {
+        live = true
+        return handle
+      })
       await settle()
       expect(live).toBe(false)
       expect(w.liveHandle()).toBe(w.handle)
@@ -1657,13 +1681,23 @@ describe('rebind to the surviving engine (POD-4433)', () => {
     const w = await world()
     try {
       const before = w.recorded()
-      w.server.scriptNextResume({ error: { code: -32600, message: 'no rollout found for journalled thread' } })
+      w.server.scriptNextResume({
+        error: { code: -32600, message: 'no rollout found for journalled thread' },
+      })
       await expect(w.adopt()).rejects.toThrow('no rollout found for journalled thread')
       expect(w.server.closedClients).toBe(1)
       expect(w.server.alive).toBe(true)
       expect(w.liveHandle()).toBe(w.handle)
       expect(w.recorded()).toBe(before)
       expect(w.counts()).toMatchObject({ launches: 1, stopped: 0 })
+      const receipt = await w.handle.send(
+        { text: 'old client still works' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      expect(receipt.outcome).toBe('accepted')
+      expect(
+        w.events().filter((event) => event.t === 'process' && event.ev.ev === 'adopted'),
+      ).toEqual([])
     } finally {
       w.dispose()
     }
@@ -1673,11 +1707,40 @@ describe('rebind to the surviving engine (POD-4433)', () => {
     const w = await world()
     try {
       const before = w.recorded()
-      w.server.scriptNextResume({ result: { thread: { id: 'someone-elses-thread', path: before.rolloutPath } } })
+      w.server.scriptNextResume({
+        result: { thread: { id: 'someone-elses-thread', path: before.rolloutPath } },
+      })
       await expect(w.adopt()).rejects.toThrow('journalled thread')
       expect(w.recorded()).toBe(before)
       expect(w.server.alive).toBe(true)
       expect(w.server.closedClients).toBe(1)
+    } finally {
+      w.dispose()
+    }
+  })
+
+  it('refuses a resume response with a different rollout path', async () => {
+    const w = await world()
+    try {
+      const before = w.recorded()
+      w.server.scriptNextResume({
+        result: { thread: { id: before.threadId, path: '/wrong-rollout.jsonl' } },
+      })
+      await expect(w.adopt()).rejects.toThrow('different rollout path')
+      expect(w.recorded()).toBe(before)
+      expect(w.server.closedClients).toBe(1)
+    } finally {
+      w.dispose()
+    }
+  })
+
+  it('rejoins by id when an older journal has no rollout path', async () => {
+    const w = await world()
+    try {
+      delete w.recorded().rolloutPath
+      const adopted = await w.adopt()
+      expect(w.server.resumeParams).toEqual([{ threadId: w.recorded().threadId }])
+      expect(adopted.binding.resume).toEqual(w.handle.binding.resume)
     } finally {
       w.dispose()
     }
@@ -1695,6 +1758,9 @@ describe('rebind to the surviving engine (POD-4433)', () => {
       expect(dead.resumes).toBe(0)
       expect(w.liveServer()).not.toBe(dead)
       expect(w.liveServer().resumes).toBe(1)
+      expect(w.liveServer().resumeParams).toEqual([
+        { threadId: before.resume!.value, path: w.recorded().rolloutPath },
+      ])
       expect(adopted.binding.resume).toEqual(before.resume)
     } finally {
       w.dispose()
@@ -2115,7 +2181,11 @@ describe('a message Codex holds in memory', () => {
         }),
       ])
     expect(w.entryReports).toEqual([
-      expect.objectContaining({ messageId: 'msg_race', pairedBy: 'client-id', deliveredAs: 'steer' }),
+      expect.objectContaining({
+        messageId: 'msg_race',
+        pairedBy: 'client-id',
+        deliveredAs: 'steer',
+      }),
     ])
     w.dispose()
   })
@@ -2147,7 +2217,10 @@ describe('a message Codex holds in memory', () => {
   describe('a steer dropped when its turn ended', () => {
     /** The measured read after the steer was dropped, with a change applied. */
     const measuredRead = (
-      change: (thread: { status: unknown; turns: { status: string; items: unknown[] }[] }) => void = () => {},
+      change: (thread: {
+        status: unknown
+        turns: { status: string; items: unknown[] }[]
+      }) => void = () => {},
     ) => {
       const answer = structuredClone(steerDropped.threadReadResponse) as {
         result: { thread: { status: unknown; turns: { status: string; items: unknown[] }[] } }
@@ -2253,7 +2326,9 @@ describe('a message Codex holds in memory', () => {
       )
       w.liveServer().scriptThreadRead(measuredRead())
       w.liveServer().completeTurn('interrupted')
-      await expect.poll(() => lost).toEqual([[expect.stringContaining('interrupted'), 'not-recorded']])
+      await expect
+        .poll(() => lost)
+        .toEqual([[expect.stringContaining('interrupted'), 'not-recorded']])
       w.liveServer().emitUserMessage('lost', 'usr-late', { clientId: 'msg_lost' })
       await settle()
       expect(lost).toHaveLength(1)
@@ -2354,7 +2429,10 @@ describe("Codex's own ids for our message", () => {
 
   it('names the running turn a steer joined', async () => {
     const w = await world()
-    await w.handle.send({ id: 'msg_open', text: 'open' }, { origin: 'human', delivery: 'when-ready' })
+    await w.handle.send(
+      { id: 'msg_open', text: 'open' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     w.liveServer().emitUserMessage('open', 'usr-open', { clientId: 'msg_open' })
     const steered = await w.handle.send(
       { id: 'msg_steer', text: 'steered in' },

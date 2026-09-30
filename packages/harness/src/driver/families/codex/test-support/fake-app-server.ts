@@ -304,7 +304,10 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
     rollouts.set(threadId, log)
   }
   let loaded = false
-  let nextResumeAnswer: { result: unknown } | { error: { code: number; message: string } } | undefined
+  let nextResumeAnswer:
+    | { result: unknown }
+    | { error: { code: number; message: string } }
+    | undefined
   let failNext = false
   const scriptedReads: ({ result: unknown } | { error: { code: number; message: string } })[] = []
   let stallNext = false
@@ -346,7 +349,9 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
       for (const connection of connections.values()) connection.subscribed = false
     },
     resumeParams: [],
-    scriptNextResume: (answer) => { nextResumeAnswer = answer },
+    scriptNextResume: (answer) => {
+      nextResumeAnswer = answer
+    },
     closedClients: 0,
     alive: true,
     threadId: undefined,
@@ -576,7 +581,10 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
 
   const notify = (method: string, params: unknown): void => {
     for (const [pipe, connection] of connections) {
-      if (connection.subscribed) pipe.push(JSON.stringify({ jsonrpc: '2.0', method, params, emittedAtMs: 1_786_700_000_000 }))
+      if (connection.subscribed)
+        pipe.push(
+          JSON.stringify({ jsonrpc: '2.0', method, params, emittedAtMs: 1_786_700_000_000 }),
+        )
     }
   }
   const request = (id: number, method: string, params: unknown): void => {
@@ -626,8 +634,10 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
     const connection = connections.get(pipe)
     if (!connection) return
     /** Responses OMIT `jsonrpc`, as the real server's do. */
-    const respond = (id: number | string, result: unknown): void => pipe.push(JSON.stringify({ id, result }))
-    const respondError = (id: number | string, code: number, message: string): void => pipe.push(JSON.stringify({ id, error: { code, message } }))
+    const respond = (id: number | string, result: unknown): void =>
+      pipe.push(JSON.stringify({ id, result }))
+    const respondError = (id: number | string, code: number, message: string): void =>
+      pipe.push(JSON.stringify({ id, error: { code, message } }))
     let frame: {
       id?: number | string
       method?: string
@@ -724,7 +734,12 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
           server.threadId = threadId
           loaded = true
           connection.subscribed = true
-          respond(id, scripted && 'result' in scripted ? scripted.result : { thread: threadPayload(threadId) })
+          respond(
+            id,
+            scripted && 'result' in scripted
+              ? scripted.result
+              : { thread: threadPayload(threadId) },
+          )
           notify('thread/started', { thread: threadPayload(threadId) })
         }
         if (resumeGate) {
