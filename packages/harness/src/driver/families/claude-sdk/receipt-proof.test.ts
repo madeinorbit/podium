@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import type { SessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionHandle, RuntimeEvent } from '../../host.js'
@@ -211,10 +213,11 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     ])
   })
 
-  it('a kill after queued leaves the accepted line unconfirmed when no record exists', async () => {
+  it('a kill after queued, with no record after the exit, says the agent exited without it', async () => {
     const w = await world()
     const confirmed = vi.fn()
-    const receipt = send(w.handle, confirmed)
+    const unrecorded = vi.fn()
+    const receipt = send(w.handle, confirmed, unrecorded)
     w.frame(ack.lifecycleQueued)
     w.frame(ack.lifecycleStarted)
     await receipt
@@ -223,7 +226,7 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     expect(await receipt).toMatchObject({ outcome: 'accepted', held: 'memory' })
     expect(confirmed).not.toHaveBeenCalled()
     expect(userItems(w.events)).toEqual([])
-    expect(deliveries(w.events)).toEqual([])
+    expect(unrecorded).toHaveBeenCalledExactlyOnceWith(expect.any(String), 'agent-exited')
   })
 
   it('HTTP 400 and cancelled do not prevent confirmation, even when the record is read later', async () => {
@@ -411,6 +414,8 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     w.append(userRecord())
     await tick()
     expect(unrecorded).toHaveBeenCalledTimes(1)
+    // Podium's own teardown is no exit of the program: nothing is proven.
+    expect(unrecorded.mock.calls[0]?.[1]).toBeUndefined()
     expect(confirmed).not.toHaveBeenCalled()
     expect(w.readArchive).toHaveBeenCalledTimes(reads)
   })
@@ -439,6 +444,125 @@ describe('Claude SDK receipt proof from its history (POD-4889)', () => {
     )
     expect(deliveries(w.events)).toEqual([
       expect.objectContaining({ outcome: 'failed', cause: 'unconfirmed' }),
+    ])
+  })
+})
+
+/**
+ * THE PROCESS EXITED, AND ITS HISTORY, READ AFTER THE EXIT, DECIDES (POD-4887;
+ * POD-4819 §6.1 N4). Measured on 2.1.284 (POD-4862, `claude-2.1.284/sdk/`):
+ * a line queued behind a running tool and then SIGKILLed left only its
+ * `enqueue` in the transcript, and was not in the conversation after resume
+ * (`S6-kill9-with-queued-then-resume-resend.txt`); a line killed right after
+ * its `queued` ack left nothing (`S10-kill9-idle-40-150ms-then-resend.txt`).
+ * The transcript below is that S6 file as it stood at the kill (lines 1–16),
+ * re-keyed to this world's conversation.
+ */
+describe('Claude SDK: the process exited (POD-4887)', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => {
+    for (const dispose of cleanups.splice(0)) dispose()
+    vi.useRealTimers()
+  })
+
+  const S6_AT_KILL = readFileSync(
+    fileURLToPath(
+      new URL(
+        '../../../../../../docs/measurements/pod-4834-receipt-proof/claude-2.1.284/sdk/transcripts/cccccccc-4862-4000-8000-000000000001.jsonl',
+        import.meta.url,
+      ),
+    ),
+    'utf8',
+  )
+    .split('\n')
+    .slice(0, 16)
+    .map((line) => JSON.stringify({ ...JSON.parse(line), sessionId: NATIVE }))
+    .join('\n')
+    .concat('\n')
+
+  const row = { id: MESSAGE, rowId: MESSAGE, text: 'QUEUED-R1 before kill9' }
+  const whenReady = { origin: 'human', delivery: 'when-ready' } as const
+
+  it('fails a held line as agent-exited when the history after the kill lacks it', async () => {
+    const w = await world(S6_AT_KILL)
+    await w.handle.send(row, whenReady)
+    await tick()
+    w.frame(ack.lifecycleQueued)
+    await tick()
+    expect(accepted(w.events)).toHaveLength(1)
+    expect(deliveries(w.events)).toEqual([])
+    const readsBeforeExit = w.readArchive.mock.calls.length
+    w.exit()
+    await tick()
+    expect(w.readArchive.mock.calls.length).toBeGreaterThan(readsBeforeExit)
+    expect(deliveries(w.events)).toEqual([
+      expect.objectContaining({ rowId: MESSAGE, outcome: 'failed', cause: 'agent-exited' }),
+    ])
+    await vi.advanceTimersByTimeAsync(121_000)
+    expect(deliveries(w.events)).toHaveLength(1)
+  })
+
+  it('delivers the same kill when the history after it holds our uuid', async () => {
+    const w = await world(S6_AT_KILL)
+    await w.handle.send(row, whenReady)
+    await tick()
+    w.frame(ack.lifecycleQueued)
+    await tick()
+    // Written before the kill, read only after it (S10: the +400 ms kill).
+    w.append(userRecord())
+    w.exit()
+    await tick()
+    expect(deliveries(w.events)).toEqual([
+      expect.objectContaining({
+        rowId: MESSAGE,
+        outcome: 'delivered',
+        transcriptItem: { id: UUID },
+      }),
+    ])
+  })
+
+  it('a line killed before its ack goes unconfirmed, then agent-exited from the history', async () => {
+    const w = await world(S6_AT_KILL)
+    await w.handle.send(row, whenReady)
+    await tick()
+    w.exit()
+    await tick()
+    await tick()
+    expect(deliveries(w.events)).toEqual([
+      expect.objectContaining({ rowId: MESSAGE, outcome: 'failed', cause: 'unconfirmed' }),
+      expect.objectContaining({ rowId: MESSAGE, outcome: 'failed', cause: 'agent-exited' }),
+    ])
+  })
+
+  it('a line killed before its ack that the history holds is proven late', async () => {
+    const w = await world(S6_AT_KILL)
+    await w.handle.send(row, whenReady)
+    await tick()
+    w.append(userRecord())
+    w.exit()
+    await tick()
+    await tick()
+    expect(deliveries(w.events)).toEqual([
+      expect.objectContaining({ rowId: MESSAGE, outcome: 'failed', cause: 'unconfirmed' }),
+      expect.objectContaining({
+        rowId: MESSAGE,
+        outcome: 'delivered',
+        transcriptItem: { id: UUID },
+      }),
+    ])
+  })
+
+  it('claims nothing when the history cannot be read after the exit', async () => {
+    const w = await world(S6_AT_KILL)
+    await w.handle.send(row, whenReady)
+    await tick()
+    w.frame(ack.lifecycleQueued)
+    await tick()
+    w.readArchive.mockRejectedValue(new Error('EIO'))
+    w.exit()
+    await tick()
+    expect(deliveries(w.events)).toEqual([
+      expect.objectContaining({ rowId: MESSAGE, outcome: 'failed', cause: 'unconfirmed' }),
     ])
   })
 })

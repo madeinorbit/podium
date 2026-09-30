@@ -661,6 +661,11 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
 
     let streamTurn: ReturnType<ClaudeStreamClient['turn']> | undefined
     let tornDown = false
+    // The engine the line rode, once there is one: its own exit (POD-4887).
+    let markExited!: () => void
+    const exited = new Promise<void>((resolve) => {
+      markExited = resolve
+    })
 
     void (async () => {
       let held: HeldEngine
@@ -695,6 +700,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
         failBeforeLine(error instanceof Error ? error : new Error(String(error)))
         return
       }
+      void streamTurn.exited.then(markExited)
       streamTurn.accepted.then(
         (acceptance) => {
           // The session already held this message: an earlier attempt reached
@@ -758,6 +764,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     return {
       done,
       accepted,
+      exited,
       interrupt: () => {
         tornDown = true
         try {

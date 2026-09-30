@@ -96,8 +96,10 @@ async function fixture(lane: string, label = 'S1', file?: string) {
   }
   let history: unknown[] = []
   let promptReply = reply
+  let dead = false
   const streams = new Set<ReadableStreamDefaultController<Uint8Array>>()
   const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+    if (dead) throw new TypeError('fetch failed: connection refused')
     const path = new URL(String(url)).pathname
     if (path === '/api/event') {
       return new Response(
@@ -217,6 +219,12 @@ async function fixture(lane: string, label = 'S1', file?: string) {
       history = value
     },
     pendingIds: () => client.pendingPrompts!(sessionID),
+    /** The server process is gone: the stream ends and nothing answers. */
+    die: () => {
+      dead = true
+      for (const controller of streams) controller.close()
+      streams.clear()
+    },
     newOwner: () => runtime.driver.resume({ kind: 'opencode-session', value: sessionID }, spec),
   }
 }
@@ -340,6 +348,24 @@ describe.each([
       { outcome: 'delivered', transcriptItem: { id: f.entry } },
     ])
     expect(f.prompts()).toHaveLength(1)
+  })
+
+  /**
+   * AN ADMISSION OUTLIVES ITS PROCESS (POD-4887; POD-4819 §4, §6.1 N4). Measured
+   * (POD-4864, S6e): a v2 admission survives a SIGKILL, pending and unrun, and
+   * a resend under the same id starts it. So the exit of the server, however
+   * observed, never proves it is not in the conversation: no `failed`.
+   */
+  it('an observed server exit never fails a pending admission', async () => {
+    vi.useFakeTimers()
+    const f = await fixture(lane)
+    f.pending()
+    await f.handle.send({ ...f.input, rowId: f.messageID }, options)
+    await flush()
+    f.die()
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(f.events.some((event) => event.t === 'process' && event.ev.ev === 'exited')).toBe(true)
+    expect(f.deliveries()).toMatchObject([{ outcome: 'accepted', held: 'durable' }])
   })
 
   it('rechecks history when the promotion event is lost', async () => {

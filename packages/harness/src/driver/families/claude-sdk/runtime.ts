@@ -1,6 +1,7 @@
 import {
   type AgentRuntimeState,
   formatAgentError,
+  type HarnessRef,
   type ResumeRef,
   type SessionId,
   type TranscriptItem,
@@ -64,6 +65,12 @@ interface HeldMessage {
   resumeValue: string
   options: SendOptions
   deadline: number
+  /** The CLI process that took the line exited on its own (POD-4887). */
+  exited: boolean
+  /** Watched after an `unverified` answer (a line written, never acked): a
+   *  record is late proof, a post-exit read without one a late "no", and
+   *  anything else ends the watch in silence (POD-4840, POD-4887). */
+  late: boolean
 }
 
 /**
@@ -140,6 +147,12 @@ export interface ClaudeSdkTurnHandle {
    * channel is exactly the situation where a confirmation must not be assumed.
    */
   requestInterrupt?(): Promise<ClaudeSdkInterruptAck>
+  /**
+   * THE CLI PROCESS THAT TOOK THIS LINE EXITED ON ITS OWN (POD-4887): the
+   * host's exit report, never a Podium stop and never a dead-pipe guess.
+   * Absent = the host cannot tell, and no "no" is ever proven from an exit.
+   */
+  exited?: Promise<void>
   answerPermission(
     interactionId: string,
     answer: { decision: 'allow-once' | 'allow-always' | 'deny'; feedback?: string },
@@ -358,18 +371,59 @@ export function createClaudeSdkRuntime(
     push(core, { t: 'item', item: { kind: 'complete', item } })
   }
 
-  function watchReceipt(core: SessionCore, uuid: string, options: SendOptions): void {
-    core.heldMessages.add({
+  function watchReceipt(
+    core: SessionCore,
+    uuid: string,
+    options: SendOptions,
+    exited: Promise<void> | undefined,
+    late = false,
+  ): void {
+    const message: HeldMessage = {
       uuid,
       resumeValue: core.binding.resume?.value ?? '',
       options,
       deadline: Date.now() + RECEIPT_WATCH_MS,
+      exited: false,
+      late,
+    }
+    core.heldMessages.add(message)
+    void exited?.then(() => {
+      if (!core.heldMessages.has(message)) return
+      message.exited = true
+      // Read again now, from a timer: the read that decides must start after
+      // the exit, and a late watch only after its `unverified` answer settled.
+      rearmReceipts(core, 0)
     })
+    // A late watch reads from a timer too, for the same second reason.
+    rearmReceipts(core, late ? 100 : undefined)
+  }
+
+  function rearmReceipts(core: SessionCore, delayMs?: number): void {
     core.receiptPollMs = 100
     if (core.receiptTimer) clearTimeout(core.receiptTimer)
     core.receiptTimer = undefined
-    void readReceipts(core)
+    if (delayMs === undefined) {
+      void readReceipts(core)
+      return
+    }
+    core.receiptTimer = setTimeout(() => {
+      core.receiptTimer = undefined
+      void readReceipts(core)
+    }, delayMs)
+    core.receiptTimer.unref?.()
   }
+
+  /**
+   * THE PROCESS EXITED AND ITS HISTORY LACKS THE LINE (POD-4887; POD-4819 §6.1
+   * N4). Measured on 2.1.284 (POD-4862): nothing the CLI held survives its
+   * exit — a queued line, a line killed right after its ack — and the resumed
+   * conversation does not hold it. So a transcript read that STARTED after the
+   * exit, and found no record under our uuid, proves it is not in the
+   * conversation (the model may still have seen it once). A read that failed
+   * proves nothing.
+   */
+  const EXITED_WITHOUT_IT =
+    'Claude exited and its transcript, read after the exit, does not hold it'
 
   /** One read for all held lines. A turn ending, including an API error, is
    * not a negative receipt and does not close these watches (POD-4819 §6.2). */
@@ -380,6 +434,8 @@ export function createClaudeSdkRuntime(
       const pending = [...core.heldMessages]
       for (const resumeValue of new Set(pending.map((message) => message.resumeValue))) {
         const messages = pending.filter((message) => message.resumeValue === resumeValue)
+        // Which of them this read can decide: those whose exit came before it.
+        const readAfterExit = new Set(messages.filter((message) => message.exited))
         const archive = await host
           .readArchive({ workdir: core.spec.workdir, resumeValue })
           .catch(() => undefined)
@@ -400,14 +456,28 @@ export function createClaudeSdkRuntime(
               core.publishedPromptItems.add(item.id)
               publishItem(core, item)
             }
-            message.options.onTranscriptItem?.({ id: item.id }, [
-              { kind: 'claude-uuid', id: message.uuid },
-            ])
-          } else if (!core.alive || Date.now() >= message.deadline) {
+            const harnessRef: HarnessRef = [{ kind: 'claude-uuid', id: message.uuid }]
+            if (message.late) {
+              message.options.onLateProof?.({ transcriptItem: { id: item.id }, harnessRef })
+            } else {
+              message.options.onTranscriptItem?.({ id: item.id }, harnessRef)
+            }
+          } else if (readAfterExit.has(message)) {
             core.heldMessages.delete(message)
-            // This closes the watch as unconfirmed. N4 owns a proven no after
-            // process exit; neither an unreadable file nor a timer proves it.
-            message.options.onUnrecorded?.('Claude transcript receipt watch ended without a record')
+            if (archive) message.options.onUnrecorded?.(EXITED_WITHOUT_IT, 'agent-exited')
+            else if (!message.late) {
+              // The history could not be read after the exit: nothing proven.
+              message.options.onUnrecorded?.('Claude exited and its transcript could not be read')
+            }
+          } else if (Date.now() >= message.deadline) {
+            core.heldMessages.delete(message)
+            // Neither an unreadable file nor a timer proves a "no": the watch
+            // closes unconfirmed, and a late watch closes in silence.
+            if (!message.late) {
+              message.options.onUnrecorded?.(
+                'Claude transcript receipt watch ended without a record',
+              )
+            }
           }
         }
       }
@@ -849,7 +919,14 @@ export function createClaudeSdkRuntime(
       // ack — the process exiting, an error result (an HTTP 400 left the
       // prompt recorded, POD-4834) — so that failure is unproven, never a
       // refusal the sender would read as safe to resend.
-      if (!wasNeverSent(error)) throw new DeliveryUnprovenError('claude-sdk send', error)
+      if (!wasNeverSent(error)) {
+        // WRITTEN, NEVER ACKED: `unverified`. Keep watching for its record, or
+        // for the exit that lets the history say it is not there (POD-4887).
+        if (!core.disposed && (options.onLateProof || options.onUnrecorded)) {
+          watchReceipt(core, userItemId, options, child.exited, true)
+        }
+        throw new DeliveryUnprovenError('claude-sdk send', error)
+      }
       return {
         outcome: 'refused',
         refusal: refuse('not_running', error instanceof Error ? error.message : String(error)),
@@ -859,7 +936,7 @@ export function createClaudeSdkRuntime(
     if (core.disposed) {
       options.onUnrecorded?.('Claude session closed before its transcript record was seen')
     } else {
-      watchReceipt(core, userItemId, options)
+      watchReceipt(core, userItemId, options, child.exited)
     }
     if (!core.alive) {
       // Stopped while the ack was on its way: the CLI took the line, so it is
@@ -974,6 +1051,8 @@ export function createClaudeSdkRuntime(
     const held = [...core.heldMessages]
     core.heldMessages.clear()
     for (const message of held) {
+      // Podium ending the session proves nothing; a late watch just ends.
+      if (message.late) continue
       message.options.onUnrecorded?.('Claude session closed before its transcript record was seen')
     }
     core.alive = false
@@ -1482,7 +1561,12 @@ export function createClaudeSdkRuntime(
       const core = cores.get(sessionId)
       if (!core) return
       if (event.ev === 'oomKilled') core.oomEvents += 1
-      if (event.ev === 'exited') core.alive = false
+      if (event.ev === 'exited') {
+        core.alive = false
+        // The host's own report of the exit: the next read decides (POD-4887).
+        for (const message of core.heldMessages) message.exited = true
+        if (core.heldMessages.size > 0) rearmReceipts(core, 0)
+      }
       push(core, { t: 'process', ev: event })
     },
     restartSupervisor() {
