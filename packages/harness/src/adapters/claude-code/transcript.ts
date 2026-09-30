@@ -314,13 +314,31 @@ export function isClaudeInterruptMarker(text: string): boolean {
   return INTERRUPT_MARKER_RE.test(text.trim())
 }
 
+// Claude 2.1.283/285 records large or multiline pastes in this envelope when
+// its paste-tag gate is on (docs/measurements/pod-4982-claude-pasted-content).
+// The id is shared across a session's pastes, not an item id. Decode only the
+// complete measured byte form, including the inserted separator LFs, so typed
+// words around one or several pastes remain where the person put them.
+const PASTED_CONTENT_RE =
+  /\n\n<pasted_content id="([0-9a-f]{4})">\n([\s\S]*?)\n<\/pasted_content id="\1">\n\n?/g
+
 // Claude Code injects <system-reminder> blocks INTO user turns (timestamps,
 // context nudges) — sometimes prepended/appended to a real prompt, sometimes a
 // turn is nothing but a reminder. They aren't user-authored, so strip them: the
 // chat shows only what the user wrote, a turn that was wholly a reminder drops
 // out, and the cleaned text matches the optimistic-bubble draft for reconciliation.
-function stripSystemReminders(text: string): string {
-  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+function recordedPromptText(text: string): string {
+  const unwrapped = text.replace(PASTED_CONTENT_RE, (wrapper, _id: string, body: string) =>
+    // A generated body escapes literal paste tags. An unescaped nested tag is
+    // an incomplete/foreign form; never join across it to find a later closer.
+    /<\/?pasted_content\b/.test(body) ? wrapper : body,
+  )
+  return unwrapped
+    // Restore Claude's escape of literal tags only AFTER decoding envelopes:
+    // an example pasted by the person must not be unwrapped a second time.
+    .replace(/<\\(\/?pasted_content)(?=[\s>])/g, '<$1')
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+    .trim()
 }
 
 // Pasted/uploaded images ride in as an image block plus a text marker
@@ -338,7 +356,7 @@ function stripSystemReminders(text: string): string {
 // and must get first refusal on the numbered spelling.
 function harvestImageMarkers(raw: string): { text: string; paths: string[] } {
   const paths: string[] = []
-  const text = stripSystemReminders(raw)
+  const text = recordedPromptText(raw)
     .replace(/\[Image(?: #\d+)?: source: ([^\]\n]+)\]/g, (_, p: string) => {
       paths.push(p.trim())
       return ''
@@ -363,7 +381,7 @@ function userItems(
   // content — tool_results — is never an injected turn, so it falls through.)
   if (typeof content === 'string') {
     if (promptSource === 'system') return []
-    const text = stripSystemReminders(content)
+    const text = recordedPromptText(content)
     if (!text) return []
     return [
       {

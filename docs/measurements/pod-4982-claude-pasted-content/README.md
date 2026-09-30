@@ -118,6 +118,21 @@ escaped literal tags, whitespace, and repeated IDs. Array and queued-attachment
 tests apply these same measured bytes to the record shapes documented in the
 earlier POD-4862 lane.
 
-The flatblock red/green commits and results are recorded here after the focused
-run. No authenticated agent smoke, model instruction-following, or UI browser
-drive is needed to establish this reader and reconciliation behavior.
+The failing baseline is committed before the fix:
+
+- `4afe37863`: `test:file` with the three regression files and `-t "pasted
+  content"` ran 187 adapter cases and ten driver cases on flatblock. The reader
+  had 86 failures; the driver had eight failures returning `unverified` instead
+  of a receipt naming the native history item. The two foreign-write negative
+  controls passed. The submit callbacks' typing-marker, payload, and Enter
+  checks passed before the receipt assertions failed: the tests were armed.
+- `79f1c1b75`: the chat fixture loader was corrected to use Vite's raw imports,
+  with the reader still unchanged. The two chat cases ran and both failed at
+  the duplicate-bubble check: one pending bubble remained where zero should.
+
+All test commands run in the foreground over SSH on flatblock, in the single
+`~/podium-test-4982` checkout, with its own `.toolchain` and dependency links.
+Each candidate is WIP-committed and pushed only to
+`ssh://flatblock/home/mgw/podium-timing refs/heads/test-4982` before execution.
+No authenticated agent smoke, model instruction-following, or UI browser drive
+is needed to establish this reader and reconciliation behavior.
