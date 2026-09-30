@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { systemPrincipal, userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { openTestStore } from '../../test-support/open-test-store'
-import type { ControlMessage } from '@podium/protocol/daemon'
+import type { ControlMessage, RuntimeEvent } from '@podium/protocol/daemon'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const registries: SessionRegistry[] = []
@@ -142,6 +142,63 @@ async function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): P
 }
 
 describe('stopSession [spec:SP-9904]', () => {
+  it.each(['live', 'bootstrap'] as const)(
+    'POD-4992: rejects a %s terminal state reported hours after stop at the runtime producer',
+    async (provenance) => {
+      const { reg, daemon } = await makeRegistry()
+      const { sessionId } = await reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/r',
+      })
+      await bindLive(reg, sessionId, '/r')
+      const at = '2026-09-30T01:40:00.000Z'
+      const stateEvent = (seq: number, change: Record<string, unknown>): RuntimeEvent => ({
+        t: 'state', change, at, provenance: 'live',
+        cursor: { segmentId: 'stopped-child', components: { seq } },
+        observerGeneration: 1, turnEpoch: 1,
+      })
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeEvent', sessionId, deliveryId: 'working-before-stop',
+        event: stateEvent(1, { kind: 'prompt_submitted' }),
+      })
+      expect((await reg.modules.sessions.sessionById(sessionId))?.agentState?.phase).toBe('working')
+      expect((await reg.modules.issueSessionLifecycle.stopSession({ sessionId })).ok).toBe(true)
+      const parked = await reg.modules.sessions.sessionById(sessionId)
+      expect(parked?.status).toBe('hibernated')
+      expect(parked?.stoppedAt).toBeTruthy()
+      const checkpoint = await reg.sessionStore.events.runtimeEventCheckpoint(sessionId)
+      const phases = await reg.sessionStore.events.listEventsSince(0, { kinds: ['session.phase'] })
+      const effects = vi.fn()
+      reg.bus.on('session.stateChanged', effects)
+
+      const delayed: RuntimeEvent = {
+        ...stateEvent(2, { kind: 'turn_completed', verdict: { kind: 'done' } }),
+        provenance,
+        ...(provenance === 'bootstrap' ? {
+          observerGeneration: 2,
+          change: { kind: 'state_snapshot', state: {
+            phase: 'idle', since: at, nativeSubagentCount: 0, idle: { kind: 'done' },
+          } },
+        } : {}),
+      }
+      // The provider's timestamp is old; receipt and notification creation are fresh.
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeEvent', sessionId, deliveryId: 'terminal-after-stop', event: delayed,
+      })
+      expect(effects).not.toHaveBeenCalled()
+      expect(await reg.sessionStore.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual(phases)
+      expect(await reg.sessionStore.events.runtimeEventCheckpoint(sessionId)).toEqual(checkpoint)
+      expect(await reg.modules.sessions.sessionById(sessionId)).toMatchObject({
+        status: 'hibernated', stoppedAt: parked?.stoppedAt, agentState: parked?.agentState,
+      })
+      // Rejection is acknowledged so the durable daemon outbox does not retry forever.
+      expect(daemon).toContainEqual({
+        type: 'runtimeEventAck', deliveryId: 'terminal-after-stop', outcome: 'rejected',
+        reason: 'session-not-running',
+      })
+    },
+  )
+
   it('parks a live session, frees the issue worktree, keeps the branch', async () => {
     const { reg, daemon, repoOps } = await makeRegistry()
     const issue = await reg.modules.issues.create({

@@ -1751,6 +1751,57 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
  * ISSUE parentnudge (needs_human/closed/review), which stays live-only.
  */
 describe('StewardService session-parent wake (POD-904 / §07b)', () => {
+  it.each(['hibernated', 'exited'] as const)(
+    'POD-4992: ignores fresh terminal phase events for an already %s child across every notice route',
+    async (status) => {
+      const child = fakeSession({
+        sessionId: asSessionId('child'), status, spawnedBy: 'session:parent',
+        stoppedAt: '2026-07-02T01:40:00.000Z',
+      })
+      const h = await harness({ sessions: [
+        fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated' }), child,
+      ] })
+      const ackFallback = vi.fn()
+      h.deps.messaging = { ackFallback }
+      const steward = new StewardService(h.deps)
+      await h.store.events.addSubscription({
+        id: 'stopped-child-finished', subscriberKind: 'session', subscriberId: 'parent',
+        sourceKind: 'session', sourceRef: 'child', event: 'session.finished',
+        deliverNudge: true, deliverNotify: true, origin: 'custom', enabled: true,
+        createdAt: '2026-07-02T00:00:00.000Z',
+      })
+      await h.store.events.appendEvent({
+        ts: '2026-07-02T15:14:56.000Z', kind: 'session.phase', subject: 'child',
+        payload: { phase: 'idle', verdict: 'done' },
+      })
+      await steward.tick()
+      expect(h.sendNotice).not.toHaveBeenCalled()
+      expect(h.notify).not.toHaveBeenCalled()
+      expect(ackFallback).not.toHaveBeenCalled()
+      expect(await h.arbiter.isClaimed('sessionparentnudge:phase-reported:child', asSessionId('parent'))).toBe(false)
+      expect(await h.arbiter.isClaimed('settle:child', asSessionId('child'))).toBe(false)
+    },
+  )
+
+  it('POD-4992: still delivers a terminal phase that preceded the child stop', async () => {
+    const h = await harness({ sessions: [
+      fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated' }),
+      fakeSession({
+        sessionId: asSessionId('child'), status: 'hibernated', spawnedBy: 'session:parent',
+        stoppedAt: '2026-07-02T01:41:00.000Z',
+      }),
+    ] })
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    await h.store.events.appendEvent({
+      ts: '2026-07-02T01:40:00.000Z', kind: 'session.phase', subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await new StewardService(h.deps).tick()
+    expect(h.sendNotice).toHaveBeenCalledTimes(1)
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+  })
+
   it('wakes a PARKED session parent when the child settles idle+done', async () => {
     const sessions = [
       // Parked parent — issue parentnudge would skip this; session-parent wake must not.
