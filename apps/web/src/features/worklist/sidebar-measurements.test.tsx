@@ -1,17 +1,30 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import {
+  beginSwitch,
+  captureSidebarSwitchInput,
+  createSidebarPerf,
+  getRecentSwitchTraces,
+  markSwitch,
+  resetSwitchTraces,
+} from '@podium/client-core/perf'
 import { asSessionId } from '@podium/model/browser'
-import { beginSwitch, captureSidebarSwitchInput, createSidebarPerf, getRecentSwitchTraces, markSwitch, resetSwitchTraces } from '@podium/client-core/perf'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { memo } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarPerfReadout } from './SidebarPerfPanel'
 
-afterEach(() => { cleanup(); resetSwitchTraces(); vi.unstubAllGlobals(); vi.resetModules() })
+afterEach(() => {
+  cleanup()
+  resetSwitchTraces()
+  vi.unstubAllGlobals()
+  vi.resetModules()
+})
 
 describe('sidebar measurement boundary', () => {
   it('counts committed row bodies without counting memo skips or panel samples', async () => {
     vi.doMock('@/lib/sidebar-data-layer', () => ({ sidebarDataLayer: () => 'pool' }))
-    const { bindSidebarRowMeasurements, initializeSidebarMeasurements, measureSidebarRow } = await import('./sidebar-measurements')
+    const { bindSidebarRowMeasurements, initializeSidebarMeasurements, measureSidebarRow } =
+      await import('./sidebar-measurements')
     initializeSidebarMeasurements()
     const perf = createSidebarPerf()
     const stop = bindSidebarRowMeasurements({ owner: {}, mode: 'pool', perf })
@@ -24,7 +37,10 @@ describe('sidebar measurement boundary', () => {
       expect(perf.read().idle.rows).toBe(1)
       view.rerender(<Row text="two" />)
       expect(perf.read().idle.rows).toBe(2)
-    } finally { stop(); vi.doUnmock('@/lib/sidebar-data-layer') }
+    } finally {
+      stop()
+      vi.doUnmock('@/lib/sidebar-data-layer')
+    }
   })
 
   it('captures real DOM click/keyboard routing through paint, scopes sidebar samples, and detaches', async () => {
@@ -33,19 +49,29 @@ describe('sidebar measurement boundary', () => {
     const perf = createSidebarPerf(() => at)
     const paints: Array<() => void> = []
     const stop = observeSidebarInputs(perf, (done) => paints.push(done))
-    render(<><div data-sidebar-shell><button type="button">Row</button></div><button type="button">Other</button><div data-perf-panel><button type="button">Panel</button></div></>)
+    render(
+      <>
+        <div data-sidebar-shell>
+          <button type="button">Row</button>
+        </div>
+        <button type="button">Other</button>
+        <div data-perf-panel>
+          <button type="button">Panel</button>
+        </div>
+      </>,
+    )
     fireEvent.click(screen.getByText('Row'))
     perf.record({ rows: 1 })
     expect(perf.read().idle.rows).toBe(0)
     at = 200
-    paints.splice(0).forEach((done) => done())
+    paints.splice(0).forEach((done) => { done() })
     fireEvent.keyDown(screen.getByText('Row'), { key: 'Enter' })
     at = 300
-    paints.splice(0).forEach((done) => done())
+    paints.splice(0).forEach((done) => { done() })
     expect(perf.read().input.count).toBe(2)
     fireEvent.click(screen.getByText('Other'))
     fireEvent.click(screen.getByText('Panel'))
-    paints.splice(0).forEach((done) => done())
+    paints.splice(0).forEach((done) => { done() })
     expect(perf.read().input.count).toBe(2)
     stop()
     fireEvent.click(screen.getByText('Row'))
@@ -57,15 +83,18 @@ describe('sidebar measurement boundary', () => {
   it('crosses two animation frames and cancels outstanding callbacks on close', async () => {
     const frames = new Map<number, FrameRequestCallback>()
     let id = 0
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++id, callback); return id })
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.set(++id, callback)
+      return id
+    })
     vi.stubGlobal('cancelAnimationFrame', (frame: number) => frames.delete(frame))
     const { createPaintBoundary } = await import('./sidebar-measurements')
     const boundary = createPaintBoundary()
     const done = vi.fn()
     boundary.afterPaint(done)
-    frames.get(1)!(1)
+    frames.get(1)?.(1)
     expect(done).not.toHaveBeenCalled()
-    frames.get(2)!(2)
+    frames.get(2)?.(2)
     expect(done).toHaveBeenCalledOnce()
     boundary.afterPaint(done)
     boundary.dispose()
@@ -74,7 +103,13 @@ describe('sidebar measurement boundary', () => {
 
   it('reports disconnected sources honestly and shows a planted one-row timer', () => {
     const perf = createSidebarPerf(() => 60_000)
-    const props = { report: perf.read(), mode: 'pool' as const, heap: null, legacyBuilds: null, onClose: () => {} }
+    const props = {
+      report: perf.read(),
+      mode: 'pool' as const,
+      heap: null,
+      legacyBuilds: null,
+      onClose: () => {},
+    }
     const view = render(<SidebarPerfReadout {...props} />)
     expect(screen.getByTestId('perf-idle').textContent).toBe('Waiting for pool counters')
     expect(screen.getByTestId('perf-memory').textContent).toContain('unavailable')

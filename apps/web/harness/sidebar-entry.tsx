@@ -22,18 +22,18 @@ import type { JSX } from 'react'
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
-import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { SidebarPerfSession } from '@/features/worklist/SidebarPerfPanel'
-import { initializeSidebarMeasurements } from '@/features/worklist/sidebar-measurements'
-import { initializeSidebarDataLayer } from '@/lib/sidebar-data-layer'
-import { sidebarHarnessOwner } from './sidebar-store'
+import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import {
   ResizableAside,
   SIDEBAR_RAIL_WIDTH,
   SIDEBAR_WIDTH_DEFAULT,
 } from '@/features/worklist/sidebar-common'
+import { initializeSidebarMeasurements } from '@/features/worklist/sidebar-measurements'
 import { useColumnFold } from '@/features/worklist/use-column-fold'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { initializeSidebarDataLayer } from '@/lib/sidebar-data-layer'
+import { sidebarHarnessOwner } from './sidebar-store'
 import '@/index.css'
 import '@/styles.css'
 
@@ -45,7 +45,9 @@ initializeSidebarMeasurements()
 
 function PerformanceFixture(): JSX.Element | null {
   const [open, setOpen] = useState(params.get('perfPanel') === '1')
-  return open ? <SidebarPerfSession owner={sidebarHarnessOwner} onClose={() => setOpen(false)} /> : null
+  return open ? (
+    <SidebarPerfSession owner={sidebarHarnessOwner} onClose={() => setOpen(false)} />
+  ) : null
 }
 
 document.documentElement.dataset.theme = 'podium'

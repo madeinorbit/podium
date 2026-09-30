@@ -1,4 +1,8 @@
-import { endStoreStatsMeasure, recordStoreSelector, startStoreStatsMeasure } from '../perf/store-stats'
+import {
+  endStoreStatsMeasure,
+  recordStoreSelector,
+  startStoreStatsMeasure,
+} from '../perf/store-stats'
 /**
  * THE REACT BINDING — and the client's ONE principal-scoped composition root
  * (#262 [spec:SP-3fe2], POD-404).

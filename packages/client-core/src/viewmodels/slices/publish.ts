@@ -1,4 +1,8 @@
-import { endStoreStatsMeasure, recordSliceDerivation, startStoreStatsMeasure } from '../../perf/store-stats'
+import {
+  endStoreStatsMeasure,
+  recordSliceDerivation,
+  startStoreStatsMeasure,
+} from '../../perf/store-stats'
 /**
  * SLICE PUBLICATION (POD-330) — compute each slice ONCE per change, no matter
  * how many components read it.

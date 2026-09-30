@@ -2,8 +2,8 @@ import {
   type IssueNavigationModel,
   isDraftAgentVessel,
   issueDisplayTitle,
-  missionProgress,
   type MissionProgress,
+  missionProgress,
   pendingDecisionTitle,
   rowErrorLine,
   rowHasWorkingSession,
@@ -217,7 +217,7 @@ export function UnifiedIssueRowInner({
       ? // Direct component fixtures predate the published row rollup. Keep their
         // fallback on the same canonical derivation rather than inventing another.
         missionProgress(issues, allSessions, issue.id)
-      : row.missionRollup?.progress ?? fallbackEmptyProgress())
+      : (row.missionRollup?.progress ?? fallbackEmptyProgress()))
   const hex = issueColorHex(issue.color)
   // THE ROW'S IDENTITY IS ITS NUMBER (POD-1057). The 30px square carried the
   // ref, the phase, a corner badge and the colour picker — four jobs on the
@@ -231,9 +231,7 @@ export function UnifiedIssueRowInner({
   // the row flashes the origin. Narrow path: the parent resolved the edge
   // through a by-id map once per list; legacy path: `issues.find` as before.
   const origin: UnifiedIssueRowOrigin | null | undefined =
-    originProp !== undefined
-      ? originProp
-      : legacyOriginTick(issue, issues)
+    originProp !== undefined ? originProp : legacyOriginTick(issue, issues)
   // A closed handoff points FORWARD. That answer outranks the provenance tick:
   // an old row saying only "done ⤷ 766" explains its ancestry but gives no
   // route to the task where the work actually continued.

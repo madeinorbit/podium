@@ -63,7 +63,7 @@ export function createSidebarPerf(clock: () => number = () => performance.now())
   function prune(at: number): void {
     const cutoff = at - WINDOW_MS
     let first = 0
-    while (first < entries.length && entries[first]!.at <= cutoff) first++
+    while (first < entries.length && (entries[first]?.at ?? Infinity) <= cutoff) first++
     if (first > 0) entries = entries.slice(first)
   }
   function percentile(q: number): number | null {
@@ -116,7 +116,12 @@ export function createSidebarPerf(clock: () => number = () => performance.now())
     beginUpdate(changed: readonly string[]): number {
       const token = ++nextToken
       updates.add(token)
-      lastUpdate = { token, changed: changed.slice(0, 32).map((name) => name.slice(0, 80)), at: clock(), work: emptyWork() }
+      lastUpdate = {
+        token,
+        changed: changed.slice(0, 32).map((name) => name.slice(0, 80)),
+        at: clock(),
+        work: emptyWork(),
+      }
       return token
     },
     endUpdate(token: number): void {
@@ -135,7 +140,12 @@ export function createSidebarPerf(clock: () => number = () => performance.now())
     beginCheck(): () => void {
       checking++
       let ended = false
-      return () => { if (!ended) { ended = true; checking-- } }
+      return () => {
+        if (!ended) {
+          ended = true
+          checking--
+        }
+      }
     },
     read() {
       const at = clock()
@@ -146,15 +156,24 @@ export function createSidebarPerf(clock: () => number = () => performance.now())
         complete: at - overflowAt >= WINDOW_MS,
         idle: workOf(entries.filter((entry) => entry.idle && !entry.check)),
         checkWork: workOf(entries.filter((entry) => entry.check)),
-        lastUpdate: lastUpdate ? {
-          changed: [...lastUpdate.changed],
-          at: lastUpdate.at,
-          pending: updates.has(lastUpdate.token),
-          work: updates.has(lastUpdate.token)
-            ? workOf(entries.filter((entry) => entry.update === lastUpdate.token && !entry.check))
-            : { ...lastUpdate.work },
-        } : null,
-        input: { lastMs: lastInputMs, p50: percentile(0.5), p95: percentile(0.95), count: inputCount },
+        lastUpdate: lastUpdate
+          ? {
+              changed: [...lastUpdate.changed],
+              at: lastUpdate.at,
+              pending: updates.has(lastUpdate.token),
+              work: updates.has(lastUpdate.token)
+                ? workOf(
+                    entries.filter((entry) => entry.update === lastUpdate.token && !entry.check),
+                  )
+                : { ...lastUpdate.work },
+            }
+          : null,
+        input: {
+          lastMs: lastInputMs,
+          p50: percentile(0.5),
+          p95: percentile(0.95),
+          count: inputCount,
+        },
         pool: { connected: poolConnected, rows: poolRows },
         check: { ...check },
       }
@@ -183,21 +202,30 @@ export type SidebarPerfSnapshot = ReturnType<SidebarPerf['read']>
 let sink: { owner: object; perf: SidebarPerf; afterPaint: (done: () => void) => void } | null = null
 const poolReports = new WeakMap<object, { rows: number | null; connected: boolean }>()
 const checkReports = new WeakMap<object, SidebarCheckReport>()
-export function bindSidebarPerf(owner: object, perf: SidebarPerf, afterPaint: (done: () => void) => void = queueMicrotask): () => void {
+export function bindSidebarPerf(
+  owner: object,
+  perf: SidebarPerf,
+  afterPaint: (done: () => void) => void = queueMicrotask,
+): () => void {
   const binding = { owner, perf, afterPaint }
   sink = binding
   const pool = poolReports.get(owner)
   if (pool) perf.pool(pool.connected, pool.rows)
   const check = checkReports.get(owner)
   if (check) perf.check(check)
-  return () => { if (sink === binding) sink = null }
+  return () => {
+    if (sink === binding) sink = null
+  }
 }
 export function sidebarPerfFor(owner: object): SidebarPerf | null {
   return sink?.owner === owner ? sink.perf : null
 }
 /** Bracket the existing replica publication, including its scheduled derivations
  * and row commits through paint. No snapshot or second feed subscription. */
-export function beginSidebarUpdate(owner: object, changed: readonly string[] | ReadonlySet<string>): (() => void) | undefined {
+export function beginSidebarUpdate(
+  owner: object,
+  changed: readonly string[] | ReadonlySet<string>,
+): (() => void) | undefined {
   if (sink?.owner !== owner) return undefined
   const binding = sink
   const token = binding.perf.beginUpdate([...changed])

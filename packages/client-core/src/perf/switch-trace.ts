@@ -82,8 +82,7 @@ export function captureSidebarSwitchInput(at: number): () => void {
   sidebarInput = input
   return () => {
     if (sidebarInput === input) sidebarInput = null
-    if (active?.sidebarInput === input.token)
-      markSwitch(active.sessionId, 'sidebar:input-paint')
+    if (active?.sidebarInput === input.token) markSwitch(active.sessionId, 'sidebar:input-paint')
   }
 }
 /** Closing diagnostics cancels pending gesture attribution without recording a
@@ -351,8 +350,10 @@ export function markSwitch(sessionId: SessionId, name: string, meta?: MarkMeta):
     })
   }
   if (bounded) Object.assign(t.meta, bounded)
-  if (quiesced(t.marks) &&
-      (t.sidebarInput === undefined || t.marks.some((mark) => mark.name === 'sidebar:input-paint')))
+  if (
+    quiesced(t.marks) &&
+    (t.sidebarInput === undefined || t.marks.some((mark) => mark.name === 'sidebar:input-paint'))
+  )
     finalize(t, false)
 }
 

@@ -1,7 +1,7 @@
 import { relativeTime } from '@podium/client-core/focus'
 import {
-  issueClosedFoldAt,
   type IssueNavigationModel,
+  issueClosedFoldAt,
   type UnifiedIssueRow as UnifiedIssueRowView,
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'

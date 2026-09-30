@@ -29,9 +29,8 @@ import { loadAgentPanel } from '@/features/terminal/AgentPanelBoundary'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UpdatesProvider } from '@/features/updates/updates-context'
 import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
-import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { SidebarPerfPanel } from '@/features/worklist/SidebarPerfPanel'
-import { initializeSidebarMeasurements } from '@/features/worklist/sidebar-measurements'
+import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import {
   COLUMN_FOLD_EASE,
   COLUMN_FOLD_MS,
@@ -43,6 +42,7 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
 } from '@/features/worklist/sidebar-common'
+import { initializeSidebarMeasurements } from '@/features/worklist/sidebar-measurements'
 import { useColumnFold } from '@/features/worklist/use-column-fold'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'

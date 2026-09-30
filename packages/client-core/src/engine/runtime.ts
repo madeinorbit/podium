@@ -1,5 +1,6 @@
-import { bindStoreStatsOwner } from '../perf/store-stats'
 import { beginSidebarUpdate } from '../perf/sidebar-perf'
+import { bindStoreStatsOwner } from '../perf/store-stats'
+
 /**
  * THE CLIENT RUNTIME — the principal-scoped coordinator (POD-404).
  *
@@ -50,22 +51,18 @@ import { beginSidebarUpdate } from '../perf/sidebar-perf'
  * authentication has produced a principal. The provider renders nothing instead.
  */
 
-import { createHostMetricsStore } from './host-metrics'
-
-import { machinesMaterialSignature } from './machines-material'
-
 import { createLogger } from '@podium/logger'
-import type { OutboxRejectionReason } from '@podium/sync/outbox'
 import type {
   IssueId,
   LayoutSnapshot,
-  MutationId,
   LayoutWire,
+  MutationId,
   ReadPositionWire,
   SessionId,
 } from '@podium/model'
 import { asUserId } from '@podium/model'
 import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
+import type { OutboxRejectionReason } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
 import { createDraftLedger, type DraftLedgerSnapshot } from '../drafts'
 import type { OnlineEvents, OutboxEntry } from '../outbox'
@@ -87,26 +84,23 @@ import {
   type RouteState,
   routeDefaults,
 } from '../ui-state'
-import {
-  allTabIds,
-  closeTab,
-  openTab,
-  reposToViews,
-  type WorkspaceKey,
-} from '../viewmodels'
-import { createEngineActions, type EngineActions, type EngineActionRuntime } from './actions'
-import { planNavigation, type NavigationIntent } from './navigation'
+import { allTabIds, closeTab, openTab, reposToViews, type WorkspaceKey } from '../viewmodels'
+import { createEngineActions, type EngineActionRuntime, type EngineActions } from './actions'
 import { BootFetches } from './boot'
+import { OutboxSettlements } from './chat-send'
+import { createHostMetricsStore } from './host-metrics'
+import { machinesMaterialSignature } from './machines-material'
+import { type NavigationIntent, planNavigation } from './navigation'
 import { dedupeSessions, OptimismLedger } from './optimism'
 import type { OverlayEntity, PendingOverlay } from './overlay'
 import { Reactions, WORKSPACE_PRUNE_GRACE_MS } from './reactions'
-import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import {
   createReplicaBinding,
   type ReplicaBinding,
   type ReplicaPublication,
 } from './replica-binding'
 import type { ReplicatedLayoutController } from './replicated-layout'
+import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import {
   asIssueIdOrNull,
   type EngineState,
@@ -117,8 +111,8 @@ import {
   workspaceFor,
   workspaceKeyForState,
   workspaceMirrorPatch,
-  workspaceUiSnapshot,
   workspacesPatch,
+  workspaceUiSnapshot,
   workspaceWritePatch,
 } from './state'
 import {
@@ -139,7 +133,6 @@ import {
   type OutboxKinds,
   shouldParkDeadLetter,
 } from './wiring'
-import { OutboxSettlements } from './chat-send'
 
 /**
  * One outbox entry's outcome, for listeners outside the kernel (POD-4554: the
@@ -1219,10 +1212,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // row never yanks the operator off where they went since (POD-4642).
     this.dropPaneLink()
     const plan = planNavigation(this.state, this.router.current(), intent, {
-      visible: this.visibility.isVisible(), now: new Date().toISOString(),
+      visible: this.visibility.isVisible(),
+      now: new Date().toISOString(),
     })
-    const changed = Object.entries(plan.patch).some(([key, value]) =>
-      !Object.is(this.state[key as keyof EngineState], value))
+    const changed = Object.entries(plan.patch).some(
+      ([key, value]) => !Object.is(this.state[key as keyof EngineState], value),
+    )
     // History validates/serializes before state is committed. Its synchronous
     // callback must not independently adopt the same destination and publish.
     this.committingNavigation = true
@@ -1361,28 +1356,28 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // below publish separately and every snapshot-keyed slice derives 3×.
     try {
       this.batch(() => {
-      if (changed.has('sessions')) {
-        this.baseSessions = dedupeSessions(snapshot.sessions)
-        this.optimism.recomputeSessions()
-      }
-      if (changed.has('issues')) {
-        this.baseIssues = snapshot.issues
-        this.optimism.recomputeIssues()
-      }
-      if (changed.has('issueProjections')) {
-        this.baseIssueProjections = snapshot.issueProjections
-        this.optimism.recomputeIssueProjections()
-      }
-      const patch: Partial<EngineState> = {}
-      if (changed.has('issueEvents')) patch.issueEvents = snapshot.issueEvents
-      if (changed.has('pendingInteractions'))
-        patch.pendingInteractions = snapshot.pendingInteractions
-      if (changed.has('messageRecords')) patch.messageRecords = snapshot.messageRecords
-      if (changed.has('shipOrders')) patch.shipOrders = snapshot.shipOrders
-      if (changed.has('conversations')) patch.conversations = snapshot.conversations
-      if (changed.has('automations')) patch.automations = snapshot.automations
-      if (changed.has('automationRuns')) patch.automationRuns = snapshot.automationRuns
-      this.apply(patch)
+        if (changed.has('sessions')) {
+          this.baseSessions = dedupeSessions(snapshot.sessions)
+          this.optimism.recomputeSessions()
+        }
+        if (changed.has('issues')) {
+          this.baseIssues = snapshot.issues
+          this.optimism.recomputeIssues()
+        }
+        if (changed.has('issueProjections')) {
+          this.baseIssueProjections = snapshot.issueProjections
+          this.optimism.recomputeIssueProjections()
+        }
+        const patch: Partial<EngineState> = {}
+        if (changed.has('issueEvents')) patch.issueEvents = snapshot.issueEvents
+        if (changed.has('pendingInteractions'))
+          patch.pendingInteractions = snapshot.pendingInteractions
+        if (changed.has('messageRecords')) patch.messageRecords = snapshot.messageRecords
+        if (changed.has('shipOrders')) patch.shipOrders = snapshot.shipOrders
+        if (changed.has('conversations')) patch.conversations = snapshot.conversations
+        if (changed.has('automations')) patch.automations = snapshot.automations
+        if (changed.has('automationRuns')) patch.automationRuns = snapshot.automationRuns
+        this.apply(patch)
       })
     } finally {
       endPerfUpdate?.()

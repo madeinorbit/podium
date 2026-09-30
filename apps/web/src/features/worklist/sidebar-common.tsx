@@ -54,7 +54,6 @@ const SessionContextMenu = lazy(() =>
   })),
 )
 
-
 /** The terminal-outcome word for a session the kernel killed for memory, and
  *  the value the chip's failure styling keys on (POD-2413). */
 export const OOM_OUTCOME = 'out of memory'
@@ -236,6 +235,7 @@ export function ResizableColumn({
   // viewport caps, flex shrinkage, and pointer resizing. ResizeObserver is the
   // boundary that knows the browser's resolved width; reading the saved pixel
   // value again would recreate the clipping bug on narrow shells.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: width requests a synchronous measurement before the ResizeObserver notification.
   useLayoutEffect(() => {
     if (!isDrawer || !open) return
     const root = rootRef.current

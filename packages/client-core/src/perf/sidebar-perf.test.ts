@@ -1,11 +1,18 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  bindSidebarPerf, createSidebarPerf, recordSidebarDerivation, reportSidebarCheck,
-  reportSidebarPool, sidebarPerfFor,
+  bindSidebarPerf,
+  createSidebarPerf,
+  recordSidebarDerivation,
+  reportSidebarCheck,
+  reportSidebarPool,
+  sidebarPerfFor,
 } from './sidebar-perf'
 import { recordSliceDerivation, recordStoreRowRedraw, storeStats } from './store-stats'
 
-afterEach(() => { storeStats.enable(false); storeStats.reset() })
+afterEach(() => {
+  storeStats.enable(false)
+  storeStats.reset()
+})
 
 describe('passive sidebar report', () => {
   it('stays at zero through five minutes of reads; reports a timer redraw and expires it at 60 s', () => {
@@ -34,7 +41,11 @@ describe('passive sidebar report', () => {
     perf.endUpdate(update)
     expect(perf.read().idle.rows).toBe(0)
     at = 75_000
-    expect(perf.read().lastUpdate).toMatchObject({ changed: ['issues', 'sessions'], pending: false, work: { rows: 3, derivations: 2, mainThreadMs: 4 } })
+    expect(perf.read().lastUpdate).toMatchObject({
+      changed: ['issues', 'sessions'],
+      pending: false,
+      work: { rows: 3, derivations: 2, mainThreadMs: 4 },
+    })
     perf.record({ rows: 1 })
     expect(perf.read().idle.rows).toBe(1)
   })
@@ -64,7 +75,8 @@ describe('passive sidebar report', () => {
     const perf = createSidebarPerf(() => 100)
     const end = perf.beginCheck()
     perf.record({ rows: 1, derivations: 4, start: 1, end: 8 })
-    end(); end()
+    end()
+    end()
     perf.pool(true, 23)
     perf.check({ state: 'different', differences: 1, checkedAt: 100 })
     expect(perf.read().idle).toEqual({ rows: 0, derivations: 0, mainThreadMs: 0 })
@@ -72,7 +84,12 @@ describe('passive sidebar report', () => {
     perf.record({ rows: 2 })
     expect(perf.read().idle.rows).toBe(2)
     perf.reset()
-    expect(perf.read()).toMatchObject({ pool: { connected: false, rows: null }, check: { state: 'off', differences: 0 }, idle: { rows: 0 }, input: { count: 0 } })
+    expect(perf.read()).toMatchObject({
+      pool: { connected: false, rows: null },
+      check: { state: 'off', differences: 0 },
+      idle: { rows: 0 },
+      input: { count: 0 },
+    })
   })
 
   it('bounds retained work and refuses a complete zero after counter overflow', () => {
@@ -83,7 +100,8 @@ describe('passive sidebar report', () => {
   })
 
   it('scopes legacy row/derive pulses to the open panel and actual store owner', () => {
-    const owner = {}, other = {}
+    const owner = {},
+      other = {}
     const perf = createSidebarPerf(() => 100)
     const stop = bindSidebarPerf(owner, perf)
     try {
@@ -97,12 +115,15 @@ describe('passive sidebar report', () => {
       storeStats.enable(false)
       recordStoreRowRedraw(owner, 3, 6)
       expect(perf.read().idle.rows).toBe(1)
-    } finally { stop() }
+    } finally {
+      stop()
+    }
     expect(sidebarPerfFor(owner)).toBeNull()
   })
 
   it('accepts pool and S5 scalar reports without retaining or reading a pool', () => {
-    const owner = {}, other = {}
+    const owner = {},
+      other = {}
     reportSidebarPool(owner, 14)
     reportSidebarCheck(owner, { state: 'match', differences: 0, checkedAt: 10 })
     const perf = createSidebarPerf(() => 100)
@@ -110,9 +131,15 @@ describe('passive sidebar report', () => {
     try {
       recordSidebarDerivation(other, 1, 4)
       recordSidebarDerivation(owner, 1, 4)
-      expect(perf.read()).toMatchObject({ pool: { rows: 14, connected: true }, check: { state: 'match' }, idle: { derivations: 1, mainThreadMs: 3 } })
+      expect(perf.read()).toMatchObject({
+        pool: { rows: 14, connected: true },
+        check: { state: 'match' },
+        idle: { derivations: 1, mainThreadMs: 3 },
+      })
       reportSidebarPool(owner, 15)
       expect(perf.read().pool.rows).toBe(15)
-    } finally { stop() }
+    } finally {
+      stop()
+    }
   })
 })
