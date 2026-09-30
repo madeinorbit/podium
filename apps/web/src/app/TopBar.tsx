@@ -19,8 +19,8 @@ import { type NativeDesktopBridge, nativeDesktopBridge } from '@/lib/nativeDeskt
 import type { SidebarDataLayer } from '@/lib/sidebar-data-layer'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import { type MainView, useStoreSelector } from './store'
 import { HostedWorkspaceSwitcher } from './HostedWorkspaceSwitcher'
+import { type MainView, useStoreSelector } from './store'
 import { ToolbarSlotTarget, useToolbarSlotFilled } from './ToolbarSlot'
 
 const log = createLogger('web:desktop-window')

@@ -1,10 +1,12 @@
 /**
  * Settings → Experimental [spec:SP-f4b9]: listed feature flags with user
- * toggles. Listing/lock state comes from `features.state`; enablement edits
- * patch the settings blob and ride the page Save button.
+ * toggles. Most enablement edits patch the settings blob and ride Save.
+ * The sidebar pilot writes a principal-local debug preference for the next load;
+ * its catalog entry controls only whether this page lists it.
  */
-import type { PodiumSettings } from '@podium/runtime'
+
 import { MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
+import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
@@ -137,7 +139,7 @@ export function ExperimentalSection({
 }
 
 const readSidebarPreference = (raw: string | null): boolean => raw === '1'
-const writeSidebarPreference = (enabled: boolean): string => enabled ? '1' : '0'
+const writeSidebarPreference = (enabled: boolean): string => (enabled ? '1' : '0')
 
 /** This flag uses the local principal's debug key, not the shared settings blob.
  * Only the preference subscribes; the mounted app keeps its startup choice. */
@@ -152,7 +154,9 @@ function MobxSidebarSetting({ flag }: { flag: FeatureFlagWire }): JSX.Element {
       <div className="min-w-0">
         <span className="settings-label inline-flex flex-wrap items-center gap-1.5">
           {flag.name}
-          <Badge variant="outline" className="h-4 px-1.5 text-[11px]">Dev</Badge>
+          <Badge variant="outline" className="h-4 px-1.5 text-[11px]">
+            Dev
+          </Badge>
         </span>
         <p className="settings-prose mt-1">{flag.description}</p>
         <p className="settings-micro mt-1">Saved immediately for your next app load.</p>

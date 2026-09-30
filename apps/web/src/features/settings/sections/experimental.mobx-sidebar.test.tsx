@@ -34,13 +34,19 @@ vi.mock('@/lib/use-feature', () => ({
   useFeaturesState: () => ({
     devMode: true,
     channel: 'stable',
-    flags: [{
-      id: 'mobx-sidebar', name: 'Sidebar MobX pilot',
-      description: 'Request the sidebar data-layer pilot on this device. Reload to apply.',
-      visibility: 'hidden', listed: state.listed,
-      // Catalog enablement/config is deliberately NOT the switch's storage.
-      enabled: true, source: 'config', locked: true,
-    }],
+    flags: [
+      {
+        id: 'mobx-sidebar',
+        name: 'Sidebar MobX pilot',
+        description: 'Request the sidebar data-layer pilot on this device. Reload to apply.',
+        visibility: 'hidden',
+        listed: state.listed,
+        // Catalog enablement/config is deliberately NOT the switch's storage.
+        enabled: true,
+        source: 'config',
+        locked: true,
+      },
+    ],
   }),
 }))
 
@@ -90,10 +96,14 @@ describe('principal-local sidebar pilot preference', () => {
         onReset={vi.fn()}
       />,
     )
-    expect(screen.getByRole('switch', { name: 'Sidebar MobX pilot' }).getAttribute('aria-checked')).toBe('false')
+    expect(
+      screen.getByRole('switch', { name: 'Sidebar MobX pilot' }).getAttribute('aria-checked'),
+    ).toBe('false')
     state.values.set(MOBX_SIDEBAR_KEY, '1')
     rerender(<ExperimentalSection settings={DEFAULT_SETTINGS} patch={vi.fn()} onReset={vi.fn()} />)
-    expect(screen.getByRole('switch', { name: 'Sidebar MobX pilot' }).getAttribute('aria-checked')).toBe('true')
+    expect(
+      screen.getByRole('switch', { name: 'Sidebar MobX pilot' }).getAttribute('aria-checked'),
+    ).toBe('true')
   })
 
   it('does not expose the control when the hidden catalog entry is unlisted', () => {

@@ -62,6 +62,7 @@ import { CommandPaletteBoundary } from './CommandPaletteBoundary'
 import { DesktopMenuHost } from './DesktopMenuHost'
 import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
+import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 import {
   FLIGHT_DECK_COMPACT_WIDTH,
   FLIGHT_DECK_EXPANDED_WIDTH,
@@ -69,7 +70,6 @@ import {
   isComplexFlightDeckMission,
   readFlightDeckDisplay,
 } from './flight-deck-display'
-import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 import { LoadingScreen } from './LoadingScreen'
 import { OperatorFocusProvider } from './operator-focus'
 import { ReplicaFailureScreen } from './ReplicaFailureScreen'

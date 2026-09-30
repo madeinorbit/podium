@@ -2,7 +2,7 @@ import { MOBX_SIDEBAR_KEY, uiStateRoute } from '@podium/client-core/ui-state'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const stored = (value: string | null) => ({
-  get: vi.fn((key: string) => key === MOBX_SIDEBAR_KEY ? value : null),
+  get: vi.fn((key: string) => (key === MOBX_SIDEBAR_KEY ? value : null)),
 })
 
 beforeEach(() => {
@@ -24,7 +24,11 @@ describe('sidebar startup data layer', () => {
 
   it('only opts in through the persisted debug flag value', async () => {
     for (const [value, expected] of [
-      [null, 'legacy'], ['0', 'legacy'], ['true', 'legacy'], ['garbage', 'legacy'], ['1', 'pool'],
+      [null, 'legacy'],
+      ['0', 'legacy'],
+      ['true', 'legacy'],
+      ['garbage', 'legacy'],
+      ['1', 'pool'],
     ] as const) {
       vi.resetModules()
       const mode = await import('./sidebar-data-layer')
@@ -35,7 +39,10 @@ describe('sidebar startup data layer', () => {
 
   it('URL on and off override the opposite stored value without writing it', async () => {
     for (const [value, preference, expected] of [
-      ['1', '0', 'pool'], ['0', '1', 'legacy'], ['true', '0', 'pool'], ['false', '1', 'legacy'],
+      ['1', '0', 'pool'],
+      ['0', '1', 'legacy'],
+      ['true', '0', 'pool'],
+      ['false', '1', 'legacy'],
     ] as const) {
       vi.resetModules()
       history.replaceState(null, '', `/?mobxSidebar=${value}`)
@@ -49,7 +56,10 @@ describe('sidebar startup data layer', () => {
 
   it('falls back to the stored flag for an absent or invalid URL override', async () => {
     for (const query of ['', '?mobxSidebar=', '?mobxSidebar=garbage', '?other=1']) {
-      for (const [preference, expected] of [['0', 'legacy'], ['1', 'pool']] as const) {
+      for (const [preference, expected] of [
+        ['0', 'legacy'],
+        ['1', 'pool'],
+      ] as const) {
         vi.resetModules()
         history.replaceState(null, '', `/${query}`)
         const mode = await import('./sidebar-data-layer')
