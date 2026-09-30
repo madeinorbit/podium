@@ -583,7 +583,7 @@ describe('the gate and the signing step name the same JIT keys', () => {
     )
     expect(web.scripts['build:dist']).toBeUndefined()
     expect(mobile.scripts.build).toBe(
-      'expo export -p web && bun scripts/patch-web-html.ts && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist',
+      'EXPO_UNSTABLE_METRO_OPTIMIZE_GRAPH=1 EXPO_UNSTABLE_TREE_SHAKING=1 expo export -p web && bun scripts/patch-web-html.ts && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist',
     )
     expect(mobile.scripts['build:web']).toBeUndefined()
     expect(packageJson).not.toContain('package:clients')
