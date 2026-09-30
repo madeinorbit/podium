@@ -1,0 +1,1735 @@
+{
+  "label": "crash-before-kill",
+  "schema": [
+    {
+      "name": "account",
+      "sql": "CREATE TABLE `account` (\n          `id` text PRIMARY KEY,\n          `email` text NOT NULL,\n          `url` text NOT NULL,\n          `access_token` text NOT NULL,\n          `refresh_token` text NOT NULL,\n          `token_expiry` integer,\n          `time_created` integer NOT NULL,\n          `time_updated` integer NOT NULL\n        )"
+    },
+    {
+      "name": "account_state",
+      "sql": "CREATE TABLE `account_state` (\n          `id` integer PRIMARY KEY,\n          `active_account_id` text,\n          `active_org_id` text,\n          CONSTRAINT `fk_account_state_active_account_id_account_id_fk` FOREIGN KEY (`active_account_id`) REFERENCES `account`(`id`) ON DELETE SET NULL\n        )"
+    },
+    {
+      "name": "control_account",
+      "sql": "CREATE TABLE `control_account` (\n          `email` text NOT NULL,\n          `url` text NOT NULL,\n          `access_token` text NOT NULL,\n          `refresh_token` text NOT NULL,\n          `token_expiry` integer,\n          `active` integer NOT NULL,\n          `time_created` integer NOT NULL,\n          `time_updated` integer NOT NULL,\n          CONSTRAINT `control_account_pk` PRIMARY KEY(`email`, `url`)\n        )"
+    },
+    {
+      "name": "credential",
+      "sql": "CREATE TABLE `credential` (\n          `id` text PRIMARY KEY,\n          `integration_id` text,\n          `label` text NOT NULL,\n          `value` text NOT NULL,\n          `connector_id` text,\n          `method_id` text,\n          `active` integer,\n          `time_created` integer NOT NULL,\n          `time_updated` integer NOT NULL\n        )"
+    },
+    {
+      "name": "data_migration",
+      "sql": "CREATE TABLE `data_migration` (\n          `name` text PRIMARY KEY,\n          `time_completed` integer NOT NULL\n        )"
+    },
+    {
+      "name": "event",
+      "sql": "CREATE TABLE `event` (\n          `id` text PRIMARY KEY,\n          `aggregate_id` text NOT NULL,\n          `seq` integer NOT NULL,\n          `type` text NOT NULL,\n          `data` text NOT NULL,\n          CONSTRAINT `fk_event_aggregate_id_event_sequence_aggregate_id_fk` FOREIGN KEY (`aggregate_id`) REFERENCES `event_sequence`(`aggregate_id`) ON DELETE CASCADE\n        )"
+    },
+    {
+      "name": "event_sequence",
+      "sql": "CREATE TABLE `event_sequence` (\n          `aggregate_id` text PRIMARY KEY,\n          `seq` integer NOT NULL,\n          `owner_id` text\n        )"
+    },
+    {
+      "name": "message",
+      "sql": "CREATE TABLE `message` (\n          `id` text PRIMARY KEY,\n          `session_id` text NOT NULL,\n          `time_created` integer NOT NULL,\n          `time_updated` integer NOT NULL,\n          `data` text NOT NULL,\n          CONSTRAINT `fk_message_session_id_session_id_fk` FOREIGN KEY (`session_id`) REFERENCES `session`(`id`) ON DELETE CASCADE\n        )"
+    },
+    {
+      "name": "migration",
+      "sql": "CREATE TABLE \"migration\" (id TEXT PRIMARY KEY, time_completed INTEGER NOT NULL)"
+    },
+    {
+      "name": "part",
+      "sql": "CREATE TABLE `part` (\n          `id` text PRIMARY KEY,\n          `message_id` text NOT NULL,\n          `session_id` text NOT NULL,\n          `time_created` integer NOT NULL,\n          `time_updated` integer NOT NULL,\n          `data` text NOT NULL,\n          CONSTRAINT `fk_part_message_id_message_id_fk` FOREIGN KEY (`message_id`) REFERENCES `message`(`id`) ON DELETE CASCADE\n        )"
+    },
+    {
+      "name": "permission",
+      "sql": "CREATE TABLE `permission` (\n          `id` text PRIMARY KEY,\n          `project_id` text NOT NULL,\n          `action` text NOT NULL,\n          `resource` text NOT NULL,\n          `time_created` integer NOT NULL,\n          `time_updated` integer NOT NULL,\n          CONSTRAINT `fk_permission_project_id_project_id_fk` FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON DELETE CASCADE\n        )"
+    },
+    {
+      "name": "project",
+      "sql": "CREATE TABLE `project` (\n          `id` text PRIMARY KEY,\n          `worktree` text NOT NULL,\n          `vcs` text,\n          `name` text,\n          `icon_url` text,\n          `icon_url_override` text,\n          `icon_color` text,\n          `time_created` integer NOT NULL,\n          `time_updated` integer NOT NULL,\n          `time_initialized` integer,\n          `sandboxes` text NOT NULL,\n          `commands` text\n        )"
+    },
+    {
+      "name": "project_directory",
+      "sql": "CREATE TABLE `project_directory` (\n          `project_id` text NOT NULL,\n          `directory` text NOT NULL,\n          `type` text,\n          `strategy` text,\n          `time_created` integer NOT NULL,\n          CONSTRAINT `project_directory_pk` PRIMARY KEY(`project_id`, `directory`),\n          CONSTRAINT `fk_project_directory_project_id_project_id_fk` FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON DELETE CASCADE\n        )"
+    },
+    {
+      "name": "session",
+      "sql": "CREATE TABLE `session` (\n          `id` text PRIMARY KEY,\n          `project_id` text NOT NULL,\n          `workspace_id` text,\n          `parent_id` text,\n          `slug` text NOT NULL,\n          `directory` text NOT NULL,\n          `path` text,\n          `title` text NOT NULL,\n          `version` text NOT NULL,\n          `share_url` text,\n          `summary_additions` integer,\n          `summary_deletions` integer,\n          `summary_files` integer,\n          `summary_diffs` text,\n          `metadata` text,\n          `cost` real DEFAULT 0 NOT NULL,\n          `tokens_input` integer DEFAULT 0 NOT NULL,\n          `tokens_output` integer DEFAULT 0 NOT NULL,\n          `tokens_reasoning` integer DEFAULT 0 NOT NULL,\n          `tokens_cache_read` integer DEFAULT 0 NOT NULL,\n          `tokens_cache_write` integer DEFAULT 0 NOT NULL,\n          `revert` text,\n          `permission` text,\n          `agent` text,\n          `model` text,\n          `time_created` integer NOT NULL,\n          `time_updated` integer NOT NULL,\n          `time_compacting` integer,\n          `time_archived` integer,\n          CONSTRAINT `fk_session_project_id_project_id_fk` FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON DELETE CASCADE\n        )"
+    },
+    {
+      "name": "session_context_epoch",
+      "sql": "CREATE TABLE `session_context_epoch` (\n          `session_id` text PRIMARY KEY,\n          `baseline` text NOT NULL,\n          `snapshot` text NOT NULL,\n          `baseline_seq` integer NOT NULL,\n          CONSTRAINT `fk_session_context_epoch_session_id_session_id_fk` FOREIGN KEY (`session_id`) REFERENCES `session`(`id`) ON DELETE CASCADE\n        )"
+    },
+    {
+      "name": "session_input",
+      "sql": "CREATE TABLE `session_input` (\n          `id` text PRIMARY KEY,\n          `session_id` text NOT NULL,\n          `prompt` text NOT NULL,\n          `delivery` text NOT NULL,\n          `admitted_seq` integer NOT NULL,\n          `promoted_seq` integer,\n          `time_created` integer NOT NULL,\n          CONSTRAINT `fk_session_input_session_id_session_id_fk` FOREIGN KEY (`session_id`) REFERENCES `session`(`id`) ON DELETE CASCADE\n        )"
+    },
+    {
+      "name": "session_message",
+      "sql": "CREATE TABLE `session_message` (\n          `id` text PRIMARY KEY,\n          `session_id` text NOT NULL,\n          `type` text NOT NULL,\n          `seq` integer NOT NULL,\n          `time_created` integer NOT NULL,\n          `time_updated` integer NOT NULL,\n          `data` text NOT NULL,\n          CONSTRAINT `fk_session_message_session_id_session_id_fk` FOREIGN KEY (`session_id`) REFERENCES `session`(`id`) ON DELETE CASCADE\n        )"
+    },
+    {
+      "name": "session_share",
+      "sql": "CREATE TABLE `session_share` (\n          `session_id` text PRIMARY KEY,\n          `id` text NOT NULL,\n          `secret` text NOT NULL,\n          `url` text NOT NULL,\n          `time_created` integer NOT NULL,\n          `time_updated` integer NOT NULL,\n          CONSTRAINT `fk_session_share_session_id_session_id_fk` FOREIGN KEY (`session_id`) REFERENCES `session`(`id`) ON DELETE CASCADE\n        )"
+    },
+    {
+      "name": "todo",
+      "sql": "CREATE TABLE `todo` (\n          `session_id` text NOT NULL,\n          `content` text NOT NULL,\n          `status` text NOT NULL,\n          `priority` text NOT NULL,\n          `position` integer NOT NULL,\n          `time_created` integer NOT NULL,\n          `time_updated` integer NOT NULL,\n          CONSTRAINT `todo_pk` PRIMARY KEY(`session_id`, `position`),\n          CONSTRAINT `fk_todo_session_id_session_id_fk` FOREIGN KEY (`session_id`) REFERENCES `session`(`id`) ON DELETE CASCADE\n        )"
+    },
+    {
+      "name": "workspace",
+      "sql": "CREATE TABLE `workspace` (\n          `id` text PRIMARY KEY,\n          `type` text NOT NULL,\n          `name` text DEFAULT '' NOT NULL,\n          `branch` text,\n          `directory` text,\n          `extra` text,\n          `project_id` text NOT NULL,\n          `time_used` integer NOT NULL,\n          CONSTRAINT `fk_workspace_project_id_project_id_fk` FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON DELETE CASCADE\n        )"
+    }
+  ],
+  "tables": {
+    "account": [],
+    "account_state": [],
+    "control_account": [],
+    "credential": [],
+    "data_migration": [],
+    "event": [
+      {
+        "id": "evt_0f078d13e001EaubzvYVVuOAe5",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 0,
+        "type": "session.created.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "slug": "nimble-star",
+            "projectID": "global",
+            "directory": "$SCRATCH/work",
+            "path": "tmp/pod-4906-command-events-gEN3co/work",
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "title": "Command provenance restart probe",
+            "version": "1.18.33",
+            "time": {
+              "created": 1790740844861,
+              "updated": 1790740844861
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078d890001UWs6eWHoocoyKS",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 1,
+        "type": "session.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "slug": "nimble-star",
+            "projectID": "global",
+            "directory": "$SCRATCH/work",
+            "path": "tmp/pod-4906-command-events-gEN3co/work",
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "title": "Command provenance restart probe",
+            "agent": "build",
+            "model": {
+              "id": "fake",
+              "providerID": "fake",
+              "variant": "default"
+            },
+            "version": "1.18.33",
+            "time": {
+              "created": 1790740844861,
+              "updated": 1790740846733
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078d89c001TsLj4Yl2VJXEyx",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 2,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078d88d001EVv36YWLtXutf1",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "user",
+            "time": {
+              "created": 1790740846733
+            },
+            "agent": "build",
+            "model": {
+              "providerID": "fake",
+              "modelID": "fake"
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078d8a000150GQbC3dzCFgd1",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 3,
+        "type": "message.part.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "part": {
+            "id": "prt_0f078d89a001YDyLnltvEhKFN8",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "messageID": "msg_0f078d88d001EVv36YWLtXutf1",
+            "type": "text",
+            "text": "S9 CMD TEMPLATE expanded with: completed"
+          },
+          "time": 1790740846752
+        }
+      },
+      {
+        "id": "evt_0f078d8a6001GPVuhG55sutO21",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 4,
+        "type": "session.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "slug": "nimble-star",
+            "projectID": "global",
+            "directory": "$SCRATCH/work",
+            "path": "tmp/pod-4906-command-events-gEN3co/work",
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "title": "Command provenance restart probe",
+            "agent": "build",
+            "model": {
+              "id": "fake",
+              "providerID": "fake",
+              "variant": "default"
+            },
+            "version": "1.18.33",
+            "time": {
+              "created": 1790740844861,
+              "updated": 1790740846757
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078d8b80017extoEjpOFAavg",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 5,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078d8b8001odwmPB2bblAIyJ",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "assistant",
+            "time": {
+              "created": 1790740846776
+            },
+            "parentID": "msg_0f078d88d001EVv36YWLtXutf1",
+            "modelID": "fake",
+            "providerID": "fake",
+            "mode": "build",
+            "agent": "build",
+            "path": {
+              "cwd": "$SCRATCH/work",
+              "root": "/"
+            },
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078d917001R8xtN4yGzHIoME",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 6,
+        "type": "session.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "slug": "nimble-star",
+            "projectID": "global",
+            "directory": "$SCRATCH/work",
+            "path": "tmp/pod-4906-command-events-gEN3co/work",
+            "summary": {
+              "additions": 0,
+              "deletions": 0,
+              "files": 0
+            },
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "title": "Command provenance restart probe",
+            "agent": "build",
+            "model": {
+              "id": "fake",
+              "providerID": "fake",
+              "variant": "default"
+            },
+            "version": "1.18.33",
+            "time": {
+              "created": 1790740844861,
+              "updated": 1790740846869
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078d929001PXKIAaZ6Zm2jF0",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 7,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078d88d001EVv36YWLtXutf1",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "user",
+            "time": {
+              "created": 1790740846733
+            },
+            "summary": {
+              "diffs": []
+            },
+            "agent": "build",
+            "model": {
+              "providerID": "fake",
+              "modelID": "fake"
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078dc9c001HALQZCe6jpFfIJ",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 8,
+        "type": "message.part.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "part": {
+            "id": "prt_0f078dc9b001MjCzzAuVXT4Rp4",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "messageID": "msg_0f078d8b8001odwmPB2bblAIyJ",
+            "type": "step-start"
+          },
+          "time": 1790740847772
+        }
+      },
+      {
+        "id": "evt_0f078dca4001fCQ7SgMVIxPTFH",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 9,
+        "type": "message.part.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "part": {
+            "id": "prt_0f078dca3001lh4IDH1Y4eMsF5",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "messageID": "msg_0f078d8b8001odwmPB2bblAIyJ",
+            "type": "text",
+            "text": "",
+            "time": {
+              "start": 1790740847779
+            }
+          },
+          "time": 1790740847780
+        }
+      },
+      {
+        "id": "evt_0f078dcc0001BhSTW6AMDN85Z9",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 10,
+        "type": "message.part.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "part": {
+            "id": "prt_0f078dca3001lh4IDH1Y4eMsF5",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "messageID": "msg_0f078d8b8001odwmPB2bblAIyJ",
+            "type": "text",
+            "text": "fake1.0 fake1.1 fake1.2 ",
+            "time": {
+              "start": 1790740847779,
+              "end": 1790740847808
+            }
+          },
+          "time": 1790740847808
+        }
+      },
+      {
+        "id": "evt_0f078dcc9001DL0aoKVGlckO6p",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 11,
+        "type": "message.part.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "part": {
+            "id": "prt_0f078dcc9001yOZhKMFRvxcc14",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "messageID": "msg_0f078d8b8001odwmPB2bblAIyJ",
+            "type": "step-finish",
+            "reason": "stop",
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            }
+          },
+          "time": 1790740847817
+        }
+      },
+      {
+        "id": "evt_0f078dccd0013kwFW1DHopuxUJ",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 12,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078d8b8001odwmPB2bblAIyJ",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "assistant",
+            "time": {
+              "created": 1790740846776
+            },
+            "parentID": "msg_0f078d88d001EVv36YWLtXutf1",
+            "modelID": "fake",
+            "providerID": "fake",
+            "mode": "build",
+            "agent": "build",
+            "path": {
+              "cwd": "$SCRATCH/work",
+              "root": "/"
+            },
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "finish": "stop"
+          }
+        }
+      },
+      {
+        "id": "evt_0f078dcd4001hunT32IJHbJu87",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 13,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078d8b8001odwmPB2bblAIyJ",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "assistant",
+            "time": {
+              "created": 1790740846776,
+              "completed": 1790740847828
+            },
+            "parentID": "msg_0f078d88d001EVv36YWLtXutf1",
+            "modelID": "fake",
+            "providerID": "fake",
+            "mode": "build",
+            "agent": "build",
+            "path": {
+              "cwd": "$SCRATCH/work",
+              "root": "/"
+            },
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "finish": "stop"
+          }
+        }
+      },
+      {
+        "id": "evt_0f078dce40010ZARmD3t4Fon26",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 14,
+        "type": "session.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "slug": "nimble-star",
+            "projectID": "global",
+            "directory": "$SCRATCH/work",
+            "path": "tmp/pod-4906-command-events-gEN3co/work",
+            "summary": {
+              "additions": 0,
+              "deletions": 0,
+              "files": 0
+            },
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "title": "Command provenance restart probe",
+            "agent": "build",
+            "model": {
+              "id": "fake",
+              "providerID": "fake",
+              "variant": "default"
+            },
+            "version": "1.18.33",
+            "time": {
+              "created": 1790740844861,
+              "updated": 1790740847842
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078dcea001aldWf7mqOWRAd3",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 15,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078d88d001EVv36YWLtXutf1",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "user",
+            "time": {
+              "created": 1790740846733
+            },
+            "summary": {
+              "diffs": []
+            },
+            "agent": "build",
+            "model": {
+              "providerID": "fake",
+              "modelID": "fake"
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078e552001vyGuewyb65V9Ru",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 16,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078e550001w9riF43Zy5C669",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "user",
+            "time": {
+              "created": 1790740850000
+            },
+            "agent": "build",
+            "model": {
+              "providerID": "fake",
+              "modelID": "fake"
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078e556001cCoNo3MLxjlVHc",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 17,
+        "type": "message.part.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "part": {
+            "id": "prt_0f078e551001ycsbHZHovjnPYx",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "messageID": "msg_0f078e550001w9riF43Zy5C669",
+            "type": "text",
+            "text": "S9 CMD TEMPLATE expanded with: missed"
+          },
+          "time": 1790740850006
+        }
+      },
+      {
+        "id": "evt_0f078e55b00192zSOV0KNgVLv0",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 18,
+        "type": "session.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "slug": "nimble-star",
+            "projectID": "global",
+            "directory": "$SCRATCH/work",
+            "path": "tmp/pod-4906-command-events-gEN3co/work",
+            "summary": {
+              "additions": 0,
+              "deletions": 0,
+              "files": 0
+            },
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "title": "Command provenance restart probe",
+            "agent": "build",
+            "model": {
+              "id": "fake",
+              "providerID": "fake",
+              "variant": "default"
+            },
+            "version": "1.18.33",
+            "time": {
+              "created": 1790740844861,
+              "updated": 1790740850010
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078e566001n0U1Vn0o9iCGmO",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 19,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078e566001iQkjqwDWPLO6US",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "assistant",
+            "time": {
+              "created": 1790740850022
+            },
+            "parentID": "msg_0f078e550001w9riF43Zy5C669",
+            "modelID": "fake",
+            "providerID": "fake",
+            "mode": "build",
+            "agent": "build",
+            "path": {
+              "cwd": "$SCRATCH/work",
+              "root": "/"
+            },
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078e58c001AJHo4WeSUe3XCP",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 20,
+        "type": "session.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "slug": "nimble-star",
+            "projectID": "global",
+            "directory": "$SCRATCH/work",
+            "path": "tmp/pod-4906-command-events-gEN3co/work",
+            "summary": {
+              "additions": 0,
+              "deletions": 0,
+              "files": 0
+            },
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "title": "Command provenance restart probe",
+            "agent": "build",
+            "model": {
+              "id": "fake",
+              "providerID": "fake",
+              "variant": "default"
+            },
+            "version": "1.18.33",
+            "time": {
+              "created": 1790740844861,
+              "updated": 1790740850058
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078e592001TE12VwS8f39Y2j",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 21,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078e550001w9riF43Zy5C669",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "user",
+            "time": {
+              "created": 1790740850000
+            },
+            "summary": {
+              "diffs": []
+            },
+            "agent": "build",
+            "model": {
+              "providerID": "fake",
+              "modelID": "fake"
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078e5d6001XQHS0UUn9eSqv0",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 22,
+        "type": "message.part.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "part": {
+            "id": "prt_0f078e5d6001ZdoDVrSQ1a5kko",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "messageID": "msg_0f078e566001iQkjqwDWPLO6US",
+            "type": "step-start"
+          },
+          "time": 1790740850134
+        }
+      },
+      {
+        "id": "evt_0f078e5de001bo7YOTEAg4UKQd",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 23,
+        "type": "message.part.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "part": {
+            "id": "prt_0f078e5de001Ai2Q970bz6GEfD",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "messageID": "msg_0f078e566001iQkjqwDWPLO6US",
+            "type": "text",
+            "text": "",
+            "time": {
+              "start": 1790740850142
+            }
+          },
+          "time": 1790740850142
+        }
+      },
+      {
+        "id": "evt_0f078e61e001juKvLhFwAyqbss",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 24,
+        "type": "message.part.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "part": {
+            "id": "prt_0f078e5de001Ai2Q970bz6GEfD",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "messageID": "msg_0f078e566001iQkjqwDWPLO6US",
+            "type": "text",
+            "text": "fake2.0 fake2.1 fake2.2 ",
+            "time": {
+              "start": 1790740850142,
+              "end": 1790740850205
+            }
+          },
+          "time": 1790740850206
+        }
+      },
+      {
+        "id": "evt_0f078e625001BXdMXkNnnrVMZG",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 25,
+        "type": "message.part.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "part": {
+            "id": "prt_0f078e625001egfU7LRoQSOXcK",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "messageID": "msg_0f078e566001iQkjqwDWPLO6US",
+            "type": "step-finish",
+            "reason": "stop",
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            }
+          },
+          "time": 1790740850213
+        }
+      },
+      {
+        "id": "evt_0f078e62b001iPL3NjFU28qoQ4",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 26,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078e566001iQkjqwDWPLO6US",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "assistant",
+            "time": {
+              "created": 1790740850022
+            },
+            "parentID": "msg_0f078e550001w9riF43Zy5C669",
+            "modelID": "fake",
+            "providerID": "fake",
+            "mode": "build",
+            "agent": "build",
+            "path": {
+              "cwd": "$SCRATCH/work",
+              "root": "/"
+            },
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "finish": "stop"
+          }
+        }
+      },
+      {
+        "id": "evt_0f078e631001U6obT4f93O5AGF",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 27,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078e566001iQkjqwDWPLO6US",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "assistant",
+            "time": {
+              "created": 1790740850022,
+              "completed": 1790740850225
+            },
+            "parentID": "msg_0f078e550001w9riF43Zy5C669",
+            "modelID": "fake",
+            "providerID": "fake",
+            "mode": "build",
+            "agent": "build",
+            "path": {
+              "cwd": "$SCRATCH/work",
+              "root": "/"
+            },
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "finish": "stop"
+          }
+        }
+      },
+      {
+        "id": "evt_0f078e63e001XdwxkUaqgkvwAZ",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 28,
+        "type": "session.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "slug": "nimble-star",
+            "projectID": "global",
+            "directory": "$SCRATCH/work",
+            "path": "tmp/pod-4906-command-events-gEN3co/work",
+            "summary": {
+              "additions": 0,
+              "deletions": 0,
+              "files": 0
+            },
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "title": "Command provenance restart probe",
+            "agent": "build",
+            "model": {
+              "id": "fake",
+              "providerID": "fake",
+              "variant": "default"
+            },
+            "version": "1.18.33",
+            "time": {
+              "created": 1790740844861,
+              "updated": 1790740850237
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078e645001UnHuTa32uoN30U",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 29,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078e550001w9riF43Zy5C669",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "user",
+            "time": {
+              "created": 1790740850000
+            },
+            "summary": {
+              "diffs": []
+            },
+            "agent": "build",
+            "model": {
+              "providerID": "fake",
+              "modelID": "fake"
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078ee2d001LzK0FGIu1aDALo",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 30,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078ee2b001wZPKV8Nr7NRx5D",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "user",
+            "time": {
+              "created": 1790740852267
+            },
+            "agent": "build",
+            "model": {
+              "providerID": "fake",
+              "modelID": "fake"
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078ee31001Fnwp2sPu9FJwJV",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 31,
+        "type": "message.part.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "part": {
+            "id": "prt_0f078ee2c001eMvqBz7SPpXZ6S",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "messageID": "msg_0f078ee2b001wZPKV8Nr7NRx5D",
+            "type": "text",
+            "text": "S9 CMD TEMPLATE expanded with: SLOWTEXT crash-before-event"
+          },
+          "time": 1790740852273
+        }
+      },
+      {
+        "id": "evt_0f078ee36001PoQMriHJhJEaMj",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 32,
+        "type": "session.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "slug": "nimble-star",
+            "projectID": "global",
+            "directory": "$SCRATCH/work",
+            "path": "tmp/pod-4906-command-events-gEN3co/work",
+            "summary": {
+              "additions": 0,
+              "deletions": 0,
+              "files": 0
+            },
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "title": "Command provenance restart probe",
+            "agent": "build",
+            "model": {
+              "id": "fake",
+              "providerID": "fake",
+              "variant": "default"
+            },
+            "version": "1.18.33",
+            "time": {
+              "created": 1790740844861,
+              "updated": 1790740852277
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078ee3f001rsd222IIDBq4Gj",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 33,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078ee3f0014og5wLSzkDWCpl",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "assistant",
+            "time": {
+              "created": 1790740852287
+            },
+            "parentID": "msg_0f078ee2b001wZPKV8Nr7NRx5D",
+            "modelID": "fake",
+            "providerID": "fake",
+            "mode": "build",
+            "agent": "build",
+            "path": {
+              "cwd": "$SCRATCH/work",
+              "root": "/"
+            },
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078ee4a001B1VNwabSI9PIDJ",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 34,
+        "type": "session.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "slug": "nimble-star",
+            "projectID": "global",
+            "directory": "$SCRATCH/work",
+            "path": "tmp/pod-4906-command-events-gEN3co/work",
+            "summary": {
+              "additions": 0,
+              "deletions": 0,
+              "files": 0
+            },
+            "cost": 0,
+            "tokens": {
+              "input": 0,
+              "output": 0,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            },
+            "title": "Command provenance restart probe",
+            "agent": "build",
+            "model": {
+              "id": "fake",
+              "providerID": "fake",
+              "variant": "default"
+            },
+            "version": "1.18.33",
+            "time": {
+              "created": 1790740844861,
+              "updated": 1790740852297
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078ee55001mehspnIZ82Fb2N",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 35,
+        "type": "message.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "info": {
+            "id": "msg_0f078ee2b001wZPKV8Nr7NRx5D",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "role": "user",
+            "time": {
+              "created": 1790740852267
+            },
+            "summary": {
+              "diffs": []
+            },
+            "agent": "build",
+            "model": {
+              "providerID": "fake",
+              "modelID": "fake"
+            }
+          }
+        }
+      },
+      {
+        "id": "evt_0f078eea1001EKlDKcZ4TDkX82",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 36,
+        "type": "message.part.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "part": {
+            "id": "prt_0f078eea1001zEoU3lzo7GaE9n",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "messageID": "msg_0f078ee3f0014og5wLSzkDWCpl",
+            "type": "step-start"
+          },
+          "time": 1790740852385
+        }
+      },
+      {
+        "id": "evt_0f078ef940012pWdGfsSt7xUbi",
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 37,
+        "type": "message.part.updated.1",
+        "data": {
+          "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+          "part": {
+            "id": "prt_0f078ef9400113JzDiYt8CmSZO",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "messageID": "msg_0f078ee3f0014og5wLSzkDWCpl",
+            "type": "text",
+            "text": "",
+            "time": {
+              "start": 1790740852628
+            }
+          },
+          "time": 1790740852628
+        }
+      }
+    ],
+    "event_sequence": [
+      {
+        "aggregate_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "seq": 37,
+        "owner_id": null
+      }
+    ],
+    "message": [
+      {
+        "id": "msg_0f078d88d001EVv36YWLtXutf1",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740846733,
+        "time_updated": 1790740847851,
+        "data": {
+          "role": "user",
+          "time": {
+            "created": 1790740846733
+          },
+          "agent": "build",
+          "model": {
+            "providerID": "fake",
+            "modelID": "fake"
+          },
+          "summary": {
+            "diffs": []
+          }
+        }
+      },
+      {
+        "id": "msg_0f078d8b8001odwmPB2bblAIyJ",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740846776,
+        "time_updated": 1790740847829,
+        "data": {
+          "parentID": "msg_0f078d88d001EVv36YWLtXutf1",
+          "role": "assistant",
+          "mode": "build",
+          "agent": "build",
+          "path": {
+            "cwd": "$SCRATCH/work",
+            "root": "/"
+          },
+          "cost": 0,
+          "tokens": {
+            "input": 0,
+            "output": 0,
+            "reasoning": 0,
+            "cache": {
+              "write": 0,
+              "read": 0
+            }
+          },
+          "modelID": "fake",
+          "providerID": "fake",
+          "time": {
+            "created": 1790740846776,
+            "completed": 1790740847828
+          },
+          "finish": "stop"
+        }
+      },
+      {
+        "id": "msg_0f078e550001w9riF43Zy5C669",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740850000,
+        "time_updated": 1790740850247,
+        "data": {
+          "role": "user",
+          "time": {
+            "created": 1790740850000
+          },
+          "agent": "build",
+          "model": {
+            "providerID": "fake",
+            "modelID": "fake"
+          },
+          "summary": {
+            "diffs": []
+          }
+        }
+      },
+      {
+        "id": "msg_0f078e566001iQkjqwDWPLO6US",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740850022,
+        "time_updated": 1790740850227,
+        "data": {
+          "parentID": "msg_0f078e550001w9riF43Zy5C669",
+          "role": "assistant",
+          "mode": "build",
+          "agent": "build",
+          "path": {
+            "cwd": "$SCRATCH/work",
+            "root": "/"
+          },
+          "cost": 0,
+          "tokens": {
+            "input": 0,
+            "output": 0,
+            "reasoning": 0,
+            "cache": {
+              "write": 0,
+              "read": 0
+            }
+          },
+          "modelID": "fake",
+          "providerID": "fake",
+          "time": {
+            "created": 1790740850022,
+            "completed": 1790740850225
+          },
+          "finish": "stop"
+        }
+      },
+      {
+        "id": "msg_0f078ee2b001wZPKV8Nr7NRx5D",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740852267,
+        "time_updated": 1790740852311,
+        "data": {
+          "role": "user",
+          "time": {
+            "created": 1790740852267
+          },
+          "agent": "build",
+          "model": {
+            "providerID": "fake",
+            "modelID": "fake"
+          },
+          "summary": {
+            "diffs": []
+          }
+        }
+      },
+      {
+        "id": "msg_0f078ee3f0014og5wLSzkDWCpl",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740852287,
+        "time_updated": 1790740852288,
+        "data": {
+          "parentID": "msg_0f078ee2b001wZPKV8Nr7NRx5D",
+          "role": "assistant",
+          "mode": "build",
+          "agent": "build",
+          "path": {
+            "cwd": "$SCRATCH/work",
+            "root": "/"
+          },
+          "cost": 0,
+          "tokens": {
+            "input": 0,
+            "output": 0,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          },
+          "modelID": "fake",
+          "providerID": "fake",
+          "time": {
+            "created": 1790740852287
+          }
+        }
+      }
+    ],
+    "migration": [
+      {
+        "id": "20260127222353_familiar_lady_ursula",
+        "time_completed": 1790740818538
+      },
+      {
+        "id": "20260211171708_add_project_commands",
+        "time_completed": 1790740818539
+      },
+      {
+        "id": "20260213144116_wakeful_the_professor",
+        "time_completed": 1790740818539
+      },
+      {
+        "id": "20260225215848_workspace",
+        "time_completed": 1790740818539
+      },
+      {
+        "id": "20260227213759_add_session_workspace_id",
+        "time_completed": 1790740818539
+      },
+      {
+        "id": "20260228203230_blue_harpoon",
+        "time_completed": 1790740818539
+      },
+      {
+        "id": "20260303231226_add_workspace_fields",
+        "time_completed": 1790740818539
+      },
+      {
+        "id": "20260309230000_move_org_to_state",
+        "time_completed": 1790740818539
+      },
+      {
+        "id": "20260312043431_session_message_cursor",
+        "time_completed": 1790740818539
+      },
+      {
+        "id": "20260323234822_events",
+        "time_completed": 1790740818539
+      },
+      {
+        "id": "20260410174513_workspace-name",
+        "time_completed": 1790740818540
+      },
+      {
+        "id": "20260413175956_chief_energizer",
+        "time_completed": 1790740818540
+      },
+      {
+        "id": "20260423070820_add_icon_url_override",
+        "time_completed": 1790740818540
+      },
+      {
+        "id": "20260427172553_slow_nightmare",
+        "time_completed": 1790740818540
+      },
+      {
+        "id": "20260428004200_add_session_path",
+        "time_completed": 1790740818540
+      },
+      {
+        "id": "20260501142318_next_venus",
+        "time_completed": 1790740818540
+      },
+      {
+        "id": "20260504145000_add_sync_owner",
+        "time_completed": 1790740818540
+      },
+      {
+        "id": "20260507164347_add_workspace_time",
+        "time_completed": 1790740818541
+      },
+      {
+        "id": "20260510033149_session_usage",
+        "time_completed": 1790740818541
+      },
+      {
+        "id": "20260511000411_data_migration_state",
+        "time_completed": 1790740818542
+      },
+      {
+        "id": "20260511173437_session-metadata",
+        "time_completed": 1790740818542
+      },
+      {
+        "id": "20260601010001_normalize_storage_paths",
+        "time_completed": 1790740818542
+      },
+      {
+        "id": "20260601202201_amazing_prowler",
+        "time_completed": 1790740818542
+      },
+      {
+        "id": "20260602002951_lowly_union_jack",
+        "time_completed": 1790740818542
+      },
+      {
+        "id": "20260602182828_add_project_directories",
+        "time_completed": 1790740818544
+      },
+      {
+        "id": "20260603001617_session_message_projection_indexes",
+        "time_completed": 1790740818548
+      },
+      {
+        "id": "20260603040000_session_message_projection_order",
+        "time_completed": 1790740818548
+      },
+      {
+        "id": "20260603141458_session_input_inbox",
+        "time_completed": 1790740818548
+      },
+      {
+        "id": "20260603160727_jittery_ezekiel_stane",
+        "time_completed": 1790740818548
+      },
+      {
+        "id": "20260604172448_event_sourced_session_input",
+        "time_completed": 1790740818549
+      },
+      {
+        "id": "20260605003541_add_session_context_snapshot",
+        "time_completed": 1790740818549
+      },
+      {
+        "id": "20260605042240_add_context_epoch_agent",
+        "time_completed": 1790740818549
+      },
+      {
+        "id": "20260611035744_credential",
+        "time_completed": 1790740818549
+      },
+      {
+        "id": "20260611192811_lush_chimera",
+        "time_completed": 1790740818549
+      },
+      {
+        "id": "20260612174303_project_dir_strategy",
+        "time_completed": 1790740818549
+      },
+      {
+        "id": "20260622142730_simplify_session_context_epoch",
+        "time_completed": 1790740818549
+      },
+      {
+        "id": "20260622170816_reset_v2_session_state",
+        "time_completed": 1790740818549
+      },
+      {
+        "id": "20260622202450_simplify_session_input",
+        "time_completed": 1790740818549
+      }
+    ],
+    "part": [
+      {
+        "id": "prt_0f078d89a001YDyLnltvEhKFN8",
+        "message_id": "msg_0f078d88d001EVv36YWLtXutf1",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740846752,
+        "time_updated": 1790740846754,
+        "data": {
+          "type": "text",
+          "text": "S9 CMD TEMPLATE expanded with: completed"
+        }
+      },
+      {
+        "id": "prt_0f078dc9b001MjCzzAuVXT4Rp4",
+        "message_id": "msg_0f078d8b8001odwmPB2bblAIyJ",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740847772,
+        "time_updated": 1790740847774,
+        "data": {
+          "type": "step-start"
+        }
+      },
+      {
+        "id": "prt_0f078dca3001lh4IDH1Y4eMsF5",
+        "message_id": "msg_0f078d8b8001odwmPB2bblAIyJ",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740847780,
+        "time_updated": 1790740847809,
+        "data": {
+          "type": "text",
+          "text": "fake1.0 fake1.1 fake1.2 ",
+          "time": {
+            "start": 1790740847779,
+            "end": 1790740847808
+          }
+        }
+      },
+      {
+        "id": "prt_0f078dcc9001yOZhKMFRvxcc14",
+        "message_id": "msg_0f078d8b8001odwmPB2bblAIyJ",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740847817,
+        "time_updated": 1790740847819,
+        "data": {
+          "reason": "stop",
+          "type": "step-finish",
+          "tokens": {
+            "input": 0,
+            "output": 0,
+            "reasoning": 0,
+            "cache": {
+              "write": 0,
+              "read": 0
+            }
+          },
+          "cost": 0
+        }
+      },
+      {
+        "id": "prt_0f078e551001ycsbHZHovjnPYx",
+        "message_id": "msg_0f078e550001w9riF43Zy5C669",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740850006,
+        "time_updated": 1790740850007,
+        "data": {
+          "type": "text",
+          "text": "S9 CMD TEMPLATE expanded with: missed"
+        }
+      },
+      {
+        "id": "prt_0f078e5d6001ZdoDVrSQ1a5kko",
+        "message_id": "msg_0f078e566001iQkjqwDWPLO6US",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740850134,
+        "time_updated": 1790740850136,
+        "data": {
+          "type": "step-start"
+        }
+      },
+      {
+        "id": "prt_0f078e5de001Ai2Q970bz6GEfD",
+        "message_id": "msg_0f078e566001iQkjqwDWPLO6US",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740850142,
+        "time_updated": 1790740850208,
+        "data": {
+          "type": "text",
+          "text": "fake2.0 fake2.1 fake2.2 ",
+          "time": {
+            "start": 1790740850142,
+            "end": 1790740850205
+          }
+        }
+      },
+      {
+        "id": "prt_0f078e625001egfU7LRoQSOXcK",
+        "message_id": "msg_0f078e566001iQkjqwDWPLO6US",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740850213,
+        "time_updated": 1790740850214,
+        "data": {
+          "reason": "stop",
+          "type": "step-finish",
+          "tokens": {
+            "input": 0,
+            "output": 0,
+            "reasoning": 0,
+            "cache": {
+              "write": 0,
+              "read": 0
+            }
+          },
+          "cost": 0
+        }
+      },
+      {
+        "id": "prt_0f078ee2c001eMvqBz7SPpXZ6S",
+        "message_id": "msg_0f078ee2b001wZPKV8Nr7NRx5D",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740852273,
+        "time_updated": 1790740852275,
+        "data": {
+          "type": "text",
+          "text": "S9 CMD TEMPLATE expanded with: SLOWTEXT crash-before-event"
+        }
+      },
+      {
+        "id": "prt_0f078eea1001zEoU3lzo7GaE9n",
+        "message_id": "msg_0f078ee3f0014og5wLSzkDWCpl",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740852385,
+        "time_updated": 1790740852387,
+        "data": {
+          "type": "step-start"
+        }
+      },
+      {
+        "id": "prt_0f078ef9400113JzDiYt8CmSZO",
+        "message_id": "msg_0f078ee3f0014og5wLSzkDWCpl",
+        "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "time_created": 1790740852628,
+        "time_updated": 1790740852633,
+        "data": {
+          "type": "text",
+          "text": "",
+          "time": {
+            "start": 1790740852628
+          }
+        }
+      }
+    ],
+    "permission": [],
+    "project": [
+      {
+        "id": "global",
+        "worktree": "/",
+        "vcs": null,
+        "name": null,
+        "icon_url": null,
+        "icon_url_override": null,
+        "icon_color": null,
+        "time_created": 1790740822663,
+        "time_updated": 1790740822663,
+        "time_initialized": null,
+        "sandboxes": "[]",
+        "commands": null
+      }
+    ],
+    "project_directory": [],
+    "session": [
+      {
+        "id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "project_id": "global",
+        "workspace_id": null,
+        "parent_id": null,
+        "slug": "nimble-star",
+        "directory": "$SCRATCH/work",
+        "path": "tmp/pod-4906-command-events-gEN3co/work",
+        "title": "Command provenance restart probe",
+        "version": "1.18.33",
+        "share_url": null,
+        "summary_additions": 0,
+        "summary_deletions": 0,
+        "summary_files": 0,
+        "summary_diffs": null,
+        "metadata": null,
+        "cost": 0,
+        "tokens_input": 0,
+        "tokens_output": 0,
+        "tokens_reasoning": 0,
+        "tokens_cache_read": 0,
+        "tokens_cache_write": 0,
+        "revert": null,
+        "permission": null,
+        "agent": "build",
+        "model": "{\"id\":\"fake\",\"providerID\":\"fake\",\"variant\":\"default\"}",
+        "time_created": 1790740844861,
+        "time_updated": 1790740852297,
+        "time_compacting": null,
+        "time_archived": null
+      }
+    ],
+    "session_context_epoch": [],
+    "session_input": [],
+    "session_message": [],
+    "session_share": [],
+    "todo": [],
+    "workspace": []
+  }
+}

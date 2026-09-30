@@ -273,6 +273,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/docs/measurements/pod-4906-opencode-command-events/**",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**",
         "$TURBO_ROOT$/packages/runtime/src/**"

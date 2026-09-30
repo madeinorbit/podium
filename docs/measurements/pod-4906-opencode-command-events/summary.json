@@ -1,0 +1,197 @@
+{
+  "version": "1.18.33",
+  "sid": "ses_f0f872ec2ffesz8vLb31PD48d8",
+  "completed": {
+    "event": {
+      "id": "evt_0f078dcde001rbqEb8QG5xUyr2",
+      "type": "command.executed",
+      "properties": {
+        "name": "probe",
+        "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "arguments": "completed",
+        "messageID": "msg_0f078d8b8001odwmPB2bblAIyJ"
+      }
+    },
+    "assistant": {
+      "id": "msg_0f078d8b8001odwmPB2bblAIyJ",
+      "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+      "time_created": 1790740846776,
+      "time_updated": 1790740847829,
+      "data": {
+        "parentID": "msg_0f078d88d001EVv36YWLtXutf1",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "$SCRATCH/work",
+          "root": "/"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "modelID": "fake",
+        "providerID": "fake",
+        "time": {
+          "created": 1790740846776,
+          "completed": 1790740847828
+        },
+        "finish": "stop"
+      }
+    },
+    "expansion": {
+      "id": "msg_0f078d88d001EVv36YWLtXutf1",
+      "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+      "time_created": 1790740846733,
+      "time_updated": 1790740847851,
+      "data": {
+        "role": "user",
+        "time": {
+          "created": 1790740846733
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "fake",
+          "modelID": "fake"
+        },
+        "summary": {
+          "diffs": []
+        }
+      }
+    }
+  },
+  "missed": {
+    "responseAssistantId": "msg_0f078e566001iQkjqwDWPLO6US",
+    "pluginEvents": [
+      {
+        "at": 1790740850234,
+        "hook": "event",
+        "input": {
+          "type": "command.executed",
+          "properties": {
+            "name": "probe",
+            "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+            "arguments": "missed",
+            "messageID": "msg_0f078e566001iQkjqwDWPLO6US"
+          }
+        }
+      }
+    ]
+  },
+  "crash": {
+    "expansion": {
+      "id": "msg_0f078ee2b001wZPKV8Nr7NRx5D",
+      "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+      "time_created": 1790740852267,
+      "time_updated": 1790740852311,
+      "data": {
+        "role": "user",
+        "time": {
+          "created": 1790740852267
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "fake",
+          "modelID": "fake"
+        },
+        "summary": {
+          "diffs": []
+        }
+      }
+    },
+    "assistant": {
+      "id": "msg_0f078ee3f0014og5wLSzkDWCpl",
+      "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+      "time_created": 1790740852287,
+      "time_updated": 1790740852288,
+      "data": {
+        "parentID": "msg_0f078ee2b001wZPKV8Nr7NRx5D",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "$SCRATCH/work",
+          "root": "/"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "modelID": "fake",
+        "providerID": "fake",
+        "time": {
+          "created": 1790740852287
+        }
+      }
+    },
+    "liveCommandEvents": 0,
+    "pluginCommandEvents": 0,
+    "persistedExpansion": {
+      "id": "msg_0f078ee2b001wZPKV8Nr7NRx5D",
+      "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+      "time_created": 1790740852267,
+      "time_updated": 1790740852311,
+      "data": {
+        "role": "user",
+        "time": {
+          "created": 1790740852267
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "fake",
+          "modelID": "fake"
+        },
+        "summary": {
+          "diffs": []
+        }
+      }
+    }
+  },
+  "replayCommands": [],
+  "nativeCommandRows": [],
+  "nativeFileCommandMarkers": [],
+  "freshEvents": [
+    {
+      "id": "evt_0f0796eda001njBVIk79cl1EZ6",
+      "type": "command.executed",
+      "properties": {
+        "name": "probe",
+        "sessionID": "ses_f0f872ec2ffesz8vLb31PD48d8",
+        "arguments": "after-restart",
+        "messageID": "msg_0f07908e1001E5ZeVAjzy0QTTf"
+      }
+    }
+  ],
+  "ordinarySameText": {
+    "id": "msg_0f0796f0e001yf6Uh3Q5l772nT",
+    "session_id": "ses_f0f872ec2ffesz8vLb31PD48d8",
+    "time_created": 1790740885262,
+    "time_updated": 1790740885313,
+    "data": {
+      "role": "user",
+      "time": {
+        "created": 1790740885262
+      },
+      "agent": "build",
+      "model": {
+        "providerID": "fake",
+        "modelID": "fake"
+      },
+      "summary": {
+        "diffs": []
+      }
+    }
+  }
+}

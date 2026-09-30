@@ -1,0 +1,787 @@
+[
+  {
+    "path": "$SCRATCH/home/.cache/bun/@t@/8373486318260841.pile",
+    "size": 327414,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.config/opencode/.gitignore",
+    "size": 63,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.config/opencode/opencode.jsonc",
+    "size": 50,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.config/opencode/package-lock.json",
+    "size": 14633,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.config/opencode/package.json",
+    "size": 65,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/22/68/dccfb91fb4c432cd0e50a2159f20bec1cfacad6f0b718d3ae179e4a43e5efe9539570a9f2024b380127ee8bcc08652f4296071db4d085472562288a8688a",
+    "size": 52668,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/64/f5/ae30acafd1c48edbd7fb868ce9fa4ebe72b65b4228d5f22a4cbf137145fd92c2d6064d7d595fcf4a776d155781fd667a27c7e1109fe8b2d70190b09f9bf9",
+    "size": 29237,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/5c/05/b6ef988375918c7dd14dd1aad3ca102ea8ef8d641634fd58c23e20b7183b7428188793362582c3e4a24891361ee1ef45626118789dc9b7730dae500485a4",
+    "size": 386415,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/e5/1d/4ff96c10aa698c204002cb34afa382571d8e5688014744c83ecc164a80a4be435be245ad02d619942ad1e5b682052ad21d922de9471926a4fef88e73581d",
+    "size": 639838,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/fd/fa/defc2a36952304decfdf09576a8f52c18af40384463c03097ad9ceaadb6393be9365b0aea4766bd230d08885aa3da02b5d0093afc7c3b6e07a6467840f6b",
+    "size": 186002,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/a2/39/9e374a9dfb2d23b3312da18e3caf43deab97703049089423aee90e5fe3595f92cc17b8ab58ae18284e92e7c887079b6e1486ac7ee53aa6d889d2c0b844e9",
+    "size": 2258,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/a7/fa/410953badc2b2fbe99289949cd35a83afa7dfcad42ee0c0e871deef4a3682d0bc383239d9fa05ff8928daa41ca7a3a212b2574e6ad97979ac1861ec21035",
+    "size": 413274,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/d6/2d/a15a3900a81e72b92a4abd5ba7539a162bf3c2c4a9e8461f2787e6275c954a489b54f997797af8f3ad514b280eb9d869a29a5403c0b52d6ded960259bc99",
+    "size": 959403,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/95/56/fc5fd06c3d5b87d0ce0129e4bdd6d5c0989bc28d0e5423201b4056b190a1b25052b644f921c1a152407f2f6e9975776ddebbf2011fe77054c1d66aaf40e4",
+    "size": 18246,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/d5/89/691c377e3d739d7847b41fbfac12770e5bbb0d16a2d561c74db8b5ace19c4272cabb664224b1faf83126e54126525b8234f469726a8008afc0df8195338d",
+    "size": 7011585,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/fe/98/9eb9bbe7a279db834ba13bd6e5af609ae2a51c7590581aaee8d3213250d218bd237f2a8e4c5368c0ccc3abd36a93339e0e47c16aff3f9a01e9b55af3de5b",
+    "size": 466031,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/7e/68/6a08126f36df957dbc7a72428fd7d4b7c703018545cb08141a2bdd91e309efdf0b164d9624250c187f67a08967c934e978ee386cdef3fbb90925d26bc743",
+    "size": 11985,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/dc/dc/4df3eefc39dcdb4fb0bf5a31acc9f3c0b4968ddc5343b16c6fed8ee6703b13fe83a6816f01a72410145067bd91378fd63649dcf550b14b7b32fb11bdb217",
+    "size": 112114,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/90/7c/6bdb366962d766acdd6a0e3aeb5ff675ad1d641bc0f1fa09292b51b87979af5ecc26704d614d6056614ce5ada630d7fc99a7a62e0d8efb62dbdb3747660c",
+    "size": 1506,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/06/d8/f604e38ef37a375b21f9f5ef0c817b3111055c6ab9143a9118aee6c1d2eaf09cdd74c90dfae2bb22072535d67665a966199b4e62fe87fb8a8e26ce2841b5",
+    "size": 7776,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/53/63/3f7ef562255be550c8d4b7bc0432616f86b78da6529d7f6158410e79a142aca76e8e6de66bfff78c71632198a2feb921871361c85101d0a9ac5e60daf8e1",
+    "size": 43735,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/ef/ef/9d161b5cc77df9dee05aabc0c347836ec417ad0730bb6503a19934089c711de9b4ab5dd884cb30af1b4ed9e3851874b4a1594c97b7933fca1cfc7a471bd4",
+    "size": 1503,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/b0/7d/ab9a732ed8ebd1973b56fda471b0c446bc5aad01a0bfd5ecd44c19d29af821095fccd480df46efee7d83c8cbebc3b593d062171f4399e9249f4ce493eded",
+    "size": 450180,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/71/1a/725b2826eb7d06369428517baf5039c5377d7783880e55ae87d593fb5c2be66df73bf6fd1aba77df419fadee4c847d02861615b51a39339528c3283485e9",
+    "size": 445913,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/63/42/f64cb2699940f7024f0ce1d65e968e4eab7d4687acc2ad58a81c4fcbb9afa4eddcc43aafcdbd2c5f64a39cb5bf285705e059e3453acc01df4056b0b4497c",
+    "size": 458782,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/9f/68/ecc6fc6f05fa6884ecdf675a642ef96871c1fed0d0f9e2649019d97e4fe973cadaee042e336cf0e38fb219463c5f69c8b6059928c0bab85412cabca55a52",
+    "size": 853216,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/b2/d4/fd58225bd42544c7a09c6a47ca191f3ef1881ceb838ab5312bd9420c25b86a92553cc7fc46937854a6208c4f8d2a809c7efcc68e9833aaf15b244b5ae5a4",
+    "size": 440359,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/f2/13/2cae1792918a45e9c1c2f2557b75dc62c8148dab3d4d3ba9467913e3ae3e5a5a28b44bac27061dd4d8149dfb32aa2a6eec2b0b8ae60b8b50bb2b18a413a5",
+    "size": 26049,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/0a/42/a12ab1ae277461f7db490b36d361b2db9754b93630d8505bededcb870696bc1b2b56c36505f0c14d9b0a57db6e4eefac60b0929a9c28f8b581e45bb5848f",
+    "size": 47861,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/b9/5d/903963f69d6ceccb668ca7c69189b862f5d9731791e0879487681f4e893184c834e2249cb1d2ecb9d505ddc966ed00736e6b85c9cd429c6b73b3294777bc",
+    "size": 6255,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/91/45/f4487cd05ada439730e1dffd40c5282d6c1893e5bbebbd38224190d2dd41a86ce06131f0a1d9bd5fcbe8ae3aecf729dc7905f95d2d116cec09500f384932",
+    "size": 59183,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/a0/63/00806a107415db66a346d197b9e821e30d9d480d83b0198c588cee4a2d2973e4788d43db9d217b0f67ad5559a1c66795d6fe3ca39abeaddb1cf68c65706d",
+    "size": 76414,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/f3/6b/4ce47c218047be925bed683c37eb40748c438d517ab3bd43e3de3120af70a91eb1bad6e7ebd9fc049e5c9f33d218eabadd81c8ed44b0aa0ef7d1e826f509",
+    "size": 71472,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/f3/11/a443f03537be7de7d90b57cb46285a43d1ba7ebfdd9e5ec53caeb4a6d818e8436e5a84997f4d9485bdd496e8c74864d5453dc49644e969f77b9b1c087740",
+    "size": 27284,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/e6/64/3d132f938484baba558390d3db17d810efe36a54cf8dc4e3f87c015e1502d5ac99e81a99c42ac585444b1102d38008a84913acd9ab82d750306a6f889ce2",
+    "size": 10376709,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/37/2b/ab932f7e000dadbd9ea6cbc52d3b9a713e85f1acdca9aa3784a8cb21046891e78da094ecbe284d58fb7970594f99e870bf8529ab75735b5fcd7eaa2b93ce",
+    "size": 101053,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/99/32/7a7e72a23da461d6c0130d5becbceaeefba6f6e91504d21fa28c5d2bbd3b730572cec7341b8322316f8e782a7682f4ea429ea390c64ccb135574dbc15766",
+    "size": 9763,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/16/ae/c08e04257566c00ccb21157d70d34b6ada0b6045155e86558b09c119e3e276f606923a9658a161e072995de43252ce9d29694f444589398ad70110183294",
+    "size": 14054,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/f1/33/573048c9737404cbb47fc7520d860894f976a40c0154cc185acfbf916ebb3c347e5441e1d0c719b3b120491b257a2358d6efdba7762426f2d388f83fbc15",
+    "size": 11525,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/f1/ab/949204c4762a83052710216e6ec11994f3525b20009db8cb1c476811784f20a7c69c217cfe7e8c8445f482e68249eb11dad924c91b1747f76fef8dccbbcd",
+    "size": 202646,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/23/8d/eb0cafac1ad4d9e8d2a0425cf8c6629a929d3659a4806bdb6a38d8d9dd6f1f74e07af6261ee7e3e263a51d58aac0a3e8f9d1116305647dee357eabcbd51b",
+    "size": 4166672,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/be/fb/8e1a072e3c9022ae51efb90c354eb3a2c3ba6d6885d79886cdba234e63a94d189247e3d3d0d4a8f89ddefcde73dd42141d89c80e8d5236c88ffd043ebf36",
+    "size": 15060,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/be/40/68d7127a57c651ab22b68018262770051477087ffed7d782eba443d5e842617fc9ab8458d0d6efcacf775270d158ef91a43d3ed215bcfc86cfeec2983f1c",
+    "size": 801953,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/fb/44/7c35312a7eef9aa13ecd48ef95ad0d4fb7d2e913db73ed83505ca9974408e847523db00d31e46a4816e6bde087d61c164023668ff00bd60459995ee4bc1d",
+    "size": 260936,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/fb/a8/91158c1259ae4158494b41303f82e47b83beb2c119c08bb1b193db0bf1fd592cf3f11203bdf8a0c659a9df4eb185e2d8a4f4a7975b409426fe89ed317dab",
+    "size": 25890,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/04/b2/374e5d535b73ef97bd25df2ab763ae22f9ac29c17aac181616924a8cb676d782b303fb28fbae15b492e103c7325a6171a3116e6881aa4a34c10a34c8e26c",
+    "size": 4496,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/80/51/47a72a1a59b7ab4eea6e4d33d6b4670be06a8984741a9c7e391dd04f3ea48a255f35f415b30f87d4bae16b374f2a16d8f8d598143e7d95dca8b27476bc09",
+    "size": 77012,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/c5/97/bfd7aad5e1a6be1c648e0a263661e2d3d4ec9b44baeb90bfd1a9aabba7b18c5578c587eeb0378a0c6208c59a74a7858f2de97a5d97697daa69c762e307c1",
+    "size": 14956,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/ec/e6/9648d61f3267bec484430eec267dfd1873c556455325d4e0652cf8b5550f03b8256432c20399d4bbc06e9d16ae8e2b97143acf17732808372685686612fc",
+    "size": 8525,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/1b/64/1968befefa52fe5b064b38a0121cb4697bb67c357aa63e0cfd84831546844fb8d6fdba95c6e839da94996790ef24973edb1f9a2a9dabf73b5117ac99d266",
+    "size": 76146,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/65/8e/c75a03cae146d35a2e888d7f6bd1d4b8b2c2f2b8894e277f66b3280783d08042ed21302de4147c3b024b5eceff33aabee98dd6c31fbb1fce695f06081a2c",
+    "size": 27492048,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/9d/31/e6ea04d3d5fff526c52b60c93a1629ee65b479cba54ebf4e39c092b9611aa69de4ca6cc19da1c026eeae66a0414eb3768d1514cb6f9deb2441b4343d6d2e",
+    "size": 70147,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/6a/9d/044630e054af367767d01c5d40d5a5e063c49a5602d5abd05949a48a14408ce9c3a49173ff1c577e731d7df30197ff15a4380c47df80cea9a722d84489e8",
+    "size": 49852,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/6a/6b/10f7705da7c69e0844c2f4dec72e747ebd4be0ca59246ef6f779a75d1b661d19f45df7c0de89e1414d0e860a081845765fe0ae474283ae5e49dd523b4bcc",
+    "size": 957756,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/19/16/5b578b2ec1ca7ecf5b1a84af5617c8cacd7f4f69d647a83ca888fc6b013e05bd04873a1043e77e7f5c0265c3ae940ee20fd376a4d823492d60d368422f4e",
+    "size": 25980,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/26/a2/fa3091b4b24fc190865aeec2d7523b5ff71a123452f078d32e0a69a0705f50e2ac64b3d6a868ce264cb55d9f3643ed30ed62538502c1956e02b1a1bdfb4d",
+    "size": 109066,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/d3/0b/1a93c46d80602bf545926d50e024765c52a312be270772f699bf531b30cecc086816e119ffd77ec9d4c1d06f060f730606c53fc8a9e84577e51b62e8fbf3",
+    "size": 8153160,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/d0/c9/8c47079abdca8acc0a55c0840cbcd1db2e5003de6cf94066df30b2a99954bd8db1e4ced5621539a5b1d6c0727826efdd884a10efdf05e67d15ee030d361f",
+    "size": 25902,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/68/31/de8f44a400ed9288cb4b182aa68d446f7769936b2b68d5d562dcae53df97c9386c2b9e673d55d47e89a9e84f5035a6d35db47468256750a5b38916c6b48d",
+    "size": 149941,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/88/ad/9ff98adc9a8786aa4e9f03479ad9ba6d72efe2b4c226e0d7c4a33aba376e7e686ea1eece4765b07f935695edbe70e6c14b3026dbb5152c4d547e0600b7c7",
+    "size": 335400,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/0d/ec/35a24be133f4907086b6adc82e8cd9dd67053c56749aa4381dc6562807ce19969003e3753a28b005a98a35ef29121461cd3eb834aabcb46cff8625df6fed",
+    "size": 159130,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/7a/cf/783379d321fb043e2b1169f6a4f870cb7c75e7281855def5397aa3dc4b77e5216a9cc495a05c75e27b2dd8ae968db1a9d8e5e8b55686046cece28eeabd04",
+    "size": 8942,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/6b/ce/4bf59a17b4d01ecb763a67e781596eb9f243bf33047bcc869f90850f50c7f78ac646d0d0acda98d6db0b63c402ae24fc4c02c1d420fe193c6bf4a398324c",
+    "size": 30903,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/3e/a6/81c7e949bf8ee9c1afd98294353eccac96f49993756d02e141892635a23453ae3b7dbb28a23eee5c835658bde52ff53daca9d9a399fbbfe6f6c820a888b8",
+    "size": 26146,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/b3/ec/3eac15a7a533304856da134517b11960ee15381637a4294e1ec808a1e53f2726e3594f59cdb2c917a7199ea922bd53390197a5204659ca73c873f0812a3b",
+    "size": 5710,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/d4/8b/9b19d9a5bb074dc0365ef4d9960366e39c92e714a3b854e19cac0ee9d473970f5065798c769d410c51900d6060fb7788f42f577b48546f509636fc315f52",
+    "size": 16975,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/e2/49/8efcc77250890b22f4cfafc5472e297802da0a2289e258f204939f820f2d319d60bce1ace14859ae27b3f165db18b623f9904790b0e44054878c8314fe1f",
+    "size": 5073,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/27/74/0423de470204b9f68bd6e37f3aa014cec1ea21057490f98e43230620ff4271f61e4f0307b273991b4b7f75d313330df53b8c77d73d22f1c1db0f527c7ed2",
+    "size": 25891,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/42/64/d5fde10b7831d2c7e67fda5a09e89c3d6bb8296485df3a95e5145cb781f8227dc2eb3a3c70d13c9938209424a3d5b7389d2aebef6a1b49efe79fac83c334",
+    "size": 28113966,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/42/b3/32cf257e438788c194a93fd17cdcaf8ce7a656fce6fc4da8837b915cb9ff615796a9a1d1bd77265526aaa8068fe1ca08d0f732b0026657a29098952c3030",
+    "size": 67303,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/8f/c9/2b9b72e83035ea845c3faf3e8e73564265462d0cdb57f372105ecdbb9d736c408b2cde9c2cbbaca4fc587c3cd35ef3a7af39a7e1e2bf96ddc903ebd42d3f",
+    "size": 15084,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/9e/46/4c7c6b4308967a700835b8feb8fe048856906ef0bdcfce6a2ecca255923a7a028dc5bb2ca4e30066c8c15b4d89902fdcbef6a18bf75737b3331a83fe4ae4",
+    "size": 2308643,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/44/7c/4c2e9f659ca1c61d19e0f5016144231b600715a67ebdb2648672addfdfac638155564e18f8aaa2db4cb96aed2b23f01f9f210d44b8210623694ab3241e23",
+    "size": 3756,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/97/66/85cb98c02e19e21b91e0aab0fa8d72e2feb516acabea37fa89c7aca826c80a85b95577e8aaa94e110976af9bf8cf8adc83a394c2bca327a632a73ab8b2d3",
+    "size": 4178,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/00/68/fca42c58b2dfa4e2107946afcce80ade0ee07b31da201f038aa497883aa6bcf7ba279b1c3a12a0bc22452179e7c5dd4788e4f8188a9e939baa6552822aa7",
+    "size": 31756,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/content-v2/sha512/89/f2/b40a08c02e87d2e5b92b713cb845a43d571d8a9dffde2de20ef8d6acc101291f551b96bb5348222f37bd6a40332ad0f790fd248fa23bc4269f6fbef7ebfb",
+    "size": 4910,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/e5/a9/c755a7fccf670e99a36c3978651f6219771ca3cdbc2820df9b69ce0c74cb",
+    "size": 1550,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/eb/c3/b8f9099c8feeedc6acd990fc7443f7534ba5c0c34b09ce8d676f73b3c463",
+    "size": 1392,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/eb/c3/0b81ef9842e0d0192117291b08eb337b728c4df0d10ec5dcad90a8a5f655",
+    "size": 1362,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/56/55/00374dd6a1a617292208c4a73101736334607a8f76a81180650d259f67db",
+    "size": 1372,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/33/9e/8d3e93011a4b0fcb7911dc9fc2216a8abfdb083af4b6e05c24902c8ff291",
+    "size": 1388,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/d5/42/33c14eb54923e893afcbd5724559638c63e6a018461b148acdd4b46d0113",
+    "size": 1404,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/62/37/5e6d806f683645a1ab6e8e27bcb7830cedd61861d41521019865493c2eca",
+    "size": 1538,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/cd/ec/2dcc7a2c30858e38f3b43d9599d6117d1caa6ef6c5d442a7fc8b9e707d4a",
+    "size": 1416,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/90/83/50e645a13078a26cc4815e5247112414423b0f67e99477f5492d6c6e8ce1",
+    "size": 1390,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/ab/89/51ddec1dd5fe5b4bb49547f326a7ba6b4bb18f675d1f6f7cf05edabf8fa1",
+    "size": 1416,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/1a/47/bab3d1fc5dced0732734a0151b6b5f128c9f6f0f79fd5fa12fa312e95e62",
+    "size": 1418,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/a1/12/93edb288f8d3ec1c7fb961515ead5be64db56dd9df787a9b5d1f792c0bd2",
+    "size": 1542,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/a1/90/147160b41ca6b4a9e710d6ee8c4ba631bec9679a977e39f511e6a0fd8638",
+    "size": 1394,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/a1/54/f63f75df2abf87ac3618cfe40d79d5de3a5b5c0766178d7be01508bbc07f",
+    "size": 1404,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/b2/ce/c0543bcdc0763ee28c572fc70c1a495124d73b874dd30cdc7791519db1c5",
+    "size": 1396,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/1e/5c/e40371313e88924249d64772cafcfe7db5edd40e00dedb661ad9f1f0bd51",
+    "size": 1410,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/91/27/f806eee9a12eb15d6c79ebfee2c0abd15154dcf1749c0bb8012ac75eb5d5",
+    "size": 1374,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/30/9e/62f47e1b3ef05f61e01715bd5623b925943de643eb22e041a6f36368f48a",
+    "size": 1344,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/85/27/b70c5c970ed826a2a4017083c8a759b6ae1ecbc5d352673f2f4fbd423a12",
+    "size": 1398,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/f3/20/d8333f3bb0b00dcd91ca4ba3f7e88e84f33d8b348a8e679f62326105afbc",
+    "size": 1538,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/37/c8/a14a3cd7312978b6c877cafb0f3900a6bc17e40561269c5bb61a96ac5791",
+    "size": 1444,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/98/f9/ff47ba9ab2ebfb7cd755b4ed85f2ba38bebee0bdc01ef336460bc19214af",
+    "size": 1374,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/99/aa/125ade68f9bca1d65a843c2aab353f720ddf9eee7f97db630d6de39132d0",
+    "size": 1372,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/c9/80/5176c8bafdeb76fbf895be967ac6b3c130a2cf8ac9c8a270923da5de987d",
+    "size": 1400,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/0e/a4/e961e2a18e6d479c4957b4c19785d201494bc3311025f61df4a91e826b6c",
+    "size": 715,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/0e/18/9ceb636d5cd849b1674662ae98b1eca87ffa6a23530cb7132fb8c6c84ec5",
+    "size": 1420,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/2d/56/7e80510c76d67542a520160a4cba8ac4f50fd446dade8f39054cf618e39b",
+    "size": 1390,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/ae/6a/ff13a97713f298fe8c02217b73757b418701420380e067b6b27c3fe68ad0",
+    "size": 1420,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/57/ae/0b20b812285b88a1bee42c46aa3b3c7e12a9f7f68b667ead2acb8332de51",
+    "size": 1428,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/52/b4/66e7e2d0382b5986d0fd60165469945375c77dfc56ad0b5edc36eecdd1e7",
+    "size": 1376,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/cc/89/20683765f4ab9bb1ebddd37ba3242cab6a8fbdb9891891956d74ad34b516",
+    "size": 1446,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/35/7f/e41f2c2713684e6e809753f5b2a642d98d5d19a1c17c03d0788531cebf88",
+    "size": 1364,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/fc/1f/3d4d4b298b89443713c7e90b110bbf9b5eb34197d7638d311ce3aba49aa5",
+    "size": 1424,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/7d/e8/5446c5cdae0493e4ad3b10347b77c8df4b17b5fbe14834f5c6b06faa9f95",
+    "size": 1364,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/23/76/f7afbc9eb60823c417e5dd1dd2f56b61e1b85cdd840120ff5644e6b03358",
+    "size": 1316,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/b4/9d/5a271b1898a503a6f8a6b2361235fd7539e9ae1aa5622d3e78124d1a0c34",
+    "size": 1316,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/fb/c5/2f2c90acf567336ad9eeddad27652b7870a8b83f4bd2ebf99583c80c07e8",
+    "size": 1310,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/fb/4e/54e92059d3c7633415eeff13db4a889a5dc4f5680703ecb9553898ec076b",
+    "size": 1420,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/cf/b6/06d6139b48e983c67aeb0d843d35c44a266654db3e65e491f69616e7d170",
+    "size": 1386,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/04/bb/e70e70e0cbc9b00841927b0c23c58d97f21063208f3e872c3e04db58c13b",
+    "size": 1410,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/04/5a/2b5d7a7c407d85d746baa0f5c9388a333e35a717a8a0a81943daa6cb1364",
+    "size": 1370,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/4c/08/b7105abb635035a839d9b40f12f16e43b33b7e6440baf14535ca897617d3",
+    "size": 1384,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/8e/f8/5be5f0b3a5658da01b48133cdfb1bc3b4a4c220b66be5b5b9f06ea95c431",
+    "size": 1412,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/80/36/c0ffeed3ac96f03875fa58094c707e4fa0ef37d4cd364a6fa4ad1b1c11ae",
+    "size": 1386,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/5e/32/95a55cc1e29a4f5e87adb25ca49ed4e033107d6c775a0304d7821f69cf40",
+    "size": 1432,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/a9/55/d7549333c630d46c2cd3644728e17da7f887e13e29779cbfca006140af84",
+    "size": 1412,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/0c/af/66c45aed694b50ce029354b18d2dbc0d31fcfbccbb3c175bbff309501da2",
+    "size": 1364,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/9d/ff/8b9910715b7b537ddd75208b274d980d23d69558a148dcecb3fba2d2c855",
+    "size": 1364,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/32/74/b78944a6c5db6a15df6b6cacf2c54298caea481fa3e18c7165979ae9775b",
+    "size": 1314,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/15/2c/30a3f9dd8e6187e0e48b26e2cac5f57e0a20bfc775aea6b459eb56f10a2b",
+    "size": 1546,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/19/16/ef4d366a68d2c4ccc97fc162102edebb2bec2dae2fa2b0a0acb6b056f0e3",
+    "size": 1366,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/19/96/18c1b0e01d0a3ce4d12b426215b61d28bfe286f7cb2b7c4762165dc80785",
+    "size": 1312,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/c3/b0/c70a44b3444cb8a08390fddf844a10558c0e4e601c795142821e8790ab75",
+    "size": 1532,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/dd/df/1611b751ee4b0a36f4c786ca39c32b42492cab1886a5d3d9a0f40088c102",
+    "size": 1570,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/0f/3b/ad03f4cdcf250275dac0ebdafb0ccb7627b801282b05c8c65ec48bc92144",
+    "size": 1350,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/de/b7/a0066fa6be151bb99f76256c1a0ac8c044f3bc10b1bdc09f08a429f1e035",
+    "size": 1482,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/67/1d/177915af205cec0c39943d83e2bdc59bc87c72ac1c6eaefc30d7cbef7288",
+    "size": 1398,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/a5/42/e58a240f7a1b156aa7b4c5145722ca5054ef8ba5b3d6d7fe41c4811b9b12",
+    "size": 1364,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/88/f0/f54cf3915130f5d8abb8b1c06da692effe8fecb75efd600337e4fff3788e",
+    "size": 1358,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/6b/96/8af21194b7c666dcff699b874730170edc9a2670a4d17bf4186649ee9fa7",
+    "size": 1340,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/2f/f0/b1995e4cb99e1e4ae5adc1a7594ad58dd2523b28e32ea8a6dd796aa24c23",
+    "size": 1300,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/b3/88/e1e3c41b7711bf3e544145c0dd4db0049d2a50214c7dd7126b7c7ff6f1b0",
+    "size": 1370,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/7c/66/83c08ae912a70ea2054317c1231bae05fbb884f298d06032517257d005e7",
+    "size": 1388,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/a8/73/fde854d07eef0c4d20b044c858d8953a2e4d3e9b2d616026c0064799d510",
+    "size": 1398,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/03/af/b652af7d985d655c33bbc6261689ea2f5a550b485dde76ad3aefbe2591eb",
+    "size": 1380,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/40/1e/89f0b89d2ca92cd54ff481086fdd599c67170ea69eb9b22d37e34638d25e",
+    "size": 1378,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/40/43/b7e206f71ecfadb671c7a8aa093dc3b6424544f54f36c23b60ca97bcaedf",
+    "size": 1432,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/89/0b/e2ba88ed525834b932f3ddb5624a540e279742a3c6851ec4ee466890a5ed",
+    "size": 697,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/89/c5/2f1950f3ec00c722b0da28a418b4fde11ec1804802330a66394efb348324",
+    "size": 1304,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/ba/31/0ff11cd5c49f9abb3792227a2806421aeb4003688278322146dd805a2cea",
+    "size": 1396,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.npm/_cacache/index-v5/ba/65/c555809a7456909ced509d92d18b4d635fa9ff82a7eedcfa7b770b284b24",
+    "size": 1538,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.local/share/opencode/opencode.db",
+    "size": 270336,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.local/share/opencode/opencode.db-wal",
+    "size": 1301952,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.local/share/opencode/opencode.db-shm",
+    "size": 32768,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/home/.local/share/opencode/log/opencode.log",
+    "size": 12040,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/work/opencode.json",
+    "size": 580,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/work/.opencode/.gitignore",
+    "size": 63,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/work/.opencode/plugins/capture.ts",
+    "size": 3187,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/work/.opencode/commands/probe.md",
+    "size": 80,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/work/.opencode/package-lock.json",
+    "size": 14634,
+    "commandExecutedLines": []
+  },
+  {
+    "path": "$SCRATCH/work/.opencode/package.json",
+    "size": 65,
+    "commandExecutedLines": []
+  }
+]

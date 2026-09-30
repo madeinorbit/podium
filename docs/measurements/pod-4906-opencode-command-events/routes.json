@@ -1,0 +1,663 @@
+{
+  "/global/event": {
+    "get": {
+      "tags": [
+        "global"
+      ],
+      "operationId": "global.event",
+      "parameters": [],
+      "responses": {
+        "200": {
+          "description": "Event stream",
+          "content": {
+            "text/event-stream": {
+              "schema": {
+                "$ref": "#/components/schemas/GlobalEvent"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "Bad request",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BadRequestError"
+              }
+            }
+          }
+        }
+      },
+      "description": "Subscribe to global events from the OpenCode system using server-sent events.",
+      "summary": "Get global events"
+    }
+  },
+  "/event": {
+    "get": {
+      "tags": [
+        "event"
+      ],
+      "operationId": "event.subscribe",
+      "parameters": [
+        {
+          "name": "directory",
+          "in": "query",
+          "schema": {
+            "type": "string"
+          },
+          "required": false
+        },
+        {
+          "name": "workspace",
+          "in": "query",
+          "schema": {
+            "type": "string"
+          },
+          "required": false
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Event stream",
+          "content": {
+            "text/event-stream": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          }
+        }
+      },
+      "description": "Get events",
+      "summary": "Subscribe to events"
+    }
+  },
+  "/command": {
+    "get": {
+      "tags": [
+        "instance"
+      ],
+      "operationId": "command.list",
+      "parameters": [
+        {
+          "name": "directory",
+          "in": "query",
+          "schema": {
+            "type": "string"
+          },
+          "required": false
+        },
+        {
+          "name": "workspace",
+          "in": "query",
+          "schema": {
+            "type": "string"
+          },
+          "required": false
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "List of commands",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Command"
+                },
+                "description": "List of commands"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "Bad request",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BadRequestError"
+              }
+            }
+          }
+        }
+      },
+      "description": "Get a list of all available commands in the OpenCode system.",
+      "summary": "List commands"
+    }
+  },
+  "/session/{sessionID}/command": {
+    "post": {
+      "tags": [
+        "session"
+      ],
+      "operationId": "session.command",
+      "parameters": [
+        {
+          "name": "sessionID",
+          "in": "path",
+          "schema": {
+            "type": "string",
+            "pattern": "^ses"
+          },
+          "required": true
+        },
+        {
+          "name": "directory",
+          "in": "query",
+          "schema": {
+            "type": "string"
+          },
+          "required": false
+        },
+        {
+          "name": "workspace",
+          "in": "query",
+          "schema": {
+            "type": "string"
+          },
+          "required": false
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Created message",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "info",
+                  "parts"
+                ],
+                "properties": {
+                  "info": {
+                    "$ref": "#/components/schemas/AssistantMessage"
+                  },
+                  "parts": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Part"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "BadRequest | InvalidRequestError",
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/InvalidRequestError"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "NotFoundError",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotFoundError"
+              }
+            }
+          }
+        }
+      },
+      "description": "Send a new command to a session for execution by the AI assistant.",
+      "summary": "Send command",
+      "requestBody": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "messageID": {
+                  "type": "string",
+                  "pattern": "^msg"
+                },
+                "agent": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "arguments": {
+                  "type": "string"
+                },
+                "command": {
+                  "type": "string"
+                },
+                "variant": {
+                  "type": "string"
+                },
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^prt"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "file"
+                        ]
+                      },
+                      "mime": {
+                        "type": "string"
+                      },
+                      "filename": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "$ref": "#/components/schemas/FilePartSource"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "mime",
+                      "url"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "arguments",
+                "command"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    }
+  },
+  "/tui/execute-command": {
+    "post": {
+      "tags": [
+        "tui"
+      ],
+      "operationId": "tui.executeCommand",
+      "parameters": [
+        {
+          "name": "directory",
+          "in": "query",
+          "schema": {
+            "type": "string"
+          },
+          "required": false
+        },
+        {
+          "name": "workspace",
+          "in": "query",
+          "schema": {
+            "type": "string"
+          },
+          "required": false
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Command executed successfully",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "boolean",
+                "description": "Command executed successfully"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "BadRequest | InvalidRequestError",
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/InvalidRequestError"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "description": "Execute a TUI command.",
+      "summary": "Execute TUI command",
+      "requestBody": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "command": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "command"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    }
+  },
+  "/api/session/{sessionID}/event": {
+    "get": {
+      "tags": [
+        "sessions"
+      ],
+      "operationId": "v2.session.events",
+      "parameters": [
+        {
+          "name": "sessionID",
+          "in": "path",
+          "schema": {
+            "type": "string",
+            "pattern": "^ses"
+          },
+          "required": true
+        },
+        {
+          "name": "after",
+          "in": "query",
+          "schema": {
+            "type": "string"
+          },
+          "required": false
+        }
+      ],
+      "security": [],
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "text/event-stream": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "event": {
+                    "type": "string"
+                  },
+                  "data": {
+                    "$ref": "#/components/schemas/SessionDurableEventStream"
+                  }
+                },
+                "required": [
+                  "id",
+                  "event",
+                  "data"
+                ],
+                "additionalProperties": false
+              },
+              "x-effect-stream": {
+                "encoding": "sse",
+                "causeSchema": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "_tag": {
+                            "type": "string",
+                            "enum": [
+                              "Fail"
+                            ]
+                          },
+                          "error": {
+                            "not": {}
+                          }
+                        },
+                        "required": [
+                          "_tag",
+                          "error"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "_tag": {
+                            "type": "string",
+                            "enum": [
+                              "Die"
+                            ]
+                          },
+                          "defect": {}
+                        },
+                        "required": [
+                          "_tag",
+                          "defect"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "_tag": {
+                            "type": "string",
+                            "enum": [
+                              "Interrupt"
+                            ]
+                          },
+                          "fiberId": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "_tag",
+                          "fiberId"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "errorSchema": {
+                  "not": {}
+                },
+                "failureEvent": "effect/httpapi/stream/failure"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "InvalidRequestError",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvalidRequestError"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "UnauthorizedError",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnauthorizedError"
+              }
+            }
+          }
+        },
+        "404": {
+          "description": "SessionNotFoundError",
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SessionNotFoundError"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SessionNotFoundError"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "description": "Replay durable events after an aggregate sequence, then continue with new durable events.",
+      "summary": "Subscribe to session events"
+    }
+  },
+  "/api/command": {
+    "get": {
+      "tags": [
+        "commands"
+      ],
+      "operationId": "v2.command.list",
+      "parameters": [
+        {
+          "name": "location",
+          "in": "query",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "directory": {
+                "type": "string"
+              },
+              "workspace": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "required": false,
+          "style": "deepObject",
+          "explode": true
+        }
+      ],
+      "security": [],
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "location": {
+                    "$ref": "#/components/schemas/LocationInfo"
+                  },
+                  "data": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/CommandV2Info"
+                    }
+                  }
+                },
+                "required": [
+                  "location",
+                  "data"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "InvalidRequestError",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvalidRequestError"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "UnauthorizedError",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnauthorizedError"
+              }
+            }
+          }
+        }
+      },
+      "description": "Retrieve currently registered commands.",
+      "summary": "List commands"
+    }
+  },
+  "/api/event": {
+    "get": {
+      "tags": [
+        "events"
+      ],
+      "operationId": "v2.event.subscribe",
+      "parameters": [],
+      "security": [],
+      "responses": {
+        "200": {
+          "description": "Event stream",
+          "content": {
+            "text/event-stream": {
+              "schema": {
+                "$ref": "#/components/schemas/V2Event"
+              }
+            }
+          }
+        },
+        "400": {
+          "description": "InvalidRequestError",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvalidRequestError"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "UnauthorizedError",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnauthorizedError"
+              }
+            }
+          }
+        }
+      },
+      "description": "Subscribe to native event payloads for the server.",
+      "summary": "Subscribe to events"
+    }
+  }
+}
