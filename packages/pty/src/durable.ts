@@ -1,14 +1,12 @@
 /**
- * @podium/process/durable — the durable hosts (P2a door).
+ * @podium/process/durable — the durable host (P2a door).
  *
- * What makes a session survive the daemon: the abduco adapter with its vendored-C
- * build pipeline, the podium-host adapter with its own build pipeline, and the
- * systemd scope argv that places a master outside the daemon's cgroup. Importing
- * this subpath means driving a real durable process — it is the auditable door
- * P2b narrows to `DurableProcess`. `createAltScreenStripper` lives in
- * `./alt-screen-stripper.js` and is exported from `./screen`: a title/alt-screen
- * is output interpretation, and P2c moved it there (`abduco.ts` keeps a
- * re-export so no importer changes).
+ * What makes a session survive the daemon: the podium-host adapter, the Rust
+ * host's resolution (`./host-bin.js`), and the systemd scope argv that places a
+ * host outside the daemon's cgroup (`./scope.js`). abduco and the C host are
+ * gone (POD-4986); a C host an older daemon started is still adopted through
+ * the host protocol. Importing this subpath means driving a real durable
+ * process — it is the auditable door P2b narrows to `DurableProcess`.
  *
  * SOLE ENTRY (P2b): production daemon code reaches a process ONLY through
  * `DurableProcess` (`createDurableProcess` / `durableProcessFor`). The raw
@@ -27,72 +25,34 @@ export {
   type DurableProcess,
   type HeadlessSpawnOptions,
   type HeadlessAttachOptions,
-  type Durable as DurableLegacy,
-  abducoDurableAdapter,
   hostDurableAdapter,
   createDurableProcess,
-  createDurable,
-  sweepStaleDurableBindTemps,
   durableProcessFor,
-  durableFor,
 } from './durable-process.js'
 // TESTS ONLY (POD-4617): the direct-pty stand-in for a durable process. A
 // daemon with no durable process refuses every spawn; this is the one place a
 // raw pty spawn is still reachable, and the durable-door allow-list keeps it
 // out of production daemon code.
 export { directPtyDurableForTests } from './direct-pty-durable.js'
-// The attachment handle both adapters implement, re-exported so the durable
+// The attachment handle the adapter implements, re-exported so the durable
 // door names the ONE interface (POD-4434). Type-only: it widens no runtime
 // capability, and the P2b value door above is unchanged.
 export type { DurableAttachment } from './session.js'
 
 export {
-  abducoAttachArgv,
-  resolveAttachBin,
-  abducoCreateArgv,
   systemdScopeArgv,
   scopeUnitName,
   scopeReclaimArgvs,
   type SystemctlRunner,
-  reclaimStaleScope,
-  reclaimTerminatedSession,
   userRuntimeDir,
   scopeEnv,
   canScopeMaster,
   applySessionsSliceBudget,
-  isAbducoAvailable,
-  type AbducoSessionEntry,
-  parseAbducoList,
   liveEnv,
-  abducoSocketPath,
-  reapStaleAbducoBindTemps,
-  abducoTerminatedSocketPaths,
-  waitForAbducoSocket,
-  abducoSocketHasSession,
-  abducoHasSession,
-  killAbducoSession,
-  listLiveAbducoLabels,
   stopSessionScope,
-  reapAbducoTestSessions,
-  type AbducoSpawnOptions,
-  execCreate,
-  withComposedSocketPath,
-  spawnAbducoAgent,
-  type AbducoAttachOptions,
-  attachAbducoAgent,
-} from './abduco.js'
-export {
-  ABDUCO_FEATURES,
-  type AbducoManifest,
-  abducoSupported,
-  defaultAbducoCachePath,
-  managedAbducoDir,
-  abducoBinFeatures,
-  vendoredAbducoSourceHash,
-  buildVendoredAbduco,
-  ensureManagedAbduco,
-  resolveAbducoBin,
-} from './abduco-bin.js'
+  type DurableSpawnOptions,
+} from './scope.js'
+export { legacyAbducoSocket } from './legacy-abduco.js'
 export {
   HOST_PROTO_VERSION,
   HostFrame,
@@ -125,16 +85,15 @@ export {
   spawnHostAgent,
 } from './host.js'
 export {
-  C_HOST_FEATURES,
   HOST_FEATURES,
-  type HostManifest,
+  HOST_UNAVAILABLE,
+  RUST_HOST_BINARY,
+  bundledRustHostPath,
   hostSupported,
-  defaultHostCachePath,
-  managedHostDir,
   hostBinFeatures,
-  vendoredHostSourceHash,
-  buildVendoredHost,
-  ensureManagedHost,
+  sourceRustHostCacheDir,
+  vendoredRustHostSourceHash,
+  ensureSourceRustHost,
   resolveHostBin,
   isHostAvailable,
 } from './host-bin.js'

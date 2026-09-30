@@ -2,78 +2,65 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   closeSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
-  realpathSync,
   renameSync,
   rmSync,
   statSync,
-  symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { userInfo } from 'node:os'
+import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { resolveInstallDir, stateDir } from '@podium/runtime/config'
+import { resolveInstallDir } from '@podium/runtime/config'
 
 /**
- * podium-host resolution for new spawns. Existing sockets attach directly to
- * their running host, without selecting a binary. Order:
+ * podium-host resolution for new spawns. The Rust host is the only podium-host
+ * Podium spawns (POD-4986): the C host and abduco are gone from the tree, the
+ * build and the release. A session an older daemon started on the C host is not
+ * affected — an existing socket attaches directly to its running host, without
+ * selecting a binary. Order:
  *   1. $PODIUM_HOST_BIN — explicit binary path; if it doesn't run or is not a
- *      podium-host at the required feature level, resolution FAILS (no silent
- *      fallback past operator intent).
- *   2. The release payload's podium-host-rs, at feature level 2 or later.
- *   3. The C managed build at $PODIUM_STATE_DIR/bin/podium-host-v1/,
- *      verified against the vendored source hash on every selection.
- *   4. A materialized binary at $PODIUM_STATE_DIR/bin/podium-host (what a
- *      `bun build --compile` distribution unpacks, where there is no source).
- *   5. Build the vendored C source now (single translation unit, well under a
- *      second) into the managed directory.
+ *      podium-host at feature level {@link HOST_FEATURES}, resolution FAILS (no
+ *      silent fallback past operator intent).
+ *   2. The release payload's podium-host-rs beside podium-cli.
+ *   3. A source checkout (a dev daemon run from the repository): the vendored
+ *      crate built with cargo into a per-user cache keyed by the crate's source
+ *      hash, so every worktree and state dir shares one build.
  *
- * There is no PATH lookup: nobody installs a podium-host from a distro.
- * Windows: unsupported (forkpty), same as abduco.
+ * When none of these yields a host, resolution fails loudly: the reason is
+ * printed once and the daemon refuses every spawn with a machine diagnostic.
+ * There is no PATH lookup and no fallback host.
+ * Windows: unsupported (forkpty).
  */
-
-const VENDOR_DIR = fileURLToPath(new URL('../vendor/podium-host', import.meta.url))
-const VENDOR_HOST_C = join(VENDOR_DIR, 'host.c')
 
 /**
- * Feature level of the vendored host: bumped when the protocol or command line
- * gains something callers rely on. Reported by `podium-host version` as
- * `features=<n>`.
+ * Feature level of the host, reported by `podium-host version` as `features=<n>`
+ * and bumped when the protocol or command line gains something callers rely on.
  *
- * 1 — SPEC-6 protocol version 1.
+ * 1 — SPEC-6 protocol version 1 (the retired C host; still ADOPTED when running).
  * 2 — the Rust host's screen: WELCOME's features byte and PICTURE (POD-4909).
- *     The vendored C host stays at 1; resolution accepts any level >= this one.
  */
-export const C_HOST_FEATURES = 1
-/** Rust host with the screen/picture protocol. The C fallback remains at level 1. */
 export const HOST_FEATURES = 2
 export const RUST_HOST_BINARY = 'podium-host-rs'
+
+/** Why a spawn has no host; the resolver printed the details when it failed. */
+export const HOST_UNAVAILABLE =
+  'podium-host unavailable: no Rust podium-host binary could be found or built (see the daemon log)'
+
+const VENDOR_CRATE = fileURLToPath(new URL('../vendor/podium-host-rs', import.meta.url))
 
 /** Prebuilt Rust host shipped beside podium-cli; no customer Rust toolchain. */
 export function bundledRustHostPath(): string {
   return join(resolveInstallDir(), RUST_HOST_BINARY)
 }
 
-export type HostManifest = { features: number; sourceHash: string; builtAt?: string }
-
 export function hostSupported(platform: NodeJS.Platform = process.platform): boolean {
   return platform !== 'win32'
-}
-
-function binDir(): string {
-  return join(stateDir(), 'bin')
-}
-
-/** Where a compiled distribution materializes its embedded host, and our pointer. */
-export function defaultHostCachePath(): string {
-  return join(binDir(), 'podium-host')
-}
-
-export function managedHostDir(features: number = C_HOST_FEATURES): string {
-  return join(binDir(), `podium-host-v${features}`)
 }
 
 const VERSION_RE = /^podium-host \S+ features=(\d+)\s*$/m
@@ -91,86 +78,117 @@ export function hostBinFeatures(bin: string): number {
   }
 }
 
-function runs(bin: string): boolean {
-  return hostBinFeatures(bin) > 0
-}
+// ---- the source checkout's build ---------------------------------------------
 
-export function vendoredHostSourceHash(): string | undefined {
+/**
+ * The home the build runs under. Read from the passwd entry, not `$HOME`: tests
+ * run daemons under a temporary HOME, and neither the build cache nor cargo's
+ * registry and toolchains should move with it.
+ */
+function buildHome(): string | undefined {
   try {
-    const h = createHash('sha256')
-    h.update(`features=${C_HOST_FEATURES}\n`)
-    h.update('host.c\n')
-    h.update(readFileSync(VENDOR_HOST_C))
-    return h.digest('hex')
+    return userInfo().homedir || process.env.HOME
   } catch {
-    return undefined // no vendored source here (a bun --compile binary)
+    return process.env.HOME
   }
-}
-
-function findCompiler(): string | undefined {
-  return ['cc', 'gcc', 'clang'].find((c) => {
-    try {
-      return spawnSync(c, ['--version'], { stdio: 'ignore' }).status === 0
-    } catch {
-      return false
-    }
-  })
 }
 
 /**
- * Compile the vendored host into `out`. `-lutil` is required on glibc Linux
- * (forkpty) and absent on macOS/musl, so a failed link is retried without it.
+ * Where source builds live: `$PODIUM_RUST_HOST_BUILD_DIR`, else
+ * `<cache>/podium/podium-host-rs-src`. One cargo target dir for incremental
+ * rebuilds plus one directory per source hash holding the published binary.
  */
-export function buildVendoredHost(out: string): string | undefined {
-  if (!hostSupported()) return undefined
-  const cc = findCompiler()
-  if (!cc) return undefined
-  mkdirSync(dirname(out), { recursive: true })
-  const base = [
-    '-std=c11',
-    '-D_POSIX_C_SOURCE=200809L',
-    '-D_XOPEN_SOURCE=700',
-    '-D_DARWIN_C_SOURCE',
-    '-DNDEBUG',
-    `-DVERSION="${C_HOST_FEATURES}-podium"`,
-    VENDOR_HOST_C,
-    '-o',
-    out,
-  ]
-  let lastErr = ''
-  for (const link of [['-lutil'], []]) {
-    try {
-      execFileSync(cc, [...base, ...link], { stdio: ['ignore', 'ignore', 'pipe'] })
-      if (runs(out)) return out
-    } catch (e) {
-      lastErr = (e as { stderr?: Buffer | string })?.stderr?.toString() ?? String(e)
-    }
-  }
-  if (lastErr) console.warn(`[podium] podium-host build failed (${cc}):\n${lastErr.trim()}`)
-  return undefined
+export function sourceRustHostCacheDir(): string | undefined {
+  const override = process.env.PODIUM_RUST_HOST_BUILD_DIR?.trim()
+  if (override) return override
+  const cache = process.env.XDG_CACHE_HOME || (buildHome() ? join(buildHome() as string, '.cache') : undefined)
+  return cache ? join(cache, 'podium', 'podium-host-rs-src') : undefined
 }
 
-function readManifest(dir: string): HostManifest | undefined {
+function crateFiles(crate: string): string[] {
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true })
+      .flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]))
+      .sort()
+  return [
+    ...['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'build.rs', '.cargo/config.toml']
+      .map((name) => join(crate, name))
+      .filter((path) => existsSync(path)),
+    ...walk(join(crate, 'src')),
+  ]
+}
+
+/** Hash of everything the binary is built from, or undefined outside a source checkout. */
+export function vendoredRustHostSourceHash(crate: string = VENDOR_CRATE): string | undefined {
+  if (!existsSync(join(crate, 'Cargo.toml'))) return undefined
   try {
-    const m = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as HostManifest
-    return typeof m?.features === 'number' && typeof m?.sourceHash === 'string' ? m : undefined
+    const h = createHash('sha256')
+    for (const path of crateFiles(crate)) {
+      h.update(`${relative(crate, path)}\n`)
+      h.update(readFileSync(path))
+    }
+    return h.digest('hex')
   } catch {
     return undefined
   }
 }
 
-function verifyManaged(required: number): string | undefined {
-  const dir = managedHostDir()
-  const m = readManifest(dir)
-  if (!m || m.features < required) return undefined
-  const want = vendoredHostSourceHash()
-  if (!want || m.sourceHash !== want) return undefined
-  const bin = join(dir, 'podium-host')
-  if (!existsSync(bin)) return undefined
-  return hostBinFeatures(bin) === m.features ? bin : undefined
+function toolchainChannel(crate: string): string | undefined {
+  try {
+    return /^\s*channel\s*=\s*"([^"]+)"/m.exec(
+      readFileSync(join(crate, 'rust-toolchain.toml'), 'utf8'),
+    )?.[1]
+  } catch {
+    return undefined
+  }
 }
 
-const LOCK_STALE_MS = 120_000
+function runsTool(tool: string, env: NodeJS.ProcessEnv): boolean {
+  try {
+    return spawnSync(tool, ['--version'], { stdio: 'ignore', env }).status === 0
+  } catch {
+    return false
+  }
+}
+
+/** Why the last source build failed, for the resolver's loud failure. */
+let lastSourceBuildError: string | undefined
+
+/**
+ * `cargo build --release --locked` of the vendored crate into the cache's target
+ * dir, pinned to the crate's toolchain through rustup when rustup is there.
+ * Returns the built binary, or undefined with {@link lastSourceBuildError} set.
+ */
+function cargoBuild(crate: string, targetDir: string): string | undefined {
+  const home = buildHome()
+  const env: NodeJS.ProcessEnv = { ...process.env, CARGO_TARGET_DIR: targetDir, ...(home ? { HOME: home } : {}) }
+  const channel = toolchainChannel(crate)
+  const argv: [string, string[]] | undefined =
+    channel && runsTool('rustup', env)
+      ? ['rustup', ['run', channel, 'cargo', 'build', '--release', '--locked']]
+      : runsTool('cargo', env)
+        ? ['cargo', ['build', '--release', '--locked']]
+        : undefined
+  if (!argv) {
+    lastSourceBuildError = 'neither rustup nor cargo runs here (install the crate toolchain: mise install in packages/pty/vendor/podium-host-rs)'
+    return undefined
+  }
+  try {
+    execFileSync(argv[0], argv[1], { cwd: crate, env, stdio: ['ignore', 'ignore', 'pipe'] })
+  } catch (e) {
+    const stderr = (e as { stderr?: Buffer | string })?.stderr?.toString().trim()
+    lastSourceBuildError = `${argv[0]} ${argv[1].join(' ')} failed${stderr ? `:\n${stderr.split('\n').slice(-20).join('\n')}` : ''}`
+    return undefined
+  }
+  const out = join(targetDir, 'release', 'podium-host')
+  if (hostBinFeatures(out) < HOST_FEATURES) {
+    lastSourceBuildError = `${out} does not report podium-host feature level ${HOST_FEATURES}`
+    return undefined
+  }
+  return out
+}
+
+const LOCK_STALE_MS = 15 * 60_000
 
 function sleepSync(ms: number): void {
   try {
@@ -199,7 +217,7 @@ function lockIsStale(lock: string): boolean {
   }
 }
 
-function acquireBuildLock(lock: string, timeoutMs = 180_000): boolean {
+function acquireBuildLock(lock: string, timeoutMs = LOCK_STALE_MS): boolean {
   const deadline = Date.now() + timeoutMs
   for (;;) {
     try {
@@ -217,104 +235,72 @@ function acquireBuildLock(lock: string, timeoutMs = 180_000): boolean {
         continue
       }
       if (Date.now() >= deadline) return false
-      sleepSync(100)
+      sleepSync(200)
     }
   }
 }
 
-function publishPointer(tag: string): void {
-  const ptr = defaultHostCachePath()
-  const tmp = `${ptr}.ptr-${tag}`
-  try {
-    rmSync(tmp, { force: true })
-    symlinkSync(join(`podium-host-v${C_HOST_FEATURES}`, 'podium-host'), tmp)
-    renameSync(tmp, ptr)
-  } catch {
-    rmSync(tmp, { force: true })
-  }
-}
-
-function isManagedPointer(path: string): boolean {
-  try {
-    return realpathSync(path).startsWith(`${managedHostDir()}/`)
-  } catch {
-    return false
-  }
-}
-
-/** Build into staging and publish binary + manifest with ONE rename. Caller holds the lock. */
-function buildManagedHost(): string | undefined {
-  const dir = managedHostDir()
-  const hash = vendoredHostSourceHash()
-  if (!hash) return undefined
-  const tag = `${process.pid}-${Math.random().toString(36).slice(2, 8)}`
-  const staging = join(binDir(), `.podium-host-v${C_HOST_FEATURES}.staging-${tag}`)
-  const trash = join(binDir(), `.podium-host-v${C_HOST_FEATURES}.old-${tag}`)
-  try {
-    mkdirSync(staging, { recursive: true })
-    const bin = buildVendoredHost(join(staging, 'podium-host'))
-    if (!bin) return undefined
-    const got = hostBinFeatures(bin)
-    if (got !== C_HOST_FEATURES) {
-      console.warn(
-        `[podium] built podium-host reports feature level ${got}, expected ${C_HOST_FEATURES}`,
-      )
-      return undefined
-    }
-    writeFileSync(
-      join(staging, 'manifest.json'),
-      `${JSON.stringify({ features: C_HOST_FEATURES, sourceHash: hash, builtAt: new Date().toISOString() } satisfies HostManifest, null, 2)}\n`,
-    )
-    let displaced = false
-    if (existsSync(dir)) {
-      renameSync(dir, trash)
-      displaced = true
-    }
-    renameSync(staging, dir)
-    if (displaced) rmSync(trash, { recursive: true, force: true })
-    publishPointer(tag)
-    return join(dir, 'podium-host')
-  } catch (e) {
-    console.warn(`[podium] podium-host managed build failed: ${e instanceof Error ? e.message : e}`)
-    return undefined
-  } finally {
-    rmSync(staging, { recursive: true, force: true })
-    rmSync(trash, { recursive: true, force: true })
-  }
+function publishedSourceHost(root: string, hash: string): string | undefined {
+  const bin = join(root, hash.slice(0, 16), RUST_HOST_BINARY)
+  return existsSync(bin) && hostBinFeatures(bin) >= HOST_FEATURES ? bin : undefined
 }
 
 /**
- * The managed host, building it if the one on disk is missing or stale. `built`
- * says whether THIS call compiled it (how concurrent builders are shown to serialize).
+ * The source checkout's Rust host, building it when the published one for the
+ * current source hash is missing. `built` says whether THIS call built it (how
+ * concurrent builders are shown to serialize). Undefined outside a source
+ * checkout, or when the build fails ({@link lastSourceBuildError} says why).
  */
-export function ensureManagedHost(opts?: {
-  requireFeatures?: number
-}): { bin: string; built: boolean } | undefined {
+export function ensureSourceRustHost(
+  crate: string = VENDOR_CRATE,
+): { bin: string; built: boolean } | undefined {
   if (!hostSupported()) return undefined
-  const required = opts?.requireFeatures ?? C_HOST_FEATURES
-  if (C_HOST_FEATURES < required) return undefined
-  const ready = verifyManaged(required)
+  const hash = vendoredRustHostSourceHash(crate)
+  const root = sourceRustHostCacheDir()
+  if (!hash || !root) return undefined
+  const ready = publishedSourceHost(root, hash)
   if (ready) return { bin: ready, built: false }
-  if (!existsSync(VENDOR_HOST_C)) return undefined
-  mkdirSync(binDir(), { recursive: true })
-  const lock = join(binDir(), `.podium-host-v${C_HOST_FEATURES}.lock`)
-  if (!acquireBuildLock(lock)) return undefined
+  mkdirSync(root, { recursive: true })
+  const lock = join(root, '.build.lock')
+  if (!acquireBuildLock(lock)) {
+    lastSourceBuildError = `could not take the build lock ${lock}`
+    return undefined
+  }
+  const tag = `${process.pid}-${Math.random().toString(36).slice(2, 8)}`
+  const dir = join(root, hash.slice(0, 16))
+  const staging = join(root, `.staging-${tag}`)
   try {
-    const won = verifyManaged(required)
+    const won = publishedSourceHost(root, hash)
     if (won) return { bin: won, built: false }
-    const bin = buildManagedHost()
-    return bin ? { bin, built: true } : undefined
+    console.warn(`[podium] building the Rust podium-host from ${crate} (first use of this source)`)
+    const built = cargoBuild(crate, join(root, 'target'))
+    if (!built) return undefined
+    mkdirSync(staging, { recursive: true })
+    copyFileSync(built, join(staging, RUST_HOST_BINARY))
+    writeFileSync(
+      join(staging, 'manifest.json'),
+      `${JSON.stringify({ features: hostBinFeatures(built), sourceHash: hash, builtAt: new Date().toISOString() }, null, 2)}\n`,
+    )
+    rmSync(dir, { recursive: true, force: true })
+    renameSync(staging, dir)
+    return { bin: join(dir, RUST_HOST_BINARY), built: true }
+  } catch (e) {
+    lastSourceBuildError = `publishing the build failed: ${e instanceof Error ? e.message : String(e)}`
+    return undefined
   } finally {
+    rmSync(staging, { recursive: true, force: true })
     rmSync(lock, { force: true })
   }
 }
+
+// ---- resolution --------------------------------------------------------------
 
 let resolved: { bin: string | undefined } | undefined
 
 /**
  * Resolve (and memoize) the podium-host binary per the order above. Returns
- * undefined when no host can be obtained (the daemon then falls back to abduco,
- * then to a bare PTY).
+ * undefined when no Rust host can be obtained, after printing why; the daemon
+ * then refuses every spawn.
  */
 export function resolveHostBin(opts?: { fresh?: boolean }): string | undefined {
   if (opts?.fresh) resolved = undefined
@@ -327,23 +313,27 @@ function locate(): string | undefined {
   if (!hostSupported()) return undefined
   const explicit = process.env.PODIUM_HOST_BIN
   if (explicit) {
-    if (hostBinFeatures(explicit) >= C_HOST_FEATURES) return explicit
+    if (hostBinFeatures(explicit) >= HOST_FEATURES) return explicit
     console.error(
-      `[podium] PODIUM_HOST_BIN=${explicit} does not run as a podium-host at feature level ${C_HOST_FEATURES}. Refusing to fall back — unset it or point it at a podium-host build.`,
+      `[podium] PODIUM_HOST_BIN=${explicit} does not run as a podium-host at feature level ${HOST_FEATURES}. Refusing to fall back — unset it or point it at a Rust podium-host build.`,
     )
     return undefined
   }
-  const rust = bundledRustHostPath()
-  if (existsSync(rust) && hostBinFeatures(rust) >= HOST_FEATURES) return rust
-  const managed = verifyManaged(C_HOST_FEATURES)
-  if (managed) return managed
-  const cache = defaultHostCachePath()
-  // A materialized binary (compiled distribution: no source to hash) counts when
-  // it carries the feature; our own pointer is covered by the managed path.
-  if (!isManagedPointer(cache) && existsSync(cache) && hostBinFeatures(cache) >= C_HOST_FEATURES) {
-    return cache
-  }
-  return ensureManagedHost()?.bin
+  const payload = bundledRustHostPath()
+  if (existsSync(payload) && hostBinFeatures(payload) >= HOST_FEATURES) return payload
+  lastSourceBuildError = undefined
+  const source = ensureSourceRustHost()
+  if (source) return source.bin
+  const payloadState = existsSync(payload)
+    ? `${payload} does not run as a podium-host at feature level ${HOST_FEATURES}`
+    : `${payload} does not exist`
+  const sourceState = vendoredRustHostSourceHash()
+    ? `the source build failed: ${lastSourceBuildError ?? 'unknown error'}`
+    : 'this is not a source checkout, so there is nothing to build'
+  console.error(
+    `[podium] no podium-host: ${payloadState}, and ${sourceState}. This daemon refuses to start sessions until a Rust podium-host is available (reinstall Podium, or set PODIUM_HOST_BIN).`,
+  )
+  return undefined
 }
 
 export function isHostAvailable(): boolean {

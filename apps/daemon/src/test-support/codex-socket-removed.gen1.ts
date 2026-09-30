@@ -27,7 +27,7 @@ const sessionId = process.env.GEN1_SESSION as SessionId
 const workdir = process.env.GEN1_WORKDIR as string
 const facts = codexEngineFacts(manifestFor('codex')!)
 const sessionEngines = createSessionEngineScope(
-  createDurableProcess('host', { host: true, abduco: false }),
+  createDurableProcess(),
   { sessions: new SessionRegistry(), socketRoot: engineSocketRoot },
 )
 const host = createCodexEngineHost({

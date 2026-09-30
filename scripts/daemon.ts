@@ -53,7 +53,7 @@ await bootProcess({
       machineId: readOrCreateLocalMachineId(),
       installCodexHooks: true,
       installGrokHooks: true,
-      // `--backend host|abduco|none`; PODIUM_DURABLE_BACKEND is read by the daemon itself.
+      // `--backend host|none`; PODIUM_DURABLE_BACKEND is read by the daemon itself.
       ...(backend ? { backend } : {}),
     }),
   // TELL THE TRUTH ABOUT THE LINK (POD-1585). `startDaemon` resolves on first

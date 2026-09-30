@@ -43,7 +43,7 @@ const turn = restartTurn({
   files,
   snapshot,
 })
-const engines = createSessionEngineScope(createDurableProcess('host', { host: true, abduco: false }), { sessions: new SessionRegistry() })
+const engines = createSessionEngineScope(createDurableProcess(), { sessions: new SessionRegistry() })
 const handle = runRestartTurn(engines, turn, snapshot)
 handle.done.then(
   (outcome) => process.stdout.write(`GEN1-SETTLED ${JSON.stringify(outcome)}\n`),

@@ -47,7 +47,6 @@ import {
   createDurableProcess,
   durableProcessFor,
   isHostAvailable,
-  sweepStaleDurableBindTemps,
 } from '@podium/process/durable'
 import { driverSlotsOver } from './session/driver-slots.js'
 import { SessionRegistry } from './session/registry.js'
@@ -382,8 +381,7 @@ export async function createDaemonHostRuntime(args: {
   const config = loadConfig()
   const launch = opts.launch ?? agentLaunchCommand
   const { backend, available: durableAvailable } = selectDurableBackend(opts)
-  const durable =
-    opts.durable ?? (backend === 'none' ? undefined : createDurableProcess(backend, durableAvailable))
+  const durable = opts.durable ?? (backend === 'none' ? undefined : createDurableProcess())
   /**
    * NO DURABLE PROCESS, NO SESSIONS (POD-4617). The daemon still boots — so the
    * machine stays visible and inventory and credentials keep working — but
@@ -396,16 +394,12 @@ export async function createDaemonHostRuntime(args: {
    * THE SERVER-FAMILY ENGINE DURABLE (POD-4433; added additively for the 2.1
    * lifecycle lane inheriting this file). Engines are never terminal sessions,
    * so they never follow the terminal `--backend`: this object always carries
-   * the host adapter, which is what pty-less `spawnHeadless` needs. It reuses
-   * the boot probe (`durableAvailable.host`) rather than probing again, and it
+   * the host adapter, which is what pty-less `spawnHeadless` needs. It
    * exists even on `backend=none` so server drivers keep working wherever
    * podium-host builds; where no host can be built their launch refuses loudly
    * instead of forking a child no restart could re-adopt.
    */
-  const engineDurable = createDurableProcess('host', {
-    host: durableAvailable.host,
-    abduco: false,
-  })
+  const engineDurable = createDurableProcess()
   const identityStateDir = opts.identityDir ?? stateDir()
   const handedMachineId = process.env[SUPERVISOR_MACHINE_ID_ENV]
   const identity = handedMachineId
@@ -1073,7 +1067,7 @@ export async function createDaemonHostRuntime(args: {
    *
    * ABSENT WHEN THE DAEMON HAS NO DURABLE HOST, deliberately (POD-3917). A
    * `backend=none` daemon builds no terminal host at all rather than silently
-   * substituting abduco — see `createClientTerminalsFor` for the reason. The
+   * substituting a bare pty — see `createClientTerminalsFor` for the reason. The
    * drivers refuse a Native attach with their per-machine wording, and the
    * metrics below report zero reclaimable attachments.
    */
@@ -1132,7 +1126,7 @@ export async function createDaemonHostRuntime(args: {
    * sides of the same wiring cycle the terminal runtime documents below: every
    * driver host asks it for resource truth, and it asks the machine runtime
    * which sessions exist. Family-blind by construction — a binding carries a
-   * scope unit whatever produced it, so one poller covers abduco masters,
+   * scope unit whatever produced it, so one poller covers podium-hosts,
    * app-servers and ACP children alike.
    */
   const scopeMonitor = createScopeMonitor({
@@ -1606,8 +1600,8 @@ export async function createDaemonHostRuntime(args: {
    * A park kill is fire-and-forget across a link that drops, and the server that
    * sent it may since have restarted, so a row can sit 'hibernated' over a live
    * agent indefinitely — nothing else in the system ever re-asks. This is the
-   * re-ask, sent on every connect: one socket-index read, no `abduco` fork, so a
-   * wedged master cannot turn it into a hang.
+   * re-ask, sent on every connect: one socket-index read plus a bounded probe
+   * per socket, so a wedged host cannot turn it into a hang.
    */
   const pushDurableSessionCensus = (): void => {
     if (backend === 'none') return
@@ -1620,8 +1614,6 @@ export async function createDaemonHostRuntime(args: {
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          // Both hosts: a session created under abduco before the switch is
-          // still a live session this machine holds.
           send({ type: 'durableSessionCensus', labels: (await durable?.list()) ?? [] })
         } catch (err) {
           log.warn('could not census the durable sessions', { err })
@@ -1734,9 +1726,6 @@ export async function createDaemonHostRuntime(args: {
       uploadsGcTimer.unref?.()
       stopInventoryRefresh = startInventoryRefresh(ctx)
       void sweepHandoffStage({ ...(homeDir ? { homeDir } : {}) }).catch(() => undefined)
-      // Leftover `.abduco-<pid>` bind probes (killed spawn / crashed runner)
-      // inflate every later socket readdir. Sweep before the reattach storm.
-      sweepStaleDurableBindTemps()
     }
     for (const diagnostic of [...portConflicts, ...backendDiagnostics]) {
       send({ type: 'machineDiagnostic', ...diagnostic })

@@ -51,7 +51,7 @@ import { SessionRegistry } from '../session/registry.js'
 const root = process.env.GEN1_ROOT as string
 const workdir = `${root}/work`
 const noResources = () => undefined
-const durable = createDurableProcess('host', { host: true, abduco: false })
+const durable = createDurableProcess()
 // Gen1 launches through the session layer's engine hold, exactly as the
 // daemon wires it.
 const sessionEngines = createSessionEngineScope(durable, { sessions: new SessionRegistry(), socketRoot: engineSocketRoot })

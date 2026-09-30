@@ -5,9 +5,10 @@
  *  - **backends** (`./pty`) — `Bun.spawn({ terminal })`, feature-detected
  *    rather than assumed because a stale Bun in the daemon once rendered every
  *    remote terminal black.
- *  - **durable hosts** (`./durable`) — abduco (with the vendored ISC source
- *    built/embedded on demand), plus the per-master systemd transient scopes
- *    that keep an agent's CPU/IO weight off the daemon's. A durable host is
+ *  - **durable host** (`./durable`) — podium-host (the vendored Rust crate,
+ *    shipped prebuilt and built from source in a checkout), plus the per-host
+ *    systemd transient scopes that keep an agent's CPU/IO weight off the
+ *    daemon's. A durable host is
  *    what makes a session survive the daemon. Import `./durable` to reach it:
  *    the root deliberately does NOT re-export it, so building a durable host
  *    is always a visible, deliberate import (P2a closes the blanket hole that
@@ -67,4 +68,3 @@ export {
   readCgroupPressure,
 } from './cgroup.js'
 export { shellQuote } from './shell-quote.js'
-export { createAltScreenStripper } from './alt-screen-stripper.js'

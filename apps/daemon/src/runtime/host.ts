@@ -28,7 +28,7 @@ import {
   durableProcessFor,
   scopeUnitName,
 } from '@podium/process/durable'
-import { instanceRuntimeSocketRoot } from '@podium/runtime/abduco-socket'
+import { instanceRuntimeSocketRoot } from '@podium/runtime/unix-socket'
 import { resolveInstanceId } from '@podium/runtime/instance'
 import WebSocket from 'ws'
 import type { AgentKind, SessionId } from '@podium/model'

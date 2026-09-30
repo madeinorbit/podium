@@ -8,10 +8,12 @@ import type { Geometry } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { assertLinuxUnixSocketPath, resolveInstanceId } from '@podium/runtime/instance'
 import { resolveScopeBudget } from '@podium/runtime/scope'
+import type { PtyProcess } from './backends/types.js'
+import { HOST_UNAVAILABLE, resolveHostBin } from './host-bin.js'
 import {
-  type AbducoSpawnOptions,
   applySessionsSliceBudget,
   canScopeMaster,
+  type DurableSpawnOptions,
   execCreate,
   liveEnv,
   scopeEnv,
@@ -21,9 +23,7 @@ import {
   type SystemctlRunner,
   systemdScopeArgv,
   userRuntimeDir,
-} from './abduco.js'
-import type { PtyProcess } from './backends/types.js'
-import { resolveHostBin } from './host-bin.js'
+} from './scope.js'
 import { type AgentPicture, type DurableAttachment, wrapPty } from './session.js'
 
 const log = createLogger('pty:host')
@@ -32,8 +32,9 @@ const log = createLogger('pty:host')
  * podium-host-backed durable sessions (SPEC-6). The host is our own process: it
  * owns the child and its pty, keeps a byte-sequenced ring of output, grants one
  * writer lease, applies resizes itself and answers with the kernel's size, and
- * reports the child's real exit status. This module exposes the abduco module's
- * shape one for one, so the daemon swaps by backend and nothing else moves.
+ * reports the child's real exit status. It is the only durable backend on Linux
+ * and macOS (POD-4986): the Rust host is the one spawned, and a C host an older
+ * daemon started is still adopted through this same protocol until it exits.
  */
 
 // ---- wire protocol -----------------------------------------------------------
@@ -599,8 +600,7 @@ export function connectHost(
 /**
  * Where a label's host socket lives: `<root>/hosts/<instance>/<label>.sock`, root
  * being the user runtime dir when there is one (tmpfs, per-login) else the state
- * dir. `PODIUM_HOST_SOCKET_DIR` overrides the root for tests and odd hosts, the
- * way `ABDUCO_SOCKET_DIR` does for abduco.
+ * dir. `PODIUM_HOST_SOCKET_DIR` overrides the root for tests and odd hosts.
  */
 export function hostSocketDir(env: NodeJS.ProcessEnv = process.env): string {
   const instance = resolveInstanceId(env)
@@ -700,7 +700,7 @@ async function hostSocketAlive(path: string): Promise<boolean> {
 /**
  * Every durable label a live host on this machine is still RUNNING: readdir plus
  * one connect probe per socket. A socket nobody answers is unlinked; a host whose
- * child exited (lingering) is excluded, as abduco's terminated masters are.
+ * child exited (lingering) is excluded.
  */
 export async function listLiveHostLabels(env: NodeJS.ProcessEnv = process.env): Promise<string[]> {
   const labels = new Set<string>()
@@ -734,7 +734,7 @@ export async function listLiveHostLabels(env: NodeJS.ProcessEnv = process.env): 
  * End the session: a writer HELLO followed by KILL (SIGTERM, SIGKILL after 5 s,
  * EXITED, host exits). When the lease is held by someone else the host itself is
  * signalled instead — SIGTERM, which the host turns into the same KILL sequence
- * and escalates on its own. The systemd scope is swept in parallel, as for abduco.
+ * and escalates on its own. The systemd scope is swept in parallel.
  */
 export async function killHostSession(
   label: string,
@@ -840,8 +840,7 @@ export interface HostDurableAttachment extends DurableAttachment {
 /**
  * Attach to a host as the writer. The connection is wrapped as a
  * `PtyProcess`-shaped view and handed to {@link wrapPty}, so frame/title/exit
- * plumbing is the one every backend uses. Differences from abduco, all in the
- * host's favour: `resize()` is acknowledged, and `size()`/`onSize` carry the size
+ * plumbing is the one every attachment uses. `resize()` is acknowledged, and `size()`/`onSize` carry the size
  * the KERNEL reports (WELCOME, RESIZED); the attach announces nothing to the program; `pid` is
  * the child's; `onExit` carries the real status; DATA arrives with sequence
  * numbers so a reconnect replays what was missed instead of asking for a repaint.
@@ -1091,11 +1090,10 @@ export function hostCreateArgs(opts: HostCreateCommand): string[] {
 }
 
 /**
- * Create a host running the agent, then attach as the writer. Mirrors
- * {@link spawnAbducoAgent}: a live host under the label is ADOPTED; a create that
- * finds one already running (exit 3) adopts it too; on Linux the host is launched
- * in the same transient systemd scope, with the same unit name and budget, so it
- * outlives a redeploy.
+ * Create a host running the agent, then attach as the writer. A live host under
+ * the label is ADOPTED; a create that finds one already running (exit 3) adopts
+ * it too; on Linux the host is launched in its own transient systemd scope
+ * ({@link systemdScopeArgv}), so it outlives a redeploy.
  *
  * With `noPty` the child gets pipes instead of a pty and stdout+stderr merge
  * into the same sequence-numbered ring; resize/size answer ERR NO_PTY. The
@@ -1103,10 +1101,10 @@ export function hostCreateArgs(opts: HostCreateCommand): string[] {
  * daemon restart re-adopt a headless engine (POD-4433).
  */
 export async function spawnHostAgent(
-  opts: AbducoSpawnOptions & HostRetention,
+  opts: DurableSpawnOptions & HostRetention,
 ): Promise<HostDurableAttachment> {
   const bin = resolveHostBin()
-  if (!bin) throw new Error('podium-host unavailable: no managed build could be made')
+  if (!bin) throw new Error(HOST_UNAVAILABLE)
   const childEnv: Record<string, string> = {
     ...scopeEnv(liveEnv()),
     TERM: 'xterm-256color',

@@ -1,16 +1,16 @@
 import { createLogger } from '@podium/logger'
-import { isAbducoAvailable, isHostAvailable } from '@podium/process/durable'
+import { isHostAvailable } from '@podium/process/durable'
 import type { DurableBackend } from './control/context'
 import type { DaemonOptions } from './daemon-options'
 
 const log = createLogger('daemon:durable')
 
-const BACKENDS: readonly DurableBackend[] = ['host', 'abduco', 'none']
+const BACKENDS: readonly DurableBackend[] = ['host', 'none']
 
 export function noDurableBackendWarning(platform: NodeJS.Platform = process.platform): string {
   return platform === 'win32'
     ? 'windows: podium-host does not run here — this daemon refuses to start sessions'
-    : 'podium-host and abduco not found — this daemon refuses to start sessions'
+    : 'podium-host not found — this daemon refuses to start sessions'
 }
 
 /**
@@ -46,11 +46,11 @@ export function noDurableBackendDiagnostic(platform: NodeJS.Platform = process.p
   const why =
     platform === 'win32'
       ? 'podium-host, the program that keeps sessions running across daemon restarts, does not run on Windows yet.'
-      : 'podium-host, the program that keeps sessions running across daemon restarts, is missing and could not be built on this machine.'
+      : 'podium-host, the program that keeps sessions running across daemon restarts, is missing from this installation.'
   return {
     code: NO_DURABLE_BACKEND_DIAGNOSTIC,
     title: 'This machine cannot start sessions',
-    body: `${why} The daemon is connected, but it refuses to start any agent, shell or login session until podium-host is available. Reinstall Podium on this machine, or make a C compiler available so podium-host can be built, then restart the daemon.`,
+    body: `${why} The daemon is connected, but it refuses to start any agent, shell or login session until podium-host is available. Reinstall Podium on this machine (a source checkout builds it with the Rust toolchain pinned in packages/pty/vendor/podium-host-rs), then restart the daemon.`,
     description: `This machine refuses to start sessions because ${why.charAt(0).toLowerCase()}${why.slice(1)}`,
   }
 }
@@ -60,14 +60,22 @@ export function isDurableBackend(value: string | undefined): value is DurableBac
 }
 
 /**
- * `--backend host|abduco|none` from an argv, or undefined. The daemon entry
- * points that parse argv pass the result as `DaemonOptions.backend`.
+ * `--backend host|none` from an argv, or undefined. The daemon entry points
+ * that parse argv pass the result as `DaemonOptions.backend`.
+ *
+ * `abduco` was a backend until POD-4986. An argv that still names it (a unit
+ * written by an older install) is not a reason to refuse to boot: it is
+ * ignored with a warning, and the daemon selects podium-host as usual.
  */
 export function parseBackendArg(argv: readonly string[]): DurableBackend | undefined {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     const value = a === '--backend' ? argv[i + 1] : a?.startsWith('--backend=') ? a.slice(10) : undefined
     if (value === undefined) continue
+    if (value === 'abduco') {
+      log.warn('--backend abduco is no longer supported; ignoring it (podium-host is the only backend)')
+      return undefined
+    }
     if (!isDurableBackend(value)) {
       throw new Error(`--backend must be one of ${BACKENDS.join(', ')}, got '${value}'`)
     }
@@ -78,11 +86,11 @@ export function parseBackendArg(argv: readonly string[]): DurableBackend | undef
 
 /**
  * Which durable host this daemon uses: an explicit option or `PODIUM_DURABLE_BACKEND`
- * wins; otherwise the first of host → abduco → none that is available.
+ * wins; otherwise `host` when a podium-host is available, else `none`.
  */
 export function resolveDurableBackend(
   opts: Pick<DaemonOptions, 'backend'>,
-  available: { host?: boolean; abduco: boolean },
+  available: { host: boolean },
   env: NodeJS.ProcessEnv = process.env,
 ): DurableBackend {
   if (opts.backend) return opts.backend
@@ -94,32 +102,20 @@ export function resolveDurableBackend(
       accepted: BACKENDS,
     })
   }
-  if (available.host) return 'host'
-  if (available.abduco) return 'abduco'
-  return 'none'
+  return available.host ? 'host' : 'none'
 }
 
 export function selectDurableBackend(
   opts: Pick<DaemonOptions, 'backend'>,
-  probe: { host: () => boolean; abduco: () => boolean } = {
-    host: isHostAvailable,
-    abduco: isAbducoAvailable,
-  },
-): { backend: DurableBackend; available: { host: boolean; abduco: boolean } } {
-  const explicit = opts.backend ?? (isDurableBackend(process.env.PODIUM_DURABLE_BACKEND?.trim()) ? process.env.PODIUM_DURABLE_BACKEND?.trim() : undefined)
-  // Probe lazily: an explicit `none` must not build a binary, and an explicit
-  // host/abduco only needs the OTHER probe for the reattach fall-through.
-  const host = explicit === 'none' ? false : explicit === 'abduco' ? probe.host() : probe.host()
-  const abduco = explicit === 'none' ? false : probe.abduco()
-  const available = { host, abduco }
+  probe: { host: () => boolean } = { host: isHostAvailable },
+): { backend: DurableBackend; available: { host: boolean } } {
+  const fromEnv = process.env.PODIUM_DURABLE_BACKEND?.trim()
+  const explicit = opts.backend ?? (isDurableBackend(fromEnv) ? fromEnv : undefined)
+  // Probe lazily: an explicit `none` must not resolve (or build) a binary.
+  const available = { host: explicit === 'none' ? false : probe.host() }
   const backend = resolveDurableBackend(opts, available)
-  if (explicit === undefined) {
-    // One warning per fallback step, so an operator can see why the daemon is
-    // not on the host it would have chosen.
-    if (backend !== 'host') {
-      log.warn('podium-host unavailable — falling back', { to: backend, platform: process.platform })
-    }
-    if (backend === 'none') log.warn(noDurableBackendWarning(), { platform: process.platform })
+  if (explicit === undefined && backend === 'none') {
+    log.warn(noDurableBackendWarning(), { platform: process.platform })
   }
   return { backend, available }
 }

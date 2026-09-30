@@ -18,9 +18,9 @@
  */
 
 import type {
-  AbducoSpawnOptions,
   DurableAttachment,
   DurableProcess,
+  DurableSpawnOptions,
 } from '@podium/process/durable'
 
 /**
@@ -37,7 +37,7 @@ import type {
  */
 export interface ClientProcessOwner {
   /** Create-or-adopt the session's client master (spec §5). */
-  spawnClient(opts: AbducoSpawnOptions): Promise<DurableAttachment>
+  spawnClient(opts: DurableSpawnOptions): Promise<DurableAttachment>
   /** Reclaim the client master holding this label (spec §5). */
   reclaimClient(label: string): Promise<void>
   /**
@@ -63,7 +63,7 @@ export class SessionClientScope implements ClientProcessOwner {
   ) {}
 
   /** Create-or-adopt the session's client master (spec §5). */
-  async spawnClient(opts: AbducoSpawnOptions): Promise<DurableAttachment> {
+  async spawnClient(opts: DurableSpawnOptions): Promise<DurableAttachment> {
     return this.durable.spawn(opts)
   }
 
@@ -75,11 +75,10 @@ export class SessionClientScope implements ClientProcessOwner {
   /**
    * THE PROBE MUST LOOK WHERE THE SPAWN PUT IT (POD-2761).
    *
-   * `abducoSocketDirs` falls back to `$HOME/.abduco` when `ABDUCO_SOCKET_DIR`
-   * is unset, and the master is created against the CLIENT's environment —
-   * whose `HOME` is the instance agent home, not the daemon's. A default probe
-   * on `process.env` therefore reads a different directory and answers "no
-   * master" for one that is running.
+   * The master is created against the CLIENT's environment — whose `HOME` is
+   * the instance agent home, not the daemon's — and the probe must resolve
+   * the socket directory from that same environment, or it can read a
+   * different directory and answer "no master" for one that is running.
    *
    * `process.env` is read PER CALL rather than captured, because the instance
    * env is applied to it during boot and this scope is built on that path.
@@ -97,8 +96,8 @@ export class SessionClientScope implements ClientProcessOwner {
  * `durable` undefined (never bound) = no hold at all: a `backend=none` daemon
  * builds no client owner, the caller leaves its client terminals unset, and
  * the server-family drivers refuse a Native attach with their per-machine
- * wording (POD-3917). `undefined` is the honest answer; abduco is not this
- * daemon's to give.
+ * wording (POD-3917). `undefined` is the honest answer; no other host is
+ * this daemon's to give.
  */
 export function createSessionClientScope(
   durable: DurableProcess | undefined,

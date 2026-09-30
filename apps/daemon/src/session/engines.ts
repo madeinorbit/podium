@@ -50,11 +50,7 @@ import {
   type DurableProcess,
   type HostDurableAttachment,
 } from '@podium/process/durable'
-import {
-  ABDUCO_SUN_PATH_MAX,
-  unixSocketPathBytes,
-  unixSocketPathFits,
-} from '@podium/runtime/abduco-socket'
+import { SUN_PATH_MAX, unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/unix-socket'
 import { noDurableBackendRefusal } from '../durable-backend'
 import { createEngineJournal } from './journal.js'
 import type { SessionRegistry } from './registry.js'
@@ -87,7 +83,7 @@ export function engineSocketPath(
   if (!unixSocketPathFits(path)) {
     throw new Error(
       `engine socket path is ${unixSocketPathBytes(path)} bytes; ` +
-        `Unix socket paths must be shorter than ${ABDUCO_SUN_PATH_MAX} bytes: ${path}`,
+        `Unix socket paths must be shorter than ${SUN_PATH_MAX} bytes: ${path}`,
     )
   }
   return path
@@ -117,21 +113,17 @@ export interface SessionEngineScopeOptions {
 }
 
 /**
- * Pick the host adapter out of the daemon's durable object. Engines are never
- * terminal sessions, so they never follow the terminal backend: abduco has no
- * pty-less mode, and a daemon without a host adapter cannot own an engine at
- * all. Loud — a refused launch beats a child no restart could re-adopt.
+ * Pick the host adapter out of the daemon's durable object. A daemon without
+ * one cannot own an engine at all. Loud — a refused launch beats a child no
+ * restart could re-adopt.
  */
 function engineAdapter(durable: DurableProcess | undefined, what: string): DurableAdapter {
-  const found = durable?.all.find((a) => a.kind === 'host') ?? durable?.primary
-  if (!found || found.kind !== 'host') {
+  if (!durable) {
     throw new Error(
-      `engine supervision for '${what}' requires the podium-host backend: this daemon runs ${
-        durable ? `backend '${durable.backend}' with no host adapter` : 'with no durable backend'
-      }`,
+      `engine supervision for '${what}' requires the podium-host backend: this daemon runs with no durable backend`,
     )
   }
-  return found
+  return durable.primary
 }
 
 function toEngineAttachment(session: HostDurableAttachment): EngineAttachment {

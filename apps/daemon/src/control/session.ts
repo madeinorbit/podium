@@ -609,11 +609,10 @@ export function wireBridge(
         // The attach CLIENT exiting is NOT the AGENT exiting. disposeAll() on a
         // daemon shutdown/redeploy SIGKILLs the client; a user detach or a client
         // crash do the same. For a durable backend the master + agent live on in
-        // their own systemd scope (the whole point of abduco) — so reporting
-        // agentExit here would persist a live session as 'exited', and boot never
-        // reattaches an 'exited' row, orphaning a still-running agent. Only a
-        // vanished master is a real exit. (`abducoHasSession` runs `abduco`, which
-        // reaps the socket as it lists, so a just-exited master reads as gone.)
+        // their own systemd scope (the whole point of a durable host) — so
+        // reporting agentExit here would persist a live session as 'exited', and
+        // boot never reattaches an 'exited' row, orphaning a still-running agent.
+        // Only a vanished master is a real exit.
         const label = durableLabel
         void (async () => {
           if (await durableProcessFor(ctx)?.has(label)) return
@@ -861,7 +860,7 @@ export async function launchSpawn(
         )
       }
       // An adopted spawn started nothing: the durable master for this label was still
-      // running and we reattached to it (POD-1945 — a Resume used to die on abduco's
+      // running and we reattached to it (POD-1945 — a Resume used to die on
       // "address already in use" instead). Report it as the attach it is, so the row
       // does not claim a fresh launch that never happened.
       if (session.adopted) {
@@ -1199,7 +1198,7 @@ async function adoptServerDriverSession(
    * This consulted `ctx.opencodeRuntime` alone, so a codex session — which has
    * no entry in the OPENCODE journal — answered "not mine" and fell through to
    * the PTY path below, where the code's own words are that it "assumes a PTY:
-   * it asks whether an abduco socket still holds the durable
+   * it asks whether a durable host socket still holds the durable
    * label". The session came back `reattachFailed: session not found`, which is
    * verbatim the failure this function exists to prevent.
    *
@@ -1326,7 +1325,7 @@ async function adoptServerDriverSession(
      * THE JOURNAL SAID SERVER, AND NOTHING ANSWERED. Reported as a reattach
      * FAILURE rather than fallen through to the PTY path: falling through
      * would spawn nothing, find no durable host and report the same failure
-     * one layer down with a reason that names abduco — which would send the
+     * one layer down with a reason that names the PTY host — which would send the
      * next reader looking for a master that was never supposed to exist.
      */
     reapFailedAdoption()
@@ -2190,8 +2189,8 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
    *
    * This is the boot-time caller `adopt()` never had (found by POD-2056's lane,
    * which could not reach its own subject without it). Everything below this
-   * point assumes a PTY: it asks whether an abduco socket still holds the
-   * durable label. A server-family session has none — its
+   * point assumes a PTY: it asks whether a durable host socket still holds
+   * the durable label. A server-family session has none — its
    * process is an `opencode serve` on a loopback port — so a restarted daemon
    * looked for a master that never existed, answered `reattachFailed: session
    * not found`, and left a perfectly healthy server running ORPHANED with the
@@ -2363,8 +2362,9 @@ export async function recoverTerminalHost(
     const durable = durableProcessFor(ctx)
     if (durable) {
       const env = ctx.homeDir ? { ...process.env, HOME: ctx.homeDir } : process.env
-      // HOST FIRST, THEN ABDUCO, whatever this daemon spawns with: a session
-      // created under abduco before the switch lives there until it exits.
+      // Any live podium-host holds it, Rust or a C host an older daemon
+      // started: both speak the one protocol (POD-4986). A session an abduco
+      // master holds is logged once and left alone — it cannot be re-adopted.
       const located = await durable.locate(msg.durableLabel, env, { waitMs: 1500 })
       if (located) {
         try {
@@ -2396,7 +2396,6 @@ export async function recoverTerminalHost(
     // THE ATTACH RESIZES NOTHING (POD-4723). The Terminal states the host's
     // WELCOME size through the size event — which reports it and sizes the
     // model before the ring replay below — and the bind carries the same size.
-    // abduco cannot read its size back, so it states nothing and binds bare.
     const terminal = wireBridge(ctx, msg.sessionId, found.attachment, msg.agentKind, msg.durableLabel)
     // The settings file from the original spawn still points at our fixed port,
     // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
@@ -2438,7 +2437,7 @@ export async function recoverTerminalHost(
       cwd: msg.cwd,
       agentKind: msg.agentKind,
       // THE CONNECTION'S SIZE (POD-4723): the host's WELCOME, so a daemon
-      // restart binds the size the program really has. Bare on abduco.
+      // restart binds the size the program really has.
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
       // The driver handle actually exists for this session (POD-1761 W4,
       // unconditional since POD-4426). The server records `driverId` on the
@@ -2463,8 +2462,8 @@ export async function recoverTerminalHost(
  * Locate the master, take the lease over a fresh attachment (the revoked
  * holder hears LEASE_LOST on its own connection), and wire the stolen surface
  * through the same ONE construction site as spawn and reattach. The session
- * never changes owner; only the attachment is replaced. Abduco has no lease
- * and refuses the steal loudly; a missing master answers 'session not found'.
+ * never changes owner; only the attachment is replaced. A missing master
+ * answers 'session not found'.
  * Success reports a bind (the attach applied nothing, so it carries no
  * geometry); failure answers reattachFailed with the reason named.
  */

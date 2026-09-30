@@ -23,8 +23,8 @@ import type { ShippingExecutionPlane } from '../shipping/executor'
 import type { DiscoveryWorkerClient } from '../worker-client'
 import type { SessionCwdTracker } from '../worktree-resolve'
 
-/** What holds the agent's PTY across daemon restarts: our own podium-host, abduco,
- *  or `none` = bare Bun.Terminal. Canonical definition lives in
+/** What holds the agent's PTY across daemon restarts: our own podium-host, or
+ *  `none` = no durable host (every spawn refuses, POD-4617). Canonical definition lives in
  *  `@podium/process/durable`; re-exported here so existing
  *  `./control/context` importers keep working. */
 export type { DurableBackend } from '@podium/process/durable'
