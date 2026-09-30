@@ -126,7 +126,7 @@ function expectParity(ctx: ScenarioEngine, handle: ReturnType<typeof harnessMobx
   const locals = parityLocals(ctx)
   const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), locals.coarseNow)
   const expected = visibleIssueRows(derivation, locals).map((row) => row.issue.id)
-  expect(visibleOrderOf(handle.pool), 'visible order').toEqual(expected)
+  expect(tracked(() => visibleOrderOf(handle.pool)), 'visible order').toEqual(expected)
   const diff = diffSnapshots(snapshot, snapshotFromStore(ctx.engine.getSnapshot(), locals))
   expect(diff, 'snapshot rows').toBeNull()
 }

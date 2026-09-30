@@ -170,15 +170,16 @@ function layoutIds(layout: Layout): string[] {
  * The visible ids in L1b rank order, read from the group lanes (the product
  * `VisibleCollection` maintains them but exposes no copy): the layout's ids
  * sorted by each row's cached rank. What the deleted `worklist.order` read.
+ * A plain read: call inside `tracked()` (or any reaction), like any other
+ * observable read — it must never create its own reaction, so it stays
+ * usable inside derivations.
  */
 export function visibleOrderOf(pool: MobxPool): readonly string[] {
-  return tracked(() => {
-    const layout = pool.groups.layout
-    const ids = layoutIds(layout)
-    const ranks = new Map<string, ReturnType<typeof pool.groups.rankOf>>()
-    for (const id of ids) ranks.set(id, pool.groups.rankOf(id))
-    return ids.sort((a, b) => compareRank(ranks.get(a)!, ranks.get(b)!))
-  })
+  const layout = pool.groups.layout
+  const ids = layoutIds(layout)
+  const ranks = new Map<string, ReturnType<typeof pool.groups.rankOf>>()
+  for (const id of ids) ranks.set(id, pool.groups.rankOf(id))
+  return ids.sort((a, b) => compareRank(ranks.get(a)!, ranks.get(b)!))
 }
 
 /**

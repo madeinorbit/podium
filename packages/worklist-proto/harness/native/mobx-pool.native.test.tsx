@@ -86,7 +86,7 @@ describe('mobx pool on the native renderer', () => {
       )
       // Mb2 (POD-4570): a window of the grouped list, from the top. Visible
       // rows that are cold draw as loading placeholders until their load lands.
-      const visible = visibleOrderOf(handle.pool).length
+      const visible = tracked(() => visibleOrderOf(handle.pool).length)
       const drawnIds = [
         ...(list?.querySelectorAll('[data-testid^="row-"], [data-testid^="loading-"]') ?? []),
       ].map((el) => (el.getAttribute('data-testid') ?? '').replace(/^(row|loading)-/, ''))
@@ -127,7 +127,7 @@ describe('mobx pool on the native renderer', () => {
       // Only drawn visible rows redraw.
       const redrawn = [...mounted.log.counts.keys()]
       expect(redrawn).toContain(target)
-      const shown = new Set(visibleOrderOf(handle.pool))
+      const shown = new Set(tracked(() => visibleOrderOf(handle.pool)))
       expect(redrawn.filter((id) => !shown.has(id))).toEqual([])
     } finally {
       mounted.unmount()

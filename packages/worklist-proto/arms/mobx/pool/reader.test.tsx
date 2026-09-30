@@ -195,7 +195,7 @@ describe('POD-4743 the one row reader, not in memory', () => {
     // Kept out of memory, yet decided visible: the visibility parts read it by id.
     expect(tracked(() => pool.tables.issue.has(id))).toBe(false)
     expect(residency.isCold('issue', id)).toBe(true)
-    expect(visibleOrderOf(pool)).toContain(id)
+    expect(tracked(() => visibleOrderOf(pool))).toContain(id)
     expect(queuedCount(pool)).toBe(0)
 
     const el = document.createElement('div')

@@ -71,7 +71,7 @@ async function measure(scale: 1 | 4) {
   try {
     const visibility = filingReactions(reactions)
     const nodes = objectsBehind(visibility)
-    const order = visibleOrderOf(pool)
+    const order = tracked(() => visibleOrderOf(pool))
     // The drawn rows in list order (Mb2 wraps each item and adds group headers).
     const slots = [
       ...document.querySelectorAll('[data-pool-list] [data-issue-row], [data-pool-list] [data-loading-row]'),

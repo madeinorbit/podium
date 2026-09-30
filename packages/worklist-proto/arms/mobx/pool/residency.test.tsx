@@ -897,7 +897,7 @@ describe('the lane source (R3, POD-4745)', () => {
     expect(resident(r.pool)).toBe(true)
     expect(r.pool.residency?.isCold('issue', issueId)).toBe(false)
     expect(diffResidency(r.pool, r.replay.source)).toEqual([])
-    const drawn = visibleOrderOf(r.pool)
+    const drawn = tracked(() => visibleOrderOf(r.pool))
     // The oracle: the legacy derivation over the same corpus change.
     const legacy = buildCorpus(1)
     // Both spellings: the legacy model takes the projection's when present.
@@ -930,7 +930,7 @@ describe('the lane source (R3, POD-4745)', () => {
     // Without the run the same row is cold and not drawn (the case is live).
     const control = rig({ rows: rows(LANE, []) })
     expect(control.pool.residency?.isCold('issue', issueId)).toBe(true)
-    expect(visibleOrderOf(control.pool)).not.toContain(issueId)
+    expect(tracked(() => visibleOrderOf(control.pool))).not.toContain(issueId)
   })
 
   it('startup reads no row by id: the replace carries what its lane keeps, and cold twins are decided from what it handed over (POD-4753)', () => {
