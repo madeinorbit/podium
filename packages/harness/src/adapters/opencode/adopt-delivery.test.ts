@@ -36,6 +36,7 @@ function testProfileFor(agentKind: AgentKind): TerminalHarnessProfile {
     composerReadiness: manifest.capabilities.composerReadiness,
     acceptCorrelation: terminal.acceptCorrelation,
     transcriptTimestamps: terminal.transcriptTimestamps,
+    exitLosesUnrecorded: terminal.exitLosesUnrecorded === true,
     lifecycleFromState: terminal.lifecycleFromState === true,
     needsSubmitVerification: harnessNeedsSubmitVerification(agentKind),
     usesRawFirstTurn: harnessUsesRawFirstTurn(agentKind),

@@ -62,6 +62,8 @@ function world(grokSessionId: string) {
     mintSessionId: () => 'grok-receipt-proof' as SessionId,
     nativeArchivePollMs: 1,
     bindings: { recorded: () => undefined, bound() {}, released() {} },
+    // History is a Store read (POD-4782); these proofs never read it.
+    readHistory: async () => ({ items: [], hasMore: false }),
     async launch() {
       return {
         process: { key: 'grok-receipt-proof' },

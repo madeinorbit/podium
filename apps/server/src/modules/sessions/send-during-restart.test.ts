@@ -10,14 +10,16 @@
  * row that is forwarded when the daemon re-attaches.
  */
 import { afterEach, describe, expect, it } from 'vitest'
-import { legacyMessageStatus } from '../../store/messages'
+import { MESSAGE_PENDING } from '@podium/model'
 import type { MessageRow } from '../../store/types'
 import { disposeOracles, makeOracle } from './oracle-support'
 
-/** The ledger row's status in the words these tests were written in: the
- *  delivery status mapped the way the store maps it for older readers. */
-const statusOf = (row: MessageRow | undefined | null): string | undefined =>
-  row ? legacyMessageStatus(row.deliveryStatus, row.readAt != null) : undefined
+/** The ledger row's delivery status (the legacy status words are gone, POD-4787):
+ *  still pending is any status not yet ended, delivered is `confirmed`, a
+ *  dead letter is `failed`. */
+const statusOf = (row: MessageRow | undefined | null) => row?.deliveryStatus
+const pending = (status: string | undefined): boolean =>
+  (MESSAGE_PENDING as readonly string[]).includes(status ?? '')
 
 afterEach(() => disposeOracles())
 
@@ -41,7 +43,7 @@ describe('pod-4800: send queued across daemon restart', () => {
 
     // The bug: { ok:false, reason:'machine unreachable', disposition:'dead_letter' }
     // with no durable row and nothing forwarded on reattach.
-    expect(sent.disposition).not.toBe('dead_letter')
+    expect(sent.disposition).not.toBe('failed')
     expect(sent.ok).toBe(true)
 
     // Durable custody: the inbox FIFO holds the row while the daemon is away.
@@ -52,7 +54,7 @@ describe('pod-4800: send queued across daemon restart', () => {
     // The ledger row stays queued (not dead-lettered) for the same send.
     const messageId = (sent as { message?: { id?: string } }).message?.id ?? (sent as { id?: string }).id
     if (typeof messageId === 'string') {
-      expect(statusOf(await o.store.messages.getMessage(messageId))).toBe('queued')
+      expect(pending(statusOf(await o.store.messages.getMessage(messageId)))).toBe(true)
     }
   })
 
@@ -71,7 +73,7 @@ describe('pod-4800: send queued across daemon restart', () => {
     expect((await o.meta(sessionId)).status).toBe('reconnecting')
 
     const woken = await o.call.sessions.resumeAndSend({ sessionId, text: 'wake up' })
-    expect(woken.disposition).not.toBe('dead_letter')
+    expect(woken.disposition).not.toBe('failed')
     expect(woken.ok).toBe(true)
     expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(1)
   })

@@ -137,7 +137,7 @@ import type {
 } from '@podium/model'
 import { asSessionId, isProofOnlyItem, transcriptItemRefOf } from '@podium/model'
 import type { AgentObservation, ObservationProvenance, ProviderCursor } from '@podium/protocol'
-import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
+import { type DaemonMessage, isRuntimeFineEvent, type RuntimeHistoryPage } from '@podium/protocol/daemon'
 
 const log = createLogger('harness:terminal-driver')
 

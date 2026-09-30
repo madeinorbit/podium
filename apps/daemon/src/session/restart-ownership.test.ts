@@ -232,7 +232,7 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     // label is what teardown names after the policy is retired.
     entry1.clientLabel = clientLabel
     entry1.nativeRequested = true
-    const terminal1 = Terminal.attach(clientAttachment1, entry1.screen(), { onFrame: () => {} }, { kind: 'client' })
+    const terminal1 = Terminal.attach(clientAttachment1, entry1, { onFrame: () => {} }, { kind: 'client' })
     entry1.replaceTerminal(terminal1)
 
     // -- Before: each object has its decided holder -------------------------
@@ -310,7 +310,7 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     entry2.client = { label: clientLabel, kind: 'codex' }
     entry2.clientLabel = clientLabel
     entry2.nativeRequested = true
-    const terminal2 = Terminal.attach(clientAttachment2, entry2.screen(), { onFrame: () => {} }, { kind: 'client' })
+    const terminal2 = Terminal.attach(clientAttachment2, entry2, { onFrame: () => {} }, { kind: 'client' })
     entry2.replaceTerminal(terminal2)
 
     // The driver rebinds a FRESH handle and holds a fresh lease; the old

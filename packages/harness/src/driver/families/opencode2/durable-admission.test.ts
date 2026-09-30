@@ -126,6 +126,8 @@ async function fixture(lane: string, label = 'S1', file?: string) {
   const readHistoryAfterExit = vi.fn(() => [])
   const host: OpencodeRuntimeHost = {
     driverId: 'opencode2-server',
+    // History is a Store read (POD-4781); admission never reads it.
+    readHistory: async () => ({ items: [], hasMore: false }),
     launch: async () => ({
       baseUrl: 'http://127.0.0.1:41427',
       username: 'opencode',

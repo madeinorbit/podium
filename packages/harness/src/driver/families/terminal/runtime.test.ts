@@ -99,6 +99,7 @@ function testProfileFor(agentKind: AgentKind): TerminalHarnessProfile | undefine
     composerReadiness: manifest.capabilities.composerReadiness,
     acceptCorrelation: terminal.acceptCorrelation,
     transcriptTimestamps: terminal.transcriptTimestamps,
+    exitLosesUnrecorded: terminal.exitLosesUnrecorded === true,
     lifecycleFromState: terminal.lifecycleFromState === true,
     needsSubmitVerification: harnessNeedsSubmitVerification(agentKind),
     usesRawFirstTurn: harnessUsesRawFirstTurn(agentKind),
@@ -5491,7 +5492,7 @@ describe('terminal receipts from the history (POD-4905)', () => {
     items: readonly TranscriptItem[],
     upTo: number,
   ) {
-    const profile = terminalProfileFor(lane)
+    const profile = testProfileFor(lane)
     if (!profile) throw new Error(`no terminal profile for ${lane}`)
     const handle = await world.runtime.driverFor(lane, profile).create(SPEC)
     const sessionId = handle.binding.sessionId
@@ -5855,7 +5856,7 @@ describe('terminal receipts from the history (POD-4905)', () => {
     'cursor',
     'pi',
   ] as const)("%s's tolerance is unmeasured: a person's words are never credited, a wrapped message is", async (harness) => {
-    const profile = terminalProfileFor(harness)
+    const profile = testProfileFor(harness)
     if (!profile) throw new Error(`no profile for ${harness}`)
     const world = makeWorld()
     const handle = await world.runtime.driverFor(harness, profile).create(SPEC)
@@ -5953,7 +5954,7 @@ describe('terminal receipts from the history (POD-4905)', () => {
         return input.afterExit
       },
     })
-    const profile = terminalProfileFor(input.lane)
+    const profile = testProfileFor(input.lane)
     if (!profile) throw new Error(`no terminal profile for ${input.lane}`)
     const handle = await world.runtime.driverFor(input.lane, profile).create(SPEC)
     const sessionId = handle.binding.sessionId

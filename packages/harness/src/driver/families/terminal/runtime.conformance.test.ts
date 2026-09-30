@@ -86,6 +86,7 @@ function testProfileFor(harness: AgentKind): TerminalHarnessProfile | undefined 
     composerReadiness: manifest.capabilities.composerReadiness,
     acceptCorrelation: terminal.acceptCorrelation,
     transcriptTimestamps: terminal.transcriptTimestamps,
+    exitLosesUnrecorded: terminal.exitLosesUnrecorded === true,
     lifecycleFromState: terminal.lifecycleFromState === true,
     needsSubmitVerification: harnessNeedsSubmitVerification(harness),
     usesRawFirstTurn: harnessUsesRawFirstTurn(harness),
