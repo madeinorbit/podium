@@ -43,6 +43,25 @@ const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 const FLAVOR = opencodeFlavor(manifestFor('opencode')!)
 const FLAVOR2 = opencode2Flavor(manifestFor('opencode')!)
 
+it('passes the isolated store to the v2 pending-admission reader', () => {
+  const configs: unknown[] = []
+  const host = engineHost({
+    flavor: FLAVOR2,
+    flavorEnv: { OPENCODE_DB: '/instance/state/opencode2.db' },
+    makeClient: (config) => {
+      configs.push(config)
+      return createOpencodeClient(config)
+    },
+  })
+  host.makeClient!({
+    baseUrl: 'http://127.0.0.1:41427',
+    username: 'opencode',
+    password: 'fixture',
+    directory: '/repo',
+  })
+  expect(configs).toMatchObject([{ databasePath: '/instance/state/opencode2.db' }])
+})
+
 function engineHost(extra: Partial<OpencodeEngineHostDeps> = {}) {
   return createOpencodeEngineHost({
     flavor: FLAVOR,

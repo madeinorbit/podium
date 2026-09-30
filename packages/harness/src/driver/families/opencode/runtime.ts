@@ -1055,7 +1055,11 @@ export function createOpencodeRuntime(
               continue
             const items = partToItems(session.opencodeSessionId, message.info, part)
             for (const item of items)
-              emit(session, { t: 'item', item: { kind: 'complete', item } }, iso())
+              emit(
+                session,
+                { t: 'item', item: { kind: 'complete', item } },
+                iso(message.info.time?.created),
+              )
             creditPromptRecord(session, part.id, items)
           }
         }
