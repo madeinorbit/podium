@@ -370,10 +370,16 @@ const PLANTS: Record<string, Plant> = {
     }
   },
   activity(pool, exercised?: () => void) {
-    const inputs = pool.inputs as { sessionActivity: (id: string) => number | null }
-    const original = inputs.sessionActivity.bind(inputs)
+    // The defect shape is a plain Map where the live pool has a cell
+    // (`HandPool.sessionActivity`): every reader goes deaf, not just one
+    // door. Wrapping only `pool.inputs.sessionActivity` leaves the roll-up's
+    // `seatActivity` door (`pool.ts:558`, direct to the cell) fresh, and its
+    // fresh max masks the planted own-row stamp — exercised but never caught
+    // (this issue's blind spot). Wrap the method so all three doors
+    // (`inputs`, `visibleInputs`, roll-up `seatActivity`) hide the same move.
+    const original = pool.sessionActivity.bind(pool)
     const cache = new Map<string, number | null>()
-    inputs.sessionActivity = (id) => {
+    pool.sessionActivity = (id) => {
       if (cache.has(id)) {
         const cached = cache.get(id) as number | null
         // EXERCISED only when the plant hides a change: the cached value
