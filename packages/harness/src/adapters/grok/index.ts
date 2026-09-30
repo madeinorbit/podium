@@ -247,6 +247,10 @@ export const grokManifest: AgentManifest = {
       // send). Measured on 1.0.44 (POD-4865); POD-4875 moved the reader here
       // from `chat_history.jsonl`, which has no time field at all.
       transcriptTimestamps: { resolutionMs: 1 },
+      // N4 (POD-4887): a queued prompt is lost on exit; resume writes only
+      // `turn_completed interrupted` for it, which the reader never makes a
+      // prompt entry (1.0.44, POD-4865).
+      exitLosesUnrecorded: true,
     },
     // ACP is the preferred Grok mechanism for a logged-in harness: it preserves
     // subscription auth while providing receipts, permission asks, interrupt,

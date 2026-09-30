@@ -1422,6 +1422,14 @@ export interface TerminalRuntimeSpec {
   transcriptTimestamps: TranscriptTimestampFidelity
   /** Provider-poll state transitions are this terminal driver's lifecycle source. */
   lifecycleFromState?: boolean
+  /**
+   * NOTHING THE PROGRAM HOLDS SURVIVES ITS EXIT (POD-4887; POD-4819 §6.1 N4),
+   * *run* on this program: a prompt typed into it that its history, read to
+   * the end after the process exited, does not hold is not in its
+   * conversation — `failed`/`agent-exited`, safe to resend. Absent: an exit
+   * proves nothing, and such a prompt ends `unknown`.
+   */
+  exitLosesUnrecorded?: true
 }
 
 /**

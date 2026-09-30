@@ -227,6 +227,10 @@ export const claudeCodeManifest: AgentManifest = {
       // Every record carries an ISO `timestamp` at millisecond resolution
       // (checked against real transcripts, 2026-09-29).
       transcriptTimestamps: { resolutionMs: 1 },
+      // N4 (POD-4887): a queued prompt and an unwritten idle record are gone
+      // after SIGTERM/SIGKILL, and a resume does not bring them back (2.1.284,
+      // POD-4862 point 8).
+      exitLosesUnrecorded: true,
       // The history alone proves a send (spec §3.3): `UserPromptSubmit` fired
       // for a prompt a SIGKILL then left out of the transcript (POD-4862), so
       // the hook serves turn tracking, and `unverified` is the honest answer

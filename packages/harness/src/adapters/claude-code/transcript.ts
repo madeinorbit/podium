@@ -797,7 +797,7 @@ export async function claudeChainPaths(input: TranscriptSourceInput): Promise<st
 }
 
 /**
- * A PROMPT CLAUDE HOLDS IN ITS QUEUE (POD-4905, spec §7). Typed while a turn
+ * A PROMPT CLAUDE HOLDS IN ITS QUEUE (POD-4905, spec §7), OR DROPPED (POD-4887). Typed while a turn
  * runs, the prompt is written first as `queue-operation` `enqueue` carrying
  * its text and no id (measured on 2.1.284, POD-4862: +112–243 ms after the
  * Enter); it reaches the conversation later as a `queued_command` attachment
@@ -809,19 +809,47 @@ export async function claudeChainPaths(input: TranscriptSourceInput): Promise<st
 export function claudeRecordReceipts(record: unknown): TranscriptItem[] {
   if (typeof record !== 'object' || record === null) return []
   const r = record as Record<string, unknown>
-  if (r.type !== 'queue-operation' || r.operation !== 'enqueue') return []
-  if (typeof r.content !== 'string' || !r.content.trim()) return []
   const ts = typeof r.timestamp === 'string' ? r.timestamp : undefined
-  return [
+  const receipt = (text: string, kind: 'queued' | 'dropped'): TranscriptItem[] => [
     {
       id: '',
       role: 'system',
       ...(ts ? { ts } : {}),
-      text: r.content,
+      text,
       promptEntry: false,
-      queued: true,
+      ...(kind === 'queued' ? { queued: true } : { dropped: true }),
     },
   ]
+  if (r.type === 'queue-operation' && typeof r.content === 'string' && r.content.trim()) {
+    if (r.operation === 'enqueue') return receipt(r.content, 'queued')
+    // A QUEUED PROMPT A HOOK DROPPED (POD-4887, spec §6.1 N2b): measured on
+    // 2.1.284 (POD-4862, point 6), a blocking UserPromptSubmit hook writes
+    // `remove` with `reason: "dropped_by_hook"` 25–32 ms after the `enqueue`,
+    // and no user record ever follows.
+    if (r.operation === 'remove' && r.reason === 'dropped_by_hook')
+      return receipt(r.content, 'dropped')
+    return []
+  }
+  // AN IDLE PROMPT A HOOK BLOCKED (POD-4887): no `enqueue`, no `user` record;
+  // a `system`/`informational` record ending in the prompt as typed.
+  if (r.type === 'system' && r.subtype === 'informational' && typeof r.content === 'string') {
+    const prompt = blockedPrompt(r.content)
+    return prompt === undefined ? [] : receipt(prompt, 'dropped')
+  }
+  return []
+}
+
+const BLOCKED_BY_HOOK = 'UserPromptSubmit operation blocked by hook:'
+const ORIGINAL_PROMPT = '\n\nOriginal prompt: '
+
+/** The prompt a "blocked by hook" record names, as measured on 2.1.284:
+ *  `UserPromptSubmit operation blocked by hook:\n<hook's reason>\n\nOriginal
+ *  prompt: <prompt>`. Split at the first marker; a hook reason that holds the
+ *  marker itself yields text that matches no send, so nothing is claimed. */
+function blockedPrompt(content: string): string | undefined {
+  if (!content.startsWith(BLOCKED_BY_HOOK)) return undefined
+  const at = content.indexOf(ORIGINAL_PROMPT)
+  return at < 0 ? undefined : content.slice(at + ORIGINAL_PROMPT.length)
 }
 
 export const claudeCodeTranscript = supported({
