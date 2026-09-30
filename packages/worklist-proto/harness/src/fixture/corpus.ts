@@ -2408,8 +2408,14 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
     // grace window.
     for (const i of closedTop.slice(6, 14)) setWire(i, 'tuckedAt', ago(30 * MIN_MS, 5 * HOUR_MS))
     // Awaiting-merge rows: finished + unmerged delivery on a private branch.
+    // Dual-written like the authority does (POD-4940): the app reads `branch`
+    // off the projection spelling (`projectionOnLegacySpelling`) and
+    // `gitState` off the wire (never persisted, serialization-only), so a
+    // wire-only stamp is invisible to the oracle while the wire-first pool
+    // sees it. `setSortKey` above is the same discipline.
     for (const i of closedTop.slice(14, 19)) {
       setWire(i, 'branch', `podium/merge-${i}`)
+      ;(issueProjections[i] as unknown as Record<string, unknown>)['branch'] = `podium/merge-${i}`
       setWire(i, 'gitState', { shared: false, merged: false, ahead: 2 })
     }
   }
