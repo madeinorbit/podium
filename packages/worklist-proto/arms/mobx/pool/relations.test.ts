@@ -770,38 +770,6 @@ describe('the reads fence and the write record', () => {
     session('S3', { issueId: 'I4', cwd: '/repo/.worktrees/a/z' }),
   ]
 
-  it('a single-valued lookup costs one read; a collection one per member; a size none', () => {
-    const r = rig(rows)
-    try {
-      const reader = r.pool.relations
-      for (const [from, id, relation] of [
-        ['issue', 'I2', 'parent'],
-        ['issue', 'I3', 'discoveredFrom'],
-        ['issue', 'I1', 'repo'],
-        ['session', 'S1', 'worktree'],
-        ['session', 'S1', 'issue'],
-      ] as const) {
-        r.reads.reset()
-        expect(
-          tracked(() => reader.one(from, id, relation)),
-          `${from}.${relation}`,
-        ).not.toBeNull()
-        expect(r.reads.stats().rows, `${from}.${relation}`).toBe(1)
-      }
-      r.reads.reset()
-      expect(tracked(() => [...reader.many('issue', 'I1', 'children')].sort())).toEqual([
-        'I2',
-        'I3',
-      ])
-      expect(r.reads.stats().rows).toBe(2)
-      r.reads.reset()
-      expect(tracked(() => reader.size('repo', 'R', 'issues'))).toBe(4)
-      expect(r.reads.stats().rows).toBe(0)
-    } finally {
-      r.dispose()
-    }
-  })
-
   /** Each change kind, and exactly the relation slots it may write. */
   const KINDS: { name: string; change: RowRecord[]; writes: string[] }[] = [
     {

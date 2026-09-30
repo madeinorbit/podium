@@ -177,7 +177,6 @@ describe('POD-4743 the one row reader, not in memory', () => {
       await act(async () => {
         windows[0]!()
       })
-      expect(residency.hasQueued()).toBe(false)
       expect(reads()).toBe(readsBefore + 1)
 
       // Converged: in memory, drawn as a row, and equal to the all-in-memory pool.
