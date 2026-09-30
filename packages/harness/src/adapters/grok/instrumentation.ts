@@ -76,6 +76,8 @@ const GROK_HOOK_EVENTS = [
   'SubagentStart',
   'SubagentStop',
   'Stop',
+  // Grok skips unknown hook names, so older builds keep their existing hooks.
+  'StopCancelled',
   'StopFailure',
   'PreCompact',
   'PostCompact',
@@ -382,6 +384,10 @@ async function grokLifecycleEvents(
           : await classifyStopPayload(payload, options.onVerdictRead)
       return [{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }]
     }
+    case 'stop_cancelled':
+      // POD-4865, Grok 1.0.44: Ctrl+C reports this with the cancelled promptId.
+      // The chat tail can still hold an earlier answer; the hook is the verdict.
+      return [{ kind: 'turn_completed', verdict: { kind: 'interrupted' } }]
     case 'stop_failure': {
       const failure = classifyGrokProviderFailure(fields)
       // Grok emits this hook as a lifecycle marker even when it carries no

@@ -137,10 +137,18 @@ describe('Grok StopCancelled from the recorded terminal run', () => {
       accept(observations[2]!)
 
       // The file follows the hook promptly, rather than being a second turn end.
-      await appendFile(paths.updatesPath, JSON.stringify(cancelRecord.rec) + '\n')
-      await vi.waitFor(() => expect(observations).toHaveLength(3))
+      const nextPrompt = observed.find(
+        (row) => row.at > cancelRecord.at && row.rec.params?.update.event_name === 'user_prompt_submit',
+      )!
+      await appendFile(
+        paths.updatesPath,
+        [cancelRecord.rec, nextPrompt.rec].map((record) => JSON.stringify(record) + '\n').join(''),
+      )
+      await vi.waitFor(() => expect(observations).toHaveLength(4))
+      expect(observations[3]).toMatchObject({ transitionKind: 'turn_opened', nextPhase: 'working' })
+      accept(observations[3]!)
       expect(observer.onHookPayload?.(cancelled)).toBe(true)
-      expect(observations).toHaveLength(3)
+      expect(observations).toHaveLength(4)
     } finally {
       observer.stop()
     }
@@ -169,6 +177,29 @@ describe('Grok StopCancelled from the recorded terminal run', () => {
     })
     expect(observations).toHaveLength(1)
     expect(observations[0]?.nextPhase).toBe('working')
+  })
+
+  it.each([
+    { promptId: null },
+    { sessionId: 'another-session' },
+    { subagentType: 'explore' },
+  ])('leaves the main turn open for an unbound cancellation: %j', (fields) => {
+    const observations: AgentObservation[] = []
+    const causal = new GrokCausalObserver({
+      podiumSessionId: asSessionId('podium-cancelled-unbound'), providerSessionId: sessionId,
+      bindingVersion: 1, observerGeneration: 1, acceptedCheckpoint: null,
+      onObservation: (observation) => observations.push(observation),
+    })
+    const segment = { segmentId: 'cancelled-unbound', pathHint: '/updates.jsonl', device: '1', inode: '2' }
+    expect(causal.observeHook(submitted, segment)).toBe(true)
+    const opened = observations[0]!
+    causal.acknowledge({
+      type: 'agentObservationAck', sessionId: asSessionId('podium-cancelled-unbound'),
+      observerGeneration: 1, bindingVersion: 1, transitionId: opened.transitionId,
+      result: 'live_transition_accepted', acceptedCursor: opened.providerCursor,
+    })
+    expect(causal.observeHook({ ...cancelled, ...fields }, segment)).toBe(true)
+    expect(observations).toHaveLength(1)
   })
 
   it('pins the observed completion timing to within 350 ms in all 37 turns', async () => {

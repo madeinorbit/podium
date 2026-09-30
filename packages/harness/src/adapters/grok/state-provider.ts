@@ -61,7 +61,7 @@ export interface GrokStateObserver {
   readonly path: string | undefined
   stop(): void
   onObservationAck?(ack: AgentObservationAckMessage): void
-  /** HTTP SessionStart / UserPromptSubmit. True = handled on the causal path. */
+  /** HTTP lifecycle hooks. True = handled on the causal path. */
   onHookPayload?(payload: unknown): boolean
   /** Podium sent this session its Stop key; arms the Stop-hook fast path. */
   onInterruptRequested?(): void
@@ -999,4 +999,3 @@ function stringField(value: unknown, key: string): string | undefined {
   const field = value[key]
   return typeof field === 'string' && field.length > 0 ? field : undefined
 }
-

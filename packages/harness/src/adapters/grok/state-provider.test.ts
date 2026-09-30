@@ -2606,7 +2606,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
   })
 })
 
-describe('grok Stop-hook cancel fast path (slow Stop clear: 17s -> seconds)', () => {
+describe('grok legacy Stop-hook cancellation fallback', () => {
   const stopHook = (sessionId: string) => ({ hookEventName: 'Stop', sessionId })
 
   it('a Stop hook with no Podium interrupt stays on the existing path', () => {

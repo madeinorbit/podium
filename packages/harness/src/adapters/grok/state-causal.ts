@@ -81,10 +81,11 @@ export class GrokCausalObserver {
   private draining = false
   /**
    * Podium asked this session to stop (Ctrl+C) while this epoch was open.
-   * Grok's Stop hook fires when the turn ends — including on cancel, where
-   * updates.jsonl only flushes `turn_completed`/`cancelled` ~17s later — so
-   * the hook is the cancel's earliest reliable signal. The epoch guards it:
-   * only a Stop for the interrupted epoch may end it as interrupted.
+   * Retain the Stop fallback for older Grok builds. Grok 1.0.44 reports Ctrl+C
+   * through StopCancelled, and updates.jsonl's turn_completed was observed
+   * within 350 ms of events.jsonl's turn_ended in all 37 turns, not ~17 s later
+   * (POD-4865, run 2026-09-29; docs/measurements/pod-4834-receipt-proof/
+   * grok-tui-1.0.44/results.md). A send-now cancel has no hook; the file owns it.
    */
   private pendingInterruptEpoch: number | null = null
   private pendingInterruptAt = 0
@@ -196,8 +197,8 @@ export class GrokCausalObserver {
 
   /**
    * Podium sent this session its Stop key. Records the open epoch so the Stop
-   * hook arriving for it can close it as interrupted on the causal path,
-   * instead of waiting for the delayed `turn_completed`/`cancelled` file tail.
+   * fallback can close it as interrupted on the causal path. StopCancelled
+   * names its own prompt and needs no Podium interrupt flag.
    * A no-op when no turn is open (Ctrl+C on an idle prompt does nothing).
    */
   noteInterruptRequested(nowMs?: number): void {
@@ -216,6 +217,7 @@ export class GrokCausalObserver {
   observeHook(payload: unknown, segment?: GrokSegmentIdentity): boolean {
     const name = grokHookName(payload)
     if (name === 'stop') return this.observeStopHook(payload, segment)
+    if (name === 'stop_cancelled') return this.observeCancelledHook(payload, segment)
     if (name !== 'session_start' && name !== 'user_prompt_submit') return false
     if (name === 'session_start') return true
     if (this.epochOpen) return true
@@ -239,6 +241,25 @@ export class GrokCausalObserver {
 
   fold(record: GrokRecordEvidence): void {
     this.apply(record, false)
+  }
+
+  /** The terminal itself can cancel a turn; bind the report to its promptId.
+   * Turn-end hooks can arrive after the next prompt, so neither the interrupt
+   * flag nor the report's arrival time can identify the turn (POD-4865). */
+  private observeCancelledHook(payload: unknown, segment?: GrokSegmentIdentity): boolean {
+    if (!isHookRecord(payload)) return false
+    const promptId = nativeId(payload, ['promptId', 'prompt_id'])
+    if (
+      !this.epochOpen ||
+      promptId === null ||
+      promptId !== this.providerPromptId ||
+      nativeId(payload, ['sessionId', 'session_id']) !== this.lease.providerSessionId ||
+      nativeId(payload, ['subagentType', 'subagent_type']) !== null
+    ) {
+      // Handled but inert: never pass an older/unbound cancel to legacy state.
+      return true
+    }
+    return this.enqueueInterruptedHook(payload, 'hook:stop_cancelled', segment)
   }
 
   /**
@@ -300,6 +321,14 @@ export class GrokCausalObserver {
       this.pendingInterruptEpoch = null
       return false
     }
+    return this.enqueueInterruptedHook(payload, 'hook:stop', segment)
+  }
+
+  private enqueueInterruptedHook(
+    payload: unknown,
+    sourceEventKind: string,
+    segment?: GrokSegmentIdentity,
+  ): boolean {
     const base =
       this.acceptedCursor ??
       (segment ? this.cursorFor(segment, segment.integrityBytes ?? 0) : null)
@@ -314,7 +343,7 @@ export class GrokCausalObserver {
         components: { ...base.components, hook: this.hookSequence },
       },
       events: [{ kind: 'turn_completed', verdict: { kind: 'interrupted' } }],
-      sourceEventKind: 'hook:stop',
+      sourceEventKind,
       providerAt: this.now(),
     })
   }
@@ -529,6 +558,17 @@ export class GrokCausalObserver {
       }
 
       if (!this.epochOpen) continue
+      const promptId = nativeId(record.record, ['prompt_id', 'promptId'])
+      if (
+        (event.kind === 'turn_completed' || event.kind === 'turn_failed') &&
+        promptId !== null &&
+        this.providerPromptId !== null &&
+        promptId !== this.providerPromptId
+      ) {
+        // A cancellation already observed through HTTP may trail the next
+        // prompt in updates.jsonl. It must not close that newer epoch.
+        continue
+      }
       const terminal =
         event.kind === 'turn_completed' ||
         event.kind === 'turn_failed' ||
