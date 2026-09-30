@@ -55,7 +55,7 @@ function world(grokSessionId: string) {
       frame.method === undefined && prompts.length > 0
         ? { ...frame, id: prompts.at(-1)!.id }
         : frame
-    handler?.line(JSON.stringify({ jsonrpc: '2.0', ...inbound }))
+    handler?.line(JSON.stringify({ ...inbound, jsonrpc: '2.0' }))
   }
   const host: GrokAcpRuntimeHost = {
     now: () => Date.now(),
