@@ -25,9 +25,11 @@ import {
   explicitlyRequestsExpandedResponse,
   hasDurableHeadlessResultIdentity,
   NORMAL_RESPONSE_WORD_LIMIT,
+  SUPERAGENT_HARNESS_TIMEOUT_MS,
   SuperagentService,
   superagentResponseContract,
   TURN_FAILED_MARKER,
+  TURN_REAP_GRACE_MS,
 } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -715,6 +717,136 @@ describe('headless turn refusal surfacing (POD-4409)', () => {
       error: 'harness codex cannot enforce a no-tools headless turn',
     })
     expect(result.retryable).toBeUndefined()
+  })
+
+  it('sendTurn keeps a genuine pre-write refusal failed', async () => {
+    const h = await harness()
+    const ended: EventMap['superagent.turnEnded'][] = []
+    h.registry.modules.bus.on('superagent.turnEnded', (event) => { ended.push(event) })
+    await h.sa.sendTurn({
+      ownerUserId: firstAdminMemberId(),
+      threadId: asThreadId('global'),
+      text: 'refuse before writing',
+    })
+    refuseTurn(h, h.turnReqs[0]!, {
+      reason: 'unsupported',
+      detail: 'the harness cannot enforce the requested tool policy',
+    })
+    await h.settle()
+
+    expect(ended).toHaveLength(1)
+    expect(ended[0]).toMatchObject({
+      ok: false,
+      error: 'the harness cannot enforce the requested tool policy',
+    })
+    expect(ended[0]?.deliveryStatus).toBeUndefined()
+    const history = await h.sa.history(firstAdminMemberId(), asThreadId('global'))
+    expect(history.some((m) => m.content.startsWith(TURN_FAILED_MARKER))).toBe(true)
+    expect(await h.registry.sessionStore.superagent.listPendingTurns()).toEqual([])
+    expect(h.turnReqs).toHaveLength(1)
+  })
+})
+
+describe('superagent turn reaper uncertainty', () => {
+  const REAP_MS = 1_000
+
+  it.each([
+    { budget: 'default', timeoutMs: undefined },
+    { budget: 'persisted', timeoutMs: 1_000 },
+  ])('ends an expired pending turn as unknown with the $budget budget', async ({ timeoutMs }) => {
+    const h = await harness()
+    h.sa.dispose()
+    // A durable row from a previous process has no live result promise here.
+    const pending = await h.registry.sessionStore.superagent.putPendingTurn({
+      turnId: 'turn:orphaned-reaper',
+      ownerUserId: firstAdminMemberId(),
+      threadId: asThreadId('global'),
+      podiumSessionId: asSessionId('orphaned-reaper'),
+      firstTurn: true,
+      payload: {
+        agent: 'claude-code',
+        cwd: '/r',
+        prompt: 'may already be running',
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      },
+    })
+    const ended: EventMap['superagent.turnEnded'][] = []
+    h.registry.modules.bus.on('superagent.turnEnded', (event) => { ended.push(event) })
+    vi.useFakeTimers()
+    const sa = await SuperagentService.create(h.registry.modules, h.repos, h.registry.sessionStore, {
+      reapIntervalMs: REAP_MS,
+    })
+    h.registry.adoptSuperagent(sa)
+    try {
+      const expiry = Date.parse(pending.createdAt) +
+        (timeoutMs ?? SUPERAGENT_HARNESS_TIMEOUT_MS) + TURN_REAP_GRACE_MS
+      vi.setSystemTime(expiry - REAP_MS - 1)
+      await vi.advanceTimersByTimeAsync(REAP_MS)
+      expect(await h.registry.sessionStore.superagent.listPendingTurns()).toEqual([pending])
+      expect(ended).toEqual([])
+      expect(h.activity()).toEqual([])
+
+      vi.setSystemTime(expiry - REAP_MS)
+      await vi.advanceTimersByTimeAsync(REAP_MS)
+      expect(ended).toEqual([expect.objectContaining({
+        threadId: pending.threadId,
+        podiumSessionId: pending.podiumSessionId,
+        ok: false,
+        deliveryStatus: 'unknown',
+      })])
+      expect(ended[0]?.harnessErrorKind).toBeUndefined()
+      const notice = ended[0]?.error
+      expect(notice).toMatch(/outcome is unknown/i)
+      expect(notice).toMatch(/may have received.*may still answer/i)
+      expect(notice).not.toMatch(/lost|send (?:it )?again|resend|retry/i)
+      expect(await sa.history(firstAdminMemberId(), pending.threadId)).toEqual([
+        expect.objectContaining({ role: 'assistant', content: notice }),
+      ])
+      expect(notice).not.toContain(TURN_FAILED_MARKER)
+      expect(h.activity().map((m) => m.event)).toEqual([{ kind: 'turn-end', error: notice }])
+      expect(await h.registry.sessionStore.superagent.listPendingTurns()).toEqual([])
+
+      // Later ticks neither finish it twice nor replay an unproven send.
+      await vi.advanceTimersByTimeAsync(31_000)
+      expect(ended).toHaveLength(1)
+      expect(h.activity()).toHaveLength(1)
+      expect(h.turnReqs).toEqual([])
+      expect(h.turnAcks).toEqual([])
+    } finally {
+      sa.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('leaves an old turn with a live result promise pending', async () => {
+    const h = await harness()
+    h.sa.dispose()
+    const ended: EventMap['superagent.turnEnded'][] = []
+    h.registry.modules.bus.on('superagent.turnEnded', (event) => { ended.push(event) })
+    vi.useFakeTimers()
+    const sa = await SuperagentService.create(h.registry.modules, h.repos, h.registry.sessionStore, {
+      reapIntervalMs: REAP_MS,
+    })
+    h.registry.adoptSuperagent(sa)
+    try {
+      await sa.sendTurn({
+        ownerUserId: firstAdminMemberId(),
+        threadId: asThreadId('global'),
+        text: 'still waiting on the harness',
+      })
+      const pending = (await h.registry.sessionStore.superagent.listPendingTurns())[0]!
+      vi.setSystemTime(Date.parse(pending.createdAt) +
+        SUPERAGENT_HARNESS_TIMEOUT_MS + TURN_REAP_GRACE_MS)
+      await vi.advanceTimersByTimeAsync(REAP_MS)
+
+      expect(await h.registry.sessionStore.superagent.listPendingTurns()).toEqual([pending])
+      expect(ended).toEqual([])
+      expect(h.activity().some((m) => m.event.kind === 'turn-end')).toBe(false)
+      expect(h.turnReqs).toHaveLength(1)
+    } finally {
+      sa.dispose()
+      vi.useRealTimers()
+    }
   })
 })
 
