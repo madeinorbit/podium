@@ -188,7 +188,9 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
         ) {
           return { textPartId: userTextPartId(body.messageID) }
         }
-        if ((await this.pendingPrompts?.(sessionId).catch(() => []))?.includes(body.messageID)) {
+        const pendingIds: readonly string[] =
+          (await this.pendingPrompts?.(sessionId).catch(() => [])) ?? []
+        if (pendingIds.includes(body.messageID)) {
           return { held: 'durable' }
         }
         throw error
