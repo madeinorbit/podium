@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { SessionId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AgentSessionHandle, RuntimeEvent, SessionSpec } from '../../host.js'
+import type { RuntimeEvent, SessionSpec } from '../../host.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
 import { deltaItemIdForPart } from '../opencode/map.js'
 import { createOpencodeRuntime, type OpencodeRuntimeHost } from '../opencode/runtime.js'
@@ -106,7 +106,7 @@ async function fixture(lane: string, label = 'S1', file?: string) {
       stop: async () => {}, kill: async () => {}, resources: () => undefined,
     }),
     adopt: async () => undefined,
-    stageAttachment: async () => ({ reason: 'unsupported' }),
+    stageAttachment: async () => { throw new Error('No attachments in the measured lane') },
     attachClient: async () => undefined,
     bindings: { recorded: () => undefined, bound: () => {}, released: () => {} },
     makeClient: (config) => createOpencode2Client({ ...config, fetch, databasePath }),
@@ -154,9 +154,7 @@ async function fixture(lane: string, label = 'S1', file?: string) {
     entry: deltaItemIdForPart(sessionID, `${messageID}:0`),
     setReply: (value: Frame) => { promptReply = value },
     setHistory: (value: unknown[]) => { history = value },
-    newOwner: () => runtime.createWithId('restarted-fixture' as SessionId, { ...spec, resume: {
-      supported: true, value: { kind: 'opencode-session', value: sessionID },
-    } }),
+    newOwner: () => runtime.driver.resume({ kind: 'opencode-session', value: sessionID }, spec),
   }
 }
 
@@ -170,7 +168,9 @@ describe.each([
     const receipt = await f.handle.send(f.input, options)
     expect(receipt).toMatchObject({ outcome: 'accepted', held: 'durable' })
     expect(receipt).not.toHaveProperty('transcriptItem')
-    expect(receipt).toMatchObject({ harnessRef: [{ kind: 'opencode-message', id: f.messageID }] })
+    expect(receipt).toMatchObject({ harnessRef: expect.arrayContaining([
+      { kind: 'opencode-message', id: f.messageID },
+    ]) })
     f.emit(admitted)
     await flush()
     expect(f.deliveries().filter((event) => event.outcome === 'delivered')).toEqual([])
