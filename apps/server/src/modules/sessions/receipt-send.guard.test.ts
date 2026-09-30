@@ -47,11 +47,6 @@ const ALLOWED = new Map<string, string>([
     'binds the verbs onto the service, and the durable-FIFO port',
   ],
   ['modules/messages/service.ts', 'C1’s flag-off branch in injectAndMark / deliverBatch'],
-  ['modules/superagent/answer-delivery.ts', 'C4’s flag-off branch for the answer text fallback'],
-  [
-    'modules/automations/service.ts',
-    'calls its own ports, which the composition root points at the seam',
-  ],
   ['gateway/ws-server.ts', 'a WebSocket frame write — a different sendText entirely'],
 ])
 
