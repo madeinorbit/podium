@@ -494,7 +494,11 @@ describe('queueText (durable outbox sends)', () => {
 
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
       await vi.waitFor(() => expect(freshSends(daemon, sessionId)).toHaveLength(1))
-      expect(freshSends(daemon, sessionId)[0]?.text).toBe('continue-night-work')
+      // An automation's prompt is typed in the short frame (POD-4868), so the
+      // agent's history can confirm it by id; the body is the prompt, unchanged.
+      expect(freshSends(daemon, sessionId)[0]?.text).toMatch(
+        /^\[podium message (msg_[0-9a-f-]+) · from automation:[^\]\n]+ · to your session\]\ncontinue-night-work\n\[end podium message \1\]$/,
+      )
       await deliverRows(reg, daemon, sessionId, [freshSends(daemon, sessionId)[0]!.rowId])
       await vi.waitFor(async () => expect(await queuedRows(reg, sessionId)).toEqual([]))
 
