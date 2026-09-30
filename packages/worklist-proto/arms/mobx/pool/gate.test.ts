@@ -433,11 +433,9 @@ function checked(
               `row views diverged from the direct rule table (snapshot ${wrapper.snapshots}):\n${views.join('\n')}`,
             )
           }
-          tally()
           return settled
         },
         dispose() {
-          tally()
           stop()
           handle.dispose()
         },

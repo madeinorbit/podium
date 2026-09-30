@@ -15,7 +15,6 @@
  * - first paint: the DOM right after mount, before any load lands. A visible
  *   row that is cold draws as a loading placeholder (`data-loading-row`); the
  *   first 96 rows are the browser driver's first window (POD-4560).
- * The pool's own counters are recorded beside them, as a cross-check only.
  */
 
 import { Reaction } from 'mobx'
@@ -180,11 +179,11 @@ describe('visible collection: bootstrap and first paint (outside measures)', () 
     writeResult(`mobx-visible-first-paint-${scale}x`, cell)
     // The instruments saw something: a filing reaction per issue in memory,
     // and every placeholder resolved once the loads landed.
-    expect(cell.nodesFromMobxGraph.visibilityReactions).toBe(cell.poolCounters.issueNodes)
+    expect(cell.nodesFromMobxGraph.visibilityReactions).toBe(cell.poolHeld.issueNodes)
     // Behind them: every tracked issue's object, and the cold ones their
     // walks read (an ancestor, a child).
     expect((cell.nodesFromMobxGraph as Record<string, number>)['IssueModel']).toBeGreaterThanOrEqual(
-      cell.poolCounters.issueNodes,
+      cell.poolHeld.issueNodes,
     )
     expect(cell.firstPaint.loadingRows).toBe(cell.firstPaint.coldVisible)
     expect(cell.settledLoading).toBe(0)
