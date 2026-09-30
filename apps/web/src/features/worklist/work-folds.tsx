@@ -16,6 +16,7 @@ import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
 import { closedFoldKey, snoozedFoldKey } from './fold-keys'
 import { useCollapsed } from './sidebar-common'
+import { measureSidebarRow } from './sidebar-measurements'
 import { ID_GUTTER_W } from './WorkRowShell'
 
 /** The two TAIL folds — suspended work, settled closures — in the 3a voice: a
@@ -359,7 +360,7 @@ export function foldedMarker(
  *  the whole vocabulary of an open row drops away. Roughly half a live row's
  *  height, so a long archive scans in a glance. Clicking reopens the issue;
  *  the fold's own archive overlay still rides on top for closed rows. */
-export function FoldedWorkRow({
+function FoldedWorkRowInner({
   issue,
   lane,
   now,
@@ -601,3 +602,5 @@ export function ClosedIssueFold<T>({
     </div>
   )
 }
+
+export const FoldedWorkRow = measureSidebarRow(FoldedWorkRowInner)

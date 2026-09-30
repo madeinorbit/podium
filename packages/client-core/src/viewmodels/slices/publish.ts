@@ -1,4 +1,4 @@
-import { recordSliceDerivation } from '../../perf/store-stats'
+import { endStoreStatsMeasure, recordSliceDerivation, startStoreStatsMeasure } from '../../perf/store-stats'
 /**
  * SLICE PUBLICATION (POD-330) — compute each slice ONCE per change, no matter
  * how many components read it.
@@ -152,7 +152,13 @@ export function createSlicePublisher<TSource>(
         return cached.value as T
       }
       recordSliceDerivation(statsOwner, def.name)
-      const next = def.derive(source)
+      const started = startStoreStatsMeasure(statsOwner)
+      let next: T
+      try {
+        next = def.derive(source)
+      } finally {
+        endStoreStatsMeasure(statsOwner, started)
+      }
       counts.set(def.name, (counts.get(def.name) ?? 0) + 1)
       const isEqual = def.isEqual ?? Object.is
       // Keep the previous identity when the value is equal, so consumers that

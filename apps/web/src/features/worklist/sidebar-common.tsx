@@ -44,6 +44,7 @@ import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
+import { measureSidebarRow } from './sidebar-measurements'
 
 // The right-click menu exists only after a right-click; loading it on demand
 // keeps the menu (and its handoff machinery) out of the eager bundle.
@@ -618,7 +619,7 @@ export function AgentRosterBand({
   )
 }
 
-export function PanelRow({
+function PanelRowInner({
   session,
   active,
   onSelect,
@@ -1031,3 +1032,5 @@ export function PanelRow({
     </div>
   )
 }
+
+export const PanelRow = measureSidebarRow(PanelRowInner)

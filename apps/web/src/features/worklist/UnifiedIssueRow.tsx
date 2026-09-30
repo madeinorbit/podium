@@ -35,6 +35,7 @@ import { PhaseTimer, WorkingMark } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { RowProgressMeter } from './row-progress'
+import { measureSidebarRow } from './sidebar-measurements'
 import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
 import { WorkRowShell } from './WorkRowShell'
 
@@ -502,4 +503,4 @@ function menuPropsForAnchor(
  * Legacy arms that still pass fresh whole arrays per publish intentionally
  * miss this memo — that miss is the control in the render-count probe.
  */
-export const UnifiedIssueRow = memo(UnifiedIssueRowInner)
+export const UnifiedIssueRow = memo(measureSidebarRow(UnifiedIssueRowInner))

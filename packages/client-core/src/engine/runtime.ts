@@ -1,4 +1,5 @@
 import { bindStoreStatsOwner } from '../perf/store-stats'
+import { beginSidebarUpdate } from '../perf/sidebar-perf'
 /**
  * THE CLIENT RUNTIME — the principal-scoped coordinator (POD-404).
  *
@@ -1355,9 +1356,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private publishReplica(publication: ReplicaPublication): void {
     if (this.destroyed) return
     const { snapshot, changed } = publication
+    const endPerfUpdate = beginSidebarUpdate(this, changed)
     // ONE delta, ONE snapshot — see batch(). Without this the three recomputes
     // below publish separately and every snapshot-keyed slice derives 3×.
-    this.batch(() => {
+    try {
+      this.batch(() => {
       if (changed.has('sessions')) {
         this.baseSessions = dedupeSessions(snapshot.sessions)
         this.optimism.recomputeSessions()
@@ -1380,7 +1383,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       if (changed.has('automations')) patch.automations = snapshot.automations
       if (changed.has('automationRuns')) patch.automationRuns = snapshot.automationRuns
       this.apply(patch)
-    })
+      })
+    } finally {
+      endPerfUpdate?.()
+    }
   }
 
   // -------------------------------------------------------------- outbox seams

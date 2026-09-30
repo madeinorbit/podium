@@ -20,6 +20,7 @@ import { type ClientSwitchTrace, SWITCH_TRACE_MARKS, type SwitchMark } from '@po
 type MarkMeta = NonNullable<SwitchMark['meta']>
 
 interface ActiveTrace {
+  sidebarInput?: number
   storeWindow?: number
   switchId: string
   startedAt: number
@@ -71,6 +72,29 @@ const recent: ClientSwitchTrace[] = []
 let reporter: ((trace: ClientSwitchTrace) => void) | null = null
 let termTapInstalled = false
 let longTaskObserver: PerformanceObserver | null = null
+let sidebarInput: { token: number; at: number } | null = null
+let sidebarInputToken = 0
+
+/** Capture before sidebar handlers run. beginSwitch consumes the browser event
+ * timestamp, so pre-handler scheduling and synchronous selection work count. */
+export function captureSidebarSwitchInput(at: number): () => void {
+  const input = { token: ++sidebarInputToken, at }
+  sidebarInput = input
+  return () => {
+    if (sidebarInput === input) sidebarInput = null
+    if (active?.sidebarInput === input.token)
+      markSwitch(active.sessionId, 'sidebar:input-paint')
+  }
+}
+/** Closing diagnostics cancels pending gesture attribution without recording a
+ * paint that did not happen, or leaking its timestamp into a later switch. */
+export function cancelSidebarSwitchInput(): void {
+  sidebarInput = null
+  if (active?.sidebarInput !== undefined) {
+    delete active.sidebarInput
+    if (quiesced(active.marks)) finalize(active, false)
+  }
+}
 
 const now = (): number =>
   typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -294,7 +318,8 @@ export function beginSwitch(input: { sessionId: SessionId; issueId?: IssueId | n
     startedAt: Date.now(),
     sessionId: input.sessionId,
     issueId: input.issueId ?? null,
-    t0: now(),
+    t0: sidebarInput?.at ?? now(),
+    ...(sidebarInput ? { sidebarInput: sidebarInput.token } : {}),
     marks: [],
     meta: {},
     timer: setTimeout(() => {
@@ -326,7 +351,9 @@ export function markSwitch(sessionId: SessionId, name: string, meta?: MarkMeta):
     })
   }
   if (bounded) Object.assign(t.meta, bounded)
-  if (quiesced(t.marks)) finalize(t, false)
+  if (quiesced(t.marks) &&
+      (t.sidebarInput === undefined || t.marks.some((mark) => mark.name === 'sidebar:input-paint')))
+    finalize(t, false)
 }
 
 /** True when a switch trace is in flight for `sessionId` — lets hot paths skip
@@ -354,6 +381,7 @@ export function resetSwitchTraces(): void {
   stopLongTaskObserver()
   active = null
   recent.length = 0
+  sidebarInput = null
 }
 
 /**

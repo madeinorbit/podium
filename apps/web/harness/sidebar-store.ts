@@ -17,6 +17,7 @@
  * the component reads — including the fields the viewmodels actually key on
  * (`agentState.phase`, `sessionSummary`, `closedAt`/`readAt`).
  */
+import { endStoreStatsMeasure, recordSliceDerivation, startStoreStatsMeasure } from '@podium/client-core/perf'
 type Selector<T> = (store: unknown) => T
 
 const params = new URLSearchParams(location.search)
@@ -260,6 +261,13 @@ const store = {
 }
 
 export const useStore = (): typeof store => store
+/** Synthetic measurement owner, never the operator's runtime or data. */
+export const sidebarHarnessOwner = store
 export const useReplicaIssues = (): typeof issues => issues
 export const useStoreSelector = <T>(selector: Selector<T>): T => selector(store)
-export const useSlice = <T>(def: { derive: (s: unknown) => T }): T => def.derive(store)
+export const useSlice = <T>(def: { name?: string; derive: (s: unknown) => T }): T => {
+  recordSliceDerivation(store, def.name ?? 'fixture')
+  const started = startStoreStatsMeasure(store)
+  try { return def.derive(store) }
+  finally { endStoreStatsMeasure(store, started) }
+}

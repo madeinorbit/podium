@@ -30,6 +30,8 @@ import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UpdatesProvider } from '@/features/updates/updates-context'
 import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
+import { SidebarPerfPanel } from '@/features/worklist/SidebarPerfPanel'
+import { initializeSidebarMeasurements } from '@/features/worklist/sidebar-measurements'
 import {
   COLUMN_FOLD_EASE,
   COLUMN_FOLD_MS,
@@ -453,6 +455,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   // module's startup choice before mounting any worklist reader; never subscribe
   // to this key or choose a different hook under a mounted sidebar.
   initializeSidebarDataLayer(uiState)
+  initializeSidebarMeasurements()
   const view = useStoreSelector((s) => s.view)
   const setView = useStoreSelector((s) => s.setView)
   const sync = useSyncExternalStore(syncProgress.subscribe, syncProgress.getSnapshot)
@@ -971,6 +974,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
           It also keeps tracking the shell's target while closed. */}
       <IssueExplorerProvider>
         {menuHost}
+        <SidebarPerfPanel />
         <DockShellLifecycle />
         <div
           className="desktop-shell issue-scope"
