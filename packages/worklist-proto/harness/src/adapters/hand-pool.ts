@@ -169,7 +169,9 @@ export const harnessHandPoolArm = {
     loader: Omit<PoolLazyOptions, 'load'> = {},
   ): HarnessHandPoolHandle {
     const base = handPoolArm.create(source, locals, reads, loader)
-    const pool = base.pool
+    // PLANT (POD-4944 proof): second pool, not the product handle's pool.
+    const extra = handPoolArm.create(source, locals, reads, loader)
+    const pool = extra.pool
     let webMounts = 0
     const originalMountWeb = base.mountWeb.bind(base)
     const originalDispose = base.dispose.bind(base)
