@@ -1,10 +1,15 @@
 import type { HarnessRef, TranscriptItem } from '@podium/model'
 import { claudePromptHookFingerprint } from './adapters/claude-code/state.js'
-import type { TerminalAcceptCorrelation } from './manifest.js'
+import type { TerminalAcceptCorrelation, TerminalEchoCorrelation } from './manifest.js'
 
-/** The same signal session-observers uses to anchor Claude turn epochs.
+/**
+ * Claude's `UserPromptSubmit`, correlated by content. NOT A RECEIPT (POD-4905,
+ * spec §3.3): measured on 2.1.284, the hook fired for a prompt a SIGKILL then
+ * left out of the history. The terminal driver reads it only for the program's
+ * own prompt id (POD-4841); turn tracking reads the hook elsewhere.
  * Content blocks, tool-result exclusion and injected context stripping remain
- * owned by claudePromptHookFingerprint. */
+ * owned by claudePromptHookFingerprint.
+ */
 export const claudeHookAcceptCorrelation: TerminalAcceptCorrelation<unknown> = {
   accepts(payload) {
     if (typeof payload !== 'object' || payload === null) return false
@@ -23,38 +28,31 @@ export const claudeHookAcceptCorrelation: TerminalAcceptCorrelation<unknown> = {
 }
 
 /**
- * THE ECHO FINGERPRINT (POD-4055), and it is deliberately NOT the hook's.
+ * THE ID OF THE PODIUM MESSAGE A TEXT IS, or null (spec §5.1, POD-4860).
  *
- * The hook path can hash a structured payload because Claude hands it one.
- * The echo is a recorded transcript item, so what has to be absorbed is the
- * set of transformations the RECORDERS apply between the bytes we typed and
- * the row they write. Those are enumerable, and they are all whitespace:
- * `codexRecordToItems` trims, `contentToText` joins multi-block content with
- * newlines, and the several JSONL codecs re-wrap.
+ * The server renders a wrapped message as `[podium message <id> · …]`, the
+ * body, and `[end podium message <id>]`. A text is that message when the
+ * closing line ends it and the same id's head starts a line above it. Other
+ * lines may come first: the drivers type each attachment's path on its own
+ * line ahead of the text, and text left in the input box is submitted in
+ * front of the paste.
  *
- * WHAT THIS BUYS AND WHAT IT LETS THROUGH, stated because a tolerance nobody
- * wrote down is a tolerance nobody can review. It buys immunity to trimming
- * and to block joins. It lets through two submitted texts that differ ONLY in
- * whitespace — an overlapping pair differing just in wrapping can cross-credit.
- * That is a far narrower hole than the counter it replaces, which credited any
- * user turn from any source at all.
+ * ONLY THE TEXT'S OWN FRAME. Bodies are not escaped, so a mail that quotes
+ * another mail's frame carries that id inside its own; every quoted id sits
+ * above the outer closing line and never counts. An id anywhere else — a
+ * person mentioning a frame, or a frame followed by more words — proves
+ * nothing. The server's transcript-echo confirmation applies the same rule
+ * (`apps/server/src/modules/messages/service.ts`, `echoedFrameId`).
  *
- * WHAT IT DOES NOT DO IS MATCH A SUBSTRING. An echo carrying the full text
- * plus anything else is a different turn, and a truncated echo is not this
- * turn. Both stay `unverified`, which is true. Note this is safe precisely
- * because nothing here reads a SCREEN: every producer of these items reads a
- * structured record (codex/grok/cursor/pi rollout JSONL, opencode's own
- * SQLite rows, Claude's transcript tail), so a TUI's `> ` prompt marker never
- * reaches this comparison. An anchored match against a painted line would be
- * wrong; against a recorded one it is exactly right.
+ * Read on the text we type as well as on the entry recorded: a typed text
+ * that is a frame is a wrapped message, confirmed by its id alone.
  */
-const echoFingerprint = (text: string): string | null => {
-  const collapsed = text.replace(/\s+/gu, ' ').trim()
-  // FAIL CLOSED on an empty item, for the reason the hook path fails closed on
-  // an unfingerprintable payload: an item carrying no text cannot attribute
-  // anything, and crediting an arbitrary waiter for it is the mis-credit this
-  // whole mechanism exists to prevent.
-  return collapsed.length > 0 ? collapsed : null
+export function podiumFrameId(text: string): string | null {
+  const entry = text.trimEnd()
+  const id = /\[end podium message (msg_[0-9a-f-]+)\]$/i.exec(entry)?.[1]
+  if (!id) return null
+  const head = `[podium message ${id} · `
+  return entry.startsWith(head) || entry.includes(`\n${head}`) ? id : null
 }
 
 /**
@@ -71,11 +69,51 @@ const echoFingerprint = (text: string): string | null => {
 const typedForm = (item: TranscriptItem): string =>
   item.toolPaths?.length ? [...item.toolPaths, item.text].join('\n') : item.text
 
-/** Display role alone cannot override a reader's explicit prompt exclusion.
- *  Interrupts remain excluded for readers predating the prompt-entry flag. */
-export const transcriptEchoAcceptCorrelation: TerminalAcceptCorrelation<TranscriptItem> = {
-  accepts: (item) =>
-    item.role === 'user' && item.event !== 'interrupt' && item.promptEntry !== false,
-  fingerprint: (item) => echoFingerprint(typedForm(item)),
-  fingerprintText: echoFingerprint,
+/**
+ * A PROMPT ENTRY OF A PROGRAM'S HISTORY, AND HOW ITS TEXT MAY DIFFER FROM WHAT
+ * WAS TYPED (spec §2, §5.3, §7).
+ *
+ * Display role alone cannot override a reader's explicit prompt exclusion;
+ * interrupts remain excluded for readers predating the prompt-entry flag.
+ * `textMatches`, when given, is the program's measured tolerance and switches
+ * order-plus-text credit on for it; without one only a frame id can confirm.
+ */
+export function promptEchoCorrelation(
+  textMatches?: (submitted: string, recorded: string) => boolean,
+): TerminalEchoCorrelation {
+  return {
+    accepts: (item) =>
+      item.role === 'user' &&
+      item.event !== 'interrupt' &&
+      item.promptEntry !== false &&
+      item.queued !== true,
+    typedText: typedForm,
+    ...(textMatches ? { textMatches } : {}),
+  }
+}
+
+/** Frame ids only: for programs whose text tolerance is not measured (Cursor,
+ *  Pi, the fixture) a person's own words are never credited by order. */
+export const transcriptEchoAcceptCorrelation: TerminalEchoCorrelation = promptEchoCorrelation()
+
+/**
+ * Claude Code 2.1.284 terminal S7 (POD-4862): a tab is recorded as four
+ * spaces, each CR and CRLF as LF, and U+200B is removed; everything else is
+ * kept exactly. The reader trims the record's outer whitespace, so the typed
+ * text is trimmed too. An empty prompt cannot prove a send.
+ */
+export function claudePromptTextMatches(submitted: string, recorded: string): boolean {
+  const typed = submitted
+    .replace(/\t/g, '    ')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\u200b/g, '')
+    .trim()
+  return typed.length > 0 && typed === recorded.trim()
+}
+
+/** Grok 1.0.44 terminal S7 (POD-4865): recorded exactly; the reader trims the
+ *  chunk's outer whitespace (POD-4875). An empty prompt cannot prove a send. */
+export function grokPromptTextMatches(submitted: string, recorded: string): boolean {
+  const typed = submitted.trim()
+  return typed.length > 0 && typed === recorded.trim()
 }

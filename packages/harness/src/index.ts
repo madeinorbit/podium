@@ -18,6 +18,10 @@
 
 export {
   claudeHookAcceptCorrelation,
+  claudePromptTextMatches,
+  grokPromptTextMatches,
+  podiumFrameId,
+  promptEchoCorrelation,
   transcriptEchoAcceptCorrelation,
 } from './accept-correlation.js'
 export type { AgentManifest as HarnessAdapter } from './adapter.js'

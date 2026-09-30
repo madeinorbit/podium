@@ -796,6 +796,35 @@ export async function claudeChainPaths(input: TranscriptSourceInput): Promise<st
   return path ? [path] : []
 }
 
-export const claudeCodeTranscript = supported(
-  fileTranscript(claudeChainPaths, claudeRecordToItems, claudeRuntime, claudeRecordColor),
-)
+/**
+ * A PROMPT CLAUDE HOLDS IN ITS QUEUE (POD-4905, spec §7). Typed while a turn
+ * runs, the prompt is written first as `queue-operation` `enqueue` carrying
+ * its text and no id (measured on 2.1.284, POD-4862: +112–243 ms after the
+ * Enter); it reaches the conversation later as a `queued_command` attachment
+ * or a `user` record with `promptSource: "queued"`, or is dropped (`remove`
+ * with `reason: "dropped_by_hook"`, or lost with the process). So an
+ * `enqueue` is a held receipt — `accepted`, in memory — never a delivery.
+ * Proof-only: the item is marked `queued`, and the daemon never shows it.
+ */
+export function claudeRecordReceipts(record: unknown): TranscriptItem[] {
+  if (typeof record !== 'object' || record === null) return []
+  const r = record as Record<string, unknown>
+  if (r.type !== 'queue-operation' || r.operation !== 'enqueue') return []
+  if (typeof r.content !== 'string' || !r.content.trim()) return []
+  const ts = typeof r.timestamp === 'string' ? r.timestamp : undefined
+  return [
+    {
+      id: '',
+      role: 'system',
+      ...(ts ? { ts } : {}),
+      text: r.content,
+      promptEntry: false,
+      queued: true,
+    },
+  ]
+}
+
+export const claudeCodeTranscript = supported({
+  ...fileTranscript(claudeChainPaths, claudeRecordToItems, claudeRuntime, claudeRecordColor),
+  recordReceipts: claudeRecordReceipts,
+})

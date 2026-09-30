@@ -119,6 +119,24 @@ export function createFrameSink(ports: FrameSinkPorts): (message: DaemonMessage)
         if (ctx) nativeClientInteractionAnswered(ctx, message.sessionId)
       }
     }
-    ports.upstream(message)
+    const outbound = withoutProofOnlyItems(message)
+    if (outbound) ports.upstream(outbound)
   }
+}
+
+/**
+ * PROOF-ONLY TRANSCRIPT ITEMS STAY ON THE MACHINE (POD-4905). A `queued` item
+ * is Claude's queue record, read by the terminal driver as a held receipt
+ * through the tap above; it is not part of the conversation, so no delta the
+ * server keeps or shows carries it. A delta that held nothing else is not sent
+ * at all, unless it is a reset: a reset says the store was replaced.
+ */
+function withoutProofOnlyItems(message: DaemonMessage): DaemonMessage | undefined {
+  if (message.type !== 'transcriptDelta' || !message.items.some((item) => item.queued))
+    return message
+  const items = message.items.filter((item) => !item.queued)
+  if (items.length === 0 && !message.reset) return undefined
+  const tail = items.at(-1)?.cursor
+  const { tail: _stripped, ...rest } = message
+  return { ...rest, items, ...(tail ? { tail } : {}) }
 }

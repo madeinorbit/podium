@@ -110,6 +110,13 @@ export const TranscriptItem = z.object({
    *  legacy formats. Absent means the reader has not classified the item.
    *  Display role alone does not establish eligibility. */
   promptEntry: z.boolean().optional(),
+  /** PROOF-ONLY, NEVER SHOWN (POD-4905): the program's own record that it took
+   *  the prompt in `text` into its queue and has not put it in the
+   *  conversation yet — Claude's `queue-operation enqueue`. The terminal
+   *  driver reads it as a held receipt (spec §4 `accepted`); only the daemon's
+   *  live tail produces it, and the daemon strips it before anything is
+   *  displayed or leaves the machine. Never a prompt entry. */
+  queued: z.boolean().optional(),
   ts: z.string().optional(), // ISO 8601
   /** Markdown body. Empty for pure tool-call items. */
   text: z.string(),

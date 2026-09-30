@@ -531,6 +531,17 @@ export function harnessServerAlternatives(): ServerAlternativeSource[] {
   return out
 }
 
+/** The proof-only record mapper declared by this CLI's manifest (POD-4905):
+ * queue records the terminal driver reads as held receipts. Only the daemon's
+ * live tail uses it; undefined for a harness that declares none. */
+export function transcriptReceiptMapperFor(
+  kind: AgentKind | string,
+): TranscriptRecordMapper | undefined {
+  const declaredTranscript = manifestFor(kind)?.transcript
+  const transcript = declaredTranscript ? declaredValue(declaredTranscript) : undefined
+  return transcript?.recordReceipts
+}
+
 /** The runtime-fact reader declared by this CLI's manifest — what model, effort
  * and context use its records report. Harnesses that report none (and unknown
  * kinds) return undefined, so the caller observes nothing rather than inferring

@@ -90,7 +90,10 @@ export function daemonRuntimeHost(
     stageAttachment,
     trackedState: (sessionId) => ctx.observers.trackedState(sessionId),
     foreignWrites: {
+      count: (sessionId) => ctx.sessions.foreignWrites(sessionId),
+      orderTrustworthy: (sessionId) => ctx.sessions.orderTrustworthy(sessionId),
       markTyping: (sessionId, turnId) => ctx.sessions.get(sessionId)?.foreignWrites.markTyping(turnId),
+      typingMark: (sessionId, turnId) => ctx.sessions.get(sessionId)?.foreignWrites.typingMark(turnId),
     },
     draftSyncing: (sessionId) => ctx.composerEngine.has(sessionId),
     setDraftTarget: (sessionId, text) => ctx.composerEngine.setTarget(sessionId, text),

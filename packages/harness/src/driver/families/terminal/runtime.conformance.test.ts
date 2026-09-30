@@ -1,5 +1,5 @@
 import { pageHistory } from '@podium/harness/driver/host'
-import { AGENT_MANIFESTS } from '@podium/harness'
+import { AGENT_MANIFESTS, promptEchoCorrelation } from '@podium/harness'
 /**
  * THE TERMINAL DRIVER UNDER THE DRIVER CONFORMANCE CORPUS (POD-1761 W3).
  *
@@ -65,6 +65,7 @@ import {
   type TerminalRuntime,
 } from './runtime.js'
 import type { TerminalHostPorts, TerminalTransport } from './host-ports.js'
+import type { TerminalWriteRole } from './injection.js'
 import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
 import { encodeCursor } from '../../../store/cursor-codec.js'
 
@@ -346,7 +347,19 @@ function makeWorld(options: WorldOptions): {
     }
   }
 
+  // The daemon's per-session foreign-write counter (POD-4888), as the host
+  // port hands it: writes not tagged `message` count; this surface holds the
+  // writer lease (podium-host), so an unchanged count is believed (POD-4905).
+  const foreignCounts = new Map<SessionId, number>()
+  const typingMarks = new Map<string, number>()
   const host: TerminalHostPorts = {
+    foreignWrites: {
+      count: (sessionId) => foreignCounts.get(sessionId) ?? 0,
+      orderTrustworthy: () => true,
+      markTyping: (sessionId, turnId) =>
+        typingMarks.set(`${sessionId}:${turnId}`, foreignCounts.get(sessionId) ?? 0),
+      typingMark: (sessionId, turnId) => typingMarks.get(`${sessionId}:${turnId}`),
+    },
     installInstrumentation: async () => ({ args: [] }),
     stageAttachment: async ({ source }) => {
       const id = 'attachment-' + ++nextId
@@ -425,7 +438,10 @@ function makeWorld(options: WorldOptions): {
         // is not going to be the author of.
         if (msg.resume) postResumeRef(msg.sessionId)
       })
-      const write = (dataBase64: string) => {
+      const write = (dataBase64: string, role?: TerminalWriteRole) => {
+          if (role !== 'message') {
+            foreignCounts.set(msg.sessionId, (foreignCounts.get(msg.sessionId) ?? 0) + 1)
+          }
           const text = Buffer.from(dataBase64, 'base64').toString('utf8')
           const paste = pastedText(text)
           if (paste !== undefined) {
@@ -591,6 +607,9 @@ function makeWorld(options: WorldOptions): {
       check()
     }),
     userTurn: echoUserTurn,
+    foreignWrite: (sessionId) => {
+      bridgeOf.get(sessionId)?.writeBase64(Buffer.from('x', 'utf8').toString('base64'))
+    },
     hook: (sessionId, text) => runtime?.onHookPayload(sessionId, {
       hook_event_name: 'UserPromptSubmit', prompt: text,
     }),
@@ -674,13 +693,33 @@ function makeWorld(options: WorldOptions): {
  * cursor/pi: no instrumentation/context/poll lifecycle, and bracketed first turn.
  * Every shape runs the same ordinary AND adversarial contract properties. */
 const SHIPPED_ARMS = ['claude-code', 'codex', 'grok', 'opencode', 'cursor'] as const
+/**
+ * THE CURSOR ARM TYPES A PERSON'S WORDS, AND CURSOR'S HISTORY CANNOT CREDIT
+ * THEM (POD-4905, spec §7): its text tolerance was never measured, so the
+ * shipped profile confirms only a wrapped message's frame id. The corpus's
+ * sends are a person's own words, so this arm runs Cursor's shape with an
+ * exact-text tolerance; `terminal-driver.test.ts` pins that the shipped Cursor
+ * and Pi profiles never credit such words by order.
+ */
+const CURSOR_CORPUS_PROFILE: TerminalHarnessProfile = {
+  ...shippedProfile('cursor'),
+  acceptCorrelation: {
+    'transcript-echo': promptEchoCorrelation((submitted, recorded) => submitted === recorded),
+  },
+}
 const worlds = [
   makeWorld({
     harness: 'grok',
     profile: ADVERSARIAL_PROFILE,
     name: 'adversarial-pty (synthetic, no shipped harness)',
   }),
-  ...SHIPPED_ARMS.map((harness) => makeWorld({ harness, profile: shippedProfile(harness) })),
+  ...SHIPPED_ARMS.map((harness) =>
+    makeWorld({
+      harness,
+      profile: harness === 'cursor' ? CURSOR_CORPUS_PROFILE : shippedProfile(harness),
+      ...(harness === 'cursor' ? { name: 'cursor (generic-pty, exact-text tolerance)' } : {}),
+    }),
+  ),
 ]
 for (const { target } of worlds) {
   runConformance(target.createDriver, {

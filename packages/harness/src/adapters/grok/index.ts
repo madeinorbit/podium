@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
+import { grokPromptTextMatches, promptEchoCorrelation } from '../../accept-correlation.js'
 import { grokStateProvider, observeGrokState } from './state-provider.js'
 import { grokInstrumentation, grokSessionPaths } from './instrumentation.js'
 import { locateGrokTranscript } from './state-locate.js'
@@ -239,7 +239,7 @@ export const grokManifest: AgentManifest = {
     terminal: {
       driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
-      acceptCorrelation: { 'transcript-echo': transcriptEchoAcceptCorrelation },
+      acceptCorrelation: { 'transcript-echo': promptEchoCorrelation(grokPromptTextMatches) },
       // The reader dates each `updates.jsonl` entry by `_meta.agentTimestampMs`,
       // Grok's event time in ms (a prompt's: its dispatch, never before the
       // send). Measured on 1.0.44 (POD-4865); POD-4875 moved the reader here

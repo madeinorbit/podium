@@ -17,11 +17,11 @@ import {
   cursorSeq,
   driverLocalCursor,
   ESC,
-  HOOK_ECHO_ITEM_WAIT_MS,
   type AcceptSeen,
   type HookAcceptPort,
   injectionPayload,
   isDriverLocalCursor,
+  LATE_PROOF_WAIT_MS,
   PASTE_ENVELOPE,
   SUBMIT_CR_DELAY_MS,
   SUBMIT_MAX_RETRIES,
@@ -581,32 +581,32 @@ describe('row cancellation at the terminal submit boundary', () => {
 
 
 describe('the receipt epoch (POD-4655)', () => {
-  it('names the epoch observed when the hook proof lands, even if the turn it opens is newer', async () => {
-    // Claude's UserPromptSubmit fires the moment the prompt lands; the
-    // turn_opened observation that advances the observer arrives hundreds of
-    // milliseconds later through deliver/ack/fence (see onHookPayload in the
-    // daemon's terminal driver). A receipt minted in between names the
+  it('names the epoch observed when the proof lands, even if the turn it opens is newer', async () => {
+    // The harness records the prompt the moment it takes it; the turn_opened
+    // observation that advances the observer arrives hundreds of milliseconds
+    // later through deliver/ack/fence. A receipt minted in between names the
     // PREVIOUS turn — honest about what was observed, stale about what
     // opened. Consumers must correlate by order, not by this number; the
     // daemon's timing record proves it does, in driver-timing.test.ts.
     const { ports } = terminal({
       // The initial-prompt turn was observed; the runtime send's turn has not
-      // been yet, and still has not been when the hook fires below.
+      // been yet, and still has not been when the record lands below.
       observedTurnEpoch: () => 1,
-      hookAccept: { watch: () => ({ accepted: Promise.resolve({}), cancel: () => {} }) },
-      echoAccept: {
-        watch: () => ({ accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }),
-      },
+      echoAccept: { watch: () => ({ accepted: Promise.resolve({}), cancel: () => {} }) },
     })
     const receipt = await createTerminalInjection(ports).deliver('second prompt', {
       origin: 'controller',
       delivery: 'when-ready',
     })
-    expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook', turnEpoch: 1 })
+    expect(receipt).toMatchObject({
+      outcome: 'accepted',
+      provenBy: 'transcript-echo',
+      turnEpoch: 1,
+    })
   })
 })
 
-describe('durable prompt confirmation', () => {
+describe('the window while the harness is busy (POD-4905)', () => {
   it('keeps the original proof watch while busy, without submitting another payload', async () => {
     vi.useFakeTimers()
     try {
@@ -622,7 +622,9 @@ describe('durable prompt confirmation', () => {
         setTimer: (fn, delay) => setTimeout(fn, delay),
       })
       const delivery = createTerminalInjection(ports).deliver('one creation prompt', {
-        origin: 'human', delivery: 'when-ready', durable: true, initialPrompt: true,
+        origin: 'human',
+        delivery: 'when-ready',
+        initialPrompt: true,
       })
       await vi.advanceTimersByTimeAsync(100)
       phase = 'working'
@@ -635,6 +637,35 @@ describe('durable prompt confirmation', () => {
       confirm({})
       expect(await delivery).toMatchObject({ outcome: 'accepted', provenBy: 'transcript-echo' })
     } finally { vi.useRealTimers() }
+  })
+
+  it('a message typed into a running tool call is still in its window when the tool ends', async () => {
+    // Measured (POD-4862/4863/4865): a prompt typed while busy is recorded
+    // only when the running tool call or text stream ends, +6–10 s later.
+    vi.useFakeTimers()
+    try {
+      let phase = 'working'
+      let confirm!: (seen: AcceptSeen) => void
+      const accepted = new Promise<AcceptSeen>((resolve) => {
+        confirm = resolve
+      })
+      const { ports } = terminal({
+        phase: () => phase,
+        echoAccept: { watch: () => ({ accepted, cancel: () => {} }) },
+        setTimer: (fn, delay) => setTimeout(fn, delay),
+      })
+      const delivery = createTerminalInjection(ports).deliver('while the tool runs', {
+        origin: 'human',
+        delivery: 'when-ready',
+      })
+      await vi.advanceTimersByTimeAsync(8_000)
+      phase = 'idle'
+      await vi.advanceTimersByTimeAsync(1_000)
+      confirm({ transcriptItem: { id: 'u-9' } })
+      expect(await delivery).toMatchObject({ outcome: 'accepted', transcriptItem: { id: 'u-9' } })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -659,75 +690,129 @@ describe('the history entry a delivered send became (POD-4774)', () => {
     })
   })
 
-  it('after a hook proof, names the entry late, when its echo lands', async () => {
+  it('a hook alone proves nothing (POD-4905)', async () => {
+    const { ports } = terminal({
+      hookAccept: { watch: () => ({ accepted: Promise.resolve({}), cancel: () => {} }) },
+      echoAccept: {
+        watch: () => ({ accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }),
+      },
+    })
+    const receipt = await createTerminalInjection(ports).deliver('ship it', {
+      origin: 'human',
+      delivery: 'when-ready',
+    })
+    expect(receipt.outcome).toBe('unverified')
+  })
+})
+
+/**
+ * A PROMPT THE HARNESS HOLDS IN ITS QUEUE (POD-4905). Claude writes an
+ * `enqueue` for a prompt typed while it is busy and records the prompt only
+ * when it takes it in: the receipt is `accepted`, `held: 'memory'`, and the
+ * record — or the watch closing without one — follows.
+ */
+describe('a held send', () => {
+  const item = { id: 'u-8', cursor: 'c-8' }
+  type Heard = { entry?: unknown; unrecorded?: string }
+
+  function heldTerminal() {
+    let record!: (seen: AcceptSeen) => void
+    let pass!: () => void
+    let cancelled = false
+    const { ports } = terminal({
+      setTimer: (fn, delay) => setTimeout(fn, delay),
+      echoAccept: {
+        watch: () => ({
+          accepted: new Promise<AcceptSeen>((resolve) => {
+            record = resolve
+          }),
+          held: Promise.resolve(),
+          passed: new Promise<void>((resolve) => {
+            pass = resolve
+          }),
+          cancel: () => {
+            cancelled = true
+          },
+        }),
+      },
+    })
+    const heard: Heard[] = []
+    const machine = createTerminalInjection(ports)
+    const receipt = machine.deliver('ship it', {
+      origin: 'human',
+      delivery: 'when-ready',
+      onTranscriptItem: (entry) => heard.push({ entry }),
+      onUnrecorded: (reason) => heard.push({ unrecorded: reason }),
+    })
+    return {
+      machine,
+      receipt,
+      heard,
+      record: (seen: AcceptSeen) => record(seen),
+      pass: () => pass(),
+      cancelled: () => cancelled,
+    }
+  }
+
+  it('answers accepted, held, and names the entry when the harness records it', async () => {
     vi.useFakeTimers()
     try {
-      let echo!: (seen: AcceptSeen) => void
-      let cancelled = false
-      const named: unknown[] = []
-      const { ports } = terminal({
-        setTimer: (fn, delay) => setTimeout(fn, delay),
-        hookAccept: { watch: () => ({ accepted: Promise.resolve({}), cancel: () => {} }) },
-        echoAccept: {
-          watch: () => ({
-            accepted: new Promise<AcceptSeen>((resolve) => {
-              echo = resolve
-            }),
-            cancel: () => {
-              cancelled = true
-            },
-          }),
-        },
-      })
-      const receipt = await createTerminalInjection(ports).deliver('ship it', {
-        origin: 'human',
-        delivery: 'when-ready',
-        onTranscriptItem: (entry) => named.push(entry),
-      })
-      // The receipt does not wait for the record: the hook proved the send.
-      expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook' })
+      const held = heldTerminal()
+      await vi.advanceTimersByTimeAsync(100)
+      const receipt = await held.receipt
+      expect(receipt).toMatchObject({ outcome: 'accepted', held: 'memory' })
       expect(receipt).not.toHaveProperty('transcriptItem')
-      expect(cancelled).toBe(false)
-      await vi.advanceTimersByTimeAsync(HOOK_ECHO_ITEM_WAIT_MS - 1_000)
-      echo({ transcriptItem: item })
+      expect(held.cancelled()).toBe(false)
+      await vi.advanceTimersByTimeAsync(5_000)
+      held.record({ transcriptItem: item })
       await vi.advanceTimersByTimeAsync(0)
-      expect(named).toEqual([item])
+      expect(held.heard).toEqual([{ entry: item }])
+      expect(held.cancelled()).toBe(true)
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('names nothing when the echo never lands inside the window, and stops watching', async () => {
+  it('says it was not recorded when the history moves past it', async () => {
     vi.useFakeTimers()
     try {
-      let echo!: (seen: AcceptSeen) => void
-      let cancelled = false
-      const named: unknown[] = []
-      const { ports } = terminal({
-        setTimer: (fn, delay) => setTimeout(fn, delay),
-        hookAccept: { watch: () => ({ accepted: Promise.resolve({}), cancel: () => {} }) },
-        echoAccept: {
-          watch: () => ({
-            accepted: new Promise<AcceptSeen>((resolve) => {
-              echo = resolve
-            }),
-            cancel: () => {
-              cancelled = true
-            },
-          }),
-        },
-      })
-      await createTerminalInjection(ports).deliver('ship it', {
-        origin: 'human',
-        delivery: 'when-ready',
-        onTranscriptItem: (entry) => named.push(entry),
-      })
-      await vi.advanceTimersByTimeAsync(HOOK_ECHO_ITEM_WAIT_MS)
-      expect(cancelled).toBe(true)
-      // A record that lands after the window is not attributed to this send.
-      echo({ transcriptItem: item })
+      const held = heldTerminal()
+      await vi.advanceTimersByTimeAsync(100)
+      await held.receipt
+      held.pass()
       await vi.advanceTimersByTimeAsync(0)
-      expect(named).toEqual([])
+      held.record({ transcriptItem: item })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(held.heard).toEqual([{ unrecorded: expect.stringContaining('moved past') }])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('says it was not recorded after the maximum wait', async () => {
+    vi.useFakeTimers()
+    try {
+      const held = heldTerminal()
+      await vi.advanceTimersByTimeAsync(100)
+      await held.receipt
+      await vi.advanceTimersByTimeAsync(LATE_PROOF_WAIT_MS)
+      expect(held.heard).toEqual([{ unrecorded: expect.stringContaining('maximum wait') }])
+      expect(held.cancelled()).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('says it was not recorded when the session ends first', async () => {
+    vi.useFakeTimers()
+    try {
+      const held = heldTerminal()
+      await vi.advanceTimersByTimeAsync(100)
+      await held.receipt
+      held.machine.dispose()
+      held.record({ transcriptItem: item })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(held.heard).toEqual([{ unrecorded: expect.stringContaining('session ended') }])
     } finally {
       vi.useRealTimers()
     }
@@ -735,7 +820,8 @@ describe('the history entry a delivered send became (POD-4774)', () => {
 })
 
 /**
- * THE PROGRAM'S OWN ID FROM THE HOOK THAT PROVED THE SEND (POD-4841).
+ * THE PROGRAM'S OWN ID FROM CLAUDE'S HOOK (POD-4841), on a send the history
+ * proved (POD-4905).
  *
  * Claude's `UserPromptSubmit` carries the prompt's `prompt_id`. Measured
  * (POD-4834): for a prompt typed into an idle agent the hook is this prompt's;
@@ -743,7 +829,7 @@ describe('the history entry a delivered send became (POD-4774)', () => {
  * turn's id. So the id rides on the receipt only when the agent was idle as
  * the send began, and never an id that might be another prompt's.
  */
-describe("the program's own id from the proving hook (POD-4841)", () => {
+describe("the program's own id from Claude's hook (POD-4841)", () => {
   const ref = [{ kind: 'claude-prompt', id: 'prompt-7' }]
   const hooked = (phase: string) =>
     terminal({
@@ -751,8 +837,12 @@ describe("the program's own id from the proving hook (POD-4841)", () => {
       hookAccept: {
         watch: () => ({ accepted: Promise.resolve({ harnessRef: ref }), cancel: () => {} }),
       },
+      // The record lands a tick after the hook.
       echoAccept: {
-        watch: () => ({ accepted: new Promise<AcceptSeen>(() => {}), cancel: () => {} }),
+        watch: () => ({
+          accepted: new Promise<AcceptSeen>((resolve) => setTimeout(() => resolve({}), 0)),
+          cancel: () => {},
+        }),
       },
     })
 
@@ -761,7 +851,11 @@ describe("the program's own id from the proving hook (POD-4841)", () => {
       origin: 'human',
       delivery: 'when-ready',
     })
-    expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook', harnessRef: ref })
+    expect(receipt).toMatchObject({
+      outcome: 'accepted',
+      provenBy: 'transcript-echo',
+      harnessRef: ref,
+    })
   })
 
   it('leaves it out for a send typed while a turn runs', async () => {
@@ -770,7 +864,7 @@ describe("the program's own id from the proving hook (POD-4841)", () => {
       delivery: 'interrupt',
       afterEsc: true,
     })
-    expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook' })
+    expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'transcript-echo' })
     expect(receipt).not.toHaveProperty('harnessRef')
   })
 })

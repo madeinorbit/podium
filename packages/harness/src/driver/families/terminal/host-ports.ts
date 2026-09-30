@@ -98,8 +98,15 @@ export interface TerminalTransport {
  * starts, keyed by session like every other process fact here.
  */
 export interface TerminalForeignWrites {
+  /** Every foreign write and exclusivity loss so far, this host life. */
+  count(sessionId: SessionId): number
+  /** Whether an unchanged count can be believed: true only while the session's
+   *  terminal holds the backend's writer lease (never on abduco). */
+  orderTrustworthy(sessionId: SessionId): boolean
   /** Remember the session's current count as `turnId`'s typing start. */
   markTyping(sessionId: SessionId, turnId: string): void
+  /** The count when `turnId`'s typing started, if it is still remembered. */
+  typingMark(sessionId: SessionId, turnId: string): number | undefined
 }
 
 /** Out-of-band context the mail boundary reads, when one exists. */
@@ -118,7 +125,7 @@ export type TerminalMailBoundaryContext = (
 export interface TerminalHostPorts {
   boundaryContext?: TerminalMailBoundaryContext
   /** The per-session foreign-write counter (POD-4888). Absent = no counter:
-   *  typing starts are not marked, so no entry is credited by order. */
+   *  nothing is marked, so no prompt entry is ever credited by order. */
   foreignWrites?: TerminalForeignWrites
   /** The driver's outbound reports: runtime events plus the instrumentation
    *  degradation diagnostic. Narrowed from the whole daemon wire — see

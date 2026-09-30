@@ -23,6 +23,7 @@ import {
   parseClaudeTranscriptSegmentId,
   reduceAgentState,
   transcriptColorReaderFor,
+  transcriptReceiptMapperFor,
   transcriptRecordMapperFor,
   transcriptRuntimeReaderFor,
   withStateChannelEvent,
@@ -1281,6 +1282,13 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // The agent's `/color` accent rides the same transcript tail. The extractor
     // is the adapter grammar's (POD-4471); absent ⇒ the tail observes no colour.
     const recordColor = transcriptColorReaderFor(agentKind)
+    // Proof-only queue records ride the live tail and nothing else (POD-4905):
+    // the terminal driver reads them as held receipts, and the frame sink
+    // strips them before the delta leaves the machine.
+    const recordReceipts = transcriptReceiptMapperFor(agentKind)
+    const liveRecordToItems = recordReceipts
+      ? (record: unknown) => [...recordToItems(record), ...recordReceipts(record)]
+      : recordToItems
     tails.set(
       sessionId,
       tailTranscript(
@@ -1311,7 +1319,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         },
         {
           resumeValue,
-          recordToItems,
+          recordToItems: liveRecordToItems,
           statTick,
           ...(recordColor ? { recordColor } : {}),
           onColor: (color, at) => send({ type: 'agentColor', sessionId, color, ...(at ? { at } : {}) }),

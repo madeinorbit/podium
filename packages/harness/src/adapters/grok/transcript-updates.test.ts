@@ -19,7 +19,6 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { TranscriptItem } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { declaredValue } from '../../manifest.js'
 import { decodeCursor } from '../../store/cursor-codec.js'
 import { fileIdFor } from '../../store/file-chain.js'
@@ -102,10 +101,11 @@ describe('the Grok terminal transcript, read from updates.jsonl', () => {
   it('the echo proof accepts each prompt entry and matches it to the typed text', async () => {
     const items = users(await read(UPDATES))
     const beta = items.find((item) => item.text.startsWith('BETA'))
-    expect(beta && transcriptEchoAcceptCorrelation.accepts(beta)).toBe(true)
-    expect(beta && transcriptEchoAcceptCorrelation.fingerprint(beta)).toBe(
-      transcriptEchoAcceptCorrelation.fingerprintText('BETA TOOLSLEEP please'),
-    )
+    if (!beta) throw new Error('no BETA entry')
+    const echo = grokManifest.runtime.terminal.acceptCorrelation?.['transcript-echo']
+    expect(echo?.accepts(beta)).toBe(true)
+    expect(echo?.textMatches?.('BETA TOOLSLEEP please', echo.typedText(beta))).toBe(true)
+    expect(echo?.textMatches?.('BETA TOOLSLEEP', echo.typedText(beta))).toBe(false)
   })
 
   it('shows the replies and the tool calls with their results', async () => {
