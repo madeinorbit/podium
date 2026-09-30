@@ -1,0 +1,1 @@
+WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp" (codex_home: AbsolutePathBuf("/tmp/podium-4984-codex-app-server-siV7NN/home/.codex"))
