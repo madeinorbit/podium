@@ -1,7 +1,7 @@
 import { shallowEqual } from '@podium/client-core/store'
 import {
-  hostAgentsViewFromCounts,
   createHostSessionAggregatesSelector,
+  hostAgentsViewFromCounts,
   hostLoadView,
   hostMemoryView,
   listReclaimableWorktreesClient,
@@ -19,11 +19,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { cn } from '@/lib/utils'
 import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
+import { MessageNoticeIndicator } from '../chat/MessageNotices'
 import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
 import { HealthPopover } from './HealthPopover'
 import type { HostInfoTab } from './HostMemoryView'
+import { headerOfflineMachines } from './header-offline-machines'
 import { useHibernationSetting, useHostLifecycleSettings } from './host-lifecycle-settings'
-import { MessageNoticeIndicator } from '../chat/MessageNotices'
 import { OutboxRecoveryIndicator } from './OutboxRecovery'
 import { QuotaIndicator } from './QuotaIndicator'
 import { SEVERITY, TONE_KEY } from './severity'
@@ -223,14 +224,16 @@ export function HeaderHostIndicators(): JSX.Element {
     for (const m of machines) map.set(m.id, isMachineOfflineForLiveTerminal(m))
     return map
   }, [machines])
+  // POD-4965: only machines still in use — a retired row is history, not a chip.
+  // `hostMetrics` refreshes on every sample, so the recency clock rides along.
   const offlineWithoutMetrics = useMemo(
     () =>
-      machines.filter(
-        (m) =>
-          offlineByMachine.get(m.id) === true &&
-          !hostMetrics.some((h) => h.machineId === m.id),
+      headerOfflineMachines(
+        machines,
+        new Set(hostMetrics.flatMap((h) => (h.machineId ? [h.machineId] : []))),
+        Date.now(),
       ),
-    [machines, hostMetrics, offlineByMachine],
+    [machines, hostMetrics],
   )
   // One scan for every machine, grouped afterwards, rather than one scan per
   // host — and keyed on what the scan can actually see. The sessions slice is
