@@ -14,14 +14,15 @@ import { memo, useCallback, useMemo, useRef, useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
 import { resolveAgainstCwd } from '@/lib/file-path'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
+import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import { AttributionMark } from './AttributionMark'
 import type { ChatBlock } from './chat'
 import { handleChatMdClick } from './chat-md-click'
 import { MachineContextRow } from './MachineContextRow'
-import { MetaGlyph } from './MetaGlyph'
 import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
+import { MetaGlyph } from './MetaGlyph'
 import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
@@ -320,6 +321,8 @@ export const ChatBlockView = memo(function ChatBlockView({
       : null
   }, [compact, item.role, item.answer, item.text])
   const displayText = envelopeBatch?.operatorText || nextSplit?.body || item.text
+  const refPrefixesVersion = useKnownRefPrefixesVersion()
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refPrefixesVersion is a deliberate recompute trigger — linkifyRefs reads the prefix registry.
   const html = useMemo(() => {
     const unsafeHtml = markdownHtml?.get(displayText)
     return unsafeHtml === undefined
@@ -327,8 +330,11 @@ export const ChatBlockView = memo(function ChatBlockView({
       : sanitizeRenderedMarkdown(unsafeHtml)
     // Issue refs are state-free transcript content. Dynamic fleet state must
     // never become a dependency here: rewriting innerHTML killed selection and
-    // shifted the feed on the issue-update cadence.
-  }, [displayText, markdownHtml])
+    // shifted the feed on the issue-update cadence. The prefix REGISTRY is not
+    // fleet state: it changes when a repo prefix appears, and a row rendered
+    // before the registry arrived has no ref links until it re-renders
+    // (POD-4966).
+  }, [displayText, markdownHtml, refPrefixesVersion])
   // Envelopes render as rows AHEAD of this block's own row (a provider turn can
   // deliver several frames before the operator's text), so when they exist they
   // are what opens the exchange and the body row binds to them.

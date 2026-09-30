@@ -20,6 +20,7 @@ import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { memo, useMemo, useState } from 'react'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
+import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
 
 /** An envelope-header principal: the nice-id issue ref renders as the same
@@ -99,13 +100,16 @@ function EnvelopeItem({
   const setFull = setOpened
   const { subject, preview } = useMemo(() => splitSubject(envelope.body), [envelope.body])
   const cachedHtml = markdownHtml?.get(envelope.body)
+  const refPrefixesVersion = useKnownRefPrefixesVersion()
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refPrefixesVersion is a deliberate recompute trigger — linkifyRefs reads the prefix registry.
   const html = useMemo(() => {
     if (!full) return ''
     return cachedHtml === undefined
       ? renderMarkdown(envelope.body)
       : sanitizeRenderedMarkdown(cachedHtml)
-    // Ref chips are state-free transcript content (see ChatBlockView).
-  }, [cachedHtml, envelope.body, full])
+    // Ref chips are state-free transcript content (see ChatBlockView); only the
+    // prefix registry arriving re-renders them (POD-4966).
+  }, [cachedHtml, envelope.body, full, refPrefixesVersion])
   return (
     <div className="mail-item" data-testid="mail-item" data-full={full ? 'true' : undefined}>
       <span className="mail-item-from">
