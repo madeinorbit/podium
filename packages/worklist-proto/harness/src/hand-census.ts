@@ -114,8 +114,8 @@ export function startHandCensus(): HandCensus {
 
   // Every cell, as it is built (all product cells go through `graph.cell`).
   wrap(CellGraph.prototype as unknown as object, 'cell', (original) => {
-    const made = (...args: never[]): unknown => {
-      const cell = original(...args) as object
+    const made = function (this: unknown, ...args: never[]): unknown {
+      const cell = original.apply(this, args) as object
       const name = String((args[0] as unknown) ?? '(unnamed)')
       const { part, id } = splitName(name)
       const entry: HandCensusEntry = { name, part, id, phase: top(), live: true }
@@ -128,17 +128,17 @@ export function startHandCensus(): HandCensus {
   })
   // Every cell body run (`run` is private: reached by name, as the work meter).
   wrap(CellGraph.prototype as unknown as object, 'run', (original) => {
-    const ran = (...args: never[]): unknown => {
+    const ran = function (this: unknown, ...args: never[]): unknown {
       work(top()).cellRuns += 1
-      return original(...args)
+      return original.apply(this, args)
     }
     return ran
   })
   wrap(CellGraph.prototype as unknown as object, 'dispose', (original) => {
-    const gone = (...args: never[]): unknown => {
+    const gone = function (this: unknown, ...args: never[]): unknown {
       const entry = byCell.get(args[0] as object)
       if (entry !== undefined) entry.live = false
-      return original(...args)
+      return original.apply(this, args)
     }
     return gone
   })
