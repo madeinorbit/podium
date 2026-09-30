@@ -9,15 +9,16 @@
 //! machine and the feed holds back an unfinished escape sequence or UTF-8
 //! character until it completes. The picture is the state at that ground
 //! point followed by the held bytes, which the DATA after it completes. A
-//! sequence longer than [`HOLD_MAX`] (a huge OSC or DCS string) is fed through
-//! instead; until the parser returns to ground, pictures wait.
+//! sequence longer than [`HOLD_MAX`] is discarded before reaching vte. The
+//! mirror still tracks its terminator; pictures wait so no discarded tail can
+//! escape into a picture as ordinary text.
 
 use std::cell::RefCell;
 use std::fmt::Write as _;
 use std::rc::Rc;
 
 use alacritty_terminal::event::{Event, EventListener};
-use alacritty_terminal::grid::{Dimensions, Grid};
+use alacritty_terminal::grid::{Cursor, Dimensions, Grid};
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::cell::{Cell, Flags, Hyperlink};
 use alacritty_terminal::term::{Config, Term, TermMode};
@@ -26,9 +27,15 @@ use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Processor, T
 /// The longest unfinished sequence held back from the emulator.
 pub const HOLD_MAX: usize = 64 * 1024;
 pub const DEFAULT_SCROLLBACK: usize = 1000;
-/// The most a picture takes: scrollback lines are dropped from the top until
-/// it fits. The visible screens are always sent whole.
+/// Target picture size: drop scrollback first, preserving the visible screens.
+/// Even a visible screen must fit PICTURE_MAX, or the picture is refused.
 pub const PICTURE_BUDGET: usize = 1 << 20;
+/// Absolute ceiling, including visible screens, metadata and unfinished tail.
+pub const PICTURE_MAX: usize = 8 << 20;
+const METADATA_MAX: usize = 4096;
+const ZERO_WIDTH_MAX: usize = 16;
+/// Logical cells in both grids and the primary snapshot, including histories.
+const GRID_CELLS_MAX: usize = 2_000_000;
 
 /// Receives what the terminal would tell its window: only the title matters here.
 /// Replies to queries (DA, DSR) are dropped; the real terminal answers them.
@@ -152,6 +159,7 @@ impl Ground {
 
     /// Advance over `bytes`; the last offset after which the parser is at
     /// ground. Plain ASCII at ground is skipped without stepping.
+    #[cfg(test)]
     fn last_ground(&mut self, bytes: &[u8]) -> Option<usize> {
         let mut cut = None;
         let mut i = 0;
@@ -259,16 +267,21 @@ pub struct Screen {
     parser: Processor<NoSync>,
     title: Rc<RefCell<Option<String>>>,
     ground: Ground,
-    /// Ring seq the emulator has consumed through; a ground point unless `overflowed`.
+    /// Original ring seq consumed (including discarded bytes), excluding `held`.
     fed: u64,
     /// Bytes after `fed` held back because they end inside a sequence.
     held: Vec<u8>,
-    /// A held sequence outgrew HOLD_MAX and was fed: `fed` is not a ground point
-    /// until the parser returns to ground.
+    /// Complete, sanitized sequences batched for vte; reused between reads.
+    prepared: Vec<u8>,
+    /// Discard the rest of an oversized sequence through its real terminator.
+    /// Nothing from it reaches vte, and no picture is taken during the discard.
     overflowed: bool,
-    /// A 1x1 grid parked in the alternate screen's place while a picture
-    /// reads the primary one (see `picture`).
-    spare: Grid<Cell>,
+    scrollback: usize,
+    /// Cache just the last observed combining character, for repeated-mark floods.
+    combining: Option<char>,
+    /// Read-only inactive primary snapshot: swap_alt overwrites saved cursors.
+    /// Its cell count is included in history_limit.
+    primary: Option<Grid<Cell>>,
 }
 
 impl Screen {
@@ -276,13 +289,13 @@ impl Screen {
         let listener = Listener::default();
         let title = listener.0.clone();
         let cfg = Config {
-            scrolling_history: scrollback,
+            scrolling_history: history_limit(cols, rows, scrollback),
             kitty_keyboard: true,
             ..Default::default()
         };
         let size = Size {
-            cols: cols.max(1) as usize,
-            rows: rows.max(1) as usize,
+            cols: cols.clamp(1, crate::args::MAX_COLS) as usize,
+            rows: rows.clamp(1, crate::args::MAX_ROWS) as usize,
         };
         Screen {
             term: Term::new(cfg, &size, listener),
@@ -291,42 +304,76 @@ impl Screen {
             ground: Ground::new(),
             fed: 0,
             held: Vec::new(),
+            prepared: Vec::new(),
             overflowed: false,
-            spare: Grid::new(1, 1, 0),
+            scrollback,
+            combining: None,
+            primary: None,
         }
     }
 
     /// The same bytes the ring just appended, in order.
     pub fn feed(&mut self, bytes: &[u8]) {
-        match self.ground.last_ground(bytes) {
-            Some(n) => {
-                self.fed += (self.held.len() + n) as u64;
-                if self.held.is_empty() {
-                    self.parser.advance(&mut self.term, &bytes[..n]);
-                } else {
-                    // One call, never the held part alone: vte 0.15.0 drops the
-                    // byte after a character it was handed in part.
-                    let mut held = std::mem::take(&mut self.held);
-                    held.extend_from_slice(&bytes[..n]);
-                    self.parser.advance(&mut self.term, &held);
-                    held.clear();
-                    self.held = held;
-                }
-                self.overflowed = false;
-                self.hold(&bytes[n..]);
+        let high = self.fed + self.held.len() as u64 + bytes.len() as u64;
+        let mut prepared = std::mem::take(&mut self.prepared);
+        let mut i = 0;
+        while i < bytes.len() {
+            if prepared.len() >= HOLD_MAX {
+                self.advance_bounded(&prepared);
+                prepared.clear();
             }
-            None => self.hold(bytes),
+            if self.ground.st == St::Ground && self.held.is_empty() && !self.overflowed {
+                // Keep the common ASCII path batched. It cannot add combining marks.
+                let n = bytes[i..]
+                    .iter()
+                    .position(|&b| b == 0x1b || b >= 0x80)
+                    .unwrap_or(bytes.len() - i)
+                    .min(HOLD_MAX);
+                if n > 0 {
+                    prepared.extend_from_slice(&bytes[i..i + n]);
+                    i += n;
+                    continue;
+                }
+            }
+            let b = bytes[i];
+            let complete = self.ground.step(b);
+            i += 1;
+            if self.overflowed {
+                if complete {
+                    self.overflowed = false;
+                }
+                continue;
+            }
+            if self.held.len() == HOLD_MAX {
+                // vte has not seen any of this sequence. Discard the whole thing,
+                // then swallow its remaining payload (including across PTY reads).
+                self.held.clear();
+                self.overflowed = !complete;
+                continue;
+            }
+            self.held.push(b);
+            if complete {
+                prepared.extend_from_slice(&self.held);
+                self.held.clear();
+            }
         }
+        if !prepared.is_empty() {
+            self.advance_bounded(&prepared);
+        }
+        prepared.clear();
+        self.prepared = prepared;
+        self.fed = high - self.held.len() as u64;
     }
 
-    fn hold(&mut self, rest: &[u8]) {
-        self.held.extend_from_slice(rest);
-        if self.held.len() > HOLD_MAX {
-            let held = std::mem::take(&mut self.held);
-            self.parser.advance(&mut self.term, &held);
-            self.fed += held.len() as u64;
-            self.overflowed = true;
-        }
+    fn advance_bounded(&mut self, bytes: &[u8]) {
+        self.parser.advance(
+            &mut bounded::Bounded {
+                term: &mut self.term,
+                primary: &mut self.primary,
+                combining: &mut self.combining,
+            },
+            bytes,
+        );
     }
 
     /// True when a picture now is exact: the emulator stopped at ground.
@@ -350,9 +397,18 @@ impl Screen {
     /// Apply a size the host just set on the pty (TIOCSWINSZ).
     pub fn resize(&mut self, cols: u16, rows: u16) {
         let size = Size {
-            cols: cols.max(1) as usize,
-            rows: rows.max(1) as usize,
+            cols: cols.clamp(1, crate::args::MAX_COLS) as usize,
+            rows: rows.clamp(1, crate::args::MAX_ROWS) as usize,
         };
+        self.term.set_options(Config {
+            scrolling_history: history_limit(cols, rows, self.scrollback),
+            kitty_keyboard: true,
+            ..Default::default()
+        });
+        if let Some(primary) = &mut self.primary {
+            primary.update_history(history_limit(cols, rows, self.scrollback));
+            primary.resize(true, size.rows, size.cols);
+        }
         self.term.resize(size);
         // alacritty resets the scrolling region on resize
         self.ground.region = None;
@@ -371,42 +427,44 @@ impl Screen {
     /// Append the full state as bytes for a fresh terminal of `size()`:
     /// reset, scrollback and screen with attributes, alternate screen, saved
     /// cursor, scrolling region, modes, pen and cursor, then the held bytes.
-    /// Returns true when scrollback was dropped to keep within
-    /// [`PICTURE_BUDGET`].
-    pub fn picture(&mut self, out: &mut Vec<u8>) -> bool {
+    /// Returns true when history was trimmed to PICTURE_BUDGET, or the
+    /// picture was refused (no bytes appended) at the PICTURE_MAX ceiling.
+    pub fn picture(&self, out: &mut Vec<u8>) -> bool {
         let start = out.len();
         out.extend_from_slice(b"\x1bc");
         let mut link = None; // the hyperlink written last
         let mut cuts = Vec::new(); // where history lines may be dropped from
+        let mut trimmed = false;
         let alt = self.term.mode().contains(TermMode::ALT_SCREEN);
         if alt {
-            // The primary grid is private while the alternate screen is up;
-            // swap_alt() reaches it. Swapping back in resets whatever grid is
-            // parked as the alternate one, so the spare is parked there in
-            // the alternate grid's place, and the alternate grid is put back
-            // after. Nothing is copied.
-            std::mem::swap(self.term.grid_mut(), &mut self.spare);
-            self.term.swap_alt();
-            write_grid(self.term.grid(), Some(&mut cuts), &mut link, out);
-            // The primary cursor and its pen: entering the alternate screen
-            // keeps both for when the program leaves it.
-            let c = &self.term.grid().cursor;
-            cup(out, c.point.line.0 + 1, c.point.column.0 + 1);
-            sgr(out, &c.template, &mut link);
-            self.term.swap_alt();
-            std::mem::swap(self.term.grid_mut(), &mut self.spare);
+            let primary = self.primary.as_ref().expect("1049 primary snapshot");
+            if !write_grid(primary, Some(&mut cuts), &mut link, out, &mut trimmed) {
+                out.truncate(start);
+                return true;
+            }
+            write_cursor(primary, &primary.cursor, 0, &mut link, out);
             out.extend_from_slice(b"\x1b[?1049h\x1b[H");
-            write_grid(self.term.grid(), None, &mut link, out);
+            if !write_grid(self.term.grid(), None, &mut link, out, &mut trimmed) {
+                out.truncate(start);
+                return true;
+            }
         } else {
-            write_grid(self.term.grid(), Some(&mut cuts), &mut link, out);
+            if !write_grid(
+                self.term.grid(),
+                Some(&mut cuts),
+                &mut link,
+                out,
+                &mut trimmed,
+            ) {
+                out.truncate(start);
+                return true;
+            }
         }
         let grid = self.term.grid();
         let mode = *self.term.mode();
 
         // Saved cursor (DECSC) of the active screen
-        let sc = &grid.saved_cursor;
-        cup(out, sc.point.line.0 + 1, sc.point.column.0 + 1);
-        sgr(out, &sc.template, &mut link);
+        write_cursor(grid, &grid.saved_cursor, 0, &mut link, out);
         out.extend_from_slice(b"\x1b7");
 
         // Scrolling region and origin mode (both home the cursor)
@@ -422,18 +480,7 @@ impl Screen {
         }
 
         // Cursor, pending wrap, pen
-        let cur = &grid.cursor;
-        let (line, col) = (cur.point.line.0, cur.point.column.0);
-        if cur.input_needs_wrap {
-            // Re-print the last cell so the cursor waits to wrap, as it did
-            let cell = &grid[Line(line)][Column(col)];
-            cup(out, line - top + 1, col + 1);
-            sgr(out, cell, &mut link);
-            put_cell(out, cell);
-        } else {
-            cup(out, line - top + 1, col + 1);
-        }
-        sgr(out, &cur.template, &mut link);
+        write_cursor(grid, &grid.cursor, top, &mut link, out);
 
         // Modes
         let set = |out: &mut Vec<u8>, m: TermMode, seq: &[u8]| {
@@ -472,7 +519,7 @@ impl Screen {
             let _ = write!(Str(out), "\x1b[{n} q");
         }
         if let Some(t) = self.title.borrow().as_deref() {
-            let _ = write!(Str(out), "\x1b]2;{t}\x07");
+            let _ = write!(Str(out), "\x1b]2;{}\x07", utf8_prefix(t, METADATA_MAX));
         }
         if !mode.contains(TermMode::SHOW_CURSOR) {
             out.extend_from_slice(b"\x1b[?25l");
@@ -483,11 +530,59 @@ impl Screen {
             out.extend_from_slice(b"\x1b[?2026h");
         }
 
-        let trimmed = trim_history(out, start, &cuts, self.held.len());
+        trimmed |= trim_history(out, start, &cuts, self.held.len());
         // The unfinished sequence: the DATA after the picture completes it.
         out.extend_from_slice(&self.held);
+        if out.len() - start > PICTURE_MAX {
+            out.truncate(start); // an incomplete ANSI redraw is never a picture
+            return true;
+        }
         trimmed
     }
+}
+
+/// Re-print the final glyph to restore pending wrap, including a wide glyph
+/// whose cursor sits on its spacer. Printing the spacer erases the wide glyph.
+fn write_cursor(
+    grid: &Grid<Cell>,
+    cursor: &Cursor<Cell>,
+    top: i32,
+    link: &mut Option<Hyperlink>,
+    out: &mut Vec<u8>,
+) {
+    let (line, mut col) = (cursor.point.line, cursor.point.column);
+    if cursor.input_needs_wrap && col.0 + 1 == grid.columns() {
+        if col.0 > 0
+            && grid[line][col].flags.contains(Flags::WIDE_CHAR_SPACER)
+            && grid[line][Column(col.0 - 1)]
+                .flags
+                .contains(Flags::WIDE_CHAR)
+        {
+            col.0 -= 1;
+        }
+        let cell = &grid[line][col];
+        cup(out, line.0 - top + 1, col.0 + 1);
+        sgr(out, cell, link);
+        put_cell(out, cell);
+    } else {
+        cup(out, line.0 - top + 1, col.0 + 1);
+    }
+    sgr(out, &cursor.template, link);
+}
+
+fn utf8_prefix(s: &str, max: usize) -> &str {
+    let mut end = s.len().min(max);
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
+fn history_limit(cols: u16, rows: u16, requested: usize) -> usize {
+    let cols = cols.clamp(1, crate::args::MAX_COLS) as usize;
+    let rows = rows.clamp(1, crate::args::MAX_ROWS) as usize;
+    // Both emulator grids and the read-only primary snapshot, with its history.
+    requested.min((GRID_CELLS_MAX / cols).saturating_sub(3 * rows) / 2)
 }
 
 /// Drop whole history lines from the top of the picture at `out[start..]`
@@ -601,7 +696,12 @@ fn sgr(out: &mut Vec<u8>, c: &Cell, link: &mut Option<Hyperlink>) {
     if h != *link {
         match &h {
             Some(h) => {
-                let _ = write!(Str(out), "\x1b]8;id={};{}\x1b\\", h.id(), h.uri());
+                let _ = write!(
+                    Str(out),
+                    "\x1b]8;id={};{}\x1b\\",
+                    utf8_prefix(h.id(), METADATA_MAX),
+                    utf8_prefix(h.uri(), METADATA_MAX)
+                );
             }
             None => out.extend_from_slice(b"\x1b]8;;\x1b\\"),
         }
@@ -614,7 +714,7 @@ fn put_cell(out: &mut Vec<u8>, c: &Cell) {
     let ch = if c.c == '\0' { ' ' } else { c.c };
     out.extend_from_slice(ch.encode_utf8(&mut b).as_bytes());
     if let Some(zw) = c.zerowidth() {
-        for z in zw {
+        for z in zw.iter().take(ZERO_WIDTH_MAX) {
             out.extend_from_slice(z.encode_utf8(&mut b).as_bytes());
         }
     }
@@ -637,7 +737,8 @@ fn write_grid(
     mut cuts: Option<&mut Vec<usize>>,
     link: &mut Option<Hyperlink>,
     out: &mut Vec<u8>,
-) {
+    trimmed: &mut bool,
+) -> bool {
     let top = if cuts.is_some() {
         -(grid.history_size() as i32)
     } else {
@@ -653,8 +754,30 @@ fn write_grid(
         out.extend_from_slice(b"\x1b]8;;\x1b\\");
     }
     for l in top..=bottom {
+        if out.len() > PICTURE_MAX {
+            return false;
+        }
         if let Some(cuts) = cuts.as_deref_mut().filter(|_| l <= 0 && !prev_wrapped) {
             cuts.push(out.len());
+            // Trim completed logical history lines while serializing, so a
+            // large history never creates an oversized intermediate buffer.
+            if out.len() > PICTURE_BUDGET {
+                let first = cuts[0];
+                let excess = out.len() - PICTURE_BUDGET;
+                let to = cuts
+                    .iter()
+                    .copied()
+                    .find(|&c| c - first >= excess)
+                    .unwrap_or(*cuts.last().unwrap());
+                if to > first {
+                    out.drain(first..to);
+                    cuts.retain(|&c| c >= to);
+                    for c in cuts {
+                        *c -= to - first;
+                    }
+                    *trimmed = true;
+                }
+            }
         }
         let row = &grid[Line(l)];
         let wrapped = row[Column(cols - 1)].flags.contains(Flags::WRAPLINE);
@@ -668,6 +791,9 @@ fn write_grid(
             }
         }
         for c in 0..end {
+            if out.len() > PICTURE_MAX {
+                return false;
+            }
             let cell = &row[Column(c)];
             // A spacer is skipped only behind its wide character (printing that
             // fills both cells); an orphan one is written as a blank. So is the
@@ -711,6 +837,176 @@ fn write_grid(
     }
     if !same_pen(pen, &default) {
         sgr(out, &default, link);
+    }
+    out.len() <= PICTURE_MAX
+}
+
+/// Intercept only resource-bearing terminal operations; forward every other
+/// Handler operation to alacritty. In particular REP also goes through input,
+/// and 1049 snapshots happen after any C0 actions embedded in its CSI.
+mod bounded {
+    use super::{Listener, METADATA_MAX, ZERO_WIDTH_MAX, utf8_prefix};
+    use alacritty_terminal::grid::Grid;
+    use alacritty_terminal::term::cell::{Cell, Flags};
+    use alacritty_terminal::term::{Term, TermMode};
+    use alacritty_terminal::vte::ansi::*;
+
+    pub(super) struct Bounded<'a> {
+        pub term: &'a mut Term<Listener>,
+        pub primary: &'a mut Option<Grid<Cell>>,
+        pub combining: &'a mut Option<char>,
+    }
+
+    macro_rules! forward {
+        ($($name:ident($($arg:ident: $ty:ty),*);)*) => {
+            $(fn $name(&mut self, $($arg: $ty),*) {
+                self.term.$name($($arg),*);
+            })*
+        };
+    }
+
+    impl Handler for Bounded<'_> {
+        forward! {
+        set_cursor_style(a0: Option<CursorStyle>);
+        set_cursor_shape(a0: CursorShape);
+        goto(a0: i32, a1: usize);
+        goto_line(a0: i32);
+        goto_col(a0: usize);
+        insert_blank(a0: usize);
+        move_up(a0: usize);
+        move_down(a0: usize);
+        identify_terminal(a0: Option<char>);
+        device_status(a0: usize);
+        move_forward(a0: usize);
+        move_backward(a0: usize);
+        move_down_and_cr(a0: usize);
+        move_up_and_cr(a0: usize);
+        put_tab(a0: u16);
+        backspace();
+        carriage_return();
+        linefeed();
+        bell();
+        substitute();
+        newline();
+        set_horizontal_tabstop();
+        scroll_up(a0: usize);
+        scroll_down(a0: usize);
+        insert_blank_lines(a0: usize);
+        delete_lines(a0: usize);
+        erase_chars(a0: usize);
+        delete_chars(a0: usize);
+        move_backward_tabs(a0: u16);
+        move_forward_tabs(a0: u16);
+        save_cursor_position();
+        restore_cursor_position();
+        clear_line(a0: LineClearMode);
+        clear_screen(a0: ClearMode);
+        clear_tabs(a0: TabulationClearMode);
+        set_tabs(a0: u16);
+        reverse_index();
+        terminal_attribute(a0: Attr);
+        set_mode(a0: Mode);
+        unset_mode(a0: Mode);
+        report_mode(a0: Mode);
+        report_private_mode(a0: PrivateMode);
+        set_scrolling_region(a0: usize, a1: Option<usize>);
+        set_keypad_application_mode();
+        unset_keypad_application_mode();
+        set_active_charset(a0: CharsetIndex);
+        configure_charset(a0: CharsetIndex, a1: StandardCharset);
+        set_color(a0: usize, a1: Rgb);
+        dynamic_color_sequence(a0: String, a1: usize, a2: &str);
+        reset_color(a0: usize);
+        clipboard_store(a0: u8, a1: &[u8]);
+        clipboard_load(a0: u8, a1: &str);
+        decaln();
+        push_title();
+        pop_title();
+        text_area_size_pixels();
+        text_area_size_chars();
+        set_mouse_cursor_icon(a0: cursor_icon::CursorIcon);
+        report_keyboard_mode();
+        push_keyboard_mode(a0: KeyboardModes);
+        pop_keyboard_modes(a0: u16);
+        set_keyboard_mode(a0: KeyboardModes, a1: KeyboardModesApplyBehavior);
+        set_modify_other_keys(a0: ModifyOtherKeys);
+        report_modify_other_keys();
+        set_scp(a0: ScpCharPath, a1: ScpUpdateMode);
+        }
+
+        fn input(&mut self, c: char) {
+            if c.is_ascii() {
+                self.term.input(c);
+                return;
+            }
+            let grid = self.term.grid();
+            let line = grid.cursor.point.line;
+            let mut col = grid.cursor.point.column;
+            if !grid.cursor.input_needs_wrap {
+                col.0 = col.0.saturating_sub(1);
+            }
+            if grid[line][col].flags.contains(Flags::WIDE_CHAR_SPACER) {
+                col.0 = col.0.saturating_sub(1);
+            }
+            let before = grid[line][col].zerowidth().map_or(0, <[char]>::len);
+            // Skipping the same previously classified mark preserves vte's
+            // preceding character too, and avoids allocations during floods.
+            if *self.combining == Some(c) && before >= ZERO_WIDTH_MAX {
+                return;
+            }
+            self.term.input(c);
+            let cell = &mut self.term.grid_mut()[line][col];
+            let after = cell.zerowidth().map_or(0, <[char]>::len);
+            if after > before && cell.zerowidth().is_some_and(|zw| zw.last() == Some(&c)) {
+                *self.combining = Some(c);
+            }
+            if after > ZERO_WIDTH_MAX {
+                let mut marks = ['\0'; ZERO_WIDTH_MAX];
+                marks.copy_from_slice(&cell.zerowidth().unwrap()[..ZERO_WIDTH_MAX]);
+                let (ch, flags) = (cell.c, cell.flags);
+                cell.clear_wide(); // retain hyperlink/underline extras
+                cell.c = ch;
+                cell.flags = flags;
+                for c in marks {
+                    cell.push_zerowidth(c);
+                }
+            }
+        }
+
+        fn set_title(&mut self, title: Option<String>) {
+            self.term
+                .set_title(title.map(|t| utf8_prefix(&t, METADATA_MAX).to_owned()));
+        }
+
+        fn set_hyperlink(&mut self, link: Option<Hyperlink>) {
+            self.term.set_hyperlink(link.map(|h| Hyperlink {
+                id: h.id.map(|id| utf8_prefix(&id, METADATA_MAX).to_owned()),
+                uri: utf8_prefix(&h.uri, METADATA_MAX).to_owned(),
+            }));
+        }
+
+        fn set_private_mode(&mut self, mode: PrivateMode) {
+            if mode == NamedPrivateMode::SwapScreenAndSetRestoreCursor.into()
+                && !self.term.mode().contains(TermMode::ALT_SCREEN)
+            {
+                let mut grid = self.term.grid().clone();
+                grid.saved_cursor = grid.cursor.clone();
+                *self.primary = Some(grid);
+            }
+            self.term.set_private_mode(mode);
+        }
+
+        fn unset_private_mode(&mut self, mode: PrivateMode) {
+            self.term.unset_private_mode(mode);
+            if !self.term.mode().contains(TermMode::ALT_SCREEN) {
+                *self.primary = None;
+            }
+        }
+
+        fn reset_state(&mut self) {
+            self.term.reset_state();
+            *self.primary = None;
+        }
     }
 }
 
@@ -1115,8 +1411,8 @@ mod tests {
         assert_eq!(visible(&b), visible(&a));
     }
 
-    /// A visible screen larger than the budget is sent whole (the queue
-    /// limit's exclusion is the real bound), and still exact.
+    /// A visible screen above the history target is still sent whole and
+    /// exact when it fits the absolute picture ceiling.
     #[test]
     fn a_visible_screen_over_the_budget_is_sent_whole() {
         let stream = dense(1000, 120);
@@ -1217,7 +1513,8 @@ mod security_regressions {
         *s.title.borrow_mut() = Some("B".repeat(2_000_000));
         s.term.grid_mut()[Line(0)][Column(0)].c = 'X';
         s.term.grid_mut()[Line(0)][Column(0)].set_hyperlink(Some(Hyperlink::new(
-            Some("id"), format!("http://x/{}", "U".repeat(1_500_000)),
+            Some("id"),
+            format!("http://x/{}", "U".repeat(1_500_000)),
         )));
         let mut p = Vec::new();
         s.picture(&mut p);
@@ -1233,17 +1530,31 @@ mod security_regressions {
             for c in 0..1000 {
                 let cell = &mut grid[Line(l)][Column(c)];
                 cell.c = 'X';
-                for _ in 0..16 { cell.push_zerowidth('\u{301}'); }
+                for _ in 0..16 {
+                    cell.push_zerowidth('\u{301}');
+                }
             }
         }
         let mut p = b"prefix".to_vec();
-        assert!(s.picture(&mut p), "unrepresentable pictures must be marked truncated");
-        assert_eq!(p, b"prefix", "no partial picture may be emitted past the 8 MiB ceiling");
+        assert!(
+            s.picture(&mut p),
+            "unrepresentable pictures must be marked truncated"
+        );
+        assert_eq!(
+            p, b"prefix",
+            "no partial picture may be emitted past the 8 MiB ceiling"
+        );
     }
 
     #[test]
     fn long_control_strings_do_not_feed_unbounded_payloads_or_grow_the_hold() {
-        for start in [b"\x1b]0;".as_slice(), b"\x1bP1$q", b"\x1b_", b"\x1b^", b"\x1bX"] {
+        for start in [
+            b"\x1b]0;".as_slice(),
+            b"\x1bP1$q",
+            b"\x1b_",
+            b"\x1b^",
+            b"\x1bX",
+        ] {
             let mut s = Screen::new(80, 24, 0);
             s.feed(start);
             s.feed(&vec![b'A'; HOLD_MAX * 4]);
@@ -1255,5 +1566,127 @@ mod security_regressions {
             assert!(!p.windows(100).any(|b| b.iter().all(|&x| x == b'A')));
             assert!(p.windows(4).any(|b| b == b"safe"));
         }
+    }
+}
+
+#[cfg(test)]
+mod security_edges {
+    use super::*;
+
+    #[test]
+    fn combining_caps_apply_to_rep_wide_cells_and_cursor_revisits() {
+        let mut s = Screen::new(80, 24, 0);
+        s.feed("日\u{301}".as_bytes());
+        s.feed(b"\x1b[65535b");
+        assert_eq!(
+            s.term.grid()[Line(0)][Column(0)].zerowidth().unwrap().len(),
+            16
+        );
+        s.feed("\x1b[1;2H\u{302}".repeat(100).as_bytes());
+        assert_eq!(
+            s.term.grid()[Line(0)][Column(0)].zerowidth().unwrap().len(),
+            16
+        );
+        let cell = &s.term.grid()[Line(0)][Column(0)];
+        assert_eq!(cell.c, '日');
+        assert!(cell.flags.contains(Flags::WIDE_CHAR));
+        s.feed("\x1b[2;1HB\u{301}".repeat(100).as_bytes());
+        assert!(s.term.grid()[Line(1)][Column(0)].zerowidth().unwrap().len() <= 16);
+    }
+
+    #[test]
+    fn string_cap_is_independent_of_chunking_and_terminator() {
+        for end in [b"\x07".as_slice(), b"\x1b\\", b"\x18", b"\x1a"] {
+            for chunk in [1, 31, 4096, HOLD_MAX * 2] {
+                let mut s = Screen::new(80, 24, 0);
+                let stream = [
+                    b"\x1b]2;".as_slice(),
+                    &vec![b'A'; HOLD_MAX * 2],
+                    end,
+                    b"safe",
+                ]
+                .concat();
+                for bytes in stream.chunks(chunk) {
+                    s.feed(bytes);
+                }
+                let mut p = Vec::new();
+                s.picture(&mut p);
+                assert!(s.at_ground());
+                assert_eq!(s.fed_seq(), stream.len() as u64);
+                assert!(s.title.borrow().is_none());
+                assert!(p.windows(4).any(|b| b == b"safe"));
+            }
+        }
+    }
+
+    #[test]
+    fn metadata_caps_preserve_utf8_and_escape_framing() {
+        let mut s = Screen::new(80, 24, 0);
+        let title = "日".repeat(2000);
+        s.feed(format!("\x1b]2;{title}\x07\x1b]8;id={title};https://x/{title}\x1b\\X").as_bytes());
+        assert!(s.title.borrow().as_ref().unwrap().len() <= METADATA_MAX);
+        let h = s.term.grid()[Line(0)][Column(0)].hyperlink().unwrap();
+        assert!(h.id().len() <= METADATA_MAX && h.uri().len() <= METADATA_MAX);
+        let mut p = Vec::new();
+        s.picture(&mut p);
+        assert!(std::str::from_utf8(&p).is_ok());
+    }
+
+    #[test]
+    fn primary_snapshot_handles_subparameters_and_embedded_c0() {
+        let mut s = Screen::new(80, 24, 0);
+        s.feed(b"main\x1b[?10\n49h");
+        assert!(s.term.mode().contains(TermMode::ALT_SCREEN));
+        assert_eq!(s.primary.as_ref().unwrap().cursor.point.line, Line(1));
+        let mut p = Vec::new();
+        s.picture(&mut p);
+        s.feed(b"\x1b[?1049l\x1b[?1049:1h");
+        s.picture(&mut p);
+    }
+
+    #[test]
+    fn primary_pending_wrap_survives_an_alternate_screen_picture() {
+        let mut direct = Screen::new(80, 24, 0);
+        direct.feed(&vec![b'A'; 80]);
+        direct.feed(b"\x1b[?1049halt");
+        let mut pic = Vec::new();
+        direct.picture(&mut pic);
+        let mut replay = Screen::new(80, 24, 0);
+        replay.feed(&pic);
+        for s in [&mut direct, &mut replay] {
+            s.feed(b"\x1b[?1049lZ");
+        }
+        assert_eq!(replay.term.grid().cursor, direct.term.grid().cursor);
+        assert_eq!(replay.term.grid()[Line(1)][Column(0)].c, 'Z');
+    }
+
+    #[test]
+    fn wide_pending_wrap_survives_a_picture() {
+        let mut direct = Screen::new(80, 24, 0);
+        direct.feed(&vec![b'A'; 78]);
+        direct.feed("日".as_bytes());
+        let mut pic = Vec::new();
+        direct.picture(&mut pic);
+        let mut replay = Screen::new(80, 24, 0);
+        replay.feed(&pic);
+        for s in [&mut direct, &mut replay] {
+            s.feed(b"Z");
+        }
+        assert_eq!(
+            replay.term.grid()[Line(0)][Column(78)],
+            direct.term.grid()[Line(0)][Column(78)]
+        );
+        assert_eq!(replay.term.grid().cursor, direct.term.grid().cursor);
+    }
+
+    #[test]
+    fn dimensions_and_history_are_bounded_at_creation_and_resize() {
+        let mut s = Screen::new(u16::MAX, u16::MAX, 100_000);
+        assert_eq!(s.size(), (1000, 500));
+        assert_eq!(history_limit(1000, 500, 100_000), 250);
+        s.resize(0, 0);
+        assert_eq!(s.size(), (1, 1));
+        s.resize(u16::MAX, u16::MAX);
+        assert_eq!(s.size(), (1000, 500));
     }
 }

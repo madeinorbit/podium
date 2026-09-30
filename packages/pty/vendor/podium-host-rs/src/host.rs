@@ -135,18 +135,17 @@ struct Waiting {
 }
 
 impl Client {
-    /// Unsent bytes that count against the queue limit: a queued picture
-    /// does not (its budget bounds it; a visible screen past the budget is
-    /// sent whole).
+    /// All queued bytes, including a picture; only bounded pictures get slack.
     fn queued(&self) -> usize {
+        self.out.len()
+    }
+
+    fn picture_slack(&self) -> usize {
         #[cfg(feature = "screen")]
         if let Some((start, end)) = self.picture {
-            let sent = self.out.sent_pos();
-            if sent < end {
-                return self.out.len() - (end - start.max(sent)) as usize;
-            }
+            return ((end - start) as usize).min(crate::screen::PICTURE_MAX + 18);
         }
-        self.out.len()
+        0
     }
 
     /// Owe this client a picture; a reset is never downgraded to a cut.
@@ -304,8 +303,33 @@ impl Host {
             .map(|io| &io.output)
     }
 
-    fn read_winsize(&self) -> Option<Winsize> {
-        self.pty().and_then(sys::get_winsize)
+    fn read_winsize(&mut self) -> Option<Winsize> {
+        let pty = self.pty()?;
+        let mut ws = sys::get_winsize(pty)?;
+        let (cols, rows) = (
+            ws.ws_col.clamp(1, crate::args::MAX_COLS),
+            ws.ws_row.clamp(1, crate::args::MAX_ROWS),
+        );
+        if (cols, rows) != (ws.ws_col, ws.ws_row) {
+            let bounded = Winsize {
+                ws_col: cols,
+                ws_row: rows,
+                ..ws
+            };
+            if sys::set_winsize(pty, bounded) {
+                ws = bounded;
+            }
+        }
+        self.ws = ws;
+        #[cfg(feature = "screen")]
+        if self
+            .screen
+            .as_ref()
+            .is_some_and(|s| s.screen.size() != (ws.ws_col, ws.ws_row))
+        {
+            self.screen_resized(ws);
+        }
+        Some(ws)
     }
 
     // ---- clients ------------------------------------------------------------
@@ -514,6 +538,15 @@ impl Host {
                 });
             }
             Request::Resize { cols, rows } => {
+                if !(1..=crate::args::MAX_COLS).contains(&cols)
+                    || !(1..=crate::args::MAX_ROWS).contains(&rows)
+                {
+                    return self.refuse(
+                        ci,
+                        proto::ERR_BAD_SIZE,
+                        "size exceeds 1000 columns or 500 rows, or is zero",
+                    );
+                }
                 if !self.has_pty {
                     return self.refuse(ci, proto::ERR_NO_PTY, "no pty");
                 }
@@ -535,12 +568,8 @@ impl Host {
                         changed = 1;
                     }
                     cur = sys::get_winsize(pty).unwrap_or(cur);
-                    #[cfg(feature = "screen")]
-                    if changed == 1 {
-                        self.screen_resized(cur);
-                    }
                 }
-                self.ws = cur;
+                cur = self.read_winsize().unwrap_or(cur);
                 Frame::begin(self.clients[ci].out.tail(), proto::H_RESIZED)
                     .u16(cur.ws_col)
                     .u16(cur.ws_row)
@@ -578,7 +607,7 @@ impl Host {
                 // is not reading; it is dropped.
                 let frames = (high - from).div_ceil(proto::DATA_CHUNK as u64) as usize + 2;
                 let queued = self.clients[ci].queued() + (high - from) as usize + frames * 13;
-                if queued > self.out_limit() {
+                if queued > self.out_limit() + self.clients[ci].picture_slack() {
                     self.clients[ci].overflowed = true;
                     return;
                 }
@@ -643,7 +672,7 @@ impl Host {
                     let c = &mut self.clients[ci];
                     // Checked per frame, not once per read: one read can carry
                     // thousands of pipelined requests.
-                    if c.queued() > self.ring.size() + proto::MAX_OUTBUF_SLACK {
+                    if c.queued() > self.ring.size() + proto::MAX_OUTBUF_SLACK + c.picture_slack() {
                         c.overflowed = true;
                     }
                     if c.closing || c.overflowed {
@@ -844,6 +873,20 @@ impl Host {
         debug_assert_eq!(kept.screen.fed_seq() + kept.screen.held_len() as u64, high);
         let mut bytes = Vec::new();
         kept.screen.picture(&mut bytes);
+        if bytes.is_empty() {
+            // Visible state cannot fit the absolute ceiling. Refuse rather than
+            // sending a partial redraw or pinning unbounded copies per client.
+            for c in self.clients.iter_mut().filter(|c| ready(c)) {
+                proto::err(
+                    c.out.tail(),
+                    proto::ERR_BAD_FRAME,
+                    "screen exceeds picture budget",
+                );
+                c.owed = None;
+                c.closing = true;
+            }
+            return;
+        }
         kept.clock.sized(bytes.len());
         let bytes = std::rc::Rc::new(bytes);
         let (cols, rows) = kept.screen.size();
@@ -887,6 +930,8 @@ impl Host {
 
     /// Read what the child wrote; on EOF/EIO the output side is finished.
     fn io_read(&mut self, drain_all: bool) {
+        #[cfg(feature = "screen")]
+        self.read_winsize();
         loop {
             let Some(io) = &self.io else { return };
             match (&io.output).read(&mut self.scratch) {
@@ -1061,7 +1106,10 @@ impl Host {
             }
 
             #[cfg(feature = "screen")]
-            self.pictures(now);
+            {
+                self.read_winsize();
+                self.pictures(now);
+            }
 
             let next = [
                 self.kill_deadline,
@@ -1071,7 +1119,14 @@ impl Host {
             .into_iter()
             .flatten()
             .min();
-            let timeout = next.map(|d| d.saturating_duration_since(now).min(MAX_WAIT));
+            #[allow(unused_mut)]
+            let mut timeout = next.map(|d| d.saturating_duration_since(now).min(MAX_WAIT));
+            #[cfg(feature = "screen")]
+            if self.screen.is_some() {
+                // A quiet child can change winsize without producing PTY output.
+                let tick = Duration::from_millis(250);
+                timeout = Some(timeout.unwrap_or(tick).min(tick));
+            }
             match self.wait(timeout, &mut ev) {
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {
                     self.handle_signals();
@@ -1120,7 +1175,9 @@ impl Host {
                     continue;
                 }
                 let c = &self.clients[ci];
-                if (c.closing && c.out.is_empty()) || c.overflowed || c.queued() > self.out_limit()
+                if (c.closing && c.out.is_empty())
+                    || c.overflowed
+                    || c.queued() > self.out_limit() + c.picture_slack()
                 {
                     self.client_close(ci);
                 }

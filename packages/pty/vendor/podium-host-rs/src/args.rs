@@ -4,6 +4,9 @@ use std::ffi::CString;
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 
+pub const MAX_COLS: u16 = 1000;
+pub const MAX_ROWS: u16 = 500;
+
 #[derive(Debug)]
 pub struct CreateOpts {
     pub socket: OsString,
@@ -81,8 +84,8 @@ pub fn parse(argv: &[Vec<u8>]) -> Result<Command, ArgError> {
         match (a, v) {
             (b"--socket", Some(v)) => sock = Some(v.to_vec()),
             (b"--cwd", Some(v)) => cwd = Some(v.to_vec()),
-            (b"--cols", Some(v)) => cols = arg_long(a, v, 1, 65535)?,
-            (b"--rows", Some(v)) => rows = arg_long(a, v, 1, 65535)?,
+            (b"--cols", Some(v)) => cols = arg_long(a, v, 1, MAX_COLS as i64)?,
+            (b"--rows", Some(v)) => rows = arg_long(a, v, 1, MAX_ROWS as i64)?,
             (b"--ring-bytes", Some(v)) => ring = arg_long(a, v, 4096, 1 << 30)?,
             (b"--linger-secs", Some(v)) => linger = arg_long(a, v, 0, 86400)?,
             #[cfg(feature = "screen")]

@@ -13,6 +13,10 @@ mod common;
 #[path = "../src/screen.rs"]
 mod screen;
 
+#[allow(dead_code)]
+#[path = "../src/args.rs"]
+mod args;
+
 use std::fs;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -307,12 +311,31 @@ fn pictures_amid_heavy_output_are_exact() {
         let mut replay = Screen::new(p.cols, p.rows, 200);
         feed(&mut replay, &p.bytes);
         feed(&mut replay, &read.data[p.seq as usize..]);
-        assert!(
-            picture_of(&mut replay) == want,
-            "the picture @ {} (reason {}) plus the rest differs from the direct feed",
-            p.seq,
-            p.reason
-        );
+        let got = picture_of(&mut replay);
+        if got != want {
+            let at = got
+                .iter()
+                .zip(&want)
+                .position(|(a, b)| a != b)
+                .unwrap_or(got.len().min(want.len()));
+            eprintln!(
+                "first picture difference at {at}: got {} bytes, want {} bytes",
+                got.len(),
+                want.len()
+            );
+            eprintln!(
+                "got {:?}",
+                String::from_utf8_lossy(&got[at.saturating_sub(80)..got.len().min(at + 160)])
+            );
+            eprintln!(
+                "want {:?}",
+                String::from_utf8_lossy(&want[at.saturating_sub(80)..want.len().min(at + 160)])
+            );
+            panic!(
+                "the picture @ {} (reason {}) plus the rest differs from the direct feed",
+                p.seq, p.reason
+            );
+        }
     }
 }
 
@@ -463,9 +486,9 @@ fn a_dense_screen_yields_a_picture_within_the_budget() {
     c.seq_high(); // still served
 }
 
-/// A queued picture does not count against the connection's queue limit
-/// (ring + 1 MiB): a visible screen larger than that is sent whole, to a
-/// client that reads it late, and the connection lives on.
+/// A visible picture above the history target is still exact and deliverable
+/// to a slow reader. Its bounded picture slack keeps the connection alive;
+/// every picture byte counts and the absolute ceiling still applies.
 #[test]
 fn a_picture_larger_than_the_queue_limit_is_delivered() {
     let dir = Scratch::new("pic-limit");
@@ -640,6 +663,20 @@ fn a_picture_the_ring_outran_is_replaced_by_a_fresh_one() {
         "the reset answer"
     );
     std::thread::sleep(Duration::from_millis(3000)); // not reading while it all plays
+    // The default PTY output mode expands each LF into CRLF.
+    let expected: u64 = ["a", "b"]
+        .iter()
+        .map(|name| {
+            let bytes = fs::read(dir.path(name)).unwrap();
+            (bytes.len() + bytes.iter().filter(|&&b| b == b'\n').count()) as u64
+        })
+        .sum();
+    let (mut probe, _) = Conn::open(&sock, READER, u64::MAX);
+    wait_until(
+        "both output bursts consumed",
+        Duration::from_secs(60),
+        || probe.seq_high() == expected,
+    );
     let deadline = Instant::now() + Duration::from_secs(30);
     while !read.data.ends_with(END) {
         assert!(

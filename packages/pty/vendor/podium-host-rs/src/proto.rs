@@ -49,6 +49,8 @@ pub const ERR_EXITED: u16 = 4;
 /// full (the child is not reading its input). host.c queues without a limit
 /// (POD-4842 C-3); the connection survives this error.
 pub const ERR_INPUT_FULL: u16 = 5;
+/// Refused dimensions; the connection survives and the pty is unchanged.
+pub const ERR_BAD_SIZE: u16 = 6;
 
 /// Why a picture was sent: it answers a request, or follows a resize.
 #[cfg(feature = "screen")]
