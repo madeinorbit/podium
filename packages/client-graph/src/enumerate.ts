@@ -13,7 +13,7 @@
  * (`harness/src/adapters/mobx-rebuild.ts`, POD-4945), never product.
  */
 
-import type { RowRecord } from '../../../shared/src/stats'
+import type { RowRecord } from './shared/source'
 import {
   createPlainTables,
   drop,

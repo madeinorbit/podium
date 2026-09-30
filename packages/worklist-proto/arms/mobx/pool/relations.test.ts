@@ -30,22 +30,22 @@ import {
   DISABLED_READ_FENCE,
   type ReadFence,
 } from '../../../shared/src/instrument/reads'
-import { type SettableLocalsHandle, settableLocals } from '../../../shared/src/locals-source'
+import { type SettableLocalsHandle, settableLocals } from '@podium/client-graph/shared/locals-source'
 import {
   type EntityName,
   type ModelSchema,
   type RelationSpec,
   SCHEMA,
   validateStructure,
-} from '../../../shared/src/schema'
+} from '@podium/client-graph/shared/schema'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import { diffRelations } from '../../../harness/src/adapters/mobx-rebuild'
 import { snapshotPool, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
-import { MobxPool } from './pool'
+import { MobxPool } from '@podium/client-graph/pool'
 import { rebuildSnapshot } from '../../../harness/src/adapters/mobx-rebuild'
-import { ancestorPaths } from './relations'
-import { rowViewOf } from './models'
+import { ancestorPaths } from '@podium/client-graph/relations'
+import { rowViewOf } from '@podium/client-graph/models'
 
 installMobxWarnTrap()
 

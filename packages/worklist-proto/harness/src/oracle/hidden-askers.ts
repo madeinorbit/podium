@@ -19,7 +19,7 @@
 
 import { dedupeSessions } from '@podium/client-core/engine'
 import { motionPhase } from '@podium/client-core/viewmodels'
-import type { SliceSnapshot } from '../../../shared/src/slice-types'
+import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type { FixtureCorpus } from '../fixture/index'
 
 /** Roots of `corpus.edgedAskers` whose row in `snapshot` reads asking, sorted. */

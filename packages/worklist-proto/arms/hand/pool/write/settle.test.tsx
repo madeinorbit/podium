@@ -27,7 +27,7 @@ import { mountArmForCounts, runCountScenario } from '../../../../harness/src/cou
 import { engineLocals, openFenceFeeds } from '../../../../harness/src/fence-scenarios'
 import { snapshotFromStore } from '../../../../harness/src/oracle/index'
 import { startScenarioEngine, upsert, type ScenarioEngine } from '../../../../shared/src/scenarios'
-import type { SliceIssue } from '../../../../shared/src/slice-types'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type {
   EditableStage,
   KernelCommand,
@@ -35,7 +35,7 @@ import type {
   TxId,
   WriteEvent,
   WriteTransport,
-} from '../../../../shared/src/write-contract'
+} from '@podium/client-graph/shared/write-contract'
 import {
   harnessWritableHandPoolArm,
   type HarnessWritableHandPoolHandle,

@@ -27,7 +27,7 @@ import {
   type PendingLog,
   type TxId,
   WriteContractError,
-} from './write-contract'
+} from '@podium/client-graph/shared/write-contract'
 
 type Clock = { t: number }
 const LOGS: ReadonlyArray<readonly [string, (clock: Clock) => PendingLog]> = [

@@ -17,13 +17,13 @@
  */
 
 import { type ObservableMap, observable } from 'mobx'
-import type { EntityName } from '../../../../shared/src/schema'
+import type { EntityName } from '../shared/schema'
 import {
   type EditPatch,
   type TxId,
   type WritableKind,
   WriteContractError,
-} from '../../../../shared/src/write-contract'
+} from '../shared/write-contract'
 import type { WriteSeam } from '../pool'
 
 /** The editable fields of an issue row, as the overlay holds them. */

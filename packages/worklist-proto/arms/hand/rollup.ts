@@ -6,7 +6,7 @@
  * ancestor chain recomputes, stopping at the first unchanged value.
  */
 
-import type { SliceIssue, SliceSession } from '../../shared/src/slice-types'
+import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import { assertNever, nullStats, type Delta, type DerivationStats } from './deltas'
 import type { IndexSet } from './indexes'
 import {

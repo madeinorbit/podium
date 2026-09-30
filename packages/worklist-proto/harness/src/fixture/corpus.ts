@@ -44,7 +44,7 @@ import type {
   SessionMeta,
 } from '@podium/model'
 import { spreadSortKeys } from '@podium/model'
-import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
+import type { SliceIssue, SliceSession, SliceWorktree } from '@podium/client-graph/shared/slice-types'
 
 /** The corpus clock. Sits inside the defer band thresholds (spec §3 R-ORDER):
  *  `deferUntil` values are minted ±45 d around it, so bands 0/1/2 are all live.

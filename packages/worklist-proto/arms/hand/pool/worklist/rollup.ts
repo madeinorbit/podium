@@ -89,9 +89,9 @@
  */
 
 import type { RelationReader } from '../../../../shared/src/instrument/reads'
-import type { RowView } from '../../../../shared/src/row-view'
-import { awaitingMergeOf, type EntityName } from '../../../../shared/src/schema'
-import type { SliceIssue, SlicePhase, SliceSession } from '../../../../shared/src/slice-types'
+import type { RowView } from '@podium/client-graph/shared/row-view'
+import { awaitingMergeOf, type EntityName } from '@podium/client-graph/shared/schema'
+import type { SliceIssue, SlicePhase, SliceSession } from '@podium/client-graph/shared/slice-types'
 import { type Cell, type CellGraph, DepIndex, type Equals, sameData } from '../cells'
 import type { SessionVisibleParts, VisibleParts } from './visible'
 

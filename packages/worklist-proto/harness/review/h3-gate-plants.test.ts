@@ -65,8 +65,8 @@ import type { CheckableArm, LocalsSource, RowSource } from '../../shared/src/arm
 import { gen, type Change } from '../../shared/src/gen/changes'
 import { checkArm, diffViews as diffWholeViews } from '../../shared/src/gen/check'
 import { startGenRun } from '../../shared/src/gen/run'
-import type { RowView } from '../../shared/src/row-view'
-import { type EntityName } from '../../shared/src/schema'
+import type { RowView } from '@podium/client-graph/shared/row-view'
+import { type EntityName } from '@podium/client-graph/shared/schema'
 import { report } from './h3-witness'
 
 /** Seeds `H3_GATE_FIRST_SEED`..`H3_GATE_SEEDS` (default 1..5), so a long run can go in chunks. */

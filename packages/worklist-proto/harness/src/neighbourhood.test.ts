@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { SliceOrder } from '../../shared/src/slice-types'
+import type { SliceOrder } from '@podium/client-graph/shared/slice-types'
 import { type NeighbourhoodState, neighbourhoodOf } from './neighbourhood'
 
 // root ─┬─ a ─── a1

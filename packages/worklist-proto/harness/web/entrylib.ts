@@ -121,14 +121,14 @@ import { issueActivityAt, MARK_READ_ON_VIEW_MS } from '@podium/client-core/engin
 import { activityAfterRead } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model'
 import type { Arm, ArmHandle, RowSource } from '../../shared/src/arm'
-import type { LocalsSourceHandle } from '../../shared/src/locals-source'
+import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-source'
 import {
   type CommitLog,
   createCommitLog,
   withCommitLog,
   withCommitLogAsync,
 } from '../../shared/src/row-shell'
-import { createRowSource, type RowSourceHandle } from '../../shared/src/row-source'
+import { createRowSource, type RowSourceHandle } from '@podium/client-graph/shared/row-source'
 import {
   applyHeartbeat,
   applyStageMove,
@@ -142,7 +142,7 @@ import {
   targetRules,
   upsert,
 } from '../../shared/src/scenarios'
-import type { SliceSnapshot } from '../../shared/src/slice-types'
+import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { createEngineLocals, localsOfEngine } from '../src/engine-locals'
 import {
   buildCorpus,

@@ -1,0 +1,74 @@
+{
+  "name": "@podium/client-graph",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Client entity graph and MobX worklist data layer: resident models, relations, visibility, rollups, writes and React bindings over app-owned row and local channels.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@podium/source": "./src/index.ts",
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./react": {
+      "@podium/source": "./src/react/index.ts",
+      "types": "./src/react/index.ts",
+      "import": "./src/react/index.ts"
+    },
+    "./shared": {
+      "@podium/source": "./src/shared/index.ts",
+      "types": "./src/shared/index.ts",
+      "import": "./src/shared/index.ts"
+    },
+    "./shared/*": {
+      "@podium/source": "./src/shared/*.ts",
+      "types": "./src/shared/*.ts",
+      "import": "./src/shared/*.ts"
+    },
+    "./worklist/*": {
+      "@podium/source": "./src/worklist/*.ts",
+      "types": "./src/worklist/*.ts",
+      "import": "./src/worklist/*.ts"
+    },
+    "./write/*": {
+      "@podium/source": "./src/write/*.ts",
+      "types": "./src/write/*.ts",
+      "import": "./src/write/*.ts"
+    },
+    "./*": {
+      "@podium/source": "./src/*.ts",
+      "types": "./src/*.ts",
+      "import": "./src/*.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "bun ../../scripts/typecheck-project.ts",
+    "lint": "bunx eslint --config eslint.config.mjs src"
+  },
+  "dependencies": {
+    "@podium/client-core": "workspace:*",
+    "@podium/harness": "workspace:*",
+    "@podium/model": "workspace:*",
+    "mobx": "7.0.3",
+    "mobx-react-lite": "5.0.3"
+  },
+  "peerDependencies": {
+    "react": ">=19",
+    "react-dom": ">=19"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.0",
+    "@babel/eslint-parser": "7.29.9",
+    "@babel/plugin-syntax-typescript": "7.27.1",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "9.39.2",
+    "eslint-plugin-mobx": "0.0.14",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "typescript": "^7.0.2"
+  }
+}

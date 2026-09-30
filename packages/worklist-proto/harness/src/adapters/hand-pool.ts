@@ -33,17 +33,17 @@ import type {
   RowSource,
 } from '../../../shared/src/arm'
 import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
-import { sliceRowOf } from '../../../shared/src/row-view'
-import type { SliceSnapshot } from '../../../shared/src/slice-types'
+import { sliceRowOf } from '@podium/client-graph/shared/row-view'
+import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type { RowRecord } from '../../../shared/src/stats'
-import type { WriteTransport } from '../../../shared/src/write-contract'
+import type { WriteTransport } from '@podium/client-graph/shared/write-contract'
 import { handPoolArm } from '../../../arms/hand/pool/arm'
 import type { HandPool, PoolLazyOptions } from '../../../arms/hand/pool/pool'
 import { rebuildSnapshot } from '../../../arms/hand/pool/rebuild'
 import { sliceOrderOf } from '../../../arms/hand/pool/worklist/groups'
 import type { HandWriteApi } from '../../../arms/hand/pool/write/edit'
 import { writableHandPoolArm } from '../../../arms/hand/pool/write/arm'
-import type { SliceIssue } from '../../../shared/src/slice-types'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 
 /** Load rounds the harness drain allows before it gives up (a load that never lands). */
 const MAX_LOAD_ROUNDS = 64

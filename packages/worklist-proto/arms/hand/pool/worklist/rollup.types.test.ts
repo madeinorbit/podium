@@ -20,7 +20,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { SliceIssue, SliceSession } from '../../../../shared/src/slice-types'
+import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import {
   type Aggregate,
   aggregate,

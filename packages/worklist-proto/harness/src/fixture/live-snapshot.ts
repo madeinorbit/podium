@@ -29,7 +29,7 @@ import type {
   RepoProjection,
   SessionMeta,
 } from '@podium/model'
-import type { SliceLocals, SliceSnapshot } from '../../../shared/src/slice-types'
+import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { expectedSnapshot } from '../oracle/index'
 import type { CorpusScale, FixtureCorpus } from './index'
 

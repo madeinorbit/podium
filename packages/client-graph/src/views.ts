@@ -40,22 +40,24 @@
  * parity. No legacy view-model import.
  */
 
-import type { RelationLinks } from '../../../shared/src/links'
+import { resolveDescriptors } from '@podium/harness/browser'
+import { DEFER_NEXT_MESSAGE } from '@podium/model'
+import type { RelationLinks } from './shared/links'
 import {
   isDraftNameSession,
   type RowOriginTick,
   type RowRank,
   type RowView,
   rankOf,
-} from '../../../shared/src/row-view'
-import type { EntityName } from '../../../shared/src/schema'
-import type { SliceIssue, SliceSession } from '../../../shared/src/slice-types'
+} from './shared/row-view'
+import type { EntityName } from './shared/schema'
+import type { SliceIssue, SliceSession } from './shared/slice-types'
 import type { Rollup } from './worklist/rollup'
 
 /** The finished-row grace before the closed fold (spec §3 R-GROUP). */
 export const FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
 /** The defer sentinel that never returns on its own (spec §3 R-ORDER). */
-export const DEFER_NEXT_MESSAGE = 'next-message'
+export { DEFER_NEXT_MESSAGE }
 /** A draft's placeholder title (spec §3 R-SUM). */
 export const DRAFT_TITLE = 'Draft'
 
@@ -187,15 +189,13 @@ export function displayRefOf(seq: number, prefix: string | null | undefined): st
   return prefix ? `${prefix}-${seq}` : `#${seq}`
 }
 
-const PANEL_LABELS: Readonly<Record<string, string>> = {
-  'claude-code': 'Claude',
-  codex: 'Codex',
-  grok: 'Grok',
-  opencode: 'OpenCode',
-  cursor: 'Cursor',
-  pi: 'Pi',
-  shell: 'Shell',
-}
+// The current row/local channels carry no served descriptors. Use the canonical
+// bundled fallback, with the same labels as the frozen row-view specification.
+const PANEL_LABELS: Readonly<Record<string, string>> = Object.freeze(
+  Object.fromEntries(
+    resolveDescriptors([]).map((descriptor) => [descriptor.kind, descriptor.shortLabel]),
+  ),
+)
 
 /**
  * A draft wears its first member's label; everything else its own title (spec
@@ -211,7 +211,9 @@ export function displayTitleOf(
   const firstMember = firstMemberOf()
   if (firstMember === undefined) return 'New agent'
   const kind = firstMember.agentKind ?? 'undefined'
-  return `New ${PANEL_LABELS[kind] ?? kind} session`
+  const panelLabel = Object.hasOwn(PANEL_LABELS, kind) ? PANEL_LABELS[kind] : undefined
+  const label = kind === 'shell' ? 'Shell' : (panelLabel ?? kind)
+  return `New ${label} session`
 }
 
 const LEGACY_CLOSE_REASONS: Readonly<Record<string, string>> = {

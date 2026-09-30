@@ -12,9 +12,9 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { createRowSource } from '../../shared/src/row-source'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { startScenarioEngine } from '../../shared/src/scenarios'
-import type { SliceLocals } from '../../shared/src/slice-types'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import {
   assertIsolation,
   mountArmForCounts,
@@ -29,7 +29,7 @@ import {
 import { handArm } from './arm'
 import { rebuildFromScratch } from './rebuild'
 import type { HandStore } from './store'
-import { fixedLocals } from '../../shared/src/locals-source'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 
 describe('hand-rolled arm at 1x', () => {
   // POD-4551 expected failure (coordinator ruling, option 1): the resume-twin tie root (i286 at 1x) collapses in the runtime (runtime.ts:465 and :1172 via dedupeSessions) and this retired round-two arm never collapses, so it shows the stale ask. Delete with the round-two code (Ma1/Ha1); never copy onto a round-three arm.

@@ -46,8 +46,8 @@
  */
 
 import { compareShallow, compareStructural, computed, makeObservable } from 'mobx'
-import { compareRank, type RowRank } from '../../../../shared/src/row-view'
-import type { SliceGroup, SliceOrder } from '../../../../shared/src/slice-types'
+import { compareRank, type RowRank } from '../shared/row-view'
+import type { SliceGroup, SliceOrder } from '../shared/slice-types'
 import type { OwnPart } from '../views'
 import { SortedLanes } from './sorted-lanes'
 

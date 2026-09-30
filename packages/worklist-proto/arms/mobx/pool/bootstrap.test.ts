@@ -28,12 +28,12 @@ import {
 } from '../../../harness/src/mobx-graph'
 import { writeResult } from '../../../harness/src/results'
 import { DISABLED_READ_FENCE } from '../../../shared/src/instrument/reads'
-import { settableLocals } from '../../../shared/src/locals-source'
-import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
+import { settableLocals } from '@podium/client-graph/shared/locals-source'
+import { SCHEMA, tableColdRule } from '@podium/client-graph/shared/schema'
 import type { RowRecord } from '../../../shared/src/stats'
 import { harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
-import { MobxPool } from './pool'
+import { MobxPool } from '@podium/client-graph/pool'
 
 installMobxWarnTrap()
 

@@ -4,7 +4,7 @@
  */
 import { isSortKey } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { SliceLocals } from '../../../shared/src/slice-types'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import { expectedSnapshot } from '../oracle/index'
 import {
   BASE_COUNTS,

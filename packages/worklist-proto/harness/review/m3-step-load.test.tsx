@@ -45,7 +45,7 @@ import {
   tracked,
 } from '../src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../src/mobx-trap'
-import type { Schedule } from '../../arms/mobx/pool/residency'
+import type { Schedule } from '@podium/client-graph/residency'
 import type { CheckableArm } from '../../shared/src/arm'
 import { startScenarioEngine } from '../../shared/src/scenarios'
 import { assertReads, mountArmForCounts } from '../src/count-harness'

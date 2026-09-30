@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { RowShell } from '../../../../../shared/src/row-shell'
-import type { RowView } from '../../../../../shared/src/row-view'
+import type { RowView } from '@podium/client-graph/shared/row-view'
 import { Row } from './row'
 import type { Pool } from './store'
 

@@ -67,15 +67,15 @@
  * across), so no two groups wait on each other.
  */
 
-import type { RelationReader } from '../../../shared/src/instrument/reads'
+import type { RelationReader } from './shared/relation-reader'
 import type {
   CollectionName,
   IsLazy,
   SingleName,
   SubsetName,
   TargetOf,
-} from '../../../shared/src/links'
-import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
+} from './shared/links'
+import { FEED_SPELLING } from './shared/repo-from-lane'
 import {
   plainRowView,
   ROW_VIEW_FIELDS,
@@ -83,21 +83,21 @@ import {
   type RowRank,
   type RowView,
   type RowViewField,
-} from '../../../shared/src/row-view'
-import { type EntityName, SCHEMA } from '../../../shared/src/schema'
+} from './shared/row-view'
+import { type EntityName, SCHEMA } from './shared/schema'
 import type {
   SliceIssue,
   SlicePhase,
   SliceSession,
   SliceWorktree,
-} from '../../../shared/src/slice-types'
+} from './shared/slice-types'
 import {
   type EditableStage,
   type EditPatch,
   FIELD_COVERAGE,
   type TxId,
   type WritableKind,
-} from '../../../shared/src/write-contract'
+} from './shared/write-contract'
 import { cachedGroup } from './cached'
 import type { Residence } from './pool'
 import type { StoredRow } from './tables'

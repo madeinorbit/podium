@@ -31,6 +31,10 @@ const realLint = new ESLint({
   cwd: PACKAGE_DIR,
   overrideConfigFile: join(PACKAGE_DIR, 'eslint.config.mjs'),
 })
+const productLint = new ESLint({
+  cwd: join(PACKAGE_DIR, '../client-graph'),
+  overrideConfigFile: join(PACKAGE_DIR, '../client-graph/eslint.config.mjs'),
+})
 const realMobxLint = new ESLint({
   cwd: PACKAGE_DIR,
   overrideConfigFile: join(PACKAGE_DIR, 'arms/mobx/eslint.config.mjs'),
@@ -91,7 +95,10 @@ describe('clean', () => {
   })
 
   it('the MobX arm lints clean through the MobX config', async () => {
-    const results = await realMobxLint.lintFiles(['arms/mobx/**/*.{ts,tsx}'])
+    const results = [
+      ...(await realMobxLint.lintFiles(['arms/mobx/**/*.{ts,tsx}'])),
+      ...(await productLint.lintFiles(['src/**/*.{ts,tsx}'])),
+    ]
     expect(results.length).toBeGreaterThan(20)
     expect(
       results.flatMap((result) =>

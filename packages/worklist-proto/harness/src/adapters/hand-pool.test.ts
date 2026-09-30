@@ -19,14 +19,14 @@ import { act } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { handPoolArm } from '../../../arms/hand/pool/arm'
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
-import type { SliceIssue } from '../../../shared/src/slice-types'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
 import type {
   KernelCommand,
   TxId,
   WriteEvent,
   WriteTransport,
-} from '../../../shared/src/write-contract'
+} from '@podium/client-graph/shared/write-contract'
 import { openFenceFeeds } from '../fence-scenarios'
 import {
   harnessHandPoolArm,

@@ -9,5 +9,5 @@
  * layer and its tests share, so a future arm-owned log changes one place.
  */
 
-export { createPendingLog, ECHO_TTL_MS } from '../../../../shared/src/write-contract'
-export type { PendingLog } from '../../../../shared/src/write-contract'
+export { createPendingLog, ECHO_TTL_MS } from '../shared/write-contract'
+export type { PendingLog } from '../shared/write-contract'

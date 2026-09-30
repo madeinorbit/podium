@@ -27,8 +27,8 @@ import {
   issueDisplayTitle,
 } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
-import { isRowSeat, type RowOriginTick, type RowView } from '../../../shared/src/row-view'
-import type { SliceLocals } from '../../../shared/src/slice-types'
+import { isRowSeat, type RowOriginTick, type RowView } from '@podium/client-graph/shared/row-view'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import {
   type LegacyDerivation,
   legacyDerivationFromStore,

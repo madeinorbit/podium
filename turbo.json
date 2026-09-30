@@ -168,6 +168,8 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/worklist-proto/**",
+        "$TURBO_ROOT$/packages/client-graph/**",
+        "!$TURBO_ROOT$/packages/client-graph/node_modules/**",
         "!$TURBO_ROOT$/packages/worklist-proto/node_modules/**",
         "!$TURBO_ROOT$/**/.turbo/**"
       ],

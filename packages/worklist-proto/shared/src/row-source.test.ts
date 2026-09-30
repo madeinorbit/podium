@@ -28,7 +28,7 @@ import {
   type RowSourceMode,
   type RowSourceReplica,
   type RowSourceRuntime,
-} from './row-source'
+} from '@podium/client-graph/shared/row-source'
 import type { RowSourceEvent } from './stats'
 
 // ------------------------------------------------------------------ fakes

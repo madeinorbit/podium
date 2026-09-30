@@ -71,7 +71,7 @@ import {
   useRowActions,
 } from '../../shared/src/row-shell'
 import type { ScenarioEngine } from '../../shared/src/scenarios'
-import type { SliceSnapshot } from '../../shared/src/slice-types'
+import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type { ArmStats, RowSourceEvent } from '../../shared/src/stats'
 import { localsOfEngine } from '../src/engine-locals'
 import { cellLabel, GROWTH_CELLS } from '../src/fixture/index'

@@ -29,7 +29,7 @@ import { assertScaleInvariant, describeCells, scaleCell, scaleVerdicts, type Sca
 import { describe, expect, it, vi } from 'vitest'
 import { harnessMobxPoolArm, tracked, visibleOrderOf } from '../src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../src/mobx-trap'
-import { sliceOrderOf } from '../../arms/mobx/pool/worklist/groups'
+import { sliceOrderOf } from '@podium/client-graph/worklist/groups'
 import { startScenarioEngine, writeHeartbeat, writeTitleRename } from '../../shared/src/scenarios'
 import { mountNativeForCounts } from '../src/count-harness'
 import { FENCE_SCENARIOS, openFenceFeeds, runFenceStep } from '../src/fence-scenarios'

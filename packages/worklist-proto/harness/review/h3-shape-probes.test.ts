@@ -32,16 +32,16 @@ import { harnessHandPoolArm } from '../src/adapters/hand-pool'
 import { HandPool } from '../../arms/hand/pool/pool'
 import type { LocalsSource, RowSource } from '../../shared/src/arm'
 import { createReadFence, DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
-import { settableLocals } from '../../shared/src/locals-source'
+import { settableLocals } from '@podium/client-graph/shared/locals-source'
 import {
   allRelations,
   type CollapseSpec,
   type EntityName,
   type ModelSchema,
   SCHEMA,
-} from '../../shared/src/schema'
+} from '@podium/client-graph/shared/schema'
 import type { RowRecord } from '../../shared/src/stats'
-import type { SliceWorktree } from '../../shared/src/slice-types'
+import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import { createReplaySource } from '../src/count-harness'
 import { readSnapshot } from '../src/fixture/export-snapshot'
 import { buildCorpus } from '../src/fixture/index'

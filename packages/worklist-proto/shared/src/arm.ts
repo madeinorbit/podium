@@ -6,51 +6,11 @@
 
 import type { ReactElement } from 'react'
 import type { ReadFence } from './instrument/reads'
-import type { LocalsKey, SliceLocals, SliceSnapshot } from './slice-types'
-import type { ArmStats, RowRecord, RowSourceEvent } from './stats'
+import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
+import type { ArmStats } from './stats'
 
-/**
- * The kernel's effective per-row row stream, as the arms see it. Owned by G3
- * (POD-4444); arms must read nothing beyond it — no legacy store, no replica
- * object, no view-model import.
- */
-export interface RowSource {
-  /** Current rows of one kind, in stream order. */
-  snapshot(kind: RowRecord['kind']): RowRecord[]
-  /** One callback per publication, coalesced: never a transient half-applied list. */
-  subscribe(listener: (event: RowSourceEvent) => void): () => void
-  /**
-   * POD-4567 (Ma3) — one row's current value by id, exactly as `snapshot(kind)`
-   * would carry it (the kernel's per-row read, `replica.row`, with that row's
-   * overlays in `overlaid` mode); `undefined` when the row is gone. How a pool
-   * hydrates a cold row it holds only the id of (schema doc §5). Only the kinds
-   * that can be cold. Optional: a source without it cannot back a lazy pool.
-   */
-  row?(kind: 'issue' | 'session', id: string): RowRecord['value']
-}
-
-/**
- * POD-4608 (L1e) — the locals as the arms see them: selection and the coarse
- * clock, mirroring {@link RowSource}. Views are functions of the rows and the
- * locals; this is the locals half.
- *
- * `get()` is the value as of the last notification: an arm never sees a local
- * move without being told which one. Its identity changes only when a value
- * does. Each notification names WHICH keys changed, so a tick wakes only
- * clock consumers (`coarseNow`) and a click only selection consumers
- * (`selectedIssueId`, `selectedIssueWasFolded`). Notifications are coalesced
- * like row events: one per drain, carrying the union of the keys that moved,
- * never a key whose value came back to where it was.
- *
- * Implementations: `createLocalsSource` / `fixedLocals` / `settableLocals`
- * (`locals-source.ts`) and the engine-backed `createEngineLocals`
- * (`harness/src/engine-locals.ts`). Each counts its traffic in
- * `LocalsSourceStats` (`stats.ts`).
- */
-export interface LocalsSource {
-  get(): SliceLocals
-  subscribe(listener: (changed: ReadonlySet<LocalsKey>) => void): () => void
-}
+export type { LocalsSource, RowSource } from '@podium/client-graph/shared/source'
+import type { LocalsSource, RowSource } from '@podium/client-graph/shared/source'
 
 /**
  * One arm instance: a fresh store per principal. Evict is a delete, rescope is

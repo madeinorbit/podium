@@ -55,22 +55,22 @@ import {
   runInAction,
   untracked,
 } from 'mobx'
-import type { RelationReader } from '../../../shared/src/instrument/reads'
-import { relationLinks } from '../../../shared/src/links'
-import { type EntityName, type ModelSchema, SCHEMA } from '../../../shared/src/schema'
+import type { RelationReader } from './shared/relation-reader'
+import { relationLinks } from './shared/links'
+import { type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
 import type {
   LocalsKey,
   SliceIssue,
   SliceLocals,
   SliceSession,
-} from '../../../shared/src/slice-types'
-import type { RowSourceEvent } from '../../../shared/src/stats'
+} from './shared/slice-types'
+import type { RowSourceEvent } from './shared/source'
 import {
   type EditPatch,
   type TxId,
   type WritableKind,
   WriteContractError,
-} from '../../../shared/src/write-contract'
+} from './shared/write-contract'
 import { DeadlineClock } from './clock'
 import { reseed } from './enumerate'
 import {

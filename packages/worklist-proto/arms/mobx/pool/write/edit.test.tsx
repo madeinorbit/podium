@@ -22,24 +22,24 @@ import { mountArmForCounts, runCountScenario } from '../../../../harness/src/cou
 import { engineLocals, openFenceFeeds } from '../../../../harness/src/fence-scenarios'
 import { snapshotFromStore } from '../../../../harness/src/oracle/index'
 import { startScenarioEngine } from '../../../../shared/src/scenarios'
-import type { SliceIssue } from '../../../../shared/src/slice-types'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type {
   EditableStage,
   KernelCommand,
   TxId,
   WriteTransport,
-} from '../../../../shared/src/write-contract'
-import { commandFor, WriteContractError } from '../../../../shared/src/write-contract'
+} from '@podium/client-graph/shared/write-contract'
+import { commandFor, WriteContractError } from '@podium/client-graph/shared/write-contract'
 import { harnessMobxPoolArm, harnessWritableMobxPoolArm, poolPendingLoads, snapshotPool, tracked, type HarnessWritableMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { diffRelations, knownTables } from '../../../../harness/src/adapters/mobx-rebuild'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import { reaction, runInAction } from 'mobx'
-import { rowViewOf } from '../models'
+import { rowViewOf } from '@podium/client-graph/models'
 import type { RowSource } from '../../../../shared/src/arm'
 import { DISABLED_READ_FENCE } from '../../../../shared/src/instrument/reads'
-import { MobxPool } from '../pool'
-import { createMobxWriteApi } from './edit'
-import { PendingOverlay } from './overlay'
+import { MobxPool } from '@podium/client-graph/pool'
+import { createMobxWriteApi } from '@podium/client-graph/write/edit'
+import { PendingOverlay } from '@podium/client-graph/write/overlay'
 
 installMobxWarnTrap()
 

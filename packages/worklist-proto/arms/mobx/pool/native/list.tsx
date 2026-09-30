@@ -1,3 +1,4 @@
+import { PoolRowSlot } from '@podium/client-graph/react'
 /**
  * POD-4565 (Ma1), POD-4569 (Mb1), POD-4570 (Mb2) — the pool's native list
  * (React Native primitives): the same sections, lanes and observation
@@ -13,42 +14,22 @@ import { observer } from 'mobx-react-lite'
 import { type ReactElement, useCallback, useState } from 'react'
 import { SectionList, Text, View } from 'react-native'
 import { RowShell } from '../../../../shared/src/row-shell'
-import type { IssueModel } from '../models'
-import type { MobxPool } from '../pool'
-import type { WorklistGroups } from '../worklist/groups'
+import type { IssueModel } from '@podium/client-graph/models'
+import type { MobxPool } from '@podium/client-graph/pool'
+import type { WorklistGroups } from '@podium/client-graph/worklist/groups'
 import { PoolNativeRow } from './row'
 
 /** Rows in the first batch: one screen and a half of 56 px rows on a phone. */
 const INITIAL_ROWS = 24
 
-/**
- * A drawn row's shell: observes only whether its issue is in memory, and
- * hands the issue ITSELF to the row (it implements `RowView`). The row is the
- * observer of its fields, so a field change redraws the row and never this.
- */
-const PoolNativeRowView = observer(function PoolNativeRowView({
-  model,
-}: {
-  model: IssueModel
-}): ReactElement | null {
-  if (!model.inMemory) return null
+/** Demo renderers; the product package owns the row observation boundaries. */
+function renderNativeRow(model: IssueModel): ReactElement {
   return <RowShell row={model} component={PoolNativeRow} />
-})
+}
 
-/** One visible id: resolves its model once, else a loading placeholder (see the web list). */
-const PoolNativeSlot = observer(function PoolNativeSlot({
-  pool,
-  id,
-}: {
-  pool: MobxPool
-  id: string
-}): ReactElement | null {
-  const model = pool.issue(id)
-  if (model === undefined) {
-    return pool.resident('issue', id) === 'loading' ? <View testID={`loading-${id}`} /> : null
-  }
-  return <PoolNativeRowView model={model} />
-})
+function renderNativeLoading(id: string): ReactElement {
+  return <View testID={`loading-${id}`} />
+}
 
 /** A group header: its own group's label and counts; toggles the closed fold. */
 const PoolNativeGroupHeader = observer(function PoolNativeGroupHeader({
@@ -140,7 +121,14 @@ const PoolNativeList = observer(function PoolNativeList({
 
   const sections = plan.update(groups, folded)
   const renderItem = useCallback(
-    ({ item }: { item: string }) => <PoolNativeSlot pool={pool} id={item} />,
+    ({ item }: { item: string }) => (
+      <PoolRowSlot
+        pool={pool}
+        id={item}
+        renderRow={renderNativeRow}
+        renderLoading={renderNativeLoading}
+      />
+    ),
     [pool],
   )
 

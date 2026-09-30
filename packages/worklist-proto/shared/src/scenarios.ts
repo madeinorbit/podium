@@ -94,7 +94,7 @@ import type { RouterWindow } from '@podium/client-core/ui-state'
 import { asIssueId, asUserId, type SessionMeta } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { buildCorpus, type CorpusScale, type FixtureCorpus } from '../../harness/src/fixture/index'
-import { createRowSource } from './row-source'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
 import type { RowSourceEvent } from './stats'
 
 // ------------------------------------------------------------------ corpus

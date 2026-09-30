@@ -7,12 +7,14 @@ onto the current code, all fed only by the kernel's per-row change stream.
 
 ## Folders and who may write in them
 
-- `shared/` — owned by the slice spec (POD-4442). Frozen shapes every arm, the fixture,
+- `shared/` — harness contracts, generators, probes and tests; product schema, row/local
+  feeds and slice types are imported from `@podium/client-graph`. Owned by the slice spec (POD-4442). Frozen shapes every arm, the fixture,
   the oracle and the harness build against. Changes need the coordinator (POD-4286 session A).
   No imports from legacy view-model / slice / mission / presentation / replica-view code.
 - `arms/hand/` — owned by the hand-rolled arm (POD-4446). Incremental view maintenance
   with typed deltas; no whole-table enumeration on ordinary deltas.
-- `arms/mobx/` — owned by the MobX arm (POD-4447). Tracked object graph with enforcement on.
+- `arms/mobx/` — tests and prototype UI over `@podium/client-graph`; the product
+  tracked object graph and write layer live in that package.
 - `arms/tanstack/` — deleted in POD-4550 (round two eliminated TanStack DB; see
   `docs/decisions/4441-round-two-decision.md`).
 - `harness/` — owned by the measurement harness (POD-4445). The fixture + oracle (POD-4443)

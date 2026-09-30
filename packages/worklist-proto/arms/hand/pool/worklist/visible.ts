@@ -86,9 +86,9 @@
  */
 
 import type { RelationReader } from '../../../../shared/src/instrument/reads'
-import { compareRank, type RowRank, type RowView, rankOf } from '../../../../shared/src/row-view'
-import { awaitingMergeOf } from '../../../../shared/src/schema'
-import type { SliceIssue, SliceSession } from '../../../../shared/src/slice-types'
+import { compareRank, type RowRank, type RowView, rankOf } from '@podium/client-graph/shared/row-view'
+import { awaitingMergeOf } from '@podium/client-graph/shared/schema'
+import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import type { Cell, CellGraph } from '../cells'
 import { sameData } from '../cells'
 import { FINISHED_GRACE_MS, type OwnPart, parseMs } from '../views'

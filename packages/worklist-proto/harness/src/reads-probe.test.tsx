@@ -23,9 +23,9 @@ import { createElement, type ReactElement } from 'react'
 import { describe, expect, it } from 'vitest'
 import type { Arm, ArmHandle } from '../../shared/src/arm'
 import { DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
-import { createRowSource } from '../../shared/src/row-source'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { startScenarioEngine, writeHeartbeat } from '../../shared/src/scenarios'
-import type { SliceLocals } from '../../shared/src/slice-types'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import type { ArmStats, RowRecord } from '../../shared/src/stats'
 import {
   assertReads,
@@ -35,7 +35,7 @@ import {
   type CountResult,
 } from './count-harness'
 import { snapshotFromStore } from './oracle/index'
-import { fixedLocals } from '../../shared/src/locals-source'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 
 type ProbeMode = 'borrow' | 'scan' | 'copy'
 

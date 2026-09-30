@@ -46,13 +46,13 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { act } from 'react'
 import type { Arm } from '../../shared/src/arm'
-import type { RowSourceMode } from '../../shared/src/row-source'
+import type { RowSourceMode } from '@podium/client-graph/shared/row-source'
 import {
   type FixtureScale,
   type ScenarioEngine,
   startScenarioEngine,
 } from '../../shared/src/scenarios'
-import type { SliceSnapshot } from '../../shared/src/slice-types'
+import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { mountArmForCounts } from './count-harness'
 import {
   FENCE_SCENARIOS,

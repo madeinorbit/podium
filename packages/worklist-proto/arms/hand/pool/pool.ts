@@ -88,14 +88,14 @@
  */
 
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
-import type { RowView } from '../../../shared/src/row-view'
-import { type EntityName, type ModelSchema, SCHEMA } from '../../../shared/src/schema'
+import type { RowView } from '@podium/client-graph/shared/row-view'
+import { type EntityName, type ModelSchema, SCHEMA } from '@podium/client-graph/shared/schema'
 import type {
   LocalsKey,
   SliceIssue,
   SliceLocals,
   SliceSession,
-} from '../../../shared/src/slice-types'
+} from '@podium/client-graph/shared/slice-types'
 import type { ArmStats, RowSourceEvent } from '../../../shared/src/stats'
 import { type Cell, type CellCounters, CellGraph, DepIndex, sameData } from './cells'
 import { DeadlineClock } from './clock'

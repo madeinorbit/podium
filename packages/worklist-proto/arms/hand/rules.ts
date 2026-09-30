@@ -14,8 +14,8 @@
  * supersededBy, dependents): absent on replay rows, present on engine rows.
  */
 
-import { awaitingMergeOf } from '../../shared/src/schema'
-import type { SliceIssue, SliceSession } from '../../shared/src/slice-types'
+import { awaitingMergeOf } from '@podium/client-graph/shared/schema'
+import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 
 export const DAY_MS = 24 * 60 * 60 * 1000
 export const SIDEBAR_FINISHED_GRACE_MS = DAY_MS

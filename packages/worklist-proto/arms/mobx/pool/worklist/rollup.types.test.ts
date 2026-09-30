@@ -20,7 +20,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { SliceIssue, SliceSession } from '../../../../shared/src/slice-types'
+import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import {
   type Aggregate,
   aggregate,
@@ -38,7 +38,7 @@ import {
   type unitOwnOf,
   unitsOf,
   withSeat,
-} from './rollup'
+} from '@podium/client-graph/worklist/rollup'
 
 // ------------------------------------------------------------ type helpers
 

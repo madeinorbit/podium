@@ -20,10 +20,10 @@
 
 import { describe, expect, it } from 'vitest'
 import { installMobxWarnTrap } from '../src/mobx-trap'
-import { MobxPool } from '../../arms/mobx/pool/pool'
+import { MobxPool } from '@podium/client-graph/pool'
 import { tracked } from '../src/adapters/mobx-pool'
 import { createReadFence } from '../../shared/src/instrument/reads'
-import { settableLocals } from '../../shared/src/locals-source'
+import { settableLocals } from '@podium/client-graph/shared/locals-source'
 import type { RowRecord } from '../../shared/src/stats'
 import { createReplaySource } from '../src/count-harness'
 

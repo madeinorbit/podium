@@ -21,7 +21,7 @@
  *   `issue.children` a lazy collection.
  */
 
-import type { RelationReader } from './instrument/reads'
+import type { RelationReader } from './relation-reader'
 import { type DeclaredSchema, type EntityName, type ModelSchema, SCHEMA } from './schema'
 
 type Row = Readonly<Record<string, unknown>>

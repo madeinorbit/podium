@@ -11,19 +11,19 @@
 import { runInAction } from 'mobx'
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
 import type { RelationReader } from '../../../shared/src/instrument/reads'
-import { relationLinks } from '../../../shared/src/links'
+import { relationLinks } from '@podium/client-graph/shared/links'
 import {
   compareClosedFold,
   groupKeyOf,
   type RowView,
   sliceRowOf,
-} from '../../../shared/src/row-view'
+} from '@podium/client-graph/shared/row-view'
 import type {
   SliceGroup,
   SliceIssue,
   SliceSession,
   SliceSnapshot,
-} from '../../../shared/src/slice-types'
+} from '@podium/client-graph/shared/slice-types'
 import {
   type CollapseMember,
   coldByRule,
@@ -34,9 +34,9 @@ import {
   type ModelSchema,
   SCHEMA,
   tableColdContext,
-} from '../../../shared/src/schema'
-import { isLinkSpec, relationRef } from '../../../arms/mobx/pool/relations'
-import type { Residency } from '../../../arms/mobx/pool/residency'
+} from '@podium/client-graph/shared/schema'
+import { isLinkSpec, relationRef } from '@podium/client-graph/relations'
+import type { Residency } from '@podium/client-graph/residency'
 import {
   createPlainTables,
   ingestOut,
@@ -44,15 +44,15 @@ import {
   type PoolTables,
   type StoredRow,
   type TableSet,
-} from '../../../arms/mobx/pool/tables'
+} from '@podium/client-graph/tables'
 import {
   activityMsOf,
   buildRowView,
   directParts,
   type RepoRow,
   type ViewInputs,
-} from '../../../arms/mobx/pool/views'
-import { repoLabelOf } from '../../../arms/mobx/pool/worklist/groups'
+} from '@podium/client-graph/views'
+import { repoLabelOf } from '@podium/client-graph/worklist/groups'
 import {
   directNested,
   directSessionVisibility,
@@ -62,7 +62,7 @@ import {
   type SessionVisibility,
   sortByRank,
   type VisibleInputs,
-} from '../../../arms/mobx/pool/worklist/visible'
+} from '@podium/client-graph/worklist/visible'
 
 /**
  * Every row a lazy pool KNOWS, in plain tables (POD-4567), read from the FEED

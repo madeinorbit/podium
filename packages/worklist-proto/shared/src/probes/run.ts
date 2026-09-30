@@ -38,7 +38,7 @@ import { type Against, checkArm, diffSnapshots } from '../gen/check'
 import { startGenRun } from '../gen/run'
 import { createReadFence, DISABLED_READ_FENCE } from '../instrument/reads'
 import { pickTargets, startScenarioEngine } from '../scenarios'
-import type { SliceSnapshot } from '../slice-types'
+import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import {
   type DetectorKind,
   type Expectation,

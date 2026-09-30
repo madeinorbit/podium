@@ -51,9 +51,9 @@
  */
 
 import type { RelationReader } from '../../../shared/src/instrument/reads'
-import { isDraftNameSession, type RowOriginTick, type RowView } from '../../../shared/src/row-view'
-import type { EntityName } from '../../../shared/src/schema'
-import type { SliceIssue, SliceSession } from '../../../shared/src/slice-types'
+import { isDraftNameSession, type RowOriginTick, type RowView } from '@podium/client-graph/shared/row-view'
+import type { EntityName } from '@podium/client-graph/shared/schema'
+import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import type { Rollup } from './worklist/rollup'
 
 /** The finished-row grace before the closed fold (spec §3 R-GROUP). */

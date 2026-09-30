@@ -34,7 +34,7 @@ import {
   DISABLED_READ_FENCE,
   type ReadFence,
 } from '../../../shared/src/instrument/reads'
-import { type SettableLocalsHandle, settableLocals } from '../../../shared/src/locals-source'
+import { type SettableLocalsHandle, settableLocals } from '@podium/client-graph/shared/locals-source'
 import {
   type EntityName,
   type ModelSchema,
@@ -42,7 +42,7 @@ import {
   type RelationSpec,
   SCHEMA,
   validateStructure,
-} from '../../../shared/src/schema'
+} from '@podium/client-graph/shared/schema'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import type { Cell, CellGraph } from './cells'
 import { diffRelations } from './enumerate'

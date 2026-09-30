@@ -24,7 +24,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { displayChanged, ROW_DISPLAYED_FIELDS, ROW_VIEW_FIELDS } from '../../shared/src/row-view'
+import { displayChanged, ROW_DISPLAYED_FIELDS, ROW_VIEW_FIELDS } from '@podium/client-graph/shared/row-view'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../shared/src/scenarios'
 import { assertCommits, type CountResult, mountArmForCounts } from './count-harness'
 import {

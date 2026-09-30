@@ -19,9 +19,9 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { createRowSource } from '../../shared/src/row-source'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { startScenarioEngine } from '../../shared/src/scenarios'
-import type { SliceLocals, SliceSnapshot } from '../../shared/src/slice-types'
+import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import {
   mountArmForCounts,
   runCountScenario,
@@ -44,7 +44,7 @@ import {
 import { handArm } from './arm'
 import { rebuildFromScratch } from './rebuild'
 import type { HandStore } from './store'
-import { fixedLocals } from '../../shared/src/locals-source'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 
 const STRICT = process.env.PROTO_M2_STRICT === '1'
 

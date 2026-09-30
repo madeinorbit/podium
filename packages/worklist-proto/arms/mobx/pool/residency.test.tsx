@@ -20,19 +20,19 @@ import {
   DISABLED_READ_FENCE,
   type ReadFence,
 } from '../../../shared/src/instrument/reads'
-import { settableLocals } from '../../../shared/src/locals-source'
-import type { RowView } from '../../../shared/src/row-view'
-import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
-import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
+import { settableLocals } from '@podium/client-graph/shared/locals-source'
+import type { RowView } from '@podium/client-graph/shared/row-view'
+import { SCHEMA, tableColdRule } from '@podium/client-graph/shared/schema'
+import type { SliceIssue, SliceSession, SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import { type HarnessMobxPoolHandle, harnessMobxPoolArm, poolPendingLoads, tracked, visibleOrderOf } from '../../../harness/src/adapters/mobx-pool'
 import { diffRelations, diffResidency, knownTables } from '../../../harness/src/adapters/mobx-rebuild'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
-import { MobxPool } from './pool'
-import { LOAD_WINDOW_MS } from './residency'
-import { LOADING } from './worklist/rollup'
-import { sliceOrderOf } from './worklist/groups'
-import { rowViewOf } from './models'
+import { MobxPool } from '@podium/client-graph/pool'
+import { LOAD_WINDOW_MS } from '@podium/client-graph/residency'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { sliceOrderOf } from '@podium/client-graph/worklist/groups'
+import { rowViewOf } from '@podium/client-graph/models'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 

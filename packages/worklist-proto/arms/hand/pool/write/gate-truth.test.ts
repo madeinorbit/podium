@@ -79,7 +79,7 @@ import { checkArm, describeSequence, diffSnapshots, type CheckedArm } from '../.
 import { startGenRun } from '../../../../shared/src/gen/run'
 import { feedStep, WriteOracle } from '../../../../shared/src/gen/write-oracle'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
-import type { SliceIssue, SliceSnapshot } from '../../../../shared/src/slice-types'
+import type { SliceIssue, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import {
   harnessWritableHandPoolArm,
   type HarnessWritableHandPoolHandle,

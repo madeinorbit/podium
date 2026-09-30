@@ -20,8 +20,8 @@ import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { gen } from '../../../../shared/src/gen/changes'
 import { checkArm } from '../../../../shared/src/gen/check'
-import type { SliceIssue } from '../../../../shared/src/slice-types'
-import type { KernelCommand, TxId, WriteTransport } from '../../../../shared/src/write-contract'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
+import type { KernelCommand, TxId, WriteTransport } from '@podium/client-graph/shared/write-contract'
 import {
   harnessWritableHandPoolArm,
   type HarnessWritableHandPoolHandle,

@@ -19,21 +19,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mountArmForCounts } from '../../../../harness/src/count-harness'
 import { openFenceFeeds } from '../../../../harness/src/fence-scenarios'
 import { startScenarioEngine, type ScenarioEngine, upsert } from '../../../../shared/src/scenarios'
-import type { SliceIssue } from '../../../../shared/src/slice-types'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type {
   EditableStage,
   KernelCommand,
   TxId,
   WriteEvent,
   WriteTransport,
-} from '../../../../shared/src/write-contract'
+} from '@podium/client-graph/shared/write-contract'
 import { harnessMobxPoolArm, harnessWritableMobxPoolArm, tracked, visibleOrderOf, type HarnessWritableMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import type { MobxPool } from '../pool'
-import { createMobxWriteApi } from './edit'
-import { PendingOverlay } from './overlay'
-import { ECHO_TTL_MS } from './pending'
-import { rowViewOf } from '../models'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { createMobxWriteApi } from '@podium/client-graph/write/edit'
+import { PendingOverlay } from '@podium/client-graph/write/overlay'
+import { ECHO_TTL_MS } from '@podium/client-graph/write/pending'
+import { rowViewOf } from '@podium/client-graph/models'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 

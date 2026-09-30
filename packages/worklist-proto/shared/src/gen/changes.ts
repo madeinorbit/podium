@@ -32,7 +32,7 @@
  * shrinker tries applicable.
  */
 
-import { EDITABLE_STAGES, type EditableStage } from '../write-contract'
+import { EDITABLE_STAGES, type EditableStage } from '@podium/client-graph/shared/write-contract'
 import { isSortKey, sortKeyBetween } from '@podium/model'
 import { buildCorpus, type FixtureCorpus } from '../../../harness/src/fixture/index'
 import { FIXTURE_SEED } from '../scenarios'

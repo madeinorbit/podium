@@ -59,6 +59,8 @@ L2 — kernels / ports
 L3 — features / adapters
   @podium/client-core           browser-safe
                                 deps: anything below its layer
+  @podium/client-graph          browser-safe
+                                deps: @podium/client-core, @podium/harness, @podium/model
   @podium/janitor               node-only
                                 deps: anything below its layer
   @podium/terminal-client-react browser-safe
@@ -86,6 +88,7 @@ L5 — build / compose tier
 
 **Declared same-layer edges** — the only legal sideways imports:
 
+- `@podium/client-graph → @podium/client-core`
 - `@podium/commands → @podium/protocol`
 - `@podium/harness → @podium/runtime`
 - `@podium/issue-client → @podium/commands`

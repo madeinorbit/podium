@@ -53,9 +53,9 @@ import {
 } from '../../../../shared/src/scenarios'
 import { harnessMobxPoolArm, poolPendingLoads, tracked, visibleOrderOf, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import type { MobxPool } from '../pool'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { PoolRow } from '../react/row'
-import { rowViewOf } from '../models'
+import { rowViewOf } from '@podium/client-graph/models'
 
 installMobxWarnTrap()
 

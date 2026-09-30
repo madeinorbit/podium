@@ -115,14 +115,14 @@ import {
   diffSnapshots,
   diffViews,
 } from '../../../shared/src/gen/check'
-import { ROW_VIEW_FIELDS, type RowView } from '../../../shared/src/row-view'
+import { ROW_VIEW_FIELDS, type RowView } from '@podium/client-graph/shared/row-view'
 import { type ScenarioEngine, startScenarioEngine } from '../../../shared/src/scenarios'
-import type { SliceSnapshot } from '../../../shared/src/slice-types'
+import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { type HarnessMobxPoolHandle, harnessMobxPoolArm, snapshotPool, tracked, visibleOrderOf } from '../../../harness/src/adapters/mobx-pool'
 import { diffRelations, diffResidency, knownTables } from '../../../harness/src/adapters/mobx-rebuild'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { rebuildSnapshot, rebuildViews } from '../../../harness/src/adapters/mobx-rebuild'
-import { rowViewOf } from './models'
+import { rowViewOf } from '@podium/client-graph/models'
 
 installMobxWarnTrap()
 

@@ -30,8 +30,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
-import { fixedLocals } from '../../../shared/src/locals-source'
-import { createRowSource } from '../../../shared/src/row-source'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
 import {
   type ScenarioEngine,
   startScenarioEngine,
@@ -41,7 +41,7 @@ import {
   writeStageMove,
   writeTitleRename,
 } from '../../../shared/src/scenarios'
-import type { SliceLocals } from '../../../shared/src/slice-types'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import {
   assertCommits,
   assertIsolation,

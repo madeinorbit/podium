@@ -5,9 +5,9 @@
  * seats. Each direction has a control proving its predicate can say no.
  */
 import { describe, expect, it } from 'vitest'
-import { isRowSeat } from './row-view'
-import { SCHEMA, type RelationSpec } from './schema'
-import type { SliceSession } from './slice-types'
+import { isRowSeat } from '@podium/client-graph/shared/row-view'
+import { SCHEMA, type RelationSpec } from '@podium/client-graph/shared/schema'
+import type { SliceSession } from '@podium/client-graph/shared/slice-types'
 
 function session(over: Partial<SliceSession>): SliceSession {
   return { sessionId: 's', issueId: 'A', cwd: '/wt/a', lastActiveAt: '2026-09-20T11:00:00Z', ...over }

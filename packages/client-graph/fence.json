@@ -1,0 +1,24 @@
+{
+  "enumeration": [
+    "src/enumerate.ts"
+  ],
+  "tables": [
+    "issue",
+    "session",
+    "worktree",
+    "repo"
+  ],
+  "store": [
+    "src/create.ts",
+    "src/clock.ts",
+    "src/enumerate.ts",
+    "src/models.ts",
+    "src/pool.ts",
+    "src/relations.ts",
+    "src/residency.ts",
+    "src/tables.ts",
+    "src/write/create.ts",
+    "src/write/edit.ts"
+  ],
+  "rows": []
+}

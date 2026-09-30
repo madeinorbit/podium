@@ -40,13 +40,13 @@
  */
 
 import type { RowSource } from '../arm'
-import type { SliceSnapshot } from '../slice-types'
+import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type { ScenarioEngine } from '../scenarios'
 import { snapshotFromStore } from '../../../harness/src/oracle/index'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
 import type { Replica } from '@podium/client-core/replica'
-import { baseOf, subscribeReceipts } from '../receipts'
+import { baseOf, subscribeReceipts } from '@podium/client-graph/shared/receipts'
 import {
   createPendingLog,
   editForPendingWrite,
@@ -54,7 +54,7 @@ import {
   type OutboxPendingWrite,
   type PendingLog,
   type TxId,
-} from '../write-contract'
+} from '@podium/client-graph/shared/write-contract'
 import type { GenRun, StepResult } from './run'
 
 /** The editable fields of one server issue row, as the feed spells them. */

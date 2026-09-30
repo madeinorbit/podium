@@ -13,7 +13,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 /** A relative specifier resolved against its importer, or null when it cannot be one. */
 export function resolveRelativeImport(fromFile: string, specifier: string): string | null {
@@ -27,6 +27,41 @@ export function resolveRelativeImport(fromFile: string, specifier: string): stri
     `${base}/index.tsx`,
   ]) {
     if (existsSync(candidate)) return candidate
+  }
+  return null
+}
+
+/** Resolve the pool's source exports in this checkout, including its public React entry. */
+export function resolvePoolImport(fromFile: string, specifier: string): string | null {
+  if (specifier !== '@podium/client-graph' && !specifier.startsWith('@podium/client-graph/'))
+    return null
+  let directory = dirname(fromFile)
+  while (directory !== dirname(directory)) {
+    const pool = resolve(directory, 'packages/client-graph')
+    const manifestPath = join(pool, 'package.json')
+    if (existsSync(manifestPath)) {
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'))
+      const key =
+        specifier === '@podium/client-graph'
+          ? '.'
+          : `.${specifier.slice('@podium/client-graph'.length)}`
+      for (const [pattern, entry] of Object.entries(manifest.exports) as [
+        string,
+        { '@podium/source': string },
+      ][]) {
+        const [prefix, suffix] = pattern.split('*')
+        if (pattern === key) return resolve(pool, entry['@podium/source'])
+        if (suffix !== undefined && key.startsWith(prefix as string) && key.endsWith(suffix)) {
+          const middle = key.slice(
+            (prefix as string).length,
+            suffix.length === 0 ? undefined : -suffix.length,
+          )
+          return resolve(pool, entry['@podium/source'].replace('*', middle))
+        }
+      }
+      return null
+    }
+    directory = dirname(directory)
   }
   return null
 }
@@ -50,7 +85,7 @@ export function specifiersOf(source: string): string[] {
 
 /**
  * The module graph reachable from `entry` (absolute file path) through
- * relative imports, including `entry` itself. Bare specifiers (packages) and
+ * relative imports, including `entry` itself. Pool workspace exports are resolved locally. Other bare specifiers and
  * unresolvable paths are leaves, never failures: only files on disk are
  * walked, each once.
  */
@@ -68,7 +103,7 @@ export function moduleGraphOf(entry: string): string[] {
       continue
     }
     for (const specifier of specifiersOf(source)) {
-      const resolved = resolveRelativeImport(file, specifier)
+      const resolved = resolveRelativeImport(file, specifier) ?? resolvePoolImport(file, specifier)
       if (resolved !== null && !seen.has(resolved)) queue.push(resolved)
     }
   }

@@ -79,8 +79,8 @@ import {
   type WritableKind,
   type WriteTransport,
   WriteContractError,
-} from '../../../../shared/src/write-contract'
-import type { SliceIssue } from '../../../../shared/src/slice-types'
+} from '@podium/client-graph/shared/write-contract'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type { HandPool } from '../pool'
 import { createPendingLog } from './pending'
 

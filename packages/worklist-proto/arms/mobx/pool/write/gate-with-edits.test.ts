@@ -21,7 +21,7 @@ import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { gen } from '../../../../shared/src/gen/changes'
 import { checkArm, type CheckedArm } from '../../../../shared/src/gen/check'
-import type { KernelCommand, TxId, WriteTransport } from '../../../../shared/src/write-contract'
+import type { KernelCommand, TxId, WriteTransport } from '@podium/client-graph/shared/write-contract'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 
 import { harnessWritableMobxPoolArm } from '../../../../harness/src/adapters/mobx-pool'

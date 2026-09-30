@@ -95,7 +95,7 @@ import {
   type ModelSchema,
   tableColdContext,
   viaTargetOf,
-} from '../../../shared/src/schema'
+} from '@podium/client-graph/shared/schema'
 import {
   drop,
   type IngestOut,

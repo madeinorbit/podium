@@ -5,7 +5,7 @@
  * newest-tucked-first). Touched groups rebuild from the order array.
  */
 
-import type { SliceIssue } from '../../shared/src/slice-types'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { assertNever, nullStats, type Delta, type DerivationStats } from './deltas'
 import { closedFoldAt, groupKeyOf, groupLabelOf, inClosedFold } from './rules'
 import type { OrderModule } from './order'

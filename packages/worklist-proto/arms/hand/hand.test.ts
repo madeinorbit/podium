@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { RowSource } from '../../shared/src/arm'
-import type { SliceIssue, SliceSession, SliceWorktree } from '../../shared/src/slice-types'
+import type { SliceIssue, SliceSession, SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../shared/src/stats'
 import { handArm } from './arm'
 import { rebuildFromScratch } from './rebuild'

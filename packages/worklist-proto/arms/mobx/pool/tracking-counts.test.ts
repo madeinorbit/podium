@@ -107,9 +107,9 @@ import {
   type WriteVariant,
 } from '../../../harness/src/writable-arm'
 import { createReadFence } from '../../../shared/src/instrument/reads'
-import { ROW_DISPLAYED_FIELDS } from '../../../shared/src/row-view'
+import { ROW_DISPLAYED_FIELDS } from '@podium/client-graph/shared/row-view'
 import { type FixtureScale, startScenarioEngine } from '../../../shared/src/scenarios'
-import { coldByRule, type EntityName, SCHEMA, tableColdContext } from '../../../shared/src/schema'
+import { coldByRule, type EntityName, SCHEMA, tableColdContext } from '@podium/client-graph/shared/schema'
 import {
   harnessMobxPoolArm,
   harnessWritableMobxPoolArm,
@@ -117,9 +117,9 @@ import {
   type HarnessWritableMobxPoolHandle,
 } from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
-import { MobxPool } from './pool'
-import { PoolRelations } from './relations'
-import { VisibleCollection } from './worklist/visible'
+import { MobxPool } from '@podium/client-graph/pool'
+import { PoolRelations } from '@podium/client-graph/relations'
+import { VisibleCollection } from '@podium/client-graph/worklist/visible'
 
 installMobxWarnTrap()
 

@@ -43,7 +43,7 @@ import {
   SCHEMA,
   tableColdContext,
   viaTargetOf,
-} from '../../../shared/src/schema'
+} from '@podium/client-graph/shared/schema'
 import type { RowRecord } from '../../../shared/src/stats'
 import { isLinkSpec, relationRef } from './relations'
 import type { Residency } from './residency'

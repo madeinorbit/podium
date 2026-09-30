@@ -49,11 +49,11 @@ import { buildCorpus } from '../../../../harness/src/fixture/index'
 import { writeResult } from '../../../../harness/src/results'
 import type { RowSource } from '../../../../shared/src/arm'
 import { createReadFence } from '../../../../shared/src/instrument/reads'
-import { type SettableLocalsHandle, settableLocals } from '../../../../shared/src/locals-source'
-import type { SliceIssue } from '../../../../shared/src/slice-types'
+import { type SettableLocalsHandle, settableLocals } from '@podium/client-graph/shared/locals-source'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type { RowRecord } from '../../../../shared/src/stats'
 import { harnessMobxPoolArm, tracked, visibleOrderOf, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
-import type { MobxPool } from '../pool'
+import type { MobxPool } from '@podium/client-graph/pool'
 
 interface Rig {
   replay: ReplaySource

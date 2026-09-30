@@ -36,8 +36,8 @@ import {
   type RowComponent,
   type RowProps,
 } from './row-shell'
-import type { RowView } from './row-view'
-import type { SliceIssue, SliceSession } from './slice-types'
+import type { RowView } from '@podium/client-graph/shared/row-view'
+import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 
 // A stand-in for any substrate's store handle.
 interface StoreHandle {

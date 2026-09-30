@@ -1,3 +1,4 @@
+import { PoolRowSlot } from '@podium/client-graph/react'
 /**
  * POD-4565 (Ma1), POD-4569 (Mb1), POD-4570 (Mb2) — the pool's web list: the
  * PINNED section, then each group's header, open lane and closed fold
@@ -53,9 +54,9 @@ import {
   useState,
 } from 'react'
 import { RowShell } from '../../../../shared/src/row-shell'
-import type { IssueModel } from '../models'
-import type { MobxPool } from '../pool'
-import type { WorklistGroups } from '../worklist/groups'
+import type { IssueModel } from '@podium/client-graph/models'
+import type { MobxPool } from '@podium/client-graph/pool'
+import type { WorklistGroups } from '@podium/client-graph/worklist/groups'
 import { PoolRow } from './row'
 
 /** Item heights (px): the browser harness's viewport is sized to them. */
@@ -74,38 +75,14 @@ function itemKey(item: Item): string {
   return item.kind === 'header' ? `group:${item.key}` : 'pinned'
 }
 
-/**
- * A drawn row's shell: observes only whether its issue is in memory, and
- * hands the issue ITSELF to the row (it implements `RowView`). The row is the
- * observer of its fields, so a field change redraws the row and never this.
- */
-const PoolRowView = observer(function PoolRowView({
-  model,
-}: {
-  model: IssueModel
-}): ReactElement | null {
-  if (!model.inMemory) return null
+/** Demo renderers; the product package owns the row observation boundaries. */
+function renderPoolRow(model: IssueModel): ReactElement {
   return <RowShell row={model} component={PoolRow} />
-})
+}
 
-/**
- * One visible id: resolves its model once (and again only when its presence
- * changes, a cold row's load), else asks for the load and draws a bare
- * placeholder outside `RowShell`.
- */
-const PoolRowSlot = observer(function PoolRowSlot({
-  pool,
-  id,
-}: {
-  pool: MobxPool
-  id: string
-}): ReactElement | null {
-  const model = pool.issue(id)
-  if (model === undefined) {
-    return pool.resident('issue', id) === 'loading' ? <div data-loading-row={id} /> : null
-  }
-  return <PoolRowView model={model} />
-})
+function renderPoolLoading(id: string): ReactElement {
+  return <div data-loading-row={id} />
+}
 
 /** A group header: label, open count, closed count; toggles the closed fold. */
 const PoolGroupHeader = observer(function PoolGroupHeader({
@@ -160,7 +137,12 @@ const PoolLane = observer(function PoolLane({
       {lane === 'pinned' && ids.length > 0 ? <div key="pinned">{PINNED_TITLE}</div> : null}
       {ids.map((id) => (
         <div key={id}>
-          <PoolRowSlot pool={pool} id={id} />
+          <PoolRowSlot
+            pool={pool}
+            id={id}
+            renderRow={renderPoolRow}
+            renderLoading={renderPoolLoading}
+          />
         </div>
       ))}
     </>
@@ -200,7 +182,15 @@ function drawItem(
   folded: ReadonlySet<string>,
   onToggle: (key: string) => void,
 ): ReactElement {
-  if (item.kind === 'row') return <PoolRowSlot pool={pool} id={item.id} />
+  if (item.kind === 'row')
+    return (
+      <PoolRowSlot
+        pool={pool}
+        id={item.id}
+        renderRow={renderPoolRow}
+        renderLoading={renderPoolLoading}
+      />
+    )
   if (item.kind === 'pinned') return PINNED_TITLE
   return (
     <PoolGroupHeader

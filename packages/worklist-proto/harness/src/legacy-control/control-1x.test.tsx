@@ -12,9 +12,9 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { createRowSource } from '../../../shared/src/row-source'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
-import type { SliceLocals } from '../../../shared/src/slice-types'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import {
   assertIsolation,
   mountArmForCounts,
@@ -23,7 +23,7 @@ import {
 import { expectedSnapshot, snapshotFromStore } from '../oracle/index'
 import { writeHeartbeat } from '../../../shared/src/scenarios'
 import { legacyControlArmFor } from './arm'
-import { fixedLocals } from '../../../shared/src/locals-source'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 
 describe('legacy control at 1x', () => {
   it('heartbeat fails isolation with exact parity in under 60 s', async () => {

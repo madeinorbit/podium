@@ -6,7 +6,7 @@
 // test pins each candidate entry to its pool arm without Chromium: it fails
 // on the round-two import and passes on the pool one.
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { moduleGraphOf } from '../entry-pin'
 
@@ -47,7 +47,7 @@ describe('browser entries mount the round-three pools', () => {
       join(PACKAGE_DIR, 'harness/src/adapters/mobx-pool.ts'),
     )
     expect(graph, 'the product pool under the adapter').toContain(
-      join(PACKAGE_DIR, 'arms/mobx/pool/pool.ts'),
+      resolve(PACKAGE_DIR, '../client-graph/src/pool.ts'),
     )
   })
 
@@ -58,10 +58,10 @@ describe('browser entries mount the round-three pools', () => {
         join(PACKAGE_DIR, 'harness/src/adapters/mobx-pool.ts'),
       )
       expect(graph, `${name}: the product pool under the adapter`).toContain(
-        join(PACKAGE_DIR, 'arms/mobx/pool/pool.ts'),
+        resolve(PACKAGE_DIR, '../client-graph/src/pool.ts'),
       )
       expect(graph, `${name}: its overlay`).toContain(
-        join(PACKAGE_DIR, 'arms/mobx/pool/write/overlay.ts'),
+        resolve(PACKAGE_DIR, '../client-graph/src/write/overlay.ts'),
       )
       // POD-4944: the harness adapter wraps the product write arm (the ONE
       // writable entry point), so the product write wiring is on the path.

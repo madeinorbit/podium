@@ -35,7 +35,7 @@
  */
 
 import type { OnlineEvents } from '@podium/client-core/outbox'
-import { createRowSource, type RowSourceHandle } from '../row-source'
+import { createRowSource, type RowSourceHandle } from '@podium/client-graph/shared/row-source'
 import {
   evict,
   remove,
@@ -45,7 +45,7 @@ import {
 } from '../scenarios'
 import type { RowSourceEvent } from '../stats'
 import type { FixtureCorpus } from '../../../harness/src/fixture/index'
-import type { TxId } from '../write-contract'
+import type { TxId } from '@podium/client-graph/shared/write-contract'
 import type { ArmEditPatch } from './arm-edits'
 import { type Change, genCorpus, ROW_KINDS, type RowChange } from './changes'
 

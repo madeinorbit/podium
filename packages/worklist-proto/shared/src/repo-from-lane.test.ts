@@ -12,7 +12,7 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   createTables as createHandTables,
@@ -24,8 +24,8 @@ import {
   createPlainTables as createMobxPlainTables,
   ingestOut as mobxIngestOut,
   ingestRecord as mobxIngestRecord,
-} from '../../arms/mobx/pool/tables'
-import type { RelationMaintenance as MobxMaintenance } from '../../arms/mobx/pool/relations'
+} from '@podium/client-graph/tables'
+import type { RelationMaintenance as MobxMaintenance } from '@podium/client-graph/relations'
 import { moduleGraphOf } from '../../harness/entry-pin'
 import {
   FEED_SPELLING,
@@ -36,13 +36,13 @@ import {
   repoLaneCalls,
   resetRepoLaneCalls,
   type RepoLaneOps,
-} from './repo-from-lane'
+} from '@podium/client-graph/shared/repo-from-lane'
 import type { RowRecord } from './stats'
 
 const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
   ? process.cwd()
   : join(process.cwd(), 'packages', 'worklist-proto')
-const SHARED_COMPOSER = join(PACKAGE_DIR, 'shared', 'src', 'repo-from-lane.ts')
+const SHARED_COMPOSER = resolve(PACKAGE_DIR, '../client-graph/src/shared/repo-from-lane.ts')
 
 // ------------------------------------------------------------------ fakes
 
@@ -219,11 +219,11 @@ describe('repo-from-lane composition', () => {
 // ------------------------------------------------------------------ Part B
 
 const ARM_TABLES = [
-  join(PACKAGE_DIR, 'arms', 'mobx', 'pool', 'tables.ts'),
+  resolve(PACKAGE_DIR, '../client-graph/src/tables.ts'),
   join(PACKAGE_DIR, 'arms', 'hand', 'pool', 'tables.ts'),
 ]
 const FIELD_LAYERS = [
-  join(PACKAGE_DIR, 'arms', 'mobx', 'pool', 'models.ts'),
+  resolve(PACKAGE_DIR, '../client-graph/src/models.ts'),
   join(PACKAGE_DIR, 'arms', 'hand', 'pool', 'records.ts'),
 ]
 

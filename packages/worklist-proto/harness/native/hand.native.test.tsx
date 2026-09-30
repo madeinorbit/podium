@@ -6,9 +6,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { createRowSource } from '../../shared/src/row-source'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { startScenarioEngine } from '../../shared/src/scenarios'
-import type { SliceLocals } from '../../shared/src/slice-types'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import { mountNativeForCounts, runCountScenario } from '../../harness/src/count-harness'
 import { snapshotFromStore } from '../../harness/src/oracle/index'
 import {
@@ -19,7 +19,7 @@ import {
 import { handArm, preloadHandNative } from '../../arms/hand/arm'
 import { rebuildFromScratch } from '../../arms/hand/rebuild'
 import type { HandStore } from '../../arms/hand/store'
-import { fixedLocals } from '../../shared/src/locals-source'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 
 describe('hand-rolled arm on the native renderer', () => {
   // POD-4551 expected failure (coordinator ruling, option 1): the resume-twin tie root (i286 at 1x) collapses in the runtime (runtime.ts:465 and :1172 via dedupeSessions) and this retired round-two arm never collapses, so it shows the stale ask. Delete with the round-two code (Ma1/Ha1); never copy onto a round-three arm. Marked by POD-4608: the POD-4551 sweep never reached the native lane.

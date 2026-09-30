@@ -16,7 +16,7 @@ import type { ReactElement } from 'react'
 import { memo, useSyncExternalStore } from 'react'
 import { ScrollView, Text, View } from 'react-native'
 import { CommitBoundary } from '../../shared/src/row-shell'
-import type { SliceRow } from '../../shared/src/slice-types'
+import type { SliceRow } from '@podium/client-graph/shared/slice-types'
 import type { HandStore } from './store'
 
 function useNativeKey<T>(store: HandStore, key: string): T {

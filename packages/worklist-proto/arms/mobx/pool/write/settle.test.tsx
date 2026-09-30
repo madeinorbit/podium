@@ -28,7 +28,7 @@ import { mountArmForCounts, runCountScenario } from '../../../../harness/src/cou
 import { engineLocals, openFenceFeeds } from '../../../../harness/src/fence-scenarios'
 import { snapshotFromStore } from '../../../../harness/src/oracle/index'
 import { startScenarioEngine, upsert, type ScenarioEngine } from '../../../../shared/src/scenarios'
-import type { SliceIssue } from '../../../../shared/src/slice-types'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type {
   EditableStage,
   KernelCommand,
@@ -36,12 +36,12 @@ import type {
   TxId,
   WriteEvent,
   WriteTransport,
-} from '../../../../shared/src/write-contract'
-import { ECHO_TTL_MS } from '../../../../shared/src/write-contract'
+} from '@podium/client-graph/shared/write-contract'
+import { ECHO_TTL_MS } from '@podium/client-graph/shared/write-contract'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import { harnessMobxPoolArm, harnessWritableMobxPoolArm, tracked, type HarnessMobxPoolHandle, type HarnessWritableMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
-import { createMobxWriteApi, type MobxWriteApi } from './edit'
-import { PendingOverlay } from './overlay'
+import { createMobxWriteApi, type MobxWriteApi } from '@podium/client-graph/write/edit'
+import { PendingOverlay } from '@podium/client-graph/write/overlay'
 
 installMobxWarnTrap()
 

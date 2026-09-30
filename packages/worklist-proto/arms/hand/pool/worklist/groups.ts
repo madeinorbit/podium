@@ -47,8 +47,8 @@
  * never fold never reads its subtree).
  */
 
-import type { SliceGroup, SliceIssue, SliceOrder } from '../../../../shared/src/slice-types'
-import { compareRank, type RowRank } from '../../../../shared/src/row-view'
+import type { SliceGroup, SliceIssue, SliceOrder } from '@podium/client-graph/shared/slice-types'
+import { compareRank, type RowRank } from '@podium/client-graph/shared/row-view'
 import { type Cell, type CellGraph, sameData } from '../cells'
 import { closedOf, foldAtOf, issueAbandoned } from '../views'
 import type { VisibleCounters, VisibleInputs } from './visible'

@@ -15,12 +15,12 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { createRowSource } from '../../shared/src/row-source'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
 import {
   startScenarioEngine,
   type FixtureScale,
 } from '../../shared/src/scenarios'
-import type { SliceLocals } from '../../shared/src/slice-types'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import {
   mountArmForCounts,
   runCountScenario,
@@ -37,7 +37,7 @@ import {
 import { handArm } from './arm'
 import { rebuildFromScratch } from './rebuild'
 import type { HandStore } from './store'
-import { fixedLocals } from '../../shared/src/locals-source'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 
 function storeOf(mounted: MountedArm): HandStore {
   return (mounted.handle as unknown as { store: HandStore }).store

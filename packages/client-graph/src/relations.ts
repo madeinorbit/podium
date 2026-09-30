@@ -92,8 +92,8 @@
  */
 
 import { type ObservableMap, type ObservableSet, observable } from 'mobx'
-import type { RelationReader } from '../../../shared/src/instrument/reads'
-import { relationRef } from '../../../shared/src/links'
+import type { RelationReader } from './shared/relation-reader'
+import { relationRef } from './shared/links'
 
 // Moved to the typed links (POD-4758); kept importable from the engine.
 export { relationRef }
@@ -110,7 +110,7 @@ import {
   type RelationSpec,
   SCHEMA,
   type SubsetSpec,
-} from '../../../shared/src/schema'
+} from './shared/schema'
 
 type Row = Readonly<Record<string, unknown>>
 

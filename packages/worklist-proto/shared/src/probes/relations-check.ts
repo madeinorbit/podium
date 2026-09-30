@@ -31,7 +31,7 @@
 
 import type { RowSource } from '../arm'
 import type { ReadFence, RelationReader } from '../instrument/reads'
-import { type EntityName, type ModelSchema, SCHEMA } from '../schema'
+import { type EntityName, type ModelSchema, SCHEMA } from '@podium/client-graph/shared/schema'
 import type { RelationRef } from './probe'
 
 /** A fence that behaves exactly like `inner` and remembers the relation accessor the arm hands it. */

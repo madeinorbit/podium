@@ -14,7 +14,7 @@ import {
   writeSelectionClick,
   writeTitleRename,
 } from '../../shared/src/scenarios'
-import type { LocalsKey } from '../../shared/src/slice-types'
+import type { LocalsKey } from '@podium/client-graph/shared/slice-types'
 import { createEngineLocals, localsOfEngine } from './engine-locals'
 
 describe('engine-backed locals source', () => {

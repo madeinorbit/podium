@@ -28,9 +28,9 @@ import { legacyControlArmFor } from '../../../../harness/src/legacy-control/arm'
 import { snapshotFromStore } from '../../../../harness/src/oracle/index'
 import { writeResult } from '../../../../harness/src/results'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
-import { createRowSource } from '../../../../shared/src/row-source'
-import type { SliceLocals } from '../../../../shared/src/slice-types'
-import { fixedLocals } from '../../../../shared/src/locals-source'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 import {
   startScenarioEngine,
   writeHeartbeat,

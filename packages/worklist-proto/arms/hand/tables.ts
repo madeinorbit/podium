@@ -7,7 +7,7 @@
  * `value: undefined` deleting the row (evict, no tombstone — spec §2).
  */
 
-import type { SliceIssue, SliceSession, SliceWorktree } from '../../shared/src/slice-types'
+import type { SliceIssue, SliceSession, SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import type { RowRecord } from '../../shared/src/stats'
 import type { Delta } from './deltas'
 

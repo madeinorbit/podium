@@ -22,7 +22,7 @@ import {
   type ReactElement,
 } from 'react'
 import { CommitBoundary } from '../../../shared/src/row-shell'
-import type { SliceRow } from '../../../shared/src/slice-types'
+import type { SliceRow } from '@podium/client-graph/shared/slice-types'
 import type { HandStore } from '../store'
 
 export function useHandKey<T>(store: HandStore, key: string): T {

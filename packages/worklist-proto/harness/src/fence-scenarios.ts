@@ -57,12 +57,12 @@
 import { isDeepStrictEqual } from 'node:util'
 import { act } from 'react'
 import type { ArmHandle, LazyArmHandle, LocalsSource, RowSource } from '../../shared/src/arm'
-import type { LocalsSourceHandle } from '../../shared/src/locals-source'
+import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-source'
 import {
   createRowSource,
   type RowSourceHandle,
   type RowSourceMode,
-} from '../../shared/src/row-source'
+} from '@podium/client-graph/shared/row-source'
 import {
   armMarkReadRejection,
   pendingWrites,
@@ -82,7 +82,7 @@ import {
   writeStageMove,
   writeTitleRename,
 } from '../../shared/src/scenarios'
-import type { SliceLocals, SliceSnapshot } from '../../shared/src/slice-types'
+import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import {
   ancestorCount,
   burstReadBudget,

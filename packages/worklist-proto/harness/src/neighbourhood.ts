@@ -23,7 +23,7 @@
  * family for another (a reparent) has both.
  */
 
-import type { SliceOrder } from '../../shared/src/slice-types'
+import type { SliceOrder } from '@podium/client-graph/shared/slice-types'
 
 /** One side of a step, as the neighbourhood reads it. */
 export interface NeighbourhoodState {

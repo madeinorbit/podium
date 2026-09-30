@@ -5,7 +5,7 @@
  * decay-sensitive rows, never the table.
  */
 
-import type { SliceIssue } from '../../shared/src/slice-types'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { assertNever, nullStats, type Delta, type DerivationStats } from './deltas'
 import type { IndexSet } from './indexes'
 import { derivedUnread, rescueEligible, sessionlessKept, structurallyExcluded } from './rules'

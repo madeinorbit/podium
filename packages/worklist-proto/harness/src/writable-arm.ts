@@ -25,9 +25,9 @@
  * list the arm must show, derived without asking the arm.
  */
 
-import type { SliceIssue, SliceOrder, SliceSnapshot } from '../../shared/src/slice-types'
+import type { SliceIssue, SliceOrder, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type { RowRecord } from '../../shared/src/stats'
-import type { OutboxPendingWrite, TxId, WriteTransport } from '../../shared/src/write-contract'
+import type { OutboxPendingWrite, TxId, WriteTransport } from '@podium/client-graph/shared/write-contract'
 
 export const WRITE_VARIANTS = ['idle', 'pending'] as const
 export type WriteVariant = (typeof WRITE_VARIANTS)[number]

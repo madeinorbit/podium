@@ -14,18 +14,18 @@
 import { describe, expect, it } from 'vitest'
 import { createReplaySource } from '../../../harness/src/count-harness'
 import { DISABLED_READ_FENCE } from '../../../shared/src/instrument/reads'
-import { settableLocals } from '../../../shared/src/locals-source'
+import { settableLocals } from '@podium/client-graph/shared/locals-source'
 import {
   type EntityName,
   type ModelSchema,
   SCHEMA,
   validateStructure,
-} from '../../../shared/src/schema'
+} from '@podium/client-graph/shared/schema'
 import type { RowRecord } from '../../../shared/src/stats'
 import { diffRelations } from '../../../harness/src/adapters/mobx-rebuild'
 import { tracked } from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
-import { MobxPool } from './pool'
+import { MobxPool } from '@podium/client-graph/pool'
 
 installMobxWarnTrap()
 

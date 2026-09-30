@@ -63,7 +63,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react'
-import type { RowView } from './row-view'
+import type { RowView } from '@podium/client-graph/shared/row-view'
 
 /** Harness-side sink. `record` fires once per committed (non-mount) render. */
 export interface CommitSink {

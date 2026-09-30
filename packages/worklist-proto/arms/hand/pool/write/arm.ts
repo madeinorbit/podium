@@ -15,8 +15,8 @@
 
 import type { LocalsSource, RowSource } from '../../../../shared/src/arm'
 import type { ReadFence } from '../../../../shared/src/instrument/reads'
-import type { SliceIssue } from '../../../../shared/src/slice-types'
-import type { WriteTransport } from '../../../../shared/src/write-contract'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
+import type { WriteTransport } from '@podium/client-graph/shared/write-contract'
 import { type HandPoolHandle, handPoolArm } from '../arm'
 import type { PoolLazyOptions } from '../pool'
 import { createHandWriteApi, type HandWriteApi } from './edit'

@@ -24,8 +24,8 @@ import { startGenRun } from '../../../../shared/src/gen/run'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import { harnessMobxPoolArm } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import { IssueModel, type ModelHost } from '../models'
-import { type IssueVisibility, membersOf, type VisibleInputs } from './visible'
+import { IssueModel, type ModelHost } from '@podium/client-graph/models'
+import { type IssueVisibility, membersOf, type VisibleInputs } from '@podium/client-graph/worklist/visible'
 
 installMobxWarnTrap()
 

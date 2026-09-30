@@ -67,12 +67,12 @@ import { rowViewsFromStore, snapshotFromStore } from '../../../../harness/src/or
 import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
-import type { RowView } from '../../../../shared/src/row-view'
+import type { RowView } from '@podium/client-graph/shared/row-view'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
 import { harnessMobxPoolArm, poolPendingLoads, tracked, visibleOrderOf, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import type { MobxPool } from '../pool'
-import { rowViewOf } from '../models'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { rowViewOf } from '@podium/client-graph/models'
 
 installMobxWarnTrap()
 

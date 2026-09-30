@@ -84,10 +84,10 @@
  */
 
 import { compareStructural, makeObservable, reaction } from 'mobx'
-import { type RelationLinks, refs } from '../../../../shared/src/links'
-import { compareRank, type RowRank } from '../../../../shared/src/row-view'
-import { awaitingMergeOf } from '../../../../shared/src/schema'
-import type { SliceIssue, SliceSession } from '../../../../shared/src/slice-types'
+import { type RelationLinks, refs } from '../shared/links'
+import { compareRank, type RowRank } from '../shared/row-view'
+import { awaitingMergeOf } from '../shared/schema'
+import type { SliceIssue, SliceSession } from '../shared/slice-types'
 import {
   FINISHED_GRACE_MS,
   isClosedTopLevel,

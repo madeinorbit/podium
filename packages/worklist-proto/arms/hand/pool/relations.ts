@@ -73,7 +73,7 @@ import {
   prefixCandidates,
   type RelationSpec,
   SCHEMA,
-} from '../../../shared/src/schema'
+} from '@podium/client-graph/shared/schema'
 import type { ReadableTable, TableSet } from './tables'
 
 type Row = Readonly<Record<string, unknown>>

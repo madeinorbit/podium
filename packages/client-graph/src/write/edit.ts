@@ -80,7 +80,7 @@
 
 import { asMutationId } from '@podium/model'
 import { compareStructural, runInAction } from 'mobx'
-import type { RowSource } from '../../../../shared/src/arm'
+import type { RowSource } from '../shared/source'
 import {
   commandFor,
   ECHO_TTL_MS,
@@ -94,8 +94,8 @@ import {
   type WritableKind,
   type WriteTransport,
   WriteContractError,
-} from '../../../../shared/src/write-contract'
-import type { SliceIssue } from '../../../../shared/src/slice-types'
+} from '../shared/write-contract'
+import type { SliceIssue } from '../shared/slice-types'
 import type { MobxPool } from '../pool'
 import type { Schedule } from '../residency'
 import { LOADING } from '../worklist/rollup'

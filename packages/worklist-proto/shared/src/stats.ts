@@ -8,8 +8,6 @@
  * harness (POD-4445) and never here.
  */
 
-import type { LocalsKey, SliceIssue, SliceSession, SliceWorktree } from './slice-types'
-
 /** Per-arm derivation counters, reset per scenario by the harness. */
 export interface ArmStats {
   /** Rows whose committed (published to components) value changed. */
@@ -23,39 +21,8 @@ export interface ArmStats {
   reset(): void
 }
 
-/** One row in the kernel's per-row change stream (spec §2). */
-export interface RowRecord {
-  kind: 'issue' | 'session' | 'worktree'
-  id: string
-  /**
-   * The row value, or `undefined` when the row left the replica's scope.
-   * Evict carries no tombstone: arms delete the row and every index bucket
-   * holding it (spec §2, maintenance rule).
-   */
-  value: SliceIssue | SliceSession | SliceWorktree | undefined
-}
-
-/**
- * One publication from the kernel's effective row stream. `replace` is the
- * full-slice install (bootstrap, principal switch, rescope); `update` is the
- * per-row delta batch. Ordered by the dataflow topology; one event, one
- * notification pass.
- */
-export interface RowSourceEvent {
-  type: 'replace' | 'update'
-  rows: RowRecord[]
-}
-
-/**
- * POD-4608 — locals traffic, counted by the source (`locals-source.ts`), never
- * by an arm: one shared place, whatever the arm does underneath.
- */
-export interface LocalsSourceStats {
-  /** Notification passes to subscribers (one per drain that moved a key). */
-  notifications: number
-  /** Per key: notifications that named it. A tick counts only `coarseNow`. */
-  keys: Record<LocalsKey, number>
-  /** Drains that had a signal, notifying or not. */
-  flushes: number
-  reset(): void
-}
+export type {
+  RowRecord,
+  RowSourceEvent,
+  LocalsSourceStats,
+} from '@podium/client-graph/shared/source'

@@ -5,7 +5,7 @@
  * snapshot.
  */
 
-import type { SliceRow } from '../../shared/src/slice-types'
+import type { SliceRow } from '@podium/client-graph/shared/slice-types'
 import { assertNever, nullStats, type Delta, type DerivationStats } from './deltas'
 import type { GroupsModule } from './groups'
 import type { RollupModule } from './rollup'

@@ -38,7 +38,7 @@ import type {
   SliceOrder,
   SliceRow,
   SliceSnapshot,
-} from '../../../shared/src/slice-types'
+} from '@podium/client-graph/shared/slice-types'
 import type { FixtureCorpus } from '../fixture/index'
 
 /** The legacy derivation output plus the inputs the projection needs. */

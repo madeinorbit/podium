@@ -35,7 +35,7 @@ import {
   type ReadFence,
   type ReadStats,
 } from '../../shared/src/instrument/reads'
-import type { LocalsSourceHandle } from '../../shared/src/locals-source'
+import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-source'
 import {
   type CommitLog,
   CommitLogContext,
@@ -43,8 +43,8 @@ import {
   withCommitLog,
   withCommitLogAsync,
 } from '../../shared/src/row-shell'
-import { displayChanged } from '../../shared/src/row-view'
-import type { LocalsKey, SliceSnapshot } from '../../shared/src/slice-types'
+import { displayChanged } from '@podium/client-graph/shared/row-view'
+import type { LocalsKey, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../shared/src/stats'
 import type { RowViews } from './oracle/row-views'
 import { measureWork } from './work-meter'

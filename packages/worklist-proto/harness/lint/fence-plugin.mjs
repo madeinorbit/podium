@@ -28,6 +28,10 @@ const TEST_FILE = /\.test\.[cm]?[jt]sx?$/
 /** The arm folder a file belongs to: the path segment after the LAST `arms`. */
 function armOf(filename) {
   const parts = resolve(filename).split(sep)
+  const product = parts.lastIndexOf('client-graph')
+  if (product >= 0 && parts[product + 1] === 'src') {
+    return { folder: 'client-graph', root: parts.slice(0, product + 1).join(sep), path: parts.slice(product + 1).join('/') }
+  }
   const at = parts.lastIndexOf('arms')
   if (at < 0 || at + 2 >= parts.length) return null
   const root = parts.slice(0, at + 2).join(sep)

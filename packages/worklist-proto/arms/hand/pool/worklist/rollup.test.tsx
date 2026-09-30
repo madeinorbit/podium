@@ -67,7 +67,7 @@ import { rowViewsFromStore, snapshotFromStore } from '../../../../harness/src/or
 import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { diffSnapshots, diffViews } from '../../../../shared/src/gen/check'
-import type { RowView } from '../../../../shared/src/row-view'
+import type { RowView } from '@podium/client-graph/shared/row-view'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
 import { drainPoolLoads, harnessHandPoolArm, type HarnessHandPoolHandle } from '../../../../harness/src/adapters/hand-pool'
 import type { HandPool } from '../pool'

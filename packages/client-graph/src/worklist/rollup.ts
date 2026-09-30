@@ -65,9 +65,9 @@
  * the legacy line each follows cited, as `views.ts` does.
  */
 
-import type { RowView } from '../../../../shared/src/row-view'
-import type { SliceIssue, SlicePhase, SliceSession } from '../../../../shared/src/slice-types'
-import { awaitingMergeOf } from '../../../../shared/src/schema'
+import type { RowView } from '../shared/row-view'
+import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
+import { awaitingMergeOf } from '../shared/schema'
 import { issueAbandoned } from '../views'
 
 // ------------------------------------------------------------ session rules

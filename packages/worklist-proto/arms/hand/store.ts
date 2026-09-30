@@ -8,7 +8,7 @@
 
 import type { ArmHandle, RowSource } from '../../shared/src/arm'
 import { CommitLogContext, currentCommitLog } from '../../shared/src/row-shell'
-import type { SliceLocals, SliceOrder, SliceRow, SliceSnapshot } from '../../shared/src/slice-types'
+import type { SliceLocals, SliceOrder, SliceRow, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type { ArmStats, RowRecord, RowSourceEvent } from '../../shared/src/stats'
 import { createElement, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'

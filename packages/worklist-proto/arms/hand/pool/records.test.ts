@@ -8,9 +8,9 @@
 import { describe, expect, it } from 'vitest'
 import { createReplaySource } from '../../../harness/src/count-harness'
 import { buildCorpus } from '../../../harness/src/fixture/index'
-import { fixedLocals } from '../../../shared/src/locals-source'
-import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
-import { type EntityName, SCHEMA } from '../../../shared/src/schema'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
+import { FEED_SPELLING } from '@podium/client-graph/shared/repo-from-lane'
+import { type EntityName, SCHEMA } from '@podium/client-graph/shared/schema'
 import { harnessHandPoolArm } from '../../../harness/src/adapters/hand-pool'
 import { ENTITIES } from './tables'
 

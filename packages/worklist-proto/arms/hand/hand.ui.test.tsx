@@ -8,12 +8,12 @@
 import { describe, expect, it } from 'vitest'
 import { act } from 'react'
 import { createReplaySource, mountArmForCounts, runCountScenario } from '../../harness/src/count-harness'
-import type { SliceLocals } from '../../shared/src/slice-types'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import { handArm } from './arm'
 import { issue, LANE, NOW, rec, session, waitingOffer, waitingState, workingState } from './hand.test'
 import { rebuildFromScratch } from './rebuild'
 import type { HandStore } from './store'
-import { fixedLocals } from '../../shared/src/locals-source'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 
 function mountExample() {
   const replay = createReplaySource({

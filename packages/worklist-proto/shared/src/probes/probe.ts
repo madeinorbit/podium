@@ -28,9 +28,9 @@ import type { FixtureCorpus } from '../../../harness/src/fixture/index'
 import type { ProbePlant } from '../../../harness/src/reference-arm/probe-arm'
 import type { Arm } from '../arm'
 import type { Change } from '../gen/changes'
-import type { RowSourceMode } from '../row-source'
+import type { RowSourceMode } from '@podium/client-graph/shared/row-source'
 import type { ScenarioEngine, ScenarioTargets } from '../scenarios'
-import type { EntityName } from '../schema'
+import type { EntityName } from '@podium/client-graph/shared/schema'
 import type { ProbeRun } from './run'
 
 export type ProbeId =

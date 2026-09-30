@@ -32,7 +32,7 @@ import {
   tableColdContext,
   validateStructure,
   viaTargetOf,
-} from './schema'
+} from '@podium/client-graph/shared/schema'
 import { fieldsOf, validateSources } from './schema-sources'
 
 /** A deep-enough copy to mutate one corner for a negative control. */

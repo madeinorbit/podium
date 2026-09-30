@@ -16,12 +16,12 @@
 
 import { describe, expect, it } from 'vitest'
 import { handPoolArm } from '../../arms/hand/pool/arm'
-import type { SliceIssue } from '../../shared/src/slice-types'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type { RowRecord } from '../../shared/src/stats'
 import { createReplaySource } from './count-harness'
 import { buildCorpus } from './fixture/index'
 import { insideArm, measureWork } from './work-meter'
-import { settableLocals } from '../../shared/src/locals-source'
+import { settableLocals } from '@podium/client-graph/shared/locals-source'
 
 describe('hand derivations (POD-4934)', () => {
   it('counts a change’s cell re-runs, and a whole-table walk in a cell blows the bound', async () => {

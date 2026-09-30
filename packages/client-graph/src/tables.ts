@@ -51,9 +51,9 @@
  */
 
 import { type ObservableMap, observable } from 'mobx'
-import { ingestWorktreeRecord } from '../../../shared/src/repo-from-lane'
-import { type EntityName, SCHEMA } from '../../../shared/src/schema'
-import type { RowRecord } from '../../../shared/src/stats'
+import { ingestWorktreeRecord } from './shared/repo-from-lane'
+import { type EntityName, SCHEMA } from './shared/schema'
+import type { RowRecord } from './shared/source'
 import type { RelationMaintenance } from './relations'
 import type { Residency } from './residency'
 

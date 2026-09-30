@@ -77,14 +77,14 @@ import {
   type RowProps,
   RowShell,
 } from '../../../shared/src/row-shell'
-import { type RowView, sliceRowOf } from '../../../shared/src/row-view'
-import { type BelongsToSpec, type EntityName, SCHEMA } from '../../../shared/src/schema'
+import { type RowView, sliceRowOf } from '@podium/client-graph/shared/row-view'
+import { type BelongsToSpec, type EntityName, SCHEMA } from '@podium/client-graph/shared/schema'
 import type {
   SliceIssue,
   SliceLocals,
   SliceOrder,
   SliceSnapshot,
-} from '../../../shared/src/slice-types'
+} from '@podium/client-graph/shared/slice-types'
 import type { ArmStats, RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import type { LegacyControlEngine } from '../legacy-control/arm'
 import {

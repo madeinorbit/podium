@@ -14,9 +14,9 @@
  * every field off a record.
  */
 
-import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
-import { type EntityName, SCHEMA } from '../../../shared/src/schema'
-import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
+import { FEED_SPELLING } from '@podium/client-graph/shared/repo-from-lane'
+import { type EntityName, SCHEMA } from '@podium/client-graph/shared/schema'
+import type { SliceIssue, SliceSession, SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import type { ReadableTable, TableSet } from './tables'
 import type { RepoRow } from './views'
 

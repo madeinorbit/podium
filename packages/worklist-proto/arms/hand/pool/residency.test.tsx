@@ -19,10 +19,10 @@ import {
   DISABLED_READ_FENCE,
   type ReadFence,
 } from '../../../shared/src/instrument/reads'
-import { settableLocals } from '../../../shared/src/locals-source'
-import type { RowView } from '../../../shared/src/row-view'
-import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
-import type { SliceIssue, SliceSession } from '../../../shared/src/slice-types'
+import { settableLocals } from '@podium/client-graph/shared/locals-source'
+import type { RowView } from '@podium/client-graph/shared/row-view'
+import { SCHEMA, tableColdRule } from '@podium/client-graph/shared/schema'
+import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import { harnessHandPoolArm, poolPendingLoads, type HarnessHandPoolHandle } from '../../../harness/src/adapters/hand-pool'
 import { type Cell, sameData } from './cells'

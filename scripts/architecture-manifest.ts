@@ -590,6 +590,12 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
 
   // L3 — features / adapters / engine.
   'packages/client-core': { layer: 3, platform: 'browser-safe', features: ['viewmodels'] },
+  'packages/client-graph': {
+    layer: 3,
+    platform: 'browser-safe',
+    features: ['client-graph'],
+    deps: ['packages/client-core', 'packages/harness', 'packages/model'],
+  },
   // Maintenance/steward jobs (change-log + event prune, auto-archive, message
   // expiry, connect scan) and the worker client that hosts them. node-only:
   // node:crypto/node:path/node:worker_threads plus @podium/runtime's sqlite and
@@ -653,6 +659,8 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // L3: the React adapter binds hooks to client-core's transport port; it owns no
   // socket protocol state of its own.
   'packages/terminal-client-react -> packages/client-core',
+  // Worklist feeds adapt the caller-owned client runtime and its existing outbox.
+  'packages/client-graph -> packages/client-core',
   // L1: the CLI's issue client RENDERS the shared command contracts (POD-311)
   // rather than declaring its own command-name universe. Previously invisible to
   // this set because the import is type-only and type-only used to skip the

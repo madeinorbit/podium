@@ -5,7 +5,7 @@
  * issues hold no summary, so sessions on them recompute nothing.
  */
 
-import type { SliceIssue, SliceSession } from '../../shared/src/slice-types'
+import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import { assertNever, nullStats, type Delta, type DerivationStats } from './deltas'
 import { IndexSet } from './indexes'
 import {

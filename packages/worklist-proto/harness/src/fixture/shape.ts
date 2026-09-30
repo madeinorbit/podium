@@ -18,7 +18,7 @@ import {
   SIDEBAR_FINISHED_GRACE_MS,
 } from '@podium/client-core/viewmodels'
 import { buildWorktreeRootIndex, worktreeForCwdIndexed } from '@podium/model'
-import type { SliceLocals, SliceSnapshot } from '../../../shared/src/slice-types'
+import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { projectSnapshot, runLegacyDerivation } from '../oracle/index'
 import type { FixtureCorpus } from './index'
 

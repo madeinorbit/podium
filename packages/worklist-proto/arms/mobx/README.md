@@ -1,15 +1,17 @@
 # arms/mobx/ — the MobX arm
 
-This folder holds the round-three MobX pool (POD-4565 onward, epic
-POD-4545): the section "Round three: the pool" below. The frozen
+This folder holds the tests and demo mounts for the round-three MobX pool.
+The product data layer lives in `@podium/client-graph` (`packages/client-graph/src`).
+The prototype bootstrap/mount adapter is `pool/arm.ts`; the product enumeration
+module is `src/enumerate.ts` in that package. The frozen
 round-two arm (POD-4447) that used to share this folder was deleted by
 POD-4749; the pool never imported it.
 
 ## Round three: the pool (`pool/`)
 
-Built on the declared schema (`shared/src/schema.ts`, L1a), fed row by row
-by the kernel feed (`shared/src/row-source.ts`, `overlaid` mode), handing
-each row its L1b `RowView` (`shared/src/row-view.ts`). Phase a1 (POD-4565)
+Built on the declared schema (`@podium/client-graph/shared/schema`, L1a), fed row by row
+by the kernel feed (`@podium/client-graph/shared/row-source`, `overlaid` mode), handing
+each row its L1b `RowView` (`@podium/client-graph/shared/row-view`). Phase a1 (POD-4565)
 holds the tables and the row views; Ma2 (POD-4566) maintains every declared
 relation; Ma3 (POD-4567) keeps cold rows out until something reads them;
 Mb1 (POD-4569) builds the visible collection and its order; Mb2 (POD-4570)
@@ -17,24 +19,24 @@ groups it with closed folds and windows the lists; roll-ups (Mb3) come next.
 
 ### Idiom
 
-- **Tables from the schema** (`pool/tables.ts`): one shallow `ObservableMap`
+- **Tables from the schema** (`@podium/client-graph/tables`): one shallow `ObservableMap`
   per schema entity — issue, session, worktree, repo — mapping the key to the
   BORROWED row object the feed handed out (never a copy; `deep: false` is
   `observable.ref` per slot). A derivation reading `table.get(id)` subscribes
   to that one slot.
-- **Models on first access** (`pool/models.ts`, `MobxPool.model`): ingest
+- **Models on first access** (`@podium/client-graph/models`, `MobxPool.model`): ingest
   builds no model; the first read of a row builds its model (Linear's
   "observable on first access"), cached per id, dropped when the row leaves.
   A model holds no row: it reads its slot on every access, so it cannot go
   stale. Every declared field is a getter installed from the schema
-  (`installFields`); `FEED_SPELLING` (in `shared/src/repo-from-lane.ts`,
+  (`installFields`); `FEED_SPELLING` (in `@podium/client-graph/shared/repo-from-lane`,
   POD-4695) names the one field the feed spells
   differently (a repo's `path` is its lanes' `repoPath`).
-- **Derived values as cached groups on the model** (`pool/models.ts`,
-  `pool/views.ts`): each model computes its values in named cached groups
+- **Derived values as cached groups on the model** (`@podium/client-graph/models`,
+  `@podium/client-graph/views`): each model computes its values in named cached groups
   (the issue's own-row standing, repo target and display parts, origin
   chain, activity, visibility, nesting, roll-ups), built on first reactive
-  read and dropped when unobserved (`pool/cached.ts`), so construction
+  read and dropped when unobserved (`@podium/client-graph/cached`), so construction
   builds none and first paint builds only what the list draws. A part reads
   either its own row or a relation target's fields, never both, so a rename
   re-runs neither its neighbours nor its origin. Relations resolve through
@@ -54,7 +56,7 @@ groups it with closed folds and windows the lists; roll-ups (Mb3) come next.
   a removed member answers null (the bucket that listed it has moved).
 - **Locals as tracked state**: the selection is a one-entry observable map
   (`selection.has(id)`), so a click re-derives exactly two views; the clock
-  is a set of deadlines (`pool/clock.ts`): a rule asks "has `t` passed", and
+  is a set of deadlines (`@podium/client-graph/clock`): a rule asks "has `t` passed", and
   a tick wakes only the rows whose deadline it crosses.
 - **Enforcement configured AND asserted** (`harness/src/mobx-enforce.ts`):
   all four MobX flags on; every pool test installs
@@ -62,7 +64,7 @@ groups it with closed folds and windows the lists; roll-ups (Mb3) come next.
   the test on any recorded warning. No `keepAlive`. Out-of-reaction reads
   (`snapshot()`) go through `tracked`, a transient reaction. The product
   pool never configures MobX.
-- **Relations from the schema** (`pool/relations.ts`, Ma2): the engine reads
+- **Relations from the schema** (`@podium/client-graph/relations`, Ma2): the engine reads
   `schema[entity].relations` at construction and names no relation. Each
   single-valued relation (`belongsTo`, `prefix`, outgoing `edge`) is a link
   with an observable `forward` map (source → target key, members only) and
@@ -83,7 +85,7 @@ groups it with closed folds and windows the lists; roll-ups (Mb3) come next.
   one per member, unordered; `size`: free). Adding a relation to the schema needs no
   code here (`relations.test.ts`, the fixture-schema test).
 
-- **Residency from the schema** (`pool/residency.ts`, Ma3): a row the
+- **Residency from the schema** (`@podium/client-graph/residency`, Ma3): a row the
   schema's `cold` spec lets stay out (a closed issue; a session of one) is
   never put in a table. A plain registry holds its id, the relation engine
   links it, and its relation slots live in plain twins until it is resident.
@@ -132,7 +134,7 @@ groups it with closed folds and windows the lists; roll-ups (Mb3) come next.
 
 ### The enumeration module
 
-`pool/enumerate.ts` is the ONE module that walks a whole table
+`@podium/client-graph/enumerate` is the ONE module that walks a whole table
 (`fence.json` `enumeration`; the lint's `no-table-walk` refuses a walk
 anywhere else in `pool/`): `reseed` (a `replace`). The from-scratch checks
 the gates hold the pool to live in the harness
@@ -153,7 +155,7 @@ tables go on holding BORROWED server rows, never a copy.
 - **Where pending lives.** An observable map of per-row overlays
   (`write.overlays`: the newest pending value per editable field —
   title/stage/readAt only, never a full row), mirrored from the reference
-  pending log (`shared/src/write-contract.ts` `createPendingLog`, re-exported
+  pending log (`@podium/client-graph/shared/write-contract` `createPendingLog`, re-exported
   by `pool/write/pending.ts`; the arm owns no log of its own). It is overlaid
   at the row-reader boundary (`pool.inputs.issue`,
   `pool.visibleInputs.issueRow` / `loadedIssue`) plus the
@@ -292,12 +294,12 @@ number below is counted from outside.
 
 ### How to add a field
 
-1. Declare it in `shared/src/schema.ts` (coordinator: the schema is shared).
+1. Declare it in `@podium/client-graph/shared/schema` (coordinator: the schema is shared).
    The model gets its getter from the schema; `pool/models.test.ts` reads it
    off a model with no edit. If the feed spells it differently, add it to
-   `FEED_SPELLING` in `shared/src/repo-from-lane.ts`.
-2. If a row view shows it: `shared/src/row-view.ts` (coordinator), then
-   compute it in the part whose inputs it reads (`pool/views.ts`: own-row
+   `FEED_SPELLING` in `@podium/client-graph/shared/repo-from-lane`.
+2. If a row view shows it: `@podium/client-graph/shared/row-view` (coordinator), then
+   compute it in the part whose inputs it reads (`@podium/client-graph/views`: own-row
    fields in `ownPartOf`; a new relation hop as a target part that reads
    `inputs.relations.one(...)`, never the own row, plus a part that reads
    the target's fields) and assemble it in `buildRowView`. A new part is a new

@@ -54,13 +54,13 @@ import type { CheckableArm } from '../../../../shared/src/arm'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
 import { CommitLogContext, currentCommitLog } from '../../../../shared/src/row-shell'
 import { type ScenarioEngine, startScenarioEngine } from '../../../../shared/src/scenarios'
-import type { SliceIssue, SliceOrder } from '../../../../shared/src/slice-types'
+import type { SliceIssue, SliceOrder } from '@podium/client-graph/shared/slice-types'
 import { harnessMobxPoolArm, poolPendingLoads, tracked, visibleOrderOf, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import type { MobxPool } from '../pool'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { HEADER_HEIGHT, PoolList, ROW_HEIGHT } from '../react/list'
-import { closedOf } from '../views'
-import { sliceOrderOf } from './groups'
+import { closedOf } from '@podium/client-graph/views'
+import { sliceOrderOf } from '@podium/client-graph/worklist/groups'
 
 installMobxWarnTrap()
 

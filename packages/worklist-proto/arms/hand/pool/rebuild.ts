@@ -48,14 +48,14 @@ import {
   groupKeyOf,
   type RowView,
   sliceRowOf,
-} from '../../../shared/src/row-view'
-import { type ModelSchema, SCHEMA, tableColdRule } from '../../../shared/src/schema'
+} from '@podium/client-graph/shared/row-view'
+import { type ModelSchema, SCHEMA, tableColdRule } from '@podium/client-graph/shared/schema'
 import type {
   SliceGroup,
   SliceIssue,
   SliceSession,
   SliceSnapshot,
-} from '../../../shared/src/slice-types'
+} from '@podium/client-graph/shared/slice-types'
 import type { RowRecord } from '../../../shared/src/stats'
 import { PoolRelations } from './relations'
 import { createTables, ingestOut, ingestRecord, type Tables } from './tables'

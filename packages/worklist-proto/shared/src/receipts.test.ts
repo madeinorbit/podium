@@ -17,7 +17,7 @@ import {
   type ReceiptEvent,
   type ReceiptsRuntime,
   subscribeReceipts,
-} from './receipts'
+} from '@podium/client-graph/shared/receipts'
 import {
   armMarkReadRejection,
   type ScenarioEngine,
@@ -27,7 +27,7 @@ import {
   writeOptimisticEcho,
   writeOptimisticPress,
 } from './scenarios'
-import type { WriteTransport } from './write-contract'
+import type { WriteTransport } from '@podium/client-graph/shared/write-contract'
 
 const tick = (ms = 80): Promise<void> => new Promise((r) => setTimeout(r, ms))
 const tx = (n: string): MutationId => asMutationId(`00000000-0000-4000-8000-${n.padStart(12, '0')}`)

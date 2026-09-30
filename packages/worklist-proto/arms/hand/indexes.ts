@@ -8,7 +8,7 @@
  * Evict deletes the row and every bucket holding it — never a tombstone.
  */
 
-import type { SliceIssue, SliceSession } from '../../shared/src/slice-types'
+import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import { assertNever, nullStats, type Delta, type DerivationStats } from './deltas'
 import type { IssueTable, SessionTable, WorktreeTable } from './tables'
 

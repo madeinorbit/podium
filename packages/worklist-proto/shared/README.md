@@ -1,7 +1,13 @@
-# shared/ — owned by the slice spec (POD-4442)
+# shared/ — prototype contracts and checks
 
-Frozen shapes: `slice-types.ts` (entities, rows, order, snapshot), `stats.ts`
-(counters, row-stream events), `arm.ts` (the arm contract). See
-`docs/plans/pod-4441-round-two-slice.md`; every export cites its spec section.
+The product schema, row views, row/local channels, slice types, typed relations
+and write contracts live in `@podium/client-graph/shared`. Their tests remain here.
+This folder keeps the arm and measurement contracts, RowShell instrumentation,
+scenarios, generators, probes and the schema-source validator. Its barrel re-exports
+the product contracts for prototype consumers.
 
-Arms may read; changes need the coordinator (POD-4286 session A).
+See `docs/plans/pod-4441-round-two-slice.md`; every contract cites its spec section.
+
+The three narrow compatibility doors (`row-source.ts`, `locals-source.ts`,
+`slice-types.ts`) preserve the app development harness's original imports. They
+only forward product exports; no implementation lives here.

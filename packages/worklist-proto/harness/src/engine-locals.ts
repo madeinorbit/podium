@@ -15,9 +15,9 @@
  * one, as for the row source.
  */
 
-import type { LocalsSourceHandle } from '../../shared/src/locals-source'
-import { createLocalsSource } from '../../shared/src/locals-source'
-import type { SliceLocals } from '../../shared/src/slice-types'
+import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-source'
+import { createLocalsSource } from '@podium/client-graph/shared/locals-source'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 
 /** The engine surface this source reads. The real runtime satisfies it by shape. */
 export interface LocalsEngine {

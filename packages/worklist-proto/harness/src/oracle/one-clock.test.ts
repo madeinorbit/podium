@@ -21,7 +21,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../shared/src/scenarios'
-import type { SliceLocals, SliceSnapshot } from '../../../shared/src/slice-types'
+import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import {
   legacyDerivationFromStore,
   oracleSnapshot,

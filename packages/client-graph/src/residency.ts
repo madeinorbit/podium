@@ -90,7 +90,7 @@ import {
   type MemberKeep,
   type ModelSchema,
   viaTargetOf,
-} from '../../../shared/src/schema'
+} from './shared/schema'
 import { drop, type IngestOut, type IngestTarget, put, type StoredRow } from './tables'
 
 /** The kinds the feed can read by id (`RowSource.row`). */

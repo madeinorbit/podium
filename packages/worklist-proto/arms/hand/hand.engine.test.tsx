@@ -7,9 +7,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { createRowSource } from '../../shared/src/row-source'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { startScenarioEngine } from '../../shared/src/scenarios'
-import type { SliceLocals } from '../../shared/src/slice-types'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import {
   assertIsolation,
   mountArmForCounts,
@@ -20,7 +20,7 @@ import { writeHeartbeat, writePhaseChange, writeSelectionClick } from '../../sha
 import { handArm } from './arm'
 import { rebuildFromScratch } from './rebuild'
 import { HandStore } from './store'
-import { fixedLocals } from '../../shared/src/locals-source'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 
 async function bootArm() {
   const ctx = await startScenarioEngine(1)

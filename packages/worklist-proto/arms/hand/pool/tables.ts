@@ -49,8 +49,8 @@
  * every row.
  */
 
-import { ingestWorktreeRecord } from '../../../shared/src/repo-from-lane'
-import { type EntityName, SCHEMA } from '../../../shared/src/schema'
+import { ingestWorktreeRecord } from '@podium/client-graph/shared/repo-from-lane'
+import { type EntityName, SCHEMA } from '@podium/client-graph/shared/schema'
 import type { RowRecord } from '../../../shared/src/stats'
 
 /** A stored row: the borrowed object the feed handed out, untouched. */

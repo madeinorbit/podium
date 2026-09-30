@@ -16,13 +16,13 @@
 import { describe, expect, it } from 'vitest'
 import { createReplaySource } from '../../../harness/src/count-harness'
 import { buildCorpus } from '../../../harness/src/fixture/index'
-import { fixedLocals } from '../../../shared/src/locals-source'
-import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
-import { type EntityName, SCHEMA } from '../../../shared/src/schema'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
+import { FEED_SPELLING } from '@podium/client-graph/shared/repo-from-lane'
+import { type EntityName, SCHEMA } from '@podium/client-graph/shared/schema'
 import { harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
-import { IssueModel } from './models'
+import { IssueModel } from '@podium/client-graph/models'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
-import { ENTITIES } from './tables'
+import { ENTITIES } from '@podium/client-graph/tables'
 
 installMobxWarnTrap()
 

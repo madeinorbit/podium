@@ -51,7 +51,7 @@ import { View } from 'react-native'
 import { describe, expect, it, vi } from 'vitest'
 import { installMobxWarnTrap } from '../src/mobx-trap'
 import { PoolNativeRow } from '../../arms/mobx/pool/native/row'
-import { type MobxPool } from '../../arms/mobx/pool/pool'
+import { type MobxPool } from '@podium/client-graph/pool'
 import {
   type HarnessMobxPoolHandle,
   harnessMobxPoolArm,
@@ -259,7 +259,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
           issue: handle.pool.residency?.ids('issue').length ?? 0,
           session: handle.pool.residency?.ids('session').length ?? 0,
         },
-        residentSessions: handle.pool.tables.session.size,
+        residentSessions: tracked(() => handle.pool.tables.session.size),
         observables: Object.values(built).reduce((a, b) => a + b, 0),
         byMap: built,
         drawn: drawn.length,

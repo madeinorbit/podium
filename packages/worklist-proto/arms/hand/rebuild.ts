@@ -12,7 +12,7 @@
  * themselves (parity against the legacy oracle checks the rules).
  */
 
-import type { SliceOrder, SliceRow, SliceSnapshot } from '../../shared/src/slice-types'
+import type { SliceOrder, SliceRow, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { GroupsModule, type SelectionState } from './groups'
 import { IndexSet } from './indexes'
 import { OrderModule } from './order'

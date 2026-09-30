@@ -28,7 +28,7 @@ import {
   SessionOffer,
 } from '@podium/model'
 import type { ReplicaKind } from '@podium/client-core/replica'
-import { SCHEMA, type ModelSchema, type ModelSchemaName, type RowArrival } from './schema'
+import { SCHEMA, type ModelSchema, type ModelSchemaName, type RowArrival } from '@podium/client-graph/shared/schema'
 
 /** The minimum a zod object exposes that the validator needs. */
 export interface ShapeCarrier {

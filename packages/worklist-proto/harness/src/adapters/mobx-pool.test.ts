@@ -4,7 +4,7 @@
  *
  * - (a) IDENTITY. `harnessMobxPoolArm.create` and
  *   `harnessWritableMobxPoolArm(...).create(...)` run the product arms: the
- *   harness handle's pool IS the pool the product `create` built (spied from
+ *   harness handle's pool IS the pool the product factory built (spied from
  *   outside). A copied `create` body that builds its own pool never calls the
  *   product arm, so this fails on it.
  * - (b) RECEIPTS THROUGH THE PRODUCT WIRING. A receipted edit made through
@@ -19,10 +19,10 @@
 
 import { act } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
+import * as productPool from '@podium/client-graph/create'
 import { installMobxWarnTrap } from '../mobx-trap'
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
-import type { SliceIssue } from '../../../shared/src/slice-types'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
 import {
   ECHO_TTL_MS,
@@ -30,7 +30,7 @@ import {
   type TxId,
   type WriteEvent,
   type WriteTransport,
-} from '../../../shared/src/write-contract'
+} from '@podium/client-graph/shared/write-contract'
 import { openFenceFeeds } from '../fence-scenarios'
 import {
   harnessMobxPoolArm,
@@ -85,7 +85,7 @@ describe('the harness adapter wraps the product entry points (POD-4944)', () => 
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     try {
-      const create = vi.spyOn(mobxPoolArm, 'create')
+      const create = vi.spyOn(productPool, 'createWorklistPool')
       const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
       try {
         expect(create).toHaveBeenCalledTimes(1)
@@ -108,9 +108,9 @@ describe('the harness adapter wraps the product entry points (POD-4944)', () => 
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const transport = fakeTransport()
     try {
-      // The product write arm builds its pool through the product arm, so
-      // one product `create` runs and its pool is the harness handle's pool.
-      const create = vi.spyOn(mobxPoolArm, 'create')
+      // Both product lifecycles use the product pool factory. Its one returned
+      // pool must be the pool exposed by the prototype's writable handle.
+      const create = vi.spyOn(productPool, 'createWorklistPool')
       const handle = harnessWritableMobxPoolArm(transport).create(
         feeds.rows.source,
         feeds.locals.source,

@@ -4,8 +4,8 @@
  * field that is null on every row cannot tell the commit fence anything).
  */
 import { describe, expect, it } from 'vitest'
-import { sliceRowOf } from '../../../shared/src/row-view'
-import type { SliceLocals } from '../../../shared/src/slice-types'
+import { sliceRowOf } from '@podium/client-graph/shared/row-view'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import { buildCorpus, FIXED_NOW, type FixtureCorpus } from '../fixture/index'
 import { expectedSnapshot, projectRowViews, runLegacyDerivation } from './index'
 

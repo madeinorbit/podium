@@ -13,9 +13,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { createRowSource } from '../../shared/src/row-source'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { startScenarioEngine } from '../../shared/src/scenarios'
-import type { SliceLocals } from '../../shared/src/slice-types'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import {
   assertIsolation,
   mountNativeForCounts,
@@ -28,7 +28,7 @@ import {
   writePhaseChange,
   writeSelectionClick,
 } from '../../shared/src/scenarios'
-import { fixedLocals } from '../../shared/src/locals-source'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 
 describe('legacy control on the native renderer', () => {
   it('runs count scenarios #1-#3 with parity; #1 fails isolation', async () => {

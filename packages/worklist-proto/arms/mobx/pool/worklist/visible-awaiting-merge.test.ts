@@ -35,7 +35,7 @@ import {
   upsert,
 } from '../../../../shared/src/scenarios'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import { rowViewOf } from '../models'
+import { rowViewOf } from '@podium/client-graph/models'
 
 installMobxWarnTrap()
 
