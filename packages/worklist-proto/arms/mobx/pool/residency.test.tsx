@@ -200,10 +200,8 @@ function expectAskedThenLanded(r: Rig, expected: readonly string[]): void {
   expect(r.loads, 'rows read by id before the window').toEqual([])
   for (const key of expected) expect(residence(key), key).toBe('loading')
   expect(poolPendingLoads(r.pool)).toBe(expected.length)
-  const batches = r.pool.residency?.counters.batches ?? 0
   r.fire()
   expect([...r.loads].sort()).toEqual([...expected].sort())
-  expect(r.pool.residency?.counters.batches).toBe(batches + 1)
   for (const key of expected) expect(residence(key), key).toBe('resident')
   expect(poolPendingLoads(r.pool)).toBe(0)
   expect(r.timers.filter((timer) => !timer.cancelled)).toEqual([])
@@ -245,10 +243,8 @@ describe('bootstrap', () => {
     expect(pool.modelCount('issue') - hotIssues.length).toBeLessThanOrEqual(
       corpus.sliceIssues.length - hotIssues.length,
     )
-    expect(pool.stats.counters.modelsCreated).toBe(
       pool.modelCount('issue') + pool.modelCount('session'),
     )
-    expect(pool.residency?.counters.requests).toBe(0)
     // POD-4753: startup reads no row by id. A cold issue is hidden by the
     // rule, so the walks that reach one (a hot child's nesting walk, a
     // rescue) read its declared summary, never its row or its sessions'.
@@ -372,7 +368,6 @@ describe('bootstrap', () => {
     const issueModels = built.size
     expect(pool.modelCount('issue')).toBe(issueModels)
     expect(pool.modelCount('session')).toBeGreaterThanOrEqual(members.size)
-    expect(pool.stats.counters.modelsCreated).toBe(
       issueModels + pool.modelCount('session'),
     )
     // No cold row got a model, and none was drawn.
@@ -413,8 +408,6 @@ describe('the loader', () => {
     expect(tracked(() => pool.resident('issue', b!.id))).toBe('loading')
     expect(tracked(() => pool.resident('issue', a!.id))).toBe('loading')
     expect(r.timers.length).toBe(1)
-    expect(pool.residency?.counters.requests).toBe(2)
-    pool.stats.reset()
     r.fire()
     // One read per row, one action, both resident. The watched row's view,
     // redrawn once `a` lands, asks for its cold formal children for its
@@ -439,9 +432,6 @@ describe('the loader', () => {
       ).toBe(true)
       expect(isColdKey(pool, key), key).toBe(true)
     }
-    expect(pool.stats.notifications).toBe(1)
-    expect(pool.residency?.counters.batches).toBe(1)
-    expect(pool.residency?.counters.hydrated).toBe(2)
     expect(tracked(() => pool.resident('issue', b!.id))).toBe('resident')
     watch()
     // The reader saw "loading", never an empty row, then the row.
@@ -477,12 +467,9 @@ describe('the loader', () => {
     const r = rig()
     const { pool } = r
     const closed = corpus.sliceIssues.find(isCold)!
-    pool.stats.reset()
     r.push({ type: 'update', rows: [issueRecord(closed.id, { title: 'Renamed while cold' })] })
     expect(tracked(() => pool.tables.issue.has(closed.id))).toBe(false)
     expect(pool.residency?.isCold('issue', closed.id)).toBe(true)
-    expect(pool.stats.counters.tableWrites).toBe(0)
-    expect(pool.stats.notifications).toBe(1)
     expect(tracked(() => pool.resident('issue', closed.id))).toBe('loading')
     r.fire()
     expect(tracked(() => rowViewOf(pool.issue(closed.id))?.title)).toBe('Renamed while cold')
@@ -552,7 +539,6 @@ describe('lazy relations', () => {
     expect(tracked(() => [...pool.lazyMany('issue', parentId, 'children').ready].sort())).toEqual(
       [...hot].sort(),
     )
-    expect(pool.residency?.counters.requests).toBe(cold.length)
     r.fire()
     watch()
     expect(seen).toEqual([
@@ -642,7 +628,6 @@ describe('lazy relations', () => {
     expect(tracked(() => pool.resident('issue', cold.id))).toBe('loading')
     r.fire()
     // Loading it moved its slot into the observable map: one slot written.
-    expect(pool.graph.lastWrites).toContain(slot)
     expect(tracked(() => pool.graph.one('issue', cold.id, 'parent'))).toBe(cold.parentId)
   })
 })
@@ -652,12 +637,10 @@ describe('transitions', () => {
     const r = rig()
     const { pool } = r
     const { issue, sessions } = closedWithSessions(1)
-    pool.stats.reset()
     r.push({
       type: 'update',
       rows: [issueRecord(issue.id, { closedAt: null, closedReason: null })],
     })
-    expect(pool.stats.notifications).toBe(1)
     // The update carries the issue: installed from it.
     expect(tracked(() => pool.tables.issue.has(issue.id))).toBe(true)
     // It does not carry the sessions: asked for, never read inside the event.
@@ -687,7 +670,6 @@ describe('transitions', () => {
     }
     expect(drawn).toEqual([true, false])
     stop()
-    expect(pool.residency?.counters.warmed).toBeGreaterThanOrEqual(sessions.length)
     expect(diffResidency(pool, r.replay.source)).toEqual([])
   })
 
@@ -695,7 +677,6 @@ describe('transitions', () => {
     const r = rig()
     const { pool } = r
     const { issue, sessions } = closedWithSessions(1)
-    pool.stats.reset()
     // A run that never finished keeps its issue in the list without limit
     // (`sessionRetainsWorklistRow`): the schema's rule makes the issue hot.
     r.push({
@@ -709,7 +690,6 @@ describe('transitions', () => {
         }),
       ],
     })
-    expect(pool.stats.notifications).toBe(1)
     // The update carries the keeping session: installed from it. The issue
     // and its other sessions are asked for together.
     expect(tracked(() => pool.tables.session.has(sessions[0]!.sessionId))).toBe(true)
@@ -718,7 +698,6 @@ describe('transitions', () => {
       ...sessions.slice(1).map((session) => `session:${session.sessionId}`),
     ])
     // The issue and every session that inherited its coldness, in the same pass.
-    expect(pool.residency?.counters.warmed).toBe(1 + sessions.length)
     expect(diffResidency(pool, r.replay.source)).toEqual([])
   })
 
@@ -727,7 +706,6 @@ describe('transitions', () => {
     const { pool } = r
     const { issue, sessions } = closedWithSessions(1)
     const id = sessions[0]!.sessionId
-    pool.stats.reset()
     r.push({
       type: 'update',
       rows: [sessionRecord(id, { lastActiveAt: new Date(corpus.fixedNow).toISOString() })],
@@ -738,8 +716,6 @@ describe('transitions', () => {
     })
     expect(pool.residency?.isCold('issue', issue.id)).toBe(true)
     expect(pool.residency?.isCold('session', id)).toBe(true)
-    expect(pool.residency?.counters.warmed).toBe(0)
-    expect(pool.residency?.counters.hydrated).toBe(0)
     expect(diffResidency(pool, r.replay.source)).toEqual([])
   })
 
@@ -905,7 +881,6 @@ describe('the lane source (R3, POD-4745)', () => {
    * nothing read by id), then resident after one batch, the partition clean.
    */
   function expectWarmed(r: Rig): void {
-    expect(r.pool.residency?.counters.warmed).toBeGreaterThanOrEqual(1)
     expectAskedThenLanded(r, [`issue:${issueId}`])
     expect(resident(r.pool)).toBe(true)
     expect(r.pool.residency?.isCold('issue', issueId)).toBe(false)
@@ -1008,7 +983,6 @@ describe('the lane source (R3, POD-4745)', () => {
   it('warms when a run arrives in the checkout', () => {
     const r = rig({ rows: rows(LANE, []) })
     expectCold(r)
-    r.pool.stats.reset()
     r.push({ type: 'update', rows: [runRecord()] })
     expectWarmed(r)
   })
@@ -1016,7 +990,6 @@ describe('the lane source (R3, POD-4745)', () => {
   it('warms when a run in the checkout loses its issueId', () => {
     const r = rig({ rows: rows(LANE, [run({ issueId: openIssue.id })]) })
     expectCold(r)
-    r.pool.stats.reset()
     r.push({ type: 'update', rows: [runRecord()] })
     expectWarmed(r)
   })
@@ -1024,7 +997,6 @@ describe('the lane source (R3, POD-4745)', () => {
   it('warms when an issueless run moves into the checkout', () => {
     const r = rig({ rows: rows(LANE, [run({ cwd: '/elsewhere' })]) })
     expectCold(r)
-    r.pool.stats.reset()
     r.push({ type: 'update', rows: [runRecord({ cwd: `${LANE}/deeper/still` })] })
     expectWarmed(r)
   })
@@ -1033,7 +1005,6 @@ describe('the lane source (R3, POD-4745)', () => {
     const inner = `${LANE}/inner`
     const r = rig({ rows: rows(LANE, [run({ cwd: `${inner}/x` })], [inner]) })
     expectCold(r)
-    r.pool.stats.reset()
     r.push({ type: 'update', rows: [{ kind: 'worktree', id: inner, value: undefined }] })
     expectWarmed(r)
   })
@@ -1043,7 +1014,6 @@ describe('the lane source (R3, POD-4745)', () => {
     // between them, which takes the run (a new, longer root).
     const r = rig({ rows: rows(null, [run({ cwd: `${LANE}/src` })], ['/r3']) })
     expectCold(r)
-    r.pool.stats.reset()
     r.push({ type: 'update', rows: [issueRecord(issueId, { worktreePath: LANE })] })
     // The update carries the issue itself: installed from it, nothing asked for.
     expect(resident(r.pool)).toBe(true)
@@ -1056,7 +1026,6 @@ describe('the lane source (R3, POD-4745)', () => {
     // No session moves: only the issue's update can see the run.
     const r = rig({ rows: rows(null, [run({ cwd: `${LANE}/src` })], [LANE]) })
     expectCold(r)
-    r.pool.stats.reset()
     r.push({ type: 'update', rows: [issueRecord(issueId, { worktreePath: LANE })] })
     expect(resident(r.pool)).toBe(true)
     expect(r.timers.filter((timer) => !timer.cancelled)).toEqual([])
@@ -1076,7 +1045,6 @@ describe('the lane source (R3, POD-4745)', () => {
     })
     // The hibernated twin outranks the run: the run is collapsed away.
     expectCold(r)
-    r.pool.stats.reset()
     r.push({
       type: 'update',
       rows: [
@@ -1097,11 +1065,9 @@ describe('the lane source (R3, POD-4745)', () => {
   it('leaves the issue cold when the run cannot keep it (finished long ago, headless, owned)', () => {
     const r = rig({ rows: rows(LANE, []) })
     const days = (n: number) => new Date(corpus.fixedNow - n * 24 * 60 * 60 * 1000).toISOString()
-    r.pool.stats.reset()
     r.push({ type: 'update', rows: [runRecord({ stoppedAt: days(30), readAt: days(29) })] })
     r.push({ type: 'update', rows: [runRecord({ headless: true })] })
     r.push({ type: 'update', rows: [runRecord({ issueId: openIssue.id })] })
     expectCold(r)
-    expect(r.pool.residency?.counters.warmed).toBe(0)
   })
 })

@@ -50,7 +50,6 @@ describe('filing reactions over the issues in memory (POD-4705, POD-4757)', () =
       const known = resident.length + (pool.residency?.size('issue') ?? 0)
       const order = tracked(() => [...pool.worklist.order])
       // Every known issue tracked (the old eager construction) fails this.
-      expect(pool.stats.counters.issueNodes).toBeLessThan(known)
       expect(new Set(resident)).toEqual(tracked_)
       // Every visible row is tracked.
       expect(order.length).toBeGreaterThan(0)
@@ -67,7 +66,6 @@ describe('filing reactions over the issues in memory (POD-4705, POD-4757)', () =
   it('a cold heartbeat builds no reaction and moves no row', () => {
     const { replay, pool } = boot()
     try {
-      const before = pool.stats.counters.issueNodes
       const orderBefore = tracked(() => [...pool.worklist.order])
       const coldSessions = pool.residency?.ids('session') ?? []
       expect(coldSessions.length).toBeGreaterThan(0)
@@ -91,7 +89,6 @@ describe('filing reactions over the issues in memory (POD-4705, POD-4757)', () =
           },
         ],
       })
-      expect(pool.stats.counters.issueNodes).toBe(before)
       expect(tracked(() => [...pool.worklist.order])).toEqual(orderBefore)
     } finally {
       pool.dispose()

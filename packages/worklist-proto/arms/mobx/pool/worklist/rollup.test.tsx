@@ -268,10 +268,8 @@ async function chainStep(create: CheckableArm, parity: boolean): Promise<ChainCe
   return withMounted(create, async (ctx, mounted, handle, flush) => {
     const chain = findChain(handle.pool)
     mounted.log.reset()
-    handle.stats.reset()
     mounted.reads.reset()
     const { result, readsBudget } = await runFenceStep(mounted, ctx, flush, questionOn(chain))
-    const rollupsDerived = handle.stats.rollupsDerived
     if (parity) {
       assertCommits(result)
       checkParity(ctx, handle, 'depth 4')
@@ -447,10 +445,8 @@ describe('row roll-ups (Mb3)', () => {
       const out = []
       for (const entry of FENCE_SCENARIOS) {
         mounted.log.reset()
-        handle.stats.reset()
         mounted.reads.reset()
         const { result, readsBudget } = await runFenceStep(mounted, ctx, flush, entry)
-        const rollupsDerived = handle.stats.rollupsDerived
         assertCommits(result)
         // Reads are recorded, not held to a fixed budget: whether they grow
         // with the data is the work-per-change check's (POD-4746).
@@ -657,7 +653,6 @@ describe('row roll-ups (Mb3)', () => {
           }
           return out
         })
-        const hydratedBefore = residency.counters.hydrated
         const windows = settle(pool)
         const cell = {
           scale,

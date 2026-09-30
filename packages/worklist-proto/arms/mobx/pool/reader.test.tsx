@@ -137,7 +137,7 @@ describe('POD-4743 the one row reader, not in memory', () => {
     await act(async () => {
       unmountFresh = fresh.handle.mountWeb(freshEl)
     })
-    const eagerRequests = fresh.handle.pool.residency!.counters.requests
+    const eagerQueued = fresh.handle.pool.residency!.queued()
     unmountFresh()
     fresh.dispose()
 
@@ -148,7 +148,7 @@ describe('POD-4743 the one row reader, not in memory', () => {
     expect(tracked(() => pool.tables.issue.has(id))).toBe(false)
     expect(residency.isCold('issue', id)).toBe(true)
     expect(tracked(() => pool.worklist.order)).toContain(id)
-    expect(residency.counters.requests).toBe(0)
+    expect(residency.queued()).toBe(0)
 
     const el = document.createElement('div')
     document.body.append(el)
@@ -165,10 +165,9 @@ describe('POD-4743 the one row reader, not in memory', () => {
       expect(tracked(() => pool.issue(id))).toBeUndefined()
       // Queued once, beside what drawing the list queues anyway, and nothing
       // loaded before the window closes. (The visibility parts read the row
-      // by id through the feed — a peek, counted there — but never install it.)
-      expect(residency.counters.requests).toBe(eagerRequests + 1)
-      expect(residency.counters.batches).toBe(0)
-      expect(residency.counters.hydrated).toBe(0)
+      // by id through the feed — a peek — but never install it.)
+      expect(residency.queued()).toBe(eagerQueued + 1)
+      expect(residency.hasQueued()).toBe(true)
       const reads = (): number => r.loads.filter((load) => load === `issue:${id}`).length
       const readsBefore = reads()
 
@@ -178,9 +177,8 @@ describe('POD-4743 the one row reader, not in memory', () => {
       await act(async () => {
         windows[0]!()
       })
-      expect(residency.counters.batches).toBe(1)
+      expect(residency.hasQueued()).toBe(false)
       expect(reads()).toBe(readsBefore + 1)
-      expect(residency.counters.hydrated).toBeGreaterThanOrEqual(1)
 
       // Converged: in memory, drawn as a row, and equal to the all-in-memory pool.
       expect(tracked(() => pool.tables.issue.has(id))).toBe(true)

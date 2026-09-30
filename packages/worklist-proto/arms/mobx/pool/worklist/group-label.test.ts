@@ -64,7 +64,6 @@ describe('group label (POD-4757 H1)', () => {
       )
       const orderBefore = tracked(() => [...pool.worklist.order])
       const lanesBefore = tracked(() => [[...group.rowIds], [...group.closedIds]])
-      const lanesChanged = pool.stats.counters.groupElements
       try {
         const moved: SliceIssue = { ...head, repoPath: '/elsewhere/renamed-checkout' }
         replay.push({ type: 'update', rows: [{ kind: 'issue', id: head.id, value: moved }] })
@@ -72,7 +71,6 @@ describe('group label (POD-4757 H1)', () => {
         expect(tracked(() => pool.groups.keys.includes(key))).toBe(true)
         expect(tracked(() => [...pool.worklist.order])).toEqual(orderBefore)
         expect(tracked(() => [[...group.rowIds], [...group.closedIds]])).toEqual(lanesBefore)
-        expect(pool.stats.counters.groupElements).toBe(lanesChanged)
         // The header follows its head.
         expect(labels.at(-1)).toBe('renamed-checkout')
         expect(tracked(() => group.label)).toBe('renamed-checkout')

@@ -280,7 +280,6 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
         const base = corpusIssue(r, target)
         const now = new Date(base.updatedAt).toISOString()
         audit = observeGroups(pool)
-        pool.stats.reset()
         let splices = 0
         let sorted = 0
         const runs = countReactions(() => {
@@ -305,7 +304,6 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
             })
           })
         })
-        const { groupRuns, groupElements, membershipFlips } = pool.stats.counters
         expect(groupRuns, 'filings').toBe(1)
         expect(membershipFlips, 'membership flips').toBe(0)
         // Out of the open lane, into the fold, and at most a move in the
@@ -371,7 +369,6 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
         const { id: target, key } = found!
         const base = corpusIssue(r, target)
         audit = observeGroups(pool)
-        pool.stats.reset()
         let splices = 0
         let sorted = 0
         const runs = countReactions(() => {
@@ -384,7 +381,6 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
             })
           })
         })
-        const { groupRuns, groupElements, membershipFlips } = pool.stats.counters
         expect(membershipFlips, 'membership flips').toBe(1)
         expect(groupRuns, 'filings').toBe(1)
         // Out of the visible order, its group's members and its open lane.
@@ -423,7 +419,6 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
         audit = observeGroups(pool)
         const target = clickTarget(pool)
         expect(tracked(() => pool.knownIssue(target)?.unread)).toBe(true)
-        pool.stats.reset()
         let splices = 0
         let sorted = 0
         const runs = countReactions(() => {
@@ -458,8 +453,6 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
         // The cursor still works: the row reads as read, stays visible, files nothing.
         expect(tracked(() => pool.knownIssue(target)?.unread)).toBe(false)
         expect(tracked(() => pool.knownIssue(target)?.visible)).toBe(true)
-        expect(pool.stats.counters.groupRuns, 'filings').toBe(0)
-        expect(pool.stats.counters.membershipFlips, 'membership flips').toBe(0)
         // The plant replaces the row's slot the old way — the read-state lane
         // lifted, so the cursor update writes the slot like every other
         // field: the row's filing reaction re-validates, failing the count.

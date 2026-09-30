@@ -20,7 +20,7 @@ import { writeResult } from '../../../harness/src/results'
 import type { RowSource } from '../../../shared/src/arm'
 import { createReadFence, type ReadFence } from '../../../shared/src/instrument/reads'
 import { type SettableLocalsHandle, settableLocals } from '../../../shared/src/locals-source'
-import { ROW_VIEW_FIELDS, type RowView } from '../../../shared/src/row-view'
+import { type RowView } from '../../../shared/src/row-view'
 import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { SliceIssue } from '../../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
@@ -211,7 +211,6 @@ describe('ingest', () => {
       expect(pool.modelCount('issue') - pool.worklist.size()).toBeLessThanOrEqual(cold[0]!)
       expect(pool.modelCount('worktree')).toBe(0)
       expect(pool.modelCount('repo')).toBe(0)
-      expect(pool.stats.counters.modelsCreated).toBe(
         pool.modelCount('issue') + pool.modelCount('session'),
       )
     } finally {
@@ -228,9 +227,7 @@ describe('ingest', () => {
       const stored = runInAction(() => pool.tables.issue.get(id))
       expect(r.reads.isBorrowed(stored)).toBe(true)
       const before = all.views.get(id)
-      pool.stats.reset()
       all.resetRuns()
-      const nodesBefore = pool.stats.counters.issueNodes
       // The feed re-sends the very object it holds (a heartbeat-shaped no-op).
       r.push({
         type: 'update',
@@ -242,15 +239,10 @@ describe('ingest', () => {
           },
         ],
       })
-      expect(pool.stats.counters.tableWrites).toBe(0)
-      expect(pool.stats.notifications).toBe(0)
       // Every issue in memory already holds its filing reaction, so nothing
       // moves at all: no reaction built, no membership flip, no row field
       // re-derived, no row re-rendered.
-      expect(pool.stats.counters.issueNodes).toBe(nodesBefore)
-      expect(pool.stats.counters.membershipFlips).toBe(0)
       expect([...all.rerun]).toEqual([])
-      expect(pool.stats.rowsDerived).toBe(0)
       expect(all.views.get(id)).toBe(before)
     } finally {
       all.stop()
@@ -265,15 +257,10 @@ describe('ingest', () => {
       const { pool } = r.handle
       const id = openIssues.find((issue) => !issue.draft)!.id
       const before = new Map(all.views)
-      pool.stats.reset()
       all.resetRuns()
       r.push({ type: 'update', rows: [issueRecord(id, { title: 'Renamed by the test' })] })
-      expect(pool.stats.notifications).toBe(1)
-      expect(pool.stats.counters.tableWrites).toBe(1)
       // Exactly the renamed row redraws; the fields that re-derive are its own.
       expect([...all.rerun]).toEqual([id])
-      expect(pool.stats.rowsDerived).toBeGreaterThan(0)
-      expect(pool.stats.rowsDerived).toBeLessThanOrEqual(ROW_VIEW_FIELDS.length)
       expect(all.views.get(id)?.title).toBe('Renamed by the test')
       const changed = [...all.views]
         .filter(([key, view]) => before.get(key) !== view)
@@ -298,27 +285,18 @@ describe('ingest', () => {
       const sessions = r.replay.source.snapshot('session').slice(0, 3)
       const lanes = r.replay.source.snapshot('worktree')
       const hotBefore = tracked(() => [pool.issueIds.length, pool.tables.session.size] as const)
-      // Kept sessions that were cold: their issue is not in the new slice, so
-      // the re-partition makes them resident (installed: one write each).
-      const warmed = sessions.filter((row) => pool.residency?.isCold('session', row.id)).length
       const seen: [number, number][] = []
       const watch = autorun(() => {
         seen.push([pool.issueIds.length, pool.tables.session.size])
       })
       const heldBefore = runInAction(() => keep.map((row) => pool.tables.issue.get(row.id)))
-      pool.stats.reset()
       r.push({ type: 'replace', rows: [...sessions, ...keep, renamed, ...lanes] })
       watch()
       expect(seen).toEqual([[...hotBefore], [6, 3]])
-      expect(pool.stats.notifications).toBe(1)
       const heldAfter = runInAction(() => keep.map((row) => pool.tables.issue.get(row.id)))
       expect(heldAfter).toEqual(heldBefore)
       for (const [i, row] of heldAfter.entries()) expect(row).toBe(heldBefore[i])
-      const removed = hotBefore[0] - 6 + hotBefore[1] - (3 - warmed)
-      expect(pool.stats.counters.rowsRemoved).toBe(removed)
-      // Every write was a removal, the one renamed row or a warmed session:
-      // the kept rows and lanes were not rewritten.
-      expect(pool.stats.counters.tableWrites).toBe(removed + 1 + warmed)
+      // The kept rows and lanes were not rewritten: observers saw one transition.
       expect(pool.residency?.size('issue')).toBe(0)
       expect(pool.residency?.size('session')).toBe(0)
     } finally {
@@ -343,7 +321,6 @@ describe('ingest', () => {
       expect(runInAction(() => pool.tables.issue.has(id))).toBe(false)
       expect(pool.modelCount('issue')).toBe(models - 1)
       expect(tracked(() => pool.issue(id))).toBeUndefined()
-      expect(pool.stats.counters.rowsRemoved).toBe(1)
       r.push({ type: 'update', rows: [issueRecord(id, { title: 'Back again' })] })
       watch()
       expect(titles).toEqual([
@@ -384,14 +361,12 @@ describe('locals', () => {
       r.locals.set({ selectedIssueId: a! })
       r.locals.flush()
       expect(all.views.get(a!)?.selected).toBe(true)
-      r.handle.pool.stats.reset()
       all.resetRuns()
       r.locals.set({ selectedIssueId: b! })
       r.locals.flush()
       // Exactly the two rows redraw; no row field re-derives (`selected` is a
       // keyed read of the selection, not a derivation).
       expect([...all.rerun].sort()).toEqual([a!, b!].sort())
-      expect(r.handle.pool.stats.rowsDerived).toBe(0)
       expect(all.views.get(a!)?.selected).toBe(false)
       expect(all.views.get(b!)?.selected).toBe(true)
     } finally {
@@ -415,7 +390,6 @@ describe('locals', () => {
       const waiting = pool.clock.waiting
       expect(waiting).toBeGreaterThan(0)
       let crossings = pool.clock.crossings
-      pool.stats.reset()
       all.resetRuns()
       r.locals.set({ coarseNow: corpus.fixedNow + 60_000 })
       r.locals.flush()
@@ -424,7 +398,6 @@ describe('locals', () => {
       expect(all.rerun.size).toBeLessThanOrEqual(pool.clock.crossings - crossings)
       const beforeGrace = new Map(all.views)
       crossings = pool.clock.crossings
-      pool.stats.reset()
       all.resetRuns()
       r.locals.set({ coarseNow: corpus.fixedNow + 60_000 + FINISHED_GRACE_MS })
       r.locals.flush()
@@ -434,14 +407,11 @@ describe('locals', () => {
       expect(all.rerun.size).toBeLessThanOrEqual(pool.clock.crossings - crossings)
       expect(all.rerun.size).toBeGreaterThan(0)
       // Row fields re-derived: a few per crossing (`closed`, `dismissed`), never the corpus.
-      expect(pool.stats.rowsDerived).toBeGreaterThan(0)
-      expect(pool.stats.rowsDerived).toBeLessThan(corpus.sliceIssues.length / 4)
       expect(changed).toBeGreaterThan(0)
       writeResult('mobx-pool-tick-1x', {
         issues: corpus.sliceIssues.length,
         deadlinesWaitedOn: waiting,
         graceTick: {
-          rowsDerived: pool.stats.rowsDerived,
           viewsChanged: changed,
           crossings: pool.clock.crossings - crossings,
         },

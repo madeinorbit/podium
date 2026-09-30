@@ -97,7 +97,7 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
       issue: pool.residency?.size('issue') ?? 0,
       session: pool.residency?.size('session') ?? 0,
     },
-    models: pool.stats.counters.modelsCreated,
+    models: pool.modelCount('issue') + pool.modelCount('session'),
     issueModels: pool.modelCount('issue'),
     sessionModels: pool.modelCount('session'),
     held: pool.worklist.size(),

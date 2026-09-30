@@ -128,9 +128,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
           pool.settleLoads?.()
         })
         expect(pool.pendingLoads?.() ?? 0, `${scenario}: mount loads settled`).toBe(0)
-        armMounted.handle.stats.reset()
         armMounted.log.reset()
-        controlMounted.handle.stats.reset()
         controlMounted.log.reset()
         await act(async () => {
           if (scenario === 'heartbeat') await writeHeartbeat(ctx)

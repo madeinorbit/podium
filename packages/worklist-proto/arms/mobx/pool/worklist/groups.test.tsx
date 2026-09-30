@@ -213,7 +213,6 @@ describe('groups and closed folds (Mb2)', () => {
       const cells = []
       for (const methodology of STEPS) {
         mounted.log.reset()
-        handle.stats.reset()
         mounted.reads.reset()
         const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
         expect(entry, methodology).toBeDefined()
@@ -228,7 +227,6 @@ describe('groups and closed folds (Mb2)', () => {
         // Reads are recorded, not held to a fixed budget: whether they grow
         // with the data is the work-per-change check's (POD-4746).
         mounted.reads.assertNoCopies(mounted.handle)
-        const counters = { ...pool.stats.counters }
         const orderMoved =
           JSON.stringify(orderBefore) !== JSON.stringify(tracked(() => [...pool.worklist.order]))
         const groupsChanged = changedGroups(lanesBefore, lanes(pool))
@@ -329,7 +327,6 @@ describe('groups and closed folds (Mb2)', () => {
         )
       expect(where(grace!.id)?.lane).toBe('closed')
 
-      pool.stats.reset()
       select(grace!.id)
       const latched = where(grace!.id)
       expect(latched?.lane).toBe('open')
@@ -341,7 +338,6 @@ describe('groups and closed folds (Mb2)', () => {
       }
       // The snapshot stays the unselected baseline, and the layout did not re-run.
       expect(orderDiff(snapshotOrder(), baseline)).toBeNull()
-      expect(pool.stats.counters.groupRuns).toBe(0)
 
       select(grace!.id, true)
       expect(where(grace!.id)?.lane).toBe('closed')
@@ -444,9 +440,7 @@ describe('the windowed web list (Mb2)', () => {
         return cold.size
       })
       expect(queuedAtPaint).toBeLessThan(wholeListLoads)
-      const hydratedBefore = pool.residency?.counters.hydrated ?? 0
       settle(pool)
-      const loadedSettlingFirstWindow = (pool.residency?.counters.hydrated ?? 0) - hydratedBefore
       phase = 'later'
       const byKind = (set: Set<string>) => {
         const out: Record<string, number> = { distinct: set.size }

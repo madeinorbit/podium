@@ -155,7 +155,6 @@ describe('visible collection and order (Mb1)', () => {
       const rounds = settle(pool)
       const parity: ParityCell[] = [checkParity(ctx, handle, 'bootstrap')]
       mounted.log.reset()
-      handle.stats.reset()
       mounted.reads.reset()
       const cells = []
       for (const methodology of ['#1', '#2', '#3', '#4', '#5']) {
@@ -168,7 +167,6 @@ describe('visible collection and order (Mb1)', () => {
         // Reads are recorded, not held to a fixed budget: whether they grow
         // with the data is the work-per-change check's (POD-4746).
         mounted.reads.assertNoCopies(mounted.handle)
-        const counters = { ...pool.stats.counters }
         if (methodology === '#1') {
           // A heartbeat reads 0 of the visible set and files nothing.
           const readIds = (result.reads?.sample ?? []).map((key) => key.split(':')[1] ?? '')
@@ -193,7 +191,6 @@ describe('visible collection and order (Mb1)', () => {
         })
         parity.push(checkParity(ctx, handle, methodology))
         mounted.log.reset()
-        handle.stats.reset()
         mounted.reads.reset()
       }
       writeResult('mobx-visible-1x', {
@@ -223,7 +220,6 @@ describe('visible collection and order (Mb1)', () => {
       )
       expect(target).toBeDefined()
       mounted.log.reset()
-      pool.stats.reset()
       await act(async () => {
         const wire = ctx.cache.read('issue', target!)?.value as object | undefined
         expect(wire).toBeDefined()
@@ -232,7 +228,6 @@ describe('visible collection and order (Mb1)', () => {
         feeds.flush()
       })
       const after = tracked(() => [...pool.worklist.order])
-      const counters = pool.stats.counters
       // One filing: out of its group's member and open lanes, into the pinned section.
       expect(counters.groupRuns).toBe(1)
       expect(counters.groupElements).toBe(3)
@@ -264,7 +259,6 @@ describe('visible collection and order (Mb1)', () => {
     try {
       settle((mounted.handle as HarnessMobxPoolHandle).pool)
       mounted.log.reset()
-      mounted.handle.stats.reset()
       mounted.reads.reset()
       const { result, readsBudget } = await runHiddenSpinOffRename(mounted, ctx, feeds.flush)
       assertCommits(result)
@@ -318,7 +312,6 @@ describe('visible collection and order (Mb1)', () => {
     try {
       settle((mounted.handle as HarnessMobxPoolHandle).pool)
       mounted.log.reset()
-      mounted.handle.stats.reset()
       mounted.reads.reset()
       const failures: Record<string, string> = {}
       for (const methodology of ['#1', '#2', '#3', '#4']) {
@@ -330,7 +323,6 @@ describe('visible collection and order (Mb1)', () => {
           failures[methodology] = (error as Error).message
         }
         mounted.log.reset()
-        mounted.handle.stats.reset()
         mounted.reads.reset()
       }
       const renamed = await runHiddenSpinOffRename(mounted, ctx, feeds.flush)

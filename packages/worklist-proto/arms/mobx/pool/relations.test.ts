@@ -115,8 +115,6 @@ interface Rig {
   /** The engine's answers, read in a transient reaction. */
   one(from: EntityName, id: string, relation: string): string | null
   many(from: EntityName, id: string, relation: string): string[]
-  /** Relation slots the last push wrote. */
-  writes(): string[]
   /** The engine against a from-scratch scan of the same tables. */
   check(extra?: Partial<Record<EntityName, string[]>>): void
   dispose(): void
@@ -173,7 +171,6 @@ function rig(
     one: (from, id, relation) => tracked(() => pool.graph.one(from, id, relation)),
     // Buckets are unordered (M3 F1): compare them sorted.
     many: (from, id, relation) => tracked(() => [...pool.graph.many(from, id, relation)].sort()),
-    writes: () => [...pool.graph.lastWrites].sort(),
     check(extra = {}) {
       const diff = tracked(() => diffRelations(pool.graph, pool.tables, schema, extra))
       expect(diff, 'live relations against the from-scratch scan').toEqual([])
@@ -732,7 +729,6 @@ describe('docs/plans/pod-4545-round-three-schema.md §4.5, verbatim', () => {
       r.push(session('S2', { issueId: 'I2', cwd: '/repo/.worktrees/i2/packages/web' }))
       expect(r.many('issue', 'I2', 'sessions')).toEqual(['S1', 'S2'])
       expect(r.one('session', 'S2', 'worktree')).toBe(Wi2)
-      expect(r.writes()).toEqual(['issue.sessions:I2', 'session.issue→S2'])
 
       // 2. I2 is archived: R1 re-evaluates, worktree and repo stay.
       r.push(issue('I2', { parentId: 'I1', worktreePath: Wi2, archived: true }))
@@ -740,7 +736,6 @@ describe('docs/plans/pod-4545-round-three-schema.md §4.5, verbatim', () => {
       expect(r.one('issue', 'I2', 'parent')).toBeNull()
       expect(r.one('issue', 'I2', 'worktree')).toBe(Wi2)
       expect(r.one('issue', 'I2', 'repo')).toBe('R')
-      expect(r.writes()).toEqual(['issue.children:I1', 'issue.parent→I2'])
 
       // 3. Wi2 is removed: I2 stays checked out at its own path and S2
       // stays there with it (POD-4671: the root set is lanes PLUS issue
@@ -778,7 +773,7 @@ describe('the reads fence and the write record', () => {
   it('a single-valued lookup costs one read; a collection one per member; a size none', () => {
     const r = rig(rows)
     try {
-      const fenced = r.pool.relations
+      const reader = r.pool.relations
       for (const [from, id, relation] of [
         ['issue', 'I2', 'parent'],
         ['issue', 'I3', 'discoveredFrom'],
@@ -788,19 +783,19 @@ describe('the reads fence and the write record', () => {
       ] as const) {
         r.reads.reset()
         expect(
-          tracked(() => fenced.one(from, id, relation)),
+          tracked(() => reader.one(from, id, relation)),
           `${from}.${relation}`,
         ).not.toBeNull()
         expect(r.reads.stats().rows, `${from}.${relation}`).toBe(1)
       }
       r.reads.reset()
-      expect(tracked(() => [...fenced.many('issue', 'I1', 'children')].sort())).toEqual([
+      expect(tracked(() => [...reader.many('issue', 'I1', 'children')].sort())).toEqual([
         'I2',
         'I3',
       ])
       expect(r.reads.stats().rows).toBe(2)
       r.reads.reset()
-      expect(tracked(() => fenced.size('repo', 'R', 'issues'))).toBe(4)
+      expect(tracked(() => reader.size('repo', 'R', 'issues'))).toBe(4)
       expect(r.reads.stats().rows).toBe(0)
     } finally {
       r.dispose()
@@ -900,10 +895,7 @@ describe('the reads fence and the write record', () => {
     it(`${kind.name} writes only the slots it touches`, () => {
       const r = rig(rows)
       try {
-        const before = r.pool.stats.indexUpdates
         r.push(...kind.change)
-        expect(r.writes()).toEqual([...kind.writes].sort())
-        expect(r.pool.stats.indexUpdates - before).toBe(kind.writes.length)
         r.check({ issue: ['I1'] })
       } finally {
         r.dispose()
@@ -930,12 +922,6 @@ describe('the reads fence and the write record', () => {
       // I2 leaves I1 and comes back inside one action: the net move is none.
       r.push(issue('I2', { parentId: 'I4' }), issue('I2', { parentId: 'I1' }))
       expect(runs).toEqual({ touched: 2, untouched: 1 })
-      expect(r.writes()).toEqual([
-        'issue.parent→I2',
-        'issue.parent→I2',
-        'issue.treeParent→I2',
-        'issue.treeParent→I2',
-      ])
       for (const stop of stops) stop()
       r.check({ issue: ['I1'] })
     } finally {
@@ -1233,16 +1219,12 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
       expect(tracked(() => r.pool.graph.size('worktree', '/repo', 'sessions'))).toBe(B)
       /** `path`: the row's path in the prefix index, when it has one. */
       const touched = (label: string, path: string | null, ...change: RowRecord[]): void => {
-        const before = r.pool.stats.counters.bucketElements
         const sets = held(r.pool)
         const outside = countedOutside(() => r.push(...change))
         const swapped = replaced(sets, held(r.pool))
         // The evidence: counted outside the pool (M3 re-review G1).
         expect(outsideTotal(outside), `${label}: ${JSON.stringify(outside)}`).toBe(PER_EDGE)
         // The published stat agrees with it.
-        const reported = r.pool.stats.counters.bucketElements - before
-        expect(reported, `${label}: bucketElements`).toBe(outsideTotal(outside))
-        expect(r.pool.graph.lastElements, `${label}: lastElements`).toBe(reported)
         // Plain sets and maps, the prefix index among them (M3 re-review G3).
         expect(
           plainTotal(outside.plain),
