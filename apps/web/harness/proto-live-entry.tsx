@@ -425,6 +425,7 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
     setTick((n) => n + 1)
   }
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: bootRef/settledRef are refs; the callback identity only needs boot changes
   const mountRef = useCallback(
     (panel: LivePanel, el: HTMLDivElement | null) => {
       mountEls.current.set(panel.name, el)
@@ -439,7 +440,6 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
         }
       }
     },
-    // biome-ignore lint/correctness/useExhaustiveDependencies: bootRef/settledRef are refs; the callback identity only needs boot changes
     [boot],
   )
 
@@ -478,6 +478,7 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
   // module binding holds the runtime, so a rebuild can drop the old one).
   // Mounting happens in `mountRef` once the panel containers render; settling
   // waits for every panel to be mounted.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one boot per page load and per arm selection (namesKey is names' stable key); never per render
   useEffect(() => {
     let alive = true
     void (async () => {
@@ -498,7 +499,6 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
     return () => {
       alive = false
     }
-    // biome-ignore lint/correctness/useExhaustiveDependencies: one boot per page load and per arm selection (namesKey is names' stable key); never per render
   }, [namesKey])
 
   // Poll counters twice a second; parity every 10 s. Untimed reads only.
@@ -524,6 +524,7 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
     }
   }, [boot])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: installed once per page; rebuild reads refs, setters and the arm names fixed by the URL for the page's life
   useEffect(() => {
     window.__protoLive = {
       survivors: () =>
@@ -549,7 +550,6 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
     return () => {
       window.__protoLive = undefined
     }
-    // biome-ignore lint/correctness/useExhaustiveDependencies: installed once per page; rebuild reads refs, setters and the arm names fixed by the URL for the page's life
   }, [])
 
   if (failure !== null) {
