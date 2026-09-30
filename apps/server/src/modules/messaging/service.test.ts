@@ -418,7 +418,7 @@ describe('MessagingService', () => {
         ok: false,
         deliveryStatus: 'unknown',
         error: 'Delivery could not be proven; the message may have reached the agent.',
-      } as never)
+      })
       await flush()
       expect(h.sent).toEqual([{
         chatId: '42',

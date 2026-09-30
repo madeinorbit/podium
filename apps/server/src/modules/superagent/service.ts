@@ -65,6 +65,7 @@ import {
 } from './global'
 import { classifyHarnessError, type HarnessErrorKind } from './harness-error'
 import { selectHarnessAccountId } from '../sessions/harness-account'
+import type { HeadlessTurnResult } from './headless'
 import {
   type Args,
   buildSuperagentTools,
@@ -109,8 +110,8 @@ export interface SuperagentTurnFailure {
 }
 
 /**
- * How many times a RETRYABLE dispatch failure (transport timeout, an
- * unreachable machine) is re-sent before the turn is failed for good.
+ * How many times a proven pre-write dispatch refusal (an unreachable
+ * machine or an unbound session) is retried before the turn is failed.
  *
  * There used to be no cap: `dispatchPendingTurn` re-armed a 1s timer on every
  * retryable result, forever. A daemon that never came back therefore left the
@@ -1090,15 +1091,7 @@ export class SuperagentService {
 
   private async finishPendingTurn(
     pending: PendingSuperagentTurnRow,
-    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-    result: {
-      ok: boolean
-      error?: string
-      harnessSessionId?: string
-      output?: string
-      requestDigest?: string
-      accountId?: AccountId
-    },
+    result: HeadlessTurnResult,
   ): Promise<void> {
     const agent = HarnessAgent.safeParse(pending.payload.agent)
     const sessionUuid = pending.payload.sessionUuid
@@ -1143,6 +1136,18 @@ export class SuperagentService {
         if (result.ok) {
           this.modules.headless.broadcastHeadlessActivity(pending.podiumSessionId, {
             kind: 'turn-end',
+          })
+        } else if (result.deliveryStatus === 'unknown') {
+          const error = result.error ??
+            'Delivery could not be proven; the message may have reached the agent.'
+          await this.store.superagent.appendSuperagentMessage(pending.threadId, {
+            ownerUserId: pending.ownerUserId,
+            role: 'assistant',
+            content: error,
+          })
+          this.modules.headless.broadcastHeadlessActivity(pending.podiumSessionId, {
+            kind: 'turn-end',
+            error,
           })
         } else {
           const rawError = result.error ?? 'unknown error'
@@ -1202,6 +1207,7 @@ export class SuperagentService {
         threadId: pending.threadId,
         podiumSessionId: pending.podiumSessionId,
         ok: result.ok,
+        ...(result.deliveryStatus ? { deliveryStatus: result.deliveryStatus } : {}),
         ...(result.output ? { output: result.output } : {}),
         ...(result.error ? { error: result.error } : {}),
         ...(agent.success ? { harness: agent.data } : {}),
