@@ -113,7 +113,13 @@ export const RESORT_FRACTION = 1 / 8
  * row, and reads none of its sessions. The hand mirror of the MobX pool's
  * `HIDDEN_ISSUE_FIELDS`.
  */
-export const HIDDEN_ISSUE_FIELDS = ['parentId', 'archived', 'deletedAt', 'stage'] as const
+export const HIDDEN_ISSUE_FIELDS = [
+  'parentId',
+  'archived',
+  'deletedAt',
+  'stage',
+  'closedReason',
+] as const
 
 /** A hidden issue's declared summary (`HIDDEN_ISSUE_FIELDS`). */
 export type HiddenIssue = Partial<

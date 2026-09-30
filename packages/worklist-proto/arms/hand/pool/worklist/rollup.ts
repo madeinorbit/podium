@@ -712,18 +712,17 @@ export function aggregatePartOf(input: RollupInputs, id: string, self: RollupSel
 }
 
 /**
- * This issue's own contribution to its formal ancestors' progress, through
- * the one reader (a cold row is a pending marker and its load is queued,
- * the MobX pool's way since POD-4754): its row when resident, else `NO_UNIT`
- * with its load queued, and `vacated` (`isVacatedOrigin`,
- * `mission.ts:794-808`: no own session on the task, and a spin-off), asked
- * in that order so a row with no spin-off never reads its sessions.
+ * This issue's own contribution to its formal ancestors' progress, hot or
+ * cold, never loading it (POD-4753, the hand's option A): its progress facts
+ * through the one reader's `peek` (a hidden issue's declared summary:
+ * `stage` and `closedReason`, never the row), and `vacated`
+ * (`isVacatedOrigin`, `mission.ts:794-808`: no own session on the task, and
+ * a spin-off), asked in that order so a row with no spin-off never reads
+ * its sessions.
  */
 export function unitOwnPartOf(input: RollupInputs, id: string, self: RollupSelf): UnitOwn {
-  const issue = input.loadedIssue(id)
-  if (issue === LOADING) return NO_UNIT
-  if (issue === undefined) return NO_UNIT
-  const facts: ProgressFacts = { stage: issue.stage, closedReason: issue.closedReason }
+  const facts = input.progressFacts(id)
+  if (facts === undefined) return NO_UNIT
   const vacated = input.spinOffCount(id) > 0 && !self.openOwn
   return unitOwnOf(facts, vacated)
 }
@@ -979,9 +978,8 @@ export class RollupCollection {
   }
 
   private progressFacts(id: string): ProgressFacts | undefined {
-    const loaded = this.loadedIssue(id)
-    if (loaded === LOADING || loaded === undefined) return undefined
-    return { stage: loaded.stage, closedReason: loaded.closedReason }
+    const row = this.host.issueRow(id)
+    return row === undefined ? undefined : { stage: row.stage, closedReason: row.closedReason }
   }
 
   /** The nest children filed under `id` (tracked: a move dirties the composition). */
