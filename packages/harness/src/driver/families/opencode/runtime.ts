@@ -43,6 +43,7 @@ import { type AgentStateEvent } from '../../../agent-state/types.js'
 import { reduceAgentState } from '../../../observer.js'
 import type {
   AgentRuntimeState,
+  HarnessRef,
   ResumeRef,
   SessionId,
   TranscriptItem,
@@ -374,14 +375,19 @@ const OPENCODE_MESSAGE_ID = /^msg_/
  * `session.error` here. A Podium message has one recipient session, so its id
  * reaches one opencode session.
  */
-function promptIdsFor(input: TurnInput): PromptIds {
+function promptIdsFor(input: TurnInput, session: DriverSession): PromptIds {
   const messageID =
     input.id === undefined
       ? `msg_${randomUUID()}`
       : OPENCODE_MESSAGE_ID.test(input.id)
         ? input.id
         : `msg_${createHash('sha256').update(input.id).digest('hex').slice(0, 32)}`
-  return { messageID, textPartId: `prt_000000000000${messageID.slice('msg_'.length)}` }
+  return {
+    messageID,
+    textPartId: session.client.pendingPrompts
+      ? `${messageID}:0`
+      : `prt_000000000000${messageID.slice('msg_'.length)}`,
+  }
 }
 
 /**
@@ -390,16 +396,19 @@ function promptIdsFor(input: TurnInput): PromptIds {
  * The prompt carries OUR ids ({@link promptIdsFor}), so its record is found
  * by id and never by its text. v1's `prompt_async` answers 204 with no body
  * and the text part arrives on the event stream around it, so the watch is
- * armed before the prompt goes out. v2's answer is the record itself and
- * settles the watch at once.
+ * armed before the prompt goes out. v2's answer is a durable hold; its watch
+ * outlives turn fences and rechecks history until the promoted user row lands.
  */
 interface PromptRecordWaiter {
   /** Our id for the prompt's text part, which opencode records it under. */
   textPartId: string
+  harnessRef: HarnessRef
+  /** V2 admission: no turn fence or timer ends this watch. */
+  durable?: boolean
   /** The entry, when it landed before the receipt went back. */
   seen?: TranscriptItemRef
   /** The late path, once the receipt went back without it. */
-  onItem?: (item: TranscriptItemRef) => void
+  onItem?: SendOptions['onTranscriptItem']
   /** The turn it belongs to; dropped when that turn is fenced. */
   epoch?: number
 }
@@ -409,6 +418,9 @@ interface DriverSession {
   spec: SessionSpec
   endpoint: OpencodeServerEndpoint
   promptRecords: Set<PromptRecordWaiter>
+  promptRecordPoll?: ReturnType<typeof setTimeout>
+  promptRecordRefresh?: Promise<void>
+  promptRecordRefreshAgain?: boolean
   client: OpencodeClient
   opencodeSessionId: OpencodeSessionId
   binding: SessionBinding
@@ -615,6 +627,14 @@ export function createOpencodeRuntime(
     const at = iso(eventTimeMs(event))
 
     switch (event.type) {
+      case 'prompt.promoted': {
+        // The event names the promoted input; confirmation still requires the
+        // actual user text row, never a fabricated item from the event alone.
+        if (session.promptRecords.size) {
+          void refreshPromptRecords(session)
+        }
+        break
+      }
       case 'message.updated': {
         const info = event.properties.info
         session.messages.set(info.id, info)
@@ -946,13 +966,14 @@ export function createOpencodeRuntime(
     items: readonly TranscriptItem[],
   ): void {
     const item = items[0]
+    if (item?.role !== 'user') return
     const ref = item ? transcriptItemRefOf(item) : undefined
     if (!ref) return
     for (const waiter of session.promptRecords) {
       if (waiter.seen || waiter.textPartId !== partId) continue
       if (waiter.onItem) {
         session.promptRecords.delete(waiter)
-        waiter.onItem(ref)
+        waiter.onItem(ref, waiter.harnessRef)
       } else {
         waiter.seen = ref
       }
@@ -960,8 +981,12 @@ export function createOpencodeRuntime(
   }
 
   /** Arm a send's record watch before its prompt can be recorded. */
-  function armPromptRecord(session: DriverSession, textPartId: string): PromptRecordWaiter {
-    const waiter: PromptRecordWaiter = { textPartId }
+  function armPromptRecord(session: DriverSession, ids: PromptIds): PromptRecordWaiter {
+    const waiter: PromptRecordWaiter = {
+      textPartId: ids.textPartId,
+      harnessRef: [{ kind: 'opencode-message', id: ids.messageID }],
+      ...(session.client.pendingPrompts ? { durable: true } : {}),
+    }
     session.promptRecords.add(waiter)
     return waiter
   }
@@ -970,9 +995,8 @@ export function createOpencodeRuntime(
    * The receipt's entry, or the late path for it; the waiter leaves either way
    * unless it now waits for the entry on behalf of `onItem`.
    *
-   * An admission that names the text part IS the record (v2), and its entry is
-   * named from that id. Its cursor is left out: the paging offset is the row's
-   * creation time, which only the history read knows for certain.
+   * `textPartId` comes only from a history lookup (a recorded v2 conflict).
+   * A durable admission by itself leaves the watch open across every fence.
    */
   function settlePromptRecord(
     session: DriverSession,
@@ -989,8 +1013,73 @@ export function createOpencodeRuntime(
       return waiter.seen
     }
     waiter.onItem = onItem
-    waiter.epoch = session.turnEpoch
+    if (admission.held === 'durable') waiter.durable = true
+    if (waiter.durable) {
+      void refreshPromptRecords(session)
+      pollPromptRecords(session)
+    } else {
+      waiter.epoch = session.turnEpoch
+    }
     return undefined
+  }
+
+  /** One history read for every open durable admission. The pending store is
+   * rechecked too: an empty history or an idle session cannot prove loss while
+   * OpenCode keeps the input outside the conversation (POD-4819 §9). */
+  function refreshPromptRecords(session: DriverSession): Promise<void> {
+    if (!session.client.pendingPrompts || session.disposed || !session.promptRecords.size) {
+      return Promise.resolve()
+    }
+    if (session.promptRecordRefresh) {
+      session.promptRecordRefreshAgain = true
+      return session.promptRecordRefresh
+    }
+    session.promptRecordRefresh = (async () => {
+      do {
+        session.promptRecordRefreshAgain = false
+        const [messages] = await Promise.all([
+          session.client.messages(session.opencodeSessionId).catch(() => []),
+          session.client.pendingPrompts!(session.opencodeSessionId).catch(() => undefined),
+        ])
+        if (session.disposed) return
+        for (const message of messages) {
+          if (message.info.role !== 'user') continue
+          session.messages.set(message.info.id, message.info)
+          for (const part of message.parts) {
+            if (
+              part.type !== 'text' ||
+              ![...session.promptRecords].some(
+                (waiter) => !waiter.seen && waiter.textPartId === part.id,
+              )
+            )
+              continue
+            const items = partToItems(session.opencodeSessionId, message.info, part)
+            for (const item of items)
+              emit(session, { t: 'item', item: { kind: 'complete', item } }, iso())
+            creditPromptRecord(session, part.id, items)
+          }
+        }
+      } while (session.promptRecordRefreshAgain && session.promptRecords.size)
+    })().finally(() => {
+      session.promptRecordRefresh = undefined
+    })
+    return session.promptRecordRefresh
+  }
+
+  /** Recheck after lost SSE edges and restarts. This timer only reads proof;
+   * it never changes a message to unknown or failed. */
+  function pollPromptRecords(session: DriverSession): void {
+    if (
+      session.disposed ||
+      session.promptRecordPoll ||
+      ![...session.promptRecords].some((waiter) => waiter.durable && !waiter.seen)
+    )
+      return
+    session.promptRecordPoll = setTimeout(() => {
+      session.promptRecordPoll = undefined
+      void refreshPromptRecords(session).finally(() => pollPromptRecords(session))
+    }, 2000)
+    if (typeof session.promptRecordPoll === 'object') session.promptRecordPoll.unref()
   }
 
   function closeTurn(
@@ -1002,7 +1091,11 @@ export function createOpencodeRuntime(
     session.fencedTurnEpoch = session.turnEpoch
     // A turn that ended without its prompt recorded names nothing.
     for (const waiter of session.promptRecords) {
-      if (waiter.epoch !== undefined && waiter.epoch <= session.fencedTurnEpoch) {
+      if (
+        !waiter.durable &&
+        waiter.epoch !== undefined &&
+        waiter.epoch <= session.fencedTurnEpoch
+      ) {
         session.promptRecords.delete(waiter)
       }
     }
@@ -1458,6 +1551,8 @@ export function createOpencodeRuntime(
    */
   function endSession(session: DriverSession): void {
     session.disposed = true
+    clearTimeout(session.promptRecordPoll)
+    session.promptRecords.clear()
     abandonQueue(session, 'teardown')
     /**
      * RELEASE ANYONE WAITING ON A SESSION THAT WILL NEVER ANSWER
@@ -1509,8 +1604,8 @@ export function createOpencodeRuntime(
       if (session.interactions.size > 0) return
       const next = session.queue.shift()
       if (!next) return
-      const ids = promptIdsFor(next.input)
-      const record = armPromptRecord(session, ids.textPartId)
+      const ids = promptIdsFor(next.input, session)
+      const record = armPromptRecord(session, ids)
       try {
         const admission = await deliver(session, next.input, ids, next.options.origin)
         // Its receipt went back when it was queued: the entry travels late.
@@ -1557,9 +1652,13 @@ export function createOpencodeRuntime(
   // -- handle construction --------------------------------------------------
 
   function buildHandle(session: DriverSession): AgentSessionHandle {
-    const refuse = (reason: Refusal['reason'], detail?: string): TurnReceipt => ({
+    const refuse = (
+      reason: Refusal['reason'],
+      detail?: string,
+      cause?: Refusal['cause'],
+    ): TurnReceipt => ({
       outcome: 'refused',
-      refusal: { reason, ...(detail ? { detail } : {}) },
+      refusal: { reason, ...(detail ? { detail } : {}), ...(cause ? { cause } : {}) },
     })
     const stageRefusal = (reason: Refusal['reason'], detail?: string): Refusal => ({
       reason,
@@ -1663,8 +1762,12 @@ export function createOpencodeRuntime(
 
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
-        if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
-        if (options.deliveryAttempt && (session.busy || session.lease?.kind === 'human-controller')) {
+        if (options.signal?.aborted)
+          return { outcome: 'refused', refusal: { reason: 'not_running' } }
+        if (
+          options.deliveryAttempt &&
+          (session.busy || session.lease?.kind === 'human-controller')
+        ) {
           return { outcome: 'refused', refusal: { reason: session.busy ? 'busy' : 'lease_held' } }
         }
         if (session.disposed) return refuse('not_running')
@@ -1746,8 +1849,8 @@ export function createOpencodeRuntime(
          */
         if (session.disposed || session.serverGone) return refuse('not_running')
 
-        const ids = promptIdsFor(input)
-        const record = armPromptRecord(session, ids.textPartId)
+        const ids = promptIdsFor(input, session)
+        const record = armPromptRecord(session, ids)
         let admission: OpencodePromptAdmission
         try {
           admission = await deliver(session, input, ids, options.origin)
@@ -1762,10 +1865,10 @@ export function createOpencodeRuntime(
            * say nothing either way — so it is thrown as unproven.
            */
           if (err instanceof OpencodeHttpError && err.status === 400) {
-            return refuse('invalid_value', String(err))
+            return refuse('invalid_value', String(err), 'rejected-by-agent')
           }
           if (err instanceof OpencodeHttpError && err.status === 404) {
-            return refuse('session_ended', String(err))
+            return refuse('session_ended', String(err), 'rejected-by-agent')
           }
           throw new DeliveryUnprovenError('opencode prompt', err)
         }
@@ -1779,11 +1882,16 @@ export function createOpencodeRuntime(
           outcome: 'accepted',
           turnEpoch: session.turnEpoch,
           ...(transcriptItem ? { transcriptItem } : {}),
+          ...(!transcriptItem && admission.held ? { held: admission.held } : {}),
           // The ids the prompt is stored under: ours, or the hashed form an
           // id OpenCode cannot take becomes (POD-4841).
           harnessRef: [
             { kind: 'opencode-message', id: ids.messageID },
-            { kind: 'opencode-part', id: ids.textPartId },
+            // V2 has a user row, no native text-part id. Its transcript part
+            // name is a mapper identity, not another program-supplied id.
+            ...(!session.client.pendingPrompts
+              ? [{ kind: 'opencode-part' as const, id: ids.textPartId }]
+              : []),
           ],
           /**
            * WHAT ACTUALLY HAPPENED, not what was asked for.
@@ -1797,11 +1905,26 @@ export function createOpencodeRuntime(
            * gets here.
            */
           deliveredAs: wanted === 'steer' ? 'when-ready' : wanted,
-          /** The 204 from `prompt_async`. The only proof this driver declares,
-           *  and the only one it needs. */
+          /** V2 admission is accepted/durable; only its user row is delivered. */
           provenBy: 'protocol-ack',
           at: iso(),
         }
+      },
+
+      watchHeld(input, watch) {
+        if (
+          !session.client.pendingPrompts ||
+          !input.id ||
+          watch.signal?.aborted ||
+          session.disposed
+        )
+          return
+        const ids = promptIdsFor(input, session)
+        const record = armPromptRecord(session, ids)
+        settlePromptRecord(session, record, { held: 'durable' }, watch.onTranscriptItem)
+        watch.signal?.addEventListener('abort', () => session.promptRecords.delete(record), {
+          once: true,
+        })
       },
 
       async stageAttachment(source) {
@@ -2116,7 +2239,12 @@ export function createOpencodeRuntime(
       },
     }
 
-    return withDeliveryQueue(handle, (event) => emit(session, event, iso()), undefined, () => !session.disposed)
+    return withDeliveryQueue(
+      handle,
+      (event) => emit(session, event, iso()),
+      undefined,
+      () => !session.disposed,
+    )
   }
 
   /**

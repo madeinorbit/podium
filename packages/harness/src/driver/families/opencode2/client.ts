@@ -13,6 +13,7 @@ import type {
   OpencodeQuestionRequest,
   OpencodeSession,
 } from '../opencode/protocol.js'
+import { pendingPromptIds } from './pending.js'
 
 /** Adapter from the OpenCode 2 preview /api surface to the stable OpenCode
  * runtime port. The admitted preview builds scope session routes by path and
@@ -28,6 +29,16 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
   const timeoutMs = config.timeoutMs ?? 30_000
   let session: string | undefined
   const forms = new Map<string, Opencode2Form>()
+  const pending = new Map<string, Set<string>>()
+  const remember = (sessionID: string, messageID: string, admitted: boolean) => {
+    if (!admitted) {
+      pending.get(sessionID)?.delete(messageID)
+      return
+    }
+    let ids = pending.get(sessionID)
+    if (!ids) pending.set(sessionID, (ids = new Set()))
+    ids.add(messageID)
+  }
   const request = async (
     method: 'GET' | 'POST' | 'PUT',
     path: string,
@@ -138,7 +149,8 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
        * DURABLE ADMISSION OF ONE INPUT PER ID (POD-4813; measured on
        * beta-18866). The 200 answers with the admitted input, and a repeat of
        * an id answers with the ORIGINAL admission — its first text, no second
-       * record, no second turn — so the answer is the record the delivery names.
+       * record, no second turn. This is a durable hold outside the conversation;
+       * only promotion and its user row can confirm delivery (POD-4819 §4).
        *
        * `queue`, NEVER THE DEFAULT `steer`. This driver posts only once opencode
        * reports the session idle (the runtime holds anything earlier), where the
@@ -176,6 +188,9 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
         ) {
           return { textPartId: userTextPartId(body.messageID) }
         }
+        if ((await this.pendingPrompts?.(sessionId).catch(() => []))?.includes(body.messageID)) {
+          return { held: 'durable' }
+        }
         throw error
       }
       const admitted = ((await response.json()) as { data?: { id?: unknown; sessionID?: unknown } })
@@ -187,10 +202,17 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
           `opencode2 did not admit ${body.messageID} to ${sessionId}: ${JSON.stringify(admitted)}`,
         )
       }
-      return { textPartId: userTextPartId(body.messageID) }
+      remember(sessionId, body.messageID, true)
+      return { held: 'durable' }
     },
     async abort(sessionId) {
       await request('POST', `/api/session/${encodeURIComponent(sessionId)}/interrupt`)
+    },
+    async pendingPrompts(sessionId) {
+      const stored = config.databasePath
+        ? pendingPromptIds(config.databasePath, sessionId)
+        : undefined
+      return stored ?? [...(pending.get(sessionId) ?? [])]
     },
     async messages(sessionId) {
       session = sessionId
@@ -227,7 +249,7 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
             ...row,
             id,
             sessionID: sessionId,
-            role: type === 'assistant' ? 'assistant' : type === 'system' ? 'system' : 'user',
+            role: type === 'user' ? 'user' : type === 'assistant' ? 'assistant' : 'system',
             time,
             ...(model?.id ? { modelID: model.id } : {}),
             ...(model?.providerID ? { providerID: model.providerID } : {}),
@@ -296,7 +318,7 @@ export function createOpencode2Client(config: OpencodeClientConfig): OpencodeCli
       )
     },
     events(signal) {
-      return events(request, signal)
+      return events(request, signal, remember)
     },
   }
 }
@@ -375,6 +397,7 @@ async function* events(
     streaming?: boolean,
   ) => Promise<Response>,
   signal: AbortSignal,
+  remember: (sessionID: string, messageID: string, admitted: boolean) => void,
 ): AsyncIterable<OpencodeEvent> {
   const response = await request('GET', '/api/event', undefined, signal, true)
   const reader = response.body?.getReader()
@@ -408,7 +431,24 @@ async function* events(
         const eventID = raw.id ?? `opencode2-${crypto.randomUUID()}`
         const sessionID = typeof data.sessionID === 'string' ? data.sessionID : undefined
         let mapped: OpencodeEvent | undefined
-        if (raw.type === 'form.created') {
+        if (
+          sessionID &&
+          (raw.type === 'session.next.prompt.admitted' ||
+            raw.type === 'session.inbox.enqueued' ||
+            raw.type === 'session.next.prompted' ||
+            raw.type === 'session.inbox.delivered')
+        ) {
+          const messageID = data.messageID ?? data.inboxID
+          if (typeof messageID !== 'string' || !messageID) continue
+          const admitted =
+            raw.type === 'session.next.prompt.admitted' || raw.type === 'session.inbox.enqueued'
+          remember(sessionID, messageID, admitted)
+          mapped = {
+            id: eventID,
+            type: admitted ? 'prompt.admitted' : 'prompt.promoted',
+            properties: { sessionID, messageID },
+          }
+        } else if (raw.type === 'form.created') {
           const form = data.form as Opencode2Form | undefined
           if (form)
             mapped = { id: eventID, type: 'question.asked', properties: formToQuestion(form) }

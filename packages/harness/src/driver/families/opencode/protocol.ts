@@ -125,14 +125,12 @@ export interface OpencodePromptBody {
 }
 
 /**
- * What the engine's answer to a prompt proves it recorded.
- *
- * `textPartId` is the id of the prompt's text part in the engine's history,
- * present only when the ANSWER itself is the record: v2's prompt answers with
- * the durably admitted input. v1's 204 has no body, so there the record is
- * proven by the part's own event and this is absent.
+ * What the engine proved about the prompt. A v2 200 is a durable admission,
+ * not a conversation entry. `textPartId` names only a user text row actually
+ * read from history (including a recorded 409). v1's 204 proves neither.
  */
 export interface OpencodePromptAdmission {
+  held?: 'durable'
   textPartId?: string
 }
 
@@ -284,6 +282,10 @@ export const OPENCODE_EVENT_ARMS = {
     field: z.string(),
     delta: z.string().optional(),
   }),
+  // Normalized v2 lifecycle edges. Promotion triggers a read of the user row;
+  // admission alone never synthesizes a transcript item.
+  'prompt.admitted': z.object({ ...withSession, messageID: z.string().min(1) }),
+  'prompt.promoted': z.object({ ...withSession, messageID: z.string().min(1) }),
   'permission.asked': z.object({
     id: z.string().min(1),
     ...withSession,

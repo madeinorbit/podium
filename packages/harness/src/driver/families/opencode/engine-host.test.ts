@@ -28,6 +28,7 @@ import {
   probeHealth,
 } from './engine-host.js'
 import { opencode2Flavor, opencodeFlavor } from './engine-facts.js'
+import { createOpencodeClient } from './client.js'
 import { manifestFor } from '../../../registry.js'
 import type {
   EngineAttachment,

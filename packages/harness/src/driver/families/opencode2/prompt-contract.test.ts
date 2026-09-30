@@ -188,7 +188,7 @@ describe('OpenCode measured v2 wire frames', () => {
     })
     await expect(
       createOpencode2Client(config(fetch)).prompt(sessionFor(send), inputFor(send)),
-    ).resolves.toEqual({ textPartId: `${send.body.id}:0` })
+    ).resolves.toEqual({ held: 'durable' })
     expect(fetch).toHaveBeenCalledOnce()
   })
 
