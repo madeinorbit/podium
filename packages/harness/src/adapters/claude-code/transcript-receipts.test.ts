@@ -46,12 +46,58 @@ describe("Claude's queue records", () => {
     for (const item of items) expect(TranscriptItem.parse(item)).toHaveProperty('queued', true)
   })
 
-  it('reads nothing from `dequeue` and `remove`, and the display reader shows no queue record', () => {
-    for (const n of [35, 77, 129]) {
+  it('reads nothing from `dequeue` or another `remove`, and the display reader shows no queue record', () => {
+    for (const n of [35, 77]) {
       expect(line(n)).toMatchObject({ type: 'queue-operation' })
       expect(claudeRecordReceipts(line(n))).toEqual([])
     }
-    for (const n of [34, 35, 77]) expect(claudeRecordToItems(line(n))).toEqual([])
+    // `absorbed_mid_turn`: send-now took it into the running turn, not a drop.
+    expect(line(77)).toMatchObject({ operation: 'remove', reason: 'absorbed_mid_turn' })
+    for (const n of [34, 35, 77, 129]) expect(claudeRecordToItems(line(n))).toEqual([])
+  })
+
+  /**
+   * A PROMPT A HOOK DROPPED (POD-4887, spec §6.1 N2b), as 2.1.284 recorded it
+   * in the lane's A7–A9 runs (timelines/userpromptsubmit-hook-blocks-idle-and-queued.txt):
+   * queued, `remove` with `reason: "dropped_by_hook"`; idle, a `system` record
+   * "blocked by hook" ending in the prompt. Both proof-only, never shown.
+   */
+  it('reads a `dropped_by_hook` remove as a proof-only drop carrying the prompt', () => {
+    for (const [n, text] of [
+      [129, 'BLOCKME A8 queued in tool'],
+      [139, 'BLOCKME A9 queued in text'],
+    ] as const) {
+      expect(line(n)).toMatchObject({ operation: 'remove', reason: 'dropped_by_hook' })
+      const items = claudeRecordReceipts(line(n))
+      expect(items).toEqual([
+        expect.objectContaining({ role: 'system', text, promptEntry: false, dropped: true }),
+      ])
+      for (const item of items) expect(TranscriptItem.parse(item)).toHaveProperty('dropped', true)
+    }
+  })
+
+  it('reads the idle "blocked by hook" record as a proof-only drop of the prompt typed', () => {
+    expect(line(119)).toMatchObject({ type: 'system', subtype: 'informational' })
+    expect(claudeRecordReceipts(line(119))).toEqual([
+      {
+        id: '',
+        role: 'system',
+        ts: '2026-09-29T16:15:27.277Z',
+        text: 'BLOCKME A7 idle',
+        promptEntry: false,
+        dropped: true,
+      },
+    ])
+    // Its words are the words sent, within Claude's tolerance.
+    expect(claudePromptTextMatches('BLOCKME A7 idle', 'BLOCKME A7 idle')).toBe(true)
+    // And the display reader never makes it a prompt entry.
+    const echo = promptEchoCorrelation(claudePromptTextMatches)
+    for (const item of claudeRecordToItems(line(119))) expect(echo.accepts(item)).toBe(false)
+  })
+
+  it('reads no drop from any other informational record', () => {
+    const other = { ...line(119), content: 'Some other notice\n\nOriginal prompt: nope' }
+    expect(claudeRecordReceipts(other)).toEqual([])
   })
 
   it('never makes a queue record a prompt entry', () => {

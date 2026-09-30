@@ -308,6 +308,10 @@ export const opencodeManifest: AgentManifest = {
       // Parts carry epoch-ms `time_created`/`time_updated` columns; the
       // cursor offset is `time_created` itself.
       transcriptTimestamps: { resolutionMs: 1 },
+      // N4 (POD-4887): a message is stored at once and survives a kill, so it
+      // is in the history read after the exit; a kill before the text part
+      // leaves a text-less row the reader drops (1.18.33, POD-4864).
+      exitLosesUnrecorded: true,
       // SQLite polling calls onStateEvents, never onObservation; opencode is
       // not a causal ObservationProvider. Keep poll state as the sole lifecycle
       // and epoch authority until a causal observer replaces that producer.

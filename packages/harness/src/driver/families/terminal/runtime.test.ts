@@ -51,7 +51,7 @@ import {
   transcriptRecordMapperFor,
 } from '@podium/harness'
 import { hookEventName, hookString } from '../../../adapters/shared/hook-fields.js'
-import { encodeCursor, readFileItems } from '@podium/harness/store'
+import { decodeCursor, encodeCursor, readFileItems } from '@podium/harness/store'
 import { addSink, type LogRecord } from '@podium/logger'
 import { type AgentKind, type AgentRuntimeState, asSessionId, type ResumeRef, type SessionId, type TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
@@ -5908,5 +5908,328 @@ describe('terminal receipts from the history (POD-4905)', () => {
     )
     expect(receipt.outcome).toBe('unverified')
     world.runtime.dispose()
+  })
+
+  /** A lane file other than `history(lane)`'s, read through the lane's readers. */
+  async function laneFile(lane: Exclude<Lane, 'opencode'>, file: string): Promise<TranscriptItem[]> {
+    const toItems = transcriptRecordMapperFor(lane)
+    if (!toItems) throw new Error(`no reader for ${lane}`)
+    const receipts = transcriptReceiptMapperFor(lane)
+    return readFileItems(join(LANES, file), `lane-${lane}`, (record) => [
+      ...toItems(record),
+      ...(receipts?.(record) ?? []),
+    ])
+  }
+
+  /** The first item the program wrote at or after `iso`: where a send typed
+   *  then starts, as its measured timeline places the Enter. */
+  function firstAtOrAfter(items: readonly TranscriptItem[], iso: string): number {
+    const at = items.findIndex((item) => item.ts !== undefined && item.ts >= iso)
+    if (at < 0) throw new Error(`nothing written at or after ${iso}`)
+    return at
+  }
+
+  /**
+   * THE PROGRAM EXITED (POD-4887, spec §6.1 N4). Each lane killed the program
+   * right after a prompt's Enter; its history, read after the exit, holds the
+   * prompt or does not. Type `text` into a session whose tail has read the
+   * history up to `upTo`, kill the program at the Enter (the live tail never
+   * reads another record), and serve `afterExit` as the history read after
+   * the exit. Returns the receipt and what the send heard after it.
+   */
+  async function killedSend(input: {
+    lane: Lane | 'cursor'
+    items: readonly TranscriptItem[]
+    upTo: number
+    text: string
+    afterExit: readonly TranscriptItem[] | 'unreadable'
+  }) {
+    const world = makeWorld({
+      readItems: async () => {
+        if (input.afterExit === 'unreadable') throw new Error('the store could not be read')
+        return input.afterExit
+      },
+    })
+    const profile = terminalProfileFor(input.lane)
+    if (!profile) throw new Error(`no terminal profile for ${input.lane}`)
+    const handle = await world.runtime.driverFor(input.lane, profile).create(SPEC)
+    const sessionId = handle.binding.sessionId
+    world.ready(sessionId)
+    post(world, sessionId, input.items.slice(0, input.upTo), true)
+    world.onSubmit(sessionId, () =>
+      world.runtime.observe({ type: 'agentExit', sessionId, code: 137 }),
+    )
+    const heard: unknown[] = []
+    const receipt = await handle.send(
+      { id: 'msg-killed', text: input.text },
+      {
+        origin: 'human',
+        delivery: 'when-ready',
+        onLateProof: (seen) => heard.push({ entry: seen.transcriptItem?.id }),
+        onUnrecorded: (reason, proof) => heard.push({ unrecorded: reason, proof }),
+      },
+    )
+    // Let the history read after the exit, and anything it sets off, finish.
+    for (let i = 0; i < 20; i++) await new Promise((resolve) => setTimeout(resolve, 0))
+    world.runtime.dispose()
+    return { receipt, heard }
+  }
+
+  const exited = {
+    unrecorded: 'the agent program exited without recording it',
+    proof: 'agent-exited',
+  }
+  const deliveriesOf = (world: World) =>
+    world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' && frame.event.t === 'delivery' ? [frame.event] : [],
+    )
+  const waitUntil = async (done: () => boolean): Promise<void> => {
+    for (let i = 0; i < 80 && !done(); i++) await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+
+  describe('the program exited (POD-4887, spec §6.1 N4)', () => {
+    it('Claude: the prompt a SIGKILL at +200 ms left out of the transcript is not delivered', async () => {
+      // S10 (timelines/S10-kill9-idle-150-250ms.txt): the hook fired and the
+      // model saw it, but no record was written; after three resumes the
+      // transcript still lacks it — the next record is the next prompt's.
+      const items = await history('claude-code')
+      const next = entryAt(items, 'AFTER-KILL9 C')
+      expect(items.some((item) => item.text.includes('C2 killed'))).toBe(false)
+      const { receipt, heard } = await killedSend({
+        lane: 'claude-code',
+        items,
+        upTo: next,
+        text: 'TOOLSLEEP C2 killed at 200ms',
+        afterExit: items.slice(0, next),
+      })
+      expect(receipt.outcome).toBe('unverified')
+      expect(heard).toEqual([exited])
+    })
+
+    it('Codex: the prompt a kill at +43 ms left out of the rollout is not delivered', async () => {
+      // tui/t-kill-early: `task_started` and a history.jsonl line only, then
+      // the resume's own records; never a `UserMessage`.
+      const items = await laneFile('codex', 'codex-0.155.0/tui/t-kill-early/rollout-1.jsonl')
+      // The first prompt's turn is the whole history the reader makes: the
+      // killed turn's `task_started` and the resume's records are no items.
+      expect(items.filter((item) => item.role === 'user').map((item) => item.text)).toEqual([
+        'ONE first',
+      ])
+      const { receipt, heard } = await killedSend({
+        lane: 'codex',
+        items,
+        upTo: items.length,
+        text: 'SLOWTEXT killed early',
+        afterExit: items,
+      })
+      expect(receipt.outcome).toBe('unverified')
+      expect(heard).toEqual([exited])
+    })
+
+    it("Grok: the prompt a kill at +75 ms lost is not delivered; resume's `turn_completed interrupted` for it is no record", async () => {
+      // S10 kill at 60/75 ms (timelines/S10-kill-60ms.txt): no user chunk; the
+      // resume after it writes `turn_completed` `interrupted` with this
+      // prompt's id (updates.jsonl line 191), which must not count.
+      const items = await history('grok')
+      const upTo = firstAtOrAfter(items, '2026-09-29T16:23:32.4')
+      const next = entryAt(items, 'AFTERRACE check context')
+      const { receipt, heard } = await killedSend({
+        lane: 'grok',
+        items,
+        upTo,
+        text: 'RACE60 killed right after Enter',
+        afterExit: items.slice(0, next),
+      })
+      expect(receipt.outcome).toBe('unverified')
+      expect(heard).toEqual([exited])
+    })
+
+    it('OpenCode: the prompt a kill at ~35 ms left as a text-less row is not delivered', async () => {
+      // TUI S6c: the kill left a user message row with no parts (row 50); the
+      // next model request left it out. A text-less row is no record.
+      type Row = { id: string; r?: number; m?: string; data?: { role?: string } }
+      const db = readFileSync(join(LANES, 'opencode-1.18.33/tui/timeline.jsonl'), 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { kind?: string; table?: string; row?: Row })
+        .filter((entry) => entry.kind === 'db' && entry.row)
+      const halfRecord = db.find(
+        (entry) => entry.table === 'message' && entry.row?.r === 50,
+      )?.row
+      expect(halfRecord?.data?.role).toBe('user')
+      expect(db.some((entry) => entry.table === 'part' && entry.row?.m === halfRecord?.id)).toBe(
+        false,
+      )
+      const items = await history('opencode')
+      const next = entryAt(items, 'TUI S6d SIGMA after the half record')
+      const { receipt, heard } = await killedSend({
+        lane: 'opencode',
+        items,
+        upTo: next,
+        text: 'TUI S6c RHO SLOWTEXT then the TUI dies at once',
+        afterExit: items.slice(0, next),
+      })
+      expect(receipt.outcome).toBe('unverified')
+      expect(heard).toEqual([exited])
+    })
+
+    it.each([
+      ['claude-code', 'AFTER-KILL9 C'],
+      ['codex', 'ALPHA idle'],
+      ['grok', 'RACEKILL killed right after Enter'],
+      ['opencode', 'TUI S1 ALPHA idle'],
+    ] as const)('%s: the same kill with the record already written is delivered', async (lane, text) => {
+      // The record reached the file before the exit; the live tail never read
+      // it (Grok's RACEKILL: killed at +136 ms, its chunk already written).
+      const items = await history(lane)
+      const at = entryAt(items, text)
+      const { receipt, heard } = await killedSend({
+        lane,
+        items,
+        upTo: at,
+        text,
+        afterExit: items.slice(0, at + 1),
+      })
+      const entry = items[at]?.id
+      if (receipt.outcome === 'accepted') {
+        expect(receipt).toMatchObject({ transcriptItem: { id: entry } })
+        expect(heard).toEqual([])
+      } else {
+        expect(receipt.outcome).toBe('unverified')
+        expect(heard).toEqual([{ entry }])
+      }
+    })
+
+    it('an unreadable history after the exit proves nothing', async () => {
+      const items = await history('claude-code')
+      const at = entryAt(items, 'AFTER-KILL9 C')
+      const { receipt, heard } = await killedSend({
+        lane: 'claude-code',
+        items,
+        upTo: at,
+        text: 'TOOLSLEEP C2 killed at 200ms',
+        afterExit: 'unreadable',
+      })
+      expect(receipt.outcome).toBe('unverified')
+      expect(heard).toEqual([])
+    })
+
+    it('an exit proves nothing for a program where N4 was never run (Cursor)', async () => {
+      const { receipt, heard } = await killedSend({
+        lane: 'cursor',
+        items: [],
+        upTo: 0,
+        text: 'ship it',
+        afterExit: [],
+      })
+      expect(receipt.outcome).toBe('unverified')
+      expect(heard).toEqual([])
+    })
+  })
+
+  /**
+   * CLAUDE DROPPED IT (POD-4887, spec §6.1 N2b). The lane's A7–A9 runs with a
+   * blocking UserPromptSubmit hook
+   * (timelines/userpromptsubmit-hook-blocks-idle-and-queued.txt): queued, the
+   * `enqueue` and then `remove` with `reason: "dropped_by_hook"`; idle, a
+   * "blocked by hook" record and no `user` record. Both are Claude's own
+   * record that the prompt is not in the conversation.
+   */
+  describe('Claude dropped it (POD-4887, spec §6.1 N2b)', () => {
+    const dropped = {
+      unrecorded: 'the agent program dropped it (a hook blocked it)',
+      proof: 'dropped-by-agent',
+    }
+
+    /** Where the record holding `items[index]` starts: its display items
+     *  come before its proof-only ones. */
+    function recordStart(items: readonly TranscriptItem[], index: number): number {
+      const offset = (item: TranscriptItem | undefined) =>
+        item?.cursor ? decodeCursor(item.cursor)?.offset : undefined
+      let start = index
+      while (start > 0 && offset(items[start - 1]) === offset(items[index])) start -= 1
+      return start
+    }
+
+    it('a queued prompt its hook dropped goes accepted on `enqueue`, then not delivered', async () => {
+      const text = 'BLOCKME A8 queued in tool'
+      const world = makeWorld()
+      const items = await history('claude-code')
+      const enqueue = items.findIndex((item) => item.queued && item.text === text)
+      const drop = items.findIndex((item) => item.dropped && item.text === text)
+      expect(enqueue).toBeGreaterThan(0)
+      expect(drop).toBeGreaterThan(enqueue)
+      const { handle, sessionId } = await laneSession(world, 'claude-code', items, enqueue)
+      world.onSubmit(sessionId, () => post(world, sessionId, items.slice(enqueue, drop + 1)))
+      const heard: unknown[] = []
+      const receipt = await handle.send(
+        { id: 'msg-blocked-queued', text },
+        {
+          origin: 'human',
+          delivery: 'when-ready',
+          onTranscriptItem: (item) => heard.push({ entry: item.id }),
+          onUnrecorded: (reason, proof) => heard.push({ unrecorded: reason, proof }),
+        },
+      )
+      await waitUntil(() => heard.length > 0)
+      // The drop can land in the same read as the `enqueue`: then the send
+      // hears it before its receipt, which stays `unverified`.
+      if (receipt.outcome === 'accepted') expect(receipt).toMatchObject({ held: 'memory' })
+      else expect(receipt.outcome).toBe('unverified')
+      expect(heard).toEqual([dropped])
+      world.runtime.dispose()
+    })
+
+    it('an idle prompt its hook blocked is not delivered, and the receipt says so first', async () => {
+      const text = 'BLOCKME A7 idle'
+      const world = makeWorld()
+      const items = await history('claude-code')
+      const drop = items.findIndex((item) => item.dropped && item.text === text)
+      const start = recordStart(items, drop)
+      const { handle, sessionId } = await laneSession(world, 'claude-code', items, start)
+      world.onSubmit(sessionId, () => post(world, sessionId, items.slice(start, drop + 1)))
+      const heard: unknown[] = []
+      const receipt = await handle.send(
+        { id: 'msg-blocked-idle', text },
+        {
+          origin: 'human',
+          delivery: 'when-ready',
+          onUnrecorded: (reason, proof) => heard.push({ unrecorded: reason, proof }),
+        },
+      )
+      expect(heard).toEqual([dropped])
+      expect(receipt.outcome).toBe('unverified')
+      world.runtime.dispose()
+    })
+
+    it('a durable row its hook blocked settles failed, dropped by the agent, never unknown', async () => {
+      const text = 'BLOCKME A7 idle'
+      const world = makeWorld()
+      const items = await history('claude-code')
+      const drop = items.findIndex((item) => item.dropped && item.text === text)
+      const start = recordStart(items, drop)
+      const { handle, sessionId } = await laneSession(world, 'claude-code', items, start)
+      world.onSubmit(sessionId, () => post(world, sessionId, items.slice(start, drop + 1)))
+      await handle.send(
+        { id: 'msg-row-blocked', rowId: 'msg-row-blocked', text },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      await waitUntil(() => deliveriesOf(world).some((event) => event.outcome === 'failed'))
+      expect(deliveriesOf(world)).toEqual([
+        expect.objectContaining({
+          rowId: 'msg-row-blocked',
+          outcome: 'failed',
+          cause: 'dropped-by-agent',
+        }),
+      ])
+      // Proof-only: the drop record never leaves the machine.
+      const shown = world.frames.flatMap((frame) =>
+        frame.type === 'runtimeEvent' && frame.event.t === 'item' && frame.event.item.kind === 'complete'
+          ? [frame.event.item.item]
+          : [],
+      )
+      expect(shown.filter((item) => item.dropped)).toEqual([])
+      world.runtime.dispose()
+    })
   })
 })

@@ -36,7 +36,7 @@ import {
   reduceAgentState,
   type AgentStateEvent,
 } from '@podium/harness'
-import type { AgentRuntimeState, SessionId } from '@podium/model'
+import { type AgentRuntimeState, isProofOnlyItem, type SessionId } from '@podium/model'
 import type { ProviderCursor } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { DaemonContext } from './control/context'
@@ -127,14 +127,14 @@ export function createFrameSink(ports: FrameSinkPorts): (message: DaemonMessage)
 /**
  * PROOF-ONLY TRANSCRIPT ITEMS STAY ON THE MACHINE (POD-4905). A `queued` item
  * is Claude's queue record, read by the terminal driver as a held receipt
- * through the tap above; it is not part of the conversation, so no delta the
- * server keeps or shows carries it. A delta that held nothing else is not sent
+ * through the tap above, and a `dropped` one its record of a drop (POD-4887).
+ * Neither is part of the conversation, so no delta the server keeps or shows
+ * carries it. A delta that held nothing else is not sent
  * at all, unless it is a reset: a reset says the store was replaced.
  */
 function withoutProofOnlyItems(message: DaemonMessage): DaemonMessage | undefined {
-  if (message.type !== 'transcriptDelta' || !message.items.some((item) => item.queued))
-    return message
-  const items = message.items.filter((item) => !item.queued)
+  if (message.type !== 'transcriptDelta' || !message.items.some(isProofOnlyItem)) return message
+  const items = message.items.filter((item) => !isProofOnlyItem(item))
   if (items.length === 0 && !message.reset) return undefined
   const tail = items.at(-1)?.cursor
   const { tail: _stripped, ...rest } = message

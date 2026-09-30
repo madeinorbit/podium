@@ -25,6 +25,7 @@ export {
   type AcceptPort,
   type AcceptSeen,
   type AcceptWatch,
+  type Disproof,
   createTerminalInjection,
   DEFAULT_TERMINAL_INTERRUPT,
   type DeliverOptions,

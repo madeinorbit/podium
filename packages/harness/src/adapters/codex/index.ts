@@ -441,6 +441,9 @@ export const codexManifest: AgentManifest = {
       // Rollout records carry an ISO `timestamp` at millisecond resolution
       // (checked against real rollouts, 2026-09-29).
       transcriptTimestamps: { resolutionMs: 1 },
+      // N4 (POD-4887): Enter-held and Tab-queued messages are lost on a kill;
+      // the rollout is the whole conversation (0.155.0, POD-4863).
+      exitLosesUnrecorded: true,
     },
     // App-server is the default for every LOGGED-IN Codex auth mode when the
     // version probe admits it. A logged-out session needs the PTY's interactive

@@ -72,7 +72,7 @@
  * outcome.
  */
 
-import type { HarnessRef, TranscriptItemRef } from '@podium/model'
+import type { HarnessRef, NotInConversationCause, TranscriptItemRef } from '@podium/model'
 import type { QueueDrainAbandonedReason as WireQueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { ActingPrincipal, InputOrigin, TurnDelivery, TurnReceipt } from '../../turns.js'
 import { injectionPayload } from './paste.js'
@@ -177,7 +177,17 @@ export interface AcceptPort {
 }
 
 /** What the history showed for a send inside its window. */
-type Proven = { kind: 'recorded'; transcriptItem?: TranscriptItemRef } | { kind: 'held' }
+type Proven =
+  | { kind: 'recorded'; transcriptItem?: TranscriptItemRef }
+  | { kind: 'held' }
+  | ({ kind: 'disproved' } & Disproof)
+
+/** The program's own evidence that a prompt is not in its conversation
+ *  (POD-4887; spec §6.1 N2b, N4), and the words for it. */
+export interface Disproof {
+  readonly proof: NotInConversationCause
+  readonly reason: string
+}
 
 /** What an accept observation said about the prompt it credited. */
 export interface AcceptSeen {
@@ -209,6 +219,14 @@ export interface AcceptWatch {
    * the channel cannot tell, as for a hook.
    */
   readonly passed?: Promise<void>
+  /**
+   * Resolves once the program's OWN evidence proves this prompt is not in its
+   * conversation (POD-4887; spec §6.1): it recorded dropping it (N2b), or its
+   * process exited and its history, read to the end after the exit, holds
+   * nothing for it (N4). Never from a timer, a hook, the screen or an agent
+   * state. Absent where the channel cannot tell.
+   */
+  readonly disproved?: Promise<Disproof>
   /** Idempotent; removes the waiter when the send ends. */
   cancel(): void
 }
@@ -366,8 +384,10 @@ export interface DeliverOptions {
    *  records it (POD-4774, POD-4905). Called at most once. */
   onTranscriptItem?: (item: TranscriptItemRef, harnessRef?: HarnessRef) => void
   /** A held send the harness will not record any more (POD-4849): its watch
-   *  closed first. Called at most once, never with `onTranscriptItem`. */
-  onUnrecorded?: (reason: string) => void
+   *  closed first. Called at most once, never with `onTranscriptItem`. With
+   *  `proof`, the program's own evidence says it is not in the conversation
+   *  (POD-4887) — also for an `unverified` send, in or after the window. */
+  onUnrecorded?: (reason: string, proof?: NotInConversationCause) => void
   /** The echo of a send that answered `unverified`, when it lands after the
    *  window (POD-4840). Called at most once. */
   onLateProof?: (seen: AcceptSeen) => void
@@ -472,17 +492,24 @@ export function createTerminalInjection(
     if (!echoWatch) return null
     let recorded: AcceptSeen | undefined
     let held = false
+    let disproved: Disproof | undefined
     void echoWatch.accepted.then((seen) => {
       recorded ??= seen
     })
     void echoWatch.held?.then(() => {
       held = true
     })
+    void echoWatch.disproved?.then((disproof) => {
+      disproved ??= disproof
+    })
     const proven = (): Proven | null => {
       if (recorded) {
         const transcriptItem = recorded.transcriptItem
         return { kind: 'recorded', ...(transcriptItem ? { transcriptItem } : {}) }
       }
+      // A DROP OUTRANKS THE HOLD IT ENDS (POD-4887): Claude writes `enqueue`
+      // and then, 25–32 ms later, `dropped_by_hook`; one read may carry both.
+      if (disproved) return { kind: 'disproved', ...disproved }
       return held ? { kind: 'held' } : null
     }
     let retriesLeft = ports.needsSubmitVerification() ? SUBMIT_MAX_RETRIES : 0
@@ -497,8 +524,9 @@ export function createTerminalInjection(
       const tick = sleep(SUBMIT_VERIFY_DELAY_MS)
       const settled: Promise<unknown>[] = [tick, echoWatch.accepted]
       if (echoWatch.held) settled.push(echoWatch.held)
+      if (echoWatch.disproved) settled.push(echoWatch.disproved)
       await Promise.race(settled)
-      if (recorded || held) return proven()
+      if (recorded || held || disproved) return proven()
       if (signal?.aborted) return null
       // A dead session cannot record and cannot be nudged. Stop; the caller gets
       // `unverified`, which is the truth: the bytes went out, nothing confirmed.
@@ -583,17 +611,25 @@ export function createTerminalInjection(
 
       const verificationStartedAt = ports.now()
       const proof = await awaitProof(echoWatch, options.signal, options.initialPrompt)
+      const unverified = (): TurnReceipt => ({
+        outcome: 'unverified',
+        deliveredAs: options.delivery,
+        verificationWindowMs: ports.now() - verificationStartedAt,
+        at: new Date(ports.now()).toISOString(),
+      })
       if (!proof) {
-        if (echoWatch && options.onLateProof) {
-          awaitLateProof(echoWatch, options.onLateProof)
+        if (echoWatch && (options.onLateProof || options.onUnrecorded)) {
+          awaitLateProof(echoWatch, options)
           kept = echoWatch
         }
-        return {
-          outcome: 'unverified',
-          deliveredAs: options.delivery,
-          verificationWindowMs: ports.now() - verificationStartedAt,
-          at: new Date(ports.now()).toISOString(),
-        }
+        return unverified()
+      }
+      if (proof.kind === 'disproved') {
+        // THE PROGRAM'S OWN "NO" INSIDE THE WINDOW (POD-4887): typed, so the
+        // receipt stays `unverified`; the proof goes first, and the delivery
+        // queue settles the row on it — `failed`, safe to resend.
+        options.onUnrecorded?.(proof.reason, proof.proof)
+        return unverified()
       }
       if (proof.kind === 'held' && echoWatch) {
         followHeld(echoWatch, options, ids)
@@ -622,11 +658,15 @@ export function createTerminalInjection(
    * that it landed (POD-4840). The same match as inside the window — a frame
    * id, or order plus text — so a late proof is exactly as strong as a timely
    * one. It closes on the first of: the proof; the history moving past the
-   * send without it (`passed`); `LATE_PROOF_WAIT_MS`; the session's teardown.
-   * `passed` is attached first, so a history that moved on before the proof
-   * arrived closes the watch even when both are already settled.
+   * send without it (`passed`); `LATE_PROOF_WAIT_MS`; the session's teardown;
+   * the program's own "no" (POD-4887), passed on as a late one. `passed` is
+   * attached first, so a history that moved on before the proof arrived
+   * closes the watch even when both are already settled.
    */
-  function awaitLateProof(echoWatch: AcceptWatch, onProof: (seen: AcceptSeen) => void): void {
+  function awaitLateProof(
+    echoWatch: AcceptWatch,
+    options: Pick<DeliverOptions, 'onLateProof' | 'onUnrecorded'>,
+  ): void {
     let open = true
     const close = (): void => {
       if (!open) return
@@ -639,7 +679,14 @@ export function createTerminalInjection(
     void echoWatch.accepted.then((seen) => {
       if (!open || disposed) return
       close()
-      onProof(seen)
+      options.onLateProof?.(seen)
+    })
+    // A LATE "NO" (POD-4887): the program exited after the window and its
+    // history, read to the end, lacks the prompt — or it recorded the drop.
+    void echoWatch.disproved?.then(({ reason, proof }) => {
+      if (!open || disposed) return
+      close()
+      options.onUnrecorded?.(reason, proof)
     })
   }
 
@@ -648,7 +695,9 @@ export function createTerminalInjection(
    * the prompt in memory: it names the entry when it records it, and says it
    * will not when the watch closes first — the history moved past it, the
    * late-proof ceiling passed, or the session was torn down. Closing proves
-   * no "no": the delivery queue settles such a row as unconfirmed.
+   * no "no": the delivery queue settles such a row as unconfirmed. Only the
+   * program's own evidence does (POD-4887): its drop record, or its exit with
+   * a history that lacks the prompt — and that is passed on as the proof.
    */
   function followHeld(
     echoWatch: AcceptWatch,
@@ -656,13 +705,13 @@ export function createTerminalInjection(
     ids: () => { harnessRef?: HarnessRef },
   ): void {
     let open = true
-    const close = (reason: string): void => {
+    const close = (reason: string, proof?: NotInConversationCause): void => {
       if (!open) return
       open = false
       ports.clearTimer(timer)
       heldWatches.delete(onDispose)
       echoWatch.cancel()
-      options.onUnrecorded?.(reason)
+      options.onUnrecorded?.(reason, proof)
     }
     const onDispose = (): void => close('the session ended before the harness recorded it')
     heldWatches.add(onDispose)
@@ -671,6 +720,8 @@ export function createTerminalInjection(
       LATE_PROOF_WAIT_MS,
     )
     void echoWatch.passed?.then(() => close('the history moved past it without recording it'))
+    // The program dropped it, or exited without it (POD-4887): a proven "no".
+    void echoWatch.disproved?.then(({ reason, proof }) => close(reason, proof))
     void echoWatch.accepted.then((seen) => {
       if (!open || disposed) return
       open = false

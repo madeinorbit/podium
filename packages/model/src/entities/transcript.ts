@@ -117,6 +117,12 @@ export const TranscriptItem = z.object({
    *  live tail produces it, and the daemon strips it before anything is
    *  displayed or leaves the machine. Never a prompt entry. */
   queued: z.boolean().optional(),
+  /** PROOF-ONLY, NEVER SHOWN (POD-4887): the program's own record that it
+   *  DROPPED the prompt in `text` before its conversation took it — Claude's
+   *  `queue-operation remove` with `reason: "dropped_by_hook"`, or its
+   *  "blocked by hook" record for an idle prompt. The terminal driver reads it
+   *  as a proven "no" (spec §6.1 N2b); produced and stripped like `queued`. */
+  dropped: z.boolean().optional(),
   ts: z.string().optional(), // ISO 8601
   /** Markdown body. Empty for pure tool-call items. */
   text: z.string(),
@@ -168,6 +174,11 @@ export const TranscriptItem = z.object({
   durationMs: z.number().optional(),
 })
 export type TranscriptItem = z.infer<typeof TranscriptItem>
+
+/** A proof-only item (POD-4905, POD-4887): read by the terminal driver as a
+ *  receipt, never part of the conversation, never shown or sent upstream. */
+export const isProofOnlyItem = (item: Pick<TranscriptItem, 'queued' | 'dropped'>): boolean =>
+  item.queued === true || item.dropped === true
 
 /**
  * WHICH TRANSCRIPT ITEM A DELIVERED MESSAGE BECAME (POD-4774).

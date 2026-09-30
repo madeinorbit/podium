@@ -69,6 +69,7 @@ import type {
   AcceptPort,
   AcceptSeen,
   ActingPrincipal,
+  Disproof,
   AgentSessionHandle,
   AttachEndpoint,
   AttachRequest,
@@ -134,7 +135,7 @@ import type {
   SessionId,
   TranscriptItem,
 } from '@podium/model'
-import { asSessionId, transcriptItemRefOf } from '@podium/model'
+import { asSessionId, isProofOnlyItem, transcriptItemRefOf } from '@podium/model'
 import type { AgentObservation, ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 
@@ -178,6 +179,10 @@ export const EVENT_LOG_LIMIT = 512
  * reconstruct.
  */
 const PENDING_FRAME_LIMIT = 256
+
+/** How many of the newest history items the exit check reads (POD-4887). A
+ *  send whose start lies further back is left unproven, never disproved. */
+const EXIT_HISTORY_READ_LIMIT = 500
 
 // ---------------------------------------------------------------------------
 // The host port — TerminalHostPorts in ./host-ports.ts (POD-4785)
@@ -242,6 +247,9 @@ type AcceptWaiter = {
   /** The harness queued this prompt without recording it (POD-4905): see
    *  `AcceptWatch.held`. Idempotent. */
   hold: () => void
+  /** The program's own evidence says this prompt is not in its conversation
+   *  (POD-4887): see `AcceptWatch.disproved`. Idempotent; the first wins. */
+  disprove: (disproof: Disproof) => void
   /** The id of the podium message this text is, when it is wrapped: the only
    *  thing that confirms it (spec §5.1). Null for a person's own words. */
   frameId: string | null
@@ -364,6 +372,8 @@ export interface TerminalHarnessProfile {
   /** Whether transcript entries say when they were written — the echo proof's
    *  floor across segments. Manifest-owned; see `TranscriptTimestampFidelity`. */
   transcriptTimestamps: TranscriptTimestampFidelity
+  /** N4 holds for this program (POD-4887): see `TerminalRuntimeSpec`. */
+  exitLosesUnrecorded?: boolean
   /** Provider-poll agentState owns lifecycle and epochs; causal observations are ignored. */
   lifecycleFromState?: boolean
   /** Whether this harness's CLI needs the submit-verify CR nudges. */
@@ -1089,7 +1099,7 @@ export function createTerminalRuntime(
           msg.items,
         )
         // The conversation only: proof-only queue records stay here (POD-4905).
-        const shown = msg.items.filter((item) => !item.queued)
+        const shown = msg.items.filter((item) => !isProofOnlyItem(item))
         if (msg.reset) {
           session.transcriptVersions.clear()
           for (const item of shown) {
@@ -1124,6 +1134,7 @@ export function createTerminalRuntime(
         session.answerScript?.cancel('the process ended')
         session.alive = false
         session.live = false
+        void settleExited(session)
         // The process tree is gone. Its stream position dies with it for the
         // same reason `clear` drops one: a later process under this session is a
         // different conversation, and carrying a position across would fence out
@@ -1622,6 +1633,10 @@ export function createTerminalRuntime(
     if (!correlation || session.echoWaiters.size === 0) return
     const timestamps = profile?.transcriptTimestamps ?? 'absent'
     for (const item of items) {
+      if (item.dropped === true) {
+        creditDrop(session, correlation, item, timestamps)
+        continue
+      }
       const queued = item.queued === true
       if (!queued && !correlation.accepts(item)) continue
       const after = [...session.echoWaiters].filter((waiter) =>
@@ -1643,6 +1658,98 @@ export function createTerminalRuntime(
       // (POD-4840). Under the same floor as the credit: an older record a
       // re-read carries passes nothing.
       for (const waiter of after) if (waiter !== credited) waiter.pass()
+    }
+  }
+
+  /**
+   * THE PROGRAM RECORDED THAT IT DROPPED A PROMPT (POD-4887; spec §6.1 N2b):
+   * Claude's `dropped_by_hook` queue record, or its "blocked by hook" record
+   * for an idle prompt. It proves the prompt is not in the conversation, so
+   * it is bound as strictly as a record: a wrapped message by its frame id; a
+   * queued one to the one send its `enqueue` held with the same words; an
+   * idle one by order plus text, like the prompt entry it stands in for.
+   * Anything less binds nothing, and that send may still end `unknown`.
+   */
+  function creditDrop(
+    session: DriverSession,
+    correlation: TerminalEchoCorrelation,
+    item: TranscriptItem,
+    timestamps: TranscriptTimestampFidelity,
+  ): void {
+    const after = [...session.echoWaiters].filter((waiter) =>
+      echoIsAfterStart(item, waiter.start, timestamps),
+    )
+    if (after.length === 0) return
+    const frameId = podiumFrameId(item.text)
+    const matches = correlation.textMatches
+    const heldTwins = frameId || !matches
+      ? []
+      : after.filter((waiter) => waiter.held && !waiter.frameId && matches(waiter.text, item.text))
+    const dropped = frameId
+      ? after.find((waiter) => waiter.frameId === frameId)
+      : heldTwins.length > 0
+        ? heldTwins.length === 1
+          ? heldTwins[0]
+          : undefined
+        : creditOne(session, correlation, item.text, after, false)
+    if (heldTwins.length > 1) {
+      log.warn('drop not attributed: more than one held send has the same text', {
+        sessionId: session.sessionId,
+      })
+    }
+    if (!dropped) return
+    session.echoWaiters.delete(dropped)
+    dropped.disprove({ proof: 'dropped-by-agent', reason: 'the agent program dropped it (a hook blocked it)' })
+  }
+
+  /**
+   * THE PROGRAM EXITED (POD-4887; spec §6.1 N4). Where nothing it holds
+   * survives its exit (`exitLosesUnrecorded`, run per program), a send its
+   * history lacks is not in its conversation. The history is read to the end
+   * AFTER the exit, from the store, not the live tail (stopped at the exit,
+   * possibly short of the last records): a record found there proves the send
+   * as ever; a send it lacks is disproved — but only when the read reaches
+   * back past that send's start, so nothing unread can hold its record. A
+   * read that fails proves nothing.
+   */
+  async function settleExited(session: DriverSession): Promise<void> {
+    const profile = profiles.get(session.sessionId)
+    if (!profile?.exitLosesUnrecorded || session.echoWaiters.size === 0) return
+    const registration = registrations.get(session.sessionId)
+    if (!registration) return
+    const open = [...session.echoWaiters]
+    let page: RuntimeHistoryPage
+    try {
+      page = await host.readHistory(
+        {
+          sessionId: session.sessionId,
+          agentKind: session.agentKind,
+          cwd: registration.cwd,
+          ...(session.resume ? { resume: session.resume } : {}),
+        },
+        { limit: EXIT_HISTORY_READ_LIMIT },
+      )
+    } catch (error) {
+      log.warn('the history read after an exit failed: no send is disproved', {
+        sessionId: session.sessionId,
+        err: error,
+      })
+      return
+    }
+    const readable = page.items.filter((item) => !isProofOnlyItem(item))
+    creditEchoWaiters(session, readable)
+    const timestamps = profile.transcriptTimestamps
+    const oldest = readable[0]
+    for (const waiter of open) {
+      if (!session.echoWaiters.has(waiter)) continue
+      const reachesStart =
+        !page.hasMore || (oldest !== undefined && !echoIsAfterStart(oldest, waiter.start, timestamps))
+      if (!reachesStart) continue
+      session.echoWaiters.delete(waiter)
+      waiter.disprove({
+        proof: 'agent-exited',
+        reason: 'the agent program exited without recording it',
+      })
     }
   }
 
@@ -1721,6 +1828,10 @@ export function createTerminalRuntime(
       const held = new Promise<void>((resolve) => {
         markHeld = resolve
       })
+      let markDisproved: ((disproof: Disproof) => void) | undefined
+      const disproved = new Promise<Disproof>((resolve) => {
+        markDisproved = resolve
+      })
       // Read before the first byte: `typingStarts` marks the same count.
       // No counter (a host without one) arms nothing: no order credit.
       const armedAt = host.foreignWrites?.count(session.sessionId)
@@ -1733,6 +1844,7 @@ export function createTerminalRuntime(
           waiter.held = true
           markHeld?.()
         },
+        disprove: (disproof) => markDisproved?.(disproof),
         frameId: podiumFrameId(text),
         typingMark: () =>
           turnId === undefined
@@ -1747,6 +1859,7 @@ export function createTerminalRuntime(
         accepted,
         passed,
         held,
+        disproved,
         cancel() {
           waiters.delete(waiter)
         },
