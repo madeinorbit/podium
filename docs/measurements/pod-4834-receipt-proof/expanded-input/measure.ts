@@ -47,7 +47,7 @@ const run = { lane, version, commandPath, startedAt: new Date().toISOString(), r
   env, config: lane!.startsWith('opencode') ? ocConfig : readFileSync(`${home}/${lane!.startsWith('codex') ? '.codex' : '.grok'}/config.toml`, 'utf8'),
   tty: '180x45, independent tmux server; new terminal process for every case',
   methods: ['paste: tmux paste-buffer -r -p, exact input bytes including LF and CR',
-    'typed: tmux send-keys -l, unbracketed literal byte burst; 650ms pause then Enter; programs may detect bursts as paste',
+    'typed: tmux send-keys -l, unbracketed literal bytes in 256-character chunks, 40ms between writes; 650ms pause then Enter',
     'typed-paced: unbracketed literal bytes in 256-character chunks, 40ms between writes; 650ms pause then Enter'],
 }
 writeFileSync(`${out}/run.json`, JSON.stringify(run, null, 2) + '\n')
@@ -75,7 +75,7 @@ logChild(fake, 'fake')
 if (!await until(() => existsSync(`${out}/model-requests.jsonl`) && readFileSync(`${out}/model-requests.jsonl`, 'utf8').includes('listening'), 10000)) throw new Error('Fake did not listen')
 function files(dir: string): string[] {
   if (!existsSync(dir)) return []
-  return readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? files(join(dir, e.name)) : e.isFile() ? [join(dir, e.name)] : [])
+  try { return readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? files(join(dir, e.name)) : e.isFile() ? [join(dir, e.name)] : []) } catch { return [] }
 }
 type Native = { source: string, position: string | number, kind: string, raw: any, texts: string[], id?: string }
 const contentText = (value: any): string[] => typeof value === 'string' ? [value] : Array.isArray(value)
@@ -106,8 +106,10 @@ function history(): Native[] {
     } finally { db.close() }
     return rows
   }
-  const dir = lane!.startsWith('codex') ? `${home}/.codex` : `${home}/.grok/sessions`
-  for (const file of files(dir)) {
+  const dir = lane!.startsWith('codex') ? `${home}/.codex/sessions` : `${home}/.grok/sessions`
+  const sources = files(dir)
+  if (lane!.startsWith('codex') && existsSync(`${home}/.codex/history.jsonl`)) sources.push(`${home}/.codex/history.jsonl`)
+  for (const file of sources) {
     if (file.includes('/prompts/') && file.endsWith('.txt')) {
       const text = readFileSync(file, 'utf8')
       rows.push({ source: file.slice(home.length + 1), position: 0, kind: 'spill-file', raw: { text, bytes: bytes(text), sha256: sha(text) }, texts: [text] })
@@ -144,6 +146,26 @@ let program: ChildProcess | undefined
 const tmuxSocket = `pod4984-${process.pid}`
 const tmux = (...args: string[]) => execFileSync('tmux', ['-L', tmuxSocket, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 2 * 1024 * 1024 })
 const quote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'"
+async function stopTerminal() {
+  const owned: number[] = []
+  for (const entry of readdirSync('/proc')) {
+    if (!/^\d+$/.test(entry)) continue
+    const pid = Number(entry)
+    if (pid === process.pid || pid === fake.pid) continue
+    try {
+      if (readFileSync(`/proc/${pid}/environ`).toString().split('\0').includes(`HOME=${home}`)) owned.push(pid)
+    } catch {}
+  }
+  for (const pid of owned) { try { process.kill(pid, 'SIGTERM') } catch {} }
+  await sleep(400)
+  for (const pid of owned) {
+    try {
+      // Fence pid reuse with this run's unique HOME again.
+      if (readFileSync(`/proc/${pid}/environ`).toString().split('\0').includes(`HOME=${home}`)) process.kill(pid, 'SIGKILL')
+    } catch {}
+  }
+  try { tmux('kill-session', '-t', 'measure') } catch {}
+}
 function rpc(command: string[]) {
   program = spawn(bin, command, { env, cwd: work, stdio: ['pipe', 'pipe', 'pipe'] })
   const child = program
@@ -239,10 +261,10 @@ try {
             tmux('paste-buffer', '-r', '-p', '-b', 'input', '-t', 'measure')
           } else if (method === 'typed-paced' || method === 'typed') {
             for (let i = 0; i < c.text.length; i += 256) {
-              tmux('send-keys', '-t', 'measure', '-l', c.text.slice(i, i + 256))
+              tmux('send-keys', '-t', 'measure', '-l', '--', c.text.slice(i, i + 256))
               await sleep(40)
             }
-          } else tmux('send-keys', '-t', 'measure', '-l', c.text)
+          } else tmux('send-keys', '-t', 'measure', '-l', '--', c.text)
           await sleep(650)
           tmux('send-keys', '-t', 'measure', 'Enter')
           status = await until(() => history().filter(r => r.kind === 'prompt').length > before.filter(r => r.kind === 'prompt').length, 10000)
@@ -300,10 +322,11 @@ try {
         modelRequests: models.map(r => r.n), modelReceivedBody: models.some(r => JSON.stringify(r.messages).includes(c.body.slice(0, 24))) }
       rec('observations.jsonl', summary)
       console.log(`${lane} ${label}: ${prompts.length} prompt record(s), ${prompts.map(r => r.texts.map(bytes).join('+')).join(',')} bytes${error ? ' ERROR ' + error : ''}`)
-      if (terminal) { try { tmux('kill-session', '-t', 'measure') } catch {}; await sleep(200) }
+      if (terminal) { await stopTerminal(); await sleep(200) }
     }
   }
 } finally {
+  if (lane!.includes('terminal')) await stopTerminal()
   if (program) { program.kill('SIGTERM'); await sleep(400); if (program.exitCode === null) program.kill('SIGKILL') }
   try { tmux('kill-server') } catch {}
   // Kill the fake by its port, with a pid fence so we never kill someone else's server.
