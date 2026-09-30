@@ -93,18 +93,9 @@ export function createPlainTables(): TableSet<Map<string, StoredRow>> {
   return tablesOf(() => new Map<string, StoredRow>())
 }
 
-/** What one ingest did: writes that changed a slot, and the rows it removed. */
+/** What one ingest did: the rows it removed, so the pool drops their models. */
 export interface IngestOut {
-  writes: number
   removed: [EntityName, string][]
-  /** Cold rows registered, relinked or forgotten (POD-4567): no slot written. */
-  cold: number
-  /**
-   * Cursor-only issue updates absorbed without a slot write (POD-4686): the
-   * read-state lane moved, nothing else. Counts as a notification like a
-   * write (pool state changed), but wakes only the cursor's readers.
-   */
-  volatile: number
 }
 
 /** Reads go through `read` (the live pool's tables); writes go to `write` (the raw tables). */
@@ -166,11 +157,10 @@ export function put(
     previous !== undefined &&
     target.volatile?.absorbIssueRead(id, previous, row) === true
   ) {
-    out.volatile += 1
+    // Cursor-only: the read-state lane moved, no slot write, no relink.
     return
   }
   target.write[entity].set(id, row)
-  out.writes += 1
   if (entity === 'issue') target.volatile?.setIssueRead(id, row)
   target.relations?.changed(entity, id, previous, row)
 }
@@ -179,7 +169,6 @@ export function put(
 export function drop(target: IngestTarget, entity: EntityName, id: string, out: IngestOut): void {
   const previous = target.relations === undefined ? undefined : target.read[entity].get(id)
   if (!target.write[entity].delete(id)) return
-  out.writes += 1
   out.removed.push([entity, id])
   if (entity === 'issue') target.volatile?.removeIssueRead(id)
   target.relations?.changed(entity, id, previous as StoredRow | undefined, undefined)
@@ -218,5 +207,5 @@ export function ingestRecord(target: IngestTarget, record: RowRecord, out: Inges
 
 /** A fresh `IngestOut`. */
 export function ingestOut(): IngestOut {
-  return { writes: 0, removed: [], cold: 0, volatile: 0 }
+  return { removed: [] }
 }

@@ -55,7 +55,7 @@ import { diffSnapshots } from '../../../../shared/src/gen/check'
 import { CommitLogContext, currentCommitLog } from '../../../../shared/src/row-shell'
 import { type ScenarioEngine, startScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceIssue, SliceOrder } from '../../../../shared/src/slice-types'
-import { harnessMobxPoolArm, poolPendingLoads, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
+import { harnessMobxPoolArm, poolPendingLoads, tracked, visibleOrderOf, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import type { MobxPool } from '../pool'
 import { HEADER_HEIGHT, PoolList, ROW_HEIGHT } from '../react/list'
@@ -75,13 +75,13 @@ const STEPS = ['#1', '#2', '#3', '#4', '#5', '#6a', '#6b', '#6c', '#6d', '#7'] a
 /** Close load windows until nothing is queued (the mount asks for every drawn cold row). */
 function settle(pool: MobxPool): number {
   let rounds = 0
-  while (pool.residency?.hasQueued() && rounds < 100) {
+  while (poolPendingLoads(pool) > 0 && rounds < 100) {
     act(() => {
       pool.hydrate()
     })
     rounds += 1
   }
-  expect(pool.residency?.hasQueued()).toBe(false)
+  expect(poolPendingLoads(pool)).toBe(0)
   return rounds
 }
 
@@ -134,7 +134,7 @@ function checkParity(ctx: ScenarioEngine, handle: HarnessMobxPoolHandle, at: str
     (row) => row.issue.id,
   )
   expect(
-    tracked(() => [...pool.worklist.order]),
+    tracked(() => [...visibleOrderOf(pool)]),
     `${at}: visible order`,
   ).toEqual(flat)
   const snapshot = handle.snapshot()
@@ -216,7 +216,7 @@ describe('groups and closed folds (Mb2)', () => {
         mounted.reads.reset()
         const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
         expect(entry, methodology).toBeDefined()
-        const orderBefore = tracked(() => [...pool.worklist.order])
+        const orderBefore = tracked(() => [...visibleOrderOf(pool)])
         const lanesBefore = lanes(pool)
         let step: Awaited<ReturnType<typeof runFenceStep>> | undefined
         const headerRenders = await countHeaderRenders(async () => {
@@ -228,7 +228,7 @@ describe('groups and closed folds (Mb2)', () => {
         // with the data is the work-per-change check's (POD-4746).
         mounted.reads.assertNoCopies(mounted.handle)
         const orderMoved =
-          JSON.stringify(orderBefore) !== JSON.stringify(tracked(() => [...pool.worklist.order]))
+          JSON.stringify(orderBefore) !== JSON.stringify(tracked(() => [...visibleOrderOf(pool)]))
         const groupsChanged = changedGroups(lanesBefore, lanes(pool))
         // A header redraws exactly for its own group's lane change.
         expect(headerRenders, `${methodology}: header redraws`).toBe(groupsChanged.length)
@@ -300,7 +300,7 @@ describe('groups and closed folds (Mb2)', () => {
           return null
         })
       const placed = tracked(() =>
-        pool.worklist.order.map((id) => ({ id, placement: pool.knownIssue(id)?.placement })),
+        visibleOrderOf(pool).map((id) => ({ id, placement: pool.knownIssue(id)?.placement })),
       )
       const grace = placed.find(
         ({ placement }) => placement?.closed === true && !placement.dismissed && !placement.pinned,
@@ -329,7 +329,7 @@ describe('groups and closed folds (Mb2)', () => {
       expect(latched?.lane).toBe('open')
       // At its rank: every open neighbour before it ranks before it.
       const open = tracked(() => pool.groups.group(latched!.key).rowIds)
-      const rank = tracked(() => pool.worklist.order)
+      const rank = visibleOrderOf(pool)
       for (let i = 1; i < open.length; i += 1) {
         expect(rank.indexOf(open[i - 1]!)).toBeLessThan(rank.indexOf(open[i]!))
       }
@@ -412,7 +412,7 @@ describe('the windowed web list (Mb2)', () => {
           </CommitLogContext.Provider>,
         )
       })
-      const visible = tracked(() => pool.worklist.order.length)
+      const visible = visibleOrderOf(pool).length
       const drawn = () => el.querySelectorAll('[data-issue-row], [data-loading-row]').length
       const firstWindow = drawn()
       // A window, not the list: the viewport's worth of items plus overscan.
@@ -421,7 +421,7 @@ describe('the windowed web list (Mb2)', () => {
       expect(firstWindow).toBeLessThan(visible)
       const queuedAtPaint = poolPendingLoads(pool)
       const coldVisible = tracked(
-        () => pool.worklist.order.filter((id) => pool.residency?.isCold('issue', id)).length,
+        () => visibleOrderOf(pool).filter((id) => pool.residency?.isCold('issue', id)).length,
       )
       // What drawing the WHOLE list would load: every cold visible row and
       // every cold origin a visible spin-off's tick names. Since POD-4665 the
@@ -429,7 +429,7 @@ describe('the windowed web list (Mb2)', () => {
       // is the ticked origins; the window loads only those its rows reach.
       const wholeListLoads = tracked(() => {
         const cold = new Set<string>()
-        for (const id of pool.worklist.order) {
+        for (const id of visibleOrderOf(pool)) {
           if (pool.residency?.isCold('issue', id)) cold.add(id)
           const origin = pool.graph.one('issue', id, 'discoveredFrom')
           if (origin !== null && pool.residency?.isCold('issue', origin)) cold.add(origin)

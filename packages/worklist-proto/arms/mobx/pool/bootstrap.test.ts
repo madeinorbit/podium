@@ -21,6 +21,11 @@ import { spy } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { createReplaySource } from '../../../harness/src/count-harness'
 import { buildCorpus } from '../../../harness/src/fixture/index'
+import {
+  collectReactions,
+  filingReactions,
+  objectsBehind,
+} from '../../../harness/src/mobx-graph'
 import { writeResult } from '../../../harness/src/results'
 import { DISABLED_READ_FENCE } from '../../../shared/src/instrument/reads'
 import { settableLocals } from '../../../shared/src/locals-source'
@@ -84,28 +89,38 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
     )
     built[name] = (built[name] ?? 0) + 1
   })
-  const pool = boot(arm, feed)
+  // Filing reactions and model objects, counted from MobX's own graph
+  // (POD-4945): the product exposes no held-node or model counts. One filing
+  // reaction per issue in memory is an exact count here: `track` dedupes by
+  // id, so a double-track would show as growth.
+  let pool: MobxPool | null = null
+  const reactions = collectReactions(() => {
+    pool = boot(arm, feed)
+  })
   off()
+  const resolved = pool as MobxPool
+  const filing = filingReactions(reactions)
+  const models = objectsBehind(filing)
   const cell = {
     rows: tracked(() => ({
-      issue: pool.tables.issue.size,
-      session: pool.tables.session.size,
-      worktree: pool.tables.worktree.size,
-      repo: pool.tables.repo.size,
+      issue: resolved.tables.issue.size,
+      session: resolved.tables.session.size,
+      worktree: resolved.tables.worktree.size,
+      repo: resolved.tables.repo.size,
     })),
     cold: {
-      issue: pool.residency?.size('issue') ?? 0,
-      session: pool.residency?.size('session') ?? 0,
+      issue: resolved.residency?.ids('issue').length ?? 0,
+      session: resolved.residency?.ids('session').length ?? 0,
     },
-    models: pool.modelCount('issue') + pool.modelCount('session'),
-    issueModels: pool.modelCount('issue'),
-    sessionModels: pool.modelCount('session'),
-    held: pool.worklist.size(),
+    models: (models['IssueModel'] ?? 0) + (models['SessionModel'] ?? 0),
+    issueModels: models['IssueModel'] ?? 0,
+    sessionModels: models['SessionModel'] ?? 0,
+    held: filing.length,
     observables: Object.values(built).reduce((a, b) => a + b, 0),
     tableSlots: (built['pool.issue'] ?? 0) + (built['pool.session'] ?? 0),
     byMap: built,
   }
-  pool.dispose()
+  resolved.dispose()
   return cell
 }
 

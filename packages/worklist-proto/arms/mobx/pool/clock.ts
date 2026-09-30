@@ -70,11 +70,6 @@ export class DeadlineClock {
     return this.now
   }
 
-  /** How many deadlines are waited on now (tests; disposal). */
-  get waiting(): number {
-    return this.deadlines.length
-  }
-
   /** `coarseNow >= t`, tracked so that the answer's change wakes the reader. */
   reached(t: number): boolean {
     if (this.now >= t) {

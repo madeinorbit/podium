@@ -35,16 +35,16 @@
  * its parity stays green (the mistake is invisible to correctness checks).
  *
  * COLD ROWS (POD-4754, operator decision 2026-09-28: load the family on
- * demand). With a reader treating every closed issue as not in memory
- * (`outOfMemory`): a drawn row whose progress needs closed children shows
- * `loading`, asks for exactly that family in one load window, and once it
- * lands equals the oracle's progress; a row nobody draws asks for nothing; a
- * deep closed chain asks for one level per window and converges. At first
- * paint (1x and 4x, the default cold rule) the mounted list's rows ask for
- * their closed children in the first window and settle with nothing loading.
- * Attention keeps Ma3's pending marker: a row reopened to review whose ask
- * depends on a cold spin-off shows `loading` until the spin-off lands, then
- * the oracle's withdrawn ask.
+ * demand). Over the declared rule's own cold rows (POD-4945: no test seam):
+ * a drawn row whose progress needs closed children shows `loading`, asks for
+ * exactly that family in one load window, and once it lands equals the
+ * oracle's progress; a row nobody draws asks for nothing; a deep closed
+ * chain asks for one level per window and converges. At first paint (1x and
+ * 4x, the default cold rule) the mounted list's rows ask for their closed
+ * children in the first window and settle with nothing loading. Attention
+ * keeps Ma3's pending marker: a row reopened to review whose ask depends on
+ * a cold spin-off shows `loading` until the spin-off lands, then the
+ * oracle's withdrawn ask.
  */
 
 import { observable, reaction, runInAction } from 'mobx'
@@ -69,7 +69,7 @@ import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
 import type { RowView } from '../../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
-import { harnessMobxPoolArm, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
+import { harnessMobxPoolArm, poolPendingLoads, tracked, visibleOrderOf, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import type { MobxPool } from '../pool'
 import { rowViewOf } from '../models'
@@ -114,13 +114,13 @@ const everyAggregate: CheckableArm = {
 /** Close load windows until nothing is queued (the mount asks for every drawn cold row). */
 function settle(pool: MobxPool): number {
   let rounds = 0
-  while (pool.residency?.hasQueued() && rounds < 100) {
+  while (poolPendingLoads(pool) > 0 && rounds < 100) {
     act(() => {
       pool.hydrate()
     })
     rounds += 1
   }
-  expect(pool.residency?.hasQueued()).toBe(false)
+  expect(poolPendingLoads(pool)).toBe(0)
   return rounds
 }
 
@@ -208,7 +208,7 @@ interface Chain {
  */
 function findChain(pool: MobxPool): Chain {
   return tracked(() => {
-    for (const id of pool.worklist.order) {
+    for (const id of visibleOrderOf(pool)) {
       const rows = [id]
       let node = pool.knownIssue(id)
       while (node !== undefined && node.nestParent !== null && rows.length <= 5) {
@@ -288,31 +288,18 @@ async function chainStep(create: CheckableArm, parity: boolean): Promise<ChainCe
 
 const PROGRESS = ['progressDone', 'progressTotal'] as const
 
-/** A closed issue: what the family rig keeps out of memory. */
-function closedRow(value: unknown): boolean {
-  const issue = value as { closedAt?: unknown; stage?: unknown; closedReason?: unknown }
-  return issue.closedAt != null || issue.stage === 'done' || issue.closedReason != null
-}
-
 /**
- * The pool at 1x over the scenario engine, with a reader treating every
- * closed issue as not in memory (`outOfMemory`, POD-4743's test seam), a
- * load window that never closes on its own, and nothing drawn.
+ * The pool at 1x over the scenario engine, with the declared rule's own cold
+ * rows (closed issues nothing keeps: POD-4945, no test seam), a load window
+ * that never closes on its own, and nothing drawn.
  * `eagerRollups` is the plant: every visible row's roll-up derived and kept
  * alive whether or not it is drawn.
  */
 async function familyRig(eagerRollups = false) {
   const ctx = await startScenarioEngine(1)
   const feeds = openFenceFeeds(ctx, 'overlaid')
-  const closed = new Set(
-    feeds.rows.source
-      .snapshot('issue')
-      .filter((record) => closedRow(record.value))
-      .map((record) => record.id),
-  )
   const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
     schedule: () => () => {},
-    outOfMemory: (entity, id) => entity === 'issue' && closed.has(id),
   }) as HarnessMobxPoolHandle
   const { pool } = handle
   const residency = pool.residency!
@@ -320,7 +307,7 @@ async function familyRig(eagerRollups = false) {
   if (eagerRollups) {
     stops.push(
       reaction(
-        () => pool.worklist.order.map((id) => pool.knownIssue(id)?.rollup),
+        () => visibleOrderOf(pool).map((id) => pool.knownIssue(id)?.rollup),
         () => {},
       ),
     )
@@ -368,15 +355,21 @@ async function familyRig(eagerRollups = false) {
   /** Land what the pool asks for with nothing drawn; returns those issues and the visible set. */
   const settleOwn = (): string[] & { visible: ReadonlySet<string> } => {
     const asked: string[] = []
-    while (residency.hasQueued()) asked.push(...land())
+    for (;;) {
+      const batch = residency.take()
+      if (batch.length === 0) break
+      for (const [entity, id] of batch) residency.request(entity, id)
+      asked.push(...batch.map(key))
+      windows.push(batch.map(key))
+      pool.hydrate()
+    }
     windows.length = 0
-    return Object.assign(asked, { visible: tracked(() => new Set(pool.worklist.order)) })
+    return Object.assign(asked, { visible: new Set(visibleOrderOf(pool)) })
   }
   return {
     ctx,
     pool,
     residency,
-    closed,
     windows,
     land,
     queued,
@@ -420,7 +413,7 @@ function coldLevels(rig: FamilyRig, root: string): string[][] {
 /** A hot visible row whose progress needs closed children, and no cold row besides its closure's. */
 function familyParents(rig: FamilyRig): { id: string; levels: string[][] }[] {
   return tracked(() =>
-    rig.pool.worklist.order
+    visibleOrderOf(rig.pool)
       .filter((id) => !rig.residency.isCold('issue', id))
       .filter((id) => {
         const node = rig.pool.knownIssue(id)!
@@ -497,7 +490,7 @@ describe('row roll-ups (Mb3)', () => {
       try {
         const residency = pool.residency!
         // Mounted, nothing landed yet: what every drawn row shows.
-        const visible = tracked(() => [...pool.worklist.order])
+        const visible = [...visibleOrderOf(pool)]
         const firstPaint = tracked(() =>
           visible.map((id) => {
             const view = rowViewOf(pool.issue(id))
@@ -571,12 +564,11 @@ describe('row roll-ups (Mb3)', () => {
   it('a drawn row loads its closed family in one batch, shows loading until it lands, then equals the oracle; an undrawn row loads nothing', async () => {
     const rig = await familyRig()
     try {
-      // Nothing drawn. What the pool asks for on its own is the reader's
-      // held-out VISIBLE rows (closed rows still shown: the list's own rows,
-      // POD-4743's path), never a row's closed child. They land first.
+      // Nothing drawn, nothing asked for: visibility reads cold rows by id
+      // without loading them, and no visible row is cold by the rule. They
+      // land first (none here).
       const own = rig.settleOwn()
-      expect(own.length, 'closed rows still shown, held out').toBeGreaterThan(0)
-      expect(own.filter((id) => !own.visible.has(id)), 'undrawn: no family asked for').toEqual([])
+      expect(own, 'nothing asked for with nothing drawn').toEqual([])
       const parents = familyParents(rig)
       // One cold level only (the chain test below covers deeper ones), two
       // or more closed children, and a second such row to leave undrawn.
@@ -752,7 +744,7 @@ describe('row roll-ups (Mb3)', () => {
       // that continuation (`issueContinuation`), which only the spin-off's own
       // row can tell.
       const found = tracked(() => {
-        for (const id of pool.worklist.order) {
+        for (const id of visibleOrderOf(pool)) {
           const node = pool.knownIssue(id)!
           const row = pool.visibleInputs.issueRow(id)
           if (row?.audience !== 'human' || node.openOwn || node.rosterIds.length > 0) continue
@@ -797,7 +789,7 @@ describe('row roll-ups (Mb3)', () => {
       expect(waiting.loading, 'loading while the spin-off is pending').toBe(true)
       expect(batch.some(([entity, rowId]) => entity === 'issue' && rowId === spinOff)).toBe(true)
       let windows = 0
-      while (residency.hasQueued() && windows < 16) {
+      while (poolPendingLoads(pool) > 0 && windows < 16) {
         pool.hydrate()
         windows += 1
       }

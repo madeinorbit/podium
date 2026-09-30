@@ -51,7 +51,7 @@ import {
   upsert,
   writeTitleRename,
 } from '../../../../shared/src/scenarios'
-import { harnessMobxPoolArm, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
+import { harnessMobxPoolArm, poolPendingLoads, tracked, visibleOrderOf, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import type { MobxPool } from '../pool'
 import { PoolRow } from '../react/row'
@@ -82,13 +82,13 @@ const OWN_FIELDS = [
 /** Close load windows until nothing is queued (the mount asks for every visible cold row). */
 function settle(pool: MobxPool): number {
   let rounds = 0
-  while (pool.residency?.hasQueued() && rounds < 100) {
+  while (poolPendingLoads(pool) > 0 && rounds < 100) {
     act(() => {
       pool.hydrate()
     })
     rounds += 1
   }
-  expect(pool.residency?.hasQueued()).toBe(false)
+  expect(poolPendingLoads(pool)).toBe(0)
   return rounds
 }
 
@@ -112,7 +112,7 @@ function checkParity(ctx: ScenarioEngine, handle: HarnessMobxPoolHandle, at: str
   const { pool } = handle
   const snapshot = handle.snapshot()
   const expected = oracleOrder(ctx)
-  const order = tracked(() => [...pool.worklist.order])
+  const order = tracked(() => [...visibleOrderOf(pool)])
   const cold = order.filter((id) => pool.residency?.isCold('issue', id) === true).length
   expect(order, `${at}: visible order`).toEqual(expected)
   expect(Object.keys(snapshot.rowsById), `${at}: snapshot rows`).toEqual(expected)
@@ -160,7 +160,7 @@ describe('visible collection and order (Mb1)', () => {
       for (const methodology of ['#1', '#2', '#3', '#4', '#5']) {
         const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
         expect(entry, methodology).toBeDefined()
-        const visibleBefore = new Set(tracked(() => [...pool.worklist.order]))
+        const visibleBefore = new Set(tracked(() => [...visibleOrderOf(pool)]))
         const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
         // runCountScenario read the snapshot after counting: nothing loads mid-step.
         assertCommits(result)
@@ -209,7 +209,7 @@ describe('visible collection and order (Mb1)', () => {
     const { pool } = mounted.handle as HarnessMobxPoolHandle
     try {
       settle(pool)
-      const before = tracked(() => [...pool.worklist.order])
+      const before = tracked(() => [...visibleOrderOf(pool)])
       // Pin the LAST visible unpinned row: band 1 → 0, so it moves to the top block.
       const target = tracked(() =>
         [...before].reverse().find((id) => pool.knownIssue(id)?.standing?.pinned === false),
@@ -223,7 +223,7 @@ describe('visible collection and order (Mb1)', () => {
         await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
         feeds.flush()
       })
-      const after = tracked(() => [...pool.worklist.order])
+      const after = tracked(() => [...visibleOrderOf(pool)])
       // One filing: out of its group's member and open lanes, into the pinned section.
       expect(after.indexOf(target!)).toBeLessThan(before.indexOf(target!))
       expect(new Set(after)).toEqual(new Set(before))

@@ -18,7 +18,7 @@ import { DISABLED_READ_FENCE } from '../../../../shared/src/instrument/reads'
 import { settableLocals } from '../../../../shared/src/locals-source'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { RowRecord } from '../../../../shared/src/stats'
-import { harnessMobxPoolArm, tracked } from '../../../../harness/src/adapters/mobx-pool'
+import { harnessMobxPoolArm, tracked, visibleOrderOf } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 
 installMobxWarnTrap()
@@ -62,14 +62,14 @@ describe('group label (POD-4757 H1)', () => {
         (label) => labels.push(label),
         { fireImmediately: true },
       )
-      const orderBefore = tracked(() => [...pool.worklist.order])
+      const orderBefore = visibleOrderOf(pool)
       const lanesBefore = tracked(() => [[...group.rowIds], [...group.closedIds]])
       try {
         const moved: SliceIssue = { ...head, repoPath: '/elsewhere/renamed-checkout' }
         replay.push({ type: 'update', rows: [{ kind: 'issue', id: head.id, value: moved }] })
         // Nothing moved: same key, same order, same lanes, no lane touched.
         expect(tracked(() => pool.groups.keys.includes(key))).toBe(true)
-        expect(tracked(() => [...pool.worklist.order])).toEqual(orderBefore)
+        expect(visibleOrderOf(pool)).toEqual(orderBefore)
         expect(tracked(() => [[...group.rowIds], [...group.closedIds]])).toEqual(lanesBefore)
         // The header follows its head.
         expect(labels.at(-1)).toBe('renamed-checkout')

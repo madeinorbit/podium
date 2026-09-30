@@ -134,7 +134,7 @@ async function measure(scale: 1 | 4) {
     // Both pools, bootstrapped on the same feed, held to the declared rule.
     const never = { schedule: () => () => {} }
     const pools = {
-      mobx: mobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, never),
+      mobx: mobxPoolArm.create(feeds.rows.source, feeds.locals.source, never),
       hand: harnessHandPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, never),
     }
     const pooled: Record<string, unknown> = {}
@@ -147,8 +147,8 @@ async function measure(scale: 1 | 4) {
             ? mobxDiffResidency(pools.mobx.pool, feeds.rows.source)
             : handDiffResidency(pools.hand.pool, feeds.rows.source)
         pooled[name] = {
-          coldIssues: residency.size('issue'),
-          coldSessions: residency.size('session'),
+          coldIssues: residency.ids('issue').length,
+          coldSessions: residency.ids('session').length,
           coldVisible: order.filter((id) => residency.isCold('issue', id)).length,
           notColdByRule: residency.ids('issue').filter((id) => !declaredCold('issue', id)).length,
           partition: diff,

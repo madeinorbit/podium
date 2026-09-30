@@ -1,25 +1,33 @@
 /**
- * POD-4760 + POD-4944 — the MobX pool's harness adapter: helpers that exist
- * only for the test harness, on top of the pool's public product API.
+ * POD-4760 + POD-4944 + POD-4945 — the MobX pool's harness adapter: helpers
+ * that exist only for the test harness, on top of the pool's public product
+ * API.
  *
  * The product pool (`arms/mobx/pool/pool.ts`) keeps only what production
  * needs: tables, relations, visibility maintenance, the load window
- * (`hydrate`), and `dispose`. It never configures MobX (see `enforce.ts`:
- * tests apply it through `mobx-trap.ts`) and it has no out-of-reaction
- * reader, no drain loop, and no settling snapshot.
+ * (`hydrate`, which reports how many rows it installed), and `dispose`. It
+ * never configures MobX (tests apply `mobx-enforce.ts` through
+ * `mobx-trap.ts`), it has no out-of-reaction reader, no drain loop, no
+ * settling snapshot, and no stats: the harness owns all of those here.
  *
  * This module owns those harness pieces:
  * - `tracked()`: the transient-reaction reader the harness uses for
- *   out-of-reaction reads (moved from `pool.ts`);
+ *   out-of-reaction reads;
  * - the drain helpers (`settlePoolLoads`, `poolPendingLoads`,
- *   `residentIssueIdsOf`) and the settling snapshot (`snapshotPool`);
+ *   `visibleOrderOf`) and the settling snapshot (`snapshotPool`);
  * - `harnessMobxPoolArm`: the full `CheckableArm` + `LazyArmHandle` the
  *   fences, gates and lanes run. It wraps the product arm's handle
- *   (`mobxPoolArm.create`) — the ONE entry point — and adds only the
+ *   (`mobxPoolArm.create`, the ONE entry point) and adds only the
  *   harness snapshot / rebuild / drain hooks plus the flush bookkeeping;
  * - `harnessWritableMobxPoolArm`: the same over the product write arm
  *   (`writableMobxPoolArm(...).create(...)`), with the optimism-aware
  *   rebuild on top.
+ *
+ * The load queue is observed from outside (POD-4945): the adapter wraps the
+ * window's `schedule`, so an armed window means loads are pending
+ * (`poolPendingLoads`), and drains by closing windows until one installs
+ * nothing (`pool.hydrate()` reports its installed rows). The product
+ * `Residency` exposes no queue depth.
  */
 
 import { flushSync } from 'react-dom'
@@ -32,18 +40,20 @@ import type {
   RowSource,
 } from '../../../shared/src/arm'
 import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
+import { compareRank } from '../../../shared/src/row-view'
 import type { SliceSnapshot } from '../../../shared/src/slice-types'
-import type { RowRecord } from '../../../shared/src/stats'
+import type { ArmStats, RowRecord } from '../../../shared/src/stats'
 import type { WriteTransport } from '../../../shared/src/write-contract'
 import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
 import type { MobxPool, PoolLazyOptions, WriteSeam } from '../../../arms/mobx/pool/pool'
 import { rebuildSnapshot } from './mobx-rebuild'
 import { rowViewOf } from '../../../arms/mobx/pool/models'
-import { sliceOrderOf } from '../../../arms/mobx/pool/worklist/groups'
+import { sliceOrderOf, type Layout } from '../../../arms/mobx/pool/worklist/groups'
 import { sliceRowOf } from '../../../shared/src/row-view'
 import type { MobxWriteApi } from '../../../arms/mobx/pool/write/edit'
 import { writableMobxPoolArm } from '../../../arms/mobx/pool/write/arm'
 import type { SliceIssue } from '../../../shared/src/slice-types'
+import type { Schedule } from '../../../arms/mobx/pool/residency'
 
 /** Load rounds the harness drain allows before it gives up (a load that never lands). */
 const MAX_LOAD_ROUNDS = 64
@@ -56,8 +66,7 @@ const REDRAW_ROUNDS = 64
  * outside any reaction (the harness's snapshot) are tracked reads and never
  * trip `computedRequiresReaction` / `observableRequiresReaction`.
  *
- * Moved from `arms/mobx/pool/pool.ts` (POD-4760): only the harness reads
- * outside a reaction.
+ * Only the harness reads outside a reaction.
  */
 export function tracked<T>(read: () => T): T {
   let result: { value: T } | null = null
@@ -76,48 +85,118 @@ export function tracked<T>(read: () => T): T {
   return (result as { value: T }).value
 }
 
-/** Rows queued for a load and not yet landed (the fence's pending probe). */
-export function poolPendingLoads(pool: MobxPool): number {
-  return pool.residency?.queued() ?? 0
+/** The window's default timer (what the product pool uses without one). */
+const defaultSchedule: Schedule = (run, ms) => {
+  const timer = setTimeout(run, ms)
+  return () => clearTimeout(timer)
 }
 
 /**
- * Close the load window until nothing is queued: every queued row, and every
- * row those rows' installation queues in turn. Returns the windows closed.
+ * Armed load windows per pool, counted by the schedule wrapper its `create`
+ * installed: the pool arms its window exactly while loads are queued, so an
+ * armed window means loads are pending. The product `Residency` exposes no
+ * queue depth; this is the harness's outside way to observe it (POD-4945).
+ */
+const armedByPool = new WeakMap<object, () => number>()
+
+/**
+ * The loader with its timer wrapped to count armed windows. Wrapping is
+ * transparent: the inner schedule still arms and fires, and its cancel still
+ * cancels; only the count is added.
+ */
+function watchWindows(
+  loader: Omit<PoolLazyOptions, 'load'>,
+): { loader: Omit<PoolLazyOptions, 'load'>; armed: () => number } {
+  let armed = 0
+  const inner = loader.schedule ?? defaultSchedule
+  const schedule: Schedule = (run, ms) => {
+    armed += 1
+    let done = false
+    const cancel = inner(
+      () => {
+        if (done) return
+        done = true
+        armed -= 1
+        run()
+      },
+      ms,
+    )
+    return () => {
+      if (done) return
+      done = true
+      armed -= 1
+      cancel()
+    }
+  }
+  return { loader: { ...loader, schedule }, armed: () => armed }
+}
+
+/**
+ * Loads queued for a load and not yet landed (the fence's pending probe):
+ * 1 while the pool's window is armed, else 0. A count of rows would need a
+ * product queue accessor; the fence only refuses a step that leaves loads,
+ * so armed-or-not answers it.
+ */
+export function poolPendingLoads(pool: MobxPool): number {
+  return (armedByPool.get(pool)?.() ?? 0) > 0 ? 1 : 0
+}
+
+/**
+ * Close the load window until a window installs nothing: every queued row,
+ * and every row those rows' installation queues in turn. Returns the windows
+ * that installed rows.
  */
 export function settlePoolLoads(pool: MobxPool): number {
-  const residency = pool.residency
-  if (residency === null) return 0
+  if (pool.residency === null) return 0
   let rounds = 0
-  while (residency.hasQueued()) {
+  while (pool.hydrate() > 0) {
+    rounds += 1
     if (rounds >= MAX_LOAD_ROUNDS) {
       throw new Error(`[pool] loads did not settle in ${MAX_LOAD_ROUNDS} load rounds`)
     }
-    pool.hydrate()
-    rounds += 1
   }
   return rounds
 }
 
-/** The resident issue ids (the rebuild's residency input; the rebuild ignores it). */
-export function residentIssueIdsOf(pool: MobxPool): ReadonlySet<string> {
-  return new Set(tracked(() => pool.issueIds))
+/** Every id in the grouped layout: the pinned section, then each group's open lane and closed fold. */
+function layoutIds(layout: Layout): string[] {
+  return [
+    ...layout.pinnedIds,
+    ...layout.groups.flatMap((group) => [...group.rowIds, ...group.closedIds]),
+  ]
+}
+
+/**
+ * The visible ids in L1b rank order, read from the group lanes (the product
+ * `VisibleCollection` maintains them but exposes no copy): the layout's ids
+ * sorted by each row's cached rank. What the deleted `worklist.order` read.
+ */
+export function visibleOrderOf(pool: MobxPool): readonly string[] {
+  return tracked(() => {
+    const layout = pool.groups.layout
+    const ids = layoutIds(layout)
+    const ranks = new Map<string, ReturnType<typeof pool.groups.rankOf>>()
+    for (const id of ids) ranks.set(id, pool.groups.rankOf(id))
+    return ids.sort((a, b) => compareRank(ranks.get(a)!, ranks.get(b)!))
+  })
 }
 
 /**
  * The slice output: every visible issue's row, grouped with closed folds and
  * no selection. Settled: a visible row that is cold is asked for (it loads,
  * as a drawn row does), and reading the rows queues the cold rows they reach;
- * those are loaded and the rows read again until nothing is queued, as a
- * reader that waits out its loading state would see them.
+ * those are loaded and the rows read again until a window installs nothing,
+ * as a reader that waits out its loading state would see them.
  *
- * Moved from `MobxPool.snapshot()` (POD-4760): settling reads are harness-only.
+ * Settling reads are harness-only. A row gone from the feed (its load never
+ * lands) is simply absent from the rows, rather than failing the snapshot.
  */
 export function snapshotPool(pool: MobxPool): SliceSnapshot {
   for (let round = 0; ; round += 1) {
     const snapshot = tracked(() => {
+      const layout = pool.groups.layout
       const rowsById: SliceSnapshot['rowsById'] = {}
-      for (const id of pool.worklist.order) {
+      for (const id of layoutIds(layout)) {
         const view = rowViewOf(pool.issue(id))
         if (view === undefined) {
           pool.resident('issue', id)
@@ -125,13 +204,12 @@ export function snapshotPool(pool: MobxPool): SliceSnapshot {
         }
         rowsById[id] = sliceRowOf(view)
       }
-      return { order: sliceOrderOf(pool.groups.layout), rowsById }
+      return { order: sliceOrderOf(layout), rowsById }
     })
-    if (pool.residency?.hasQueued() !== true) return snapshot
+    if (pool.hydrate() === 0) return snapshot
     if (round >= MAX_LOAD_ROUNDS) {
       throw new Error(`[pool] snapshot() did not settle in ${MAX_LOAD_ROUNDS} load rounds`)
     }
-    pool.hydrate()
   }
 }
 
@@ -147,6 +225,21 @@ function settleWithFlush(pool: MobxPool, isMounted: () => boolean): void {
       throw new Error(`[pool] loads did not settle in ${REDRAW_ROUNDS} redraw rounds`)
     }
     settlePoolLoads(pool)
+  }
+}
+
+/**
+ * The arm contract's counters, satisfied with zeros (POD-4945): the product
+ * arm keeps no stats. Tests count from outside (the borrowed rows and the
+ * work meter), never from product code.
+ */
+function zeroStats(): ArmStats {
+  return {
+    rowsDerived: 0,
+    rollupsDerived: 0,
+    indexUpdates: 0,
+    notifications: 0,
+    reset(): void {},
   }
 }
 
@@ -179,14 +272,16 @@ export const harnessMobxPoolArm = {
     loader: Omit<PoolLazyOptions, 'load'> = {},
     writes?: WriteSeam,
   ): HarnessMobxPoolHandle {
-    const base = mobxPoolArm.create(source, locals, _reads, loader, writes)
+    const watched = watchWindows(loader)
+    const base = mobxPoolArm.create(source, locals, watched.loader, writes)
     const pool = base.pool
+    armedByPool.set(pool, watched.armed)
     let webMounts = 0
     const originalMountWeb = base.mountWeb.bind(base)
     const originalDispose = base.dispose.bind(base)
     return {
       pool,
-      stats: base.stats,
+      stats: zeroStats(),
       snapshot: () => snapshotPool(pool),
       rebuildFromScratch: () => rebuildSnapshot(source, locals),
       settleLoads: () => settleWithFlush(pool, () => webMounts > 0),
@@ -227,10 +322,12 @@ export function harnessWritableMobxPoolArm(
   loader: Omit<PoolLazyOptions, 'load'> = {},
 ): CheckableArm {
   return {
-    create(source: RowSource, locals: LocalsSource, reads?: ReadFence): HarnessWritableMobxPoolHandle {
-      const product = writableMobxPoolArm(transport, loader).create(source, locals, reads)
+    create(source: RowSource, locals: LocalsSource, _reads?: ReadFence): HarnessWritableMobxPoolHandle {
+      const watched = watchWindows(loader)
+      const product = writableMobxPoolArm(transport, watched.loader).create(source, locals)
       const pool = product.pool
       const write = product.write
+      armedByPool.set(pool, watched.armed)
       let webMounts = 0
       const originalMountWeb = product.mountWeb.bind(product)
       const originalDispose = product.dispose.bind(product)
@@ -264,7 +361,7 @@ export function harnessWritableMobxPoolArm(
       return {
         pool,
         write,
-        stats: product.stats,
+        stats: zeroStats(),
         snapshot: () => snapshotPool(pool),
         rebuildFromScratch: () => rebuildSnapshot(pendingSource, locals),
         settleLoads: () => settleWithFlush(pool, () => webMounts > 0),

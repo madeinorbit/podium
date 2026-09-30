@@ -39,8 +39,9 @@
  * engine. Derivations run lazily: a row field computes when a mounted row
  * reads it and suspends when nothing does (no `keepAlive`).
  *
- * STRICT FLAGS (POD-4760) live only in tests (`enforce.ts` exports them,
- * `mobx-trap.ts` applies them): importing the pool never configures MobX.
+ * STRICT FLAGS (POD-4760) live only in tests (`harness/src/mobx-enforce.ts`
+ * exports them, `harness/src/mobx-trap.ts` applies them): importing the pool
+ * never configures MobX.
  */
 
 import {
@@ -72,7 +73,7 @@ import {
   WriteContractError,
 } from '../../../shared/src/write-contract'
 import { DeadlineClock } from './clock'
-import { builtIds, issueIdsOf, reseed } from './enumerate'
+import { reseed } from './enumerate'
 import {
   type EntityModel,
   type IssueModel,
@@ -145,12 +146,6 @@ export interface PoolLazyOptions {
   readonly load: LoadRow
   readonly windowMs?: number
   readonly schedule?: Schedule
-  /**
-   * Rows kept out of memory beside the schema's cold rule, until first read
-   * (`ResidencyOptions.outOfMemory`). Tests use it to take the not-in-memory
-   * path on a row the rule keeps resident (a visible one).
-   */
-  readonly outOfMemory?: (entity: EntityName, id: string) => boolean
 }
 
 /**
@@ -228,14 +223,6 @@ export class MobxPool {
   private readonly target: IngestTarget
   private selectedId: string | null
   /**
-   * Issues kept out of memory beside the cold rule (`PoolLazyOptions
-   * .outOfMemory`) that the rule would keep resident: they may show, so they
-   * hold a filing reaction like an issue in memory (their visibility reads
-   * the row by id). Empty unless the option is given.
-   */
-  private readonly heldOut = new Set<string>()
-  private readonly outOfMemory: (entity: EntityName, id: string) => boolean
-  /**
    * POD-4678 — clears the maintained seat mirror (a closure over it, so the
    * copy sweep never walks the mirror: it holds only ids, never rows).
    * Functions are skipped by the sweep; closures stay a review item.
@@ -249,7 +236,6 @@ export class MobxPool {
     writes?: WriteSeam,
   ) {
     this.writes = writes ?? null
-    this.outOfMemory = lazy?.outOfMemory ?? (() => false)
     this.tables = createObservableTables()
     const tables = this.tables
     const residency =
@@ -263,7 +249,6 @@ export class MobxPool {
             now: () => this.clock.current,
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
-            ...(lazy.outOfMemory === undefined ? {} : { outOfMemory: lazy.outOfMemory }),
             // What visibility reads of a hidden issue (POD-4753), never the row.
             summaries: { issue: HIDDEN_ISSUE_FIELDS },
             // The rule's lane source (R3, POD-4745) reads the engine, built below.
@@ -452,11 +437,8 @@ export class MobxPool {
       | 'models'
       | 'target'
       | 'selectedId'
-      | 'heldOut'
-      | 'outOfMemory'
       | 'select'
       | 'followTable'
-      | 'followHeldOut'
       | 'clearSeats'
       | 'object'
       | 'release'
@@ -484,8 +466,6 @@ export class MobxPool {
       models: false,
       target: false,
       selectedId: false,
-      heldOut: false,
-      outOfMemory: false,
       clearSeats: false,
       residency: false,
       resident: false,
@@ -495,14 +475,12 @@ export class MobxPool {
       issueIds: computedStruct,
       model: false,
       issue: false,
-      modelCount: false,
       apply: false,
       applyLocals: false,
       dispose: false,
       select: false,
       // Maintenance called inside actions, never observed.
       followTable: false,
-      followHeldOut: false,
     })
     // Every issue in memory holds its filing reaction: taken when its row
     // enters the table, released when it leaves (inside the action that
@@ -556,11 +534,6 @@ export class MobxPool {
       return pending['readAt'] as string | null
     }
     return this.readStates.get(id)
-  }
-
-  /** Every RESIDENT issue id, in table order. Re-derived only when membership changes. */
-  get issueIds(): readonly string[] {
-    return issueIdsOf(this)
   }
 
   /** The model of a row in memory, built on first request; undefined when absent (tracked). */
@@ -671,28 +644,25 @@ export class MobxPool {
   /**
    * Close the load window now: install every queued cold row, read by id
    * through the feed, in ONE action. The window's timer calls this; the
-   * harness drains it in a loop before it reads.
+   * harness drains it in a loop before it reads. Returns how many rows the
+   * window installed.
    *
    * A row it installs enters the issue table, which gives it its filing
    * reaction (`followTable`); the rows it no longer keeps cold are asked for
    * in turn, and the lanes it moved are settled (`Residency.install`).
    */
-  hydrate(): void {
+  hydrate(): number {
     const residency = this.residency
-    if (residency === null) return
+    if (residency === null) return 0
     const batch = residency.take()
-    if (batch.length === 0) return
+    if (batch.length === 0) return 0
     const out = ingestOut()
     this.graph.begin()
-    runInAction(() => {
-      residency.install(this.target, batch, out)
+    return runInAction(() => {
+      const rows = residency.install(this.target, batch, out)
       this.graph.flush()
+      return rows
     })
-  }
-
-  /** Models currently held, per entity (tests: lifecycle). */
-  modelCount(entity: EntityName): number {
-    return this.models[entity].size
   }
 
   /** One feed publication, one action. */
@@ -711,48 +681,19 @@ export class MobxPool {
         this.residency?.settle(this.target, out)
       }
       this.graph.flush()
-      this.followHeldOut(event)
     })
     for (const [entity, id] of out.removed) this.release(entity, id)
   }
 
   /**
    * The issue table moved (inside the action that moved it): a row entering
-   * memory takes its filing reaction, a row leaving releases it, unless the
-   * row is still kept out of memory beside the rule (`heldOut`).
+   * memory takes its filing reaction, a row leaving releases it.
    */
   private followTable(type: 'add' | 'update' | 'delete', id: string): void {
     if (type === 'add') {
-      this.heldOut.delete(id)
       this.worklist.track(id)
-    } else if (type === 'delete' && !this.heldOut.has(id)) {
+    } else if (type === 'delete') {
       this.worklist.untrack(id)
-    }
-  }
-
-  /**
-   * An issue the option keeps out of memory, although the cold rule would
-   * keep it resident, may show: it holds a filing reaction while the pool
-   * knows it cold (inside the event's action). Nothing to do without the
-   * option.
-   */
-  private followHeldOut(event: RowSourceEvent): void {
-    const residency = this.residency
-    if (residency === null) return
-    for (const record of event.rows) {
-      if (record.kind !== 'issue' || !this.outOfMemory('issue', record.id)) continue
-      if (!this.tables.issue.has(record.id) && residency.isCold('issue', record.id)) {
-        this.heldOut.add(record.id)
-        this.worklist.track(record.id)
-      }
-    }
-    for (const id of [...this.heldOut]) {
-      if (this.tables.issue.has(id) || residency.isCold('issue', id)) continue
-      this.heldOut.delete(id)
-      this.worklist.untrack(id)
-    }
-    if (event.type === 'replace') {
-      for (const id of builtIds(this.models.session)) this.release('session', id)
     }
   }
 
@@ -773,7 +714,6 @@ export class MobxPool {
   dispose(): void {
     runInAction(() => {
       this.worklist.clear()
-      this.heldOut.clear()
       this.groups.clear()
       for (const entity of ENTITIES) this.tables[entity].clear()
       this.graph.clear()

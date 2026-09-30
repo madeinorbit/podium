@@ -118,7 +118,7 @@ import {
 import { ROW_VIEW_FIELDS, type RowView } from '../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine } from '../../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../../shared/src/slice-types'
-import { type HarnessMobxPoolHandle, harnessMobxPoolArm, snapshotPool, tracked } from '../../../harness/src/adapters/mobx-pool'
+import { type HarnessMobxPoolHandle, harnessMobxPoolArm, snapshotPool, tracked, visibleOrderOf } from '../../../harness/src/adapters/mobx-pool'
 import { diffRelations, diffResidency, knownTables } from '../../../harness/src/adapters/mobx-rebuild'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { rebuildSnapshot, rebuildViews } from '../../../harness/src/adapters/mobx-rebuild'
@@ -396,7 +396,7 @@ function checked(
       const { pool } = handle
       // Kept alive as the mounted list keeps it (see OBSERVED).
       const stop = reaction(
-        () => [pool.worklist.order.map((id) => rowViewOf(pool.issue(id))), pool.groups.layout],
+        () => [visibleOrderOf(pool).map((id) => rowViewOf(pool.issue(id))), pool.groups.layout],
         () => {},
         { name: 'gate.observer' },
       )

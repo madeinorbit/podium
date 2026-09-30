@@ -4,10 +4,11 @@
  * product lists. See `../README.md` ("Round three: the pool") for the idiom,
  * the write path and how to add a field.
  *
- * Product-only: no snapshot, no rebuild, no drain hooks. The harness owns
- * those (`harness/src/adapters/mobx-pool.ts`), on top of the pool's public
- * API (`hydrate`, `dispose`). Strict MobX flags live only in tests
- * (`enforce.ts` exports them, `mobx-trap.ts` applies them).
+ * Product-only: no snapshot, no rebuild, no drain hooks, no stats. The
+ * harness owns those (`harness/src/adapters/mobx-pool.ts`), on top of the
+ * pool's public API (`hydrate`, `dispose`). Strict MobX flags live only in
+ * tests (`harness/src/mobx-enforce.ts` exports them,
+ * `harness/src/mobx-trap.ts` applies them).
  *
  * `create` seeds the pool from the feed's snapshot (one `replace`), then
  * follows the feed (`RowSource`) and the locals channel (`LocalsSource`),
@@ -21,9 +22,7 @@
 import { createElement, lazy, type ReactElement, Suspense } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
-import type { ReadFence } from '../../../shared/src/instrument/reads'
 import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
-import type { ArmStats } from '../../../shared/src/stats'
 import { MobxPool, type PoolLazyOptions, type WriteSeam } from './pool'
 import { PoolList } from './react/list'
 
@@ -32,15 +31,12 @@ const PoolNativeList = lazy(() => import('./native/list'))
 
 /**
  * The product handle: the live pool, its lifecycle and its mounts. Harness
- * hooks (snapshot, rebuild, drain) live in the harness adapter and are not
- * part of the product surface. `stats` satisfies the arm contract with zeros:
- * tests count from outside (the borrowed rows and the work meter), never from
- * product code.
+ * hooks (snapshot, rebuild, drain, stats) live in the harness adapter and
+ * are not part of the product surface.
  */
 export interface MobxPoolHandle {
-  /** The live pool (tests; the copy sweep reaches the tables through it). */
+  /** The live pool. */
   readonly pool: MobxPool
-  readonly stats: ArmStats
   dispose(): void
   mountWeb(el: Element): () => void
   mountNative(): ReactElement
@@ -50,7 +46,6 @@ export const mobxPoolArm = {
   create(
     source: RowSource,
     locals: LocalsSource,
-    _reads?: ReadFence,
     /** The load window and its timer (default 50 ms, `setTimeout`). */
     loader: Omit<PoolLazyOptions, 'load'> = {},
     /** The write layer's pending display (`write/overlay.ts`), read by the pool's one reader. */
@@ -63,13 +58,6 @@ export const mobxPoolArm = {
       )
     }
     const pool = new MobxPool(locals.get(), undefined, { ...loader, load: row }, writes)
-    const stats: ArmStats = {
-      rowsDerived: 0,
-      rollupsDerived: 0,
-      indexUpdates: 0,
-      notifications: 0,
-      reset(): void {},
-    }
     pool.apply({
       type: 'replace',
       rows: [
@@ -83,7 +71,6 @@ export const mobxPoolArm = {
     const roots = new Set<Root>()
     return {
       pool,
-      stats,
       dispose(): void {
         offRows()
         offLocals()

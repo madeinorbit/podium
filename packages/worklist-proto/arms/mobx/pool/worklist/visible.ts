@@ -83,7 +83,7 @@
  * snapshot and the tests do.
  */
 
-import { compareStructural, computed, makeObservable, reaction } from 'mobx'
+import { compareStructural, makeObservable, reaction } from 'mobx'
 import { type RelationLinks, refs } from '../../../../shared/src/links'
 import { compareRank, type RowRank } from '../../../../shared/src/row-view'
 import { awaitingMergeOf } from '../../../../shared/src/schema'
@@ -1073,20 +1073,12 @@ export class VisibleCollection {
       visible: false,
       stops: false,
       host: false,
-      order: computed,
       file: false,
       track: false,
       untrack: false,
       tracks: false,
-      trackedIds: false,
-      size: false,
       clear: false,
     })
-  }
-
-  /** The visible ids in L1b rank order: a copy of the maintained list (only the snapshot and tests read it). */
-  get order(): readonly string[] {
-    return this.visible.lane(VISIBLE).slice()
   }
 
   /**
@@ -1126,16 +1118,6 @@ export class VisibleCollection {
   /** Whether issue `id` holds a filing reaction (maintenance: plain). */
   tracks(id: string): boolean {
     return this.stops.has(id)
-  }
-
-  /** The tracked issue ids (tests). */
-  trackedIds(): string[] {
-    return [...this.stops.keys()]
-  }
-
-  /** Issues tracked (tests: lifecycle). */
-  size(): number {
-    return this.stops.size
   }
 
   /** Stop every reaction and empty the order (the pool's dispose; call inside an action). */

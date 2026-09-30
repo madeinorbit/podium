@@ -17,7 +17,7 @@ import { buildCorpus } from '../../../../harness/src/fixture/index'
 import { DISABLED_READ_FENCE } from '../../../../shared/src/instrument/reads'
 import { settableLocals } from '../../../../shared/src/locals-source'
 import type { RowRecord } from '../../../../shared/src/stats'
-import { harnessMobxPoolArm, tracked } from '../../../../harness/src/adapters/mobx-pool'
+import { harnessMobxPoolArm, tracked, visibleOrderOf } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 
 installMobxWarnTrap()
@@ -45,19 +45,21 @@ describe('filing reactions over the issues in memory (POD-4705, POD-4757)', () =
   it('tracks every issue in memory and no cold one', () => {
     const { pool } = boot()
     try {
-      const tracked_ = new Set(pool.worklist.trackedIds())
+      // Tracked-ness is read per id (`tracks` backs the pool's own release);
+      // the product exposes no tracked-ids copy (POD-4945).
       const resident = tracked(() => [...pool.tables.issue.keys()])
-      const known = resident.length + (pool.residency?.size('issue') ?? 0)
-      const order = tracked(() => [...pool.worklist.order])
+      for (const id of resident) expect(pool.worklist.tracks(id), `hot ${id} is tracked`).toBe(true)
+      const known = resident.length + (pool.residency?.ids('issue').length ?? 0)
+      const order = visibleOrderOf(pool)
       // Every known issue tracked (the old eager construction) fails this.
-      expect(new Set(resident)).toEqual(tracked_)
+      expect(known).toBeGreaterThan(resident.length)
       // Every visible row is tracked.
       expect(order.length).toBeGreaterThan(0)
-      for (const id of order) expect(tracked_.has(id), `visible ${id} is not tracked`).toBe(true)
+      for (const id of order) expect(pool.worklist.tracks(id), `visible ${id} is tracked`).toBe(true)
       // No cold row is.
       const cold = pool.residency?.ids('issue') ?? []
       expect(cold.length).toBeGreaterThan(0)
-      expect(cold.filter((id) => tracked_.has(id))).toEqual([])
+      for (const id of cold) expect(pool.worklist.tracks(id), `cold ${id} is tracked`).toBe(false)
     } finally {
       pool.dispose()
     }
@@ -66,7 +68,7 @@ describe('filing reactions over the issues in memory (POD-4705, POD-4757)', () =
   it('a cold heartbeat builds no reaction and moves no row', () => {
     const { replay, pool } = boot()
     try {
-      const orderBefore = tracked(() => [...pool.worklist.order])
+      const orderBefore = visibleOrderOf(pool)
       const coldSessions = pool.residency?.ids('session') ?? []
       expect(coldSessions.length).toBeGreaterThan(0)
       const target = replay.source
@@ -89,7 +91,7 @@ describe('filing reactions over the issues in memory (POD-4705, POD-4757)', () =
           },
         ],
       })
-      expect(tracked(() => [...pool.worklist.order])).toEqual(orderBefore)
+      expect(visibleOrderOf(pool)).toEqual(orderBefore)
     } finally {
       pool.dispose()
     }

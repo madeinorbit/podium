@@ -27,7 +27,7 @@ import type {
   WriteEvent,
   WriteTransport,
 } from '../../../../shared/src/write-contract'
-import { harnessMobxPoolArm, harnessWritableMobxPoolArm, tracked, type HarnessWritableMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
+import { harnessMobxPoolArm, harnessWritableMobxPoolArm, tracked, visibleOrderOf, type HarnessWritableMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import type { MobxPool } from '../pool'
 import { createMobxWriteApi } from './edit'
@@ -93,7 +93,7 @@ function serverWrite(ctx: ScenarioEngine, id: string, patch: { title?: string; s
  */
 function stageKeptIssue(pool: MobxPool): string {
   const id = tracked(() =>
-    pool.worklist.order.find((candidate) => {
+    visibleOrderOf(pool).find((candidate) => {
       const node = pool.knownIssue(candidate)
       const row = pool.row('issue', candidate, 'peek') as SliceIssue | undefined
       return (

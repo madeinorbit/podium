@@ -4,23 +4,32 @@
  * in memory.
  *
  * Under the declared cold rule no VISIBLE row is cold (POD-4665), so the
- * reader is configured (`PoolLazyOptions.outOfMemory`) to keep one visible
- * issue out of memory. The mounted list draws it as loading, the reader
- * answers `LOADING` and queues it, ONE load window requests it, and once that
- * batch lands the list, the snapshot and the rebuild equal an all-in-memory
- * pool's.
+ * test keeps one visible issue out of memory from the harness side (POD-4945:
+ * the product has no out-of-memory knob): it evicts the row, re-applies it
+ * while the residency's own rule answers cold for it, and tracks it by hand.
+ * The mounted list draws it as loading, the reader answers `LOADING` and
+ * queues it, ONE load window requests it, and once that batch lands the
+ * list, the snapshot and the rebuild equal an all-in-memory pool's.
  */
 
 import { act } from 'react'
+import { runInAction } from 'mobx'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createReplaySource } from '../../../harness/src/count-harness'
+import { createReplaySource, type ReplaySource } from '../../../harness/src/count-harness'
 import { buildCorpus } from '../../../harness/src/fixture/index'
 import type { RowSource } from '../../../shared/src/arm'
 import { createReadFence } from '../../../shared/src/instrument/reads'
 import { settableLocals } from '../../../shared/src/locals-source'
 import type { RowRecord } from '../../../shared/src/stats'
-import { type HarnessMobxPoolHandle, harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
+import {
+  type HarnessMobxPoolHandle,
+  harnessMobxPoolArm,
+  poolPendingLoads,
+  tracked,
+  visibleOrderOf,
+} from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
+import type { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -38,6 +47,7 @@ function records(): RowRecord[] {
 
 interface Rig {
   readonly handle: HarnessMobxPoolHandle
+  readonly replay: ReplaySource
   /** Per-row reads through the feed, `kind:id`. */
   readonly loads: string[]
   /** Load windows armed and not cancelled. */
@@ -47,7 +57,7 @@ interface Rig {
 
 let open: Rig[] = []
 
-function rig(outOfMemory?: (entity: string, id: string) => boolean): Rig {
+function rig(): Rig {
   const all = records()
   const replay = createReplaySource({
     issues: all.filter((r) => r.kind === 'issue'),
@@ -74,10 +84,10 @@ function rig(outOfMemory?: (entity: string, id: string) => boolean): Rig {
         timer.cancelled = true
       }
     },
-    ...(outOfMemory === undefined ? {} : { outOfMemory }),
   })
   const r: Rig = {
     handle,
+    replay,
     loads,
     armed: () =>
       timers
@@ -103,6 +113,43 @@ afterEach(() => {
 
 function drawnRows(el: Element): string[] {
   return [...el.querySelectorAll('[data-issue-row]')].map((row) => row.getAttribute('data-issue-row')!)
+}
+
+/**
+ * Keep `id` out of memory beside the declared rule, from the harness side
+ * (POD-4945): the product has no out-of-memory knob. The row is evicted,
+ * then re-applied while the residency's own rule answers cold for it, and
+ * tracked by hand with its hidden verdict forced off — the two things the
+ * pool did for such a row. Only existing public methods are driven; no
+ * second tracking path is added. Returns the restore (call inside an
+ * action): the rule answers by the schema again and the hand tracking ends.
+ */
+function forceCold(pool: MobxPool, replay: ReplaySource, id: string): () => void {
+  const residency = pool.residency!
+  const value = replay.source.snapshot('issue').find((record) => record.id === id)?.value
+  if (value === undefined) throw new Error(`no feed row ${id}`)
+  pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
+  const coldRule = residency.coldRule.bind(residency)
+  residency.coldRule = (entity, row) =>
+    entity === 'issue' && (row as { id?: unknown }).id === id ? true : coldRule(entity, row)
+  const hidden = residency.hidden.bind(residency)
+  residency.hidden = (entity, rowId) =>
+    entity === 'issue' && rowId === id ? false : hidden(entity, rowId)
+  pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value }] })
+  runInAction(() => pool.worklist.track(id))
+  return () => {
+    residency.coldRule = coldRule
+    residency.hidden = hidden
+    pool.worklist.untrack(id)
+  }
+}
+
+/** How many rows the load queue holds, read without landing them (take, then ask again). */
+function queuedCount(pool: MobxPool): number {
+  const residency = pool.residency!
+  const batch = residency.take()
+  for (const [entity, id] of batch) residency.request(entity, id)
+  return batch.length
 }
 
 describe('POD-4743 the one row reader, not in memory', () => {
@@ -137,18 +184,20 @@ describe('POD-4743 the one row reader, not in memory', () => {
     await act(async () => {
       unmountFresh = fresh.handle.mountWeb(freshEl)
     })
-    const eagerQueued = fresh.handle.pool.residency!.queued()
+    const eagerQueued = queuedCount(fresh.handle.pool)
     unmountFresh()
     fresh.dispose()
 
-    const r = rig((entity, rowId) => entity === 'issue' && rowId === id)
+    const r = rig()
     const { pool } = r.handle
     const residency = pool.residency!
-    // Kept out of memory, yet decided visible: the visibility parts read it by id.
-    expect(tracked(() => pool.tables.issue.has(id))).toBe(false)
-    expect(residency.isCold('issue', id)).toBe(true)
-    expect(tracked(() => pool.worklist.order)).toContain(id)
-    expect(residency.queued()).toBe(0)
+    const restore = forceCold(pool, r.replay, id)
+    try {
+      // Kept out of memory, yet decided visible: the visibility parts read it by id.
+      expect(tracked(() => pool.tables.issue.has(id))).toBe(false)
+      expect(residency.isCold('issue', id)).toBe(true)
+      expect(visibleOrderOf(pool)).toContain(id)
+      expect(queuedCount(pool)).toBe(0)
 
     const el = document.createElement('div')
     document.body.append(el)
@@ -166,8 +215,8 @@ describe('POD-4743 the one row reader, not in memory', () => {
       // Queued once, beside what drawing the list queues anyway, and nothing
       // loaded before the window closes. (The visibility parts read the row
       // by id through the feed — a peek — but never install it.)
-      expect(residency.queued()).toBe(eagerQueued + 1)
-      expect(residency.hasQueued()).toBe(true)
+      expect(queuedCount(pool)).toBe(eagerQueued + 1)
+      expect(poolPendingLoads(pool)).toBe(1)
       const reads = (): number => r.loads.filter((load) => load === `issue:${id}`).length
       const readsBefore = reads()
 
@@ -190,6 +239,7 @@ describe('POD-4743 the one row reader, not in memory', () => {
       expect(reads()).toBe(readsBefore + 1)
     } finally {
       unmount()
+      runInAction(restore)
     }
   }, 120_000)
 })
