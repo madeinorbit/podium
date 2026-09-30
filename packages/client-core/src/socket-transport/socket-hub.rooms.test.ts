@@ -122,7 +122,7 @@ describe('SocketHub rooms and principal lifecycle', () => {
     hub.dispose()
   })
 
-  it('reconnects with PTY seq, spectator/controller identity, room membership, and presence', () => {
+  it('reconnects with controller identity, room membership, and presence without a PTY cursor', () => {
     vi.useFakeTimers()
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
@@ -173,7 +173,7 @@ describe('SocketHub rooms and principal lifecycle', () => {
 
     expect(second.parsed()).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: 'attach', sessionId, sinceSeq: 17 }),
+        { type: 'attach', sessionId },
         { type: 'presenceSubscribe', room },
         { type: 'presenceUpdate', room, payload: { cursor: 4 }, visible: false },
       ]),
@@ -181,10 +181,10 @@ describe('SocketHub rooms and principal lifecycle', () => {
     expect(connection.state()).toMatchObject({
       role: 'spectator',
       epoch: 4,
-      lastSeq: 17,
       controllerId: 'client-two',
       controllerIdentity: { kind: 'user', user: asUserId('user:two') },
     })
+    expect(connection.state()).not.toHaveProperty('lastSeq')
     hub.dispose()
   })
 

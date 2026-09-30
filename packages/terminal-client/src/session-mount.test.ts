@@ -17,8 +17,7 @@ function withResizeObserver(): void {
   }
 }
 
-/** Fake hub exposing the reset + state callbacks mountSession registers, and a
- *  controllable connection state (its epoch/connected drive the clear semantics). */
+/** Fake hub exposing the legacy reset and authoritative state callbacks. */
 function fakeHub() {
   let cbs: SessionCallbacks = {}
   let current: ConnectionState = {
@@ -56,11 +55,10 @@ function fakeHub() {
   }
 }
 
-// The (re)attach full-replay clear and the controller-takeover clear are distinct
-// signals: a resuming reconnect must keep its screen (no flash on a network blip),
-// while a genuine takeover / fresh replay wipes it. These guard that split.
+// Pictures reset the screen in their own bytes. Only an older server's explicit
+// reset callback clears outside that stream; a takeover must leave it readable.
 describe('session-mount clear semantics', () => {
-  it('clears the view on an in-session epoch bump (controller takeover)', () => {
+  it('keeps the view on an in-session epoch bump (controller takeover)', () => {
     withResizeObserver()
     const clear = vi.spyOn(TerminalView.prototype, 'clear')
     try {
@@ -70,17 +68,17 @@ describe('session-mount clear semantics', () => {
         sessionId: asSessionId('s1'),
         active: false,
       })
-      setState({ epoch: 0 }) // first state only seeds the epoch tracker — no clear
+      setState({ epoch: 0 })
       clear.mockClear()
-      setState({ epoch: 1 }) // epoch advanced while connected → takeover clear
-      expect(clear).toHaveBeenCalledTimes(1)
+      setState({ epoch: 1 })
+      expect(clear).not.toHaveBeenCalled()
       mounted.dispose()
     } finally {
       clear.mockRestore()
     }
   })
 
-  it('clears on the server reset signal (a full replay is incoming)', () => {
+  it('clears on an older server’s explicit reset signal', () => {
     withResizeObserver()
     const clear = vi.spyOn(TerminalView.prototype, 'clear')
     try {
@@ -99,7 +97,7 @@ describe('session-mount clear semantics', () => {
     }
   })
 
-  it('does not clear on an epoch change while disconnected (only onReset owns the reattach clear)', () => {
+  it('keeps the view across disconnect and a new epoch on reconnect', () => {
     withResizeObserver()
     const clear = vi.spyOn(TerminalView.prototype, 'clear')
     try {
@@ -109,11 +107,10 @@ describe('session-mount clear semantics', () => {
         sessionId: asSessionId('s1'),
         active: false,
       })
-      setState({ epoch: 0, connected: true }) // seed the tracker
+      setState({ epoch: 0, connected: true })
       clear.mockClear()
-      // A disconnect that also reports a new epoch must NOT clear — a resuming
-      // reconnect keeps its screen; the reattach clear is onReset's job alone.
       setState({ epoch: 5, connected: false })
+      setState({ epoch: 5, connected: true })
       expect(clear).not.toHaveBeenCalled()
       mounted.dispose()
     } finally {

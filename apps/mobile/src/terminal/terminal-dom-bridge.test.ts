@@ -1,6 +1,7 @@
 import type { SessionCallbacks } from '@podium/client-core/socket-transport'
 import { asSessionId } from '@podium/model'
 import { mountSession } from '@podium/terminal-client/session-mount'
+import { TerminalView } from '@podium/terminal-client/terminal-view'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createTerminalBridge,
@@ -66,6 +67,7 @@ describe('createTerminalBridge', () => {
     // The pre-attach posture a fresh SessionConnection reports: disconnected
     // spectator, outputSeen optimistic (silence must never be accused early).
     expect(conn.state()).toEqual(initialBridgeState(SESSION))
+    expect(conn.state()).not.toHaveProperty('lastSeq')
 
     const next = {
       ...initialBridgeState(SESSION),
@@ -172,6 +174,35 @@ describe('mountSession over the bridge', () => {
       delete g.ResizeObserver
     })
   }
+
+  it('keeps the screen on takeover and carries the legacy reset separately from picture bytes', () => {
+    withResizeObserver()
+    const clear = vi.spyOn(TerminalView.prototype, 'clear')
+    const write = vi.spyOn(TerminalView.prototype, 'write')
+    const bridge = createTerminalBridge(SESSION, harness.box)
+    const mounted = mountSession(document.createElement('div'), {
+      hub: bridge.hub,
+      sessionId: SESSION,
+      active: false,
+    })
+    try {
+      const state = { ...initialBridgeState(SESSION), connected: true, cols: 80, rows: 24 }
+      bridge.push.state(state)
+      bridge.push.attached()
+      clear.mockClear()
+      bridge.push.state({ ...state, epoch: 1 })
+      const picture = new TextEncoder().encode('\x1bcpicture')
+      bridge.push.frame(encodeFrameBytes(picture))
+      expect(clear).not.toHaveBeenCalled()
+      expect(write).toHaveBeenCalledWith(picture)
+      bridge.push.reset()
+      expect(clear).toHaveBeenCalledTimes(1)
+    } finally {
+      mounted.dispose()
+      clear.mockRestore()
+      write.mockRestore()
+    }
+  })
 
   it("the header's takeover reaches native as ONE claiming size statement", () => {
     withResizeObserver()

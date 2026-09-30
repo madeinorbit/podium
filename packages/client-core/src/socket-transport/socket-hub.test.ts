@@ -144,7 +144,8 @@ describe('SocketHub', () => {
       ),
     )
     expect(frames).toEqual([payload])
-    expect(hub.attach(asSessionId('s1')).state()).toMatchObject({ lastSeq: 4, epoch: 2 })
+    expect(hub.attach(asSessionId('s1')).state()).toMatchObject({ epoch: 2 })
+    expect(hub.attach(asSessionId('s1')).state()).not.toHaveProperty('lastSeq')
     expect(sock.closeCalls).toBe(0)
   })
 
@@ -963,12 +964,12 @@ describe('SessionConnection (hub-backed)', () => {
     })
   })
 
-  it('updates lastSeq/epoch and emits the decoded bytes', () => {
+  it('publishes the epoch and decoded bytes without retaining a stream position', () => {
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
     const frames: Uint8Array[] = []
-    let stateAtCallback: { lastSeq: number; epoch: number } | undefined
+    let stateAtCallback: { epoch: number } | undefined
     const conn = hub.attach(asSessionId('s1'), {
       onFrame: (bytes) => {
         frames.push(bytes)
@@ -983,8 +984,32 @@ describe('SessionConnection (hub-backed)', () => {
       data: b64('hello'),
     })
     expect(frames).toEqual([utf8('hello')])
-    expect(stateAtCallback).toMatchObject({ lastSeq: 5, epoch: 2 })
-    expect(conn.state()).toMatchObject({ lastSeq: 5, epoch: 2 })
+    expect(stateAtCallback).toMatchObject({ epoch: 2 })
+    expect(conn.state()).not.toHaveProperty('lastSeq')
+    expect(conn).not.toHaveProperty('resumeCursor')
+  })
+
+  it('forwards a picture and its tail in arrival order regardless of seq or epoch', () => {
+    const { sock, hub } = setup()
+    const onFrame = vi.fn()
+    const onReset = vi.fn()
+    hub.attach(asSessionId('s1'), { onFrame, onReset })
+    hub.connect()
+    sock.open()
+    const frames = [
+      { seq: 50, epoch: 4, data: 'old screen' },
+      { seq: 3, epoch: 5, data: '\x1bcnew screen' },
+      { seq: 3, epoch: 5, data: 'tail' },
+    ]
+    try {
+      for (const frame of frames) {
+        sock.recv({ type: 'outputFrame', sessionId: asSessionId('s1'), ...frame, data: b64(frame.data) })
+      }
+      expect(onFrame.mock.calls.map(([bytes]) => bytes)).toEqual(frames.map((f) => utf8(f.data)))
+      expect(onReset).not.toHaveBeenCalled()
+    } finally {
+      hub.dispose()
+    }
   })
 
   it('preserves UTF-8 bytes split across output frames', () => {
@@ -1328,7 +1353,7 @@ describe('connection health', () => {
   })
 })
 
-describe('resume + offline input queue', () => {
+describe('reattach + offline input queue', () => {
   function multiSetup() {
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
@@ -1346,7 +1371,7 @@ describe('resume + offline input queue', () => {
     vi.useRealTimers()
   })
 
-  it('re-attaches with a resume cursor (lastSeq) after rendering frames', () => {
+  it('re-attaches without a stream cursor after rendering frames', () => {
     vi.useFakeTimers()
     const { sockets, hub } = multiSetup()
     hub.connect()
@@ -1362,11 +1387,12 @@ describe('resume + offline input queue', () => {
     sockets[0]?.close()
     vi.advanceTimersByTime(30_000)
     sockets[1]?.open()
-    // The view survived the drop, so the reconnect asks to resume from seq 4.
-    expect(sockets[1]?.parsed()).toContainEqual({ type: 'attach', sessionId: 's1', sinceSeq: 4 })
+    expect(sockets[1]?.parsed()).toContainEqual({ type: 'attach', sessionId: 's1' })
+    expect(sockets[1]?.parsed().some((m) => m.type === 'attach' && 'sinceSeq' in m)).toBe(false)
+    hub.dispose()
   })
 
-  it('omits the cursor when nothing has been rendered yet (full replay)', () => {
+  it('re-attaches without a stream cursor before receiving any output', () => {
     vi.useFakeTimers()
     const { sockets, hub } = multiSetup()
     hub.connect()
@@ -1457,12 +1483,18 @@ describe('resume + offline input queue', () => {
     ).toBe(false)
   })
 
-  it('calls onReset on a full attach but not on a resumed one', () => {
+  it('keeps the old-server resumed:false reset before state, attach, and output', () => {
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
     let resets = 0
-    hub.attach(asSessionId('s1'), { onReset: () => (resets += 1) })
+    const events: string[] = []
+    hub.attach(asSessionId('s1'), {
+      onReset: () => { resets += 1; events.push('reset') },
+      onState: () => events.push('state'),
+      onAttached: () => events.push('attached'),
+      onFrame: () => events.push('frame'),
+    })
     sock.recv({
       type: 'attached',
       sessionId: asSessionId('s1'),
@@ -1472,6 +1504,7 @@ describe('resume + offline input queue', () => {
       resumed: false,
     })
     expect(resets).toBe(1)
+    expect(events).toEqual(['reset', 'state', 'attached'])
     sock.recv({
       type: 'attached',
       sessionId: asSessionId('s1'),
@@ -1480,7 +1513,14 @@ describe('resume + offline input queue', () => {
       epoch: 0,
       resumed: true,
     })
-    expect(resets).toBe(1) // a resume keeps the screen — no clear
+    expect(resets).toBe(1)
+    sock.recv({
+      type: 'outputFrame', sessionId: asSessionId('s1'), seq: 0, epoch: 1,
+      data: b64('\x1bcpicture'),
+    })
+    expect(resets).toBe(1)
+    expect(events.at(-1)).toBe('frame')
+    hub.dispose()
   })
 })
 
