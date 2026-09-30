@@ -5406,7 +5406,7 @@ describe('a stale busy tracker with no open turn never holds Grok follow-ups [PO
  */
 describe('terminal receipts from the history (POD-4905)', () => {
   const LANES = fileURLToPath(
-    new URL('../../../../docs/measurements/pod-4834-receipt-proof/', import.meta.url),
+    new URL('../../../../../../docs/measurements/pod-4834-receipt-proof/', import.meta.url),
   )
   type Lane = 'claude-code' | 'codex' | 'grok' | 'opencode'
 

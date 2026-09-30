@@ -62,15 +62,10 @@ describe('one final reply per agent carries answer:true', () => {
     expect(item).toMatchObject({ role: 'assistant', text: 'The parser is fixed.', answer: true })
   })
 
-  it('grok: text-only assistant record', () => {
-    const [item] = grokRecordToItems({
-      type: 'assistant',
-      id: 'assistant-1',
-      timestamp: '2026-09-29T00:00:00.000Z',
-      content: 'The parser is fixed.',
-    })
-    expect(item).toMatchObject({ role: 'assistant', text: 'The parser is fixed.', answer: true })
-  })
+  // Grok's terminal history is `updates.jsonl` since POD-4875: a reply is one
+  // `agent_message_chunk` record with no sign of whether it is the last of its
+  // turn, so a per-record grammar cannot mark it. POD-4936 decides how.
+  it.todo('grok: the final reply of a turn (POD-4936)')
 })
 
 describe('intermediate narration stays process (no answer flag)', () => {
@@ -85,22 +80,19 @@ describe('intermediate narration stays process (no answer flag)', () => {
     expect(item?.answer).toBeUndefined()
   })
 
-  it('grok: narration sharing its record with tool_calls', () => {
-    const items = grokRecordToItems({
-      type: 'assistant',
-      id: 'assistant-2',
-      timestamp: '2026-09-29T00:00:00.000Z',
-      content: "I'll check what's already on the board.",
-      tool_calls: [
-        {
-          id: 'call-1',
-          name: 'run_terminal_command',
-          arguments: '{"command":"podium issue prime","description":"Prime current issue"}',
+  it('grok: a reply chunk ahead of a tool call', () => {
+    const [item] = grokRecordToItems({
+      method: 'session/update',
+      params: {
+        sessionId: 'grok-session',
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: "I'll check what's already on the board." },
         },
-      ],
+        _meta: { agentTimestampMs: 1_790_698_265_166 },
+      },
     })
-    const text = items.find((entry) => entry.role === 'assistant')
-    expect(text?.text).toBe("I'll check what's already on the board.")
-    expect(text?.answer).toBeUndefined()
+    expect(item).toMatchObject({ role: 'assistant', text: "I'll check what's already on the board." })
+    expect(item?.answer).toBeUndefined()
   })
 })

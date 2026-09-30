@@ -214,34 +214,34 @@ describe('headless engine lifecycle (POD-4433)', () => {
   })
 })
 
-describe('readHistory — the Store read over chat_history.jsonl', () => {
+describe('readHistory — the Store read over updates.jsonl', () => {
   const GROK_SESSION = '019ffd6d-f4c8-7c23-90bd-96cd86e783e9'
   const SESSION = asSessionId('55555555-5555-4555-8555-555555555555')
   const CWD = '/tmp/grok-history-probe'
 
-  /** One user turn and its assistant reply, in the real chat_history.jsonl record format. */
-  const writeChatHistory = (path: string): void => {
+  /** One user turn and its assistant reply, in the real `updates.jsonl` record
+   *  format: Grok's history is read from the file it only appends to (POD-4875). */
+  const writeUpdates = (path: string): void => {
+    const update = (sessionUpdate: string, text: string, ms: number) => ({
+      timestamp: Math.floor(ms / 1000),
+      method: 'session/update',
+      params: {
+        sessionId: GROK_SESSION,
+        update: { sessionUpdate, content: { type: 'text', text } },
+        _meta: { agentTimestampMs: ms },
+      },
+    })
     const lines = [
-      {
-        type: 'user',
-        id: 'u1',
-        timestamp: '2026-09-28T10:00:01.000Z',
-        content: [{ type: 'text', text: 'hello from disk' }],
-      },
-      {
-        type: 'assistant',
-        id: 'a1',
-        timestamp: '2026-09-28T10:00:05.000Z',
-        content: 'reply from disk',
-      },
+      update('user_message_chunk', 'hello from disk', Date.UTC(2026, 8, 28, 10, 0, 1)),
+      update('agent_message_chunk', 'reply from disk', Date.UTC(2026, 8, 28, 10, 0, 5)),
     ]
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`)
   }
 
-  const chatHistoryPathFor = async (home: string): Promise<string> => {
+  const updatesPathFor = async (home: string): Promise<string> => {
     const { grokSessionPaths } = await import('../../../adapters/grok/instrumentation.js')
-    return grokSessionPaths({ cwd: CWD, sessionId: GROK_SESSION, homeDir: home }).chatHistoryPath
+    return grokSessionPaths({ cwd: CWD, sessionId: GROK_SESSION, homeDir: home }).updatesPath
   }
 
   const sessionFor = () => ({
@@ -251,13 +251,13 @@ describe('readHistory — the Store read over chat_history.jsonl', () => {
     resume: { kind: 'grok-session' as const, value: GROK_SESSION },
   })
 
-  it('reads the chat history user turn and assistant reply from disk', async () => {
+  it('reads the user turn and assistant reply from disk', async () => {
     // THE PRODUCTION READER, against a real file: the driver's history
     // delegates here, so this is the half the conformance suite cannot see
     // (that suite supplies its own readHistory over the fake's frames).
     const home = mkdtempSync(join(tmpdir(), 'pod-4782-gk-hist-'))
     try {
-      writeChatHistory(await chatHistoryPathFor(home))
+      writeUpdates(await updatesPathFor(home))
       const host = engineHost({ homeDir: home })
       const page = await host.readHistory(sessionFor(), { limit: 50 })
       expect(page.items.map((item) => [item.role, item.text])).toEqual([
@@ -273,7 +273,7 @@ describe('readHistory — the Store read over chat_history.jsonl', () => {
   it("pages older items through the returned cursor ('before' limit 1, then head)", async () => {
     const home = mkdtempSync(join(tmpdir(), 'pod-4782-gk-page-'))
     try {
-      writeChatHistory(await chatHistoryPathFor(home))
+      writeUpdates(await updatesPathFor(home))
       const host = engineHost({ homeDir: home })
       const newest = await host.readHistory(sessionFor(), { limit: 1 })
       expect(newest.items.map((item) => item.text)).toEqual(['reply from disk'])
@@ -290,7 +290,7 @@ describe('readHistory — the Store read over chat_history.jsonl', () => {
   })
 
   it('a session with no chat history file yet reads as an empty page, not an error', async () => {
-    // Grok creates `chat_history.jsonl` on its first turn. History before
+    // Grok creates `updates.jsonl` on its first turn. History before
     // that is empty — the slice layer returns empty for a missing chain or
     // file, so no existence check is needed here beyond what the Store
     // already does.
@@ -307,7 +307,7 @@ describe('readHistory — the Store read over chat_history.jsonl', () => {
   it('refuses a foreign history cursor instead of reading another session', async () => {
     const home = mkdtempSync(join(tmpdir(), 'pod-4782-gk-cursor-'))
     try {
-      writeChatHistory(await chatHistoryPathFor(home))
+      writeUpdates(await updatesPathFor(home))
       const host = engineHost({ homeDir: home })
       const session = sessionFor()
       await expect(
@@ -336,7 +336,7 @@ describe('readHistory — the Store read over chat_history.jsonl', () => {
     // back exactly what the pre-restart host read.
     const home = mkdtempSync(join(tmpdir(), 'pod-4782-gk-restart-'))
     try {
-      writeChatHistory(await chatHistoryPathFor(home))
+      writeUpdates(await updatesPathFor(home))
       const before = await engineHost({ homeDir: home }).readHistory(sessionFor(), { limit: 50 })
       expect(before.items).toHaveLength(2)
       // Fresh driver generation: new host object, same files on disk.
@@ -353,12 +353,12 @@ describe('readHistory — the Store read over chat_history.jsonl', () => {
 
   it('driver history after a simulated daemon restart (fresh driver, same files) equals history before it', async () => {
     // THROUGH THE DRIVER, not just the host: both generations delegate to
-    // the Store port over the same `chat_history.jsonl`, so neither reads
+    // the Store port over the same `updates.jsonl`, so neither reads
     // the live process (whose fake holds no conversation at all). A driver
     // regressed to its in-memory copy would read empty here and go red.
     const home = mkdtempSync(join(tmpdir(), 'pod-4782-gk-drv-restart-'))
     try {
-      writeChatHistory(await chatHistoryPathFor(home))
+      writeUpdates(await updatesPathFor(home))
       const makeDriverHost = (
         prod: ReturnType<typeof engineHost>,
         entries: Map<SessionId, GrokAcpJournalEntry>,

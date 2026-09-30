@@ -100,6 +100,37 @@ function world(options: FakeGrokAcpServerOptions = {}): {
 const userItems = (items: readonly TranscriptItem[]): TranscriptItem[] =>
   items.filter((item) => item.role === 'user')
 
+/**
+ * The completed items the chat is shown, as the driver emits them. On dev/mw
+ * `transcript.history` is a Store read (POD-4782), so the live item stream —
+ * not driver memory — is where the naming must agree with the chat. Collects
+ * from `cursor` until `enough` holds, or gives up after `ms`.
+ */
+async function shownItems(
+  handle: { events(after: never): AsyncIterable<RuntimeEvent> },
+  cursor: unknown,
+  enough: (items: readonly TranscriptItem[]) => boolean,
+  ms = 2_000,
+): Promise<TranscriptItem[]> {
+  const items: TranscriptItem[] = []
+  const iterator = handle.events(cursor as never)[Symbol.asyncIterator]()
+  const deadline = Date.now() + ms
+  try {
+    while (!enough(items) && Date.now() < deadline) {
+      const next = await Promise.race([
+        iterator.next(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), deadline - Date.now())),
+      ])
+      if (next === null || next.done) break
+      const event = next.value
+      if (event.t === 'item' && event.item.kind === 'complete') items.push(event.item.item)
+    }
+  } finally {
+    void iterator.return?.()
+  }
+  return items
+}
+
 /** Settles `true` once `promise` has settled, `false` while it is pending. */
 async function settled(promise: Promise<unknown>): Promise<boolean> {
   let done = false
@@ -328,6 +359,7 @@ describe('the entry is named by our id once Grok recorded the prompt', () => {
     const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
+      const before = await handle.snapshot()
       const named: TranscriptItemRef[] = []
       const receipt = await handle.send(
         { id: 'msg_ship', text: 'ship it' },
@@ -345,17 +377,14 @@ describe('the entry is named by our id once Grok recorded the prompt', () => {
       server.streamAgentText(['on it'])
       await expect.poll(() => named).toEqual([{ id: 'grok-user-msg_ship' }])
       server.completeTurn()
-      await expect
-        .poll(async () =>
-          (await handle.transcript.history({ limit: 100 })).items.map((item) => [
-            item.role,
-            item.id,
-          ]),
-        )
-        .toEqual([
-          ['user', 'grok-user-msg_ship'],
-          ['assistant', expect.any(String)],
-        ])
+      // Shown once, under the name, ahead of the answer it prompted.
+      const shown = await shownItems(handle, before.cursor, (items) =>
+        items.some((item) => item.role === 'assistant'),
+      )
+      expect(shown.map((item) => [item.role, item.id])).toEqual([
+        ['user', 'grok-user-msg_ship'],
+        ['assistant', expect.any(String)],
+      ])
       // Named once.
       expect(named).toHaveLength(1)
     } finally {
@@ -410,6 +439,7 @@ describe('the entry is named by our id once Grok recorded the prompt', () => {
     const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
+      const before = await handle.snapshot()
       const named: TranscriptItemRef[] = []
       const unrecorded: [string, string | undefined][] = []
       const receipt = await handle.send(
@@ -427,7 +457,7 @@ describe('the entry is named by our id once Grok recorded the prompt', () => {
       await expect.poll(async () => (await handle.state()).phase).not.toBe('working')
       expect(named).toEqual([])
       expect(unrecorded).toEqual([['dropped by a Grok hook', 'dropped-by-agent']])
-      expect(userItems((await handle.transcript.history({ limit: 100 })).items)).toEqual([])
+      expect(userItems(await shownItems(handle, before.cursor, () => false, 200))).toEqual([])
     } finally {
       runtime.dispose()
     }
@@ -517,6 +547,7 @@ describe("Grok's own history names the entry by the same id", () => {
     const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
+      const before = await handle.snapshot()
       await handle.send(
         { id: 'msg_kept', text: 'kept' },
         { origin: 'human', delivery: 'when-ready' },
@@ -525,15 +556,18 @@ describe("Grok's own history names the entry by the same id", () => {
       server.streamAgentText(['done'])
       server.completeTurn()
       await expect.poll(async () => (await handle.state()).phase).toBe('idle')
-      const live = userItems((await handle.transcript.history({ limit: 100 })).items).map(
-        (item) => item.id,
-      )
+      const live = userItems(
+        await shownItems(handle, before.cursor, (items) => userItems(items).length > 0),
+      ).map((item) => item.id)
       expect(live).toEqual(['grok-user-msg_kept'])
       const resumed = await runtime.driver.resume(
         { kind: 'grok-session', value: server.sessionId },
         spec(),
       )
-      const replayed = userItems((await resumed.transcript.history({ limit: 100 })).items)
+      // The load's replay, as the resumed driver shows it.
+      const replayed = userItems(
+        await shownItems(resumed, undefined, (items) => userItems(items).length > 0),
+      )
       expect(replayed.map((item) => [item.id, item.text])).toEqual([['grok-user-msg_kept', 'kept']])
     } finally {
       runtime.dispose()

@@ -496,12 +496,13 @@ export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHo
     },
 
     /**
-     * THE STORE READ OVER THE CHAT HISTORY FILE — the host half of the
+     * THE STORE READ OVER GROK'S HISTORY FILE — the host half of the
      * injected `readHistory` port the driver answers `transcript.history`
      * through.
      *
      * ONE shared implementation (`../engine-history.js`): the
-     * `chat_history.jsonl` under `~/.grok/sessions/<cwd>/<id>/`, located
+     * `updates.jsonl` under `~/.grok/sessions/<cwd>/<id>/` (the file Grok
+     * only appends to, POD-4875), located
      * from the workdir and the native session id (the resume value), with
      * the bucket sweep covering a cwd that moved since creation. A session
      * that has not run its first turn yet has no file, which reads as an
