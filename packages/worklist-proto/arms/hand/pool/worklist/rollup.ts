@@ -90,7 +90,7 @@
 
 import type { RelationReader } from '../../../../shared/src/instrument/reads'
 import type { RowView } from '../../../../shared/src/row-view'
-import type { EntityName } from '../../../../shared/src/schema'
+import { awaitingMergeOf, type EntityName } from '../../../../shared/src/schema'
 import type { SliceIssue, SlicePhase, SliceSession } from '../../../../shared/src/slice-types'
 import { type Cell, type CellGraph, DepIndex, type Equals, sameData } from '../cells'
 import type { SessionVisibleParts, VisibleParts } from './visible'
@@ -378,12 +378,13 @@ export function phaseOf(agg: Aggregate, rowFinished: boolean): SlicePhase {
 
 // ------------------------------------------------------------ decisions
 
-/** `issuePendingDecision` (`slices/issues.ts:391-404`); `merge` needs git state no slice row has. */
-export function pendingDecisionOf(issue: SliceIssue): 'review' | null {
+/** `issuePendingDecision` (`slices/issues.ts:391-404`); `merge` reads the merge axis off the composed row. */
+export function pendingDecisionOf(issue: SliceIssue): 'review' | 'merge' | null {
   const finished = issue.stage === 'done' || issue.closedReason != null
   if (!finished && issue.stage !== 'review') return null
   if (issue.blocked === true) return null
   if (abandoned(issue)) return null
+  if (awaitingMergeOf(issue)) return 'merge'
   return issue.stage === 'review' ? 'review' : null
 }
 
@@ -579,7 +580,7 @@ export interface OwnFacts {
   /** `ready`: resident; `cold`: its load is queued; `unknown`: not in the pool. */
   readonly state: 'ready' | 'cold' | 'unknown'
   readonly finished: boolean
-  readonly decision: 'review' | null
+  readonly decision: 'review' | 'merge' | null
   readonly continuedByField: boolean
 }
 

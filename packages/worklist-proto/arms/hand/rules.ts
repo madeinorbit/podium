@@ -14,6 +14,7 @@
  * supersededBy, dependents): absent on replay rows, present on engine rows.
  */
 
+import { awaitingMergeOf } from '../../shared/src/schema'
 import type { SliceIssue, SliceSession } from '../../shared/src/slice-types'
 
 export const DAY_MS = 24 * 60 * 60 * 1000
@@ -243,27 +244,27 @@ function wireExtra(issue: SliceIssue): WireExtra {
 }
 
 /**
- * issueAwaitingMerge (slices/issues.ts:369) is always false in the worklist:
- * it reads `branch`/`gitState`, which the navigation model never carries
- * (deriveIssueViews drops them — replica/issue-views.ts has no such read),
- * so the legacy slice never sees an unmerged delivery. The oracle encodes
- * that; a "better" merge reading would fail parity (spec: legacy wins).
+ * issueAwaitingMerge (slices/issues.ts:369): a finished, non-abandoned issue
+ * whose private branch holds unlanded work (`awaitingMergeOf`,
+ * `issueHasUnmergedDelivery`, slices/issues.ts:357-367). Read off the
+ * composed row (the wire carries `branch`/`gitState`; the frozen `SliceIssue`
+ * type does not spell them, so the verdict reads them structurally).
  */
-export function issueAwaitingMerge(_issue: SliceIssue): boolean {
-  return false
+export function issueAwaitingMerge(issue: SliceIssue): boolean {
+  return awaitingMergeOf(issue)
 }
 
 export type PendingDecision = 'merge' | 'review' | null
 
 /**
- * issuePendingDecision (slices/issues.ts:391) over model fields: without
- * gitState only the review branch can fire — finished non-review issues
- * hold no open question in the worklist.
+ * issuePendingDecision (slices/issues.ts:391-404): `merge` reads the merge
+ * axis off the composed row, before the review fallback.
  */
 export function issuePendingDecision(issue: SliceIssue): PendingDecision {
   if (!issueFinished(issue) && issue.stage !== 'review') return null
   if (issue.blocked === true) return null
   if (issueAbandoned(issue)) return null
+  if (awaitingMergeOf(issue)) return 'merge'
   return issue.stage === 'review' ? 'review' : null
 }
 

@@ -87,6 +87,7 @@
 
 import type { RelationReader } from '../../../../shared/src/instrument/reads'
 import { compareRank, type RowRank, type RowView, rankOf } from '../../../../shared/src/row-view'
+import { awaitingMergeOf } from '../../../../shared/src/schema'
 import type { SliceIssue, SliceSession } from '../../../../shared/src/slice-types'
 import type { Cell, CellGraph } from '../cells'
 import { sameData } from '../cells'
@@ -136,10 +137,19 @@ export interface Standing {
   readonly finished: boolean
   readonly agent: boolean
   /**
+   * A finished, non-abandoned issue whose private branch holds unlanded work
+   * (`awaitingMergeOf`, `issuePendingDecision`'s `merge`): R-VIS keeps it
+   * without limit (`rows.ts:95-104`, `visibility.ts:31-32`), whatever its
+   * audience, parent or sessions. Read off the composed row (the wire carries
+   * `branch`/`gitState`); never a new row read.
+   */
+  readonly awaitingMerge: boolean
+  /**
    * The sessionless keep, before the clock (`rows.ts:86-96`): `keep` (an
    * active human issue), `drop`, `fold` (a closed top-level issue: kept, no
    * decay, `visibility.ts:30`), or `decay` (a finished formal child: kept
-   * inside the `issueVisibleInSidebar` window).
+   * inside the `issueVisibleInSidebar` window). An awaiting-merge row never
+   * reaches this: `flat` keeps it before the switch.
    */
   readonly sessionless: 'keep' | 'drop' | 'fold' | 'decay'
   /** Rescue-eligible: human and not finished (`rows.ts:147`). */
@@ -176,8 +186,9 @@ export function standingOf(issue: SliceIssue): Standing {
   const activeHuman =
     human &&
     (issue.stage === 'planning' || issue.stage === 'in_progress' || issue.stage === 'review')
-  // `issueAwaitingMerge` reads branch and git state no slice row carries:
-  // never true here (as round two's `arms/hand/rules.ts`).
+  const awaitingMerge = !excluded && awaitingMergeOf(issue)
+  // `issueAwaitingMerge` reads branch and git state off the composed row: the
+  // wire carries both, so the verdict is available here.
   const sessionless = activeHuman
     ? 'keep'
     : !finished
@@ -193,6 +204,7 @@ export function standingOf(issue: SliceIssue): Standing {
     excluded,
     finished,
     agent: issue.audience === 'agent',
+    awaitingMerge,
     sessionless,
     rescuable: human && !finished,
     parentId: issue.parentId || null,
@@ -526,6 +538,10 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
     const standing = self.standing
     if (standing === undefined || standing.excluded) return false
     if (self.retained) return true
+    // A finished row awaiting merge is kept without limit (`rows.ts:95-104`,
+    // `visibility.ts:31-32`): unlanded commits stay unlanded, so no window is
+    // read. Before the sessionless switch, as the legacy gate is before its own.
+    if (standing.awaitingMerge) return true
     switch (standing.sessionless) {
       case 'keep':
       case 'fold':
