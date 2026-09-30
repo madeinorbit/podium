@@ -69,6 +69,7 @@ describe('gen', () => {
         throw new Error('missing conflict prefix')
       }
       expect(remote.handle).toBe(edit.handle)
+      if (!('title' in edit.patch)) throw new Error('missing title edit')
       expect(edit.patch.title).toBeDefined()
       expect(remote.value).not.toBe(edit.patch.title)
       expect(edit.patch).not.toHaveProperty('stage')
