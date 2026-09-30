@@ -5387,6 +5387,9 @@ describe('a stale busy tracker with no open turn never holds Grok follow-ups [PO
     )
     expect(direct).toMatchObject({ outcome: 'refused', refusal: { reason: 'busy' } })
     expect(pastesOf(world)).toEqual([])
+    world.runtime.dispose()
+  })
+})
 
 // ---------------------------------------------------------------------------
 // TERMINAL RECEIPTS FROM THE HISTORY (POD-4905)
