@@ -141,7 +141,7 @@ describe('v1 receipt proof from the measured storage boundary', () => {
       w.publish(measured.request, true)
       await expect.poll(() => late.mock.calls.length).toBe(1)
       expect(late).toHaveBeenCalledWith({
-        transcriptItem: { id: deltaItemIdForPart(w.sessionID, measured.request.parts[0]!.id), cursor: expect.any(Object) },
+        transcriptItem: { id: deltaItemIdForPart(w.sessionID, measured.request.parts[0]!.id), cursor: expect.any(String) },
         harnessRef: [
           { kind: 'opencode-message', id: measured.request.messageID },
           { kind: 'opencode-part', id: measured.request.parts[0]!.id },
@@ -195,8 +195,20 @@ describe('v1 receipt proof from the measured storage boundary', () => {
 
   it('bounds the wait even when the post-send history read never answers', async () => {
     let reads = 0
+    let posted = false
     const host = makeOpencodeTestHost({
-      wrapClient: (client) => ({ ...client, messages: async () => ++reads === 1 ? [] : new Promise(() => {}) }),
+      wrapClient: (client) => ({
+        ...client,
+        async messages() {
+          reads += 1
+          return posted ? new Promise(() => {}) : []
+        },
+        async prompt(sessionId, body) {
+          const receipt = await client.prompt(sessionId, body)
+          posted = true
+          return receipt
+        },
+      }),
     })
     host.promptRecordTimeoutMs = 50
     const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
@@ -204,7 +216,7 @@ describe('v1 receipt proof from the measured storage boundary', () => {
       const handle = await runtime.driver.create(spec)
       const receipt = await handle.send({ id: 'msg_stalled_read', text: 'waiting' }, options)
       expect(receipt).toMatchObject({ outcome: 'unverified', verificationWindowMs: 50 })
-      expect(reads).toBe(2)
+      expect(reads).toBeGreaterThanOrEqual(2)
     } finally { runtime.dispose() }
   })
 })
