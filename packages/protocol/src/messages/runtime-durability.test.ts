@@ -13,6 +13,24 @@ import {
 } from './runtime'
 
 const at = '2026-09-18T12:00:00.000Z'
+
+describe('program-held receipt evidence survives the wire', () => {
+  it.each(['memory', 'durable'] as const)('preserves a %s hold on an accepted receipt', (held) => {
+    const receipt = {
+      outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready',
+      provenBy: 'protocol-ack', held, at,
+    }
+    expect(TurnReceipt.parse(receipt)).toEqual(receipt)
+  })
+
+  it('preserves the explicit request rejection cause', () => {
+    const receipt = {
+      outcome: 'refused',
+      refusal: { reason: 'invalid_value', detail: 'HTTP 400', cause: 'rejected-by-agent' },
+    }
+    expect(TurnReceipt.parse(receipt)).toEqual(receipt)
+  })
+})
 const bodies = {
   metadata: { t: 'metadata', change: { kind: 'context', source: 'transcript', percent: 42 } },
   binding: { t: 'binding', resume: { kind: 'codex-thread', value: 'native' }, confidence: 'exact', bindingVersion: 1, ackRequested: true },
