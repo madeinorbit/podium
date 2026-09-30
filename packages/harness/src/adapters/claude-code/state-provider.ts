@@ -469,6 +469,22 @@ export class ClaudeCausalObserver {
     if (transcriptOffset < this.lastOffset) return null
 
     const hookPromptId = str(p.prompt_id) ?? null
+    // `prompt_id` names a TURN, not a prompt. A prompt typed while Claude is busy
+    // fires its UserPromptSubmit at Enter carrying the RUNNING turn's id; Claude
+    // then takes it into that turn or runs it as a later one under a new id,
+    // which {@link observePromptTurn} opens. So a submit naming the turn already
+    // open, or the one just closed, is never a turn of its own. It is still a
+    // prompt submitted, and an input origin recorded for it is spent here, or the
+    // next turn would be credited to it. Only the hook-identity dedupe used to
+    // stop it, which a restart or 256 hooks of a long turn empties. [POD-4878]
+    if (
+      hook === 'UserPromptSubmit' &&
+      hookPromptId !== null &&
+      hookPromptId === this.providerPromptId
+    ) {
+      this.pendingOrigins.shift()
+      return null
+    }
     /**
      * The stop of a child we are still tracking. Bookkeeping about ONE named
      * child, not a claim about a turn — which is why it is exempt from both the
@@ -645,6 +661,107 @@ export class ClaudeCausalObserver {
   }
 
   /**
+   * A TURN NO SUBMIT HOOK OPENED (POD-4878): a prompt Claude held in its queue
+   * and ran as a turn of its own — queued behind streamed text, sent now during
+   * text, or left queued when Escape stopped a tool. Claude 2.1.284 fires no
+   * UserPromptSubmit naming such a turn (its hook fired at Enter, with the id of
+   * the turn then running), and when it replaces a turn it fires no Stop for the
+   * one it replaced. The first hook naming the new turn is often its Stop.
+   *
+   * A hook naming a turn other than the current one proves nothing by itself: a
+   * straggler names a turn that is over. What proves the turn is Claude's own
+   * record: the `user` record of a prompt taken from its queue (`promptSource:
+   * "queued"`) carrying that id, written after the current turn began. Then that
+   * turn is opened here, as a UserPromptSubmit would have opened it, and the
+   * caller applies the hook to it next. Without the record nothing changes, and
+   * the hook is judged as it always was.
+   *
+   * Returns the `turn_opened`, or null when the hook names no such turn.
+   */
+  async observePromptTurn(payload: unknown): Promise<AgentObservation | null> {
+    const wanted = this.promptTurnWanted(payload)
+    if (!wanted) return null
+    let record: ClaudeQueuedPromptRecord | null
+    try {
+      record = await findClaudeQueuedPromptRecord(wanted.path, wanted.promptId, wanted.scanStart)
+    } catch {
+      return null
+    }
+    // The read yielded; a turn the hook named may have been opened meanwhile.
+    if (!record || record.promptId === this.providerPromptId) return null
+    const identity = `PromptRecord:${record.promptId}`
+    if (this.seen.has(identity)) return null
+    this.seen.add(identity)
+    this.seenOrder.push(identity)
+    if (this.seenOrder.length > MAX_SEEN_HOOK_RECORDS) {
+      const evictedIdentity = this.seenOrder.shift()
+      if (evictedIdentity !== undefined) this.seen.delete(evictedIdentity)
+    }
+
+    const prior = this.state
+    const now = this.now()
+    // The record's timestamp is when Claude took the prompt in, which is when the
+    // turn began — often seconds before the hook that made us look.
+    const takenIn = record.timestamp
+    const takenInMs = takenIn === null ? Number.NaN : Date.parse(takenIn)
+    const at =
+      takenInMs > Date.parse(prior.since) && takenInMs < Date.parse(now) ? takenIn : undefined
+    this.state = reduceAgentState(
+      prior,
+      withStateChannelEvent({ kind: 'prompt_submitted', ...(at ? { at } : {}) }, 'hook'),
+      now,
+    )
+    this.turnEpoch += 1
+    this.providerPromptId = record.promptId
+    this.epochOpen = true
+    this.epochOpenedOffset = record.offset
+    this.closing = false
+    this.currentOrigin = record.origin
+    this.lastOffset = Math.max(this.lastOffset, record.recordBoundary)
+    this.hookSequence += 1
+    return this.observation({
+      sourceEventKind: 'TranscriptPrompt',
+      transitionKind: 'turn_opened',
+      provenance: 'live',
+      inputOrigin: record.origin,
+      priorPhase: prior.phase,
+      state: this.state,
+      offset: this.lastOffset,
+      identity,
+      providerAt: takenIn,
+    })
+  }
+
+  /** The turn a hook names that is not the current one, and where Claude's record
+   *  of its prompt would lie — or null when the hook can name no new turn. */
+  private promptTurnWanted(
+    payload: unknown,
+  ): { promptId: string; path: string; scanStart: number } | null {
+    if (typeof payload !== 'object' || payload === null || !this.bootstrapped) return null
+    const p = payload as Record<string, unknown>
+    const hook = str(p.hook_event_name)
+    const promptId = str(p.prompt_id)
+    const path = str(p.transcript_path)
+    if (
+      p.session_id !== this.options.providerSessionId ||
+      !hook ||
+      !promptId ||
+      !path ||
+      basename(path) !== `${this.options.providerSessionId}.jsonl` ||
+      promptId === this.providerPromptId ||
+      // A submit opens its own turn; the rest carry no turn of the parent's.
+      hook === 'UserPromptSubmit' ||
+      hook === 'SessionStart' ||
+      hook === 'SessionEnd' ||
+      // A subagent's hooks name the turn that spawned it, however long ago.
+      str(p.agent_id) !== undefined
+    ) {
+      return null
+    }
+    return { promptId, path, scanStart: this.epochOpenedOffset }
+  }
+
+  /**
    * A USER INTERRUPT, WHICH FIRES NO HOOK (POD-4633). Measured on Claude Code
    * 2.1.280: Esc mid-turn sends no Stop, so the epoch the Stop would have closed
    * stayed open, the session read Working, and every later message waited its
@@ -791,6 +908,65 @@ export interface ClaudePromptEvidence {
   payloadFingerprint: string
   origin: ObservationInputOrigin
   hasAssistantOutputAfter: boolean
+}
+
+/** Claude's record of a queued prompt it ran as a turn
+ *  (see {@link ClaudeCausalObserver.observePromptTurn}). */
+export interface ClaudeQueuedPromptRecord {
+  /** The turn's native id, as Claude stamped the record. */
+  promptId: string
+  /** Where the record starts, and the byte boundary just past it. */
+  offset: number
+  recordBoundary: number
+  /** Claude's own time on the record: when it took the prompt in. */
+  timestamp: string | null
+  origin: ObservationInputOrigin
+}
+
+/**
+ * The record of a prompt Claude took from its queue as turn `promptId`, at or
+ * after `start`, or null: a main-conversation `user` record with
+ * `promptSource: "queued"` holding the prompt's text. It is how Claude 2.1.284
+ * starts every turn no UserPromptSubmit names (after streamed text, send-now
+ * during text, Escape with a prompt queued). Tool results and interrupt markers
+ * written into the same turn carry its id too, but are not the prompt.
+ */
+export async function findClaudeQueuedPromptRecord(
+  path: string,
+  promptId: string,
+  start: number,
+): Promise<ClaudeQueuedPromptRecord | null> {
+  const handle = await open(path, 'r')
+  try {
+    const size = Number((await handle.stat()).size)
+    if (!Number.isSafeInteger(start) || start < 0 || start > size) return null
+    let found: ClaudeQueuedPromptRecord | null = null
+    await scanDescriptorRange(handle, start, size, false, ({ record, offset, boundary }) => {
+      if (
+        found ||
+        record.promptId !== promptId ||
+        record.promptSource !== 'queued' ||
+        record.isSidechain === true
+      ) {
+        return
+      }
+      const prompt = promptPayload(record)
+      if (!prompt) return
+      found = {
+        promptId,
+        offset,
+        recordBoundary: boundary,
+        timestamp:
+          typeof record.timestamp === 'string' && Number.isFinite(Date.parse(record.timestamp))
+            ? record.timestamp
+            : null,
+        origin: prompt.origin,
+      }
+    })
+    return found
+  } finally {
+    await handle.close()
+  }
 }
 
 /** An interrupt record that ends the transcript (see {@link ClaudeCausalObserver.observeInterrupt}). */

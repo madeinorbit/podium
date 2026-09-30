@@ -485,6 +485,17 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       await applyClaudeInterruptProbe(causal, payload)
       return
     }
+    // A prompt Claude queued and then ran as a turn of its own opens no epoch by
+    // any hook (POD-4878): its transcript record proves it, and the hook that
+    // named it is applied to that turn once the opening is acked.
+    const opened = await causal.observer.observePromptTurn(payload)
+    if (opened) {
+      if (claudeCausal.get(causal.sessionId) !== causal) return
+      causal.bufferedHooks.unshift(payload)
+      causal.pendingObservation = opened
+      emitObservation(opened.podiumSessionId, opened)
+      return
+    }
     const p = payload as Record<string, unknown>
     const path = typeof p.transcript_path === 'string' ? p.transcript_path : ''
     // An unreadable transcript costs this hook its POSITION, not its existence.
