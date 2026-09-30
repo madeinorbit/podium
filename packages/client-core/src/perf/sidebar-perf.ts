@@ -163,9 +163,7 @@ export function createSidebarPerf(clock: () => number = () => performance.now())
               at: update.at,
               pending: updates.has(update.token),
               work: updates.has(update.token)
-                ? workOf(
-                    entries.filter((entry) => entry.update === update.token && !entry.check),
-                  )
+                ? workOf(entries.filter((entry) => entry.update === update.token && !entry.check))
                 : { ...update.work },
             }
           : null,
