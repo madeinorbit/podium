@@ -55,6 +55,29 @@ describe('gen', () => {
     expect(new Set(only.map((c) => c.kind))).toEqual(new Set(['heartbeat', 'evict', 'reAdd']))
   })
 
+  it('forces an observable pending-title conflict in every requested seed', () => {
+    for (const seed of [1, 2, 3, 7, 1000]) {
+      const options = { forcePendingRemote: true, editFields: ['title', 'readAt'] as const }
+      const changes = gen(seed, 200, {}, options)
+      expect(changes).toHaveLength(200)
+      expect(gen(seed, 200, {}, options)).toEqual(changes)
+      expect(gen(seed, 200, {}, { forcePendingRemote: false })).toEqual(gen(seed, 200))
+      const [edit, remote] = changes
+      expect(edit?.kind).toBe('edit')
+      expect(remote?.kind).toBe('remoteOnPending')
+      if (edit?.kind !== 'edit' || remote?.kind !== 'remoteOnPending') {
+        throw new Error('missing conflict prefix')
+      }
+      expect(remote.handle).toBe(edit.handle)
+      expect(edit.patch.title).toBeDefined()
+      expect(remote.value).not.toBe(edit.patch.title)
+      expect(edit.patch).not.toHaveProperty('stage')
+      expect(edit.patch).not.toHaveProperty('readAt')
+    }
+    expect(() => gen(1, 1, {}, { forcePendingRemote: true })).toThrow(/two steps/)
+    expect(() => gen(1, 200, {}, { forcePendingRemote: true, editFields: ['readAt'] })).toThrow(/title edits/)
+  })
+
   it('emits each audit §3.3 shape in its defining pattern', () => {
     const changes = gen(1, 3000)
     const tagged = (shape: string): Change[] => changes.filter((c) => 'shape' in c && c.shape === shape)

@@ -474,6 +474,14 @@ export interface GenOptions {
   /** The corpus the sequence is aimed at. Default: the one fixture, 1x. */
   corpus?: FixtureCorpus
   /**
+   * Start with a title edit on a visible human root followed by a different
+   * remote title while the edit is pending. Plant-sensitivity runs need an
+   * observable conflict in every seed: random remotes can touch only hidden
+   * rows, equal echoes or read cursors that the snapshot does not display.
+   * Requires at least two steps and title edits in the allowed vocabulary.
+   */
+  forcePendingRemote?: boolean
+  /**
    * POD-4574 (Mc2) — which fields generated edits may set. Default all three.
    * The Mc2 gate uses title + mark-read only: a pending stage moves progress
    * roll-ups, which the write oracle (titles overlaid on the kernel snapshot)
@@ -487,7 +495,7 @@ export interface GenOptions {
 
 /**
  * `steps` changes drawn from `weights` (merged over {@link DEFAULT_WEIGHTS}),
- * deterministic in `(seed, steps, weights, corpus)`. A drawn kind whose
+ * deterministic in `(seed, steps, weights, opts)`. A drawn kind whose
  * precondition does not hold in the model (nothing evicted to re-add, no
  * held edit to answer, already online) is redrawn, so the output is always
  * exactly `steps` changes. A shape may emit up to five changes; the tail is
@@ -1077,6 +1085,28 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
     return writeChange(kind as (typeof WRITE_KINDS)[number])
   }
 
+  if (opts.forcePendingRemote === true) {
+    if (
+      steps < 2 ||
+      (opts.editFields !== undefined && opts.editFields.length > 0 && !opts.editFields.includes('title'))
+    ) {
+      throw new Error('[gen] a forced pending remote needs two steps and title edits')
+    }
+    const issue = pick(
+      model.hot.map((id) => model.issues.get(id)!).filter((m) =>
+        model.present(m.id) && !m.archived && m.audience === 'human' &&
+        m.parentId === null && !m.draft && ACTIVE_STAGES.has(m.stage),
+      ),
+    )
+    if (issue === undefined) throw new Error('[gen] no visible human root for a pending remote')
+    const title = `Title ${model.mint('t')}`
+    const edit = newEdit(issue.id, 'title')
+    model.trigger()
+    out.push(
+      { kind: 'edit', handle: edit.handle, id: issue.id, patch: { title } },
+      { kind: 'remoteOnPending', handle: edit.handle, value: `Theirs ${model.mint('r')}` },
+    )
+  }
   if ((w['shapes'] ?? 0) > 0) {
     for (const forced of [
       'excludedKeeper',

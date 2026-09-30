@@ -258,13 +258,13 @@ function staleRewind(handle: HarnessWritableMobxPoolHandle): void {
 }
 
 /** Plant (c): any remote drops the pending entry, so the object takes the server value. */
-function dropPendingOnRemote(handle: HarnessWritableMobxPoolHandle, exercised: (event: { kind: string; id: string; patch: unknown; values: unknown }) => void = () => {}): void {
+function dropPendingOnRemote(handle: HarnessWritableMobxPoolHandle, exercised?: () => void): void {
   const write = handle.write
   const remote = write.handleRemote.bind(write)
   write.handleRemote = (kind, id, values) => {
     remote(kind, id, values)
     for (const edit of write.log.pendingFor(kind, id)) {
-      exercised({ kind, id, patch: edit.patch, values })
+      exercised?.()
       write.reject({ txId: edit.txId, error: { message: '[plant] remote drops pending', parked: false } })
     }
   }
@@ -676,31 +676,50 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
       // A dropped pending is transient; the seating gap used to fail every
       // seed persistently and masked cadence weakness. Never weaken 3/3.
       let failures = 0
+      const cells: {
+        seed: number
+        exercised: number
+        caught: boolean
+        against: string | null
+        steps: number
+        diff: string | null
+      }[] = []
       for (const seed of SEEDS) {
         let exercised = 0
-        let dropped: { kind: string; id: string; patch: unknown; values: unknown }[] = []
         const adapter = new ArmEditAdapter()
         const oracle = new WriteOracle()
-        const planted = armWithAdapter(adapter, oracle, (handle) => dropPendingOnRemote(handle, (event) => { exercised += 1; dropped.push(event) }))
-        const sequence = gen(seed, STEPS)
+        const planted = armWithAdapter(adapter, oracle, (handle) =>
+          dropPendingOnRemote(handle, () => {
+            exercised += 1
+          }),
+        )
+        const sequence = gen(seed, STEPS, {}, { forcePendingRemote: true })
         const result = await checkArm(planted, sequence, {
           mode: 'truth',
           shrink: false,
           oracleEvery: 1,
           editViaArm: adapter.editHook,
-          onStep: (step, run, handle) => {
+          onStep: (step, run) => {
             adapter.pairFromStep(step.detail ?? {})
             feedStep(oracle, step, run)
-            if (dropped.length > 0) {
-              const actual = handle.snapshot()
-              const expected = oracle.expectedSnapshot(run.ctx.engine.getSnapshot(), run.feed().source)
-              console.info(`[plant-c drop] seed=${seed} step=${step.index} change=${JSON.stringify(step.change)} drops=${JSON.stringify(dropped.map((event) => ({ ...event, actual: actual.rowsById[event.id], expected: expected.rowsById[event.id] })))}`)
-              dropped = []
-            }
           },
         })
-        console.info(`[plant-c diagnostic] seed=${seed} generatedRemotes=${sequence.filter((c) => c.kind === 'remoteOnPending').length} exercised=${exercised} caught=${!result.ok} ${JSON.stringify(result.ok ? {} : { step: result.step, change: result.change, against: result.against, diff: result.diff })}`)
+        cells.push({
+          seed,
+          exercised,
+          caught: !result.ok,
+          against: result.ok ? null : result.against,
+          steps: result.counts.steps,
+          diff: result.ok ? null : result.diff,
+        })
         if (!result.ok) failures += 1
+      }
+      writeResult(`mobx-write-truth-plant-c-${SEEDS.length}x${STEPS}`, { cells })
+      for (const cell of cells) {
+        console.info(`[plant (c)] seed ${cell.seed}: exercised=${cell.exercised}, caught=${cell.caught}`)
+        expect(cell.exercised, `seed ${cell.seed}: plant (c) was EXERCISED`).toBeGreaterThan(0)
+        expect(cell.caught, `seed ${cell.seed}: plant (c) was caught`).toBe(true)
+        expect(cell.against, `seed ${cell.seed}: caught by the oracle`).toBe('oracle')
       }
       expect(failures).toBe(SEEDS.length)
     },
