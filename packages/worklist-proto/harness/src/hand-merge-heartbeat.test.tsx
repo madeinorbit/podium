@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { awaitingMergeOf } from '../../shared/src/schema'
 import { startScenarioEngine } from '../../shared/src/scenarios'
 import { diffSnapshots } from '../../shared/src/gen/check'
+import type { SliceIssue } from '../../shared/src/slice-types'
 import { harnessHandPoolArm } from './adapters/hand-pool'
 import { assertCommits, mountArmForCounts } from './count-harness'
 import {
@@ -20,7 +21,7 @@ describe('Hand merge verdict on an unrelated heartbeat', () => {
     const mounted = mountArmForCounts(harnessHandPoolArm, feeds.rows.source, feeds.locals)
     try {
       const merging = feeds.rows.source.snapshot('issue').filter((row) =>
-        row.value !== undefined && awaitingMergeOf(row.value),
+        row.value !== undefined && awaitingMergeOf(row.value as SliceIssue),
       )
       expect(merging.length, 'the fixture exercises the merge verdict').toBeGreaterThan(0)
       const expected = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
