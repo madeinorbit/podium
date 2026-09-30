@@ -9,6 +9,7 @@ import { cases, bytes, sha } from './matrix.ts'
 const [lane, selected] = process.argv.slice(2)
 const lanes = ['codex-app-server', 'opencode-v1', 'opencode-v2', 'opencode2-v2', 'grok-acp', 'codex-terminal', 'opencode-terminal', 'opencode2-terminal', 'grok-terminal']
 lanes.push(...['codex', 'opencode', 'opencode2', 'grok'].map(p => `${p}-terminal-paced`))
+lanes.push('codex-terminal-raw')
 if (!lanes.includes(lane!)) throw new Error(`Lane must be one of ${lanes}`)
 const out = resolve(import.meta.dir, lane!)
 mkdirSync(out, { recursive: true })
@@ -245,7 +246,7 @@ try {
     logChild(program, 'program')
     if (!await until(async () => { try { return (await fetch(`http://127.0.0.1:${appPort}/api/health`, { headers: auth, signal: AbortSignal.timeout(2000) })).ok } catch { return false } }, 45000)) throw new Error('OpenCode server not ready')
   }
-  for (const method of terminal ? lane!.endsWith('-paced') ? ['typed-paced'] : ['paste', 'typed'] : ['protocol']) {
+  for (const method of terminal ? lane!.endsWith('-raw') ? ['typed-buffer'] : lane!.endsWith('-paced') ? ['typed-paced'] : ['paste', 'typed'] : ['protocol']) {
     for (const c of cases.filter(c => !selected || c.name.includes(selected))) {
       const label = `${method}/${c.name}`
       if (terminal) await launchTerminal(label)
@@ -255,10 +256,10 @@ try {
       let sessionId: string | undefined, protocolId: string | undefined, status: any, error: string | undefined
       try {
         if (terminal) {
-          if (method === 'paste') {
+          if (method === 'paste' || method === 'typed-buffer') {
             writeFileSync(`${root}/paste.txt`, c.text)
             tmux('load-buffer', '-b', 'input', `${root}/paste.txt`)
-            tmux('paste-buffer', '-r', '-p', '-b', 'input', '-t', 'measure')
+            tmux('paste-buffer', '-r', ...(method === 'paste' ? ['-p'] : []), '-b', 'input', '-t', 'measure')
           } else if (method === 'typed-paced' || method === 'typed') {
             for (let i = 0; i < c.text.length; i += 256) {
               tmux('send-keys', '-t', 'measure', '-l', '--', c.text.slice(i, i + 256))
