@@ -194,7 +194,7 @@ try {
   } else {
     program = spawn(bin, ['serve', '--port', String(appPort), '--hostname', '127.0.0.1'], { env, cwd: work, stdio: ['ignore', 'pipe', 'pipe'] })
     logChild(program, 'program')
-    if (!await until(async () => { try { return (await fetch(`http://127.0.0.1:${appPort}/api/health`, { headers: auth })).ok } catch { return false } }, 45000)) throw new Error('OpenCode server not ready')
+    if (!await until(async () => { try { return (await fetch(`http://127.0.0.1:${appPort}/api/health`, { headers: auth, signal: AbortSignal.timeout(2000) })).ok } catch { return false } }, 45000)) throw new Error('OpenCode server not ready')
   }
   for (const method of terminal ? ['paste', 'typed'] : ['protocol']) {
     for (const c of cases.filter(c => !selected || c.name.includes(selected))) {
