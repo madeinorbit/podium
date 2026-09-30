@@ -241,21 +241,24 @@ export const runtimeHandlers: Pick<
           receipt,
         })
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         // A THROW IS NOT AN OUTCOME. The four outcomes are the contract's whole
         // honesty commitment, so an unexpected failure is reported as the one
         // that is true — we could not prove the send did anything — rather than
         // as a silence the caller has to time out on.
         //
-        // The throw may follow admission or a write, even for a direct send
-        // without a durable row (POD-4884). Only the pre-write guards above
-        // can prove a refusal; "could not prove" is `unverified`.
-        const receipt: TurnReceipt = {
-          outcome: 'unverified',
-          deliveredAs: msg.delivery,
-          verificationWindowMs: 0,
-          at: new Date().toISOString(),
-        }
+        // A DURABLE row is `unverified`, never `refused` (POD-4622): the throw
+        // may follow the row's admission, and the server reads a durable
+        // `not_running` as proof nothing was typed and releases the row's
+        // reservation. "Could not prove" is what `unverified` means.
+        const receipt: TurnReceipt = msg.rowId
+          ? {
+              outcome: 'unverified',
+              deliveredAs: msg.delivery,
+              verificationWindowMs: 0,
+              at: new Date().toISOString(),
+            }
+          : { outcome: 'refused', refusal: { reason: 'not_running', detail: String(err) } }
         driverTiming.promptReceipt(handle.binding, msg.turnId, receipt)
         ctx.send({
           type: 'runtimeSendResult',

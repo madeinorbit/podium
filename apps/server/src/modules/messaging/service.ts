@@ -742,7 +742,6 @@ export class MessagingService implements TelegramNoticePort {
     ownerUserId?: UserId
     threadId: ThreadId
     ok: boolean
-    deliveryStatus?: 'unknown'
     output?: string
     error?: string
   }): Promise<void> {
@@ -761,9 +760,7 @@ export class MessagingService implements TelegramNoticePort {
       this.awaiting.delete(key)
       const text = ev.ok
         ? ev.output?.trim() || '(the superagent finished without a text reply)'
-        : ev.deliveryStatus === 'unknown'
-          ? `⚠️ Delivery unknown: ${ev.error ?? 'Delivery could not be proven; the message may have reached the agent.'}`
-          : `⚠️ Turn failed: ${ev.error ?? 'unknown error'}`
+        : `⚠️ Turn failed: ${ev.error ?? 'unknown error'}`
       void await this.reply(awaited.source, text)
     }
     const ownerUserId = awaited?.ownerUserId ?? this.queues.get(key)?.[0]?.ownerUserId
