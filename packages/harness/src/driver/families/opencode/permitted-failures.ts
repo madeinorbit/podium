@@ -6,11 +6,10 @@
  * agrees until somebody edits the first one, and the drift is always in the
  * direction of a driver quietly widening its own exemptions while staying green.
  *
- * ONE NAME, AND IT IS NOT ONE OF THE TWO THAT MATTER. `unverified-send` and
- * `at-least-once-interactions` are the terminal family's, they stay off this
- * row, and the corpus asserts the converse — a server driver that claimed
- * either, or that exhibited either without claiming it, fails. What the server
- * family does carry is `no-native-steer`, which W5 established is a per-harness
+ * `unverified-send` stays off the family row; OpenCode v1's measured storage
+ * gap has a driver-specific entitlement in permitsUnverifiedSend. Structured
+ * interactions still have stable ids. The server family carries
+ * `no-native-steer`, which W5 established is a per-harness
  * PROTOCOL VERB rather than a family property: Codex has `turn/steer`, opencode
  * has nothing like it. The argument is in `../../permitted-failures.ts`, where
  * the table lives.

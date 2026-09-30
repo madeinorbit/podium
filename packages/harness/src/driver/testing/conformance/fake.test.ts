@@ -19,6 +19,7 @@ import {
   PERMITTED_FAILURES,
   permits,
   permitsNoNativeSteer,
+  permitsUnverifiedSend,
   RUNTIME_PRIMITIVE_TIER,
 } from '../../host.js'
 import {
@@ -173,6 +174,14 @@ describe('the permitted-failures table', () => {
   it('grants the terminal family exactly the two weaknesses the spec names', () => {
     expect(PERMITTED_FAILURES.terminal).toContain('unverified-send')
     expect(PERMITTED_FAILURES.terminal).toContain('at-least-once-interactions')
+  })
+
+  it('permits unverified server sends only for the measured OpenCode v1 gap', () => {
+    expect(permitsUnverifiedSend('server', 'opencode-server')).toBe(true)
+    for (const driver of ['opencode2-server', 'codex-app-server', 'grok-acp', 'claude-sdk'] as const)
+      expect(permitsUnverifiedSend('server', driver)).toBe(false)
+    expect(permitsUnverifiedSend('server')).toBe(false)
+    expect(permitsUnverifiedSend('terminal', 'generic-pty')).toBe(true)
   })
 
   it('pins WHICH DRIVERS may decline native steer, because the family row cannot', () => {

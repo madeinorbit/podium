@@ -98,10 +98,8 @@ export interface OpencodePermissionRule {
 /**
  * `POST /session/{id}/prompt_async?directory=<abs>` → **204 No Content**.
  *
- * 204 IS THE ACK, and it is the whole basis of this driver's `accepted` receipt:
- * opencode has taken the turn. It is emphatically NOT "the turn finished" — the
- * blocking sibling `POST /session/{id}/message` is the one that waits, and the
- * plan is explicit that using it would make `accepted` mean the wrong thing.
+ * The 204 precedes storage (OpenCode 1.18.33, POD-4834); it proves neither
+ * acceptance nor delivery. The driver waits for the text part carrying our id.
  */
 export type OpencodePromptPart =
   /** `id` (pattern `^prt`) is opencode's own part id, given by us. */

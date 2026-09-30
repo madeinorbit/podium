@@ -160,6 +160,7 @@ function makeWorld(options: WorldOptions = {}): {
   })
 
   const host: OpencodeRuntimeHost = {
+    promptRecordTimeoutMs: 100,
     reportObservedConfiguration: (input) => observed.push(input),
     stageAttachment:
       options.stageAttachment ??
@@ -492,11 +493,8 @@ function makeWorld(options: WorldOptions = {}): {
     },
 
     failNextVerification(sessionId) {
-      // There is NO verification window in this family — the 204 either happens
-      // or it does not. The corpus pushes a driver at the `unverified` outcome
-      // here, and a server driver must answer with something else; making the
-      // POST fail is the only honest way to push.
-      serverFor(sessionId).failNextPrompt()
+      // The measured v1 gap: a 204 with no stored text part cannot confirm it.
+      serverFor(sessionId).omitNextPromptRecord()
     },
 
     model: {

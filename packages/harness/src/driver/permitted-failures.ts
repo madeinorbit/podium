@@ -14,12 +14,12 @@
  * So the weaknesses are ENUMERATED, per family, as data. The corpus reads this
  * table to decide whether an outcome is a permitted failure or a bug — and,
  * crucially, it also asserts the CONVERSE: a family that is NOT permitted a
- * weakness must not exhibit it. `unverified` from a server driver is a failure,
- * not a shrug, and that is only checkable because the permission is explicit.
+ * weakness must not exhibit it. OpenCode v1 has a measured driver-specific
+ * exception: its 204 precedes storage and cannot prove the program took it.
  *
  * ADDING A PERMISSION HERE IS A DECISION with a high bar: it says a guarantee
  * the rest of Podium is written against does not hold for a whole family, and
- * every consumer must branch on it. The spec permits exactly two, both terminal.
+ * every consumer must branch on it. Measured exceptions stay pinned per driver.
  */
 
 import { canonicalDriverId } from '../manifest.js'
@@ -29,8 +29,8 @@ import type { AcceptedDriverId, DriverFamily, DriverId } from './families.js'
 export type PermittedFailure =
   /**
    * A send may resolve `unverified`: keystrokes delivered, acceptance
-   * unprovable inside the verification window. TERMINAL ONLY — the spec is
-   * explicit, and the server family "must not need" any exemption.
+   * unprovable inside the verification window. Terminal family, plus the
+   * measured OpenCode v1 exception in permitsUnverifiedSend.
    */
   | 'unverified-send'
   /**
@@ -76,8 +76,8 @@ export const PERMITTED_FAILURES: Readonly<Record<DriverFamily, readonly Permitte
    * `unverified-send` and `at-least-once-interactions` are the two that matter
    * and they stay off this row permanently: a server driver has a protocol ack
    * and a real request id, so a send it cannot prove and an ask it cannot
-   * identify are bugs, not weaknesses. W5's opencode driver claims neither, and
-   * the corpus asserts the converse in both directions.
+   * identify are bugs, not family-wide weaknesses. OpenCode v1's measured
+   * storage gap is pinned separately by permitsUnverifiedSend.
    *
    * `no-native-steer` was added by W5 (POD-2023) after measuring opencode
    * 1.18.16, and the addition is argued rather than convenient. Steering is a
@@ -108,6 +108,16 @@ export const PERMITTED_FAILURES: Readonly<Record<DriverFamily, readonly Permitte
 
 export const permits = (family: DriverFamily, failure: PermittedFailure): boolean =>
   PERMITTED_FAILURES[family].includes(failure)
+
+/** OpenCode 1.18.33 v1 can lose a prompt after its 204 (POD-4834 S6.C).
+ * Its stored text part proves receipt; a bounded wait without it is unverified.
+ * v2 admissions and other server protocols do not inherit this exception. */
+export const permitsUnverifiedSend = (
+  family: DriverFamily,
+  driverId?: AcceptedDriverId,
+): boolean =>
+  permits(family, 'unverified-send') ||
+  (family === 'server' && driverId !== undefined && canonicalDriverId(driverId) === 'opencode-server')
 
 /**
  * WHICH DRIVERS MAY ACTUALLY TAKE `no-native-steer` (POD-2085).

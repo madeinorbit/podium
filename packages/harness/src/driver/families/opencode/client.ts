@@ -93,7 +93,7 @@ export interface OpencodeClient {
     permission?: readonly OpencodePermissionRule[]
   }): Promise<OpencodeSession>
   getSession(sessionId: OpencodeSessionId): Promise<OpencodeSession>
-  /** 204 = opencode has TAKEN the turn. Not "the turn finished". */
+  /** v1's 204 precedes storage and proves no acceptance; wait for its text part. */
   prompt(sessionId: OpencodeSessionId, body: OpencodePromptBody): Promise<OpencodePromptAdmission>
   abort(sessionId: OpencodeSessionId): Promise<void>
   messages(sessionId: OpencodeSessionId): Promise<readonly OpencodeMessageWithParts[]>
