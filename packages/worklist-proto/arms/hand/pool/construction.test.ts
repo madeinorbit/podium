@@ -35,7 +35,7 @@ import { settableLocals } from '../../../shared/src/locals-source'
 import type { RowRecord } from '../../../shared/src/stats'
 import type { Cell } from './cells'
 import { CellGraph } from './cells'
-import { handPoolArm } from './arm'
+import { harnessHandPoolArm } from '../../../harness/src/adapters/hand-pool'
 import type { HandPool } from './pool'
 
 /** Cell constructions observed through the patched `cell`, by name prefix. */
@@ -65,7 +65,7 @@ function observeConstruction(run: () => void): { names: string[]; byPrefix: Reco
 }
 
 function boot(): {
-  pool: ReturnType<typeof handPoolArm.create>
+  pool: ReturnType<typeof harnessHandPoolArm.create>
   replay: ReturnType<typeof createReplaySource>
   knownIssues: number
 } {
@@ -85,7 +85,7 @@ function boot(): {
   }
   const replay = createReplaySource(rows)
   const locals = settableLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
-  const handle = handPoolArm.create(replay.source, locals.source, DISABLED_READ_FENCE, {
+  const handle = harnessHandPoolArm.create(replay.source, locals.source, DISABLED_READ_FENCE, {
     schedule: () => () => {},
   })
   return { pool: handle, replay, knownIssues: corpus.sliceIssues.length }
@@ -114,13 +114,13 @@ function recordsOf(corpus: Corpus): {
 }
 
 function bootWith(corpus: Corpus): {
-  handle: ReturnType<typeof handPoolArm.create>
+  handle: ReturnType<typeof harnessHandPoolArm.create>
   push: (rows: RowRecord[]) => void
   dispose: () => void
 } {
   const replay = createReplaySource(recordsOf(corpus))
   const locals = settableLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
-  const handle = handPoolArm.create(replay.source, locals.source, DISABLED_READ_FENCE, {
+  const handle = harnessHandPoolArm.create(replay.source, locals.source, DISABLED_READ_FENCE, {
     schedule: () => () => {},
   })
   return {
@@ -153,7 +153,7 @@ function liveCells(pool: HandPool): number {
   return cells
 }
 
-function census(handle: ReturnType<typeof handPoolArm.create>): Record<string, number> {
+function census(handle: ReturnType<typeof harnessHandPoolArm.create>): Record<string, number> {
   const pool = handle.pool
   const rollup = pool.rollup.heldCells()
   return {
@@ -176,11 +176,11 @@ function census(handle: ReturnType<typeof handPoolArm.create>): Record<string, n
 
 describe('bootstrap construction from outside the pool', () => {
   it('builds filing and visibility state for the visible closure, not the corpus', () => {
-    let pool: ReturnType<typeof handPoolArm.create> | undefined
+    let pool: ReturnType<typeof harnessHandPoolArm.create> | undefined
     const { names, byPrefix } = observeConstruction(() => {
       pool = boot().pool
     })
-    const handle = pool as unknown as ReturnType<typeof handPoolArm.create>
+    const handle = pool as unknown as ReturnType<typeof harnessHandPoolArm.create>
     try {
       const visible = handle.pool.order().length
       const knownIssues = handle.pool.tables.issue.size + (handle.pool.residency?.size('issue') ?? 0)

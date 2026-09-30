@@ -28,7 +28,7 @@
 
 import { appendFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { type HandPoolHandle, handPoolArm } from '../../arms/hand/pool/arm'
+import { harnessHandPoolArm, type HarnessHandPoolHandle } from '../src/adapters/hand-pool'
 import type { Schedule } from '../../arms/hand/pool/residency'
 import type { CheckableArm } from '../../shared/src/arm'
 import type { SliceSession } from '../../shared/src/slice-types'
@@ -67,7 +67,7 @@ interface LoadCount {
 function plantedArm(schedule: Schedule, plant: Plant, loads: LoadCount): CheckableArm {
   return {
     create(source, locals, reads) {
-      const handle = handPoolArm.create(source, locals, reads, { schedule })
+      const handle = harnessHandPoolArm.create(source, locals, reads, { schedule })
       const pool = handle.pool
       const residency = pool.residency
       if (residency === null) throw new Error('the hand arm is lazy; residency is null')
@@ -119,7 +119,7 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
     feeds.locals,
   )
   try {
-    const { pool } = mounted.handle as HandPoolHandle
+    const { pool } = mounted.handle as HarnessHandPoolHandle
     const residency = pool.residency!
     const step = async (methodology: string) => {
       const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
@@ -140,9 +140,12 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
     const target = pick[0]
     if (planted) plant.target = target
 
-    const snapshot = pool.snapshot.bind(pool)
+    // The sample point moved with POD-4933: the harness handle's
+    // snapshot() settles through the adapter's snapshotPool, not a pool
+    // method, so the load count at sample time is read off the handle.
+    const snapshot = mounted.handle.snapshot.bind(mounted.handle)
     let atSample = -1
-    pool.snapshot = () => {
+    mounted.handle.snapshot = () => {
       if (atSample < 0) atSample = loads.rows
       return snapshot()
     }
@@ -210,10 +213,10 @@ describe('a fence step counts the load its own change triggers (hand pool, M3 G2
         feeds.locals,
       )
       try {
-        const { pool } = mounted.handle as HandPoolHandle
-        const snapshot = pool.snapshot.bind(pool)
+        // As above: sample loads through the harness handle's snapshot().
+        const snapshot = mounted.handle.snapshot.bind(mounted.handle)
         let atSample = -1
-        pool.snapshot = () => {
+        mounted.handle.snapshot = () => {
           if (atSample < 0) atSample = loads.rows
           return snapshot()
         }

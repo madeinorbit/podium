@@ -105,7 +105,7 @@ import { countKinds, gen } from '../../../shared/src/gen/changes'
 import { checkArm, describeSequence, diffSnapshots, diffViews } from '../../../shared/src/gen/check'
 import { ROW_VIEW_FIELDS, type RowView } from '../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine } from '../../../shared/src/scenarios'
-import { type HandPoolHandle, handPoolArm } from './arm'
+import { harnessHandPoolArm, snapshotPool, type HarnessHandPoolHandle } from '../../../harness/src/adapters/hand-pool'
 import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { rebuildSnapshot, rebuildViews } from './rebuild'
 import type { Residency } from './residency'
@@ -133,13 +133,13 @@ function deafToRemovals(source: RowSource): RowSource {
 }
 
 const planted: CheckableArm = {
-  create: (source, locals, reads) => handPoolArm.create(deafToRemovals(source), locals, reads),
+  create: (source, locals, reads) => harnessHandPoolArm.create(deafToRemovals(source), locals, reads),
 }
 
 /** The relation plant: an update of a row the pool already holds maintains no relation. */
 const relinkSkipped: CheckableArm = {
   create(source, locals, reads) {
-    const handle = handPoolArm.create(source, locals, reads)
+    const handle = harnessHandPoolArm.create(source, locals, reads)
     const { engine } = handle.pool
     const changed = engine.changed.bind(engine)
     engine.changed = (entity, id, prev, next) => {
@@ -153,7 +153,7 @@ const relinkSkipped: CheckableArm = {
 /** The residency plant: an update to a row the pool holds cold never reaches it. */
 const coldDeaf: CheckableArm = {
   create(source, locals, reads) {
-    let handle: HandPoolHandle | null = null
+    let handle: HarnessHandPoolHandle | null = null
     const filtered: RowSource = {
       snapshot: (kind) => source.snapshot(kind),
       ...(source.row === undefined ? {} : { row: source.row.bind(source) }),
@@ -169,7 +169,7 @@ const coldDeaf: CheckableArm = {
           })
         }),
     }
-    handle = handPoolArm.create(filtered, locals, reads)
+    handle = harnessHandPoolArm.create(filtered, locals, reads)
     return handle
   },
 }
@@ -177,7 +177,7 @@ const coldDeaf: CheckableArm = {
 /** Once bootstrapped, a COLD row's update skips relation maintenance (its registry entry still moves). */
 const coldRelinkSkipped: CheckableArm = {
   create(source, locals, reads) {
-    const handle = handPoolArm.create(source, locals, reads)
+    const handle = harnessHandPoolArm.create(source, locals, reads)
     const { engine, residency } = handle.pool
     const changed = engine.changed.bind(engine)
     engine.changed = (entity, id, prev, next) => {
@@ -191,7 +191,7 @@ const coldRelinkSkipped: CheckableArm = {
 /** A session loaded on access is installed, but its registry entry stays. */
 const registryKept: CheckableArm = {
   create(source, locals, reads) {
-    const handle = handPoolArm.create(source, locals, reads)
+    const handle = harnessHandPoolArm.create(source, locals, reads)
     const residency = handle.pool.residency as unknown as {
       hydrate: (target: unknown, entity: string, id: string, out: unknown) => void
       unregister: (entity: string, id: string) => void
@@ -224,7 +224,7 @@ const registryKept: CheckableArm = {
  */
 const activityCached: CheckableArm = {
   create(source, locals, reads) {
-    const handle = handPoolArm.create(source, locals, reads)
+    const handle = harnessHandPoolArm.create(source, locals, reads)
     const read = handle.pool.sessionActivity.bind(handle.pool)
     const cache = new Map<string, number | null>()
     handle.pool.sessionActivity = (id) => {
@@ -241,7 +241,7 @@ const activityCached: CheckableArm = {
  */
 const chainCut: CheckableArm = {
   create(source, locals, reads) {
-    const handle = handPoolArm.create(source, locals, reads)
+    const handle = harnessHandPoolArm.create(source, locals, reads)
     const graph = handle.pool.graph as unknown as {
       run(cell: { level: number }): void
       invalidate(cell: unknown): void
@@ -269,7 +269,7 @@ const chainCut: CheckableArm = {
 /** H3's presence plant: a part asks presence from the raw table, untracked. */
 const presenceUntracked: CheckableArm = {
   create(source, locals, reads) {
-    const handle = handPoolArm.create(source, locals, reads)
+    const handle = harnessHandPoolArm.create(source, locals, reads)
     const { pool } = handle
     const inputs = pool.inputs as { present: (entity: 'issue' | 'session', id: string) => boolean }
     inputs.present = (entity, id) => pool.tables[entity].has(id)
@@ -307,7 +307,7 @@ function emptyTally(): ColdTally {
  * pool to the feed with no input from the pool. Throws on any difference.
  */
 function fullResidencyCheck(
-  handle: HandPoolHandle,
+  handle: HarnessHandPoolHandle,
   source: RowSource,
   locals: Parameters<CheckableArm['create']>[1],
   label: string,
@@ -318,7 +318,7 @@ function fullResidencyCheck(
     for (const id of residency.ids(entity)) residency.request(entity, id)
   }
   pool.hydrate()
-  const settled = pool.snapshot()
+  const settled = snapshotPool(pool)
   const left = [...residency.ids('issue'), ...residency.ids('session')]
   if (left.length > 0) {
     throw new Error(
@@ -354,7 +354,7 @@ function checked(
       locals: Parameters<CheckableArm['create']>[1],
       reads?: Parameters<CheckableArm['create']>[2],
     ) {
-      const handle = arm.create(source, locals, reads) as HandPoolHandle
+      const handle = arm.create(source, locals, reads) as HarnessHandPoolHandle
       const tally = (count = true): void => {
         const counters = handle.pool.residency?.counters
         if (counters === undefined) return
@@ -473,7 +473,7 @@ describe('correctness gate (L4b), rebuild-only', () => {
       }
       for (const seed of SEEDS) {
         const sequence = gen(seed, STEPS)
-        const gated = checked(handPoolArm)
+        const gated = checked(harnessHandPoolArm)
         const result = await checkArm(gated, sequence, { oracleEvery: 0 })
         expect(gated.snapshots).toBeGreaterThan(STEPS)
         // The view check compared rows at every step, or its green says nothing.
@@ -556,7 +556,7 @@ describe('correctness gate (L4b), rebuild-only', () => {
 /** Mutant A: the old own half (every explicit session, not the retained seats). */
 const oldHalfArm: CheckableArm = {
   create(source, locals, reads) {
-    const handle = handPoolArm.create(source, locals, reads) as HandPoolHandle
+    const handle = harnessHandPoolArm.create(source, locals, reads) as HarnessHandPoolHandle
     const inputs = handle.pool.inputs as {
       retainedSeats(id: string): readonly string[]
     }
@@ -568,7 +568,7 @@ const oldHalfArm: CheckableArm = {
 /** Mutant B: no subtree raise (the roll-up's `seatActivity` nulled). */
 const noRaiseArm: CheckableArm = {
   create(source, locals, reads) {
-    const handle = handPoolArm.create(source, locals, reads) as HandPoolHandle
+    const handle = harnessHandPoolArm.create(source, locals, reads) as HarnessHandPoolHandle
     const inputs = handle.pool.inputs
     const rollup = inputs.rollup
     inputs.rollup = (id) => {
@@ -583,12 +583,12 @@ const noRaiseArm: CheckableArm = {
 async function activityDiffs(arm: CheckableArm): Promise<{ rows: number; diffs: string[] }> {
   const ctx = await startScenarioEngine(1)
   const feeds = openFenceFeeds(ctx, 'overlaid')
-  const handle = arm.create(feeds.rows.source, feeds.locals.source) as HandPoolHandle
+  const handle = arm.create(feeds.rows.source, feeds.locals.source) as HarnessHandPoolHandle
   try {
     const expected = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
     const ids = Object.keys(expected)
     for (const id of ids) handle.pool.resident('issue', id)
-    handle.pool.snapshot()
+    snapshotPool(handle.pool)
     const diffs: string[] = []
     for (const id of ids) {
       const got = handle.pool.view(id)?.activityAt
@@ -648,7 +648,7 @@ describe('row fields against the oracle', () => {
   it('matches the oracle on every visible row', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
-    const handle = handPoolArm.create(feeds.rows.source, feeds.locals.source)
+    const handle = harnessHandPoolArm.create(feeds.rows.source, feeds.locals.source)
     try {
       const expected = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
       const ids = Object.keys(expected)
@@ -656,7 +656,7 @@ describe('row fields against the oracle', () => {
       // Visible closed rows (the grace window, the fold) are cold: a reader
       // asks for them, and the settled snapshot loads them and what they read.
       for (const id of ids) handle.pool.resident('issue', id)
-      handle.pool.snapshot()
+      snapshotPool(handle.pool)
       let closedByOracle = 0
       for (const id of ids) {
         const want = expected[id]!
@@ -688,7 +688,7 @@ describe('row fields against the oracle', () => {
     // (`rows.ts:98-116`), raised by the latest seat nested below
     // (`rows.ts:336-339`) — exactly the oracle's on every visible row, the
     // POD-4671 orphan excepted (its seat-fed fields include the stamp).
-    const correct = await activityDiffs(handPoolArm)
+    const correct = await activityDiffs(harnessHandPoolArm)
     expect(correct.rows).toBeGreaterThan(100)
     expect(correct.diffs, 'activityAt equals the oracle').toEqual([])
     // Mutant A: the old own half (every explicit session). It stamps rows
@@ -719,7 +719,7 @@ describe('row fields against the oracle', () => {
 function orderChecked(): ((ctx: ScenarioEngine) => CheckableArm) & { compared: number } {
   const factory = ((ctx: ScenarioEngine): CheckableArm => ({
     create(source, locals, reads) {
-      const handle = handPoolArm.create(source, locals, reads)
+      const handle = harnessHandPoolArm.create(source, locals, reads)
       return {
         ...handle,
         snapshot() {

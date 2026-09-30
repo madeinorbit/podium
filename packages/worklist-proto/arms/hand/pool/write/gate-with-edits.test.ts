@@ -22,7 +22,10 @@ import { gen } from '../../../../shared/src/gen/changes'
 import { checkArm } from '../../../../shared/src/gen/check'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { KernelCommand, TxId, WriteTransport } from '../../../../shared/src/write-contract'
-import { writableHandPoolArm, type WritableHandPoolHandle } from './arm'
+import {
+  harnessWritableHandPoolArm,
+  type HarnessWritableHandPoolHandle,
+} from '../../../../harness/src/adapters/hand-pool'
 
 const SEEDS = Array.from(
   { length: Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3) },
@@ -68,7 +71,7 @@ describe('L4b with optimistic edits enabled (write layer attached, idle)', () =>
       const cells = []
       for (const seed of SEEDS) {
         const transport = fakeTransport()
-        const arm = writableHandPoolArm(transport)
+        const arm = harnessWritableHandPoolArm(transport)
         const sequence = gen(seed, STEPS)
         const result = await checkArm(arm, sequence, { oracleEvery: 0 })
         if (!result.ok) {
@@ -90,7 +93,7 @@ describe('L4b with optimistic edits enabled (write layer attached, idle)', () =>
       let failures = 0
       for (const seed of SEEDS) {
         const transport = fakeTransport()
-        const writable = writableHandPoolArm(transport)
+        const writable = harnessWritableHandPoolArm(transport)
         const planted: CheckableArm = {
           create: (source, locals, reads) =>
             writable.create(deafToRemovals(source), locals, reads) as never,
@@ -155,10 +158,10 @@ function editedArm(
   transport: WriteTransport & { readonly sent: { txId: TxId; command: KernelCommand }[] },
   plant: boolean,
 ): CheckableArm {
-  const inner = writableHandPoolArm(transport)
+  const inner = harnessWritableHandPoolArm(transport)
   return {
     create: (source, locals, reads) => {
-      const handle = inner.create(source, locals, reads) as WritableHandPoolHandle
+      const handle = inner.create(source, locals, reads) as HarnessWritableHandPoolHandle
       const ids = Object.keys(handle.snapshot().rowsById).sort()
       const id = ids.find((candidate) => {
         const title = (handle.pool.inputs.issue(candidate) as SliceIssue | undefined)?.title

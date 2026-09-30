@@ -11,7 +11,7 @@
  * console trap.
  */
 
-import { handPoolArm } from '../../../arms/hand/pool/arm'
+import { harnessHandPoolArm } from '../../src/adapters/hand-pool'
 import { FIXTURE_SEED, startEngineOnCorpus } from '../../../shared/src/scenarios'
 import { buildCorpus } from '../../src/fixture/index'
 import { mountPage, readScale } from '../entrylib'
@@ -29,7 +29,7 @@ const corpus = buildCorpus(scale, FIXTURE_SEED)
 void startEngineOnCorpus(corpus).then((boot) => {
   mountPage({
     arm: 'hand',
-    createArm: () => handPoolArm,
+    createArm: () => harnessHandPoolArm,
     boot,
     scale,
     counts: {

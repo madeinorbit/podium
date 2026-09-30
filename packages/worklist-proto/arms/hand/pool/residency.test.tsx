@@ -24,7 +24,7 @@ import type { RowView } from '../../../shared/src/row-view'
 import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession } from '../../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
-import { type HandPoolHandle, handPoolArm } from './arm'
+import { harnessHandPoolArm, poolPendingLoads, type HarnessHandPoolHandle } from '../../../harness/src/adapters/hand-pool'
 import { type Cell, sameData } from './cells'
 import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { HandPool } from './pool'
@@ -69,7 +69,7 @@ interface Timer {
 interface Rig {
   replay: ReplaySource
   reads: ReadFence
-  handle: HandPoolHandle
+  handle: HarnessHandPoolHandle
   pool: HandPool
   /** Timers the loader armed, in order. */
   timers: Timer[]
@@ -118,7 +118,7 @@ function rig(options: { realTimer?: boolean } = {}): Rig {
   }
   const reads = createReadFence({ enabled: true })
   const timers: Timer[] = []
-  const handle = handPoolArm.create(
+  const handle = harnessHandPoolArm.create(
     reads.wrapSource(counted),
     locals.source,
     reads,
@@ -430,12 +430,12 @@ describe('the loader', () => {
         ? (pool.view(issue.id)?.loading ?? false)
         : 'waiting',
     )
-    expect(pool.pendingLoads()).toBe(1)
+    expect(poolPendingLoads(pool)).toBe(1)
     expect(r.handle.pendingLoads()).toBe(1)
     const landed = r.handle.drainLoads()
     row.stop()
     expect(landed).toBe(1 + sessions.length)
-    expect(pool.pendingLoads()).toBe(0)
+    expect(poolPendingLoads(pool)).toBe(0)
     expect(row.seen).toEqual(['waiting', true, false])
     for (const session of sessions) expect(pool.tables.session.has(session.sessionId)).toBe(true)
     // Nothing queued: a drain is free.

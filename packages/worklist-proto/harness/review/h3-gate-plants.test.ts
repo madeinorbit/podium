@@ -50,7 +50,12 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { type HandPoolHandle, handPoolArm } from '../../arms/hand/pool/arm'
+import {
+  harnessHandPoolArm,
+  poolPendingLoads,
+  residentIssueIdsOf,
+  type HarnessHandPoolHandle,
+} from '../src/adapters/hand-pool'
 import { diffRelations, diffResidency, knownTables } from '../../arms/hand/pool/enumerate'
 import type { HandPool } from '../../arms/hand/pool/pool'
 import { rebuildResidentViews } from '../../arms/hand/pool/rebuild'
@@ -114,16 +119,16 @@ function diffViews(pool: HandPool, want: Map<string, RowView>): string[] {
 type Plant = (pool: HandPool) => void
 
 /** Every resident issue's whole LIVE view, settling loads first (as the full-view check does). */
-function liveViews(handle: HandPoolHandle): Map<string, RowView> {
+function liveViews(handle: HarnessHandPoolHandle): Map<string, RowView> {
   const { pool } = handle
   for (let round = 0; ; round += 1) {
-    for (const id of pool.residentIssueIds()) pool.view(id)
-    if (pool.pendingLoads() === 0) break
+    for (const id of residentIssueIdsOf(pool)) pool.view(id)
+    if (poolPendingLoads(pool) === 0) break
     if (round >= 64) throw new InstrumentError('differential: loads did not settle')
     handle.settleLoads()
   }
   const views = new Map<string, RowView>()
-  for (const id of pool.residentIssueIds()) {
+  for (const id of residentIssueIdsOf(pool)) {
     const view = pool.view(id)
     if (view !== undefined) views.set(id, view)
   }
@@ -138,8 +143,8 @@ async function recordViews(
   const run = await startGenRun({ feedMode: 'overlaid' })
   let feed = run.feed()
   let locals = createEngineLocals(run.ctx.engine)
-  const create = (): HandPoolHandle => {
-    const handle = handPoolArm.create(feed.source, locals.source) as HandPoolHandle
+  const create = (): HarnessHandPoolHandle => {
+    const handle = harnessHandPoolArm.create(feed.source, locals.source) as HarnessHandPoolHandle
     plant?.(handle.pool)
     return handle
   }
@@ -233,7 +238,7 @@ function gated(plant: Plant | null, fullViews: boolean): CheckableArm & { snapsh
   const wrapper = {
     snapshots: 0,
     create(source: RowSource, locals: LocalsSource, reads?: Parameters<CheckableArm['create']>[2]) {
-      const handle = handPoolArm.create(source, locals, reads) as HandPoolHandle
+      const handle = harnessHandPoolArm.create(source, locals, reads) as HarnessHandPoolHandle
       plant?.(handle.pool)
       return {
         ...handle,
@@ -257,13 +262,13 @@ function gated(plant: Plant | null, fullViews: boolean): CheckableArm & { snapsh
             // read queues nothing, as a list that drew those rows redraws,
             // then compare.
             for (let round = 0; ; round += 1) {
-              for (const id of pool.residentIssueIds()) pool.view(id)
-              if (pool.pendingLoads() === 0) break
+              for (const id of residentIssueIdsOf(pool)) pool.view(id)
+              if (poolPendingLoads(pool) === 0) break
               if (round >= 64) throw new InstrumentError('full views: loads did not settle')
               handle.settleLoads()
             }
             const views = instrument(() =>
-              diffViews(pool, rebuildViews(source, locals, pool.residentIssueIds())),
+              diffViews(pool, rebuildViews(source, locals, residentIssueIdsOf(pool))),
             )
             if (views.length > 0)
               throw new Error(`views (snapshot ${wrapper.snapshots}): ${views.join(' | ')}`)
@@ -387,7 +392,7 @@ describe('the full-view instrument', () => {
   function throwing(error: Error): CheckableArm {
     return {
       create(source, locals, reads) {
-        const handle = handPoolArm.create(source, locals, reads)
+        const handle = harnessHandPoolArm.create(source, locals, reads)
         return {
           ...handle,
           snapshot() {

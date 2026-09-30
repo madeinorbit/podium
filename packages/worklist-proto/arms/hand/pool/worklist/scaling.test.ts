@@ -57,14 +57,14 @@ import { diffSnapshots } from '../../../../shared/src/gen/check'
 import { compareRank } from '../../../../shared/src/row-view'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { RowRecord } from '../../../../shared/src/stats'
-import { type HandPoolHandle, handPoolArm } from '../arm'
+import { harnessHandPoolArm, type HarnessHandPoolHandle } from '../../../../harness/src/adapters/hand-pool'
 import type { HandPool } from '../pool'
 import { layoutOf, sliceOrderOf } from './groups'
 
 interface Rig {
   replay: ReplaySource
   locals: SettableLocalsHandle
-  handle: HandPoolHandle
+  handle: HarnessHandPoolHandle
   push(event: { type: 'update' | 'replace'; rows: RowRecord[] }): void
   dispose(): void
 }
@@ -87,9 +87,9 @@ function rig(scale: 1 | 2 | 4): Rig {
     subscribe: (listener) => replay.source.subscribe(listener),
   }
   const reads = createReadFence({ enabled: true })
-  const handle = handPoolArm.create(reads.wrapSource(counted), locals.source, reads, {
+  const handle = harnessHandPoolArm.create(reads.wrapSource(counted), locals.source, reads, {
     schedule: () => () => {},
-  }) as HandPoolHandle
+  }) as HarnessHandPoolHandle
   // Land the visibility parts' cold reads before any counted step.
   handle.settleLoads()
   return {

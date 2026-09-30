@@ -29,7 +29,11 @@ import type {
 } from '../../../../shared/src/write-contract'
 import { commandFor } from '../../../../shared/src/write-contract'
 import { diffRelations, knownTables } from '../enumerate'
-import { writableHandPoolArm, type WritableHandPoolHandle } from './arm'
+import {
+  harnessWritableHandPoolArm,
+  snapshotPool,
+  type HarnessWritableHandPoolHandle,
+} from '../../../../harness/src/adapters/hand-pool'
 
 interface FakeTransport extends WriteTransport {
   readonly sent: { txId: TxId; command: KernelCommand }[]
@@ -59,10 +63,10 @@ describe('Hc1 hand edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableHandPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableHandPoolHandle
+      const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const before = (handle.pool.inputs.issue(id) as SliceIssue)?.title
@@ -99,10 +103,10 @@ describe('Hc1 hand edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableHandPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableHandPoolHandle
+      const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const priorTitle = (handle.pool.inputs.issue(id) as SliceIssue)?.title
@@ -155,10 +159,10 @@ describe('Hc1 hand edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableHandPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableHandPoolHandle
+      const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const serverStage = (handle.pool.inputs.issue(id) as SliceIssue)?.stage as string
@@ -205,10 +209,10 @@ describe('Hc1 hand edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableHandPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableHandPoolHandle
+      const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       // The visible root: the mark-read paints a stamp, the rewind restores
       // whatever the server holds (null or an older stamp).
@@ -240,10 +244,10 @@ describe('Hc1 hand edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableHandPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableHandPoolHandle
+      const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const prior = (handle.pool.inputs.issue(id) as SliceIssue)?.title
@@ -276,10 +280,10 @@ describe('Hc1 hand edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableHandPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableHandPoolHandle
+      const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const baseline = mounted.handle.snapshot()
@@ -313,16 +317,16 @@ describe('Hc1 hand edits on the model', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableHandPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableHandPoolHandle
+      const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       expect(() => write.edit('issue', 'i-does-not-exist', { title: 'x' })).toThrow()
       expect(transport.sent).toHaveLength(0)
       expect(write.log.size).toBe(0)
       expect(() => write.edit('issue', ctx.targets.visibleRootId, {} as never)).toThrow()
-      expect(handle.pool.snapshot()).toBeDefined()
+      expect(snapshotPool(handle.pool)).toBeDefined()
     } finally {
       mounted.unmount()
       feeds.dispose()

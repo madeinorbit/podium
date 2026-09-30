@@ -1,7 +1,12 @@
 /**
- * POD-4578 (Ha1) — the round-three hand-rolled arm over the pool: a
- * `CheckableArm` (`shared/src/arm.ts`). See `../README.md` ("Round three: the
- * pool") for the idiom, the write path and how to add a field.
+ * POD-4578 (Ha1) + POD-4933 — the round-three hand-rolled pool's product
+ * entry: it builds the pool, follows the feed and the locals channel, and
+ * mounts the product lists. See `../README.md` ("Round three: the pool") for
+ * the idiom, the write path and how to add a field.
+ *
+ * Product-only: no snapshot, no rebuild, no drain hooks. The harness owns
+ * those (`harness/src/adapters/hand-pool.ts`), on top of the pool's public
+ * API (`hydrate`, `dispose`).
  *
  * `create` seeds the pool from the feed's snapshot (one `replace`), then
  * follows the feed (`RowSource`) and the locals channel (`LocalsSource`),
@@ -13,36 +18,29 @@
  */
 
 import { createElement, lazy, type ReactElement, Suspense } from 'react'
-import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
-import type {
-  CheckableArm,
-  CheckableArmHandle,
-  LazyArmHandle,
-  LocalsSource,
-  RowSource,
-} from '../../../shared/src/arm'
+import type { LocalsSource, RowSource } from '../../../shared/src/arm'
 import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
 import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
+import type { ArmStats } from '../../../shared/src/stats'
 import { HandPool, type PoolLazyOptions } from './pool'
 import { PoolList } from './react/list'
-import { rebuildSnapshot } from './rebuild'
-
-/** Redraw-then-load rounds `settleLoads` allows before it gives up. */
-const SETTLE_ROUNDS = 64
 
 /** Loaded on first native mount only: the node lanes cannot parse `react-native`. */
 const PoolNativeList = lazy(() => import('./native/list'))
 
-export interface HandPoolHandle extends CheckableArmHandle {
+/**
+ * The product handle: the live pool, its stats, its lifecycle and its mounts.
+ * Harness hooks (snapshot, rebuild, drain) live in the harness adapter and
+ * are not part of the product surface.
+ */
+export interface HandPoolHandle {
   /** The live pool (tests; the copy sweep reaches the tables through it). */
   readonly pool: HandPool
-  /** Rows queued for a load that has not landed (POD-4580; the shared fence's hook, G2). */
-  pendingLoads: LazyArmHandle['pendingLoads']
-  /** The shared fence's hook (POD-4568, G2): redraw, land what that queued, repeat. */
-  settleLoads: LazyArmHandle['settleLoads']
-  /** Land every pending load now, no redraw; returns the rows installed (POD-4580). */
-  drainLoads(): number
+  readonly stats: ArmStats
+  dispose(): void
+  mountWeb(el: Element): () => void
+  mountNative(): ReactElement
 }
 
 export const handPoolArm = {
@@ -50,7 +48,7 @@ export const handPoolArm = {
     source: RowSource,
     locals: LocalsSource,
     reads: ReadFence = DISABLED_READ_FENCE,
-    /** Tests: the load window and its timer (default 50 ms, `setTimeout`). */
+    /** The load window and its timer (default 50 ms, `setTimeout`). */
     loader: Omit<PoolLazyOptions, 'load'> = {},
   ): HandPoolHandle {
     const row = source.row?.bind(source)
@@ -74,24 +72,6 @@ export const handPoolArm = {
     return {
       pool,
       stats: pool.stats,
-      pendingLoads: () => pool.pendingLoads(),
-      // A row that REDRAWS can reach a cold row (a view cell created in
-      // render asks for its cold inputs), so a settle flushes this arm's
-      // redraws, lands what they queued, and repeats until a redraw queues
-      // nothing (G2, as the MobX arm).
-      settleLoads: () => {
-        for (let round = 0; ; round += 1) {
-          if (roots.size > 0) flushSync(() => {})
-          if (pool.pendingLoads() === 0) return
-          if (round >= SETTLE_ROUNDS) {
-            throw new Error(`[pool] loads did not settle in ${SETTLE_ROUNDS} redraw rounds`)
-          }
-          pool.drainLoads()
-        }
-      },
-      drainLoads: () => pool.drainLoads(),
-      snapshot: () => pool.snapshot(),
-      rebuildFromScratch: () => rebuildSnapshot(source, locals, pool.residentIssueIds()),
       dispose(): void {
         offRows()
         offLocals()
@@ -119,4 +99,4 @@ export const handPoolArm = {
       },
     }
   },
-} satisfies CheckableArm
+}

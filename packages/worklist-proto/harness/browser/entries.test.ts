@@ -19,11 +19,12 @@ function entry(name: string): string {
 }
 
 describe('browser entries mount the round-three pools', () => {
-  it('hand mounts handPoolArm with no parity allowance (POD-4671 fixed)', () => {
+  it('hand mounts harnessHandPoolArm with no parity allowance (POD-4671 fixed)', () => {
     const code = entry('hand')
-    expect(code, 'the round-three pool arm').toContain('arms/hand/pool/arm')
-    expect(code, 'the pool arm value').toContain('handPoolArm')
+    expect(code, 'the harness pool adapter').toContain('src/adapters/hand-pool')
+    expect(code, 'the harness arm value').toContain('harnessHandPoolArm')
     expect(code, 'no parity allowance').not.toContain('HAND_POOL_ALLOWANCES')
+    expect(code, 'not the product arm directly').not.toContain('arms/hand/pool/arm')
     expect(code, 'not the round-two arm').not.toContain('arms/hand/arm')
     expect(code, 'not the round-two store').not.toContain('HandStore')
   })
@@ -70,12 +71,17 @@ describe('browser entries mount the round-three pools', () => {
     }
   })
 
-  it('hand web entry resolves to the pool arm, never the round-two arm', () => {
+  it('hand web entry resolves to the harness adapter over the product pool', () => {
     // By module, not by spelling: this is the page that mounted `handArm`
     // (the round-two `HandStore`) while the matrix timed it as the
     // round-three pool (dacdf9d98). Same graph assertion as the MobX entry.
     const graph = moduleGraphOf(join(PACKAGE_DIR, 'harness/web/entries/hand.ts'))
-    expect(graph, 'the pool arm').toContain(join(PACKAGE_DIR, 'arms/hand/pool/arm.ts'))
+    expect(graph, 'the harness adapter').toContain(
+      join(PACKAGE_DIR, 'harness/src/adapters/hand-pool.ts'),
+    )
+    expect(graph, 'the product pool under the adapter').toContain(
+      join(PACKAGE_DIR, 'arms/hand/pool/pool.ts'),
+    )
     expect(
       graph.filter((file) => file === join(PACKAGE_DIR, 'arms/hand/arm.ts')),
       'the round-two arm, however it is spelled',

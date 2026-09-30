@@ -69,7 +69,7 @@ import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { diffSnapshots, diffViews } from '../../../../shared/src/gen/check'
 import type { RowView } from '../../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
-import { type HandPoolHandle, handPoolArm } from '../arm'
+import { drainPoolLoads, harnessHandPoolArm, type HarnessHandPoolHandle } from '../../../../harness/src/adapters/hand-pool'
 import type { HandPool } from '../pool'
 import { issueAbandoned } from '../views'
 import { burstFamilyReads } from './known-gaps'
@@ -77,7 +77,7 @@ import { burstFamilyReads } from './known-gaps'
 /** The pool with a load window that never closes on its own: no load lands inside a counted step. */
 const arm: CheckableArm = {
   create: (source, locals, reads) =>
-    handPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
+    harnessHandPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
 }
 
 /**
@@ -98,9 +98,9 @@ const everyAggregate: CheckableArm = {
           listener(event)
         }),
     }
-    const handle = handPoolArm.create(wrapped, locals, reads, {
+    const handle = harnessHandPoolArm.create(wrapped, locals, reads, {
       schedule: () => () => {},
-    }) as HandPoolHandle
+    }) as HarnessHandPoolHandle
     const epoch = { value: 0 }
     const epochCell = handle.pool.graph.cell('plant.epoch', () => epoch.value, Object.is)
     bump = () => {
@@ -122,7 +122,7 @@ function settle(pool: HandPool): number {
   let rounds = 0
   while (pool.residency?.hasQueued() && rounds < 100) {
     act(() => {
-      pool.drainLoads()
+      drainPoolLoads(pool)
     })
     rounds += 1
   }
@@ -131,7 +131,7 @@ function settle(pool: HandPool): number {
 }
 
 /** The settled snapshot against the oracle and the rebuild (no exception). */
-function checkParity(ctx: ScenarioEngine, handle: HandPoolHandle, at: string): string | null {
+function checkParity(ctx: ScenarioEngine, handle: HarnessHandPoolHandle, at: string): string | null {
   const snapshot = handle.snapshot()
   const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
   expect(diffSnapshots(snapshot, oracle), `${at}: oracle`).toBeNull()
@@ -144,7 +144,7 @@ async function withMounted<T>(
   run: (
     ctx: ScenarioEngine,
     mounted: MountedArm,
-    handle: HandPoolHandle,
+    handle: HarnessHandPoolHandle,
     flush: () => void,
   ) => Promise<T>,
 ): Promise<T> {
@@ -152,7 +152,7 @@ async function withMounted<T>(
   const feeds = openFenceFeeds(ctx, 'overlaid')
   const mounted = mountArmForCounts(create, feeds.rows.source, feeds.locals)
   try {
-    const handle = mounted.handle as HandPoolHandle
+    const handle = mounted.handle as HarnessHandPoolHandle
     settle(handle.pool)
     return await run(ctx, mounted, handle, feeds.flush)
   } finally {
@@ -338,7 +338,7 @@ function summary(run: ColdProgressRun) {
 async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
   const ctx = await startScenarioEngine(1)
   const feeds = openFenceFeeds(ctx, 'overlaid')
-  const handle = arm.create(feeds.rows.source, feeds.locals.source) as HandPoolHandle
+  const handle = arm.create(feeds.rows.source, feeds.locals.source) as HarnessHandPoolHandle
   const { pool } = handle
   const residency = pool.residency!
   if (plant) {
@@ -558,7 +558,7 @@ describe('row roll-ups (Hb3)', () => {
       const progressCold = { calls: 0, rows: new Set<string>() }
       const counting: CheckableArm = {
         create(source, locals, reads) {
-          const handle = arm.create(source, locals, reads) as HandPoolHandle
+          const handle = arm.create(source, locals, reads) as HarnessHandPoolHandle
           const inputs = handle.pool.rollup.inputs
           const progressFacts = inputs.progressFacts
           inputs.progressFacts = (id) => {
@@ -572,7 +572,7 @@ describe('row roll-ups (Hb3)', () => {
         },
       }
       const mounted = mountArmForCounts(counting, feeds.rows.source, feeds.locals)
-      const handle = mounted.handle as HandPoolHandle
+      const handle = mounted.handle as HarnessHandPoolHandle
       const { pool } = handle
       try {
         const residency = pool.residency!
@@ -671,7 +671,7 @@ describe('row roll-ups (Hb3)', () => {
   it('attention keeps the pending marker: a review ask waits on a cold spin-off, then withdraws (Ma3 addendum)', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
-    const handle = arm.create(feeds.rows.source, feeds.locals.source) as HandPoolHandle
+    const handle = arm.create(feeds.rows.source, feeds.locals.source) as HarnessHandPoolHandle
     const { pool } = handle
     const residency = pool.residency!
     let unsub = () => {}

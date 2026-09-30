@@ -51,13 +51,13 @@ import { rowViewsFromStore } from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
 import type { CheckableArm } from '../../../shared/src/arm'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
-import { type HandPoolHandle, handPoolArm } from './arm'
+import { harnessHandPoolArm, poolPendingLoads, type HarnessHandPoolHandle } from '../../../harness/src/adapters/hand-pool'
 import { sessionActivityOf } from './views'
 
 /** The pool with a load window that never closes on its own: no load lands inside a counted step. */
 const arm: CheckableArm = {
   create: (source, locals, reads) =>
-    handPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
+    harnessHandPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
 }
 
 /** The steps a1 runs, and whether the commit fence applies yet. */
@@ -81,8 +81,8 @@ describe('fence steps #1-#4, #8, #8b', () => {
       // never closes on its own here. The shared fence (POD-4568, G2) lands
       // them through the arm's `settleLoads()`: the mount's before #1,
       // outside the count, and each step's own inside it, charged to it.
-      const { pool } = mounted.handle as HandPoolHandle
-      expect(pool.pendingLoads()).toBeGreaterThan(0)
+      const { pool } = mounted.handle as HarnessHandPoolHandle
+      expect(poolPendingLoads(pool)).toBeGreaterThan(0)
       const cells = []
       for (const step of STEPS) {
         const entry = FENCE_SCENARIOS.find(
@@ -139,7 +139,7 @@ describe('fence steps #1-#4, #8, #8b', () => {
   it('a sibling re-read alone fails #2: the retained seats are larger than the budget', async () => {
     const planted: CheckableArm = {
       create(source, locals, reads) {
-        const handle = arm.create(source, locals, reads) as HandPoolHandle
+        const handle = arm.create(source, locals, reads) as HarnessHandPoolHandle
         const inputs = handle.pool.inputs as { sessionActivity: (id: string) => number | null }
         // Uncached per-member row reads: each retained seat's row, read again
         // on every run.
@@ -162,7 +162,7 @@ describe('fence steps #1-#4, #8, #8b', () => {
         }
         // The retained seats of the changed session's row, and nothing else:
         // more than one level's budget, so the fence names it.
-        const family = (mounted.handle as HandPoolHandle).pool.inputs.retainedSeats(
+        const family = (mounted.handle as HarnessHandPoolHandle).pool.inputs.retainedSeats(
           ctx.targets.visibleRootId,
         ).length
         expect(readsBudget).toBe(3)

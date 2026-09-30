@@ -23,7 +23,7 @@ import { createRoot } from 'react-dom/client'
 import { describe, expect, it } from 'vitest'
 import { createEngineLocals } from '../../../harness/src/engine-locals'
 import { startGenRun } from '../../../shared/src/gen/run'
-import { type HandPoolHandle, handPoolArm } from './arm'
+import { harnessHandPoolArm, type HarnessHandPoolHandle } from '../../../harness/src/adapters/hand-pool'
 import type { HandPool } from './pool'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -56,7 +56,7 @@ describe('first render of hidden rows notifies and files nothing', () => {
     const feed = run.feed()
     const locals = createEngineLocals(run.ctx.engine)
     locals.flush()
-    const handle = handPoolArm.create(feed.source, locals.source) as HandPoolHandle
+    const handle = harnessHandPoolArm.create(feed.source, locals.source) as HarnessHandPoolHandle
     const { pool } = handle
     const el = document.createElement('div')
     document.body.appendChild(el)

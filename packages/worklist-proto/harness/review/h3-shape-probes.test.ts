@@ -28,7 +28,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { handPoolArm } from '../../arms/hand/pool/arm'
+import { harnessHandPoolArm } from '../src/adapters/hand-pool'
 import { HandPool } from '../../arms/hand/pool/pool'
 import type { LocalsSource, RowSource } from '../../shared/src/arm'
 import { createReadFence, DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
@@ -127,7 +127,7 @@ function largest(
 }
 
 function measure(label: string, source: RowSource, locals: LocalsSource): void {
-  const handle = handPoolArm.create(source, locals, DISABLED_READ_FENCE, {
+  const handle = harnessHandPoolArm.create(source, locals, DISABLED_READ_FENCE, {
     schedule: () => () => {},
   })
   const pool = handle.pool
@@ -400,7 +400,7 @@ describe('H3 probe: cells that outlive their readers (observation, not a check)'
   it('snapshot() leaves a view cell per resident issue', () => {
     const feed = fixtureFeed(1)
     const locals = settableLocals({ selectedIssueId: null, coarseNow: feed.now })
-    const handle = handPoolArm.create(feed.source, locals.source, DISABLED_READ_FENCE, {
+    const handle = harnessHandPoolArm.create(feed.source, locals.source, DISABLED_READ_FENCE, {
       schedule: () => () => {},
     })
     try {

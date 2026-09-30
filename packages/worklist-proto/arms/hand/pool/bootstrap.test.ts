@@ -31,7 +31,7 @@ import { DISABLED_READ_FENCE } from '../../../shared/src/instrument/reads'
 import { settableLocals } from '../../../shared/src/locals-source'
 import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { RowRecord } from '../../../shared/src/stats'
-import { handPoolArm } from './arm'
+import { harnessHandPoolArm } from '../../../harness/src/adapters/hand-pool'
 import { HandPool } from './pool'
 import { ENTITIES } from './tables'
 
@@ -60,7 +60,7 @@ function feedOf(scale: 1 | 4) {
 function boot(arm: Arm, feed: ReturnType<typeof feedOf>): HandPool {
   const locals = settableLocals({ selectedIssueId: null, coarseNow: feed.corpus.fixedNow })
   if (arm === 'lazy') {
-    return handPoolArm.create(feed.replay.source, locals.source, DISABLED_READ_FENCE, {
+    return harnessHandPoolArm.create(feed.replay.source, locals.source, DISABLED_READ_FENCE, {
       schedule: () => () => {},
     }).pool
   }

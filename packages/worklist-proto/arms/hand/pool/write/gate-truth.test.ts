@@ -80,7 +80,10 @@ import { startGenRun } from '../../../../shared/src/gen/run'
 import { feedStep, WriteOracle } from '../../../../shared/src/gen/write-oracle'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceIssue, SliceSnapshot } from '../../../../shared/src/slice-types'
-import { writableHandPoolArm, type WritableHandPoolHandle } from './arm'
+import {
+  harnessWritableHandPoolArm,
+  type HarnessWritableHandPoolHandle,
+} from '../../../../harness/src/adapters/hand-pool'
 
 const SEEDS = Array.from(
   { length: Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3) },
@@ -117,7 +120,7 @@ async function settleStep(
     feed(): { flush(): unknown; source: RowSource }
     ctx: ScenarioEngine
   },
-  handle: WritableHandPoolHandle,
+  handle: HarnessWritableHandPoolHandle,
 ): Promise<void> {
   await macrotask()
   run.feed().flush()
@@ -142,13 +145,13 @@ async function settleStep(
 function armWithAdapter(
   adapter: ArmEditAdapter,
   oracle?: WriteOracle,
-  plant?: (handle: WritableHandPoolHandle) => void,
+  plant?: (handle: HarnessWritableHandPoolHandle) => void,
 ): CheckedArm {
   return (ctx: ScenarioEngine) => {
-    const inner = writableHandPoolArm(adapter.transport(ctx))
+    const inner = harnessWritableHandPoolArm(adapter.transport(ctx))
     return {
       create: (source, locals, reads) => {
-        const handle = inner.create(source, locals, reads) as WritableHandPoolHandle
+        const handle = inner.create(source, locals, reads) as HarnessWritableHandPoolHandle
         adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
         const unwatch = oracle?.watch(ctx, source)
         plant?.(handle)
@@ -174,7 +177,7 @@ function armWithAdapter(
  * flush a held remote (a global flush would release everything early and
  * blunt the plant); dispose flushes the tail.
  */
-function lateRemoteUntilAccept(handle: WritableHandPoolHandle): void {
+function lateRemoteUntilAccept(handle: HarnessWritableHandPoolHandle): void {
   const write = handle.write
   const held = new Map<string, { kind: 'issue'; id: string; values: { title: string; stage: string; readAt: string | null } }>()
   const acked = new Set<string>()
@@ -250,7 +253,7 @@ function lateRemoteUntilAccept(handle: WritableHandPoolHandle): void {
  * MobX one does). Caught by the rebuild (live stale vs rebuilt server) and
  * the oracle.
  */
-function staleRewind(handle: WritableHandPoolHandle): void {
+function staleRewind(handle: HarnessWritableHandPoolHandle): void {
   const write = handle.write
   const atEdit = new Map<string, { id: string; row: SliceIssue }>()
   const edit = write.edit.bind(write)
@@ -286,7 +289,7 @@ function staleRewind(handle: WritableHandPoolHandle): void {
  * is the caller's run-clock stamp (never the wall clock), so reruns agree.
  */
 function findWindowTarget(
-  handle: WritableHandPoolHandle,
+  handle: HarnessWritableHandPoolHandle,
   source: RowSource,
   skipId: string,
   fresh: string,
@@ -331,7 +334,7 @@ function runStamp(run: { ctx: ScenarioEngine }): string {
 }
 
 /** Plant (c): any remote drops the pending entry, so the object takes the server value. */
-function dropPendingOnRemote(handle: WritableHandPoolHandle): void {
+function dropPendingOnRemote(handle: HarnessWritableHandPoolHandle): void {
   const write = handle.write
   const remote = write.handleRemote.bind(write)
   write.handleRemote = (kind, id, values) => {
@@ -346,7 +349,7 @@ function dropPendingOnRemote(handle: WritableHandPoolHandle): void {
  * POD-4671 fixed: no gap patch.
  */
 function applyGap(
-  handle: WritableHandPoolHandle,
+  handle: HarnessWritableHandPoolHandle,
   ctx: ScenarioEngine,
   oracle: SliceSnapshot,
   snapshot: SliceSnapshot,
@@ -367,7 +370,7 @@ function gapped(
   return (ctx: ScenarioEngine) => ({
     create(source, locals, reads) {
       const resolved = typeof arm === 'function' ? arm(ctx) : arm
-      const handle = resolved.create(source, locals, reads) as WritableHandPoolHandle
+      const handle = resolved.create(source, locals, reads) as HarnessWritableHandPoolHandle
       // The gap base is the same whole expected snapshot the oracle compare
       // uses below, so the known one-row exception is neutralized identically
       // on both sides of the rebuild compare.
@@ -413,7 +416,7 @@ interface GateCell {
  */
 async function runGateSeed(
   seed: number,
-  plant?: (handle: WritableHandPoolHandle) => void,
+  plant?: (handle: HarnessWritableHandPoolHandle) => void,
 ): Promise<GateCell> {
   const adapter = new ArmEditAdapter()
   const oracle = new WriteOracle()
@@ -453,7 +456,7 @@ async function runGateSeed(
       // checkArm recreates over the new feed before this runs, so the
       // fidelity compare below always reads the current arm — never a
       // disposed pre-refresh one.
-      const h = handle as WritableHandPoolHandle
+      const h = handle as HarnessWritableHandPoolHandle
       // Settle stragglers before comparing: run.apply already quiesced,
       // but post-reload replica/store trickle (settle timers, binding
       // catch-up) can land rows in the feed after the checker's own
@@ -591,8 +594,8 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const run = await startGenRun({ feedMode: 'truth', editViaArm: adapter.editHook })
         const feed = run.feed()
         const locals = createEngineLocals(run.ctx.engine)
-        const inner = writableHandPoolArm(adapter.transport(run.ctx))
-        const handle = inner.create(feed.source, locals.source) as WritableHandPoolHandle
+        const inner = harnessWritableHandPoolArm(adapter.transport(run.ctx))
+        const handle = inner.create(feed.source, locals.source) as HarnessWritableHandPoolHandle
         adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
         if (planted) staleRewind(handle)
         try {
@@ -640,8 +643,8 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const run = await startGenRun({ feedMode: 'truth', editViaArm: adapter.editHook })
         const feed = run.feed()
         const locals = createEngineLocals(run.ctx.engine)
-        const inner = writableHandPoolArm(adapter.transport(run.ctx))
-        const handle = inner.create(feed.source, locals.source) as WritableHandPoolHandle
+        const inner = harnessWritableHandPoolArm(adapter.transport(run.ctx))
+        const handle = inner.create(feed.source, locals.source) as HarnessWritableHandPoolHandle
         adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
         if (planted) dropPendingOnRemote(handle)
         try {
@@ -717,8 +720,8 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const run = await startGenRun({ feedMode: 'truth', editViaArm: adapter.editHook })
         const feed = run.feed()
         const locals = createEngineLocals(run.ctx.engine)
-        const inner = writableHandPoolArm(adapter.transport(run.ctx))
-        const handle = inner.create(feed.source, locals.source) as WritableHandPoolHandle
+        const inner = harnessWritableHandPoolArm(adapter.transport(run.ctx))
+        const handle = inner.create(feed.source, locals.source) as HarnessWritableHandPoolHandle
         adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
         // The plant: visibility reads the server-only row, never the
         // pending display — the hand shape of the pre-fix MobX lane (their
@@ -770,8 +773,8 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const run = await startGenRun({ feedMode: 'truth', editViaArm: adapter.editHook })
         const feed = run.feed()
         const locals = createEngineLocals(run.ctx.engine)
-        const inner = writableHandPoolArm(adapter.transport(run.ctx))
-        const handle = inner.create(feed.source, locals.source) as WritableHandPoolHandle
+        const inner = harnessWritableHandPoolArm(adapter.transport(run.ctx))
+        const handle = inner.create(feed.source, locals.source) as HarnessWritableHandPoolHandle
         adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
         try {
           const id = findWindowTarget(handle, feed.source, run.ctx.corpus.unscannedWorktree.issueId, runStamp(run))
@@ -871,8 +874,8 @@ describe('L4b with the arm owning its optimism (truth feed, arm edits)', () => {
         const run = await startGenRun({ feedMode: 'truth', editViaArm: adapter.editHook })
         const feed = run.feed()
         const locals = createEngineLocals(run.ctx.engine)
-        const inner = writableHandPoolArm(adapter.transport(run.ctx))
-        const handle = inner.create(feed.source, locals.source) as WritableHandPoolHandle
+        const inner = harnessWritableHandPoolArm(adapter.transport(run.ctx))
+        const handle = inner.create(feed.source, locals.source) as HarnessWritableHandPoolHandle
         adapter.currentEdit = (id, patch) => handle.write.edit('issue', id, patch)
         const unwatch = oracle.watch(run.ctx, feed.source)
         if (planted) lateRemoteUntilAccept(handle)

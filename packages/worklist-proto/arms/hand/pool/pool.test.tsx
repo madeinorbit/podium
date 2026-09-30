@@ -22,7 +22,7 @@ import type { RowView } from '../../../shared/src/row-view'
 import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { SliceIssue } from '../../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
-import { type HandPoolHandle, handPoolArm } from './arm'
+import { harnessHandPoolArm, snapshotPool, type HarnessHandPoolHandle } from '../../../harness/src/adapters/hand-pool'
 import type { HandPool } from './pool'
 import { ENTITIES } from './tables'
 import { FINISHED_GRACE_MS } from './views'
@@ -59,7 +59,7 @@ interface Rig {
   replay: ReplaySource
   locals: SettableLocalsHandle
   reads: ReadFence
-  handle: HandPoolHandle
+  handle: HarnessHandPoolHandle
   /** Feed subscriptions currently open (row source + locals). */
   listeners(): number
   push(event: RowSourceEvent): void
@@ -102,7 +102,7 @@ function rig(): Rig {
     },
   }
   const reads = createReadFence({ enabled: true })
-  const handle = handPoolArm.create(reads.wrapSource(counted), localsSource, reads, {
+  const handle = harnessHandPoolArm.create(reads.wrapSource(counted), localsSource, reads, {
     schedule: () => () => {},
   })
   return {
@@ -156,7 +156,7 @@ function issueRecord(id: string, patch: Partial<SliceIssue> = {}): RowRecord {
 function loadEverything(pool: HandPool): void {
   for (const id of pool.residency?.ids('issue') ?? []) pool.residency?.request('issue', id)
   pool.hydrate()
-  pool.snapshot()
+  snapshotPool(pool)
   expect(pool.residency?.size('issue')).toBe(0)
 }
 

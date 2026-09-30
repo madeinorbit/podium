@@ -29,7 +29,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { handPoolArm } from '../../arms/hand/pool/arm'
+import { harnessHandPoolArm } from './adapters/hand-pool'
 import { diffResidency as handDiffResidency } from '../../arms/hand/pool/enumerate'
 import { mobxPoolArm } from '../../arms/mobx/pool/arm'
 import { diffResidency as mobxDiffResidency } from '../../arms/mobx/pool/enumerate'
@@ -135,7 +135,7 @@ async function measure(scale: 1 | 4) {
     const never = { schedule: () => () => {} }
     const pools = {
       mobx: mobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, never),
-      hand: handPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, never),
+      hand: harnessHandPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, never),
     }
     const pooled: Record<string, unknown> = {}
     try {

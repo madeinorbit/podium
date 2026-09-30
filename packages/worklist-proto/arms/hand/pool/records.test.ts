@@ -11,7 +11,7 @@ import { buildCorpus } from '../../../harness/src/fixture/index'
 import { fixedLocals } from '../../../shared/src/locals-source'
 import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
-import { handPoolArm } from './arm'
+import { harnessHandPoolArm } from '../../../harness/src/adapters/hand-pool'
 import { ENTITIES } from './tables'
 
 describe('schema fields on records', () => {
@@ -31,7 +31,7 @@ describe('schema fields on records', () => {
       })),
     })
     const locals = fixedLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
-    const handle = handPoolArm.create(replay.source, locals.source)
+    const handle = harnessHandPoolArm.create(replay.source, locals.source)
     try {
       const { pool } = handle
       expect([...ENTITIES].sort()).toEqual((Object.keys(SCHEMA) as EntityName[]).sort())

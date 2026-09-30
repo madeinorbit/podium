@@ -36,7 +36,10 @@ import type {
   WriteEvent,
   WriteTransport,
 } from '../../../../shared/src/write-contract'
-import { writableHandPoolArm, type WritableHandPoolHandle } from './arm'
+import {
+  harnessWritableHandPoolArm,
+  type HarnessWritableHandPoolHandle,
+} from '../../../../harness/src/adapters/hand-pool'
 
 interface FakeTransport extends WriteTransport {
   readonly sent: { txId: TxId; command: KernelCommand }[]
@@ -91,11 +94,11 @@ function serverWrite(
   })
 }
 
-function titleOf(handle: WritableHandPoolHandle, id: string): string | undefined {
+function titleOf(handle: HarnessWritableHandPoolHandle, id: string): string | undefined {
   return (handle.pool.inputs.issue(id) as SliceIssue | undefined)?.title
 }
 
-function stageOf(handle: WritableHandPoolHandle, id: string): string | undefined {
+function stageOf(handle: HarnessWritableHandPoolHandle, id: string): string | undefined {
   return (handle.pool.inputs.issue(id) as SliceIssue | undefined)?.stage as string | undefined
 }
 
@@ -104,10 +107,10 @@ describe('Hc2 hand receipts and remote updates', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableHandPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableHandPoolHandle
+      const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
@@ -171,10 +174,10 @@ describe('Hc2 hand receipts and remote updates', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableHandPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableHandPoolHandle
+      const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const serverStage = stageOf(handle, id) as string
@@ -250,10 +253,10 @@ describe('Hc2 hand receipts and remote updates', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableHandPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableHandPoolHandle
+      const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
@@ -335,10 +338,10 @@ describe('Hc2 hand receipts and remote updates', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableHandPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableHandPoolHandle
+      const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
@@ -403,10 +406,10 @@ describe('Hc2 hand receipts and remote updates', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableHandPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableHandPoolHandle
+      const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
@@ -454,10 +457,10 @@ describe('Hc2 hand receipts and remote updates', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const transport = fakeTransport()
-    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableHandPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableHandPoolHandle
+      const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
       const baseline = () => snapshotFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
@@ -500,10 +503,10 @@ describe('Hc2 hand receipts and remote updates', () => {
       },
     ]
     const transport = fakeTransport(pending)
-    const arm = writableHandPoolArm(transport, NEVER_AUTO)
+    const arm = harnessWritableHandPoolArm(transport, NEVER_AUTO)
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as WritableHandPoolHandle
+      const handle = mounted.handle as HarnessWritableHandPoolHandle
       expect(titleOf(handle, id)).toBe('Bootstrapped title')
       expect(handle.write.log.pendingFor('issue', id)).toHaveLength(1)
       expect(transport.sent).toEqual([])

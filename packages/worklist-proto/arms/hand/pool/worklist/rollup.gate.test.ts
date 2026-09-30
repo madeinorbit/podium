@@ -18,7 +18,7 @@ import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm } from '../../../../shared/src/arm'
 import { countKinds, gen } from '../../../../shared/src/gen/changes'
 import { type CheckedArm, checkArm } from '../../../../shared/src/gen/check'
-import { type HandPoolHandle, handPoolArm } from '../arm'
+import { harnessHandPoolArm, type HarnessHandPoolHandle } from '../../../../harness/src/adapters/hand-pool'
 
 const SEEDS = Array.from(
   { length: Number(process.env['POD_ROLLUP_GATE_SEEDS'] ?? 3) },
@@ -30,7 +30,7 @@ const GATE_TIMEOUT_MS = Math.max(1_500_000, SEEDS.length * STEPS * 3_000)
 /** The planted mistake: the child filings never settle, so every composition reads no children. */
 const staleFilings: CheckableArm = {
   create(source, locals, reads) {
-    const handle = handPoolArm.create(source, locals, reads) as HandPoolHandle
+    const handle = harnessHandPoolArm.create(source, locals, reads) as HarnessHandPoolHandle
     handle.pool.rollup.settleFilings = () => {}
     return handle
   },
@@ -53,7 +53,7 @@ describe('correctness gate (L4b) with the oracle every step (Hb3)', () => {
       for (const seed of SEEDS) {
         const sequence = gen(seed, STEPS)
         const tally = { applied: 0 }
-        const result = await checkArm(gapped(handPoolArm, tally), sequence, { oracleEvery: 1 })
+        const result = await checkArm(gapped(harnessHandPoolArm, tally), sequence, { oracleEvery: 1 })
         const plantTally = { applied: 0 }
         const plant = await checkArm(gapped(staleFilings, plantTally), sequence, {
           oracleEvery: 1,

@@ -14,13 +14,13 @@ import { describe, expect, it } from 'vitest'
 import { openFenceFeeds } from '../../../../harness/src/fence-scenarios'
 import { oracleSnapshot } from '../../../../harness/src/oracle/index'
 import { startScenarioEngine } from '../../../../shared/src/scenarios'
-import { handPoolArm } from '../arm'
+import { harnessHandPoolArm } from '../../../../harness/src/adapters/hand-pool'
 
 describe('a draft wears its first nameable member (4x)', () => {
   it('every visible draft title equals the oracle, shell-first drafts included', async () => {
     const ctx = await startScenarioEngine(4)
     const feeds = openFenceFeeds(ctx, 'overlaid')
-    const handle = handPoolArm.create(feeds.rows.source, feeds.locals.source)
+    const handle = harnessHandPoolArm.create(feeds.rows.source, feeds.locals.source)
     try {
       const got = handle.snapshot()
       const want = oracleSnapshot(ctx.engine.getSnapshot())

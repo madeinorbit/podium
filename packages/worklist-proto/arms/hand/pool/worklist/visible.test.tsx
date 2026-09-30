@@ -52,14 +52,14 @@ import {
   upsert,
   writeTitleRename,
 } from '../../../../shared/src/scenarios'
-import { type HandPoolHandle, handPoolArm } from '../arm'
+import { harnessHandPoolArm, poolPendingLoads, type HarnessHandPoolHandle } from '../../../../harness/src/adapters/hand-pool'
 import type { HandPool } from '../pool'
 import { PoolRow } from '../react/row'
 
 /** The pool with a load window that never closes on its own: no load lands inside a counted step. */
 const arm: CheckableArm = {
   create: (source, locals, reads) =>
-    handPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
+    harnessHandPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
 }
 
 /** The row fields Hb1's rows carry from the own row and one hop (the roll-ups are Hb3's stubs). */
@@ -77,12 +77,12 @@ const OWN_FIELDS = [
 ] as const
 
 /** Land every queued load (the mount and the visibility parts ask for cold rows). */
-function settle(handle: HandPoolHandle): number {
+function settle(handle: HarnessHandPoolHandle): number {
   const before = handle.pool.residency?.counters.hydrated ?? 0
   act(() => {
     handle.settleLoads()
   })
-  expect(handle.pool.pendingLoads()).toBe(0)
+  expect(poolPendingLoads(handle.pool)).toBe(0)
   return (handle.pool.residency?.counters.hydrated ?? 0) - before
 }
 
@@ -101,7 +101,7 @@ interface ParityCell {
   readonly fieldDiffs: number
 }
 
-function checkParity(ctx: ScenarioEngine, handle: HandPoolHandle, at: string): ParityCell {
+function checkParity(ctx: ScenarioEngine, handle: HarnessHandPoolHandle, at: string): ParityCell {
   const { pool } = handle
   const snapshot = handle.snapshot()
   const expected = oracleOrder(ctx)
@@ -144,7 +144,7 @@ describe('visible collection and order (Hb1)', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
-    const handle = mounted.handle as HandPoolHandle
+    const handle = mounted.handle as HarnessHandPoolHandle
     const { pool } = handle
     try {
       // First paint: the order before any load lands. Answers that wait on a
@@ -222,13 +222,13 @@ describe('visible collection and order (Hb1)', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     // No list mounted: only the pool's own `visible` cells have run.
-    const handle = handPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
+    const handle = harnessHandPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
       schedule: () => () => {},
     })
     const { pool } = handle
     try {
       const residency = pool.residency!
-      expect(pool.pendingLoads()).toBe(0)
+      expect(poolPendingLoads(pool)).toBe(0)
       expect(residency.counters.requests).toBe(0)
       expect(pool.order().length).toBe(oracleOrder(ctx).length)
       writeResult('hand-visible-bootstrap-1x', {
@@ -255,7 +255,7 @@ describe('visible collection and order (Hb1)', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
-    const handle = mounted.handle as HandPoolHandle
+    const handle = mounted.handle as HarnessHandPoolHandle
     const { pool } = handle
     try {
       settle(handle)
@@ -297,7 +297,7 @@ describe('visible collection and order (Hb1)', () => {
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
-      settle(mounted.handle as HandPoolHandle)
+      settle(mounted.handle as HarnessHandPoolHandle)
       mounted.log.reset()
       mounted.handle.stats.reset()
       mounted.reads.reset()
@@ -316,7 +316,7 @@ describe('visible collection and order (Hb1)', () => {
     // part's lookup of another issue goes through the tracked presence and
     // coldness doors, so the re-added parent re-runs its descendants' walks.
     const plain: CheckableArm = {
-      create: (source, locals, reads) => handPoolArm.create(source, locals, reads),
+      create: (source, locals, reads) => harnessHandPoolArm.create(source, locals, reads),
     }
     const result = await checkArm(
       plain,
@@ -332,7 +332,7 @@ describe('visible collection and order (Hb1)', () => {
   it('a list that draws hidden rows fails the commit fence on a hidden spin-off rename (#1 no longer moves a hidden row)', async () => {
     const planted: CheckableArm = {
       create(source, locals, reads) {
-        const handle = arm.create(source, locals, reads) as HandPoolHandle
+        const handle = arm.create(source, locals, reads) as HarnessHandPoolHandle
         const { pool } = handle
         return {
           ...handle,
@@ -352,7 +352,7 @@ describe('visible collection and order (Hb1)', () => {
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(planted, feeds.rows.source, feeds.locals)
     try {
-      settle(mounted.handle as HandPoolHandle)
+      settle(mounted.handle as HarnessHandPoolHandle)
       mounted.log.reset()
       mounted.handle.stats.reset()
       mounted.reads.reset()

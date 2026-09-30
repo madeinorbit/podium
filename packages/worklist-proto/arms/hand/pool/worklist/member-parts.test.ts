@@ -36,7 +36,7 @@ import { DISABLED_READ_FENCE } from '../../../../shared/src/instrument/reads'
 import { settableLocals } from '../../../../shared/src/locals-source'
 import type { RowSource } from '../../../../shared/src/arm'
 import type { RowRecord } from '../../../../shared/src/stats'
-import { handPoolArm } from '../arm'
+import { harnessHandPoolArm } from '../../../../harness/src/adapters/hand-pool'
 
 /** A membership edge's ids, measured from outside at one scale. */
 async function edgeIds(
@@ -55,7 +55,7 @@ async function edgeIds(
     row: (kind, id) => replay.source.row?.(kind, id),
     subscribe: (listener) => replay.source.subscribe(listener),
   }
-  const handle = handPoolArm.create(counted, locals.source, DISABLED_READ_FENCE, {
+  const handle = harnessHandPoolArm.create(counted, locals.source, DISABLED_READ_FENCE, {
     schedule: () => () => {},
   })
   try {
@@ -231,7 +231,7 @@ describe('member parts per edge are O(family) (POD-4683)', () => {
         row: (kind, id) => replay.source.row?.(kind, id),
         subscribe: (listener) => replay.source.subscribe(listener),
       }
-      const handle = handPoolArm.create(counted, locals.source, DISABLED_READ_FENCE, {
+      const handle = harnessHandPoolArm.create(counted, locals.source, DISABLED_READ_FENCE, {
         schedule: () => () => {},
       })
       try {

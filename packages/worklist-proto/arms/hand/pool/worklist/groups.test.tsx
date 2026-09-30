@@ -65,7 +65,7 @@ import { diffSnapshots } from '../../../../shared/src/gen/check'
 import { compareRank } from '../../../../shared/src/row-view'
 import type { SliceIssue, SliceOrder } from '../../../../shared/src/slice-types'
 import { type ScenarioEngine, startScenarioEngine } from '../../../../shared/src/scenarios'
-import { type HandPoolHandle, handPoolArm } from '../arm'
+import { harnessHandPoolArm, poolPendingLoads, type HarnessHandPoolHandle } from '../../../../harness/src/adapters/hand-pool'
 import type { HandPool } from '../pool'
 import { HEADER_HEIGHT, PoolList, ROW_HEIGHT } from '../react/list'
 import { layoutOf, placementRuleOf, sliceOrderOf } from './groups'
@@ -73,7 +73,7 @@ import { layoutOf, placementRuleOf, sliceOrderOf } from './groups'
 /** The pool with a load window that never closes on its own: no load lands inside a counted step. */
 const arm: CheckableArm = {
   create: (source, locals, reads) =>
-    handPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
+    harnessHandPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
 }
 
 const STEPS = ['#1', '#2', '#3', '#4', '#5', '#6a', '#6b', '#6c', '#6d', '#7'] as const
@@ -93,12 +93,12 @@ const OWN_FIELDS = [
 ] as const
 
 /** Land every queued load (the mount and the visibility parts ask for cold rows). */
-function settle(handle: HandPoolHandle): number {
+function settle(handle: HarnessHandPoolHandle): number {
   const before = handle.pool.residency?.counters.hydrated ?? 0
   act(() => {
     handle.settleLoads()
   })
-  expect(handle.pool.pendingLoads()).toBe(0)
+  expect(poolPendingLoads(handle.pool)).toBe(0)
   return (handle.pool.residency?.counters.hydrated ?? 0) - before
 }
 
@@ -144,7 +144,7 @@ interface GroupParity {
   readonly closed: number
 }
 
-function checkParity(ctx: ScenarioEngine, handle: HandPoolHandle, at: string): GroupParity {
+function checkParity(ctx: ScenarioEngine, handle: HarnessHandPoolHandle, at: string): GroupParity {
   const { pool } = handle
   const locals = parityLocals(ctx)
   const store = ctx.engine.getSnapshot()
@@ -212,7 +212,7 @@ describe('groups and closed folds (Hb2)', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
-    const handle = mounted.handle as HandPoolHandle
+    const handle = mounted.handle as HarnessHandPoolHandle
     const { pool } = handle
     try {
       settle(handle)
@@ -305,7 +305,7 @@ describe('groups and closed folds (Hb2)', () => {
   it('the fold latch holds a selected grace-folded row open; a dismissal or a folded click does not', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
-    const handle = arm.create(feeds.rows.source, feeds.locals.source) as HandPoolHandle
+    const handle = arm.create(feeds.rows.source, feeds.locals.source) as HarnessHandPoolHandle
     const { pool } = handle
     try {
       settle(handle)
@@ -375,7 +375,7 @@ describe('groups and closed folds (Hb2)', () => {
     // Bootstrap counts on an unmounted arm: the mount resets the stats, so
     // the replace's own settle is only visible before one.
     {
-      const handle = arm.create(feeds.rows.source, feeds.locals.source) as HandPoolHandle
+      const handle = arm.create(feeds.rows.source, feeds.locals.source) as HarnessHandPoolHandle
       try {
         settle(handle)
         // One bootstrap run over the visible count (the settle of the replace).
@@ -395,7 +395,7 @@ describe('groups and closed folds (Hb2)', () => {
       }
     }
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
-    const handle = mounted.handle as HandPoolHandle
+    const handle = mounted.handle as HarnessHandPoolHandle
     const { pool } = handle
     try {
       settle(handle)
@@ -480,9 +480,9 @@ describe('the windowed web list (Hb2)', () => {
         return source.row?.(kind, id)
       },
     }
-    const handle = handPoolArm.create(counting, feeds.locals.source, undefined, {
+    const handle = harnessHandPoolArm.create(counting, feeds.locals.source, undefined, {
       schedule: () => () => {},
-    }) as HandPoolHandle
+    }) as HarnessHandPoolHandle
     const { pool } = handle
     const el = document.createElement('div')
     document.body.appendChild(el)
@@ -500,7 +500,7 @@ describe('the windowed web list (Hb2)', () => {
       expect(firstWindow).toBeGreaterThan(0)
       expect(firstWindow).toBeLessThanOrEqual(Math.ceil(height / HEADER_HEIGHT) + 10)
       expect(firstWindow).toBeLessThan(visible)
-      const queuedAtPaint = pool.pendingLoads()
+      const queuedAtPaint = poolPendingLoads(pool)
       const coldVisible = pool.order().filter((id) => pool.residency?.isCold('issue', id)).length
       // What drawing the WHOLE list would load: every cold visible row and
       // every cold origin a visible spin-off's tick names. Since POD-4665 the
@@ -587,7 +587,7 @@ describe('plants that must fail (Hb2)', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
-    const handle = mounted.handle as HandPoolHandle
+    const handle = mounted.handle as HarnessHandPoolHandle
     const { pool } = handle
     try {
       settle(handle)
@@ -636,7 +636,7 @@ describe('plants that must fail (Hb2)', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
-    const handle = mounted.handle as HandPoolHandle
+    const handle = mounted.handle as HarnessHandPoolHandle
     const { pool } = handle
     try {
       settle(handle)
@@ -707,7 +707,7 @@ describe('plants that must fail (Hb2)', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
-    const handle = mounted.handle as HandPoolHandle
+    const handle = mounted.handle as HarnessHandPoolHandle
     const { pool } = handle
     try {
       settle(handle)

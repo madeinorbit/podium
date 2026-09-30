@@ -23,7 +23,7 @@
 
 import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { handPoolArm } from '../../arms/hand/pool/arm'
+import { harnessHandPoolArm } from '../src/adapters/hand-pool'
 import {
   applyTitleRename,
   startScenarioEngine,
@@ -39,7 +39,7 @@ describe('hand pool on the native renderer', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     // No load window closes on its own mid-step.
-    const handle = handPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
+    const handle = harnessHandPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
       schedule: () => () => {},
     })
     const mounted = await mountNativeForCounts(handle)

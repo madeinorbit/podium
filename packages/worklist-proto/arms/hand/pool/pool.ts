@@ -32,15 +32,19 @@
  * asks `inputs.loading`, which records it under the row's `coldness` key and
  * queues the row; the 50 ms window's batch installs every queued row in ONE
  * commit (`hydrate`). A registry entry that appears or leaves is a
- * `residency` delta, handled like every other. `snapshot()` settles the
- * loader before it answers. Without `lazy` every row is resident (the Ha1/Ha2
- * tests that build the pool directly).
+ * `residency` delta, handled like every other. The harness drains the window
+ * (`hydrate` in a loop) before it reads. Without `lazy` every row is
+ * resident (the Ha1/Ha2 tests that build the pool directly).
  *
  * READ PATH. Every table read goes through the reads fence
  * (`reads.wrapTables`) behind a tracked door (`tracked`), every relation read
  * through `reads.wrapRelations`; with the fence disabled both are the raw
- * objects. A row view is a cell per part, created when a mounted row (or
- * `snapshot()`) first reads it and kept current by the drain after that.
+ * objects. A row view is a cell per part, created when a mounted row reads
+ * it and kept current by the drain after that.
+ *
+ * STRICT DOORS (POD-4933) live only in the harness
+ * (`harness/src/adapters/hand-pool.ts`): the pool has no drain loop, no
+ * pending probe, no resident-ids helper and no settling snapshot.
  *
  * STATS (`README.md` has the definitions): `rowsDerived` counts view-cell
  * runs; `notifications` counts commits that changed pool state;
@@ -57,8 +61,8 @@
  * (`admit`: the closure's resident members, never the corpus). A commit
  * runs two more steps after the drain:
  * `admit`, then the order handler (`settle`), which places exactly the ids
- * whose `visible` or `rank` cell moved. The list and `snapshot()` read the
- * order; order listeners are called in `publish` when it moved.
+ * whose `visible` or `rank` cell moved. The list reads the order; order
+ * listeners are called in `publish` when it moved.
  *
  * THE GROUPS (POD-4583, Hb2; `worklist/groups.ts`). Each visible issue has a
  * `placement` cell (pinned, group key and label, fold verdict and stamp, from
@@ -84,14 +88,13 @@
  */
 
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
-import { type RowView, sliceRowOf } from '../../../shared/src/row-view'
+import type { RowView } from '../../../shared/src/row-view'
 import { type EntityName, type ModelSchema, SCHEMA } from '../../../shared/src/schema'
 import type {
   LocalsKey,
   SliceIssue,
   SliceLocals,
   SliceSession,
-  SliceSnapshot,
 } from '../../../shared/src/slice-types'
 import type { ArmStats, RowSourceEvent } from '../../../shared/src/stats'
 import { type Cell, type CellCounters, CellGraph, DepIndex, sameData } from './cells'
@@ -124,7 +127,7 @@ import {
   sessionActivityOf,
   type ViewInputs,
 } from './views'
-import { type GroupLanes, type GroupsView, sliceOrderOf, WorklistGroups } from './worklist/groups'
+import { type GroupLanes, type GroupsView, WorklistGroups } from './worklist/groups'
 import { RollupCollection } from './worklist/rollup'
 import {
   directSessionParts,
@@ -225,9 +228,6 @@ export interface LazyMembers {
   readonly ready: readonly string[]
   readonly pending: number
 }
-
-/** Load rounds `snapshot()` settles before it gives up (a load that queues another, and so on). */
-const MAX_SETTLE_ROUNDS = 64
 
 /** One issue's parts, each its own cell, plus the view cell over them. */
 export class IssueCells {
@@ -1034,8 +1034,8 @@ export class HandPool {
 
   /**
    * Close the load window now: install every queued cold row, read by id
-   * through the feed, in ONE commit. The window's timer calls this; so does
-   * `snapshot()` while settling.
+   * through the feed, in ONE commit. The window's timer calls this; the
+   * harness drains it in a loop before it reads.
    */
   hydrate(): void {
     const residency = this.residency
@@ -1046,35 +1046,6 @@ export class HandPool {
     this.engine.begin()
     for (const [entity, id] of batch) residency.hydrate(this.target, entity, id, out)
     this.commitIngest(out)
-  }
-
-  /** Rows queued for a load that has not landed yet (the fence refuses a step that leaves any). */
-  pendingLoads(): number {
-    return this.residency?.queued() ?? 0
-  }
-
-  /**
-   * Land every pending load NOW, and whatever those loads queue in turn,
-   * until nothing is queued: one commit per round, as the window would. The
-   * rows installed are returned, so a caller can charge them to the change
-   * that asked for them (the shared fence's drain hook, POD-4568's G2).
-   */
-  drainLoads(): number {
-    const residency = this.residency
-    if (residency === null) return 0
-    const before = residency.counters.hydrated
-    for (let round = 0; residency.hasQueued(); round += 1) {
-      if (round >= MAX_SETTLE_ROUNDS) {
-        throw new Error(`[pool] loads did not drain in ${MAX_SETTLE_ROUNDS} rounds`)
-      }
-      this.hydrate()
-    }
-    return residency.counters.hydrated - before
-  }
-
-  /** The resident issue ids, untracked (the rebuild's residency input). */
-  residentIssueIds(): ReadonlySet<string> {
-    return new Set(issueIdsOf(this.tables.issue))
   }
 
   /** The visible issue ids in rank order (POD-4582); a new array only when the order moved. */
@@ -1118,31 +1089,6 @@ export class HandPool {
       const current = this.groupListeners.get(key)
       if (current === undefined || !current.delete(listener) || current.size > 0) return
       this.groupListeners.delete(key)
-    }
-  }
-
-  /**
-   * The slice output: the VISIBLE rows in rank order, grouped with closed
-   * folds and no selection (POD-4583, `worklist/groups.ts`). Settled: reading
-   * the rows (and deciding visibility) queues the cold rows they reach, and
-   * those are loaded and the rows read again until nothing is queued, as a
-   * reader that waits out its loading state would see them.
-   */
-  snapshot(): SliceSnapshot {
-    for (let round = 0; ; round += 1) {
-      const rowsById: SliceSnapshot['rowsById'] = {}
-      for (const id of this.order()) {
-        const view = this.view(id)
-        if (view === undefined) continue
-        rowsById[id] = sliceRowOf(view)
-      }
-      if (this.residency?.hasQueued() !== true) {
-        return { order: sliceOrderOf(this.groups.snapshot()), rowsById }
-      }
-      if (round >= MAX_SETTLE_ROUNDS) {
-        throw new Error(`[pool] snapshot() did not settle in ${MAX_SETTLE_ROUNDS} load rounds`)
-      }
-      this.hydrate()
     }
   }
 
