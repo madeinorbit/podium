@@ -8,10 +8,9 @@
  * `user_message_chunk` to the live client; it writes it to the session's
  * history, and a `session/load` replays it ahead of the turn's stamped updates.
  *
- * So the send is accepted when Grok names our id, never before, and the entry
- * is named by our id once Grok's stream shows the prompt got past its
- * `UserPromptSubmit` hook, which is when Grok records it. A prompt the hook
- * blocks is never recorded, so it names no entry.
+ * The queue ack accepts a held message. Only reading the stored user chunk,
+ * bound by a following record stamped with our id, confirms it. A prompt a
+ * Grok hook drops names no entry and calls onUnrecorded.
  */
 
 import type { SessionId, TranscriptItem, TranscriptItemRef } from '@podium/model'
@@ -54,6 +53,7 @@ function world(options: FakeGrokAcpServerOptions = {}): {
   const entries = new Map<SessionId, GrokAcpJournalEntry>()
   // Grok's store outlives its process: a load replays what an earlier one wrote.
   const store = new Map<string, FakeGrokStoredUpdate[]>()
+  const frameStore = new Map<string, Record<string, unknown>[]>()
   return {
     serverFor: (sessionId) => servers.get(sessionId)!,
     host: {
@@ -65,12 +65,23 @@ function world(options: FakeGrokAcpServerOptions = {}): {
         },
       },
       now: () => Date.UTC(2026, 7, 20) + ++seq * 1000,
+      nativeArchivePollMs: 1,
       mintSessionId: () => `gk-item-${++seq}` as SessionId,
       readHistory: async () => ({ items: [], hasMore: false }),
+      async readNativeUpdates({ grokSessionId, offset }) {
+        const bytes = new TextEncoder().encode(
+          (frameStore.get(grokSessionId) ?? [])
+            .map((frame) => JSON.stringify(frame) + '\n')
+            .join(''),
+        )
+        const start = bytes.length < offset ? 0 : offset
+        return { offset: start, bytes: bytes.subarray(start) }
+      },
       async launch(input) {
         const server = startFakeGrokAcpServer(`grok-native-${input.sessionId}`, {
           ...options,
           store,
+          frameStore,
         })
         servers.set(input.sessionId, server)
         return {
@@ -157,6 +168,7 @@ describe('accepted only when Grok names our id', () => {
         { id: 'msg_held', text: 'held' },
         { origin: 'human', delivery: 'when-ready' },
       )
+      await expect.poll(() => w.serverFor(handle.binding.sessionId).promptCount).toBe(1)
       expect(await settled(sent)).toBe(false)
       // Taken, not yet in a turn: no epoch moved and no turn started.
       expect((await handle.snapshot()).turnEpoch).toBe(before.turnEpoch)
@@ -165,6 +177,7 @@ describe('accepted only when Grok names our id', () => {
       expect(receipt).toMatchObject({
         outcome: 'accepted',
         provenBy: 'protocol-ack',
+        held: 'memory',
         turnEpoch: before.turnEpoch + 1,
       })
       const events: RuntimeEvent[] = []
@@ -193,6 +206,7 @@ describe('accepted only when Grok names our id', () => {
         { id: `msg_${stage}`, text: stage },
         { origin: 'human', delivery: 'when-ready' },
       )
+      await expect.poll(() => w.serverFor(handle.binding.sessionId).promptCount).toBe(1)
       w.serverFor(handle.binding.sessionId).ackPrompt(stage)
       expect(await settled(sent)).toBe(true)
       await expect(sent).resolves.toMatchObject({ outcome: 'accepted', provenBy: 'protocol-ack' })
@@ -215,6 +229,7 @@ describe('accepted only when Grok names our id', () => {
       expect(await settled(interrupted)).toBe(false)
       // Nothing is cancelled before Grok has named the prompt.
       expect(server.cancels).toBe(0)
+      await expect.poll(() => server.promptCount).toBe(1)
       server.ackPrompt()
       await interrupted
       expect(server.cancels).toBe(1)
@@ -225,7 +240,7 @@ describe('accepted only when Grok names our id', () => {
     }
   })
 
-  it('takes the reply to its own request as the ack when Grok sends no queue frames', async () => {
+  it('leaves a reply alone unproven when no queue ack or recorded turn named our id', async () => {
     const w = world({ ackPrompt: false })
     const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
@@ -235,8 +250,10 @@ describe('accepted only when Grok names our id', () => {
         { origin: 'human', delivery: 'when-ready' },
       )
       expect(await settled(sent)).toBe(false)
-      w.serverFor(handle.binding.sessionId).completeTurn()
-      await expect(sent).resolves.toMatchObject({ outcome: 'accepted', provenBy: 'protocol-ack' })
+      await expect.poll(() => w.serverFor(handle.binding.sessionId).promptCount).toBe(1)
+      // No live output or stamped file record; the reply is only a turn fence.
+      w.serverFor(handle.binding.sessionId).completeTurn('cancelled')
+      await expect(sent).rejects.toThrow(/without acknowledging or recording/)
     } finally {
       runtime.dispose()
     }
@@ -306,7 +323,7 @@ describe('a prompt Grok may hold is never refused (POD-4839)', () => {
 })
 
 describe('the entry is named by our id once Grok recorded the prompt', () => {
-  it('names grok-user-<id> when the first update of the turn arrives, ahead of the answer', async () => {
+  it('names grok-user-<id> after reading the stored chunk and the stamped turn update', async () => {
     const w = world()
     const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
@@ -317,12 +334,16 @@ describe('the entry is named by our id once Grok recorded the prompt', () => {
         { origin: 'human', delivery: 'when-ready', onTranscriptItem: (item) => named.push(item) },
       )
       // The ack comes before Grok says anything about the turn's progress.
-      expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'protocol-ack' })
+      expect(receipt).toMatchObject({
+        outcome: 'accepted',
+        held: 'memory',
+        provenBy: 'protocol-ack',
+      })
       expect(receipt.outcome === 'accepted' && receipt.transcriptItem).toBeFalsy()
       expect(named).toEqual([])
       const server = w.serverFor(handle.binding.sessionId)
       server.streamAgentText(['on it'])
-      expect(named).toEqual([{ id: 'grok-user-msg_ship' }])
+      await expect.poll(() => named).toEqual([{ id: 'grok-user-msg_ship' }])
       server.completeTurn()
       await expect
         .poll(async () =>
@@ -342,7 +363,7 @@ describe('the entry is named by our id once Grok recorded the prompt', () => {
     }
   })
 
-  it('names it on the hook verdict when a UserPromptSubmit hook lets the prompt through', async () => {
+  it('waits past an allowing hook until the user chunk is bound by a later file record', async () => {
     const w = world({ promptHook: true })
     const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
@@ -353,8 +374,11 @@ describe('the entry is named by our id once Grok recorded the prompt', () => {
         { origin: 'human', delivery: 'when-ready', onTranscriptItem: (item) => named.push(item) },
       )
       expect(named).toEqual([])
-      w.serverFor(handle.binding.sessionId).runPromptHook('allow')
-      expect(named).toEqual([{ id: 'grok-user-msg_hooked' }])
+      const server = w.serverFor(handle.binding.sessionId)
+      server.runPromptHook('allow')
+      expect(named).toEqual([])
+      server.streamAgentText(['on it'])
+      await expect.poll(() => named).toEqual([{ id: 'grok-user-msg_hooked' }])
     } finally {
       runtime.dispose()
     }
@@ -387,22 +411,29 @@ describe('the entry is named by our id once Grok recorded the prompt', () => {
     try {
       const handle = await runtime.driver.create(spec())
       const named: TranscriptItemRef[] = []
+      const unrecorded: string[] = []
       const receipt = await handle.send(
         { id: 'msg_blocked', text: 'blocked' },
-        { origin: 'human', delivery: 'when-ready', onTranscriptItem: (item) => named.push(item) },
+        {
+          origin: 'human',
+          delivery: 'when-ready',
+          onTranscriptItem: (item) => named.push(item),
+          onUnrecorded: (reason) => unrecorded.push(reason),
+        },
       )
       // Grok took it (the queue ack) before its hook refused it.
       expect(receipt).toMatchObject({ outcome: 'accepted' })
       w.serverFor(handle.binding.sessionId).runPromptHook('block')
       await expect.poll(async () => (await handle.state()).phase).not.toBe('working')
       expect(named).toEqual([])
+      expect(unrecorded).toEqual(['dropped by a Grok hook'])
       expect(userItems((await handle.transcript.history({ limit: 100 })).items)).toEqual([])
     } finally {
       runtime.dispose()
     }
   })
 
-  it('carries the entry on a durable row as a second delivered outcome', async () => {
+  it('settles a durable row as delivered only once the file names its entry', async () => {
     const w = world()
     const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
@@ -412,7 +443,8 @@ describe('the entry is named by our id once Grok recorded the prompt', () => {
         { id: 'msg_row', text: 'durable', rowId: 'msg_row' },
         { origin: 'human', delivery: 'when-ready' },
       )
-      const deliveries: RuntimeEvent[] = []
+      const server = w.serverFor(handle.binding.sessionId)
+      await expect.poll(() => server.promptCount).toBe(1)
       const iterator = handle.events(before.cursor)[Symbol.asyncIterator]()
       const next = async (): Promise<RuntimeEvent> => {
         for (;;) {
@@ -421,12 +453,10 @@ describe('the entry is named by our id once Grok recorded the prompt', () => {
           if (step.value.t === 'delivery') return step.value
         }
       }
-      deliveries.push(await next())
-      expect(deliveries[0]).toMatchObject({ t: 'delivery', rowId: 'msg_row', outcome: 'delivered' })
-      expect(deliveries[0]).not.toHaveProperty('transcriptItem')
-      w.serverFor(handle.binding.sessionId).streamAgentText(['on it'])
-      deliveries.push(await next())
-      expect(deliveries[1]).toMatchObject({
+      const outcome = next()
+      expect(await settled(outcome)).toBe(false)
+      server.streamAgentText(['on it'])
+      expect(await outcome).toMatchObject({
         t: 'delivery',
         rowId: 'msg_row',
         outcome: 'delivered',
@@ -452,6 +482,7 @@ describe("Grok's own history names the entry by the same id", () => {
       const server = w.serverFor(handle.binding.sessionId)
       server.streamAgentText(['done'])
       server.completeTurn()
+      await expect.poll(async () => (await handle.state()).phase).toBe('idle')
       const live = userItems((await handle.transcript.history({ limit: 100 })).items).map(
         (item) => item.id,
       )
@@ -525,7 +556,7 @@ describe("Grok's own id for our message (POD-4841)", () => {
       const ref = [{ kind: 'grok-prompt', id: 'msg_ship' }]
       expect(receipt).toMatchObject({ outcome: 'accepted', harnessRef: ref })
       w.serverFor(handle.binding.sessionId).streamAgentText(['on it'])
-      expect(named).toEqual([[{ id: 'grok-user-msg_ship' }, ref]])
+      await expect.poll(() => named).toEqual([[{ id: 'grok-user-msg_ship' }, ref]])
     } finally {
       runtime.dispose()
     }
