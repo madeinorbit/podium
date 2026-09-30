@@ -26,7 +26,7 @@
 import { appendFileSync } from 'node:fs'
 import { autorun, computed, observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
-import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
+import { installMobxWarnTrap } from '../mobx-trap'
 import { harnessMobxPoolArm, tracked } from '../src/adapters/mobx-pool'
 import type { LocalsSource, RowSource } from '../../shared/src/arm'
 import { DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'

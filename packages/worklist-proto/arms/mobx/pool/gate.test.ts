@@ -119,9 +119,9 @@ import { ROW_VIEW_FIELDS, type RowView } from '../../../shared/src/row-view'
 import { type ScenarioEngine, startScenarioEngine } from '../../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../../shared/src/slice-types'
 import { type HarnessMobxPoolHandle, harnessMobxPoolArm, snapshotPool, tracked } from '../../../harness/src/adapters/mobx-pool'
-import { diffRelations, diffResidency, knownTables } from './enumerate'
-import { installMobxWarnTrap } from './mobx-trap'
-import { rebuildSnapshot, rebuildViews } from './rebuild'
+import { diffRelations, diffResidency, knownTables } from '../../../../harness/src/adapters/mobx-rebuild'
+import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
+import { rebuildSnapshot, rebuildViews } from '../../../../harness/src/adapters/mobx-rebuild'
 import { rowViewOf } from './models'
 
 installMobxWarnTrap()

@@ -24,7 +24,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { harnessMobxPoolArm } from './adapters/mobx-pool'
-import { type ScannableTables, scanRelations } from '../../arms/mobx/pool/enumerate'
+import { type ScannableTables, scanRelations } from './adapters/mobx-rebuild'
 import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
 import { diffSnapshots } from '../../shared/src/gen/check'
 import { type ScenarioEngine, startScenarioEngine } from '../../shared/src/scenarios'

@@ -20,7 +20,7 @@
 import { act } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
-import { installMobxWarnTrap } from '../../../arms/mobx/pool/mobx-trap'
+import { installMobxWarnTrap } from '../mobx-trap'
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
 import type { SliceIssue } from '../../../shared/src/slice-types'
 import { startScenarioEngine } from '../../../shared/src/scenarios'

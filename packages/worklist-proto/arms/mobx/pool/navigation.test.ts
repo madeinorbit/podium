@@ -33,7 +33,7 @@ import { type RelationLinks, refs, relationLinks, relationRef } from '../../../s
 import { settableLocals } from '../../../shared/src/locals-source'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import { harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from './mobx-trap'
+import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import type { LazyCollection, ModelOf } from './models'
 import { ENTITIES } from './tables'
 import { LOADING } from './worklist/rollup'

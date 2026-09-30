@@ -26,7 +26,7 @@ import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { startScenarioEngine } from '../../../../shared/src/scenarios'
 import { harnessMobxPoolArm, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from '../mobx-trap'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 
 installMobxWarnTrap()
 

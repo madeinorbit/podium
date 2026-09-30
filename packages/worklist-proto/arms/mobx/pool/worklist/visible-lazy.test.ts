@@ -18,7 +18,7 @@ import { DISABLED_READ_FENCE } from '../../../../shared/src/instrument/reads'
 import { settableLocals } from '../../../../shared/src/locals-source'
 import type { RowRecord } from '../../../../shared/src/stats'
 import { harnessMobxPoolArm, tracked } from '../../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from '../mobx-trap'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 
 installMobxWarnTrap()
 

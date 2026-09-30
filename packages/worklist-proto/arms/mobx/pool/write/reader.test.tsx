@@ -28,7 +28,7 @@ import type {
   WriteTransport,
 } from '../../../../shared/src/write-contract'
 import { harnessMobxPoolArm, harnessWritableMobxPoolArm, tracked, type HarnessWritableMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from '../mobx-trap'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import type { MobxPool } from '../pool'
 import { createMobxWriteApi } from './edit'
 import { PendingOverlay } from './overlay'

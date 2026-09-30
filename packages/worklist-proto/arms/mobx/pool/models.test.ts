@@ -21,7 +21,7 @@ import { FEED_SPELLING } from '../../../shared/src/repo-from-lane'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import { harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { IssueModel } from './models'
-import { installMobxWarnTrap } from './mobx-trap'
+import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { ENTITIES } from './tables'
 
 installMobxWarnTrap()

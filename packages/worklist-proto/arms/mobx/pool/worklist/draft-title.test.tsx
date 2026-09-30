@@ -15,7 +15,7 @@ import { openFenceFeeds } from '../../../../harness/src/fence-scenarios'
 import { oracleSnapshot } from '../../../../harness/src/oracle/index'
 import { startScenarioEngine } from '../../../../shared/src/scenarios'
 import { harnessMobxPoolArm, tracked } from '../../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from '../mobx-trap'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 
 installMobxWarnTrap()
 

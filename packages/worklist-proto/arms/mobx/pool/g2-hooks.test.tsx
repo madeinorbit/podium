@@ -18,7 +18,7 @@ import {
   type HarnessMobxPoolHandle,
   harnessMobxPoolArm,
 } from '../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from './mobx-trap'
+import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 
 installMobxWarnTrap()
 

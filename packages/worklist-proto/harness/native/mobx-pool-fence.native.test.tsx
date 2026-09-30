@@ -49,7 +49,7 @@ import { observer } from 'mobx-react-lite'
 import { act, type ReactElement } from 'react'
 import { View } from 'react-native'
 import { describe, expect, it, vi } from 'vitest'
-import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
+import { installMobxWarnTrap } from '../src/mobx-trap'
 import { PoolNativeRow } from '../../arms/mobx/pool/native/row'
 import { type MobxPool } from '../../arms/mobx/pool/pool'
 import {

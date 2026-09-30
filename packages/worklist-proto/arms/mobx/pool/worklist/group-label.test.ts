@@ -19,7 +19,7 @@ import { settableLocals } from '../../../../shared/src/locals-source'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { RowRecord } from '../../../../shared/src/stats'
 import { harnessMobxPoolArm, tracked } from '../../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from '../mobx-trap'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 
 installMobxWarnTrap()
 

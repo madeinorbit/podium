@@ -38,7 +38,7 @@ import type {
   WriteTransport,
 } from '../../../../shared/src/write-contract'
 import { ECHO_TTL_MS } from '../../../../shared/src/write-contract'
-import { installMobxWarnTrap } from '../mobx-trap'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import { harnessMobxPoolArm, harnessWritableMobxPoolArm, tracked, type HarnessMobxPoolHandle, type HarnessWritableMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { createMobxWriteApi, type MobxWriteApi } from './edit'
 import { PendingOverlay } from './overlay'
