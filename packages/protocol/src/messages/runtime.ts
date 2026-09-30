@@ -130,13 +130,16 @@ export const RefusalReason = z.enum([
 ])
 export type RefusalReason = z.infer<typeof RefusalReason>
 
+export const DELIVERY_FAILURE_CAUSES = ['not-accepting-input', 'unconfirmed', 'rejected-by-agent'] as const
+export type DeliveryFailureCause = (typeof DELIVERY_FAILURE_CAUSES)[number]
+
 export const Refusal = z.object({
   reason: RefusalReason,
   /** Harness detail for diagnostics. NEVER parsed for control flow — that is
    *  what the typed `reason` is for. */
   detail: z.string().optional(),
-  /** Direct request-rejection evidence. Unknown causes remain readable. */
-  cause: z.string().optional(),
+  /** Direct request-rejection evidence. A newer cause never costs the refusal. */
+  cause: z.enum(DELIVERY_FAILURE_CAUSES).optional().catch(undefined),
 })
 export type Refusal = z.infer<typeof Refusal>
 
@@ -382,9 +385,6 @@ export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservati
  * never a new arm, for the rolling-upgrade reason `cause` gives below: an older
  * server strips it and settles the row as it always did.
  */
-export const DELIVERY_FAILURE_CAUSES = ['not-accepting-input', 'unconfirmed', 'rejected-by-agent'] as const
-export type DeliveryFailureCause = (typeof DELIVERY_FAILURE_CAUSES)[number]
-
 /*
  * THE PROGRAM TOOK THE ROW, NOT RECORDED YET (POD-4886; POD-4819 §4): outcome
  * `accepted` on the delivery arm, with `held` saying how the program holds it

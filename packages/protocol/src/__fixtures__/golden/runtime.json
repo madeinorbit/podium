@@ -1453,12 +1453,12 @@
       "wire": {
         "reason": "needs_user",
         "detail": "detail",
-        "cause": "cause"
+        "cause": "not-accepting-input"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"reason\":\"needs_user\",\"detail\":\"detail\",\"cause\":\"cause\"}"
+      "encoded": "{\"reason\":\"needs_user\",\"detail\":\"detail\",\"cause\":\"not-accepting-input\"}"
     },
     {
       "schema": "RefusalReason",
@@ -1864,13 +1864,13 @@
         "result": {
           "reason": "lease_held",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "unconfirmed"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeConfigureResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeConfigureResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"unconfirmed\"}}"
     },
     {
       "schema": "RuntimeDaemonMessage",
@@ -1956,13 +1956,13 @@
         "result": {
           "reason": "no_resume_ref",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "RuntimeDaemonMessage",
@@ -2020,13 +2020,13 @@
         "result": {
           "reason": "staging_failed",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"staging_failed\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"staging_failed\",\"detail\":\"result.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "RuntimeDaemonMessage",
@@ -2038,13 +2038,13 @@
         "result": {
           "reason": "busy",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"busy\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"busy\",\"detail\":\"result.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "RuntimeDraftRequestMessage",
@@ -2153,13 +2153,13 @@
         "result": {
           "reason": "unsupported",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeDraftResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeDraftResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "RuntimeDurableSendRequestMessage",
@@ -4331,13 +4331,13 @@
         "result": {
           "reason": "lease_held",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "unconfirmed"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"unconfirmed\"}}"
     },
     {
       "schema": "RuntimeHistoryResultMessage",
@@ -4349,13 +4349,13 @@
         "result": {
           "reason": "unsupported",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "RuntimeHistoryResultMessage",
@@ -4367,13 +4367,13 @@
         "result": {
           "reason": "no_resume_ref",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "RuntimeHistoryResultMessage",
@@ -4385,13 +4385,13 @@
         "result": {
           "reason": "session_ended",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"session_ended\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"session_ended\",\"detail\":\"result.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "RuntimeInteractionAskedMessage",
@@ -4705,13 +4705,13 @@
         "result": {
           "reason": "lease_held",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "unconfirmed"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"unconfirmed\"}}"
     },
     {
       "schema": "RuntimeMessage",
@@ -4793,13 +4793,13 @@
         "result": {
           "reason": "no_resume_ref",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "RuntimeMessage",
@@ -4857,13 +4857,13 @@
         "result": {
           "reason": "staging_failed",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"staging_failed\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"staging_failed\",\"detail\":\"result.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "RuntimeMessage",
@@ -4875,13 +4875,13 @@
         "result": {
           "reason": "busy",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"busy\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"busy\",\"detail\":\"result.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "RuntimeQueueDrainAbandonedAckMessage",
@@ -5054,14 +5054,14 @@
           "refusal": {
             "reason": "unsupported",
             "detail": "receipt.refusal.detail",
-            "cause": "receipt.refusal.cause"
+            "cause": "rejected-by-agent"
           }
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSendResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"receipt\":{\"outcome\":\"refused\",\"refusal\":{\"reason\":\"unsupported\",\"detail\":\"receipt.refusal.detail\",\"cause\":\"receipt.refusal.cause\"}}}"
+      "encoded": "{\"type\":\"runtimeSendResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"receipt\":{\"outcome\":\"refused\",\"refusal\":{\"reason\":\"unsupported\",\"detail\":\"receipt.refusal.detail\",\"cause\":\"rejected-by-agent\"}}}"
     },
     {
       "schema": "RuntimeSendResultMessage",
@@ -5260,13 +5260,13 @@
         "result": {
           "reason": "lease_held",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "unconfirmed"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"unconfirmed\"}}"
     },
     {
       "schema": "RuntimeSnapshotResultMessage",
@@ -5278,13 +5278,13 @@
         "result": {
           "reason": "unsupported",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "RuntimeSnapshotResultMessage",
@@ -5296,13 +5296,13 @@
         "result": {
           "reason": "no_resume_ref",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "RuntimeSnapshotResultMessage",
@@ -5314,13 +5314,13 @@
         "result": {
           "reason": "session_ended",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"session_ended\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"session_ended\",\"detail\":\"result.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "RuntimeSnapshotResultMessage",
@@ -5332,13 +5332,13 @@
         "result": {
           "reason": "not_running",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"not_running\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"not_running\",\"detail\":\"result.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "RuntimeStageAttachmentRequestMessage",
@@ -5426,13 +5426,13 @@
         "result": {
           "reason": "lease_held",
           "detail": "result.detail",
-          "cause": "result.cause"
+          "cause": "unconfirmed"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeStageAttachmentResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"result.cause\"}}"
+      "encoded": "{\"type\":\"runtimeStageAttachmentResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"unconfirmed\"}}"
     },
     {
       "schema": "RuntimeWatchLevel",
@@ -6719,13 +6719,13 @@
         "refusal": {
           "reason": "unsupported",
           "detail": "refusal.detail",
-          "cause": "refusal.cause"
+          "cause": "rejected-by-agent"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"outcome\":\"refused\",\"refusal\":{\"reason\":\"unsupported\",\"detail\":\"refusal.detail\",\"cause\":\"refusal.cause\"}}"
+      "encoded": "{\"outcome\":\"refused\",\"refusal\":{\"reason\":\"unsupported\",\"detail\":\"refusal.detail\",\"cause\":\"rejected-by-agent\"}}"
     },
     {
       "schema": "TurnReceipt",
