@@ -629,6 +629,81 @@ describe('row roll-ups (Mb3)', () => {
     }
   }, 300_000)
 
+  it('burst seats are O(1): the re-list plant sorts more than the maintained list (POD-4678, outside)', async () => {
+    /**
+     * THE PLANTED MISTAKE, measured from outside. `seatList` re-listed as
+     * `[...links.issue.sessions.ids(id)].sort()` copies + sorts the whole
+     * family on every read (50 runs at #10); the maintained SORTED list is
+     * returned without iterating it. Values stay right (parity blind); only
+     * an outside sort count sees it. `countSorted` patches
+     * `Array.prototype.sort` for the step (same pattern as
+     * `scaling.test.ts`); relation yields and row reads cost the same either
+     * way, so the reads fence cannot tell them apart.
+     */
+    const seatRelist: CheckableArm = {
+      create(source, locals, reads) {
+        const handle = arm.create(source, locals, reads) as HarnessMobxPoolHandle
+        const pool = handle.pool
+        const visible = pool.visibleInputs as {
+          seatList: (id: string) => readonly string[]
+        } & { links: { issue: { sessions: { ids(id: string): Iterable<string> } } } }
+        const views = pool.inputs as {
+          seatList: (id: string) => readonly string[]
+        } & { links: { issue: { sessions: { ids(id: string): Iterable<string> } } } }
+        visible.seatList = (id) => [...visible.links.issue.sessions.ids(id)].sort()
+        views.seatList = (id) => [...views.links.issue.sessions.ids(id)].sort()
+        return handle
+      },
+    }
+    const countSorted = (run: () => Promise<void>): Promise<number> =>
+      (async () => {
+        const original = Array.prototype.sort
+        let sorted = 0
+        Array.prototype.sort = function <T>(
+          this: T[],
+          ...args: [compare?: (a: T, b: T) => number]
+        ): T[] {
+          sorted += this.length
+          return (original as (...a: unknown[]) => T[]).apply(this, args)
+        }
+        try {
+          await run()
+        } finally {
+          Array.prototype.sort = original
+        }
+        return sorted
+      })()
+    const burst = FENCE_SCENARIOS.find((entry) => entry.methodology === '#10')
+    expect(burst, '#10 burst50').toBeDefined()
+    const cells = []
+    for (const scale of [1, 4] as const) {
+      const sortedOf = async (
+        create: CheckableArm,
+      ): Promise<{ sorts: number; rows: number }> => {
+        let sorts = 0
+        let rows = 0
+        await withMountedScale(create, scale, async (ctx, mounted, handle, flush) => {
+          sorts = await countSorted(async () => {
+            const { result } = await runFenceStep(mounted, ctx, flush, burst!)
+            rows = result.rowsCommitted
+            assertCommits(result)
+          })
+          checkParity(ctx, handle, `#10 ${scale}x`)
+        })
+        return { sorts, rows }
+      }
+      const correct = await sortedOf(arm)
+      const planted = await sortedOf(seatRelist)
+      expect(planted.rows, `#10 ${scale}x planted commits`).toBe(correct.rows)
+      expect(
+        planted.sorts,
+        `#10 ${scale}x planted sorts more than the maintained list`,
+      ).toBeGreaterThan(correct.sorts)
+      cells.push({ scale, correctSorts: correct.sorts, plantedSorts: planted.sorts })
+    }
+    writeResult('mobx-rollups-burst-sorts-1x-4x', { cells })
+  }, 900_000)
+
   it('a deep closed chain loads one level per window and converges to the oracle', async () => {
     const rig = await familyRig()
     try {
