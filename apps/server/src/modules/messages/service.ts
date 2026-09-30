@@ -38,6 +38,8 @@ import {
   MessageDelivery,
   type MessageDeliveryStatus,
   type MessageHeld,
+  type HarnessRef,
+  type TranscriptItemRef,
 } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
@@ -241,6 +243,19 @@ class RoutingMembership {
   }
 }
 
+export type DeliveryContradictionEvidence =
+  | { kind: 'wrapped-frame'; frameId: string; transcriptItem?: TranscriptItemRef }
+  | { kind: 'driver-id'; transcriptItem: TranscriptItemRef; harnessRef: HarnessRef }
+
+export interface DeliveryContradiction {
+  messageId: string
+  sessionId: SessionId
+  program: string
+  programVersion: string | null
+  failedCause: MessageFailedCause | null
+  evidence: DeliveryContradictionEvidence
+}
+
 export interface MessageDeliveryDeps {
   worldIndex: Pick<WorldIndexReader, 'pendingCount'>
   firstAdminMemberId(): Promise<import('@podium/model').UserId>
@@ -352,6 +367,8 @@ export interface MessageDeliveryDeps {
   /** Human-readable machine name for cross-machine provenance [POD-658];
    *  absent (tests) = raw machine id. */
   machineName?(id: string): string | Promise<string>
+  /** Last version reported by the session's machine; absent means unobserved. */
+  programVersion?(sessionId: SessionId, program: string): Promise<string | undefined>
   /**
    * APPLY-TIME RE-AUTHORIZATION (ADR 3 D8 / Amendment 1 D16, POD-728).
    *
@@ -2463,7 +2480,7 @@ export class MessageDeliveryService {
    * proof the agent has it in context, so the row moves to confirmed.
    * Best-effort and idempotent: a late/duplicate echo finds it already there.
    */
-  async onTranscriptDelta(sessionId: SessionId, items: { role?: string; text?: string }[]): Promise<void> {
+  async onTranscriptDelta(sessionId: SessionId, items: { id?: string; role?: string; text?: string }[]): Promise<void> {
     for (const item of items) {
       // Only a user turn echoes a pasted prompt; assistant/tool text quoting the
       // id must never self-confirm a message the agent merely referenced.
@@ -2472,7 +2489,7 @@ export class MessageDeliveryService {
       if (!id) continue
       const row = await this.deps.messages.getMessage(id)
       // `unknown` included: the echo is exactly the proof it was waiting for.
-      if (!row || !isMessageHandedOn(row.deliveryStatus)) continue
+      if (!row) continue
       // Confirm ONLY a push WE made to THIS session. A row we never handed on
       // (still stored — e.g. a HELD issue message with no live session, or
       // one waiting for a boundary) has deliveredTo null; some OTHER session's
@@ -2482,7 +2499,60 @@ export class MessageDeliveryService {
       // branch kills [POD-834 review]. A hand-off always sets deliveredTo, so
       // requiring the push target to match closes the loophole.
       if (row.deliveredTo !== sessionId) continue
+      if (row.deliveryStatus === 'failed') {
+        await this.reportFailedHistoryMatch(row, sessionId, {
+          kind: 'wrapped-frame', frameId: id,
+          ...(item.id ? { transcriptItem: { id: item.id } } : {}),
+        })
+        continue
+      }
+      if (!isMessageHandedOn(row.deliveryStatus)) continue
       await this.markDelivered(row, sessionId, 'echo')
+    }
+  }
+
+  /** Exact protocol-driver history proof, after the inbox has settled the row.
+   * An ack or a text/order match never calls this port. Failed stays final. */
+  async onQueuedInputIdMatched(
+    messageId: string,
+    sessionId: SessionId,
+    proof: { transcriptItem: TranscriptItemRef; harnessRef: HarnessRef },
+  ): Promise<void> {
+    const row = await this.deps.messages.getMessage(messageId)
+    if (row?.deliveryStatus !== 'failed' || row.deliveredTo !== sessionId) return
+    await this.reportFailedHistoryMatch(row, sessionId, { kind: 'driver-id', ...proof })
+  }
+
+  private async reportFailedHistoryMatch(
+    row: MessageRow,
+    sessionId: SessionId,
+    evidence: DeliveryContradictionEvidence,
+  ): Promise<void> {
+    const session = await this.deps.sessions.sessionById(sessionId)
+    const program = session?.agentKind ?? 'unknown'
+    await this.reportDeliveryContradiction({
+      messageId: row.id, sessionId, program,
+      programVersion: await this.deps.programVersion?.(sessionId, program) ?? null,
+      failedCause: row.deliveryDeferredReason ?? null,
+      evidence,
+    })
+  }
+
+  /** Local diagnostic ledger, separate from opt-in outbound telemetry. The
+   * diagnostic is a log field of its own: custom Error fields are discarded. */
+  async reportDeliveryContradiction(diagnostic: DeliveryContradiction): Promise<void> {
+    try {
+      const recorded = await this.deps.events.appendEventOnce({
+        ts: this.deps.now(), kind: 'message.delivery_contradiction',
+        subject: diagnostic.messageId, payload: diagnostic,
+      })
+      if (recorded !== undefined) {
+        afterCommit(() => log.warn('message delivery contradiction', { diagnostic }), 'delivery-contradiction-warning')
+      }
+    } catch (error) {
+      afterCommit(() => log.warn('message delivery contradiction recording failed', {
+        diagnostic, err: error,
+      }), 'delivery-contradiction-recording-failed')
     }
   }
 

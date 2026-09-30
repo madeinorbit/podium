@@ -3756,6 +3756,31 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     }
   })
 
+  it('an alarm rolled back with its transaction logs nothing and can be retried', async () => {
+    const { svc, store } = await harness()
+    const diagnostic = {
+      messageId: 'msg_alarm', sessionId: asSessionId('s1'), program: 'codex', programVersion: null,
+      failedCause: 'not-recorded' as const,
+      evidence: { kind: 'wrapped-frame' as const, frameId: 'msg_alarm' },
+    }
+    const logs = captureLogs()
+    try {
+      await expect(store.transact(async () => {
+        await svc.reportDeliveryContradiction(diagnostic)
+        throw new Error('rollback')
+      })).rejects.toThrow('rollback')
+      expect(await store.events.listEventsSince(0, { kinds: ['message.delivery_contradiction'] })).toEqual([])
+      expect(logs.at('warn').filter((r) => r.msg === 'message delivery contradiction')).toEqual([])
+      await svc.reportDeliveryContradiction(diagnostic)
+      expect(await store.events.listEventsSince(0, { kinds: ['message.delivery_contradiction'] })).toHaveLength(1)
+      expect(logs.at('warn').filter((r) => r.msg === 'message delivery contradiction')).toEqual([
+        expect.objectContaining({ diagnostic }),
+      ])
+    } finally {
+      logs.restore()
+    }
+  })
+
   it('does not alarm for a quoted failed id, an assistant echo or a different session', async () => {
     const target = asSessionId('s1')
     const { svc, store } = await harness([session({ sessionId: target }), session({ sessionId: asSessionId('s2') })])
@@ -3775,6 +3800,35 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     expect(await status(store, failed.id)).toBe('failed')
     expect(await status(store, quoting.id)).toBe('confirmed')
     expect(await store.events.listEventsSince(0, { kinds: ['message.delivery_contradiction'] })).toEqual([])
+  })
+
+  it.each([
+    ['claude-code', '2.1.284', 'claude-uuid'],
+    ['codex', '0.155.0', 'codex-client-message'],
+    ['grok', '1.0.44', 'grok-prompt'],
+    ['opencode', '1.18.33', 'opencode-message'],
+  ])('records %s driver id proof through the same once-per-message alarm', async (program, version, kind) => {
+    const target = asSessionId('s1')
+    const { svc, store } = await harness([session({ sessionId: target, agentKind: program as SessionMeta['agentKind'] })], {
+      programVersion: async () => version,
+    })
+    const { message } = await svc.send({ kind: 'superagent' }, {
+      to: { kind: 'session', id: target }, body: 'private prompt', urgency: 'next-turn',
+    })
+    await svc.onQueuedInputDisprovenLate(message.id, target, 'dropped', 'not-recorded')
+    const failed = await store.messages.getMessage(message.id)
+    const proof = { transcriptItem: { id: 'entry-1' }, harnessRef: [{ kind, id: 'program-message-id' }] }
+    await svc.onQueuedInputIdMatched(message.id, asSessionId('other'), proof)
+    expect(await store.events.listEventsSince(0, { kinds: ['message.delivery_contradiction'] })).toEqual([])
+    await svc.onQueuedInputIdMatched(message.id, target, proof)
+    await svc.onTranscriptDelta(target, [{ role: 'user', text: frame(message.id, message.body) }])
+    await svc.onQueuedInputIdMatched(message.id, target, proof)
+    expect(await store.messages.getMessage(message.id)).toEqual(failed)
+    const alarms = await store.events.listEventsSince(0, { kinds: ['message.delivery_contradiction'], subject: message.id })
+    expect(alarms.map((e) => e.payload)).toEqual([{
+      messageId: message.id, sessionId: target, program, programVersion: version,
+      failedCause: 'not-recorded', evidence: { kind: 'driver-id', ...proof },
+    }])
   })
 
   it('onTranscriptDelta confirms each item by its own frame across a multi-item delta', async () => {

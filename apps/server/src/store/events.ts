@@ -413,6 +413,24 @@ export class EventsRepository {
     return id
   }
 
+  /** One diagnostic per (kind, subject), also across replay and restart.
+   * The read and append share the store's serialized write transaction. */
+  async appendEventOnce(e: {
+    ts: string
+    kind: string
+    subject: string
+    repoPath?: string | null
+    payload?: unknown
+  }): Promise<number | undefined> {
+    return await this.createOrJoinTransaction(async () => {
+      const prior = await this.db.select({ id: podiumEvents.id }).from(podiumEvents)
+        .where(and(eq(podiumEvents.kind, e.kind), eq(podiumEvents.subject, e.subject)))
+        .limit(1).get()
+      if (prior) return undefined
+      return await this.appendEvent(e)
+    })
+  }
+
   /** Announce an event that was inserted silently inside a wider transaction.
    * The caller invokes this only after that transaction commits. */
   async announceEvent(id: number): Promise<void> {

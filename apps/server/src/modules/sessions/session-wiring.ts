@@ -530,6 +530,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         )
         await completion
       },
+      idMatched: async ({ messageId, sessionId, transcriptItem, harnessRef }) => {
+        await deps.reportQueuedMessageIdMatch?.(messageId, sessionId, { transcriptItem, harnessRef })
+      },
       harnessIds: async ({ messageId, sessionId, harnessRef }) => {
         const completion: Promise<void> | undefined = deps.keepQueuedMessageHarnessIds?.(
           messageId,

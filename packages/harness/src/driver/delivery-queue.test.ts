@@ -1,8 +1,56 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { withDeliveryQueue } from './delivery-queue.js'
 import type { AgentSessionHandle } from './driver.js'
+import type { SendOptions, TurnInput } from './turns.js'
 
 afterEach(() => vi.useRealTimers())
+
+describe('exact history proof contradicting a final failure (POD-4894)', () => {
+  it.each([
+    ['entry', 'server'], ['late', 'server'], ['direct', 'server'],
+    ['entry', 'terminal'], ['late', 'terminal'],
+  ] as const)('keeps failed final after %s proof on a %s driver', async (via, family) => {
+    vi.useFakeTimers()
+    let onEntry: ((item: { id: string }, refs?: { kind: string; id: string }[]) => void) | undefined
+    let onLate: ((proof: { transcriptItem?: { id: string }; harnessRef?: { kind: string; id: string }[] }) => void) | undefined
+    let onNo: ((reason: string, cause?: 'agent-exited') => void) | undefined
+    const emit = vi.fn()
+    const send = vi.fn(async (_input: TurnInput, options: SendOptions) => {
+      onEntry = options.onTranscriptItem
+      onLate = options.onLateProof
+      onNo = options.onUnrecorded
+      return { outcome: 'accepted', held: 'memory', turnEpoch: 1, deliveredAs: 'when-ready', provenBy: 'protocol-ack', at: new Date().toISOString() }
+    })
+    const handle = withDeliveryQueue({
+      send, state: async () => ({ phase: 'idle' }), lease: { state: async () => null },
+      binding: { family },
+    } as unknown as AgentSessionHandle, emit)
+    const input = { id: 'msg_one', ...(via === 'direct' ? {} : { rowId: 'msg_one' }), text: 'private prompt' }
+    const options = { origin: 'human', delivery: 'when-ready' } as const
+    await handle.send(input, options)
+    await vi.advanceTimersByTimeAsync(0)
+    onNo?.('not in history after exit', 'agent-exited')
+    const failed = emit.mock.calls.at(-1)![0]
+    expect(failed).toMatchObject({ outcome: 'failed', cause: 'agent-exited' })
+    const proof = {
+      transcriptItem: { id: 'entry-1' },
+      harnessRef: [{ kind: 'codex-client-message', id: input.id }],
+    }
+    const prove = () => via !== 'late'
+      ? onEntry?.(proof.transcriptItem, proof.harnessRef)
+      : onLate?.(proof)
+    prove()
+    prove()
+    expect(emit.mock.calls.map(([event]) => event).filter((event) => event.outcome === 'delivered')).toEqual(family === 'server' ? [
+      { t: 'delivery', rowId: input.id, outcome: 'delivered', matchedBy: 'id', ...proof },
+    ] : [])
+    if (via !== 'direct') {
+      await handle.send(input, options)
+      expect(emit.mock.calls.at(-1)![0]).toEqual(failed)
+    }
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe('durable row delivery', () => {
   const fixture = () => {

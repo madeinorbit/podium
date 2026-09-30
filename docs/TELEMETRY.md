@@ -6,6 +6,11 @@ off, and nothing is collected locally while it is off either.
 
 If you never touch this page, nothing about your machine ever leaves it.
 
+Operational diagnostics in Podium's local event log are separate from telemetry. A delivery
+contradiction records message and session ids, the program and its observed version, the failure
+cause, and history-id evidence locally, once per message; it contains no prompt text and is never
+sent by either telemetry tier.
+
 This document is the contract. A CI test (`packages/telemetry/src/docs-drift.test.ts`) fails the
 build if the field tables below stop matching the schema in code, so this cannot quietly drift
 from what actually ships.

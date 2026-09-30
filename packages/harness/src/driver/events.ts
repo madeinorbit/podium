@@ -97,6 +97,8 @@ export type RuntimeEventBody =
       /** The program's own ids for the row, every one known by this outcome
        *  (POD-4841). On any outcome; never a proof of anything by itself. */
       harnessRef?: HarnessRef
+      /** A protocol driver's own history matched the message by exact id. */
+      matchedBy?: 'id'
     }
   | {
       /** The existing normalized state vocabulary, INCLUDING compaction — which

@@ -42,6 +42,28 @@ async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> =
 }
 
 describe('SessionStore event log', () => {
+  it('appends a diagnostic once per kind and subject, atomically and after commit', async () => {
+    const store = await openTestStore(':memory:')
+    const announced = vi.fn()
+    await store.events.onAppend(announced)
+    const diagnostic = { ts: 't1', kind: 'message.delivery_contradiction', subject: 'msg_one', payload: { messageId: 'msg_one' } }
+    const recorded = await Promise.all([store.events.appendEventOnce(diagnostic), store.events.appendEventOnce(diagnostic)])
+    expect(recorded.filter((id) => id !== undefined)).toHaveLength(1)
+    expect(await store.events.listEventsSince(0)).toHaveLength(1)
+    expect(announced).toHaveBeenCalledTimes(1)
+    const other = { ...diagnostic, subject: 'msg_other' }
+    await expect(store.transact(async () => {
+      await store.events.appendEventOnce(other)
+      expect(announced).toHaveBeenCalledTimes(1)
+      throw new Error('rollback')
+    })).rejects.toThrow('rollback')
+    expect(await store.events.listEventsSince(0)).toHaveLength(1)
+    expect(announced).toHaveBeenCalledTimes(1)
+    expect(await store.events.appendEventOnce(other)).toBeTypeOf('number')
+    expect(await store.events.appendEventOnce({ ...diagnostic, kind: 'another.diagnostic' })).toBeTypeOf('number')
+    expect(await store.events.listEventsSince(0)).toHaveLength(3)
+  })
+
   it('appendEvent/listEventsSince round-trips payloads and returns ascending ids', async () => {
     const store = await openTestStore(':memory:')
     const id1 = await store.events.appendEvent({ ts: 't1', kind: 'a', subject: 's1', payload: { x: 1 } })

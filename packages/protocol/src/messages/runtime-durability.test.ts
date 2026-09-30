@@ -15,6 +15,13 @@ import {
 const at = '2026-09-18T12:00:00.000Z'
 
 describe('program-held receipt evidence survives the wire', () => {
+  it('preserves exact history id evidence on a delivery report', () => {
+    const frame = { type: 'runtimeEvent', sessionId: asSessionId('s1'), event: event({
+      t: 'delivery', rowId: 'msg_one', outcome: 'delivered', matchedBy: 'id',
+      transcriptItem: { id: 'entry-1' }, harnessRef: [{ kind: 'codex-client-message', id: 'msg_one' }],
+    }) }
+    expect(RuntimeEventMessage.parse(frame)).toEqual(frame)
+  })
   it.each(['memory', 'durable'] as const)('preserves a %s hold on an accepted receipt', (held) => {
     const receipt = {
       outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready',

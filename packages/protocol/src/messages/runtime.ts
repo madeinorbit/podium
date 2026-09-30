@@ -457,6 +457,8 @@ export const RuntimeEventBody = z.discriminatedUnion('t', [
     cause: z.string().optional(),
     transcriptItem: TranscriptItemRef.optional(),
     harnessRef: HarnessRefWire,
+    /** Unknown matching rules remain data; only `id` is alarm evidence today. */
+    matchedBy: z.string().optional(),
   }),
   z.object({ t: z.literal('state'), change: z.record(z.string(), z.unknown()) }),
   z.object({ t: z.literal('item'), item: TranscriptItemDelta }),

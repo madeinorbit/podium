@@ -1473,6 +1473,14 @@ export class SessionRegistry {
       }) => Promise<{ ok: boolean; reason?: string }>
       applied?: (messageId: string, sessionId: SessionId) => Promise<void>
       provenLate?: (messageId: string, sessionId: SessionId) => Promise<void>
+      idMatched?: (
+        messageId: string,
+        sessionId: SessionId,
+        proof: {
+          transcriptItem: import('@podium/model').TranscriptItemRef
+          harnessRef: import('@podium/model').HarnessRef
+        },
+      ) => Promise<void>
       disprovenLate?: (
         messageId: string,
         sessionId: SessionId,
@@ -1586,6 +1594,8 @@ export class SessionRegistry {
       queuedMessageHeld: (messageId) => queuedMessageApply.held(messageId),
       nameQueuedMessageEntry: (messageId, sessionId, transcriptItem) =>
         queuedMessageApply.named(messageId, sessionId, transcriptItem),
+      reportQueuedMessageIdMatch: async (messageId, sessionId, proof) =>
+        await queuedApplyHooks.idMatched?.(messageId, sessionId, proof),
       keepQueuedMessageHarnessIds: (messageId, sessionId, harnessRef) =>
         queuedMessageApply.harnessIds(messageId, sessionId, harnessRef),
       noteQueuedMessageInjected: (messageId, sessionId) =>
@@ -2244,6 +2254,12 @@ export class SessionRegistry {
       // Cross-machine provenance [POD-658]: name the sender's machine in the
       // envelope note so the receiver knows to `podium workspace fetch`.
       machineName: async (id) => (await machines.listMachines()).find((m) => m.id === id)?.name ?? id,
+      programVersion: async (sessionId, program) => {
+        const session = sessionsSvc.sessionFactsById(sessionId)
+        if (!session) return undefined
+        const machine = await this.store.machines.getMachine(session.machineId)
+        return machine?.harnessVersions?.find((report) => report.harness === program)?.version
+      },
       now: () => new Date(this.now()).toISOString(),
     })
     queuedApplyHooks.spawnPrompt = async (input) => await messagesSvc.recordSpawnPrompt(input)
@@ -2257,6 +2273,8 @@ export class SessionRegistry {
       await messagesSvc.onQueuedInputApplied(messageId, sessionId)
     queuedApplyHooks.provenLate = async (messageId, sessionId) =>
       await messagesSvc.onQueuedInputProvenLate(messageId, sessionId)
+    queuedApplyHooks.idMatched = async (messageId, sessionId, proof) =>
+      await messagesSvc.onQueuedInputIdMatched(messageId, sessionId, proof)
     queuedApplyHooks.disprovenLate = async (messageId, sessionId, reason, cause) =>
       await messagesSvc.onQueuedInputDisprovenLate(messageId, sessionId, reason, cause)
     queuedApplyHooks.accepted = async (messageId, sessionId, held) =>

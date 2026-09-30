@@ -157,6 +157,12 @@ export interface SessionLifecycleDeps {
     sessionId: SessionId,
     transcriptItem: TranscriptItemRef,
   ): Promise<void>
+  /** Record an exact driver-id history match even if the message already failed. */
+  reportQueuedMessageIdMatch?(
+    messageId: string,
+    sessionId: SessionId,
+    proof: { transcriptItem: TranscriptItemRef; harnessRef: HarnessRef },
+  ): Promise<void>
   /** Keep the agent program's own ids for the message (POD-4841). */
   keepQueuedMessageHarnessIds?(
     messageId: string,

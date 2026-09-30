@@ -151,6 +151,9 @@ function harness(
       transcriptItem: { id: string }
     }) => {},
   )
+  const idMatched = vi.fn(async (_input: {
+    messageId: string; sessionId: SessionId; transcriptItem: { id: string }; harnessRef: { kind: string; id: string }[]
+  }) => {})
   const harnessIds = vi.fn(
     async (_input: {
       messageId: string
@@ -271,6 +274,7 @@ function harness(
       accepted,
       ...(options.held ? { held: options.held } : {}),
       named,
+      idMatched,
       harnessIds,
       rejected: async (input) => { rejected.push(input) },
     },
@@ -391,6 +395,7 @@ function harness(
     disprovenLate,
     accepted,
     named,
+    idMatched,
     harnessIds,
     handleInput,
     handleInputBytes,
@@ -2158,6 +2163,29 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
       messageId: 'msg_direct',
       sessionId: SID,
       transcriptItem: { id: 'entry-direct' },
+    })
+    expect(h.applied).not.toHaveBeenCalled()
+  })
+
+  it('routes only exact history id proof to the alarm after a failed row settles', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractReceipts: [] })
+    await queueOne(h, 'msg_failed', 'msg_failed')
+    await vi.advanceTimersByTimeAsync(1_000)
+    await h.inbox.deliveryOutcome(SID, { rowId: 'msg_failed', outcome: 'failed', cause: 'not-recorded' })
+    expect(h.rows).toEqual([])
+    const proof = { rowId: 'msg_failed', outcome: 'delivered' as const,
+      transcriptItem: { id: 'entry-1' }, harnessRef: [{ kind: 'codex-client-message', id: 'msg_failed' }],
+    }
+    // An outcome, hook id or an unfamiliar matching rule is not exact proof.
+    await h.inbox.deliveryOutcome(SID, proof)
+    await h.inbox.deliveryOutcome(SID, { ...proof, matchedBy: 'order' })
+    await h.inbox.deliveryOutcome(SID, { ...proof, matchedBy: 'id', transcriptItem: undefined })
+    await h.inbox.deliveryOutcome(SID, { ...proof, matchedBy: 'id', harnessRef: undefined })
+    expect(h.idMatched).not.toHaveBeenCalled()
+    await h.inbox.deliveryOutcome(SID, { ...proof, matchedBy: 'id' })
+    expect(h.idMatched).toHaveBeenCalledExactlyOnceWith({
+      messageId: proof.rowId, sessionId: SID, transcriptItem: proof.transcriptItem, harnessRef: proof.harnessRef,
     })
     expect(h.applied).not.toHaveBeenCalled()
   })

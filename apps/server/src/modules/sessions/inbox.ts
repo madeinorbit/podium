@@ -127,6 +127,8 @@ export interface DeliveryOutcomeEvent {
   /** On any outcome: the agent program's own ids for the row, every one known
    *  by then (POD-4841). A later outcome for the same id may carry more. */
   harnessRef?: HarnessRef
+  /** Only a protocol driver's exact id match to its own history sets this. */
+  matchedBy?: string
 }
 
 const REFUSALS_PROVING_NO_WRITE: ReadonlySet<Refusal['reason']> = new Set(['not_running', 'unsupported', 'staging_failed'])
@@ -350,6 +352,14 @@ export interface InboxAuthorizationPort {
     messageId: string
     sessionId: SessionId
     transcriptItem: TranscriptItemRef
+  }): Promise<void>
+  /** A driver found this message by exact id in its history (POD-4894).
+   * Independent of settlement: a failed message must still report the proof. */
+  idMatched?(input: {
+    messageId: string
+    sessionId: SessionId
+    transcriptItem: TranscriptItemRef
+    harnessRef: HarnessRef
   }): Promise<void>
   /** The agent's machine reported the program's own ids for that message
    *  (POD-4841). Kept on the message, independent of its status. */
@@ -1511,6 +1521,12 @@ export class SessionInbox {
         messageId: event.rowId,
         sessionId,
         harnessRef: event.harnessRef,
+      })
+    }
+    if (event.outcome === 'delivered' && event.matchedBy === 'id' && event.transcriptItem && event.harnessRef?.length) {
+      await this.deps.authorization.idMatched?.({
+        messageId: event.rowId, sessionId,
+        transcriptItem: event.transcriptItem, harnessRef: event.harnessRef,
       })
     }
   }
