@@ -59,6 +59,7 @@ export const ROW_KINDS = [
   'newDraftIssue',
   'setWorktree',
   'setStartedBy',
+  'setBranch',
 ] as const
 
 /** The optimistic write path (L1c §5) and the client's own lifecycle. */
@@ -91,6 +92,7 @@ export const SHAPES = [
   'excludedKeeper',
   'orphanInWorktree',
   'draftVesselStarter',
+  'awaitingMerge',
 ] as const
 export type ShapeName = (typeof SHAPES)[number]
 
@@ -103,7 +105,7 @@ interface Tagged {
 
 export type RowChange = Tagged &
   (
-    | { kind: 'newIssue'; id: string; parentId: string | null; title: string }
+    | { kind: 'newIssue'; id: string; parentId: string | null; title: string; audience?: 'human' | 'agent' }
     | { kind: 'newSession'; sessionId: string; issueId: string; phase: SessionPhase }
     | { kind: 'heartbeat'; sessionId: string }
     | { kind: 'newWorktree'; repoId: string; path: string }
@@ -126,6 +128,8 @@ export type RowChange = Tagged &
     | { kind: 'setWorktree'; id: string; path: string }
     /** An issue's starter session (started-by nesting). */
     | { kind: 'setStartedBy'; id: string; sessionId: string }
+    /** A private branch with unlanded work stamped onto an issue (the merge verdict). */
+    | { kind: 'setBranch'; id: string; branch: string }
   )
 
 /** What an edit sets. `readAt: true` is a mark-read press: the runtime stamps it. */
@@ -203,6 +207,7 @@ export const DEFAULT_WEIGHTS: Readonly<Record<ChangeKind | 'shapes', number>> = 
   newDraftIssue: 0,
   setWorktree: 0,
   setStartedBy: 0,
+  setBranch: 0,
 }
 
 /** Clock steps, weighted toward the runtime's own minute tick. 25 h crosses
@@ -647,6 +652,7 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
       case 'newDraftIssue':
       case 'setWorktree':
       case 'setStartedBy':
+      case 'setBranch':
         // Emitted only via their shapes (forced prefix + random shape draws),
         // never drawn directly (no default weight) and never inside a batch.
         return null
@@ -901,6 +907,43 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
           { kind: 'setStartedBy', id: starterId, sessionId: starterSessionId, ...tag },
         ]
       }
+      case 'awaitingMerge': {
+        // R-VIS merge verdict (POD-4940): a finished agent child with an
+        // unlanded private branch and no sessions. The oracle keeps it
+        // without limit (`issueAwaitingMerge`, `rows.ts:95-104`,
+        // `visibility.ts:31-32`) and reads its decision as waiting/asking. A
+        // pool that hard-codes the verdict drops it once nothing retains it;
+        // one that skips the decision reads queued/not-asking. The parent is
+        // an open human issue so the child nests visibly from birth.
+        const parent = pickIssue(
+          (m) => !m.archived && m.audience === 'human' && ACTIVE_STAGES.has(m.stage),
+        )
+        if (!parent) return null
+        const id = model.mint('i-g')
+        const branch = `podium/merge-${id}`
+        model.issues.set(id, {
+          id,
+          parentId: parent.id,
+          repoId: parent.repoId,
+          stage: 'in_progress',
+          archived: false,
+          sortKey: null,
+          sessions: new Set(),
+          audience: 'agent',
+          draft: false,
+          worktreePath: null,
+          startedBySession: null,
+        })
+        model.hot.push(id)
+        model.allIssues.push(id)
+        const child = model.issues.get(id) as IssueModel
+        child.stage = 'done'
+        return [
+          { kind: 'newIssue', id, parentId: parent.id, title: `Generated ${id}`, audience: 'agent' as const, ...tag },
+          { kind: 'stageChange', id, stage: 'done', ...tag },
+          { kind: 'setBranch', id, branch, ...tag },
+        ]
+      }
     }
   }
 
@@ -1019,7 +1062,7 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
       for (let k = 0; k < n; k += 1) {
         const inner = pick(
           ROW_KINDS.filter(
-            (r) => r !== 'newWorktree' && r !== 'newOrphanSession' && r !== 'newDraftIssue' && r !== 'setWorktree' && r !== 'setStartedBy',
+            (r) => r !== 'newWorktree' && r !== 'newOrphanSession' && r !== 'newDraftIssue' && r !== 'setWorktree' && r !== 'setStartedBy' && r !== 'setBranch',
           ),
         ) as RowKind
         const c = rowChange(inner)
@@ -1035,7 +1078,12 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
   }
 
   if ((w['shapes'] ?? 0) > 0) {
-    for (const forced of ['excludedKeeper', 'orphanInWorktree', 'draftVesselStarter'] as const) {
+    for (const forced of [
+      'excludedKeeper',
+      'orphanInWorktree',
+      'draftVesselStarter',
+      'awaitingMerge',
+    ] as const) {
       if (out.length >= steps) break
       const emitted = shape(forced)
       if (emitted !== null) out.push(...emitted)

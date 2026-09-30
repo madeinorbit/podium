@@ -330,7 +330,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           createdAt: now,
           updatedAt: now,
           archived: false,
-          audience: 'human',
+          audience: c.audience ?? 'human',
           repoId: repo?.['repoId'] ?? ctx.targets.newIssueRepo.repoId,
         }
         ctx.replica.batch(() => {
@@ -492,6 +492,20 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         return patchIssue(c.id, { worktreePath: c.path })
       case 'setStartedBy':
         return patchIssue(c.id, { startedBySession: c.sessionId })
+      case 'setBranch':
+        // `patchIssue` dual-writes wire and projection, as the authority
+        // does for `branch` (POD-4940): the app reads the verdict off the
+        // projection's branch and the wire's git state.
+        return patchIssue(c.id, {
+          branch: c.branch,
+          gitState: {
+            updatedAt: ctx.stamp(),
+            branch: c.branch,
+            shared: false,
+            ahead: 2,
+            dirtyFiles: 0,
+          },
+        })
     }
   }
 

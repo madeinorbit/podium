@@ -136,6 +136,24 @@ describe('gen', () => {
     }
   })
 
+  it('POD-4940: emits the awaiting-merge shape in its defining pattern', () => {
+    const changes = gen(1, 3000)
+    const tagged = (shape: string): Change[] => changes.filter((c) => 'shape' in c && c.shape === shape)
+    // Awaiting merge: agent child, finished, then the unlanded branch.
+    const merge = tagged('awaitingMerge')
+    expect(merge.length).toBeGreaterThan(0)
+    for (let k = 0; k + 2 < merge.length; k += 3) {
+      expect(merge[k]).toMatchObject({ kind: 'newIssue', audience: 'agent' })
+      expect(merge[k + 1]).toMatchObject({ kind: 'stageChange', stage: 'done' })
+      expect(merge[k + 2]).toMatchObject({ kind: 'setBranch' })
+      const id = (merge[k] as { id: string }).id
+      expect((merge[k] as { parentId: string }).parentId).not.toBeNull()
+      expect((merge[k + 1] as { id: string }).id).toBe(id)
+      expect((merge[k + 2] as { id: string }).id).toBe(id)
+      expect((merge[k + 2] as { branch: string }).branch).toContain('podium/merge-')
+    }
+  })
+
   it('POD-4681: each R-VIS shape occurs in every default 3x200 seed', () => {
     for (const seed of [1, 2, 3]) {
       const changes = gen(seed, 200)
@@ -143,6 +161,7 @@ describe('gen', () => {
       expect(shapes['excludedKeeper'] ?? 0, `seed ${seed} excludedKeeper`).toBeGreaterThanOrEqual(1)
       expect(shapes['orphanInWorktree'] ?? 0, `seed ${seed} orphanInWorktree`).toBeGreaterThanOrEqual(1)
       expect(shapes['draftVesselStarter'] ?? 0, `seed ${seed} draftVesselStarter`).toBeGreaterThanOrEqual(1)
+      expect(shapes['awaitingMerge'] ?? 0, `seed ${seed} awaitingMerge`).toBeGreaterThanOrEqual(1)
     }
   })
 })
