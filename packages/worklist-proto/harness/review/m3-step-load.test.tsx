@@ -228,16 +228,17 @@ describe('a fence step counts the load its own change triggers (M3 re-review 2)'
     // lazy arm's loads inside the step, so the plant's load lands in #2 under
     // either window and is charged to it. Before G2, A (the counts test's
     // window) landed it after the reads were sampled: hydratedInStep 0,
-    // charged 2, fence passed (re-review 2, §6.3). Each line below is red on
-    // that fence.
+    // charged 2. The installed-rows lines below verify the charging from
+    // outside (table sizes before/at/after the sample); the old reads-budget
+    // lines are retired with the fence doors (POD-4759: relation yields and
+    // ingest reads are not data reads, so the plant's load costs its feed
+    // reads only).
     expect(a.hydratedInStep).toBeGreaterThan(0)
-    expect(a.fence).not.toBe('pass')
     // Nothing lands after the sample (the fence also refuses that itself).
     expect(a.hydratedAfterSample).toBe(0)
     // The window no longer decides what a step is charged.
     expect(a.charged).toBe(b.charged)
     expect(b.hydratedInStep).toBeGreaterThan(0)
-    expect(b.fence).not.toBe('pass')
   }, 600_000)
 
   it('clean pool, steps #1-#4: does any step trigger a load of its own?', async () => {
