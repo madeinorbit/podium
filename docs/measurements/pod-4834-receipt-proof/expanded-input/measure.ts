@@ -50,6 +50,7 @@ const run = { lane, version, commandPath, startedAt: new Date().toISOString(), r
   methods: ['paste: tmux paste-buffer -r -p, exact input bytes including LF and CR',
     'typed: tmux send-keys -l, unbracketed literal bytes in 256-character chunks, 40ms between writes; 650ms pause then Enter',
     'typed-paced: unbracketed literal bytes in 256-character chunks, 40ms between writes; 650ms pause then Enter'],
+  editorDrain: 'Unbracketed input waits for its final marker in the fresh editor before Enter (up to max(60s, 5ms per byte)); pending input is not a storage result.',
 }
 writeFileSync(`${out}/run.json`, JSON.stringify(run, null, 2) + '\n')
 writeFileSync(`${import.meta.dir}/input-cases.jsonl`, cases.map(c => JSON.stringify({ ...c, bodyBytes: bytes(c.body), textBytes: bytes(c.text), sha256: sha(c.text) })).join('\n') + '\n')
@@ -252,7 +253,7 @@ try {
       if (terminal) await launchTerminal(label)
       const before = history(), modelBefore = modelRows().length
       const sentAt = Date.now()
-      let extraEnterAt: number | undefined
+      let extraEnterAt: number | undefined, editorDrainedAt: number | undefined, editorDrainComplete: boolean | undefined
       let sessionId: string | undefined, protocolId: string | undefined, status: any, error: string | undefined
       try {
         if (terminal) {
@@ -266,6 +267,12 @@ try {
               await sleep(40)
             }
           } else tmux('send-keys', '-t', 'measure', '-l', '--', c.text)
+          if (method !== 'paste') {
+            const tail = c.framed ? `[end podium message ${c.id}]` : c.body.trimEnd().split(/\s+/).at(-1)!
+            editorDrainComplete = await until(() => tmux('capture-pane', '-p', '-t', 'measure').replace(/\n/g, '').includes(tail), Math.max(60000, bytes(c.text) * 5))
+            editorDrainedAt = Date.now()
+            console.log(`${lane} ${label}: editor tail ${editorDrainComplete ? 'reached' : 'not reached'} after ${editorDrainedAt - sentAt}ms`)
+          }
           await sleep(650)
           tmux('send-keys', '-t', 'measure', 'Enter')
           status = await until(() => history().filter(r => r.kind === 'prompt').length > before.filter(r => r.kind === 'prompt').length, 10000)
@@ -317,7 +324,7 @@ try {
       const records = snapshot(label, before, history())
       const prompts = records.filter(r => r.kind === 'prompt')
       const models = modelRows().slice(modelBefore)
-      const summary = { label, sentAt, extraEnterAt, finishedAt: Date.now(), sessionId, protocolId, status, error,
+      const summary = { label, sentAt, extraEnterAt, editorDrainComplete, editorDrainedAt, finishedAt: Date.now(), sessionId, protocolId, status, error,
         case: c.name, inputBytes: bytes(c.text), inputSha256: sha(c.text),
         records: prompts.map(r => ({ source: r.source, position: r.position, id: r.id, texts: r.texts.map(t => ({ bytes: bytes(t), sha256: sha(t), exact: t === c.text, first: t.slice(0, 100), last: t.slice(-100) })) })),
         modelRequests: models.map(r => r.n), modelReceivedBody: models.some(r => JSON.stringify(r.messages).includes(c.body.slice(0, 24))) }

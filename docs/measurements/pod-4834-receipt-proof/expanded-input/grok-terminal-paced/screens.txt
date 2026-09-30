@@ -1,0 +1,1786 @@
+START typed-paced/lines-2-plain
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/lines-2-plain
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ P4984-lines-2 line-001 payload-END-1                                                                                                                              6:59 PM
+       P4984-lines-2 line-002 payload-END-2
+
+
+     ok-3                                                                                                                                                                6:59 PM
+
+     Worked for 0.2s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-5                                                                                                                                                                       │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/lines-2-frame
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/lines-2-frame
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ [podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7 · from agent · to you]                                                                                   6:59 PM
+       P4984-lines-2 line-001 payload-END-1
+       P4984-lines-2 line-002 payload-END-2 …
+
+
+     ok-8                                                                                                                                                                6:59 PM
+
+     Worked for 0.2s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-10                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/lines-10-plain
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/lines-10-plain
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ P4984-lines-10 line-001 payload-END-1                                                                                                                             6:59 PM
+       P4984-lines-10 line-002 payload-END-2
+       P4984-lines-10 line-003 payload-END-3 …
+
+
+     ok-13                                                                                                                                                               6:59 PM
+
+     Worked for 0.5s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-15                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/lines-10-frame
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/lines-10-frame
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ [podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b · from agent · to you]                                                                                   6:59 PM
+       P4984-lines-10 line-001 payload-END-1
+       P4984-lines-10 line-002 payload-END-2 …
+
+
+     ok-18                                                                                                                                                               6:59 PM
+
+     Worked for 0.3s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-20                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/lines-200-plain
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/lines-200-plain
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ P4984-lines-200 line-001 payload-END-1                                                                                                                            6:59 PM
+       P4984-lines-200 line-002 payload-END-2
+       P4984-lines-200 line-003 payload-END-3 …
+
+
+     ok-23                                                                                                                                                               6:59 PM
+
+     Worked for 0.2s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-25                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/lines-200-frame
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/lines-200-frame
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ [podium message msg_f67aa431-8f6c-4000-8000-900c5b28cc6a · from agent · to you]                                                                                   7:00 PM
+       P4984-lines-200 line-001 payload-END-1
+       P4984-lines-200 line-002 payload-END-2 …
+
+
+     ok-28                                                                                                                                                               7:00 PM
+
+     Worked for 2.7s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-30                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/single-1024-plain
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/single-1024-plain
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ P4984-single-1024 BEGIN                                                                                                                                           7:00 PM
+       0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+       f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab …
+
+
+     ok-33                                                                                                                                                               7:00 PM
+
+     Worked for 0.2s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-35                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/single-1024-frame
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/single-1024-frame
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ [podium message msg_2513fd4c-fe75-4000-8000-74ce6763b016 · from agent · to you]                                                                                   7:00 PM
+       P4984-single-1024 BEGIN
+       0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc …
+
+
+     ok-38                                                                                                                                                               7:00 PM
+
+     Worked for 0.9s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-40                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/single-16384-plain
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/single-16384-plain
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ P4984-single-16384 BEGIN                                                                                                                                          7:00 PM
+       0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+       f0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab …
+
+
+     ok-43                                                                                                                                                               7:00 PM
+
+     Worked for 0.4s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-45                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/single-16384-frame
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/single-16384-frame
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ [podium message msg_5adbbb1d-c982-4000-8000-156aeb90992d · from agent · to you]                                                                                   7:00 PM
+       P4984-single-16384 BEGIN
+       0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc …
+
+
+     ok-48                                                                                                                                                               7:00 PM
+
+     Worked for 0.4s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-49                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/single-102400-plain
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+NO RECORD AFTER FIRST ENTER typed-paced/single-102400-plain
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                  2.3K / 200K │ [Dashboard]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ 89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef █ │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345                                   █ │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Enter:send  │  Alt+Enter:newline  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+typed-paced/single-102400-plain
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                  2.3K / 200K │ [Dashboard]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ 89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef █ │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345                                   █ │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Enter:send  │  Alt+Enter:newline  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/single-102400-frame
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+NO RECORD AFTER FIRST ENTER typed-paced/single-102400-frame
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                  2.3K / 200K │ [Dashboard]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ 89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567 ▆ │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef █ │
+  │   012345                                                                                                                                                                   █ │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Enter:send  │  Alt+Enter:newline  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+typed-paced/single-102400-frame
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                  2.3K / 200K │ [Dashboard]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ 89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef   │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567   │
+  │   89abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef ▃ │
+  │   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345                                                                   █ │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Enter:send  │  Alt+Enter:newline  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/tabs-plain
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/tabs-plain
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ P4984-tabsmiddleindentedEND-tabs                                                                                                                                  7:03 PM
+
+
+     ok-55                                                                                                                                                               7:03 PM
+
+     Worked for 0.2s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-57                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/tabs-frame
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/tabs-frame
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ [podium message msg_54e39917-0723-4000-8000-1decc0ae1649 · from agent · to you]                                                                                   7:03 PM
+       P4984-tabsmiddleindentedEND-tabs
+       [end podium message msg_54e39917-0723-4000-8000-1decc0ae1649]
+
+
+     ok-60                                                                                                                                                               7:03 PM
+
+     Worked for 0.2s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-62                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/crlf-plain
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/crlf-plain
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ P4984-crlf line-1                                                                                                                                                 7:03 PM
+       P4984-crlf line-2
+       P4984-crlf END
+
+
+     ok-65                                                                                                                                                               7:03 PM
+
+     Worked for 0.2s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-67                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/crlf-frame
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/crlf-frame
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ [podium message msg_cb4f2ef3-3b5f-4000-8000-e1088a26b8bd · from agent · to you]                                                                                   7:03 PM
+       P4984-crlf line-1
+       P4984-crlf line-2 …
+
+
+     ok-70                                                                                                                                                               7:03 PM
+
+     Worked for 0.2s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-72                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/trailing-lf-plain
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/trailing-lf-plain
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ P4984-trailing-lf first                                                                                                                                           7:03 PM
+       P4984-trailing-lf END
+
+
+     ok-75                                                                                                                                                               7:03 PM
+
+     Worked for 0.3s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-77                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
+START typed-paced/trailing-lf-frame
+
+   master /t/podium-4984-grok-terminal-paced-fm4HnY/work
+
+
+
+
+
+
+
+                              ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+                              │                                                                                                                      │
+                              │  ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build  1.0.44                                                                                 │
+                              │  ⠀⠀⠀⣠⣾⠿⠛⠛⠛⠛⢀⡴⠁⠀                                                                                                      │
+                              │  ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   Changelog                                                                                          │
+                              │  ⠀⠀⣿⡇⠀⠀⠀⠔⠁⠀⠀⣿⡇⠀                                                                                                      │
+                              │  ⠀⠀⢹⣷⠀⠀⠀⠀⠀⢀⣴⡿⠀⠀    • Plan comments can now be deleted by clicking the [✗] button that appears on hover.              │
+                              │  ⠀⢀⠞⠁⠠⢶⣶⣶⣶⠿⠋⠀⠀⠀    • Sandbox enforcement on macOS now uses the system Seatbelt (sandbox-exec) backend.               │
+                              │  ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀    • Parallel tool calls that edit the same file now run safely in sequence; unrelated tools stay…   │
+                              │                                                                                                                      │
+                              │                   New worktree                                                                               ctrl+w  │
+                              │                   Resume session                                                                             ctrl+r  │
+                              │                   Changelog                                                                                          │
+                              │                   Quit                                                                                       ctrl+q  │
+                              │                                                                                                                      │
+                              ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯                                                                                                                                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+                                                                                                                                               Logged in with API key  │  [stable]
+
+
+typed-paced/trailing-lf-frame
+
+  master /t/podium-4984-grok-terminal-paced-fm4HnY/work                                                                                                    15 / 200K │ [Dashboard]
+
+
+     ❯ [podium message msg_5c9dbf33-f40f-4000-8000-cf483c4f2404 · from agent · to you]                                                                                   7:03 PM
+       P4984-trailing-lf first
+       P4984-trailing-lf END …
+
+
+     ok-80                                                                                                                                                               7:03 PM
+
+     Worked for 0.3s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ ❯ ok-82                                                                                                                                                                      │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── fake · always-approve ─╯
+
+  Tab/→:accept suggestion  │  Shift+Tab:mode  │  Ctrl+x:shortcuts
+
+
