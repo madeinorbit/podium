@@ -50,14 +50,20 @@ describe('browser entries mount the round-three pools', () => {
     )
   })
 
-  it('mobx-write and mobx-pending resolve to the pool with its write layer (POD-4825)', () => {
+  it('mobx-write and mobx-pending resolve to the harness writable arm over the product pool (POD-4825, POD-4760)', () => {
     for (const name of ['mobx-write', 'mobx-pending']) {
       const graph = moduleGraphOf(join(PACKAGE_DIR, `harness/web/entries/${name}.ts`))
-      expect(graph, `${name}: the writable arm`).toContain(
-        join(PACKAGE_DIR, 'arms/mobx/pool/write/arm.ts'),
+      expect(graph, `${name}: the harness adapter`).toContain(
+        join(PACKAGE_DIR, 'harness/src/adapters/mobx-pool.ts'),
+      )
+      expect(graph, `${name}: the product pool under the adapter`).toContain(
+        join(PACKAGE_DIR, 'arms/mobx/pool/pool.ts'),
       )
       expect(graph, `${name}: its overlay`).toContain(
         join(PACKAGE_DIR, 'arms/mobx/pool/write/overlay.ts'),
+      )
+      expect(graph, `${name}: not the product arm directly`).not.toContain(
+        join(PACKAGE_DIR, 'arms/mobx/pool/write/arm.ts'),
       )
     }
   })
