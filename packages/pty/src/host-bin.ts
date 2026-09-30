@@ -260,7 +260,12 @@ export function ensureSourceRustHost(
   if (!hash || !root) return undefined
   const ready = publishedSourceHost(root, hash)
   if (ready) return { bin: ready, built: false }
-  mkdirSync(root, { recursive: true })
+  try {
+    mkdirSync(root, { recursive: true })
+  } catch (e) {
+    lastSourceBuildError = `cannot create ${root}: ${e instanceof Error ? e.message : String(e)}`
+    return undefined
+  }
   const lock = join(root, '.build.lock')
   if (!acquireBuildLock(lock)) {
     lastSourceBuildError = `could not take the build lock ${lock}`

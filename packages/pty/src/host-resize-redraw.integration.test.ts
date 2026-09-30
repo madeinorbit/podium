@@ -12,7 +12,8 @@
  * restored a stale size (resize then redraw in one tick left the pty at
  * 80x24). The nudge is deleted; the adapter has no redraw at all.
  *
- * Integration lane (a C compile, real processes, real ptys); never the unit lane.
+ * Integration lane (the Rust host, built from the vendored crate on first use;
+ * real processes, real ptys); never the unit lane.
  */
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readlinkSync, rmSync } from 'node:fs'
@@ -30,14 +31,8 @@ import {
 } from './host.js'
 import { resolveHostBin } from './host-bin.js'
 
-const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
-  try {
-    execFileSync(c, ['--version'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
-})
+/** The Rust host, built from the vendored crate on first use; without one these tests skip. */
+const hostAvailable = resolveHostBin() !== undefined
 
 const WINSIZE_FIXTURE = fileURLToPath(new URL('../test/fixtures/winsize-log.mjs', import.meta.url))
 
@@ -79,7 +74,7 @@ async function spawn(
 }
 
 beforeAll(() => {
-  if (!hasCompiler) return
+  if (!hostAvailable) return
   root = mkdtempSync(join(tmpdir(), 'pod-rr-'))
   for (const k of [
     'PODIUM_STATE_DIR',
@@ -122,7 +117,7 @@ afterAll(() => {
   if (root) rmSync(root, { recursive: true, force: true })
 }, 120_000)
 
-describe.skipIf(!hasCompiler)("podium-host adapter: the size is the kernel's (POD-4723)", () => {
+describe.skipIf(!hostAvailable)("podium-host adapter: the size is the kernel's (POD-4723)", () => {
   it('WELCOME states the birth size; a burst of asks ends with size() == the child tty == the last ask', async () => {
     const s = await spawn('burst', [WINSIZE_FIXTURE])
     const events: Array<{ cols: number; rows: number }> = []

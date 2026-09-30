@@ -1,12 +1,13 @@
 /**
  * SPEC-6 acceptance, items 1–11: the podium-host binary driven from Node through
- * the real adapter. Every claim the host makes over abduco is exercised against a
- * child that reports its own TIOCGWINSZ and counts every SIGWINCH — only the
- * child can say whether it was signalled.
+ * the real adapter. Every claim the host makes is exercised against a child
+ * that reports its own TIOCGWINSZ and counts every SIGWINCH — only the child
+ * can say whether it was signalled.
  *
- * Integration lane (a C compile, real processes, real ptys); never the unit lane.
+ * Integration lane (the Rust host, built from the vendored crate on first use;
+ * real processes, real ptys); never the unit lane.
  */
-import { execFileSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createConnection, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -35,14 +36,8 @@ import {
 import type { DurableAttachment } from './session.js'
 import { createDurableProcess } from './durable-process.js'
 
-const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
-  try {
-    execFileSync(c, ['--version'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
-})
+/** The Rust host, built from the vendored crate on first use; without one these tests skip. */
+const hostAvailable = resolveHostBin() !== undefined
 
 const WINSIZE_FIXTURE = fileURLToPath(new URL('../test/fixtures/winsize-log.mjs', import.meta.url))
 
@@ -101,14 +96,14 @@ function rawCreate(args: string[]): { status: number | null; stderr: string } {
 }
 
 beforeAll(() => {
-  if (!hasCompiler) return
+  if (!hostAvailable) return
   root = mkdtempSync(join(tmpdir(), 'podium-host-it-'))
   for (const k of ['PODIUM_STATE_DIR', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_NO_SCOPE', 'PODIUM_HOST_BIN']) {
     saved[k] = process.env[k]
   }
   process.env.PODIUM_STATE_DIR = join(root, 'state')
   process.env.PODIUM_HOST_SOCKET_DIR = join(root, 'sock')
-  process.env.PODIUM_NO_SCOPE = '1' // the scope is abduco's test, not the host's
+  process.env.PODIUM_NO_SCOPE = '1' // the scope has its own tests; these drive the host
   delete process.env.PODIUM_HOST_BIN
   bin = resolveHostBin({ fresh: true }) as string
   countingFixture = join(root, 'counting.mjs')
@@ -141,10 +136,10 @@ afterAll(() => {
   if (root) rmSync(root, { recursive: true, force: true })
 })
 
-describe.skipIf(!hasCompiler)('podium-host: SPEC-6 acceptance', () => {
+describe.skipIf(!hostAvailable)('podium-host: SPEC-6 acceptance', () => {
   it('builds and answers version', () => {
     expect(bin).toBeDefined()
-    expect(spawnSync(bin, ['version'], { encoding: 'utf8' }).stdout).toMatch(/^podium-host \S+ features=1/)
+    expect(spawnSync(bin, ['version'], { encoding: 'utf8' }).stdout).toMatch(/^podium-host \S+ features=2/)
   })
 
   it('1. create + attach: WELCOME carries the child pid and the birth size, which the child sees', async () => {
@@ -595,7 +590,7 @@ describe.skipIf(!hasCompiler)('podium-host: SPEC-6 acceptance', () => {
   }, 30_000)
 })
 
-describe.skipIf(!hasCompiler)('podium-host writer lease: refusal and deliberate steal (POD-4434)', () => {
+describe.skipIf(!hostAvailable)('podium-host writer lease: refusal and deliberate steal (POD-4434)', () => {
   it('refuses a second writer, refuses an adopting spawn, and hands the lease to a steal', async () => {
     const l = label('lease')
     // First daemon: spawns and holds the one writer lease.
@@ -662,9 +657,9 @@ describe.skipIf(!hasCompiler)('podium-host writer lease: refusal and deliberate 
   }, 30_000)
 })
 
-describe.skipIf(!hasCompiler)('podium-host pty-less engines through DurableProcess (POD-4433)', () => {
+describe.skipIf(!hostAvailable)('podium-host pty-less engines through DurableProcess (POD-4433)', () => {
   it('12. spawnHeadless round-trips stdin/stdout on the merged ring with hasPty=false', async () => {
-    const durable = createDurableProcess('host', { host: true, abduco: false })
+    const durable = createDurableProcess()
     const l = label('engine')
     const s = await durable.spawnHeadless({
       label: l,
@@ -686,7 +681,7 @@ describe.skipIf(!hasCompiler)('podium-host pty-less engines through DurableProce
   }, 30_000)
 
   it('13. size operations on a headless engine are refused with ERR NO_PTY', async () => {
-    const durable = createDurableProcess('host', { host: true, abduco: false })
+    const durable = createDurableProcess()
     const l = label('nosize')
     const s = await durable.spawnHeadless({
       label: l,
@@ -701,7 +696,7 @@ describe.skipIf(!hasCompiler)('podium-host pty-less engines through DurableProce
   }, 30_000)
 
   it('14. a daemon restart re-attaches to the SAME child; EXITED carries the real status', async () => {
-    const first = createDurableProcess('host', { host: true, abduco: false })
+    const first = createDurableProcess()
     const l = label('restart')
     const s1 = await first.spawnHeadless({
       label: l,
@@ -717,7 +712,7 @@ describe.skipIf(!hasCompiler)('podium-host pty-less engines through DurableProce
 
     // A new daemon generation: the engine is still there, and the writer lease
     // is free again — a stale daemon holding it would refuse loudly instead.
-    const second = createDurableProcess('host', { host: true, abduco: false })
+    const second = createDurableProcess()
     expect(await second.has(l)).toBe(true)
     const s2 = await second.attachHeadless({ label: l, fromSeq: 'tail' })
     sessions.push(s2)
@@ -735,7 +730,7 @@ describe.skipIf(!hasCompiler)('podium-host pty-less engines through DurableProce
   }, 30_000)
 
   it('15. stderr merges into the same ring and replay replays both', async () => {
-    const durable = createDurableProcess('host', { host: true, abduco: false })
+    const durable = createDurableProcess()
     const l = label('merged')
     const s = await durable.spawnHeadless({
       label: l,
@@ -766,12 +761,5 @@ describe.skipIf(!hasCompiler)('podium-host pty-less engines through DurableProce
     })
     expect(replayed).toContain('out\n')
     expect(replayed).toContain('err\n')
-  }, 30_000)
-
-  it('16. the abduco backend refuses headless spawns instead of forking a pty', async () => {
-    const durable = createDurableProcess('abduco', { host: false, abduco: true })
-    await expect(
-      durable.spawnHeadless({ label: label('never'), cmd: 'sh', cwd: root }),
-    ).rejects.toThrow(/no pty-less mode/)
   }, 30_000)
 })

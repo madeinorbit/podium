@@ -1,16 +1,14 @@
 /**
- * ATTACH IS NOT A RESIZE — the host half of the matrix (SPEC-6 item 12).
+ * ATTACH IS NOT A RESIZE (SPEC-6 item 12).
  *
- * `abduco-attach-neutral.integration.test.ts` pins what a client attach does to a
- * running program under abduco, where a `-N` client is what keeps a reconnect
- * silent and the master still signals on every resize packet. The same rows,
- * driven through `spawnHostAgent`/`attachHostAgent` against podium-host, carry
- * the host's STRONGER claims: no attach of any kind reaches the program, and a
- * same-size ask costs zero signals rather than one.
+ * Driven through `spawnHostAgent`/`attachHostAgent` against podium-host: no
+ * attach of any kind reaches the program, and a same-size ask costs zero
+ * signals. (The retired abduco backend's matrix, whose master signalled on
+ * every resize packet, was the baseline these rows were written against.)
  *
- * Integration lane (a C compile, real processes, real ptys); never the unit lane.
+ * Integration lane (the Rust host, built from the vendored crate on first use;
+ * real processes, real ptys); never the unit lane.
  */
-import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -19,14 +17,8 @@ import { attachHostAgent, connectHost, hostSocketPath, killHostSession, spawnHos
 import { resolveHostBin } from './host-bin.js'
 import type { DurableAttachment } from './session.js'
 
-const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
-  try {
-    execFileSync(c, ['--version'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
-})
+/** The Rust host, built from the vendored crate on first use; without one these tests skip. */
+const hostAvailable = resolveHostBin() !== undefined
 
 const FIXTURE_SRC = `
 const size = () => {
@@ -91,7 +83,7 @@ async function observe(l: string): Promise<{ text: () => string; close: () => vo
 }
 
 beforeAll(() => {
-  if (!hasCompiler) return
+  if (!hostAvailable) return
   root = mkdtempSync(join(tmpdir(), 'phn-'))
   for (const k of ['PODIUM_STATE_DIR', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_NO_SCOPE', 'PODIUM_HOST_BIN']) {
     saved[k] = process.env[k]
@@ -121,7 +113,7 @@ afterAll(() => {
   if (root) rmSync(root, { recursive: true, force: true })
 })
 
-describe.skipIf(!hasCompiler)('attach x host matrix (podium-host)', () => {
+describe.skipIf(!hostAvailable)('attach x host matrix (podium-host)', () => {
   it('a writer attach at ANY size: no packet, no signal, no resize — and the size is settable afterwards', async () => {
     const l = label('writer')
     const born = await spawnHostAgent({ label: l, cmd: process.execPath, args: [fixture], cols: 80, rows: 24 })
@@ -167,8 +159,7 @@ describe.skipIf(!hasCompiler)('attach x host matrix (podium-host)', () => {
       await wait(300)
       expect(signals(o.text())).toHaveLength(1)
 
-      // The writer goes; nothing asks the program for anything (abduco's master
-      // would have asked the next client for ITS size here).
+      // The writer goes; nothing asks the program for anything.
       born.dispose()
       await wait(700)
       expect(signals(o.text())).toHaveLength(1)
@@ -216,7 +207,7 @@ describe.skipIf(!hasCompiler)('attach x host matrix (podium-host)', () => {
       session.resize(111, 37) // the ask a daemon restart produces: for what the agent already is
       await waitFor(() => session.size?.()?.cols === 111, 'the same-size ask to be acknowledged')
       await wait(600)
-      expect(signals(o.text())).toHaveLength(0) // abduco: exactly one; the host: none
+      expect(signals(o.text())).toHaveLength(0)
 
       session.resize(112, 38)
       await waitFor(() => signals(o.text()).length > 0, 'the new size to reach the agent')
@@ -236,8 +227,7 @@ describe.skipIf(!hasCompiler)('attach x host matrix (podium-host)', () => {
     const t = reader(s)
     await waitFor(() => /WINSZ cols=137 rows=43/.test(t.text()), 'the spawned agent to be born at the requested size', 12000)
     await wait(300)
-    // Unlike abduco, whose master forks its pty at 80x25 and whose first attach
-    // moves the program, the host forks the pty AT the requested size.
+    // The host forks the pty AT the requested size: no first attach moves it.
     expect(signals(t.text())).toHaveLength(0)
     expect(s.size?.()).toEqual({ cols: 137, rows: 43 })
   }, 30000)

@@ -13,9 +13,9 @@ export interface SpawnOptions {
   env?: Record<string, string>
   /** Variables to REMOVE from what the child inherits. `env` cannot express this:
    *  an empty `ANTHROPIC_API_KEY` is still a set one to a CLI that tests presence.
-   *  Same contract as {@link spawnAbducoAgent}'s option of the same name — all
-   *  three backends must honour it or the guarantee depends on which one a
-   *  machine happens to run. */
+   *  Same contract as the durable spawn's option of the same name
+   *  (`DurableSpawnOptions.stripEnv`) — every backend must honour it or the
+   *  guarantee depends on which one a machine happens to run. */
   stripEnv?: readonly string[]
 }
 
@@ -44,7 +44,7 @@ export interface AgentPicture {
  *
  * Renamed in POD-4434 because it never was a session — it is the one live
  * connection a {@link Terminal} owns over the process its Session owns.
- * The host and abduco adapters both implement it (via {@link wrapPty}); the
+ * The host adapter implements it (via {@link wrapPty}); the
  * daemon's Terminal is the only thing that holds one.
  */
 export interface DurableAttachment {
@@ -69,7 +69,7 @@ export interface DurableAttachment {
    * The kernel's size as the host last stated it (WELCOME or RESIZED), or
    * `undefined` before the first statement. A method, never a copied field:
    * a spread of the attachment must not freeze it. Absent on backends that
-   * cannot read the size back (abduco, a direct pty) — those report nothing.
+   * cannot read the size back (a direct pty) — those report nothing.
    */
   size?(): Geometry | undefined
   /**
@@ -82,8 +82,8 @@ export interface DurableAttachment {
    * THE WRITER LEASE (POD-4888): whether this attachment is, right now, the
    * ONLY thing that can write into the terminal. A host answers from its lease
    * (granted in WELCOME or taken by a steal, gone on LEASE_LOST or a dropped
-   * connection). Absent where there is no lease to hold: on abduco every
-   * attach client writes, so nothing can be the only writer.
+   * connection). Absent where there is no lease to hold (a direct pty), so
+   * nothing can be the only writer.
    */
   holdsWriterLease?(): boolean
   /**
@@ -114,7 +114,7 @@ export interface DurableAttachment {
   dispose(): void
   /**
    * Set when a spawn ADOPTED a durable master that already owned the label instead
-   * of creating one (see {@link spawnAbducoAgent}). The caller started nothing: it
+   * of creating one (see `spawnHostAgent`). The caller started nothing: it
    * is attached to the agent that was already running, and should say so rather
    * than report a fresh launch.
    */
@@ -132,7 +132,7 @@ export function spawnAgent(
     ...opts.env,
   } as Record<string, string>
   // After the merge, so a caller cannot strip a variable it also set — the same
-  // ordering rule (and reason) as the abduco path.
+  // ordering rule (and reason) as the host path.
   for (const key of opts.stripEnv ?? []) delete childEnv[key]
   const proc = backend.spawn({
     file: opts.cmd,

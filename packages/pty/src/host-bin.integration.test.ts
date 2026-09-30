@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import {
   chmodSync,
   existsSync,
@@ -6,55 +6,38 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { connectHost, hostSocketPath, spawnHostAgent } from './host.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  buildVendoredHost,
-  C_HOST_FEATURES,
-  defaultHostCachePath,
-  ensureManagedHost,
+  ensureSourceRustHost,
   HOST_FEATURES,
   hostBinFeatures,
-  managedHostDir,
   resolveHostBin,
-  vendoredHostSourceHash,
+  RUST_HOST_BINARY,
+  sourceRustHostCacheDir,
+  vendoredRustHostSourceHash,
 } from './host-bin.js'
 
 /**
- * SPEC-6 item 15: the managed podium-host build — builds when missing or stale,
- * publishes atomically, serialises concurrent builders, and an explicit
- * PODIUM_HOST_BIN override that does not run fails loudly. Mirrors the R1 and C9
- * suites of abduco-bin.test.ts.
+ * RUST HOST RESOLUTION (POD-4986). The Rust host is the only podium-host a new
+ * spawn selects: an explicit PODIUM_HOST_BIN at feature level 2, the release
+ * payload's podium-host-rs, or — in a source checkout — the vendored crate
+ * built with cargo into a cache keyed by its source hash. Nothing else, and no
+ * fallback: a C host (feature 1) is refused, and when nothing resolves the
+ * resolver says why and returns undefined.
+ *
+ * The source-build machinery is driven here with a fake crate and a fake
+ * `cargo` on PATH, so the build, publish, reuse and serialisation are proven
+ * hermetically; the real crate build is the last suite.
  */
-
-const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
-  try {
-    return spawnSync(c, ['--version'], { stdio: 'ignore' }).status === 0
-  } catch {
-    return false
-  }
-})
 
 const MODULE_PATH = fileURLToPath(new URL('./host-bin.ts', import.meta.url))
 const PKG_ROOT = dirname(dirname(MODULE_PATH))
-const childRoot = (): string => mkdtempSync(join(PKG_ROOT, '.host-child-'))
-
-/** A runnable binary that is NOT a podium-host: answers nothing useful to `version`. */
-function fakeForeign(dir: string): string {
-  mkdirSync(dir, { recursive: true })
-  const p = join(dir, 'podium-host')
-  writeFileSync(p, '#!/bin/sh\necho "something else 1.0"\nexit 0\n')
-  chmodSync(p, 0o755)
-  return p
-}
 
 function fakeHost(path: string, features: number): string {
   mkdirSync(dirname(path), { recursive: true })
@@ -63,23 +46,34 @@ function fakeHost(path: string, features: number): string {
   return path
 }
 
-describe('Rust release host selection (H5)', () => {
-  let root: string
-  const saved = Object.fromEntries(
-    [
-      'PODIUM_STATE_DIR',
-      'PODIUM_HOST_BIN',
-      'PODIUM_HOME',
-      'PODIUM_HOST_SOCKET_DIR',
-      'PODIUM_NO_SCOPE',
-    ].map((key) => [key, process.env[key]]),
-  )
+/** A runnable binary that is NOT a podium-host: answers nothing useful to `version`. */
+function fakeForeign(path: string): string {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, '#!/bin/sh\necho "something else 1.0"\nexit 0\n')
+  chmodSync(path, 0o755)
+  return path
+}
+
+const ENV_KEYS = [
+  'PODIUM_STATE_DIR',
+  'PODIUM_HOST_BIN',
+  'PODIUM_HOME',
+  'PODIUM_HOST_SOCKET_DIR',
+  'PODIUM_NO_SCOPE',
+  'PODIUM_RUST_HOST_BUILD_DIR',
+  'PATH',
+] as const
+
+function useScratchEnv(): { root: () => string } {
+  let root = ''
+  const saved = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]))
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'ph-resolve-'))
     process.env.PODIUM_STATE_DIR = join(root, 'state')
     process.env.PODIUM_HOME = join(root, 'payload')
     process.env.PODIUM_HOST_SOCKET_DIR = join(root, 's')
     process.env.PODIUM_NO_SCOPE = '1'
+    process.env.PODIUM_RUST_HOST_BUILD_DIR = join(root, 'build')
     delete process.env.PODIUM_HOST_BIN
   })
   afterEach(() => {
@@ -88,258 +82,176 @@ describe('Rust release host selection (H5)', () => {
       else process.env[key] = value
     }
     resolveHostBin({ fresh: true })
+    vi.restoreAllMocks()
     rmSync(root, { recursive: true, force: true })
   })
+  return { root: () => root }
+}
 
-  const rustPath = (): string => join(root, 'payload', 'podium-host-rs')
+/** Publish a fake host where the source rung looks for the vendored crate's build. */
+function publishSourceHost(features: number): string {
+  const hash = vendoredRustHostSourceHash() as string
+  return fakeHost(join(sourceRustHostCacheDir() as string, hash.slice(0, 16), RUST_HOST_BINARY), features)
+}
 
-  it('reserves feature level 2 for the Rust screen host', () => {
+describe('Rust host resolution (POD-4986)', () => {
+  const { root } = useScratchEnv()
+  const payload = (): string => join(root(), 'payload', RUST_HOST_BINARY)
+
+  it('requires feature level 2, the Rust screen host', () => {
     expect(HOST_FEATURES).toBe(2)
   })
 
-  it('prefers the payload Rust host over a materialized C host', () => {
-    const rust = fakeHost(rustPath(), 2)
-    fakeHost(defaultHostCachePath(), 1)
+  it('this checkout is a source checkout: the vendored crate hashes', () => {
+    expect(vendoredRustHostSourceHash()).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('uses the release payload host', () => {
+    const rust = fakeHost(payload(), 2)
+    publishSourceHost(2)
     expect(resolveHostBin({ fresh: true })).toBe(rust)
   })
 
-  it('prefers the payload Rust host over a verified managed C host', () => {
-    const c = fakeHost(join(managedHostDir(), 'podium-host'), 1)
-    writeFileSync(
-      join(managedHostDir(), 'manifest.json'),
-      JSON.stringify({ features: 1, sourceHash: vendoredHostSourceHash() }),
-    )
-    symlinkSync(c, defaultHostCachePath())
-    const rust = fakeHost(rustPath(), 2)
-    expect(resolveHostBin({ fresh: true })).toBe(rust)
+  it('uses the source build when the payload has no host', () => {
+    const built = publishSourceHost(2)
+    expect(resolveHostBin({ fresh: true })).toBe(built)
   })
 
-  it('uses the materialized C host when the payload has no Rust binary', () => {
-    const c = fakeHost(defaultHostCachePath(), 1)
-    expect(resolveHostBin({ fresh: true })).toBe(c)
-    expect(hostBinFeatures(c)).toBe(1)
+  it('never selects a C host (feature 1) from the payload; the source build wins', () => {
+    fakeHost(payload(), 1)
+    const built = publishSourceHost(2)
+    expect(resolveHostBin({ fresh: true })).toBe(built)
   })
 
-  it('falls back to C when the Rust binary cannot run as a host', () => {
-    mkdirSync(dirname(rustPath()), { recursive: true })
-    writeFileSync(rustPath(), '#!/bin/sh\nexit 1\n')
-    chmodSync(rustPath(), 0o755)
-    const c = fakeHost(defaultHostCachePath(), 1)
-    expect(resolveHostBin({ fresh: true })).toBe(c)
-  })
-
-  it('falls back to C when the Rust binary lacks feature level 2', () => {
-    fakeHost(rustPath(), 1)
-    const c = fakeHost(defaultHostCachePath(), 1)
-    expect(resolveHostBin({ fresh: true })).toBe(c)
-  })
-
-  it('honors an explicit C host even when a Rust host is shipped', () => {
-    fakeHost(rustPath(), 2)
-    const c = fakeHost(join(root, 'explicit-c'), 1)
-    process.env.PODIUM_HOST_BIN = c
-    expect(resolveHostBin({ fresh: true })).toBe(c)
+  it('refuses an explicit C host (feature 1) with no fallback', () => {
+    fakeHost(payload(), 2)
+    publishSourceHost(2)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    process.env.PODIUM_HOST_BIN = fakeHost(join(root(), 'explicit-c'), 1)
+    expect(resolveHostBin({ fresh: true })).toBeUndefined()
+    expect(error.mock.calls.flat().join('\n')).toMatch(/feature level 2\. Refusing to fall back/)
   })
 
   it('honors an explicit Rust host', () => {
-    process.env.PODIUM_HOST_BIN = fakeHost(join(root, 'explicit-rust'), 2)
+    process.env.PODIUM_HOST_BIN = fakeHost(join(root(), 'explicit-rust'), 2)
     expect(resolveHostBin({ fresh: true })).toBe(process.env.PODIUM_HOST_BIN)
   })
 
-  it('does not hide an invalid explicit override behind the shipped Rust host', () => {
-    fakeHost(rustPath(), 2)
-    process.env.PODIUM_HOST_BIN = join(root, 'missing')
+  it('does not hide an invalid explicit override behind the shipped host', () => {
+    fakeHost(payload(), 2)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    process.env.PODIUM_HOST_BIN = join(root(), 'missing')
+    expect(resolveHostBin({ fresh: true })).toBeUndefined()
+    process.env.PODIUM_HOST_BIN = fakeForeign(join(root(), 'foreign'))
+    expect(hostBinFeatures(process.env.PODIUM_HOST_BIN)).toBe(0)
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
   })
 
-  it.skipIf(!hasCompiler)(
-    'keeps an existing C socket on its running host after Rust becomes preferred',
-    async () => {
-      const c = resolveHostBin({ fresh: true })
-      expect(c).toBeDefined()
-      expect(hostBinFeatures(c as string)).toBe(1)
-      const session = await spawnHostAgent({
-        label: 'old',
-        cmd: '/bin/cat',
-        args: [],
-        cols: 90,
-        rows: 30,
-      })
-      const welcome = await session.ready
-      let old: ReturnType<typeof connectHost> | undefined
-      try {
-        const rust = fakeHost(rustPath(), 2)
-        expect(resolveHostBin({ fresh: true })).toBe(rust)
-        old = connectHost(hostSocketPath('old'), { mode: 'reader' })
-        const attached = await old.welcome
-        expect(attached.hostPid).toBe(welcome.hostPid)
-        expect(attached.childPid).toBe(welcome.childPid)
-        expect({ cols: attached.cols, rows: attached.rows }).toEqual({ cols: 90, rows: 30 })
-        expect((await old.status()).alive).toBe(true)
-        expect(await session.connection.write(Buffer.from('still C\n'))).toBe(8)
-      } finally {
-        old?.destroy()
-        session.dispose()
-        // Only the PID this test recorded from its private socket is signalled.
-        process.kill(welcome.hostPid, 'SIGTERM')
-      }
-    },
-    30_000,
-  )
-})
-
-describe('podium-host binary resolution', () => {
-  const savedState = process.env.PODIUM_STATE_DIR
-  const savedExplicit = process.env.PODIUM_HOST_BIN
-  afterEach(() => {
-    if (savedState === undefined) delete process.env.PODIUM_STATE_DIR
-    else process.env.PODIUM_STATE_DIR = savedState
-    if (savedExplicit === undefined) delete process.env.PODIUM_HOST_BIN
-    else process.env.PODIUM_HOST_BIN = savedExplicit
-    resolveHostBin({ fresh: true })
-  })
-
-  it('cache and managed paths follow PODIUM_STATE_DIR', () => {
-    process.env.PODIUM_STATE_DIR = '/x/state'
-    expect(defaultHostCachePath()).toBe('/x/state/bin/podium-host')
-    expect(managedHostDir()).toBe(`/x/state/bin/podium-host-v${C_HOST_FEATURES}`)
-  })
-
-  it('an explicit PODIUM_HOST_BIN that does not run FAILS resolution (no silent fallback)', () => {
-    process.env.PODIUM_HOST_BIN = '/nonexistent/podium-host'
+  it('fails LOUDLY when there is no payload host and nothing can build one', () => {
+    process.env.PATH = join(root(), 'empty-path')
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
+    const said = error.mock.calls.flat().join('\n')
+    expect(said).toContain(`${payload()} does not exist`)
+    expect(said).toMatch(/neither rustup nor cargo runs here/)
+    expect(said).toMatch(/refuses to start sessions/)
   })
 
-  it('an explicit PODIUM_HOST_BIN that runs but is not a podium-host FAILS resolution', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'podium-host-foreign-'))
-    try {
-      process.env.PODIUM_HOST_BIN = fakeForeign(dir)
-      expect(hostBinFeatures(process.env.PODIUM_HOST_BIN)).toBe(0)
-      expect(resolveHostBin({ fresh: true })).toBeUndefined()
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
+  it('fails loudly when the build cache cannot be created', () => {
+    process.env.PODIUM_RUST_HOST_BUILD_DIR = '/proc/self/no-such-dir/build'
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(resolveHostBin({ fresh: true })).toBeUndefined()
+    expect(error.mock.calls.flat().join('\n')).toMatch(/cannot create \/proc\/self\/no-such-dir\/build/)
   })
 
   it('memoizes; { fresh: true } re-resolves', () => {
-    process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-host-memo-'))
-    const first = resolveHostBin({ fresh: true })
-    process.env.PODIUM_HOST_BIN = '/nonexistent/podium-host'
+    const first = fakeHost(payload(), 2)
+    expect(resolveHostBin({ fresh: true })).toBe(first)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    process.env.PODIUM_HOST_BIN = join(root(), 'missing')
     expect(resolveHostBin()).toBe(first)
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
-    rmSync(process.env.PODIUM_STATE_DIR, { recursive: true, force: true })
-  }, 60000)
-})
-
-describe('podium-host on Windows', () => {
-  const realPlatform = process.platform
-  const stubPlatform = (value: NodeJS.Platform): void => {
-    Object.defineProperty(process, 'platform', { value, configurable: true })
-  }
-  afterEach(() => {
-    stubPlatform(realPlatform)
-    resolveHostBin({ fresh: true })
-  })
-  it('resolves to nothing and refuses to build', () => {
-    stubPlatform('win32')
-    process.env.PODIUM_HOST_BIN = '/nonexistent/podium-host'
-    expect(resolveHostBin({ fresh: true })).toBeUndefined()
-    delete process.env.PODIUM_HOST_BIN
-    expect(buildVendoredHost(join(tmpdir(), 'never-built'))).toBeUndefined()
   })
 })
 
-describe.skipIf(!hasCompiler)('vendored podium-host build', () => {
-  it('compiles into a working binary that reports its feature level', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'podium-host-build-'))
-    try {
-      const out = buildVendoredHost(join(dir, 'bin', 'podium-host'))
-      expect(out).toBeDefined()
-      expect(hostBinFeatures(out as string)).toBe(C_HOST_FEATURES)
-      const r = spawnSync(out as string, ['version'], { encoding: 'utf8' })
-      expect(r.stdout.trim()).toBe(
-        `podium-host ${C_HOST_FEATURES}-podium features=${C_HOST_FEATURES}`,
-      )
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  }, 60000)
-})
+describe('the source build (fake crate, fake cargo)', () => {
+  const { root } = useScratchEnv()
 
-describe.skipIf(!hasCompiler)('managed podium-host build', () => {
-  let state: string
-  const savedState = process.env.PODIUM_STATE_DIR
-  beforeEach(() => {
-    state = mkdtempSync(join(tmpdir(), 'podium-host-state-'))
-    process.env.PODIUM_STATE_DIR = state
-  })
-  afterEach(() => {
-    if (savedState === undefined) delete process.env.PODIUM_STATE_DIR
-    else process.env.PODIUM_STATE_DIR = savedState
-    rmSync(state, { recursive: true, force: true })
-    resolveHostBin({ fresh: true })
-  })
-
-  it('builds once, then reuses; a stale sourceHash rebuilds', () => {
-    const first = ensureManagedHost()
-    expect(first).toEqual({ bin: join(managedHostDir(), 'podium-host'), built: true })
-    expect(ensureManagedHost()?.built).toBe(false)
-
-    const manifestPath = join(managedHostDir(), 'manifest.json')
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
-      features: number
-      sourceHash: string
-    }
-    expect(manifest.features).toBe(C_HOST_FEATURES)
-    expect(manifest.sourceHash).toBe(vendoredHostSourceHash())
-
-    writeFileSync(manifestPath, JSON.stringify({ ...manifest, sourceHash: 'stale' }))
-    expect(ensureManagedHost()?.built).toBe(true)
-    expect(
-      (JSON.parse(readFileSync(manifestPath, 'utf8')) as { sourceHash: string }).sourceHash,
-    ).toBe(vendoredHostSourceHash())
-  }, 90000)
-
-  it('rebuilds when the managed binary itself is not a podium-host any more', () => {
-    expect(ensureManagedHost()?.built).toBe(true)
-    fakeForeign(managedHostDir())
-    expect(ensureManagedHost()?.built).toBe(true)
-    expect(hostBinFeatures(join(managedHostDir(), 'podium-host'))).toBe(C_HOST_FEATURES)
-  }, 90000)
-
-  it('publishes binary + manifest together and leaves no partial state behind', () => {
-    ensureManagedHost()
+  /**
+   * A crate with a Cargo.toml and a src/, and a `cargo` that "builds" it by
+   * writing a feature-2 host into $CARGO_TARGET_DIR/release/podium-host. It
+   * logs every invocation, and sleeps so two builders really overlap.
+   */
+  function fakeToolchain(): { crate: string; log: string } {
+    const crate = join(root(), 'crate')
+    mkdirSync(join(crate, 'src'), { recursive: true })
+    writeFileSync(join(crate, 'Cargo.toml'), '[package]\nname = "podium-host"\n')
+    writeFileSync(join(crate, 'src', 'main.rs'), 'fn main() {}\n')
+    const bin = join(root(), 'bin')
+    const log = join(root(), 'cargo.log')
+    mkdirSync(bin, { recursive: true })
     writeFileSync(
-      join(managedHostDir(), 'manifest.json'),
-      JSON.stringify({ features: 1, sourceHash: 'stale' }),
+      join(bin, 'cargo'),
+      [
+        '#!/bin/sh',
+        '[ "$1" = "--version" ] && { echo "cargo fake"; exit 0; }',
+        `echo "$*" >> ${JSON.stringify(log)}`,
+        'sleep 1',
+        'mkdir -p "$CARGO_TARGET_DIR/release"',
+        'printf \'#!/bin/sh\\necho "podium-host fake features=2"\\n\' > "$CARGO_TARGET_DIR/release/podium-host"',
+        'chmod 755 "$CARGO_TARGET_DIR/release/podium-host"',
+        '',
+      ].join('\n'),
     )
-    expect(ensureManagedHost()?.built).toBe(true)
-    const dir = managedHostDir()
-    expect(existsSync(join(dir, 'podium-host'))).toBe(true)
-    expect(
-      (JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as { sourceHash: string })
-        .sourceHash,
-    ).toBe(vendoredHostSourceHash())
-    expect(readdirSync(join(state, 'bin')).filter((f) => f.startsWith('.'))).toEqual([])
-  }, 90000)
+    chmodSync(join(bin, 'cargo'), 0o755)
+    process.env.PATH = `${bin}:/usr/bin:/bin`
+    return { crate, log }
+  }
 
-  it('points the documented cache path at the managed build, and resolveHostBin finds it', () => {
-    ensureManagedHost()
-    expect(realpathSync(defaultHostCachePath())).toBe(
-      realpathSync(join(managedHostDir(), 'podium-host')),
-    )
-    expect(resolveHostBin({ fresh: true })).toBe(join(managedHostDir(), 'podium-host'))
-  }, 90000)
+  const builds = (log: string): number =>
+    existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').length : 0
 
-  it('resolveHostBin builds the managed host when nothing is on disk', () => {
-    expect(existsSync(managedHostDir())).toBe(false)
-    expect(resolveHostBin({ fresh: true })).toBe(join(managedHostDir(), 'podium-host'))
-    expect(existsSync(join(managedHostDir(), 'manifest.json'))).toBe(true)
-  }, 90000)
+  it('builds once, publishes by source hash, then reuses', () => {
+    const { crate, log } = fakeToolchain()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const hash = vendoredRustHostSourceHash(crate) as string
+    const dir = join(root(), 'build', hash.slice(0, 16))
+    expect(ensureSourceRustHost(crate)).toEqual({ bin: join(dir, RUST_HOST_BINARY), built: true })
+    expect(readFileSync(log, 'utf8')).toContain('build --release --locked')
+    expect(ensureSourceRustHost(crate)).toEqual({ bin: join(dir, RUST_HOST_BINARY), built: false })
+    expect(builds(log)).toBe(1)
+    const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'))
+    expect(manifest).toMatchObject({ features: 2, sourceHash: hash })
+    // Nothing half-published is left beside the build.
+    expect(readdirSync(join(root(), 'build')).filter((f) => f.startsWith('.'))).toEqual([])
+  }, 30_000)
 
-  it('concurrent builders serialize — exactly one compiles, both get the binary', async () => {
-    const body = `const r = A.ensureManagedHost(); console.log(JSON.stringify(r ?? null))`
-    const dirs = [childRoot(), childRoot()]
+  it('a source change builds again, under the new hash', () => {
+    const { crate, log } = fakeToolchain()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const first = ensureSourceRustHost(crate)
+    writeFileSync(join(crate, 'src', 'main.rs'), 'fn main() { /* changed */ }\n')
+    const second = ensureSourceRustHost(crate)
+    expect(second?.built).toBe(true)
+    expect(second?.bin).not.toBe(first?.bin)
+    expect(builds(log)).toBe(2)
+  }, 30_000)
+
+  it('a published binary that is not a feature-2 host is rebuilt', () => {
+    const { crate, log } = fakeToolchain()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const first = ensureSourceRustHost(crate)?.bin as string
+    fakeForeign(first)
+    expect(ensureSourceRustHost(crate)?.built).toBe(true)
+    expect(hostBinFeatures(first)).toBe(2)
+    expect(builds(log)).toBe(2)
+  }, 30_000)
+
+  it('concurrent builders serialize — exactly one builds, both get the binary', async () => {
+    const { crate, log } = fakeToolchain()
+    const body = `const r = A.ensureSourceRustHost(${JSON.stringify(crate)}); console.log(JSON.stringify(r ?? null))`
+    const dirs = [mkdtempSync(join(PKG_ROOT, '.host-child-')), mkdtempSync(join(PKG_ROOT, '.host-child-'))]
     try {
       const results = await Promise.all(
         dirs.map(
@@ -347,9 +259,7 @@ describe.skipIf(!hasCompiler)('managed podium-host build', () => {
             new Promise<{ bin: string; built: boolean } | null>((resolve, reject) => {
               const file = join(dir, 'child.ts')
               writeFileSync(file, `import * as A from ${JSON.stringify(MODULE_PATH)}\n${body}\n`)
-              const p = spawn(process.execPath, [file], {
-                env: { ...process.env, PODIUM_STATE_DIR: state } as NodeJS.ProcessEnv,
-              })
+              const p = spawn(process.execPath, [file], { env: { ...process.env } })
               let out = ''
               let err = ''
               p.stdout.on('data', (d) => {
@@ -366,10 +276,52 @@ describe.skipIf(!hasCompiler)('managed podium-host build', () => {
             }),
         ),
       )
-      expect(results.every((r) => r?.bin === join(managedHostDir(), 'podium-host'))).toBe(true)
+      const bin = join(root(), 'build', (vendoredRustHostSourceHash(crate) as string).slice(0, 16), RUST_HOST_BINARY)
+      expect(results.every((r) => r?.bin === bin)).toBe(true)
       expect(results.filter((r) => r?.built === true)).toHaveLength(1)
+      expect(builds(log)).toBe(1)
     } finally {
       for (const d of dirs) rmSync(d, { recursive: true, force: true })
     }
-  }, 120000)
+  }, 60_000)
+
+  it('a failing build says why and publishes nothing', () => {
+    const { crate } = fakeToolchain()
+    writeFileSync(join(root(), 'bin', 'cargo'), '#!/bin/sh\n[ "$1" = "--version" ] && exit 0\necho "error[E0000]: boom" >&2\nexit 101\n')
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(ensureSourceRustHost(crate)).toBeUndefined()
+    expect(existsSync(join(root(), 'build', (vendoredRustHostSourceHash(crate) as string).slice(0, 16)))).toBe(false)
+    // resolveHostBin reports the vendored crate's failure the same way.
+    process.env.PODIUM_RUST_HOST_BUILD_DIR = join(root(), 'build2')
+    expect(resolveHostBin({ fresh: true })).toBeUndefined()
+    expect(error.mock.calls.flat().join('\n')).toMatch(/the source build failed: cargo build --release --locked failed:\nerror\[E0000\]: boom/)
+  })
+})
+
+describe('podium-host on Windows', () => {
+  const realPlatform = process.platform
+  const stubPlatform = (value: NodeJS.Platform): void => {
+    Object.defineProperty(process, 'platform', { value, configurable: true })
+  }
+  afterEach(() => {
+    stubPlatform(realPlatform)
+    delete process.env.PODIUM_HOST_BIN
+    resolveHostBin({ fresh: true })
+  })
+  it('resolves to nothing and builds nothing', () => {
+    stubPlatform('win32')
+    process.env.PODIUM_HOST_BIN = '/nonexistent/podium-host'
+    expect(resolveHostBin({ fresh: true })).toBeUndefined()
+    delete process.env.PODIUM_HOST_BIN
+    expect(ensureSourceRustHost()).toBeUndefined()
+  })
+})
+
+describe('the vendored crate (real cargo)', () => {
+  it('builds (or reuses) a host that reports feature level 2', () => {
+    const r = ensureSourceRustHost()
+    expect(r).toBeDefined()
+    expect(hostBinFeatures(r?.bin as string)).toBe(HOST_FEATURES)
+  }, 600_000)
 })

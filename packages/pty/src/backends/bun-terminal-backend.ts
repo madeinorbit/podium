@@ -62,7 +62,7 @@ let bunTerminalProbe: boolean | undefined
  * Feature-DETECT (not version-guess) whether this Bun's `Bun.spawn({terminal})` actually
  * yields a working PTY handle. A Bun predating the terminal API silently IGNORES the
  * option and returns a proc with NO `.terminal` — which used to surface much later as
- * `proc.terminal.resize is undefined` on the first abduco attach, i.e. black remote
+ * `proc.terminal.resize is undefined` on the first durable attach, i.e. black remote
  * terminals after a reconnect. Probing here lets callers fall back / fail loud up front
  * instead. Cached: spawns a throwaway `true` exactly once.
  */
