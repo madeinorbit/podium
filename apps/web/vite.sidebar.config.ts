@@ -5,6 +5,12 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig, type PluginOption } from 'vite'
 import base from './vite.config'
 
+const REAL_DESCRIPTORS = fileURLToPath(
+  new URL('./src/lib/use-harness-descriptors.ts', import.meta.url),
+)
+const REAL_CATALOG = fileURLToPath(new URL('./src/lib/use-model-catalog.ts', import.meta.url))
+const STUB_CATALOG = fileURLToPath(new URL('./harness/sidebar-catalog-stub.ts', import.meta.url))
+
 export default defineConfig(async (env) => {
   const real = await (base as unknown as (e: typeof env) => Promise<Record<string, unknown>>)(env)
   const plugins = ((real.plugins as PluginOption[]) ?? []).filter(
@@ -19,14 +25,33 @@ export default defineConfig(async (env) => {
   const resolve = (real.resolve ?? {}) as { alias?: Record<string, string> }
   return {
     ...real,
-    plugins,
+    plugins: [
+      ...plugins,
+      {
+        name: 'sidebar-harness-catalog-stub',
+        enforce: 'pre',
+        async resolveId(source: string, importer: string | undefined, opts: unknown) {
+          if (source.endsWith('sidebar-catalog-stub')) return null
+          const resolved = await (
+            this as unknown as {
+              resolve: (
+                s: string,
+                i: string | undefined,
+                o: Record<string, unknown>,
+              ) => Promise<{ id: string } | null>
+            }
+          ).resolve(source, importer, { ...(opts as Record<string, unknown>), skipSelf: true })
+          const id = resolved?.id.split('?')[0]
+          if (id === REAL_DESCRIPTORS || id === REAL_CATALOG) return STUB_CATALOG
+          return null
+        },
+      } as PluginOption,
+    ],
     resolve: {
       ...resolve,
       // BEFORE the spread, or the real config's bare '@' alias swallows it.
       alias: {
         '@/app/store': fileURLToPath(new URL('./harness/sidebar-store.ts', import.meta.url)),
-        '@/lib/use-harness-descriptors': fileURLToPath(new URL('./harness/sidebar-catalog-stub.ts', import.meta.url)),
-        '@/lib/use-model-catalog': fileURLToPath(new URL('./harness/sidebar-catalog-stub.ts', import.meta.url)),
         ...(resolve.alias ?? {}),
       },
     },
