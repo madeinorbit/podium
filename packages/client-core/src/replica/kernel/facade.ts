@@ -271,15 +271,18 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     if (pending.size === 0) return
     const kinds = [...pending]
     pending.clear()
-    const addressed: ReplicaAddressedBatch =
-      replacement !== undefined
-        ? { type: 'replace', reason: replacement }
-        : {
-            type: 'update',
-            rows: [...pendingAddresses].flatMap(([kind, ids]) =>
-              [...ids].map((id) => ({ kind, id })),
-            ),
-          }
+    // Nobody listening for addressed batches (the default app): build nothing.
+    const addressed: ReplicaAddressedBatch | null =
+      addressedListeners.size === 0
+        ? null
+        : replacement !== undefined
+          ? { type: 'replace', reason: replacement }
+          : {
+              type: 'update',
+              rows: [...pendingAddresses].flatMap(([kind, ids]) =>
+                [...ids].map((id) => ({ kind, id })),
+              ),
+            }
     replacement = undefined
     pendingAddresses.clear()
     // Capture bookkeeping before callbacks: array reads can consume dirtyRows,
@@ -304,13 +307,14 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
         // A batch observer has the same isolation contract as row observers.
       }
     }
-    for (const cb of [...addressedListeners]) {
-      try {
-        cb(addressed)
-      } catch {
-        // Same observer isolation as legacy rows.
+    if (addressed !== null)
+      for (const cb of [...addressedListeners]) {
+        try {
+          cb(addressed)
+        } catch {
+          // Same observer isolation as legacy rows.
+        }
       }
-    }
   }
 
   function project<K extends ReplicaKind>(kind: K): ReplicaRows[K][] {
