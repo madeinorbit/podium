@@ -255,6 +255,9 @@ const store = {
   fileTabs: [],
   view: 'workspace',
   setView: () => {},
+  // Selection stays in the fixture; there is no workspace or transport to open.
+  navigateWorkspace: () => true,
+  batchGesture: (run: () => void) => run(),
   sidebarSettings: { groupByRepo: false },
   setSidebarSettings: () => {},
   uiState,

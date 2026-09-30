@@ -9,6 +9,8 @@ const root = process.cwd()
 const idleSeconds = Number(
   process.argv.find((arg) => arg.startsWith('--idle-seconds='))?.split('=')[1] ?? 300,
 )
+// Independently rerun an input-fixture repair without repeating a green idle portion.
+const inputOnly = process.argv.includes('--input-only')
 if (!Number.isFinite(idleSeconds) || idleSeconds < 3 || idleSeconds > 600)
   throw new Error('idle-seconds must be 3..600')
 const out = resolve(root, '.artifacts/sidebar-panel')
@@ -79,7 +81,7 @@ try {
   const before = await readReport()
   const samples: unknown[] = []
   const began = Date.now()
-  while (Date.now() - began < idleSeconds * 1000) {
+  while (!inputOnly && Date.now() - began < idleSeconds * 1000) {
     await page.waitForTimeout(Math.min(5000, idleSeconds * 1000 - (Date.now() - began)))
     const sample = await readReport()
     samples.push(sample)
@@ -98,7 +100,24 @@ try {
     }
     console.log(`Idle ${Math.round((Date.now() - began) / 1000)}s: 0 rows, 0 derivations, 0 ms`)
   }
-  await page.screenshot({ path: resolve(out, 'legacy-idle.png') })
+  if (!inputOnly) {
+    await page.screenshot({ path: resolve(out, 'legacy-idle.png') })
+    await writeFile(
+      resolve(out, 'legacy-idle-proof.json'),
+      JSON.stringify(
+        {
+          synthetic: true,
+          path: 'legacy',
+          requestedSeconds: idleSeconds,
+          elapsedMs: Date.now() - began,
+          before,
+          samples,
+        },
+        null,
+        2,
+      ),
+    )
+  }
   // Drive one real sidebar click and keyboard gesture, then observe the panel.
   const row = page.locator('[data-issue-row]').first()
   const rowButton = row.locator('button').first()
@@ -128,7 +147,8 @@ try {
       {
         synthetic: true,
         path: 'legacy',
-        requestedSeconds: idleSeconds,
+        requestedSeconds: inputOnly ? 0 : idleSeconds,
+        inputOnly,
         elapsedMs: Date.now() - began,
         before,
         samples,
@@ -140,7 +160,7 @@ try {
     ),
   )
   console.log(
-    `Panel proof GREEN: ${idleSeconds}s idle, real click/key, statistics disabled after close. Pool application proof pending POD-5006.`,
+    `Panel proof GREEN: ${inputOnly ? 'input portion' : `${idleSeconds}s idle`}, real click/key, statistics disabled after close. Pool application proof pending POD-5006.`,
   )
 } finally {
   await browser?.close()
