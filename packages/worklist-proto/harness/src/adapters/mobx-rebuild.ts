@@ -34,7 +34,6 @@ import {
   type ModelSchema,
   SCHEMA,
   tableColdContext,
-  viaTargetOf,
 } from '../../../shared/src/schema'
 import { isLinkSpec, relationRef } from '../../../arms/mobx/pool/relations'
 import type { Residency } from '../../../arms/mobx/pool/residency'
@@ -307,9 +306,11 @@ export function diffRelations(
  * The pool's residency against the feed's CURRENT rows, as problems (bounded
  * to 12 lines): every row of an entity that can be cold is resident or cold,
  * never both, never neither; a cold row is cold by the rule (over the feed's
- * rows) and registered under the row it inherits from; nothing resident or
- * cold is gone from the feed. A resident row that the rule calls cold is
- * fine: it was looked at (`residency.ts`). The gate's partition check.
+ * rows); nothing resident or cold is gone from the feed. A resident row that
+ * the rule calls cold is fine: it was looked at (`residency.ts`). The gate's
+ * partition check. (POD-4945: the registry's `via` target is product-
+ * internal, so the old registered-under check lives here no longer; the
+ * dependents behavior it guarded is covered by the residency tests.)
  */
 export function diffResidency(
   pool: { readonly tables: PoolTables; readonly residency: Residency | null },
@@ -361,10 +362,6 @@ function residencyProblems(
       else if (!hot && !cold) say(`${entity}:${id} is in the feed but neither resident nor cold`)
       else if (cold && !coldByRule(schema, entity, row, ctx)) {
         say(`${entity}:${id} is cold but the rule keeps it resident`)
-      } else if (cold) {
-        const want = viaTargetOf(schema, entity, row)?.id ?? null
-        const got = residency.registeredTarget(entity, id) ?? null
-        if (want !== got) say(`${entity}:${id} is registered under ${got}, its row names ${want}`)
       }
     }
     for (const id of pool.tables[entity].keys()) {

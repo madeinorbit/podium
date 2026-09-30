@@ -93,24 +93,23 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
   // (POD-4945): the product exposes no held-node or model counts. One filing
   // reaction per issue in memory is an exact count here: `track` dedupes by
   // id, so a double-track would show as growth.
-  let pool: MobxPool | null = null
+  let pool!: MobxPool
   const reactions = collectReactions(() => {
     pool = boot(arm, feed)
   })
   off()
-  const resolved = pool as MobxPool
   const filing = filingReactions(reactions)
   const models = objectsBehind(filing)
   const cell = {
     rows: tracked(() => ({
-      issue: resolved.tables.issue.size,
-      session: resolved.tables.session.size,
-      worktree: resolved.tables.worktree.size,
-      repo: resolved.tables.repo.size,
+      issue: pool.tables.issue.size,
+      session: pool.tables.session.size,
+      worktree: pool.tables.worktree.size,
+      repo: pool.tables.repo.size,
     })),
     cold: {
-      issue: resolved.residency?.ids('issue').length ?? 0,
-      session: resolved.residency?.ids('session').length ?? 0,
+      issue: pool.residency?.ids('issue').length ?? 0,
+      session: pool.residency?.ids('session').length ?? 0,
     },
     models: (models['IssueModel'] ?? 0) + (models['SessionModel'] ?? 0),
     issueModels: models['IssueModel'] ?? 0,
@@ -120,7 +119,7 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
     tableSlots: (built['pool.issue'] ?? 0) + (built['pool.session'] ?? 0),
     byMap: built,
   }
-  resolved.dispose()
+  pool.dispose()
   return cell
 }
 

@@ -46,7 +46,6 @@
 
 import {
   compareStructural,
-  computedStruct,
   type IObservableArray,
   type IObservableValue,
   makeObservable,
@@ -472,7 +471,6 @@ export class MobxPool {
       lazyMany: false,
       hidden: false,
       hydrate: false,
-      issueIds: computedStruct,
       model: false,
       issue: false,
       apply: false,
