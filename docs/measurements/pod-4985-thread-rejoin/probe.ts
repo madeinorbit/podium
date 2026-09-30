@@ -129,18 +129,18 @@ try {
   await a.wait((f) => f.method === 'turn/completed' && f.params.turn.id === unloaded.turnId)
   await a.close()
   const b = await connect('unloaded-B')
-  const deadline = Date.now() + 10000
-  let loaded: any
-  do {
-    loaded = await b.call('thread/loaded/list')
-    if (!loaded.result?.data?.includes(unloaded.thread.id)) break
-    await Bun.sleep(100)
-  } while (Date.now() < deadline)
+  const grace = await b.call('thread/loaded/list')
+  // 0.159.0 keeps an unsubscribed thread in memory for a grace period.
+  // Stock archive/unarchive RPCs unload the scratch thread and restore the
+  // same rollout path, avoiding a 30-minute wall-clock wait for idle eviction.
+  const archived = await b.call('thread/archive', { threadId: unloaded.thread.id })
+  const restored = await b.call('thread/unarchive', { threadId: unloaded.thread.id })
+  const loaded = await b.call('thread/loaded/list')
   const before = await b.call('turn/start', { threadId: unloaded.thread.id, input: text('before rejoin') })
   const resumed = await b.call('thread/resume', { threadId: unloaded.thread.id, path: unloaded.thread.path })
   const after = await b.call('turn/start', { threadId: unloaded.thread.id, input: text('after rejoin') })
   if (after.result) await b.wait((f) => f.method === 'turn/completed' && f.params.turn.id === after.result.turn.id)
-  results.push({ case: 'unloaded', threadId: unloaded.thread.id, loaded, before, resumedId: resumed.result?.thread?.id, resumeError: resumed.error, after, engineAlive: engine.exitCode === null })
+  results.push({ case: 'unloaded', threadId: unloaded.thread.id, path: unloaded.thread.path, grace, archived, restoredPath: restored.result?.thread?.path, restoreError: restored.error, loaded, before, resumedId: resumed.result?.thread?.id, resumeError: resumed.error, after, engineAlive: engine.exitCode === null })
   await b.close()
 
   // Running case: resume is safe on a turn still streaming from the fake
