@@ -169,14 +169,15 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
     }
     if (planted) plant.target = target
 
-    const rowsBefore = pool.tables.issue.size + pool.tables.session.size
+    const tableRows = (): number => tracked(() => pool.tables.issue.size + pool.tables.session.size)
+    const rowsBefore = tableRows()
     let rowsInStep = -1
     // Count rows installed before runCountScenario samples its reads: the
     // sample is taken right after the step's act, so a load inside the act
     // happens before the first `snapshot()` call.
     const snapshot = mounted.handle.snapshot.bind(mounted.handle)
     mounted.handle.snapshot = () => {
-      if (rowsInStep < 0) rowsInStep = pool.tables.issue.size + pool.tables.session.size - rowsBefore
+      if (rowsInStep < 0) rowsInStep = tableRows() - rowsBefore
       return snapshot()
     }
     const { result, readsBudget } = await step('#2')
@@ -187,7 +188,7 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
     } catch (error) {
       fence = (error as Error).message
     }
-    const rowsAfter = pool.tables.issue.size + pool.tables.session.size - rowsBefore
+    const rowsAfter = tableRows() - rowsBefore
     const out: ArmResult = {
       arm: name,
       target,
@@ -261,16 +262,16 @@ describe('a fence step counts the load its own change triggers (M3 re-review 2)'
         const snapshot = mounted.handle.snapshot.bind(mounted.handle)
         let atSample = -1
         mounted.handle.snapshot = () => {
-          if (atSample < 0) atSample = pool.tables.issue.size + pool.tables.session.size
+          if (atSample < 0) atSample = tracked(() => pool.tables.issue.size + pool.tables.session.size)
           return snapshot()
         }
         const cells = []
         for (const methodology of ['#1', '#2', '#3', '#4']) {
           const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)!
-          const before = pool.tables.issue.size + pool.tables.session.size
+          const before = tracked(() => pool.tables.issue.size + pool.tables.session.size)
           atSample = -1
           const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry)
-          const afterStep = pool.tables.issue.size + pool.tables.session.size
+          const afterStep = tracked(() => pool.tables.issue.size + pool.tables.session.size)
           cells.push({
             methodology,
             charged: result.readsPerChange,
