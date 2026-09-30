@@ -38,7 +38,7 @@ const version = execFileSync(bin, ['--version'], { env, encoding: 'utf8' }).trim
 const commandPath = execFileSync('which', [bin], { encoding: 'utf8' }).trim()
 const run = { lane, version, commandPath, startedAt: new Date().toISOString(), root, fakePort, appPort,
   env, config: lane!.startsWith('opencode') ? ocConfig : readFileSync(`${home}/${lane!.startsWith('codex') ? '.codex' : '.grok'}/config.toml`, 'utf8'),
-  tty: '180x45, independent tmux server',
+  tty: '180x45, independent tmux server; new terminal process for every case',
   methods: ['paste: tmux paste-buffer -r -p, exact input bytes including LF and CR',
     'typed: tmux send-keys -l, unbracketed literal byte burst; 650ms pause then Enter; programs may detect bursts as paste'],
 }
@@ -99,7 +99,13 @@ function history(): Native[] {
     return rows
   }
   const dir = lane!.startsWith('codex') ? `${home}/.codex` : `${home}/.grok/sessions`
-  for (const file of files(dir).filter(f => f.endsWith('.jsonl'))) {
+  for (const file of files(dir)) {
+    if (file.includes('/prompts/') && file.endsWith('.txt')) {
+      const text = readFileSync(file, 'utf8')
+      rows.push({ source: file.slice(home.length + 1), position: 0, kind: 'spill-file', raw: { text, bytes: bytes(text), sha256: sha(text) }, texts: [text] })
+      continue
+    }
+    if (!file.endsWith('.jsonl')) continue
     const lines = readFileSync(file, 'utf8').split('\n')
     for (let n = 0; n < lines.length; n++) {
       if (!lines[n]) continue
@@ -170,7 +176,7 @@ async function http(method: string, path: string, body?: any) {
 try {
   const terminal = lane!.endsWith('terminal')
   let client: ReturnType<typeof rpc> | undefined
-  if (terminal) {
+  async function launchTerminal(label: string) {
     const args = lane!.startsWith('grok') ? ['-m', 'fake', '--always-approve', '--trust']
       : lane!.startsWith('opencode') ? ['--port', String(appPort), '--hostname', '127.0.0.1', '--model', 'fake/fake'] : []
     const command = `cd ${quote(work)} && exec env -i ${Object.entries(env).map(([k, v]) => `${k}=${quote(v)}`).join(' ')} ${quote(commandPath)} ${args.map(quote).join(' ')}`
@@ -184,15 +190,16 @@ try {
     }, 45000)
     if (!ready) throw new Error('Terminal editor did not become ready')
     await sleep(2000)
-    appendFileSync(`${out}/screens.txt`, `START\n${tmux('capture-pane', '-p', '-t', 'measure')}\n`)
-  } else if (lane!.startsWith('codex')) {
+    appendFileSync(`${out}/screens.txt`, `START ${label}\n${tmux('capture-pane', '-p', '-t', 'measure')}\n`)
+  }
+  if (!terminal && lane!.startsWith('codex')) {
     client = rpc(['app-server'])
     await client.call('initialize', { clientInfo: { name: 'podium-measurement', version: '0' }, capabilities: { experimentalApi: true } })
     client.send({ method: 'initialized' })
-  } else if (lane === 'grok-acp') {
+  } else if (!terminal && lane === 'grok-acp') {
     client = rpc(['agent', 'stdio'])
     await client.call('initialize', { protocolVersion: 1, clientInfo: { name: 'podium-measurement', version: '0' }, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } } })
-  } else {
+  } else if (!terminal) {
     program = spawn(bin, ['serve', '--port', String(appPort), '--hostname', '127.0.0.1'], { env, cwd: work, stdio: ['ignore', 'pipe', 'pipe'] })
     logChild(program, 'program')
     if (!await until(async () => { try { return (await fetch(`http://127.0.0.1:${appPort}/api/health`, { headers: auth, signal: AbortSignal.timeout(2000) })).ok } catch { return false } }, 45000)) throw new Error('OpenCode server not ready')
@@ -200,13 +207,13 @@ try {
   for (const method of terminal ? ['paste', 'typed'] : ['protocol']) {
     for (const c of cases.filter(c => !selected || c.name.includes(selected))) {
       const label = `${method}/${c.name}`
+      if (terminal) await launchTerminal(label)
       const before = history(), modelBefore = modelRows().length
       const sentAt = Date.now()
+      let extraEnterAt: number | undefined
       let sessionId: string | undefined, protocolId: string | undefined, status: any, error: string | undefined
       try {
         if (terminal) {
-          // Clear a leftover editor if a previous case failed or was only partly submitted.
-          tmux('send-keys', '-t', 'measure', 'C-u')
           if (method === 'paste') {
             writeFileSync(`${root}/paste.txt`, c.text)
             tmux('load-buffer', '-b', 'input', `${root}/paste.txt`)
@@ -214,7 +221,13 @@ try {
           } else tmux('send-keys', '-t', 'measure', '-l', c.text)
           await sleep(650)
           tmux('send-keys', '-t', 'measure', 'Enter')
-          status = await until(() => history().filter(r => r.kind === 'prompt').length > before.filter(r => r.kind === 'prompt').length, 15000)
+          status = await until(() => history().filter(r => r.kind === 'prompt').length > before.filter(r => r.kind === 'prompt').length, 10000)
+          if (!status) {
+            appendFileSync(`${out}/screens.txt`, `NO RECORD AFTER FIRST ENTER ${label}\n${tmux('capture-pane', '-p', '-t', 'measure')}\n`)
+            extraEnterAt = Date.now()
+            tmux('send-keys', '-t', 'measure', 'Enter')
+            status = await until(() => history().filter(r => r.kind === 'prompt').length > before.filter(r => r.kind === 'prompt').length, 10000)
+          }
           // Wait for records/model calls to settle; detect splitting, never just take the first record.
           let last = '', stable = 0
           await until(() => {
@@ -254,12 +267,13 @@ try {
       const records = snapshot(label, before, history())
       const prompts = records.filter(r => r.kind === 'prompt')
       const models = modelRows().slice(modelBefore)
-      const summary = { label, sentAt, finishedAt: Date.now(), sessionId, protocolId, status, error,
+      const summary = { label, sentAt, extraEnterAt, finishedAt: Date.now(), sessionId, protocolId, status, error,
         case: c.name, inputBytes: bytes(c.text), inputSha256: sha(c.text),
         records: prompts.map(r => ({ source: r.source, position: r.position, id: r.id, texts: r.texts.map(t => ({ bytes: bytes(t), sha256: sha(t), exact: t === c.text, first: t.slice(0, 100), last: t.slice(-100) })) })),
         modelRequests: models.map(r => r.n), modelReceivedBody: models.some(r => JSON.stringify(r.messages).includes(c.body.slice(0, 24))) }
       rec('observations.jsonl', summary)
       console.log(`${lane} ${label}: ${prompts.length} prompt record(s), ${prompts.map(r => r.texts.map(bytes).join('+')).join(',')} bytes${error ? ' ERROR ' + error : ''}`)
+      if (terminal) { try { tmux('kill-session', '-t', 'measure') } catch {}; await sleep(200) }
     }
   }
 } finally {
