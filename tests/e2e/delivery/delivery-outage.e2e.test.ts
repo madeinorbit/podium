@@ -316,6 +316,15 @@ describe('message delivery under real failures', { retry: 0 }, () => {
         () => world.logs(),
       )
       await world.server.crash()
+      // The process can exit before the proxy observes its socket closing.
+      // `connected` is already false while closing; wait for held frames to
+      // be discarded too, so restore cannot deliver the dead connection's bytes.
+      await waitFor(
+        () => !world.link.connected && world.link.holding('down').length === 0,
+        30_000,
+        'the crashed server disconnected from the link',
+        () => world.logs(),
+      )
       world.link.restore()
       await world.server.restart()
       await judge(world, 'server-crash', [
