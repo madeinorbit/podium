@@ -199,8 +199,8 @@ export const TurnReceipt = z.discriminatedUnion('outcome', [
     /** The program's own ids for this send, when it gave any (POD-4841). */
     harnessRef: HarnessRefWire,
     at: z.string().datetime(),
-    /** Admission is held outside history; preserve this across direct RPCs. */
-    held: z.enum(['memory', 'durable']).optional(),
+    /** Admission is held outside history. A newer hold never costs the receipt. */
+    held: z.enum(['memory', 'durable']).optional().catch(undefined),
   }),
   z.object({
     outcome: z.literal('queued'),
