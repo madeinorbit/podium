@@ -4,7 +4,7 @@
  * product lists. See `../README.md` ("Round three: the pool") for the idiom,
  * the write path and how to add a field.
  *
- * Product-only: no snapshot, no rebuild, no drain hooks, no stats. The
+ * Product-only: no snapshot, no rebuild, no drain hooks, no counters. The
  * harness owns those (`harness/src/adapters/mobx-pool.ts`), on top of the
  * pool's public API (`hydrate`, `dispose`). Strict MobX flags live only in
  * tests (`harness/src/mobx-enforce.ts` exports them,
@@ -31,8 +31,8 @@ const PoolNativeList = lazy(() => import('./native/list'))
 
 /**
  * The product handle: the live pool, its lifecycle and its mounts. Harness
- * hooks (snapshot, rebuild, drain, stats) live in the harness adapter and
- * are not part of the product surface.
+ * hooks (snapshot, rebuild, drain, contract counters) live in the harness
+ * adapter and are not part of the product surface.
  */
 export interface MobxPoolHandle {
   /** The live pool. */

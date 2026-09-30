@@ -9,9 +9,7 @@
  *   caller's single action. In the live pool it re-partitions residency
  *   (POD-4567): a named row resident before stays; the rest follow the rule.
  *
- * The from-scratch relation resolution and the slice rebuild the gates hold
- * the pool to (`scanRelations`, `diffRelations`, `knownTables`,
- * `diffResidency`, `rebuildSnapshot`) are harness-owned
+ * The from-scratch checks the gates hold the pool to are harness-owned
  * (`harness/src/adapters/mobx-rebuild.ts`, POD-4945), never product.
  */
 

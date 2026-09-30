@@ -13,7 +13,8 @@
  *
  * THE SAME INGEST FOR THE LIVE POOL AND THE REBUILD. `ingestRecord` reads
  * through one table set and writes another (`IngestTarget`: in the live pool
- * it reads the tables and writes the raw MobX maps), so `rebuildFromScratch` replays the feed's
+ * it reads the tables and writes the raw MobX maps), so the harness-owned
+ * rebuild (`harness/src/adapters/mobx-rebuild.ts`) replays the feed's
  * `snapshot(kind)` through exactly this routing into plain maps and never
  * touches the live pool.
  *

@@ -27,25 +27,21 @@ groups it with closed folds and windows the lists; roll-ups (Mb3) come next.
   "observable on first access"), cached per id, dropped when the row leaves.
   A model holds no row: it reads its slot on every access, so it cannot go
   stale. Every declared field is a getter installed from the schema
-   (`installFields`); `FEED_SPELLING` (in `shared/src/repo-from-lane.ts`,
-   POD-4695) names the one field the feed spells
+  (`installFields`); `FEED_SPELLING` (in `shared/src/repo-from-lane.ts`,
+  POD-4695) names the one field the feed spells
   differently (a repo's `path` is its lanes' `repoPath`).
-- **Every derived value a computed, split by input** (`pool/views.ts`
-  `IssueParts`, computed on `IssueModel`): `own` (row-only fields and the
-  clock), `repoTarget` → `prefix` → `displayRef`, `displayTitle`,
-  `originRef` → `originId` → `originTick`, `activityAt`, then `view`
-  assembles them and reads no row. A relation's TARGET comes from the
-  engine (`inputs.relations.one('issue', id, 'repo' | 'discoveredFrom')`),
-  which reads the link's forward slot and the target's presence, never the
-  own row; the target's FIELDS are a separate part. So a rename re-runs
-  neither, and an origin's rename re-runs only its spin-offs'
-  `originTick`. No view resolves a relation itself (M3 F2; the lint refuses
-  `views.ts` importing `relations.ts`). `one()` answers a KNOWN cold origin,
-  so `originRef` may be cold: `loading` reads it, `originId` keeps only a
-  resident one. The rebuild runs the same parts over the scan's `one()`, so
-  the gate holds the engine's forward slots to a from-scratch resolution.
-  Objects compare structurally (`computedStruct`), so an unchanged part or
-  view keeps its identity.
+- **Derived values as cached groups on the model** (`pool/models.ts`,
+  `pool/views.ts`): each model computes its values in named cached groups
+  (the issue's own-row standing, repo target and display parts, origin
+  chain, activity, visibility, nesting, roll-ups), built on first reactive
+  read and dropped when unobserved (`pool/cached.ts`), so construction
+  builds none and first paint builds only what the list draws. A part reads
+  either its own row or a relation target's fields, never both, so a rename
+  re-runs neither its neighbours nor its origin. Relations resolve through
+  the engine (`inputs.relations.one/many`), never in a part (M3 F2; the lint
+  refuses `views.ts` importing `relations.ts`). Objects compare
+  structurally (`computedStruct`), so an unchanged part or view keeps its
+  identity.
 - **Roll-ups re-compose from cached child values** (POD-4568). A part over
   a collection reads the bucket once (`sessionIds`, its own computed) and
   each member's CACHED value, a computed on the member's model
@@ -60,11 +56,12 @@ groups it with closed folds and windows the lists; roll-ups (Mb3) come next.
   (`selection.has(id)`), so a click re-derives exactly two views; the clock
   is a set of deadlines (`pool/clock.ts`): a rule asks "has `t` passed", and
   a tick wakes only the rows whose deadline it crosses.
-- **Enforcement configured AND asserted** (`pool/enforce.ts`): all four MobX
-  flags on; every pool test installs `pool/mobx-trap.ts`, which throws on
-  any `console.warn` and fails the test on any recorded warning. No
-  `keepAlive`. Out-of-reaction reads (`snapshot()`) go through `tracked`, a
-  transient reaction.
+- **Enforcement configured AND asserted** (`harness/src/mobx-enforce.ts`):
+  all four MobX flags on; every pool test installs
+  `harness/src/mobx-trap.ts`, which throws on any `console.warn` and fails
+  the test on any recorded warning. No `keepAlive`. Out-of-reaction reads
+  (`snapshot()`) go through `tracked`, a transient reaction. The product
+  pool never configures MobX.
 - **Relations from the schema** (`pool/relations.ts`, Ma2): the engine reads
   `schema[entity].relations` at construction and names no relation. Each
   single-valued relation (`belongsTo`, `prefix`, outgoing `edge`) is a link
@@ -94,14 +91,14 @@ groups it with closed folds and windows the lists; roll-ups (Mb3) come next.
   (`ViewInputs.loading`, `RowView.loading`, `MobxPool.resident`,
   `MobxPool.lazyMany`) and queues it; one 50 ms window loads every queued
   row by id through the feed (`RowSource.row`) in ONE action
-  (`MobxPool.hydrate`). An update that makes a row itself not cold (a reopen)
-  installs it and the sessions that inherited coldness from it at once. A
-  resident row never goes cold except on `replace`, which re-partitions.
+  (`MobxPool.hydrate`, which reports how many rows it installed). An update
+  that makes a row itself not cold (a reopen) installs it and the sessions
+  that inherited coldness from it at once. A resident row never goes cold
+  except on `replace`, which re-partitions.
 
 - **Visible collection and order** (`pool/worklist/visible.ts`, Mb1): R-VIS
-  (slice spec §3, executable in the oracle) as parts on one node per KNOWN
-  issue, hot or cold (`IssueNode`), and one per member session
-  (`SessionNode`): own-row standing, R2+R3 members, retention against the
+  (slice spec §3, executable in the oracle) as parts read off each issue's
+  model, hot or cold: own-row standing, R2+R3 members, retention against the
   clock's deadlines, the flat pass, the rescue read down `children`
   (`keeps`/`keptBelow`), and nesting (nearest present ancestor, the started-by
   fallback). A cold issue is hidden by the complete rule (POD-4745), so its
@@ -110,11 +107,14 @@ groups it with closed folds and windows the lists; roll-ups (Mb3) come next.
   or its sessions' (POD-4753); startup reads no row by id. A row not in memory
   answers `LOADING` through the one reader (`MobxPool.row`) and is loaded only
   when drawn, in the 50 ms window's batch.
-  The set of visible ids is MAINTAINED by one reaction per node (nodes follow
-  each event's issue records, `MobxPool.syncWorklist`); the order is a
-  computed `compareRank` sort of the visible nodes' cached ranks, reading no
-  row. A cold visible row is drawn as a placeholder outside `RowShell` until
-  its load lands.
+  The set of visible ids is MAINTAINED by one filing reaction per resident
+  issue (`VisibleCollection.track`: taken when the row enters the table,
+  released when it leaves, first run when the action ends), each filing its
+  row's placement and rank wherever it belongs; afterwards it re-files the
+  row when its filing changes, and only then. The order is the maintained
+  rank-ordered lane; the groups file each row the same way. A cold row is
+  never tracked and files nothing. A cold visible row is drawn as a
+  placeholder outside `RowShell` until its load lands.
 
 - **Groups and closed folds** (`pool/worklist/groups.ts`, Mb2): R-GROUP over
   the order. Each node carries a `placement` (`computedStruct`: pinned, group
@@ -134,15 +134,15 @@ groups it with closed folds and windows the lists; roll-ups (Mb3) come next.
 
 `pool/enumerate.ts` is the ONE module that walks a whole table
 (`fence.json` `enumeration`; the lint's `no-table-walk` refuses a walk
-anywhere else in `pool/`): `issueIdsOf` (every resident issue id),
-`knownIssueIds` (every known issue id, hot or cold, which the visible
-collection syncs its nodes to at a `replace`) and `reseed` (a `replace`).
-It also holds the from-scratch relation resolution the live pool never
-runs: `scanRelations` (the rebuild's relations: the declared resolvers over
-whole tables) and `diffRelations` (the live engine against that scan, for
-the relation tests and the gate), plus the gate's residency walks:
-`knownTables` (every row the pool knows, cold ones from the feed) and
-`diffResidency` (the hot/cold partition against the feed).
+anywhere else in `pool/`): `reseed` (a `replace`). The from-scratch checks
+the gates hold the pool to live in the harness
+(`harness/src/adapters/mobx-rebuild.ts`, POD-4945), never in product:
+`scanRelations` (the declared resolvers over whole tables) and
+`diffRelations` (the live engine against that scan, for the relation tests
+and the gate), plus the gate's residency walks: `knownTables` (every row
+the pool knows, cold ones from the feed) and `diffResidency` (the hot/cold
+partition against the feed), and `rebuildSnapshot` / `rebuildViews` (the
+slice recomputed from scratch).
 
 ### Write path (phase c: optimism on the model, Mc1/Mc2)
 
@@ -183,7 +183,8 @@ tables go on holding BORROWED server rows, never a copy.
   the feed's server rows (the reference oracle's reload rebuild reads the
   same rows, so the two resolutions agree exactly), so pending edits survive
   a principal-preserving rebuild.
-- **The rebuild is optimism-aware.** `rebuildFromScratch` overlays the pending
+- **The rebuild is optimism-aware.** The harness-owned `rebuildFromScratch`
+  (`harness/src/adapters/mobx-rebuild.ts`) overlays the pending
   display onto the feed's server rows before deriving, so a gate with pending
   edits outstanding compares pending with pending — never with server truth.
 - **The gate adapter** (`shared/src/gen/arm-edits.ts`, shared with the hand
@@ -205,37 +206,30 @@ idle).
 
 ### Stats (what each counter counts)
 
-- `rowsDerived` — runs of a row field's cached body on an issue model (one
-  per row field re-derived, POD-4756: the issue is its row, and each field
-  is its own cached value; a body whose result is equal still counts, and
-  notifies no row).
-- `notifications` — actions that changed pool state: one per feed event
-  that wrote a table slot, one per locals notification naming a key the
-  pool uses (selection, clock).
-- `indexUpdates` — relation slots written: one per `forward` entry set or
-  deleted, one per bucket touched (`PoolRelations.lastWrites` names them
-  for the last action). A slot says nothing about the work inside it; that
-  is `bucketElements`.
-- `counters.bucketElements` (M3 F1) — relation bucket ELEMENTS touched: one
-  per member added to or deleted from a bucket, plus a cold bucket's members
-  once when its target turns resident (`promote`). One edge moved = 1,
-  whatever the bucket's size (`relations.test.ts` "bucket upkeep is
-  proportional to the change": 4,000-member buckets, 1 per insert and per
-  delete). `PoolRelations.lastElements` is the last action's.
-- `rollupsDerived` — runs of the three roll-up compositions (Mb3,
-  `pool/worklist/rollup.ts`: a node's attention `aggregate`, its
-  `unitsBelow`, and its `seatActivity`).
-- `stats.counters` (the pool's own): `modelsCreated` (first accesses:
-  every drawn issue, and each resident member session a drawn row's
-  activity reads),
-  `tableWrites` (slots set to a different object or deleted), `rowsRemoved`,
-  `bucketElements` (above).
-- `residency.counters` (Ma3): `coldWrites` (a cold row registered, relinked
-  or forgotten: no slot), `requests` (distinct rows queued), `batches` (load
-  windows closed), `hydrated` (rows the window installed), `warmed` (rows
-  that stopped being cold: installed from the publication that carries them,
-  else asked for and installed by the window, POD-4753).
-  `notifications` also counts an action that only touched cold rows.
+The product pool keeps no counters (POD-4945): the arm contract's
+`ArmStats` are satisfied with zeros by the harness adapter, and every
+number below is counted from outside.
+
+- `rowsDerived`, `rollupsDerived`, `indexUpdates`, `notifications` — the
+  contract's counters, all zero from this arm. Per-change work is measured
+  by the harness instead: the work meter and the borrowed-row counts
+  (`harness/src/work-per-change.test.tsx`), and the fence's commit/read
+  budgets per scenario.
+- `bucketElements` (M3 F1) — relation bucket ELEMENTS touched: one per
+  member added to or deleted from a bucket. Counted outside the pool, never
+  by it: `relations.test.ts` "bucket upkeep is proportional to the change"
+  patches MobX's `ObservableSet` prototype (and plain `Set`/`Map`) around
+  the push and asserts that count (4,000-member buckets, 1 per insert and
+  per delete).
+- Tracking objects — `pool/tracking-counts.test.ts`: a MobX census
+  (`harness/src/mobx-census.ts`) traps MobX's own classes, so every
+  computed, reaction, observable value, atom, map, set, array and observable
+  object the pool builds is counted from outside and held to
+  `harness/src/tracking-counts.baseline.json`.
+- Loads — counted by the feed, not the pool: tests wrap `RowSource.row`
+  and count per-row reads; the harness drain observes the load window from
+  outside (an armed window means loads are pending;
+  `harness/src/adapters/mobx-pool.ts`).
 - Reads are never counted by the arm: every table read goes through
   `reads.wrapTables`, every relation read through `reads.wrapRelations`, and
   the enumeration records each id it walks with `reads.touch`.

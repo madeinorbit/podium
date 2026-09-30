@@ -3,7 +3,7 @@
  * review's claims are re-runnable at any SHA (a re-review runs this file).
  *
  * 1. ENFORCEMENT. Plants each MobX warning the pool relies on and shows the
- *    pool's trap (`arms/mobx/pool/mobx-trap.ts`) turns it into a failure:
+ *    pool's trap (`harness/src/mobx-trap.ts`) turns it into a failure:
  *    synchronously where MobX warns on the caller's stack, and by the
  *    recorded list where MobX swallows the throw inside a reaction. Also
  *    shows what the trap cannot see (a plain variable read by a computed).
