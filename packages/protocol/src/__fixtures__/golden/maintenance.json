@@ -165,7 +165,7 @@
         "fencingToken": 1,
         "observed": {
           "messageId": "observed.messageId",
-          "status": "queued",
+          "deliveryStatus": "stored",
           "lifecycle": "wait",
           "createdAt": "2026-01-02T03:04:05.000Z",
           "expiresAt": null
@@ -174,7 +174,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"protocolVersion\":1,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"message-expiry\",\"runKey\":\"runKey\",\"fencingToken\":1,\"observed\":{\"messageId\":\"observed.messageId\",\"status\":\"queued\",\"lifecycle\":\"wait\",\"createdAt\":\"2026-01-02T03:04:05.000Z\",\"expiresAt\":null}}"
+      "encoded": "{\"protocolVersion\":1,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"message-expiry\",\"runKey\":\"runKey\",\"fencingToken\":1,\"observed\":{\"messageId\":\"observed.messageId\",\"deliveryStatus\":\"stored\",\"lifecycle\":\"wait\",\"createdAt\":\"2026-01-02T03:04:05.000Z\",\"expiresAt\":null}}"
     },
     {
       "schema": "MaintenanceCommand",
@@ -187,7 +187,7 @@
         "fencingToken": 1,
         "observed": {
           "messageId": "observed.messageId",
-          "status": "queued",
+          "deliveryStatus": "stored",
           "lifecycle": "wait",
           "createdAt": "2026-01-02T03:04:05.000Z",
           "expiresAt": "2026-01-02T03:04:05.000Z"
@@ -196,7 +196,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"protocolVersion\":1,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"message-expiry\",\"runKey\":\"runKey\",\"fencingToken\":1,\"observed\":{\"messageId\":\"observed.messageId\",\"status\":\"queued\",\"lifecycle\":\"wait\",\"createdAt\":\"2026-01-02T03:04:05.000Z\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+      "encoded": "{\"protocolVersion\":1,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"message-expiry\",\"runKey\":\"runKey\",\"fencingToken\":1,\"observed\":{\"messageId\":\"observed.messageId\",\"deliveryStatus\":\"stored\",\"lifecycle\":\"wait\",\"createdAt\":\"2026-01-02T03:04:05.000Z\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
     },
     {
       "schema": "MaintenanceCommand",
@@ -570,7 +570,7 @@
       "variant": "minimal",
       "wire": {
         "messageId": "messageId",
-        "status": "queued",
+        "deliveryStatus": "stored",
         "lifecycle": "wait",
         "createdAt": "2026-01-02T03:04:05.000Z",
         "expiresAt": null
@@ -578,14 +578,14 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"messageId\":\"messageId\",\"status\":\"queued\",\"lifecycle\":\"wait\",\"createdAt\":\"2026-01-02T03:04:05.000Z\",\"expiresAt\":null}"
+      "encoded": "{\"messageId\":\"messageId\",\"deliveryStatus\":\"stored\",\"lifecycle\":\"wait\",\"createdAt\":\"2026-01-02T03:04:05.000Z\",\"expiresAt\":null}"
     },
     {
       "schema": "MessageExpiryObservation",
       "variant": "full",
       "wire": {
         "messageId": "messageId",
-        "status": "queued",
+        "deliveryStatus": "stored",
         "lifecycle": "wait",
         "createdAt": "2026-01-02T03:04:05.000Z",
         "expiresAt": "2026-01-02T03:04:05.000Z"
@@ -593,7 +593,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"messageId\":\"messageId\",\"status\":\"queued\",\"lifecycle\":\"wait\",\"createdAt\":\"2026-01-02T03:04:05.000Z\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"messageId\":\"messageId\",\"deliveryStatus\":\"stored\",\"lifecycle\":\"wait\",\"createdAt\":\"2026-01-02T03:04:05.000Z\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "SessionAutoArchiveObservation",
