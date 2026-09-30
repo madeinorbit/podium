@@ -32,6 +32,7 @@ import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent } f
 import { createRoot } from 'react-dom/client'
 import { asIssueId } from '@podium/model'
 import { createClientRuntime } from '@podium/client-core/engine'
+import { parseReplicaNamespaceKey } from '@podium/client-core/replica'
 import { serverConfig, makeTrpc } from '@/app/trpc'
 import { openKernelAssembly, type KernelAssembly } from '@/lib/kernelReplica'
 import { resolveReplicaPrincipal, recordIdentityEvidence } from '@/lib/use-kernel-replica'
@@ -227,7 +228,7 @@ async function bootLive(names: readonly ArmName[], onFatal: (message: string) =>
     assembly,
     runtime,
     replica,
-    principalLabel: principalStr,
+    principalLabel: parseReplicaNamespaceKey(principalStr)?.memberId ?? principalStr,
     panels,
     engineMs,
     buildMs,
