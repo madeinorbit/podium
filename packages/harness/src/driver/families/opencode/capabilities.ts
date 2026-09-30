@@ -5,13 +5,9 @@
  * THE TWO FIELDS THE WHOLE EPIC TURNS ON
  * ---------------------------------------------------------------------------
  *
- * `send.mayReturnUnverified: false` and `interactions.atLeastOnce: false`. Those
- * are the two weaknesses the permitted-failures table reserves to the terminal
- * family, and a server driver setting either is refused by the corpus — in both
- * directions, which is what makes the claim mean something. This driver can hold
- * them because it has what a PTY does not: a 204 from `prompt_async` is a
- * protocol acknowledgement that opencode took the turn, and a `per_…`/`que_…`
- * request id is a real ask identity that a REST reply answers exactly once.
+ * v1's 204 comes before storage, so send waits for the text part and may return
+ * unverified (POD-4834, OpenCode 1.18.33). v2's admission is a durable hold.
+ * Both protocols have stable `per_…`/`que_…` interaction identities.
  *
  * Everything else below is read the same way: a capability says what this driver
  * CAN PROVE, never what it hopes.
@@ -20,7 +16,10 @@
 import { supported, unsupported } from '../../../manifest.js'
 import type { DriverCapabilities } from '../../capabilities.js'
 
-export function opencodeServerCapabilities(): DriverCapabilities {
+export function opencodeServerCapabilities(
+  driverId: 'opencode-server' | 'opencode2-server' = 'opencode-server',
+): DriverCapabilities {
+  const v1 = driverId === 'opencode-server'
   return {
     // ---- CORE ----
     send: {
@@ -36,16 +35,9 @@ export function opencodeServerCapabilities(): DriverCapabilities {
        * The driver degrades to `queue` and says so.
        */
       native: ['at-boundary', 'when-ready', 'queue', 'interrupt'],
-      /** The 204. Nothing else is consulted, and nothing else is needed. */
-      proof: ['protocol-ack'],
-      /**
-       * FALSE, AND THE CORPUS CHECKS THE CONVERSE. There is no verification
-       * window here to fall out of: either opencode accepted the POST or it
-       * answered a status, and both are knowable synchronously. The plan's
-       * sentence is the test — "there is NO `unverified` here; if you find
-       * yourself wanting it, your mapping is wrong."
-       */
-      mayReturnUnverified: false,
+      proof: v1 ? ['transcript-echo'] : ['protocol-ack'],
+      mayReturnUnverified: v1,
+      ...(v1 ? { verificationWindowMs: 5000 } : {}),
     },
     interrupt: {
       // `POST /session/{id}/abort` REQUESTS the stop; the fence lands when

@@ -12,8 +12,9 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
  * is mostly about admitting what a PTY cannot know. This one has the opposite
  * job: opencode's server can answer everything the contract asks, so the driver's
  * work is to say so without borrowing a single one of the terminal family's
- * excuses. It claims no exemption for unverified sends and none for at-least-once
- * interactions, and the corpus checks both directions of both claims.
+ * excuses. v1 proves delivery from the stored text part, because its 204 can
+ * precede a crash that loses the prompt (POD-4834). Structured interactions
+ * still have stable program-supplied identities.
  *
  * ---------------------------------------------------------------------------
  * THE SPLIT: SESSION LOGIC HERE, PROCESSES IN THE DAEMON
@@ -256,6 +257,8 @@ export interface OpencodeRuntimeHost {
   mintSessionId(): SessionId
   /** Injected only by tests, which point the client at an in-process server. */
   makeClient?(config: OpencodeClientConfig): OpencodeClient
+  /** Tests may shorten v1's bounded wait for the stored text part. */
+  promptRecordTimeoutMs?: number
 }
 
 /** What survives a supervisor restart. The SECRET is in here, which is why the
@@ -289,6 +292,9 @@ export interface OpencodeJournalEntry {
   /** Highest turn epoch whose authoritative `session.idle` has been folded. */
   fencedTurnEpoch?: number
   bindingVersion: number
+  /** Immutable v1 resend identities, saved before POST so a restart cannot
+   * change the text under ids OpenCode upserts (POD-4891). Hashes, never text. */
+  promptFingerprints?: readonly PromptFingerprint[]
 }
 
 /** How many events one session's replay buffer retains — the same bound and the
@@ -300,6 +306,11 @@ export const OPENCODE_EVENT_LOG_LIMIT = 512
  *  giving up. Long, because the honest alternative to waiting is refusing, and a
  *  caller that asked for `when-ready` said it would rather wait. */
 const WHEN_READY_TIMEOUT_MS = 10 * 60_000
+
+/** Covers the measured 2.2 s cold first prompt as well as warm storage. */
+const PROMPT_RECORD_TIMEOUT_MS = 5000
+const PROMPT_RECORD_POLL_MS = 100
+const PROMPT_RECORD_LATE_TIMEOUT_MS = 5 * 60_000
 
 export const OPENCODE_SERVER_DRIVER_ID = 'opencode-server'
 
@@ -318,6 +329,12 @@ interface PromptIds {
   textPartId: string
 }
 
+interface PromptFingerprint extends PromptIds {
+  textHash: string
+}
+
+class UnsafeOpencodeResendError extends Error {}
+
 /** What opencode takes as a message id: v2's `^msg_` (v1's `^msg` is looser). */
 const OPENCODE_MESSAGE_ID = /^msg_/
 
@@ -334,7 +351,8 @@ const OPENCODE_MESSAGE_ID = /^msg_/
  * A REPEAT IS RECORDED ONCE, and on v1 only because the TEXT PART carries our
  * id too: v1 upserts the message by id but appends every part it has not seen,
  * so a repeat with an opencode-minted part id added the words to the message a
- * second time. With both ids fixed it records nothing new and opens no turn.
+ * second time. With both ids fixed and the same text it records nothing new;
+ * different text overwrites history, so deliver() guards the immutable input.
  * v2 answers a repeat with the original admission. (Attachments are not made
  * idempotent: v1 expands a file into parts it mints itself on every prompt.)
  *
@@ -375,6 +393,7 @@ function promptIdsFor(input: TurnInput, session: DriverSession): PromptIds {
  * outlives turn fences and rechecks history until the promoted user row lands.
  */
 interface PromptRecordWaiter {
+  messageID: string
   /** Our id for the prompt's text part, which opencode records it under. */
   textPartId: string
   harnessRef: HarnessRef
@@ -384,6 +403,10 @@ interface PromptRecordWaiter {
   seen?: TranscriptItemRef
   /** The late path, once the receipt went back without it. */
   onItem?: SendOptions['onTranscriptItem']
+  /** v1 proof remains eligible after the turn closes, within its late bound. */
+  late?: boolean
+  wake?: () => void
+  cancel?: () => void
   /** The turn it belongs to; dropped when that turn is fenced. */
   epoch?: number
 }
@@ -393,6 +416,8 @@ interface DriverSession {
   spec: SessionSpec
   endpoint: OpencodeServerEndpoint
   promptRecords: Set<PromptRecordWaiter>
+  promptFingerprints: Map<string, PromptFingerprint>
+  promptValidations: Map<string, Promise<void>>
   promptRecordPoll?: ReturnType<typeof setTimeout>
   promptRecordRefresh?: Promise<void>
   promptRecordRefreshAgain?: boolean
@@ -520,7 +545,7 @@ export function createOpencodeRuntime(
     string,
     { seq: number; turnEpoch: number; fencedTurnEpoch: number }
   >()
-  const capabilities = opencodeServerCapabilities()
+  const capabilities = opencodeServerCapabilities(driverId)
 
   const iso = (ms?: number): string => new Date(ms ?? host.now()).toISOString()
 
@@ -581,6 +606,9 @@ export function createOpencodeRuntime(
       turnEpoch: session.turnEpoch,
       bindingVersion: session.binding.bindingVersion,
       fencedTurnEpoch: session.fencedTurnEpoch,
+      ...(session.promptFingerprints.size
+        ? { promptFingerprints: [...session.promptFingerprints.values()] }
+        : {}),
     })
   }
 
@@ -633,7 +661,8 @@ export function createOpencodeRuntime(
         if (!info) break
         const items = partToItems(session.opencodeSessionId, info, event.properties.part)
         for (const item of items) emit(session, { t: 'item', item: { kind: 'complete', item } }, at)
-        creditPromptRecord(session, event.properties.part.id, items)
+        if (event.properties.part.type === 'text')
+          creditPromptRecord(session, event.properties.part.messageID, event.properties.part.id, items)
         break
       }
       case 'message.part.delta': {
@@ -937,6 +966,7 @@ export function createOpencodeRuntime(
    *  opencode re-publishes a part on every update; a credited send has left. */
   function creditPromptRecord(
     session: DriverSession,
+    messageID: string,
     partId: string,
     items: readonly TranscriptItem[],
   ): void {
@@ -945,12 +975,13 @@ export function createOpencodeRuntime(
     const ref = item ? transcriptItemRefOf(item) : undefined
     if (!ref) return
     for (const waiter of session.promptRecords) {
-      if (waiter.seen || waiter.textPartId !== partId) continue
+      if (waiter.seen || waiter.messageID !== messageID || waiter.textPartId !== partId) continue
       if (waiter.onItem) {
         session.promptRecords.delete(waiter)
         waiter.onItem(ref, waiter.harnessRef)
       } else {
         waiter.seen = ref
+        waiter.wake?.()
       }
     }
   }
@@ -958,12 +989,85 @@ export function createOpencodeRuntime(
   /** Arm a send's record watch before its prompt can be recorded. */
   function armPromptRecord(session: DriverSession, ids: PromptIds): PromptRecordWaiter {
     const waiter: PromptRecordWaiter = {
+      messageID: ids.messageID,
       textPartId: ids.textPartId,
-      harnessRef: [{ kind: 'opencode-message', id: ids.messageID }],
+      harnessRef: [
+        { kind: 'opencode-message', id: ids.messageID },
+        ...(!session.client.pendingPrompts
+          ? [{ kind: 'opencode-part' as const, id: ids.textPartId }]
+          : []),
+      ],
       ...(session.client.pendingPrompts ? { durable: true } : {}),
     }
     session.promptRecords.add(waiter)
     return waiter
+  }
+
+  /** The deadline bounds the receipt even if a history request stalls. SSE
+   * and history reads can both supply the actual part; neither the 204 nor
+   * a message row without its text calls creditPromptRecord. */
+  function waitForPromptRecord(
+    session: DriverSession,
+    waiter: PromptRecordWaiter,
+    signal?: AbortSignal,
+  ): Promise<TranscriptItemRef | undefined> {
+    if (waiter.seen || session.disposed || signal?.aborted)
+      return Promise.resolve(waiter.seen)
+    return new Promise((resolve) => {
+      let settled = false
+      let poll: ReturnType<typeof setTimeout> | undefined
+      const finish = (): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(deadline)
+        clearTimeout(poll)
+        signal?.removeEventListener('abort', finish)
+        delete waiter.wake
+        resolve(waiter.seen)
+      }
+      const deadline = setTimeout(finish, host.promptRecordTimeoutMs ?? PROMPT_RECORD_TIMEOUT_MS)
+      waiter.wake = finish
+      signal?.addEventListener('abort', finish, { once: true })
+      const read = (): void => {
+        void refreshPromptRecords(session).finally(() => {
+          if (waiter.seen || session.disposed || session.serverGone) finish()
+          if (!settled) poll = setTimeout(read, PROMPT_RECORD_POLL_MS)
+        })
+      }
+      read()
+    })
+  }
+
+  /** An unverified v1 send can still become confirmed; a turn fence or model
+   * error says nothing about whether OpenCode subsequently stored its part. */
+  function watchLatePromptRecord(
+    session: DriverSession,
+    waiter: PromptRecordWaiter,
+    onProof: SendOptions['onLateProof'],
+    signal?: AbortSignal,
+  ): void {
+    if (!onProof || session.disposed || signal?.aborted) {
+      session.promptRecords.delete(waiter)
+      return
+    }
+    const cancel = (): void => {
+      clearTimeout(deadline)
+      signal?.removeEventListener('abort', cancel)
+      session.promptRecords.delete(waiter)
+    }
+    const deadline = setTimeout(cancel, PROMPT_RECORD_LATE_TIMEOUT_MS)
+    if (typeof deadline === 'object') deadline.unref()
+    waiter.cancel = cancel
+    waiter.late = true
+    waiter.onItem = (transcriptItem, harnessRef) => {
+      cancel()
+      // The queue settles unverified after send() returns. Publish proof on
+      // the next task so even a deadline race cannot arrive before settlement.
+      setTimeout(() => onProof({ transcriptItem, harnessRef }), 0)
+    }
+    signal?.addEventListener('abort', cancel, { once: true })
+    if (waiter.seen) waiter.onItem(waiter.seen, waiter.harnessRef)
+    else pollPromptRecords(session)
   }
 
   /**
@@ -998,11 +1102,11 @@ export function createOpencodeRuntime(
     return undefined
   }
 
-  /** One history read for every open durable admission. The pending store is
+  /** One history read for every open prompt. The v2 pending store is
    * rechecked too: an empty history or an idle session cannot prove loss while
    * OpenCode keeps the input outside the conversation (POD-4819 §9). */
   function refreshPromptRecords(session: DriverSession): Promise<void> {
-    if (!session.client.pendingPrompts || session.disposed || !session.promptRecords.size) {
+    if (session.disposed || !session.promptRecords.size) {
       return Promise.resolve()
     }
     if (session.promptRecordRefresh) {
@@ -1014,17 +1118,18 @@ export function createOpencodeRuntime(
         session.promptRecordRefreshAgain = false
         const [messages] = await Promise.all([
           session.client.messages(session.opencodeSessionId).catch(() => []),
-          session.client.pendingPrompts!(session.opencodeSessionId).catch(() => undefined),
+          session.client.pendingPrompts?.(session.opencodeSessionId).catch(() => undefined),
         ])
         if (session.disposed) return
         for (const message of messages) {
-          if (message.info.role !== 'user') continue
+          if (message.info.role !== 'user' || message.info.sessionID !== session.opencodeSessionId) continue
           session.messages.set(message.info.id, message.info)
           for (const part of message.parts) {
             if (
               part.type !== 'text' ||
+              part.messageID !== message.info.id ||
               ![...session.promptRecords].some(
-                (waiter) => !waiter.seen && waiter.textPartId === part.id,
+                (waiter) => !waiter.seen && waiter.messageID === message.info.id && waiter.textPartId === part.id,
               )
             )
               continue
@@ -1035,7 +1140,7 @@ export function createOpencodeRuntime(
                 { t: 'item', item: { kind: 'complete', item } },
                 iso(message.info.time?.created),
               )
-            creditPromptRecord(session, part.id, items)
+            creditPromptRecord(session, message.info.id, part.id, items)
           }
         }
       } while (session.promptRecordRefreshAgain && session.promptRecords.size)
@@ -1051,7 +1156,7 @@ export function createOpencodeRuntime(
     if (
       session.disposed ||
       session.promptRecordPoll ||
-      ![...session.promptRecords].some((waiter) => waiter.durable && !waiter.seen)
+      ![...session.promptRecords].some((waiter) => (waiter.durable || waiter.late) && !waiter.seen)
     )
       return
     session.promptRecordPoll = setTimeout(() => {
@@ -1072,6 +1177,7 @@ export function createOpencodeRuntime(
     for (const waiter of session.promptRecords) {
       if (
         !waiter.durable &&
+        !waiter.late &&
         waiter.epoch !== undefined &&
         waiter.epoch <= session.fencedTurnEpoch
       ) {
@@ -1347,6 +1453,44 @@ export function createOpencodeRuntime(
     ids: PromptIds,
     origin: SendOptions['origin'] = 'human',
   ): Promise<OpencodePromptAdmission> {
+    if (!session.client.pendingPrompts) {
+      const pendingValidation = session.promptValidations.get(ids.messageID)
+      if (pendingValidation) await pendingValidation
+      assertPromptIdentity(session, input, ids)
+      if (!session.promptFingerprints.has(ids.messageID)) {
+        // Save before the request, including a connection lost after a write.
+        // The journal protects a retry even if OpenCode never stored its part.
+        const fingerprint = promptFingerprint(input, ids)
+        session.promptFingerprints.set(ids.messageID, fingerprint)
+        persist(session)
+        const validate = async (): Promise<void> => {
+          if (input.id === undefined) return
+          const messages = await session.client.messages(session.opencodeSessionId)
+          const recorded = messages.find((message) => message.info.id === ids.messageID)
+          if (recorded) {
+            const part = recorded.parts.find((part) => part.id === ids.textPartId && part.type === 'text')
+            if (!part || part.type !== 'text' || part.text !== input.text) {
+              session.promptFingerprints.delete(ids.messageID)
+              persist(session)
+              throw new UnsafeOpencodeResendError('OpenCode v1 recovery requires the same message id, part id and same text')
+            }
+          }
+        }
+        const validation = validate()
+        session.promptValidations.set(ids.messageID, validation)
+        try {
+          await validation
+        } catch (error) {
+          // No POST occurred. An unreadable old history must be checked again
+          // on a later attempt rather than inheriting an unvalidated identity.
+          session.promptFingerprints.delete(ids.messageID)
+          persist(session)
+          throw error
+        } finally {
+          session.promptValidations.delete(ids.messageID)
+        }
+      }
+    }
     const fileUrl = (path: string): string => {
       const url = new URL('file:///')
       url.pathname = path
@@ -1388,9 +1532,8 @@ export function createOpencodeRuntime(
      * `session.idle` will ever end. The stream is the authority on turns.
      */
     if (session.turnEpoch > epochBeforePrompt) return admission
-    // The 204 IS the acceptance, and it is also the moment the turn opens as far
-    // as this driver is concerned. opencode's `session.status: busy` confirms it
-    // microseconds later; the epoch advances here so the receipt can name it.
+    // Track the submitted turn until the provider fences it. This provisional
+    // epoch is no receipt proof: send() still waits for the stored text part.
     session.turnEpoch += 1
     session.busy = true
     session.state = { phase: 'working', since: iso(), nativeSubagentCount: 0 }
@@ -1414,7 +1557,7 @@ export function createOpencodeRuntime(
     })
     persist(session)
     /**
-     * SAY THE TURN OPENED, at the moment the 204 proves it did.
+     * SAY THE REQUEST OPENED A PROVISIONAL TURN, independently of receipt proof.
      *
      * Without this the epoch moved and the stream said nothing, so a consumer
      * learned about a new turn only when the next unrelated event happened to
@@ -1425,6 +1568,23 @@ export function createOpencodeRuntime(
      */
     emit(session, { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin } }, iso())
     return admission
+  }
+
+  function promptFingerprint(input: TurnInput, ids: PromptIds): PromptFingerprint {
+    return { ...ids, textHash: createHash('sha256').update(input.text).digest('hex') }
+  }
+
+  function assertPromptIdentity(session: DriverSession, input: TurnInput, ids: PromptIds): void {
+    if (session.client.pendingPrompts) return
+    if (input.deliveryRecovery && input.id === undefined)
+      throw new UnsafeOpencodeResendError('OpenCode v1 recovery requires a stable message id and part id')
+    for (const other of sessions.values()) {
+      if (other !== session && other.promptFingerprints.has(ids.messageID))
+        throw new UnsafeOpencodeResendError('OpenCode v1 resend requires the same session')
+    }
+    const original = session.promptFingerprints.get(ids.messageID)
+    if (original && (original.textPartId !== ids.textPartId || original.textHash !== promptFingerprint(input, ids).textHash))
+      throw new UnsafeOpencodeResendError('OpenCode v1 resend requires the same message id, part id and same text')
   }
 
   /**
@@ -1531,6 +1691,10 @@ export function createOpencodeRuntime(
   function endSession(session: DriverSession): void {
     session.disposed = true
     clearTimeout(session.promptRecordPoll)
+    for (const waiter of session.promptRecords) {
+      waiter.wake?.()
+      waiter.cancel?.()
+    }
     session.promptRecords.clear()
     abandonQueue(session, 'teardown')
     /**
@@ -1587,6 +1751,23 @@ export function createOpencodeRuntime(
       const record = armPromptRecord(session, ids)
       try {
         const admission = await deliver(session, next.input, ids, next.options.origin)
+        if (!session.client.pendingPrompts) {
+          const item = await waitForPromptRecord(session, record, next.options.signal)
+          if (item) {
+            session.promptRecords.delete(record)
+            next.options.onTranscriptItem?.(item, record.harnessRef)
+          } else {
+            watchLatePromptRecord(
+              session,
+              record,
+              next.options.onLateProof ?? (({ transcriptItem, harnessRef }) => {
+                if (transcriptItem) next.options.onTranscriptItem?.(transcriptItem, harnessRef)
+              }),
+              next.options.signal,
+            )
+          }
+          continue
+        }
         // Its receipt went back when it was queued: the entry travels late.
         const onItem = next.options.onTranscriptItem
         const item = settlePromptRecord(session, record, admission, onItem)
@@ -1750,6 +1931,12 @@ export function createOpencodeRuntime(
           return { outcome: 'refused', refusal: { reason: session.busy ? 'busy' : 'lease_held' } }
         }
         if (session.disposed) return refuse('not_running')
+        const ids = promptIdsFor(input, session)
+        try {
+          assertPromptIdentity(session, input, ids)
+        } catch (error) {
+          return refuse('invalid_value', String(error))
+        }
         // The server is gone and the queue that would have held this has already
         // been reported abandoned (POD-2297 review, 3). Answering `queued` here
         // would hand out the very promise this issue exists to stop making —
@@ -1828,13 +2015,11 @@ export function createOpencodeRuntime(
          */
         if (session.disposed || session.serverGone) return refuse('not_running')
 
-        const ids = promptIdsFor(input, session)
         const record = armPromptRecord(session, ids)
         let admission: OpencodePromptAdmission
         try {
           admission = await deliver(session, input, ids, options.origin)
         } catch (err) {
-          session.promptRecords.delete(record)
           /**
            * A REFUSAL ONLY WHEN OPENCODE RECORDED NOTHING (POD-4839; POD-4819
            * §6.1 N2). Measured on 1.18.33, v1 and v2 (POD-4834 S10): a 400 (a
@@ -1844,19 +2029,37 @@ export function createOpencodeRuntime(
            * say nothing either way — so it is thrown as unproven.
            */
           if (err instanceof OpencodeHttpError && err.status === 400) {
+            session.promptRecords.delete(record)
             return refuse('invalid_value', String(err), 'rejected-by-agent')
           }
           if (err instanceof OpencodeHttpError && err.status === 404) {
+            session.promptRecords.delete(record)
             return refuse('session_ended', String(err), 'rejected-by-agent')
           }
+          if (err instanceof UnsafeOpencodeResendError) {
+            session.promptRecords.delete(record)
+            return refuse('invalid_value', String(err))
+          }
+          if (!session.client.pendingPrompts)
+            watchLatePromptRecord(session, record, options.onLateProof, options.signal)
+          else session.promptRecords.delete(record)
           throw new DeliveryUnprovenError('opencode prompt', err)
         }
-        const transcriptItem = settlePromptRecord(
-          session,
-          record,
-          admission,
-          options.onTranscriptItem,
-        )
+        const transcriptItem = session.client.pendingPrompts
+          ? settlePromptRecord(session, record, admission, options.onTranscriptItem)
+          : (await waitForPromptRecord(session, record, options.signal)) ?? record.seen
+        if (!session.client.pendingPrompts) {
+          if (transcriptItem) session.promptRecords.delete(record)
+          else {
+            watchLatePromptRecord(session, record, options.onLateProof, options.signal)
+            return {
+              outcome: 'unverified',
+              deliveredAs: wanted === 'steer' ? 'when-ready' : wanted,
+              verificationWindowMs: host.promptRecordTimeoutMs ?? PROMPT_RECORD_TIMEOUT_MS,
+              at: iso(),
+            }
+          }
+        }
         return {
           outcome: 'accepted',
           turnEpoch: session.turnEpoch,
@@ -1885,7 +2088,7 @@ export function createOpencodeRuntime(
            */
           deliveredAs: wanted === 'steer' ? 'when-ready' : wanted,
           /** V2 admission is accepted/durable; only its user row is delivered. */
-          provenBy: 'protocol-ack',
+          provenBy: session.client.pendingPrompts ? 'protocol-ack' : 'transcript-echo',
           at: iso(),
         }
       },
@@ -2318,6 +2521,8 @@ export function createOpencodeRuntime(
       answered: new Set(),
       messages: new Map(),
       promptRecords: new Set(),
+      promptFingerprints: new Map((journalled?.promptFingerprints ?? []).map((entry) => [entry.messageID, entry])),
+      promptValidations: new Map(),
       queue: [],
       serverGone: false,
       lease: null,

@@ -80,6 +80,8 @@ export interface FakeOpencodeServer {
    *  nothing. A 400 or 404 is OpenCode's measured "recorded nothing"; any
    *  other status is not proof either way (POD-4839). */
   failNextPrompt(status?: number): void
+  /** A 204 followed by no stored message, as in the measured v1 kill case. */
+  omitNextPromptRecord(): void
   createSessionId(): string
   session(id: string): FakeOpencodeSession | undefined
   /** Push one SSE frame to every subscriber whose `?directory=` matches. */
@@ -146,6 +148,7 @@ export async function startFakeOpencodeServer(options: {
     end: () => void
   }>()
   let failNext: number | false = false
+  let omitNextRecord = false
 
   const expected = `Basic ${Buffer.from(`${options.username}:${options.password}`).toString('base64')}`
 
@@ -309,9 +312,8 @@ export async function startFakeOpencodeServer(options: {
       if (failNext) {
         const status = failNext
         failNext = false
-        // NOT A "verification failure" — this family has no verification
-        // window. The driver refuses a 400 or 404, which record nothing, and
-        // throws any other failure as unproven (POD-4839); never `unverified`.
+        // The driver refuses a 400 or 404, which record nothing, and throws
+        // other prompt-request failures as unproven (POD-4839).
         json(status, { error: 'induced failure' })
         return
       }
@@ -334,7 +336,8 @@ export async function startFakeOpencodeServer(options: {
          * fixture that acked without writing was modelling a server with no
          * database.
          */
-        const repeat = recordUserMessage(sessionId, body)
+        const repeat = omitNextRecord ? false : recordUserMessage(sessionId, body)
+        omitNextRecord = false
         const answer = (): void => {
           // 204 IS THE ACK, with no body — the exact shape recorded from 1.18.16.
           res.writeHead(204)
@@ -484,6 +487,9 @@ export async function startFakeOpencodeServer(options: {
     lastPrompt: (sessionId) => promptBodies.get(sessionId),
     failNextPrompt: (status = 500) => {
       failNext = status
+    },
+    omitNextPromptRecord: () => {
+      omitNextRecord = true
     },
     createSessionId: () => id('ses'),
     session: (sessionId) => sessions.get(sessionId),

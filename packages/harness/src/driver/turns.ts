@@ -344,8 +344,8 @@ export type DeliveryCancelResult = { ok: true } | (Refusal & { tooLate?: Retract
  * `unverified` IS THE TWO-GENERALS GAP MADE EXPLICIT instead of retried into a
  * lie. The keystrokes were delivered but acceptance could not be proven inside
  * the verification window. Callers decide what to do (retry, surface, wait for
- * the transcript echo) WITH THE TRUTH IN HAND. It is terminal-family only, and
- * the conformance suite's permitted-failures table is what says so.
+ * the transcript echo) WITH THE TRUTH IN HAND. Terminal drivers and the measured
+ * OpenCode v1 storage gap permit it; the conformance entitlement pins that scope.
  */
 export type TurnReceipt =
   | {

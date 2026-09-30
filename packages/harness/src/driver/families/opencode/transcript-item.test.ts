@@ -4,7 +4,8 @@
  * The send's id is opencode's message id and the text part's id is derived
  * from it, so the driver finds the record by id and never by its text. v1's
  * `prompt_async` answers 204 with no body and publishes the part on its event
- * stream; v2 answers with the admitted input, which names the part at once.
+ * stream or history; v1 waits for it before confirming. A v2 admission may
+ * hold the prompt durably until its user row is promoted.
  */
 
 import type { TranscriptItem } from '@podium/model'
@@ -83,12 +84,9 @@ describe('the history entry a delivered opencode send became', () => {
         info: { id: 'msg_row' },
         parts: [{ id: 'prt_000000000000row', text: 'look  at\nthis' }],
       })
-      // The recorder may rewrite the text; the id still pairs.
-      recordPrompt(host, handle, 'look at this')
-      await expect.poll(() => deliveries(events).length).toBe(2)
       const [shown] = shownUser(events)
       expect(shown?.id).toBe(entryFor(handle, 'prt_000000000000row'))
-      expect(deliveries(events)[1]).toMatchObject({
+      expect(deliveries(events)[0]).toMatchObject({
         rowId: 'msg_row',
         outcome: 'delivered',
         transcriptItem: { id: shown!.id, cursor: shown!.cursor },
@@ -108,26 +106,23 @@ describe('the history entry a delivered opencode send became', () => {
         { id: 'msg_direct', text: 'direct' },
         { origin: 'human', delivery: 'when-ready' },
       )
-      expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'protocol-ack' })
-      recordPrompt(host, handle)
-      await expect.poll(() => deliveries(events).length).toBe(1)
-      expect(deliveries(events)).toEqual([
-        expect.objectContaining({
-          rowId: 'msg_direct',
-          outcome: 'delivered',
-          transcriptItem: {
-            id: entryFor(handle, 'prt_000000000000direct'),
-            cursor: shownUser(events)[0]!.cursor,
-          },
-        }),
-      ])
+      expect(receipt).toMatchObject({
+        outcome: 'accepted',
+        provenBy: 'transcript-echo',
+        transcriptItem: {
+          id: entryFor(handle, 'prt_000000000000direct'),
+          cursor: shownUser(events)[0]!.cursor,
+        },
+      })
+      expect(deliveries(events)).toEqual([])
     } finally {
       runtime.dispose()
     }
   })
 
   it('does not name a user part of another id, even with the same text', async () => {
-    const host = makeOpencodeTestHost()
+    const host = makeOpencodeTestHost({ wrapClient: (client) => ({ ...client, messages: async () => [] }) })
+    host.promptRecordTimeoutMs = 100
     const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
@@ -164,14 +159,13 @@ describe('the history entry a delivered opencode send became', () => {
     const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
-      const events = collect(handle)
       const server = host.serverFor(handle.binding.sessionId)!
       const sessionID = handle.binding.resume!.value
       const send = (id: string, delivery: 'when-ready' | 'queue' = 'when-ready') =>
         handle.send({ id, text: 'once' }, { origin: 'human', delivery })
-      await send('msg_twice')
-      recordPrompt(host, handle)
-      await expect.poll(() => deliveries(events).length).toBe(1)
+      expect(await send('msg_twice')).toMatchObject({
+        transcriptItem: { id: entryFor(handle, 'prt_000000000000twice') },
+      })
       server.goIdle(sessionID)
 
       // The repeat: opencode re-publishes the record and runs an empty turn.
@@ -184,9 +178,6 @@ describe('the history entry a delivered opencode send became', () => {
           parts: [expect.objectContaining({ id: 'prt_000000000000twice', text: 'once' })],
         }),
       ])
-      expect(deliveries(events)[0]).toMatchObject({
-        transcriptItem: { id: entryFor(handle, 'prt_000000000000twice') },
-      })
       expect(repeat).toMatchObject({
         outcome: 'accepted',
         transcriptItem: { id: entryFor(handle, 'prt_000000000000twice') },
@@ -224,6 +215,7 @@ describe('the history entry a delivered opencode send became', () => {
       // What the v2 client answers: the admitted input names its text part.
       wrapClient: (client) => ({
         ...client,
+        pendingPrompts: async () => [],
         async prompt(sessionId, body) {
           await client.prompt(sessionId, body)
           return { textPartId: `${body.messageID}:0` }

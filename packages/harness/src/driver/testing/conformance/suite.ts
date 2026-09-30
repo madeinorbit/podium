@@ -55,6 +55,7 @@ import {
   permits,
   permitsNoAttach,
   permitsNoNativeSteer,
+  permitsUnverifiedSend,
   type RefusalReason,
   type ResumeRefTiming,
   type RuntimeDriver,
@@ -411,7 +412,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         // tests can drive it with a dishonest driver and watch it refuse. An
         // assertion whose only caller is its own property cannot be shown to
         // bite.
-        assertUnverifiedClaimHonest(target.family, driver.capabilities())
+        assertUnverifiedClaimHonest(target.family, driver.capabilities(), driver.id)
       })
 
       it('claims at-least-once interactions only for permitted terminal sources', () => {
@@ -846,10 +847,10 @@ export function describeDriverConformance(target: ConformanceTarget): void {
          */
       })
 
-      it('UNVERIFIED is available exactly to the families permitted it', async () => {
+      it('UNVERIFIED is available exactly to the drivers permitted it', async () => {
         const { handle, control, driver } = setup()
         const session = await handle
-        const permitted = permits(target.family, 'unverified-send')
+        const permitted = permitsUnverifiedSend(target.family, driver.id)
 
         // THE CONVERSE IS EXERCISED, NOT RESTATED. An earlier version re-asserted
         // the capability flag here — the identical assertion made in the
@@ -2959,11 +2960,13 @@ export function assertNoNativeSteerEntitled(
 export function assertUnverifiedClaimHonest(
   family: DriverFamily,
   capabilities: DriverCapabilities,
+  driverId?: DriverId,
 ): void {
+  const permitted = permitsUnverifiedSend(family, driverId)
   expect(
     capabilities.send.mayReturnUnverified,
-    `family '${family}' ${permits(family, 'unverified-send') ? 'permits' : 'does not permit'} unverified sends`,
-  ).toBe(permits(family, 'unverified-send'))
+    `driver '${driverId ?? family}' ${permitted ? 'permits' : 'does not permit'} unverified sends`,
+  ).toBe(permitted)
 }
 
 /** Hook provenance does not prove stable request identity (POD-3979).

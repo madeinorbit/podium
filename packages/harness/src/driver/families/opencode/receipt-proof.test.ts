@@ -5,7 +5,7 @@ import { DeliveryUnprovenError } from '../../errors.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
 import evidence from './__fixtures__/receipt-proof-v1.json' with { type: 'json' }
 import { deltaItemIdForPart } from './map.js'
-import { OpencodeMessageWithParts, type OpencodePromptBody } from './protocol.js'
+import { OpencodeMessageWithParts } from './protocol.js'
 import { createOpencodeRuntime } from './runtime.js'
 import { makeOpencodeTestHost } from './test-support/host.js'
 
@@ -37,12 +37,12 @@ async function deferredPrompt(waitMs = 100) {
     }),
   })
   // Keep no-proof cases short; the cold case uses the production-sized window.
-  Object.assign(host, { promptRecordTimeoutMs: waitMs })
+  host.promptRecordTimeoutMs = waitMs
   const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
   const handle = await runtime.driver.create(spec)
   const server = host.serverFor(handle.binding.sessionId)!
   const sessionID = handle.binding.resume!.value
-  const publish = (request: OpencodePromptBody, withPart: boolean, emit = true) => {
+  const publish = (request: typeof evidence.scenarios.warm.request, withPart: boolean, emit = true) => {
     const text = request.parts[0]!
     const row = OpencodeMessageWithParts.parse({
       info: { id: request.messageID, sessionID, role: 'user', time: { created: 1 } },
@@ -168,6 +168,45 @@ describe('v1 receipt proof from the measured storage boundary', () => {
       expect(events.filter((event) => event.t === 'delivery')).toHaveLength(1)
     } finally { runtime.dispose() }
   })
+
+  it('moves a durable row forward through proveLate only after the stored part lands', async () => {
+    const w = await deferredPrompt()
+    try {
+      const measured = evidence.scenarios.warm
+      const events = collect(w.handle)
+      await w.handle.send({ id: measured.request.messageID, rowId: measured.request.messageID, text: measured.request.parts[0]!.text }, options)
+      await w.acknowledged
+      w.publish(measured.request, false)
+      await expect.poll(() => events.filter((event) => event.t === 'delivery').length).toBe(1)
+      expect(events.filter((event) => event.t === 'delivery')[0]).toMatchObject({ outcome: 'failed', cause: 'unconfirmed' })
+      w.server.goIdle(w.sessionID)
+      w.publish(measured.request, true)
+      await expect.poll(() => events.filter((event) => event.t === 'delivery').length).toBe(2)
+      expect(events.filter((event) => event.t === 'delivery')[1]).toMatchObject({
+        outcome: 'delivered',
+        transcriptItem: { id: deltaItemIdForPart(w.sessionID, measured.request.parts[0]!.id) },
+        harnessRef: [
+          { kind: 'opencode-message', id: measured.request.messageID },
+          { kind: 'opencode-part', id: measured.request.parts[0]!.id },
+        ],
+      })
+    } finally { w.runtime.dispose() }
+  })
+
+  it('bounds the wait even when the post-send history read never answers', async () => {
+    let reads = 0
+    const host = makeOpencodeTestHost({
+      wrapClient: (client) => ({ ...client, messages: async () => ++reads === 1 ? [] : new Promise(() => {}) }),
+    })
+    host.promptRecordTimeoutMs = 50
+    const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
+    try {
+      const handle = await runtime.driver.create(spec)
+      const receipt = await handle.send({ id: 'msg_stalled_read', text: 'waiting' }, options)
+      expect(receipt).toMatchObject({ outcome: 'unverified', verificationWindowMs: 50 })
+      expect(reads).toBe(2)
+    } finally { runtime.dispose() }
+  })
 })
 
 describe('v1 recovery never changes the prompt identity or text', () => {
@@ -196,12 +235,14 @@ describe('v1 recovery never changes the prompt identity or text', () => {
       const sessionID = handle.binding.resume!.value
       await handle.send({ id: 'turn:recovery', text: 'same\n text' }, options)
       const first = server.lastPrompt(sessionID)!
+      const firstPart = first.parts[0]!
+      if (firstPart.type !== 'text') throw new Error('fixture prompt must carry a text part')
       server.goIdle(sessionID)
       const adopted = await runtime.driver.adopt(handle.binding)
       await expect(adopted.send({ id: 'turn:recovery', text: 'different', deliveryRecovery: true }, options)).resolves.toMatchObject({ outcome: 'refused', refusal: { reason: 'invalid_value' } })
       expect(server.promptCount(sessionID)).toBe(1)
       const receipt = await adopted.send({ id: 'turn:recovery', text: 'same\n text', deliveryRecovery: true }, options)
-      expect(receipt).toMatchObject({ outcome: 'accepted', transcriptItem: { id: deltaItemIdForPart(sessionID, first.parts[0]!.id!) } })
+      expect(receipt).toMatchObject({ outcome: 'accepted', transcriptItem: { id: deltaItemIdForPart(sessionID, firstPart.id!) } })
       expect(server.lastPrompt(sessionID)).toEqual(first)
       expect(server.session(sessionID)!.messages).toHaveLength(1)
       expect(server.session(sessionID)!.messages[0]!.parts).toHaveLength(1)
@@ -216,6 +257,45 @@ describe('v1 recovery never changes the prompt identity or text', () => {
       const receipt = await handle.send({ text: 'same', deliveryRecovery: true }, options)
       expect(receipt).toMatchObject({ outcome: 'refused', refusal: { reason: 'invalid_value' } })
       expect(host.serverFor(handle.binding.sessionId)!.promptCount(handle.binding.resume!.value)).toBe(0)
+    } finally { runtime.dispose() }
+  })
+
+  it('keeps the immutable retry guard across a runtime restart with no recorded part', async () => {
+    const host = makeOpencodeTestHost({ adoptsLiveEndpoint: true })
+    host.promptRecordTimeoutMs = 100
+    const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
+    const restarted = createOpencodeRuntime(host, createMemoryDriverSlots())
+    try {
+      const handle = await runtime.driver.create(spec)
+      const server = host.serverFor(handle.binding.sessionId)!
+      const sessionID = handle.binding.resume!.value
+      server.omitNextPromptRecord()
+      expect(await handle.send({ id: 'msg_lost', text: 'original' }, options)).toMatchObject({ outcome: 'unverified' })
+      expect(server.session(sessionID)!.messages).toEqual([])
+      const binding = handle.binding
+      runtime.forget(binding.sessionId)
+      const adopted = await restarted.driver.adopt(binding)
+      expect(await adopted.send({ id: 'msg_lost', text: 'changed', deliveryRecovery: true }, options)).toMatchObject({ outcome: 'refused' })
+      expect(server.promptCount(sessionID)).toBe(1)
+      expect(await adopted.send({ id: 'msg_lost', text: 'original', deliveryRecovery: true }, options)).toMatchObject({ outcome: 'accepted', transcriptItem: { id: deltaItemIdForPart(sessionID, 'prt_000000000000lost') } })
+      expect(server.lastPrompt(sessionID)).toMatchObject({ messageID: 'msg_lost', parts: [{ type: 'text', id: 'prt_000000000000lost', text: 'original' }] })
+    } finally { runtime.dispose(); restarted.dispose() }
+  })
+
+  it('refuses an old message whose stored text has a different part id', async () => {
+    const host = makeOpencodeTestHost()
+    const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
+    try {
+      const handle = await runtime.driver.create(spec)
+      const server = host.serverFor(handle.binding.sessionId)!
+      const sessionID = handle.binding.resume!.value
+      server.session(sessionID)!.messages.push({
+        info: { id: 'msg_old', sessionID, role: 'user', time: { created: 1 } },
+        parts: [{ id: 'prt_program_minted', sessionID, messageID: 'msg_old', type: 'text', text: 'same' }],
+      })
+      expect(await handle.send({ id: 'msg_old', text: 'same', deliveryRecovery: true }, options)).toMatchObject({ outcome: 'refused', refusal: { reason: 'invalid_value' } })
+      expect(server.promptCount(sessionID)).toBe(0)
+      expect(server.session(sessionID)!.messages[0]!.parts).toHaveLength(1)
     } finally { runtime.dispose() }
   })
 })
