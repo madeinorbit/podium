@@ -136,3 +136,44 @@ Each candidate is WIP-committed and pushed only to
 `ssh://flatblock/home/mgw/podium-timing refs/heads/test-4982` before execution.
 No authenticated agent smoke, model instruction-following, or UI browser drive
 is needed to establish this reader and reconciliation behavior.
+
+**Green candidate: `2e0d31cf8`.** One unfiltered focused command ran the finished
+change and its existing neighboring tests:
+
+```sh
+bun run test:file -- \
+  packages/harness/src/adapters/claude-code/transcript-pasted-content.test.ts \
+  packages/harness/src/adapters/claude-code/transcript.test.ts \
+  packages/harness/src/adapters/claude-code/transcript-prompt-entries.test.ts \
+  packages/harness/src/adapters/claude-code/transcript-receipts.test.ts \
+  packages/harness/src/adapters/claude-code/queued-prompt-turns.test.ts \
+  packages/harness/src/driver/families/terminal/runtime.test.ts \
+  apps/web/src/features/chat/ChatView.test.tsx
+```
+
+| File | Executed tests | Result |
+| --- | ---: | --- |
+| `transcript-pasted-content.test.ts` | 187 | Green |
+| `transcript.test.ts` | 71 | Green |
+| `transcript-prompt-entries.test.ts` | 5 | Green |
+| `transcript-receipts.test.ts` | 14 | Green |
+| `queued-prompt-turns.test.ts` | 12 | Green |
+| terminal `runtime.test.ts` | 251 | Green |
+| `ChatView.test.tsx` | 35 | Green |
+
+The runner reported two sequential groups, zero failures, seven named files:
+**575 focused tests, no skips**. This is a focused result, not the repository
+suite or lean gate. The web lane emitted its existing React `act` environment
+warnings; the actual assertions all executed and passed. No known baseline red
+from POD-4819 occurred in these files.
+
+The fix changes only the shared Claude prompt-text reader. It removes complete
+matching envelopes and their inserted separators, then restores escaped literal
+tags. String, array, and queued-command prompt entries retain their original
+item IDs. Assistant text, tool output, and synthetic-prompt exclusion retain
+their existing behavior. The native receipt frame/order rules and chat pairing
+need no alternate wrapper-specific implementation.
+
+Landing is through the POD-4720 coordinator, fast-forward only onto `dev/mw`
+after operator approval. The issue branch has not been landed; `dev/mw`, `main`,
+and `origin` have not been pushed.
