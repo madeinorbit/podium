@@ -16,24 +16,24 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { harnessMobxPoolArm, snapshotPool, tracked } from '../../../harness/src/adapters/mobx-pool'
+import { harnessMobxPoolArm, snapshotPool, tracked } from '../../../../harness/src/adapters/mobx-pool'
 import {
   engineLocals,
   openFenceFeeds,
   parityLocals,
-} from '../../../harness/src/fence-scenarios'
+} from '../../../../harness/src/fence-scenarios'
 import {
   legacyDerivationFromStore,
   rowViewsFromStore,
   snapshotFromStore,
   visibleIssueRows,
-} from '../../../harness/src/oracle/index'
-import { diffSnapshots } from '../../../shared/src/gen/check'
+} from '../../../../harness/src/oracle/index'
+import { diffSnapshots } from '../../../../shared/src/gen/check'
 import {
   type ScenarioEngine,
   startScenarioEngine,
   upsert,
-} from '../../../shared/src/scenarios'
+} from '../../../../shared/src/scenarios'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { rowViewOf } from '../models'
 
