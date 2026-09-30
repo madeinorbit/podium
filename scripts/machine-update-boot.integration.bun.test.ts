@@ -353,7 +353,7 @@ for (const cancel of [true, false]) {
       for (const name of Object.keys(env))
         if (
           name.startsWith('PODIUM_') ||
-          ['NOTIFY_SOCKET', 'WATCHDOG_USEC', 'INVOCATION_ID'].includes(name)
+          ['NOTIFY_SOCKET', 'WATCHDOG_USEC', 'INVOCATION_ID', 'ABDUCO_SOCKET_DIR'].includes(name)
         )
           delete env[name]
       Object.assign(env, {

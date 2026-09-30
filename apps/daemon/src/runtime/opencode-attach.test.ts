@@ -12,8 +12,8 @@
  * the real attribution function says so.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { OpencodeJournalEntry, SessionBinding } from '@podium/harness/driver/host'
 import {
@@ -1256,10 +1256,11 @@ describe('warm-parking', () => {
    *
    * Every other test here injects `hasMaster`, so none of them touches the
    * default, and the default was once wrong: it read the DAEMON's `HOME` for a
-   * master created under the instance agent home (abduco kept its sockets under
-   * `$HOME`). podium-host keeps them under the instance's host socket root,
-   * which no agent home moves — so a client run with an agent home must be
-   * found exactly where one run without it is.
+   * master created under the instance agent home (abduco keeps its sockets
+   * under `$HOME`; the next block pins that for an adopted abduco client).
+   * podium-host keeps them under the instance's host socket root, which no
+   * agent home moves — so a client run with an agent home must be found
+   * exactly where one run without it is.
    *
    * Driven against the real filesystem and the real `hostSocketPath`, because a
    * fake socket root is the one thing that cannot pin a bug about which socket
@@ -1345,6 +1346,107 @@ describe('warm-parking', () => {
       // The control that gives the rows above their direction: with no master
       // under the label, the probe must say no.
       const { terminals, reclaimed } = subject(agentHome)
+      await terminals.close(SESSION)
+      terminals.adopt(SESSION, 'codex')
+      expect(reclaimed).toEqual([])
+      expect(terminals.reclaimable()).toBe(0)
+    })
+  })
+
+  /**
+   * THE SAME PROBE FOR A PARKED abduco CLIENT AN OLDER PODIUM LEFT (POD-2761,
+   * POD-4986). Nothing creates an abduco master any more, but a customer who
+   * upgrades keeps the parked client masters an older daemon left running, and
+   * the default probe must still find them to adopt or reclaim them.
+   *
+   * The POD-2761 defect is abduco's: the probe read the DAEMON's `HOME` for a
+   * master abduco created under the instance agent home. `abducoSocketDirs`
+   * falls back to `$HOME/.abduco` only when `ABDUCO_SOCKET_DIR` is unset — which
+   * is why a NAMED instance never saw this (`applyInstanceRuntimeEnv` pins that
+   * variable on both sides) and an agent home on the default instance did.
+   *
+   * Driven against the real filesystem and the real `abducoSocketPath`, because
+   * a fake socket root is the one thing that cannot pin a bug about which socket
+   * root gets read. Only `reclaim` is injected, so nothing forks `abduco`.
+   */
+  describe('the default master probe finds a parked abduco client an older Podium left', () => {
+    const realHome = process.env.HOME
+    const realAbducoDir = process.env.ABDUCO_SOCKET_DIR
+    const realHostDir = process.env.PODIUM_HOST_SOCKET_DIR
+    let agentHome: string
+    let daemonHome: string
+    let hostRoot: string
+
+    beforeEach(() => {
+      agentHome = mkdtempSync(join(tmpdir(), 'pod2761-agent-home-'))
+      daemonHome = mkdtempSync(join(tmpdir(), 'pod2761-daemon-home-'))
+      // No live host under the label: only the abduco socket can answer.
+      hostRoot = mkdtempSync(join(tmpdir(), 'pod2761-host-sockets-'))
+      process.env.PODIUM_HOST_SOCKET_DIR = hostRoot
+      // The EXPOSED configuration is the unpinned one. With ABDUCO_SOCKET_DIR
+      // set, both sides resolve one root and `HOME` never enters the answer.
+      delete process.env.ABDUCO_SOCKET_DIR
+      process.env.HOME = daemonHome
+      // A live master, where abduco put one for a client whose HOME is the
+      // agent home. Relative names are stored `<label>@<hostname>`, and a clear
+      // group-execute bit is what abduco writes to mean "not terminated".
+      const dir = join(agentHome, '.abduco')
+      mkdirSync(dir, { recursive: true })
+      const socket = join(dir, `${requireClientTerminalLabel(SESSION, 'codex')}@${hostname()}`)
+      writeFileSync(socket, '')
+      chmodSync(socket, 0o600)
+    })
+
+    afterEach(() => {
+      if (realHome === undefined) delete process.env.HOME
+      else process.env.HOME = realHome
+      if (realAbducoDir !== undefined) process.env.ABDUCO_SOCKET_DIR = realAbducoDir
+      if (realHostDir === undefined) delete process.env.PODIUM_HOST_SOCKET_DIR
+      else process.env.PODIUM_HOST_SOCKET_DIR = realHostDir
+      rmSync(agentHome, { recursive: true, force: true })
+      rmSync(daemonHome, { recursive: true, force: true })
+      rmSync(hostRoot, { recursive: true, force: true })
+    })
+
+    function subject(homeDir?: string) {
+      const reclaimed: string[] = []
+      // The real session-owned scope over the daemon's durable object, whose
+      // probe reaches the abduco adoption adapter. Only the reclaim is recorded.
+      const scope = createSessionClientScope(hostDurable, homeDir ? { homeDir } : undefined)!
+      const clients: ClientProcessOwner = {
+        spawnClient: (opts) => scope.spawnClient(opts),
+        reclaimClient: async (label) => {
+          reclaimed.push(label)
+        },
+        hasClientMaster: (label) => scope.hasClientMaster(label),
+      }
+      const terminals = createOpencodeClientTerminals({
+        sessions: testSessions(),
+        clients,
+        frames: () => {},
+        ...(homeDir ? { homeDir } : {}),
+      })
+      return { terminals, reclaimed }
+    }
+
+    it('reclaims a parked abduco master that lives under the agent home', async () => {
+      const { terminals, reclaimed } = subject(agentHome)
+      await terminals.close(SESSION)
+      expect(reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'codex')])
+    })
+
+    it('adopts that same master back under the server-owned window', () => {
+      const { terminals } = subject(agentHome)
+      terminals.adopt(SESSION, 'codex')
+      expect(terminals.reclaimable()).toBe(1)
+    })
+
+    it('follows homeDir, and is not merely answering yes to everything', async () => {
+      // The control that gives the two rows above their direction. With no agent
+      // home the daemon's own `HOME` IS the right place to look, and there is no
+      // master in it — so the probe must say no. Before the fix both arms said
+      // no, and the master leaked while nothing ever adopted it back.
+      const { terminals, reclaimed } = subject(undefined)
       await terminals.close(SESSION)
       terminals.adopt(SESSION, 'codex')
       expect(reclaimed).toEqual([])

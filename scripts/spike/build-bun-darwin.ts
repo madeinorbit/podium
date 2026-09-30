@@ -4,8 +4,10 @@
  * Not for landing as-is — a minimal fork of scripts/build-bun.ts that:
  *   - takes --target=bun-darwin-arm64 | bun-darwin-x64
  *   - ships the cross-built Rust process host (scripts/rust-host-cross.ts) as
- *     headless/podium-host, as the production bundle does (the spike originally
- *     embedded a prebuilt abduco; both it and the C podium-host are retired)
+ *     headless/podium-host, and embeds the cross-built abduco attach client
+ *     (scripts/abduco-cross.ts; kept only to adopt sessions older releases started),
+ *     as the production bundle does. The spike originally embedded a prebuilt abduco
+ *     from scripts/prebuilt/; the C podium-host is retired.
  *   - skips web/mobile packaging (optional --full-bundle) so the spike can prove
  *     binary+host without rebuilding client dists
  *   - ad-hoc signs the Mach-O with rcodesign + Bun JIT entitlements
@@ -32,6 +34,7 @@ import {
   minTerminalBunVersion,
 } from '../../packages/pty/src/backends/bun-terminal-backend.js'
 import { RUST_HOST_BINARY } from '../../packages/pty/src/host-bin.js'
+import { crossBuildAbduco } from '../abduco-cross.js'
 import { launcherShim } from '../build-bun.js'
 import { crossBuildRustHost } from '../rust-host-cross.js'
 
@@ -91,6 +94,13 @@ function main(): void {
   const rustHost = crossBuildRustHost(headlessPlatform(target), { root })
   console.log(`[spike] ${RUST_HOST_BINARY} <- ${rustHost}`)
 
+  // The Darwin abduco attach client at the fixed path scripts/embedded-abduco.ts
+  // imports: dist-bun/abduco.bin is what the compile-time `with { type: 'file' }` reads.
+  const abduco = crossBuildAbduco(headlessPlatform(target), { root })
+  mkdirSync(`${root}dist-bun`, { recursive: true })
+  cpSync(abduco, `${root}dist-bun/abduco.bin`)
+  console.log(`[spike] embedded abduco <- ${abduco}`)
+
   console.log(`[spike] compiling podium for ${target} (v${version})…`)
   execFileSync(
     'bun',
@@ -145,6 +155,7 @@ function main(): void {
       `bun-version: ${bunVersion()}`,
       `version: ${version}`,
       `host: ${RUST_HOST_BINARY} (scripts/rust-host-cross.ts, ${headlessPlatform(target)})`,
+      `abduco: embedded attach client (scripts/abduco-cross.ts, ${headlessPlatform(target)})`,
       `sign: rcodesign sign --entitlements-xml-file scripts/spike/bun-jit.entitlements.plist`,
       `full-bundle: ${fullBundle}`,
       '',

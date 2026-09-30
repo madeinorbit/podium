@@ -5,6 +5,8 @@ import { ptySmokeTests } from './vitest.smoke-requirements'
 /** Process suites whose filenames do not identify their integration scope. */
 export const processIntegrationTests = [
   'packages/pty/test/session.test.ts',
+  // Compiles the vendored abduco attach client.
+  'packages/pty/src/abduco-bin.test.ts',
   ...ptySmokeTests,
   'apps/daemon/src/daemon.test.ts',
   'apps/daemon/src/daemon.port-conflict.test.ts',

@@ -1,8 +1,9 @@
 # podium-host (Rust)
 
 The durable process host behind every podium session on Linux and macOS (SPEC-6,
-POD-3190 artifact #31), and since POD-4986 the only one Podium spawns. Nothing needs a
-C compiler. `packages/pty/src/host-bin.ts` resolves the binary for every new spawn:
+POD-3190 artifact #31), and since POD-4986 the only one Podium spawns. Building it
+needs no C compiler. `packages/pty/src/host-bin.ts` resolves the binary for every new
+spawn:
 
 1. `PODIUM_HOST_BIN`, when set. It must answer `version` as a podium-host at feature
    level 2, or resolution fails loudly and never falls back.
@@ -14,8 +15,9 @@ C compiler. `packages/pty/src/host-bin.ts` resolves the binary for every new spa
 
 Otherwise the daemon refuses every spawn with a diagnostic; there is no fallback host.
 
-It began as a port of the C host, `packages/pty/vendor/podium-host/host.c`, which was
-the shipped host until POD-4986 removed it from the tree (the source is in git history).
+It began as a port of the C host, `host.c`, which was the shipped host until POD-4986
+removed it from the tree (it lived in this same directory, `packages/pty/vendor/podium-host/`,
+before this crate took its place; the source is in git history).
 It keeps host.c's command line, wire protocol and exit codes, apart from the differences
 below. A C host an older daemon started is still adopted until its session exits: both
 speak the one protocol in `packages/pty/src/host.ts`, and only new spawns choose a

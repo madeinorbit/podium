@@ -19,11 +19,11 @@ remote terminal rendered black. A Bun too old fails loudly at startup.
 
 `PODIUM_PTY_BACKEND=bun-terminal` may pin the only supported backend.
 
-### Durable host — `src/host.ts`, `src/host-bin.ts`, `src/durable-process.ts`, `src/scope.ts`
+### Durable host — `src/host.ts`, `src/host-bin.ts`, `src/durable-process.ts`, `src/scope.ts`, `src/abduco.ts`
 
 A durable host is what makes a session survive the daemon. On Linux and macOS it is
 podium-host, the Rust crate in `vendor/podium-host/` — the only host Podium spawns
-(POD-4986); no C compiler is involved in building or releasing it. `resolveHostBin()`
+(POD-4986); building or releasing it needs no C compiler. `resolveHostBin()`
 picks the binary for a new spawn: `$PODIUM_HOST_BIN` (must answer `version` at feature
 level `HOST_FEATURES` = 2, else resolution fails), then a release's `podium-host`
 beside `podium-cli`, then — in a source checkout — the crate built with cargo on first
@@ -40,12 +40,24 @@ Production daemon code reaches a host only through `DurableProcess`
 creation and listing never block the interactive loop; the
 `durable-host-sync-async-twins` deletion-audit item guards this boundary at zero.
 
-Adoption is by socket, not by binary: a session a C host started by an older daemon is
-still located and adopted until it exits, because both hosts speak the one protocol in
-`src/host.ts`. A session an abduco master holds cannot be re-adopted — abduco is no
-longer built or shipped — so `src/legacy-abduco.ts` logs it once by label and leaves
-its process alone. `ABDUCO_SOCKET_DIR`, `PODIUM_ABDUCO` and the daemon's
-`--backend abduco` are gone.
+What already runs is adopted, never restarted. A session a C host started by an older
+daemon is located and attached like any other, because both hosts speak the one protocol
+in `src/host.ts`: adoption is by socket, not by binary. Every release before POD-4986 ran
+its sessions on abduco, and those are adopted too: nothing spawns on abduco any more,
+but `createDurableProcess()` carries an adoption-only `abducoAdoptionAdapter()` next to
+the host, so locate probes the host's directory first and abduco's second, the census
+lists both, and attach, has and kill work (`attachAbducoAgent`, `abducoHasSession`,
+`killAbducoSession`, `listLiveAbducoLabels` in `src/abduco.ts`); its create paths refuse.
+Attaching needs the abduco attach client, the vendored `vendor/abduco/` kept only to adopt
+sessions started by older releases: `resolveAbducoBin()` (`src/abduco-bin.ts`) prefers
+`$PODIUM_ABDUCO`, then `abduco` on PATH, then a cached build, then compiles the vendored
+source with the system C compiler on first need — the one thing a dev machine still needs
+`cc` for, until a native TypeScript client replaces it — and releases keep shipping the
+client prebuilt. A named instance still pins `ABDUCO_SOCKET_DIR`, so its abduco sessions
+are found where the older daemon put them. Only where no abduco client can be had does
+`src/legacy-abduco.ts` log the session once by label and leave its process alone. The
+daemon's `--backend abduco` and `PODIUM_DURABLE_BACKEND=abduco` are ignored with a
+warning.
 
 On Linux each host is additionally wrapped in a transient `systemd-run --user --scope`
 (`src/scope.ts`) so a redeploy's cgroup kill cannot reach it and an agent's CPU/IO

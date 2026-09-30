@@ -4,12 +4,20 @@ Upstream: https://github.com/martanne/abduco @ 8c32909 (v0.6, ISC license — se
 
 abduco provides session {at,de}tach support: a daemonized master holds the
 application's PTY and pipes bytes transparently (no grid, no copy-mode, no status
-chrome). podium uses it as the durable PTY backend so agent sessions survive
-daemon restarts while xterm.js stays the only terminal emulator in the stack.
+chrome). Every podium release before POD-4986 ran its sessions in abduco masters.
+Nothing starts one any more — new sessions run on podium-host
+(`../podium-host`) — and this source is kept ONLY as the attach client for
+ADOPTING sessions an older release started: the daemon attaches, lists and
+kills those masters through it (`src/abduco.ts`, `abducoAdoptionAdapter` in
+`src/durable-process.ts`), so an upgraded machine keeps every running session.
+Releases keep shipping the client prebuilt. A later issue replaces it with a
+native TypeScript implementation of abduco's socket protocol and then deletes
+this directory.
 
 The build is a single translation unit (abduco.c #includes the rest);
-src/abduco-bin.ts compiles it on demand with the same flags as the upstream
+src/abduco-bin.ts compiles it on first need with the same flags as the upstream
 Makefile and caches the binary under $PODIUM_STATE_DIR/bin (else ~/.podium/bin).
+That is the only C a source checkout still compiles.
 config.h is upstream's config.def.h verbatim.
 
 Local changes:

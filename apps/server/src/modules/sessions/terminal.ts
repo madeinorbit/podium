@@ -269,9 +269,9 @@ export class SessionTerminal {
    * Written by a forward, and by a bind (set to the size the bind carries, or
    * cleared by a bind that carries none). It is what makes a repeat free: a
    * reveal, a rebind or a controller change forwards only a box that differs
-   * from it. It exists for a backend that signals the child on every resize
-   * packet, same size or not: vendored abduco did, and a daemon older than
-   * POD-4986 may still hold abduco sessions.
+   * from it. It exists for the backends that are not the host: vendored abduco
+   * signals the child on every resize packet, same size or not, and every
+   * session an older Podium started on abduco is still adopted (POD-4986).
    */
   private lastForwarded: Geometry | undefined
   /**

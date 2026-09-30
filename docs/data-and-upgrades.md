@@ -16,7 +16,7 @@ Podium keeps all of its state in one directory: **`~/.podium`** by default, or
 | `logs/` | stdout/stderr of components launched in detached mode. |
 | `daemon.json` | The daemon's stable machine identity (a UUID minted once) plus its pairing token, for daemons joined to a remote server. |
 | `daemon.secret` | Owner-only (0600) shared secret that lets the same-host `podium-daemon` process authenticate to `podium-server` without pairing. Don't delete it while a daemon is running. |
-| `bin/` | Left by versions before POD-4986, which compiled or unpacked the `abduco` session helper and the C podium-host here. Nothing current writes it: the durable session host ships as `podium-host` beside the `podium` CLI in the installed bundle. |
+| `bin/` | The `abduco` attach client, compiled or unpacked on first need. It is kept only to adopt sessions an older release started on abduco; new sessions run on podium-host, which ships beside the `podium` CLI in the installed bundle. A `bin/podium-host` here is the retired C host an older version unpacked; nothing current uses it. |
 | `hooks/` | Per-session hook plumbing the daemon injects into agent CLIs. |
 | `uploads/` | Files you attach/upload into sessions, grouped per session id. |
 

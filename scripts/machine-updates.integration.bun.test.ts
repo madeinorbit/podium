@@ -226,7 +226,7 @@ class Group {
     for (const [key, value] of Object.entries(process.env))
       if (
         !key.startsWith('PODIUM_') &&
-        !['NOTIFY_SOCKET', 'WATCHDOG_USEC', 'INVOCATION_ID'].includes(key)
+        !['NOTIFY_SOCKET', 'WATCHDOG_USEC', 'INVOCATION_ID', 'ABDUCO_SOCKET_DIR'].includes(key)
       )
         env[key] = value
     Object.assign(env, {

@@ -38,6 +38,7 @@ export function rehearsalEnvironment(root: string): NodeJS.ProcessEnv {
     PODIUM_TRANSCRIPT_LAKE: 'off',
     PODIUM_NO_RELAY: '1',
     PODIUM_NO_SCOPE: '1',
+    ABDUCO_SOCKET_DIR: join(root, 'abduco'),
   }
 }
 
@@ -101,7 +102,7 @@ export async function rehearse(sourceArg: string, outputArg?: string): Promise<s
   if (outputArg && existsSync(root)) throw new Error('output directory must not exist')
   mkdirSync(root, { recursive: true, mode: 0o700 })
   const env = rehearsalEnvironment(root)
-  for (const name of ['home', 'tmp', 'runtime', 'cache', 'config', 'data', 'xdg-state']) mkdirSync(join(root, name), { mode: 0o700 })
+  for (const name of ['home', 'tmp', 'runtime', 'cache', 'config', 'data', 'xdg-state', 'abduco']) mkdirSync(join(root, name), { mode: 0o700 })
   copyRehearsalState(source, join(root, 'state'))
   console.log(`Rehearsal copy: ${root}`)
   const child = spawn(process.execPath, ['--conditions=@podium/source', SCRIPT, '--boot'], { cwd: ROOT, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })

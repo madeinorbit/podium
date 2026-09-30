@@ -105,7 +105,7 @@ function installation(name: string) {
     Object.entries(process.env).filter(
       ([key]) =>
         !key.startsWith('PODIUM_') &&
-        !['NOTIFY_SOCKET', 'WATCHDOG_USEC', 'INVOCATION_ID'].includes(key),
+        !['NOTIFY_SOCKET', 'WATCHDOG_USEC', 'INVOCATION_ID', 'ABDUCO_SOCKET_DIR'].includes(key),
     ),
   )
   Object.assign(env, {

@@ -199,7 +199,7 @@ export class SessionMachineReconciler {
       if (s.machineId !== machineId || s.headless || s.archived) continue
       if (s.status !== 'hibernated') continue
       if (!live.has(s.durableLabel)) continue
-      // The census MEASURED a live podium-host under this row's label —
+      // The census MEASURED a live durable host under this row's label —
       // an identity a server-family session never has — so this caller may
       // bypass the server-family hold below: the reattach it triggers is the
       // passive PTY bind, never a spawning adopt.
@@ -225,7 +225,7 @@ export class SessionMachineReconciler {
     machineId: MachineId,
     reason: string,
     opts: {
-      /** The CALLER measured a live podium-host under this row's label —
+      /** The CALLER measured a live durable host under this row's label —
        *  an identity no server-family session ever has — so the reattach this
        *  revive triggers is the passive PTY bind. Only the census can say it. */
       measuredPtyHost?: boolean
@@ -264,7 +264,7 @@ export class SessionMachineReconciler {
      * THE TWO WRONG ANSWERS ARE NOT SYMMETRIC, which is what makes folding
      * "unknown" into the hold safe. Hold a row that did have a PTY and it stays
      * parked behind the warn — and the census still repairs it, because it
-     * measures the podium-host itself and says so via `opts.measuredPtyHost`.
+     * measures the durable host itself and says so via `opts.measuredPtyHost`.
      * Revive a row whose reattach is a spawning `adopt()` and there is a second
      * credentialed child, once per receipt, unbounded. Fail toward the park.
      *

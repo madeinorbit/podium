@@ -13,7 +13,8 @@ export interface ProcSample {
 }
 
 /** How to find a session's processes: its attach/PTY pid, and the durable label
- *  that the podium-host master (not a daemon child!) carries in its cmdline. */
+ *  that the podium-host master — or an adopted abduco master — (not a daemon
+ *  child!) carries in its cmdline. */
 export interface SessionProcessHint {
   sessionId: SessionId
   label: string

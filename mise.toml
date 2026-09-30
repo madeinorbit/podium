@@ -1,12 +1,14 @@
 # Runtime and build toolchain pins — the ONE place these versions are spelled.
 #
 # zig links the cross-built Rust binaries through cargo-zigbuild (the process host,
-# scripts/rust-host-cross.ts, and podium-tunnel, scripts/tunnel-cross.ts) and rcodesign re-signs
-# Darwin Mach-Os with Bun's JIT entitlements (scripts/build-bun.ts). Both change the bytes
-# a release ships, so they are pinned; scripts/tool-pins.ts reads this file and
-# resolveZig/resolveRcodesign refuse a mismatched local install. CI installs from this
-# file too (jdx/mise-action in .github/workflows/release.yml), so a bump here is the
-# whole bump — re-run the Darwin assertions when you make one.
+# scripts/rust-host-cross.ts, and podium-tunnel, scripts/tunnel-cross.ts), cross-compiles
+# the abduco attach client kept to adopt sessions older releases started
+# (scripts/abduco-cross.ts), and rcodesign re-signs Darwin Mach-Os with Bun's JIT
+# entitlements (scripts/build-bun.ts). Both change the bytes a release ships, so they
+# are pinned; scripts/tool-pins.ts reads this file and resolveZig/resolveRcodesign
+# refuse a mismatched local install. CI installs from this file too (jdx/mise-action in
+# .github/workflows/release.yml), so a bump here is the whole bump — re-run the Darwin
+# assertions when you make one.
 #
 # pigz is here for INSTALL convenience, not enforcement: it parallelises release-tarball
 # compression (scripts/parallel-gzip.ts) but stays optional at build time — a host without

@@ -1,18 +1,24 @@
 /**
- * THE COUNTER OVER A REAL BACKEND (POD-4888): a real podium-host whose writer
- * lease is stolen, and a second real attachment that never held the lease,
- * each held by the daemon's Terminal on a session entry exactly as
+ * THE COUNTER OVER REAL BACKENDS (POD-4888): a real podium-host whose writer
+ * lease is stolen, a second real attachment that never held the lease, and a
+ * real abduco master an older Podium started (adopted, never created —
+ * POD-4986), each held by the daemon's Terminal on a session entry exactly as
  * `wireBridge` holds them.
  */
 
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import {
   attachHostAgent,
+  createDurableProcess,
   type DurableAttachment,
+  isAbducoAvailable,
+  killAbducoSession,
   killHostSession,
+  resolveAbducoBin,
   resolveHostBin,
   spawnHostAgent,
 } from '@podium/process/durable'
@@ -22,11 +28,16 @@ import { Terminal } from './terminal.js'
 
 /** A Rust podium-host: $PODIUM_HOST_BIN, the release payload, or a checkout build. */
 const hasHost = resolveHostBin() !== undefined
+/** The abduco client adoption attaches with (vendored, built on first use). */
+const hasAbducoClient = isAbducoAvailable()
 
-const ENV_KEYS = ['PODIUM_STATE_DIR', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_NO_SCOPE']
+const ENV_KEYS = ['PODIUM_STATE_DIR', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_NO_SCOPE', 'ABDUCO_SOCKET_DIR']
 const saved: Record<string, string | undefined> = {}
 let root = ''
+/** abduco's socket path must fit sun_path (107 bytes), so its root stays short. */
+let sockRoot = ''
 const hostLabels: string[] = []
+const abducoLabels: string[] = []
 const attachments: DurableAttachment[] = []
 
 /**
@@ -53,6 +64,8 @@ beforeAll(() => {
   process.env.PODIUM_STATE_DIR = join(root, 'state')
   process.env.PODIUM_HOST_SOCKET_DIR = join(root, 'sock')
   process.env.PODIUM_NO_SCOPE = '1'
+  sockRoot = mkdtempSync('/tmp/fw-')
+  process.env.ABDUCO_SOCKET_DIR = sockRoot
 })
 
 afterEach(async () => {
@@ -64,6 +77,7 @@ afterEach(async () => {
     }
   }
   for (const l of hostLabels.splice(0)) await killHostSession(l).catch(() => {})
+  for (const l of abducoLabels.splice(0)) await killAbducoSession(l).catch(() => {})
 })
 
 afterAll(() => {
@@ -72,6 +86,7 @@ afterAll(() => {
     else process.env[k] = v
   }
   if (root) rmSync(root, { recursive: true, force: true })
+  if (sockRoot) rmSync(sockRoot, { recursive: true, force: true })
 })
 
 describe.skipIf(!hasHost)('the foreign-write counter over a real podium-host (POD-4888)', () => {
@@ -141,4 +156,36 @@ describe.skipIf(!hasHost)('the foreign-write counter over a real podium-host (PO
     owned.terminal?.write(new TextEncoder().encode('y'))
     expect(sessions.foreignWrites(sessionId)).toBe(start + 1)
   }, 30_000)
+
+  it.skipIf(!hasAbducoClient)(
+    'an adopted abduco session: never order-trustworthy, since any `abduco -a` client writes unseen',
+    async () => {
+      const label = freshLabel('fw-')
+      abducoLabels.push(label)
+      // Created the way an older Podium did — the abduco binary itself; nothing
+      // in Podium creates one any more.
+      execFileSync(resolveAbducoBin() as string, ['-n', label, 'sleep', '30'], {
+        env: process.env,
+        stdio: 'ignore',
+      })
+      const located = await createDurableProcess().locate(label, process.env, { waitMs: 5000 })
+      expect(located?.adapter.kind).toBe('abduco')
+      const { attachment } = await located!.adapter.attach({
+        label,
+        socketPath: located!.socketPath,
+        lastKnownGeometry: { cols: 80, rows: 24 },
+      })
+      attachments.push(attachment)
+      const sessions = new SessionRegistry()
+      const sessionId = asSessionId('fw-abduco')
+      const owned = sessions.ensure(sessionId)
+      owned.replaceTerminal(Terminal.attach(attachment, owned, { onFrame: () => {} }))
+      expect(sessions.orderTrustworthy(sessionId)).toBe(false)
+      // Still counted: the count is kept whatever the backend.
+      const start = sessions.foreignWrites(sessionId)
+      owned.terminal?.write(new TextEncoder().encode('y'))
+      expect(sessions.foreignWrites(sessionId)).toBe(start + 1)
+    },
+    30_000,
+  )
 })

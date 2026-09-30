@@ -1,10 +1,8 @@
 /**
  * One-shot, split-safe strip of the alt-screen chrome the abduco client prints.
  *
- * MOVED from `packages/pty/src/abduco.ts` (`createAltScreenStripper`): a title/
- * alt-screen is output interpretation, so it belongs in `./screen` (P2c). The
- * implementation is verbatim; `abduco.ts` keeps re-exporting it so the move
- * changes no importer, and the screen door is its canonical home.
+ * Used only by the abduco attach client (`./abduco.ts`), which adopts sessions
+ * older Podium releases started (POD-4986); it goes with that client.
  */
 
 const ATTACH_CHROME = Buffer.from('\x1b[?1049h\x1b[H', 'latin1')

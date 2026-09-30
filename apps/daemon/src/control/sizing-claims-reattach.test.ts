@@ -2,11 +2,13 @@
  * SIZING PLAN ASSUMPTION TESTS — C16, daemon half (POD-3235, SPEC-0b.md rev 2;
  * rewritten for POD-3279's rule 1 rev 4).
  *
- * Its own file because it must mock `@podium/process/durable` and
- * `@podium/process/host` at module scope: the claim is
- * about what the reattach handler does AROUND the durable attach, so the attach
- * itself is stubbed and the real handler runs. (The other half of C16 was
- * abduco's `repaintOnAttach`; abduco is gone since POD-4986.)
+ * Its own file because it must mock `@podium/process/durable`,
+ * `@podium/process/host` and `@podium/process/abduco` at module scope: the claim
+ * is about what the reattach handler does AROUND the durable attach, so the
+ * attach itself is stubbed and the real handler runs. The abduco half of C16
+ * (`repaintOnAttach` defaulting to true) is executed for real against a vendored
+ * abduco in `packages/pty/src/abduco-winsize.integration.test.ts`; abduco
+ * sessions an older Podium started are adopted, never created (POD-4986).
  *
  * WHAT CHANGED AT STAGE 3: the bind used to carry `msg.geometry` back, which was
  * the server's own last-known returned to it as a daemon report. A size-neutral
@@ -15,11 +17,13 @@
  * may therefore report. The redraw half of the original claim is unchanged.
  *
  * WHAT CHANGED AT STAGE 4 (POD-3276): last-known no longer reaches the attach as
- * a `cols`/`rows` it could apply.
+ * a `cols`/`rows` it could apply — for an adopted abduco session only as
+ * `fallbackGeometry`, read on the one path where there is no `-N` abduco build.
  *
  * WHAT CHANGED WITH POD-4723 (design rev 3): the bind carries the CONNECTION's
  * size — what the host's WELCOME read back from the kernel — and nothing else;
- * a connection that reports no size binds bare. There is no held resize to
+ * a connection that reports no size binds bare, and abduco cannot read its size
+ * back, so an adopted abduco session binds bare. There is no held resize to
  * dispatch at bind, and the reattach never nudges the program: no redraw, no
  * resize, no Ctrl-L.
  */
@@ -43,6 +47,8 @@ const stub = vi.hoisted(() => {
     attachedAt: [] as unknown[],
     /** The size the host's WELCOME read back from the kernel; unset = none reported. */
     size: undefined as { cols: number; rows: number } | undefined,
+    /** Which kind holds the label: a podium-host, or an abduco master an older Podium started. */
+    holder: 'host' as 'host' | 'abduco',
   }
   const session = {
     pid: 4321,
@@ -65,9 +71,9 @@ const stub = vi.hoisted(() => {
   }
   const SOCKET = '/tmp/podium-sizing-claims-reattach.sock'
   const hostLeaves = {
-    hostHasSession: async () => true,
+    hostHasSession: async () => state.holder === 'host',
     hostSocketPath: () => SOCKET,
-    liveHostSocket: async () => SOCKET,
+    liveHostSocket: async () => (state.holder === 'host' ? SOCKET : undefined),
     listLiveHostLabels: async () => [],
     attachHostAgent: (opts: unknown) => {
       state.attachedAt.push(opts)
@@ -77,7 +83,20 @@ const stub = vi.hoisted(() => {
     spawnHostAgent: async () => session,
     waitForHostSocket: async () => SOCKET,
   }
-  return { state, session, hostLeaves }
+  const abducoLeaves = {
+    abducoHasSession: async () => state.holder === 'abduco',
+    abducoSocketPath: () => (state.holder === 'abduco' ? SOCKET : undefined),
+    attachAbducoAgent: (opts: unknown) => {
+      state.attachedAt.push(opts)
+      return session
+    },
+    isAbducoAvailable: () => true,
+    killAbducoSession: async () => {},
+    listLiveAbducoLabels: () => [],
+    reapStaleAbducoBindTemps: () => [],
+    waitForAbducoSocket: async () => SOCKET,
+  }
+  return { state, session, hostLeaves, abducoLeaves }
 })
 
 vi.mock('@podium/process/durable', async (importOriginal) => {
@@ -87,7 +106,7 @@ vi.mock('@podium/process/durable', async (importOriginal) => {
   // whole-module stub hides durableProcessFor, the handler finds no durable
   // process and answers reattachFailed without ever building the bind frame.
   const actual = await importOriginal<typeof import('@podium/process/durable')>()
-  return { ...actual, ...stub.hostLeaves }
+  return { ...actual, ...stub.hostLeaves, ...stub.abducoLeaves }
 })
 
 // The REAL host adapter kept real by the spread above reaches its leaves
@@ -104,6 +123,14 @@ vi.mock('@podium/process/host', async (importOriginal) => {
   return { ...actual, ...stub.hostLeaves }
 })
 
+// Same for the abduco adoption adapter, which reaches its leaves through
+// `./abduco.js`; the real adapter adds sizeNeutral/fallbackGeometry itself on its
+// way down to the stubbed attachAbducoAgent.
+vi.mock('@podium/process/abduco', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/process/durable')>()
+  return { ...actual, ...stub.abducoLeaves }
+})
+
 const { sessionHandlers } = await import('./session')
 const { createTerminalRuntime } = await import('@podium/harness/driver/host')
 const { daemonRuntimeHost } = await import('../runtime/host')
@@ -117,6 +144,7 @@ function reset(): void {
   stub.state.resizes.length = 0
   stub.state.attachedAt.length = 0
   stub.state.size = undefined
+  stub.state.holder = 'host'
 }
 
 function reattachMessage() {
@@ -204,6 +232,31 @@ describe('C16 (rev 3): a reattach binds the connection size and never touches th
       socketPath: '/tmp/podium-sizing-claims-reattach.sock',
       requireLease: true,
       fromSeq: 'tail',
+    })
+    expect(stub.state.attachedAt[0]).not.toHaveProperty('cols')
+    expect(stub.state.attachedAt[0]).not.toHaveProperty('rows')
+  })
+
+  it('binds BARE for an adopted abduco session: the attach is size-neutral, last-known only a fallback', async () => {
+    reset()
+    stub.state.holder = 'abduco'
+    const sent: Array<{ type: string; resizesBefore: number }> = []
+    const ctx = ctxFor(sent)
+
+    await sessionHandlers.reattach(ctx, reattachMessage())
+    await new Promise((r) => setTimeout(r, 0))
+
+    const bind = sent.find((m) => m.type === 'bind') as BindFrame | undefined
+    expect(bind).toBeDefined()
+    expect(bind).not.toHaveProperty('geometry')
+    expect(stub.state.resizes).toEqual([])
+    expect(stub.state.writes).toBe(0)
+    // The attach is SIZE-NEUTRAL: last-known reaches it only as
+    // `fallbackGeometry`, never as a `cols`/`rows` it could apply.
+    expect(stub.state.attachedAt).toHaveLength(1)
+    expect(stub.state.attachedAt[0]).toMatchObject({
+      sizeNeutral: true,
+      fallbackGeometry: { cols: 132, rows: 43 },
     })
     expect(stub.state.attachedAt[0]).not.toHaveProperty('cols')
     expect(stub.state.attachedAt[0]).not.toHaveProperty('rows')

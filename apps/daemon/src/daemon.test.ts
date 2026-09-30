@@ -35,15 +35,21 @@ import {
   encodeDaemonMessage as protocolEncode,
 } from '@podium/protocol/daemon'
 import {
+  abducoHasSession,
   directPtyDurableForTests,
   hostHasSession,
+  isAbducoAvailable,
   isHostAvailable,
+  killAbducoSession,
   killHostSession,
   listLiveHostLabels,
+  reapAbducoTestSessions,
+  resolveAbducoBin,
+  waitForAbducoSocket,
 } from '@podium/process/durable'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
 import type { DaemonContext } from './control/context'
 import { launchServerDriverSession, sessionHandlers, stopSessionProcess } from './control/session'
@@ -2076,7 +2082,8 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
   it('a FRESH daemon reattaching at a stale geometry leaves the running agent where it is', async () => {
     // A daemon that restarts comes back believing whatever the server last
     // recorded. That belief is not an observation of the agent, and the attach of
-    // abduco (the durable host before POD-4986) used to make it one: the client
+    // abduco (the durable host before POD-4986; its running sessions are still
+    // adopted, size-neutrally) used to make it one: the client
     // announced its size on connect and the master signalled the program on every
     // packet, so a reconnect resized a running agent to a number nobody asked
     // for [spec:SP-6144]. The attach is
@@ -2490,6 +2497,220 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
       expect(await hostHasSession(label)).toBe(false)
     } finally {
       await killHostSession(label)
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  }, 20000)
+})
+
+/**
+ * RUNNING abduco SESSIONS ARE ADOPTED, NEVER CREATED (POD-4986).
+ *
+ * Every Podium release before POD-4986 ran its sessions on abduco, and a
+ * customer who upgrades must keep every one of them. Nothing in the daemon can
+ * create an abduco session any more, so each case here creates one the way an
+ * older Podium did — the abduco binary itself, `abduco -n <label> <cmd>` — under
+ * a private SHORT socket root, and then drives a daemon on the host backend
+ * against it.
+ */
+describe.skipIf(!isAbducoAvailable() || !isHostAvailable())('daemon adopts a running abduco session', () => {
+  const savedSocketDir = process.env.ABDUCO_SOCKET_DIR
+  let socketRoot = ''
+  beforeAll(() => {
+    // Short and private: abduco composes `<root>/abduco/<user>/<label>@<host>`
+    // into a sun_path, and a session here must never land in a live root.
+    socketRoot = mkdtempSync('/tmp/pdab-')
+    process.env.ABDUCO_SOCKET_DIR = socketRoot
+  })
+  afterAll(async () => {
+    await reapAbducoTestSessions([/^podium-ab-(?:mixed|noexit)-(\d+)$/])
+    if (savedSocketDir === undefined) delete process.env.ABDUCO_SOCKET_DIR
+    else process.env.ABDUCO_SOCKET_DIR = savedSocketDir
+    if (socketRoot) rmSync(socketRoot, { recursive: true, force: true })
+  })
+
+  /** What an older Podium's spawn left running: a detached abduco master. */
+  async function startAbducoSessionLikeAnOlderPodium(label: string): Promise<void> {
+    const bin = resolveAbducoBin()
+    if (!bin) throw new Error('no abduco binary')
+    execFileSync(bin, ['-n', label, process.execPath, FIXTURE], { env: process.env, stdio: 'ignore' })
+    await waitForAbducoSocket(label, process.env, { timeoutMs: 5000 })
+  }
+
+  it(
+    'MIXED FLEET (SPEC-6 item 14): a session an older Podium created under abduco reattaches onto a host-backend daemon',
+    async () => {
+      const sessionId = asSessionId(`ab-mixed-${process.pid}`)
+      const label = `podium-${sessionId}`
+      const wss = new WebSocketServer({ port: 0 })
+      await new Promise<void>((r) => wss.once('listening', () => r()))
+      const port = (wss.address() as { port: number }).port
+      const received: DaemonMessage[] = []
+      let serverSocket!: WS
+      const connected = new Promise<void>((r) => {
+        wss.once('connection', (ws) => {
+          serverSocket = ws
+          handshakeAndCollect(ws, received)
+          r()
+        })
+      })
+      const waitFor = async (fn: () => boolean, timeout = 8000): Promise<void> => {
+        const startedAt = Date.now()
+        while (!fn()) {
+          if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+          await new Promise((r) => setTimeout(r, 20))
+        }
+      }
+      const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
+      const painted = (): string =>
+        received
+          .filter(
+            (m): m is Extract<DaemonMessage, { type: 'agentFrameBatch' }> =>
+              m.type === 'agentFrameBatch' && m.sessionId === sessionId,
+          )
+          .flatMap((m) => m.frames.map((f) => decode(f)))
+          .join('')
+
+      await startAbducoSessionLikeAnOlderPodium(label)
+      expect(await abducoHasSession(label)).toBe(true)
+      let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined
+      try {
+        // The machine upgraded while the session was alive under abduco.
+        daemon = await startDaemon({
+          serverUrl: `ws://localhost:${port}`,
+          machineToken: 'test',
+          agentRelay: { port: 0 },
+          discovery: { background: false, cachePath: ':memory:' },
+          hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
+          backend: 'host',
+          launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+        })
+        await connected
+        send({
+          type: 'reattach',
+          sessionId,
+          durableLabel: label,
+          agentKind: 'claude-code',
+          cwd: '/tmp',
+          lastKnownGeometry: G,
+        })
+        await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+        expect(received.some((m) => m.type === 'reattachFailed')).toBe(false)
+        // It came back through the abduco adoption adapter — and behaves as an
+        // abduco session: an attach client that cannot read the size back.
+        const bind = received.find((m) => m.type === 'bind' && m.sessionId === sessionId) as Extract<
+          DaemonMessage,
+          { type: 'bind' }
+        >
+        expect(bind.cmd).toContain('abduco -a')
+        expect(bind).not.toHaveProperty('geometry')
+        received.length = 0
+        send({ type: 'resize', sessionId, cols: 120, rows: 45 })
+        await waitFor(() => painted().includes('cols=120 rows=45'))
+      } finally {
+        await daemon?.close()
+        await killAbducoSession(label)
+        await new Promise<void>((r) => wss.close(() => r()))
+      }
+    },
+    40000,
+  )
+
+  it('does NOT report agentExit when the attach client of an adopted abduco session dies but the master survives', async () => {
+    // Regression: a backend restart (disposeAll), a user detach, or a client crash
+    // all kill an adopted session's abduco ATTACH CLIENT. The master + agent live
+    // on, so the daemon must stay silent — a stray agentExit makes the relay
+    // persist a LIVE session as 'exited' and orphan the still-running agent (boot
+    // never reattaches an 'exited' row). Only a vanished master is a real exit. We
+    // reproduce the client death directly (SIGKILL the `abduco -a` process) while
+    // the daemon's control channel stays open, so any wrongful agentExit is
+    // observable.
+    const sessionId = asSessionId(`ab-noexit-${process.pid}`)
+    const label = `podium-${sessionId}`
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+
+    const received: DaemonMessage[] = []
+    let serverSocket!: WS
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        serverSocket = ws
+        handshakeAndCollect(ws, received)
+        r()
+      })
+    })
+
+    await startAbducoSessionLikeAnOlderPodium(label)
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      machineToken: 'test',
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
+      agentRelay: { port: 0 },
+      backend: 'host',
+      discovery: { background: false, cachePath: ':memory:' },
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+    })
+    await connected
+
+    const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
+    const waitFor = async (fn: () => boolean, timeout = 5000): Promise<void> => {
+      const startedAt = Date.now()
+      while (!fn()) {
+        if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    }
+
+    try {
+      send({
+        type: 'reattach',
+        sessionId,
+        durableLabel: label,
+        agentKind: 'claude-code',
+        cwd: '/tmp',
+        lastKnownGeometry: G,
+      })
+      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      expect(await abducoHasSession(label)).toBe(true)
+      received.length = 0
+
+      // Kill ONLY the attach client, not the master (`abduco -n <label> …`). The
+      // client is `abduco …-a <label>` once exec'd, or briefly `sh -c '…-a "$0"'
+      // <label>` before that — so identify it as "matches the label but is not the
+      // master." Its onExit fires while the daemon's control channel is open.
+      let listing = ''
+      try {
+        listing = execFileSync('pgrep', ['-af', '--', label], { encoding: 'utf8' })
+      } catch {
+        // pgrep exits 1 when nothing matches; the length check below says so.
+      }
+      const clientPids = listing
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        // The client cmdline contains "abduco" (the `sh -c 'exec …abduco…'` form
+        // before exec, the `abduco …-a <label>` form after). This excludes the
+        // master (`abduco -n <label>`).
+        .filter((line) => line.includes('abduco') && !line.includes(`-n ${label}`))
+        .map((line) => Number(line.split(/\s+/)[0]))
+        .filter((p) => Number.isInteger(p) && p !== process.pid)
+      expect(clientPids.length).toBeGreaterThan(0)
+      for (const p of clientPids) {
+        try {
+          process.kill(p, 'SIGKILL')
+        } catch {
+          // already gone — fine
+        }
+      }
+
+      // Give a generous window for a (wrongful) agentExit to arrive over the open
+      // channel, then assert the master is still alive and the daemon stayed silent.
+      await new Promise((r) => setTimeout(r, 1000))
+      expect(await abducoHasSession(label)).toBe(true)
+      expect(received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId)).toBe(false)
+    } finally {
+      await killAbducoSession(label)
+      await daemon.close()
       await new Promise<void>((r) => wss.close(() => r()))
     }
   }, 20000)

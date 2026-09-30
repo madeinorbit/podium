@@ -48,7 +48,8 @@ Duplicate selectors and invalid IDs are rejected.
 | Hook port | `45777` | next port in the ID-derived triplet | `PODIUM_HOOK_PORT` or config `hookPort` |
 | Agent relay port | `45778` | final port in the ID-derived triplet | `PODIUM_AGENT_RELAY_PORT` or config `agentRelayPort` |
 | Durable terminal label | `podium-<session>` | `podium-blue-<session>`; IDs over 17 bytes use a stable hashed component | none |
-| Durable socket root | `<user runtime dir>/hosts/default`, else `~/.podium/hosts/default` | `<user runtime dir>/hosts/blue`, else `<state>/hosts/blue` | `PODIUM_HOST_SOCKET_DIR` (the instance directory is appended) |
+| Durable socket root | `<user runtime dir>/hosts/default`, else `~/.podium/hosts/default` | `<user runtime dir>/hosts/blue`, else `<state>/hosts/blue` (the bounded instance component) | `PODIUM_HOST_SOCKET_DIR` (the instance directory is appended) |
+| abduco socket root (adoption only) | abduco's default | state runtime root when it fits, otherwise `/tmp/pd-<stable-key>` | `ABDUCO_SOCKET_DIR` |
 | Codex hook socket | state runtime root | state runtime root when it fits, otherwise `/tmp/pd-<stable-key>` | explicit daemon socket path |
 | Parent unit | `podium.service` | `podium-blue.service` | none |
 | Server child | parent-supervised process | parent-supervised process | none |
@@ -62,11 +63,17 @@ Linux exposes 108 bytes in `sockaddr_un.sun_path`, of which 107 are usable by th
 pathname because the final byte is the terminating NUL. The user runtime dir is
 `$XDG_RUNTIME_DIR`, or `/run/user/<uid>` on Linux when it exists. A durable label
 keeps its instance component to at most 17 bytes, so longer instance IDs use a
-deterministic 17-byte component. That budget was sized for the retired abduco socket
-layout (POD-4986) and stays fixed, because the label is how a restarted daemon finds
-a session's running podium-host. A podium-host socket path that still cannot fit is
-refused with the instance ID, the measured byte length, and the Linux limit before the
-host is launched.
+deterministic 17-byte component; the podium-host socket directory uses the same
+component. That budget was sized for the abduco socket layout (the short runtime key,
+`abduco/<user>/`, the label, and `@<hostname>`) and stays fixed, because the label is how
+a restarted daemon finds a session's running host. A podium-host socket path that still
+cannot fit is refused with the instance ID, the measured byte length, and the Linux limit
+before the host is launched.
+
+Nothing starts sessions on abduco any more (POD-4986), but sessions an older release
+started there are adopted through the abduco attach client. That is why a named instance
+still pins `ABDUCO_SOCKET_DIR` to the root in the table: its abduco sessions are found
+where the older daemon put them.
 
 A collision — a rare hash collision, an explicit one, or another instance already on the default
 triplet — is handled differently per port, because the two kinds of port are dialed by different

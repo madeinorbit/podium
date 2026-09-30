@@ -327,10 +327,12 @@ existing Docker object is changed.
 The lane asserts that fresh web and phone build stamps move with the server, a real
 migration is both materialized and recorded in `__drizzle_migrations`, a browser
 WebSocket and the local daemon reconnect at the target version, the parent changes PID
-inside the same systemd invocation, and the exact process-host PID of the live shell
-survives. The clean containers do not install Codex, Claude, or another coding-agent
-CLI, so this proves process/session preservation at Podium's process-host boundary; it
-does not claim that a real coding-agent harness was exercised.
+inside the same systemd invocation, and the live shell keeps its exact durable owner:
+its process-host PID, or — for a session an older release started on abduco — the same
+abduco master PID with a client attached again (the new daemon's adoption). The clean
+containers do not install Codex, Claude, or another coding-agent CLI, so this proves
+process/session preservation at Podium's durable-session boundary; it does not claim
+that a real coding-agent harness was exercised.
 It then offers a separately signed, migration-free bundle whose packaged launcher exits
 97, proves that bundle was swapped in, and requires `.old` to restore the prior healthy
 server with a named failed operation.
@@ -496,7 +498,7 @@ clean focused lane and a run that died halfway read identically.
 
 | Row | Programmatic evidence |
 | --- | --- |
-| Environment | Setup is complete before updater checks; the packaged `podium-host` executes on every fleet machine and no retired `abduco` or C `podium-host` was unpacked into its state directory, every container has `gzip`, and the packaged mobile dist contains precompressed assets. |
+| Environment | Setup is complete before updater checks; the cross-built and exact packaged/materialized `abduco` attach clients execute (kept only to adopt sessions older releases started), the packaged `podium-host` executes on every fleet machine and is the Rust host (not `features=1`), no C host was unpacked into a state directory, every container has `gzip`, and the packaged mobile dist contains precompressed assets. |
 | Fresh install | `install.sh` claims the named state identity, persists the channel, and creates one named parent unit; identity and channel are reported independently and the full installer/setup transcript is preserved. Its only OS children are server and daemon, and janitor has no unit/process because it is a server worker. |
 | Diagnostic version | The packaged `--version` command must print the exact build version even when pointed at a foreign non-empty state root, and must not adopt or mark that root. The row records a failure without short-circuiting later update scenarios. |
 | Fleet join | Two independently installed parents pair, each has exactly one daemon child, daemon mode config, no local server, and an accurate advertised version. |
@@ -504,7 +506,7 @@ clean focused lane and a run that died halfway read identically.
 | Version display | Baseline and post-update Playwright probes compare rendered component and machine versions with the version endpoints and served client stamps. Failure evidence includes screenshot, URL, body text, stdout, and stderr, and this row cannot suppress release or refusal execution. |
 | Dev release | An administrator-equivalent approval binds HEAD+version and publishes a signed `podium-update.json` pulled back through the dev resolver. |
 | Schema/tampered/unsigned refusals | Each mutation proves its premise first: exactly one migration removed, signature field removed, or served artifact digest changed. The refusal is named and neither on-disk `VERSION` changes. |
-| Agent survival | Real remote shells are created after refusal checks. Each session must be live by the daemon's own account; the harness then lists every running process host from `/proc`, captures the exact host PID for every full session UUID (the host's socket path ends in `-<session id>.sock`), and requires the same PIDs after handover. The containers do not install a real coding-agent CLI, so this is process-host session/process survival evidence, not a Codex/Claude harness claim. A setup failure blocks only this row and does not suppress release, refusal, or rollout evidence. |
+| Agent survival | Real remote shells are created after refusal checks. Each session must be live by the daemon's own account; the harness then records every session's durable owner — a process host found in `/proc` by its socket path (which ends in `-<session id>.sock`), or, for a session an older release started, the abduco master in the packaged attach client's listing, counted only while a client is attached — and requires the same owner and PID after handover. Sessions the current release starts run under `podium-host`; the abduco path is what a machine updating from v0.1.0 or an edge build exercises. The containers do not install a real coding-agent CLI, so this is durable-session survival evidence, not a Codex/Claude harness claim. A setup failure blocks only this row and does not suppress release, refusal, or rollout evidence. |
 | Rollout | Playwright sees the target offer and presses its human action. Polling observes exactly one consumer in-flight while the other is still old and ungranted before widening; both parent PIDs change while the systemd invocation and restart count do not, baseline and post-rollout UI versions match the source and fleet, and both install/fleet versions reach the target. |
 | Legacy migration | Real packaged three-unit files remain live and persistently enabled while an injected packaged parent repeatedly fails, then converge after recovery. |
 | Real-release install | The published `v0.1.0` tarball verifies against the **production** release key before anything touches it. The ordinary fixture installs one precisely measured re-anchored trust-root constant; prepared-candidate mode instead installs the published bytes through their own installer with no key override or binary substitution. `0.1.0`'s own code then writes its era's three-unit layout, and the diff against the rendered fixture is recorded. |
@@ -513,7 +515,7 @@ clean focused lane and a run that died halfway read identically.
 | Real-release converged | A real published install, upgraded **by its own updater**, ends with exactly the parent unit and no legacy units, active and enabled, at the target version, with its pre-upgrade session row and database row intact — and `/version` reports `janitor: running`, so the retired janitor unit left a running janitor behind rather than none. |
 | Legacy SIGKILL | Explicitly red: source-backed migration evidence is rejected, and black-box packaged-process SIGKILL coverage does not yet span every transition state. |
 | Rollback | A second signed manifest proves its schema is identical, then contains an intentionally crashing successor; its canary restores a sentinel available only through `.old`, removes the consumed backup, leaves both installs on the prior version, and reports failure/stuck. |
-| Packaged server | A separate all-in-one install updates its server, database migration, web/phone bytes, browser and local-daemon connections through self-handover while retaining the exact process-host PID of its live shell; a migration-free crashing successor must restore `.old`. |
+| Packaged server | A separate all-in-one install updates its server, database migration, web/phone bytes, browser and local-daemon connections through self-handover while its live shell keeps its exact durable owner (process host, or re-attached abduco master); a migration-free crashing successor must restore `.old`. |
 | Cleanup | No run-labeled container, exact network, or exact harness image remains. |
 | Host disk | Reports whether host free space returned within the bounded tolerance after owned cleanup; `RESOURCE` records concurrent host growth without falsely failing cleanup. |
 

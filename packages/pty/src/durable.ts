@@ -64,7 +64,6 @@ export {
   parseAbducoList,
   abducoSocketPath,
   reapStaleAbducoBindTemps,
-  abducoTerminatedSocketPaths,
   waitForAbducoSocket,
   abducoSocketHasSession,
   abducoHasSession,

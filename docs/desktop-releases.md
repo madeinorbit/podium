@@ -152,8 +152,8 @@ The Developer ID certificate expires five years after issue. Expiry breaks *new*
 already-notarized releases keep working. Renew before it lapses — the certificate cap is 5 per team.
 
 Both macOS architectures are built natively on GitHub-hosted runners: Apple Silicon on `macos-15`
-and Intel on `macos-15-intel` (cross-compiling would leave the Bun sidecar on the wrong
-architecture).
+and Intel on `macos-15-intel` (cross-compiling would leave the Bun sidecar and its abduco
+attach client on the wrong architecture).
 
 ## Cut a release
 

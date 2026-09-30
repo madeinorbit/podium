@@ -8,9 +8,10 @@
  * measured against it, and a path over the ceiling must be refused with the
  * path and the number rather than the kernel's bare ENAMETOOLONG (POD-2853).
  *
- * Formerly `abduco-socket.ts`, which also chose the root a named instance
- * pinned `ABDUCO_SOCKET_DIR` to; abduco is gone (POD-4986) and only the
- * backend-neutral budget remains.
+ * Formerly `abduco-socket.ts`. The root a named instance pins
+ * `ABDUCO_SOCKET_DIR` to — where adoption finds the abduco sessions an older
+ * Podium started (POD-4986) — is chosen in `instance.ts`
+ * (`applyInstanceRuntimeEnv`); only the backend-neutral budget lives here.
  */
 
 import { existsSync } from 'node:fs'

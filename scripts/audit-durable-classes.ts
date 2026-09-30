@@ -491,6 +491,11 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
         'Opens the server database READ-ONLY to observe expiry, and writes through the maintenance lease/command rows, which are classified. It introduces no store of its own.',
     },
     {
+      file: 'packages/pty/src/abduco-bin.ts',
+      reason:
+        'Materializes the embedded `abduco` attach client (kept only to adopt sessions started by older releases) under `<stateDir>/bin` so a running abduco session can be attached. An executable extracted from the shipped bundle is not state: it is byte-identical for every install and is re-extracted if deleted.',
+    },
+    {
       file: 'packages/pty/src/host-bin.ts',
       reason:
         'In a source checkout, builds the vendored Rust podium-host with cargo into `<cache>/podium/podium-host-src/<source hash>`. A build cache keyed on the source it was built from is not state: it names no entity, is byte-identical for every build of that source, and is rebuilt if deleted.',

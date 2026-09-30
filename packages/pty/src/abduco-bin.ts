@@ -380,7 +380,8 @@ const resolvedByLevel = new Map<number, string | undefined>()
 /**
  * Resolve (and memoize) the abduco binary per the order above, building the
  * vendored source on first use when nothing is installed. Returns undefined when
- * abduco can't be obtained at all (the daemon then falls back to a bare PTY).
+ * abduco can't be obtained at all (a running abduco session is then logged once and left
+ * alone: nothing can attach it).
  *
  * `requireFeatures` demands a podium-patched binary at that feature level or
  * better; the default (0) accepts any working abduco.

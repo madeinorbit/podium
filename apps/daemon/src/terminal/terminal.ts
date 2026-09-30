@@ -282,10 +282,10 @@ export class Terminal {
 
   /**
    * PARK: drop the Terminal, keep the process. Unwires every callback and
-   * disposes the attachment — a DETACH on the host — while the durable master
-   * and the program inside it live on. The screen, the labels and the pending
-   * resize stay with the Session; resume rebuilds a Terminal over the same
-   * process.
+   * disposes the attachment — a DETACH on the host, an attach-client exit on
+   * an adopted abduco session — while the durable master and the program
+   * inside it live on. The screen, the labels and the pending resize stay with
+   * the Session; resume rebuilds a Terminal over the same process.
    */
   park(): void {
     if (this.settled) return

@@ -14,8 +14,8 @@ interface FakeAttachment extends DurableAttachment {
 
 /**
  * An attachment shaped like the podium-host one (a writer lease it can lose)
- * or, with `lease: 'none'`, one that holds no writer lease (another client may
- * be writing).
+ * or, with `lease: 'none'`, like an adopted abduco session's (no lease: every
+ * client writes).
  */
 function fakeAttachment(lease: 'held' | 'none' = 'held'): FakeAttachment {
   const written: string[] = []
@@ -99,7 +99,7 @@ describe('the foreign-write counter under the Terminal write call (POD-4888)', (
     expect(sessions.orderTrustworthy(SESSION)).toBe(false)
   })
 
-  it('an attachment without the writer lease is never order-trustworthy', () => {
+  it('an abduco-shaped attachment (no writer lease) is never order-trustworthy', () => {
     const { sessions } = attached('none')
     expect(sessions.orderTrustworthy(SESSION)).toBe(false)
   })

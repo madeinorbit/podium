@@ -63,11 +63,14 @@ if (!isWindows && !runs('rustup', ['--version'])) {
   })
 }
 
-// 3. A system linker — rustc links the Tauri shell and the Rust process host with the
-//    platform's C toolchain (clang from the Command Line Tools on macOS, cc on Linux).
+// 3. A C compiler — rustc links the Tauri shell and the Rust process host with the
+//    platform's C toolchain (clang from the Command Line Tools on macOS, cc on Linux), and
+//    build-bun.ts compiles the vendored abduco attach client (kept only to adopt sessions
+//    older releases started) with it during `package:headless`. Windows uses ConPTY and
+//    ships neither, so requiring a POSIX compiler there rejects a valid Tauri toolchain.
 if (!isWindows && !['cc', 'gcc', 'clang'].some((c) => runs(c, ['--version']))) {
   problems.push({
-    what: 'No C toolchain found (cc/gcc/clang) — rustc needs its linker.',
+    what: 'No C compiler found (cc/gcc/clang) — rustc needs its linker, and the embedded abduco attach client is compiled with it.',
     fix: isMac
       ? 'xcode-select --install   # installs the Command Line Tools (clang, linker)'
       : isLinux

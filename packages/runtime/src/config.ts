@@ -69,6 +69,7 @@
  * | PODIUM_WEB_DIR                | — → bundled dist path   | apps/server static web (packaged bundle sets it)       |
  * | PODIUM_MOBILE_WEB_DIR         | — → bundled dist path   | apps/server static mobile web                          |
  * | PODIUM_PTY_BACKEND            | — → auto by runtime     | agent-bridge PTY backend selection                     |
+ * | PODIUM_ABDUCO                 | — → embedded/PATH       | abduco attach-client override (adoption only)          |
  * | PODIUM_NO_SCOPE               | — (env-only flag)       | agent-bridge: skip per-master systemd-run scopes       |
  * | PODIUM_SESSION_MEMORY_MAX     | — → 50% RAM (2–16 GiB)  | per-session scope MemoryMax (`infinity` lifts it)      |
  * | PODIUM_SESSION_MEMORY_HIGH    | — → UNSET               | reclaim-only throttle; any band below max can wedge    |

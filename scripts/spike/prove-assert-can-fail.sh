@@ -103,12 +103,25 @@ cp -f /bin/true "$WORK/headless/podium-host"; chmod +x "$WORK/headless/podium-ho
 expect_fail "Linux ELF shipped as headless/podium-host" \
   "podium-host is not Mach-O" "$WORK/t.tar.gz"
 
-# (c2) A retired helper embedded in the CLI: its identifying string appended to the
-#      shipped binary (breaks the seal too, but the embed scan runs first).
+# (c2) A Linux ELF riding inside the Darwin CLI — what embedding the build machine's
+#      abduco attach client instead of the Darwin one leaves behind. Appended rather than
+#      rebuilt (breaks the seal too, but the embed scan runs first).
+fresh
+cat /bin/true >> "$WORK/headless/podium-cli"; repack
+expect_fail "Linux ELF embedded in the shipped binary" \
+  "Linux ELF header" "$WORK/t.tar.gz"
+
+# (c3) A second abduco attach client embedded: the CLI must carry exactly one.
 fresh
 printf 'abduco-0.6-podium' >> "$WORK/headless/podium-cli"; repack
-expect_fail "retired abduco embedded in the shipped binary" \
-  "carries a retired abduco" "$WORK/t.tar.gz"
+expect_fail "second abduco embedded in the shipped binary" \
+  "exactly one embedded abduco" "$WORK/t.tar.gz"
+
+# (c4) The retired C podium-host embedded in the CLI: its `version` format appended.
+fresh
+printf 'podium-host %%s features=%%d\n' >> "$WORK/headless/podium-cli"; repack
+expect_fail "C podium-host embedded in the shipped binary" \
+  "carries a retired C podium-host" "$WORK/t.tar.gz"
 
 # (d) Signature removed for real. Note Bun already ad-hoc signs its darwin output,
 #     so this needs macho-strip-signature.py — the old "podium.unsigned" was signed.

@@ -1,8 +1,8 @@
 //! podium-host — a small durable process host, and the only one Podium
-//! spawns (POD-4986). Rust port (POD-4791) of the C host
-//! packages/pty/vendor/podium-host/host.c, removed from the tree in POD-4986
-//! (read it in git history); the comments here that compare with host.c
-//! describe that retired host, whose running sessions are still adopted.
+//! spawns (POD-4986). Rust port (POD-4791) of the C host, host.c, which lived
+//! in this directory until POD-4986 removed it (read it in git history); the
+//! comments here that compare with host.c describe that retired C host, whose
+//! running sessions are still adopted.
 //!
 //! One process per session. It owns a child (through a pty, or through pipes
 //! with --no-pty), keeps a bounded ring of the child's output addressed by a

@@ -49,6 +49,24 @@ describe('attributeMemory', () => {
     expect(agents[0]?.processCount).toBe(2)
   })
 
+  it('claims the durable master found by label in the cmdline (an adopted abduco session)', () => {
+    const procs = [
+      // attach client under the daemon
+      proc({ pid: 20, name: 'abduco', cmdline: 'abduco -a podium-s1', memBytes: 1 * MB }),
+      // detached master an older Podium started, holding the real agent — NOT a
+      // daemon child
+      proc({ pid: 30, name: 'abduco', cmdline: 'abduco -c podium-s1 claude', memBytes: 1 * MB }),
+      proc({ pid: 31, ppid: 30, name: 'claude', memBytes: 200 * MB }),
+    ]
+    const { agents } = attributeMemory(
+      procs,
+      [{ sessionId: asSessionId('s1'), label: 'podium-s1', pid: 20 }],
+      [],
+    )
+    expect(agents[0]?.bytes).toBe(202 * MB)
+    expect(agents[0]?.processCount).toBe(3)
+  })
+
   it('attributes unclaimed processes to the longest matching root by cwd', () => {
     const procs = [
       proc({ pid: 40, name: 'node', cwd: '/src/app', memBytes: 300 * MB }),

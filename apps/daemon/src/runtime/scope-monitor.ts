@@ -158,12 +158,12 @@ export function createScopeMonitor(deps: ScopeMonitorDeps): ScopeMonitor {
      *
      * `/proc/<pid>/cgroup` names a process's cgroup exactly, with no guessing
      * about where the user manager put a slice — but not every subject's pid is
-     * INSIDE the session's scope: a subject can report a process that lives in
-     * the DAEMON's cgroup (the terminal family's attach client did, when abduco
-     * was the durable host), and trusting that would bill the daemon's memory
-     * (and its OOM history) to the session. The
-     * answer is self-validating: use the pid's cgroup only when it is this
-     * session's scope, and otherwise fall through to the derived candidates.
+     * INSIDE the session's scope: for an adopted abduco session the terminal
+     * family reports the daemon's own `abduco -a` client, which lives in the
+     * DAEMON's cgroup, and trusting that would bill the daemon's memory (and its
+     * OOM history) to the session. The answer is self-validating: use the pid's
+     * cgroup only when it is this session's scope, and otherwise fall through to
+     * the derived candidates.
      */
     const byPid = subject.pid === undefined ? undefined : cgroupPathForPid(subject.pid)
     if (byPid?.endsWith(`/${subject.scopeUnit}`)) {

@@ -444,7 +444,7 @@ function makeWorld(
     macrotaskTimers?: boolean
     /** Whether the Terminal holds podium-host's writer lease — what makes the
      *  foreign-write counter believable (POD-4888). Default: it does; `false`
-     *  is a terminal without the lease, which anyone else may be writing to. */
+     *  is an adopted abduco session, which anyone can type into unseen. */
     writerLease?: boolean
   } = {},
 ): World {
@@ -5682,14 +5682,14 @@ describe('terminal receipts from the history (POD-4905)', () => {
       world.runtime.dispose()
     })
 
-    it('gives no order credit without the writer lease, when anyone can type in unseen', async () => {
+    it('gives no order credit on an adopted abduco session, which anyone can type into unseen', async () => {
       const world = makeWorld({ writerLease: false })
       const items = await history(lane)
       const at = entryAt(items, idle)
       const { handle, sessionId } = await laneSession(world, lane, items, at)
       world.onSubmit(sessionId, () => post(world, sessionId, items.slice(at, at + 1)))
       const receipt = await handle.send(
-        { id: 'msg-no-lease', text: idle },
+        { id: 'msg-abduco', text: idle },
         { origin: 'human', delivery: 'when-ready' },
       )
       expect(receipt.outcome).toBe('unverified')

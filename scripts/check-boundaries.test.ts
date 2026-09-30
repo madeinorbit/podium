@@ -130,6 +130,7 @@ describe('console-ownership (POD-1905)', () => {
       'packages/client-core/src/logging/crash.ts',
       'packages/client-core/src/perf/switch-trace.ts',
       'packages/terminal-client/src/terminal-diagnostics.ts',
+      'packages/pty/src/abduco-bin.ts',
       'apps/web/src/perf/large-state.frontend-perf.tsx',
     ]) {
       expect(checkConsoleOwnership(file, "console.warn('x')")).toEqual([])

@@ -191,15 +191,18 @@ server_shell_live() {
     jq -e --arg id "$1" 'any(.[];.sessionId==$id and .status=="live")' >/dev/null
 }
 
-server_host_pid() {
-  local id=$1 listing line pid
-  listing="$(host_listing "$SERVER_CONSUMER")"
-  line="$(grep -F -- "-$id.sock" <<<"$listing" | head -1)"
-  [[ -n "$line" ]]
-  pid="$(cut -f1 <<<"$line" | xargs)"
+# `<kind>:<pid>` of the live shell's durable owner (see `durable_owner`): its process
+# host, or — for a session an older release started — its re-attached abduco master.
+server_durable_owner() {
+  local id=$1 hosts masters owner kind pid
+  hosts="$(host_listing "$SERVER_CONSUMER")"
+  masters="$(abduco_listing "$SERVER_CONSUMER")" || masters=""
+  owner="$(durable_owner "$id" "$hosts" "$masters")"
+  [[ -n "$owner" ]]
+  IFS=$'\t' read -r kind pid <<<"$owner"
   [[ "$pid" =~ ^[1-9][0-9]*$ ]]
   docker exec "$SERVER_CONSUMER" kill -0 "$pid" >/dev/null
-  printf %s "$pid"
+  printf '%s:%s' "$kind" "$pid"
 }
 
 server_assets_match() {
@@ -262,7 +265,7 @@ arm_server_failure() {
       wait_for 60 "deliberate external restart" server_healthy
       ;;
     server-agent)
-      docker exec "$SERVER_CONSUMER" kill "$SERVER_HOST_PID"
+      docker exec "$SERVER_CONSUMER" kill "${SERVER_DURABLE_OWNER#*:}"
       ;;
   esac
 }
@@ -350,7 +353,7 @@ run_server_lane() {
   local break_client=0
   shell_id="$(start_server_shell)"
   wait_for 60 "packaged server shell" server_shell_live "$shell_id"
-  SERVER_HOST_PID="$(server_host_pid "$shell_id")"
+  SERVER_DURABLE_OWNER="$(server_durable_owner "$shell_id")"
   server_parent_facts SERVER_BEFORE
   [[ "$PROVE_FAILURE" == server-client ]] && break_client=1
   PODIUM_UPDATE_E2E_BREAK_CLIENT="$break_client" PODIUM_UPDATE_E2E_ORIGIN="http://127.0.0.1:$SERVER_PORT" PODIUM_UPDATE_E2E_SESSION="${HTTP_SESSION_COOKIE[host]}" PODIUM_UPDATE_E2E_TARGET="$SERVER_TARGET_VERSION" PODIUM_UPDATE_E2E_READY_FILE="$browser_ready" PODIUM_UPDATE_E2E_RESULT_FILE="$browser_result" bun --conditions=@podium/source "$ROOT/scripts/docker-update-e2e/server-client.ts" >"$WORK/logs/server-client.stdout" 2>"$WORK/logs/server-client.stderr" &
@@ -397,10 +400,10 @@ run_server_lane() {
   fi
   CURRENT_SCENARIO=server-agent-survival
   if server_shell_live "$shell_id" &&
-     [[ "$(server_host_pid "$shell_id")" == "$SERVER_HOST_PID" ]]; then
-    pass server-agent-survival   "the exact process-host PID of the live shell survived; no Codex or Claude agent CLI is installed in the clean container"
+     [[ "$(server_durable_owner "$shell_id")" == "$SERVER_DURABLE_OWNER" ]]; then
+    pass server-agent-survival   "the live shell kept its exact durable owner ($SERVER_DURABLE_OWNER: a process host, or a re-attached abduco master for a session an older release started); no Codex or Claude agent CLI is installed in the clean container"
   else
-    fail server-agent-survival "the packaged server update lost or replaced the process host of its live shell"
+    fail server-agent-survival "the packaged server update lost or replaced the durable owner of its live shell"
   fi
 
   if [[ -n "$PROVE_FAILURE" && "$PROVE_FAILURE" != server-rollback ]]; then

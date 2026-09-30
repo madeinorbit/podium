@@ -893,7 +893,8 @@ and reconciles against the server's new control instruction. No recovery path de
 binding from a native filesystem artifact alone, and the server never invents an alias.
 
 **R2 — Daemon restart, process alive.** The daemon enumerates its **durable hosts** (podium-host
-sessions), matches each to a session, and reports what it finds. Rules: the surviving
+sessions, plus abduco sessions an older release started, which it adopts), matches each to a
+session, and reports what it finds. Rules: the surviving
 process keeps its **attempt id** (W3) — a restart is not a new run; the server issues a
 **new generation**; the daemon's current state is sent as a **bootstrap snapshot, not a
 transition** (§11 C4). A durable host it cannot match to a session is reported as

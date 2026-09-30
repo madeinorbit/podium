@@ -87,7 +87,7 @@ export interface HookIngest {
 
 /**
  * Default is a FIXED, instance-owned port, not ephemeral: hook URLs live in settings files of
- * durable (podium-host) sessions that outlive this process. A daemon restart
+ * durable (podium-host, or adopted abduco) sessions that outlive this process. A daemon restart
  * must come back on the same port or surviving agents post into the void.
  *
  * Wanting it is not the same as getting it. When something else already holds

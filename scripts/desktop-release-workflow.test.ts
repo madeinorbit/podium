@@ -490,9 +490,10 @@ describe('desktop release workflow', () => {
    * THIS USED TO PIN A PER-ARCHITECTURE MATRIX, and it must not any more.
    *
    * The old shape built x64 on an Ubuntu runner and arm64 on a native ARM one,
-   * because the compiled daemon embedded a C helper (abduco, since retired) that
-   * had to be built on the architecture that would run it. The native binaries a
-   * bundle ships now (podium-host, podium-tunnel) are cross-built for every
+   * because the compiled daemon embeds an abduco helper (today the attach client,
+   * kept only to adopt sessions older releases started) that had to be built on the
+   * architecture that would run it. That client and the native binaries a bundle
+   * ships beside it (podium-host, podium-tunnel) are cross-built for every
    * target from one Linux runner, so the runner's own architecture no longer
    * decides anything and the matrix is gone (spec §8b). Asserting `arch: x64`
    * here would now pin a design the release deliberately replaced — the failure
@@ -500,22 +501,27 @@ describe('desktop release workflow', () => {
    *
    * What is worth pinning is the part a mistake could silently undo: that one
    * job really does produce ALL FOUR platforms, that its gates stand in front of
-   * publish, and that each bundle is asserted and the runnable one is run.
+   * publish, that each bundle is asserted (embedded abduco attach client included)
+   * and that the runnable one is run.
    */
   it('cross-builds every headless platform, gated, before one atomic publish', () => {
     const parsed = Bun.YAML.parse(headlessWorkflow) as {
       jobs?: { headless?: { strategy?: unknown }; publish?: { needs?: string[] } }
     }
     // Publish waits on `headless`, whose steps are the gates: every bundle's shape,
-    // Rust host and signatures asserted, and the linux-x64 one RUN. The temporary
+    // Rust host, embedded abduco attach client and signatures asserted, and the
+    // linux-x64 one RUN. The temporary
     // cross-vs-native A/B that also gated publish was retired after the first release
     // it passed (POD-4789).
     expect(parsed.jobs?.publish?.needs).toEqual(['headless'])
     // Every bundle goes through the shipped-bundle gate, bound to the release commit;
     // that gate refuses a bundle without podium-host (the daemon starts no session
-    // without it) and one carrying a retired abduco or C podium-host.
+    // without it) or carrying the retired C podium-host, and checks the embedded abduco
+    // attach client against this platform's reference — without it an upgraded machine
+    // could not re-attach the abduco sessions its older release left running.
     expect(headlessWorkflow).toContain('bash scripts/assert-headless-bundle.sh')
     expect(headlessWorkflow).toContain('--source-commit "$GITHUB_SHA"')
+    expect(headlessWorkflow).toContain(`--abduco "dist-bun/abduco-cache/\${platform}-\${HASH}"`)
     expect(headlessWorkflow).toContain('scripts/smoke-headless-bundle.sh')
     // No matrix: reintroducing one would mean an architecture decided where a bundle
     // was built again, which is exactly what cross-compilation removed.

@@ -136,9 +136,9 @@ const ABDUCO_LIST_TIMEOUT_MS = 8000
  * called with THAT SAME ENVIRONMENT answered `undefined`.
  *
  * THE ERROR IS ONE-SIDED TOWARD "ABSENT", which is the expensive direction on
- * every caller — the spawn path reports "did not publish a live socket" for a
- * session that is running, `reclaimStaleScope` clears a scope out from under a
- * live master, and the reattach path answers "session not found". Same shape as
+ * every caller — when abduco still spawned, the create path reported "did not
+ * publish a live socket" for a session that was running; today the reattach
+ * path answers "session not found" for a master that is still there. Same shape as
  * POD-2761, which fixed the ATTACH path's environment and left this one.
  *
  * The two non-user-specific entries under `ABDUCO_SOCKET_DIR` are historical
@@ -283,34 +283,12 @@ function abducoSocketCandidates(
 }
 
 /**
- * Sockets held by a TERMINATED master for this label: the app exited and the master
- * lingers only to hand its exit status to the next client (abduco marks that with
- * S_IXGRP; see {@link parseAbducoList}). {@link abducoSocketPath} skips them — they
- * are not a live session — but abduco's own `create-session` still refuses the name,
- * so the spawn path has to clear them explicitly.
- */
-export function abducoTerminatedSocketPaths(
-  label: string,
-  env: NodeJS.ProcessEnv = process.env,
-  username?: string,
-): string[] {
-  const paths: string[] = []
-  for (const path of abducoSocketCandidates(label, env, username)) {
-    try {
-      if ((statSync(path).mode & 0o010) !== 0) paths.push(path)
-    } catch {
-      // vanished between readdir and stat — nothing left to reclaim
-    }
-  }
-  return paths
-}
-
-/**
- * Wait for a newly-created master to publish its socket before starting the
- * attach client. "abduco -n" exits after handing work to the daemonized master;
- * the master can therefore still be between fork and bind when an immediate
- * "-a" runs. A durable label is unique, so the socket index is the safe
- * readiness signal and also gives us the absolute path needed for renamed hosts.
+ * Wait for a master to publish its socket before starting the attach client.
+ * "abduco -n" (run by an older Podium, or by a test standing in for one) exits
+ * after handing work to the daemonized master, which can still be between fork
+ * and bind when an immediate "-a" runs. A durable label is unique, so the
+ * socket index is the readiness signal and also gives the absolute path needed
+ * for renamed hosts.
  */
 export async function waitForAbducoSocket(
   label: string,
@@ -403,9 +381,8 @@ export async function killAbducoSession(
   }
   // Also sweep the session's scope cgroup (POD-108): SIGTERMing the master takes
   // the agent down via PTY hangup, but grandchildren the agent spawned (test
-  // runs, builds, stray Xvfb) survive in the scope and stay resident — the same
-  // orphans reclaimStaleScope otherwise has to clear at the NEXT spawn, which an
-  // archived session never gets. `systemctl stop` signals the whole cgroup and
+  // runs, builds, stray Xvfb) survive in the scope and stay resident, and an
+  // archived session never gets another spawn to clear them. `systemctl stop` signals the whole cgroup and
   // escalates to SIGKILL on its stop timeout; reset-failed clears leftover unit
   // state. Unconditional: a dead master with squatting orphans still needs it.
   await scope

@@ -115,7 +115,7 @@ describe('resolveZig pin enforcement', () => {
  * copy. So: no cross build script may define a lookup of its own.
  */
 describe('the native cross builds resolve their tools through tool-pins', () => {
-  for (const file of ['rust-host-cross.ts', 'tunnel-cross.ts']) {
+  for (const file of ['rust-host-cross.ts', 'tunnel-cross.ts', 'abduco-cross.ts']) {
     it(`${file} has no tool lookup of its own`, () => {
       const source = readFileSync(join(import.meta.dirname, file), 'utf8')
       expect(source).not.toMatch(/function findTool\b/)

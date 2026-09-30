@@ -362,7 +362,8 @@ hermetic setup, lane exclusions, and exit-status safeguards.
   `PODIUM_PORT`/`PODIUM_STATE_DIR` overrides.
 - **CI runs the oracle: unit + typecheck + integration + e2e + multi-instance**
   [POD-295]. CI installs with `--ignore-scripts`; real PTYs use Bun.Terminal and
-  Podium builds its vendored Rust podium-host with cargo on first use. Agent-smoke is NEVER in CI
+  Podium builds its vendored podium-host with cargo, and the abduco attach client (kept only to
+  adopt older sessions) with cc, on first use. Agent-smoke is NEVER in CI
   (it bills real LLM quota) and
   runs only on explicit request.
 - **The oracle is the rewrite's behavioral contract** [POD-295]: `bun run oracle`

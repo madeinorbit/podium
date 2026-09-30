@@ -192,6 +192,7 @@ function runGate(tarball: string): {
       'linux-x86_64',
       '--source-commit',
       TEST_SOURCE_SHA,
+      '--no-abduco-identity',
     ],
     { encoding: 'utf8', cwd: repoRoot },
   )
@@ -225,12 +226,14 @@ describe('assert-headless-bundle production layout', () => {
     expect(failLine).toMatch(/podium-host.*not executable/)
   })
 
+  // The abduco attach client ships EMBEDDED in podium-cli, and `.bin` files are build
+  // staging; neither belongs loose in the bundle. podium-host is NOT on this list: the
+  // Rust host carries that name, and the retired C host is refused by content instead.
   it.each([
     'abduco',
-    'podium-host',
     'abduco.bin',
     'podium-host.bin',
-  ])('refuses a bundle that ships the retired %s helper beside the Rust host', (helper) => {
+  ])('refuses a bundle that ships a loose %s beside the Rust host', (helper) => {
     const root = scratch()
     const headless = join(root, 'headless')
     writeProductionTree(headless)
@@ -238,7 +241,7 @@ describe('assert-headless-bundle production layout', () => {
     chmodSync(join(headless, helper), 0o755)
     const { status, failLine } = runGate(pack(root))
     expect(status).not.toBe(0)
-    expect(failLine).toMatch(/ships a retired abduco\/C podium-host helper/)
+    expect(failLine).toMatch(/ships a loose abduco or staging \.bin/)
   })
 
   it('refuses an empty client inventory consistently with the shipped-bytes verifier', () => {
@@ -378,6 +381,7 @@ describe('assert-headless-bundle production layout', () => {
         TEST_SOURCE_SHA,
         '--client-root-digest',
         attackerDigest,
+        '--no-abduco-identity',
       ],
       { encoding: 'utf8', cwd: repoRoot },
     )
@@ -485,7 +489,14 @@ describe('assert-headless-bundle production layout', () => {
     const tarball = pack(root)
     const result = spawnSync(
       'bash',
-      ['scripts/assert-headless-bundle.sh', tarball, 'linux-x86_64', '--source-commit', 'fffffff'],
+      [
+        'scripts/assert-headless-bundle.sh',
+        tarball,
+        'linux-x86_64',
+        '--source-commit',
+        'fffffff',
+        '--no-abduco-identity',
+      ],
       { encoding: 'utf8', cwd: repoRoot },
     )
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
@@ -542,9 +553,11 @@ describe('the gate and the signing step name the same JIT keys', () => {
     expect(prove).toContain('web build provenance manifest removed')
     expect(prove).toContain('NOTICE missing')
     expect(prove).toContain('Rust host removed')
-    expect(prove).toContain('abduco embedded in the CLI')
     expect(prove).toContain('C podium-host embedded in the CLI')
+    expect(prove).toContain('C podium-host shipped as podium-host')
     expect(prove).toContain('loose abduco beside the Rust host')
+    expect(prove).toContain('wrong-platform helper EMBEDDED in the bundle')
+    expect(prove).toContain('reference abduco deleted')
   })
 
   it('says in the release job that rcodesign supplies entitlements, not the signature', () => {

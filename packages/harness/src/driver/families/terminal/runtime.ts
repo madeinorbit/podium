@@ -1617,7 +1617,7 @@ export function createTerminalRuntime(
    *     first prompt entry after the send's start is its record when nothing
    *     else can have produced it — the foreign-write counter unchanged since
    *     its typing started (on a terminal whose writer lease this daemon
-   *     holds: never on one without the lease), the entry's text equal to the
+   *     holds: never on an adopted abduco session), the entry's text equal to the
    *     typed text within the program's measured tolerance, and no other open
    *     send with the same text. Otherwise no credit, ever: that first entry
    *     spends the send's order, and it may still end `unknown`. Text alone

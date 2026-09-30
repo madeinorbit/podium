@@ -7,10 +7,15 @@
 # then compares this tarball to that process-local value. This script deliberately accepts
 # no expected digest; letting a caller provide one would make forged bytes their own proof.
 #
-# A MISSING INPUT IS A FAILURE, NEVER A SKIP.
+# A MISSING INPUT IS A FAILURE, NEVER A SKIP. The embedded abduco attach-client identity
+# check needs the reference abduco; running without it requires saying so explicitly with
+# --no-abduco-identity, so an omitted path can never read as a green.
 #
 # Usage:
-#   scripts/assert-headless-bundle.sh <tarball> <platform> --source-commit <sha>
+#   scripts/assert-headless-bundle.sh <tarball> <platform> --source-commit <sha> \
+#     --abduco <reference-binary>
+#   scripts/assert-headless-bundle.sh <tarball> <platform> --source-commit <sha> \
+#     --no-abduco-identity
 #
 # platform: linux-x86_64 | linux-aarch64 | darwin-aarch64 | darwin-x86_64
 set -euo pipefail
@@ -24,9 +29,13 @@ need() { command -v "$1" >/dev/null || fail "need $1 on PATH"; }
 
 TARBALL=""
 PLATFORM=""
+ABDUCO_REF=""
+ABDUCO_IDENTITY=unset
 SOURCE_COMMIT=""
 while [ $# -gt 0 ]; do
   case "$1" in
+    --abduco) ABDUCO_REF="${2:-}"; ABDUCO_IDENTITY=required; shift 2 ;;
+    --no-abduco-identity) ABDUCO_IDENTITY=waived; shift ;;
     --source-commit) SOURCE_COMMIT="${2:-}"; shift 2 ;;
     -*) fail "unknown flag $1" ;;
     *)
@@ -43,6 +52,8 @@ done
 [[ "$SOURCE_COMMIT" =~ ^[0-9a-fA-F]{7,40}$ ]] \
   || fail "--source-commit must be a 7-40 character hexadecimal commit"
 [ -f "$TARBALL" ] || fail "no such tarball: $TARBALL"
+[ "$ABDUCO_IDENTITY" != unset ] \
+  || fail "pass --abduco <reference-binary> to check the embedded abduco attach client, or --no-abduco-identity to state deliberately that you are not checking it"
 
 need file
 need tar
@@ -50,12 +61,14 @@ need python3
 
 # EXPECT_FORMAT/EXPECT_ARCH are what `file -b` prints for a correct binary. They are
 # asked of podium-cli AND of podium-host, which is the check that catches a build
-# that shipped the build machine's Rust host instead of the target's.
+# that shipped the build machine's Rust host instead of the target's. OTHER_* name the
+# platform whose abduco attach client must NOT be inside, which is the check that
+# catches a build that embedded the build machine's abduco instead of the target's.
 case "$PLATFORM" in
-  linux-x86_64)   EXPECT_FORMAT="ELF";     EXPECT_ARCH="x86-64" ;;
-  linux-aarch64)  EXPECT_FORMAT="ELF";     EXPECT_ARCH="aarch64" ;;
-  darwin-aarch64) EXPECT_FORMAT="Mach-O";  EXPECT_ARCH="arm64" ;;
-  darwin-x86_64)  EXPECT_FORMAT="Mach-O";  EXPECT_ARCH="x86_64" ;;
+  linux-x86_64)   EXPECT_FORMAT="ELF";     EXPECT_ARCH="x86-64";  OTHER_PLATFORM="linux-aarch64" ;;
+  linux-aarch64)  EXPECT_FORMAT="ELF";     EXPECT_ARCH="aarch64"; OTHER_PLATFORM="linux-x86_64" ;;
+  darwin-aarch64) EXPECT_FORMAT="Mach-O";  EXPECT_ARCH="arm64";   OTHER_PLATFORM="darwin-x86_64" ;;
+  darwin-x86_64)  EXPECT_FORMAT="Mach-O";  EXPECT_ARCH="x86_64";  OTHER_PLATFORM="darwin-aarch64" ;;
   *) fail "unknown platform '$PLATFORM'" ;;
 esac
 case "$PLATFORM" in darwin-*) IS_DARWIN=1 ;; *) IS_DARWIN=0 ;; esac
@@ -90,7 +103,8 @@ echo "tarball sha256=$(sha256sum "$TARBALL" | cut -d' ' -f1)"
 #
 # packages/runtime/src/update-install.ts joins the staged dir with 'headless', so
 # any other archive root silently installs nothing. The file set itself is what
-# scripts/build-bun.ts writes: podium-cli, podium-tunnel, podium-host, the launcher shim, both client sites,
+# scripts/build-bun.ts writes: podium-cli (the abduco attach client embedded inside it),
+# podium-tunnel, podium-host, the launcher shim, both client sites,
 # the packaged systemd units, VERSION, LICENSE, NOTICE, THIRD-PARTY-NOTICES.md.
 # POD-2501's spike packed none of systemd/LICENSE/NOTICE and wrote stub
 # index.html files; a gate that only checks that subset accepts a malformed
@@ -113,10 +127,12 @@ do
 done
 stray="$(echo "$listing" | awk -F/ '{print $1}' | sort -u | grep -vx 'headless' || true)"
 [ -z "$stray" ] || fail "tarball has entries outside headless/: $stray"
-# The Rust host is the only process host a bundle ships (POD-4986). A loose abduco or C
-# podium-host beside it is a build that regressed to the retired helpers.
-legacy="$(grep -E '(^|/)(abduco|podium-host)(\.bin)?$' <<<"$listing" || true)"
-[ -z "$legacy" ] || fail "tarball ships a retired abduco/C podium-host helper: $legacy"
+# The abduco attach client ships EMBEDDED in podium-cli and materializes on first start,
+# and the build's `.bin` staging files belong in dist-bun/, never in the bundle. A loose
+# abduco or `*.bin` is a build that packed the wrong thing. podium-host is refused by
+# CONTENT below, never by name: the Rust host and the retired C host share it.
+loose="$(grep -E '(^|/)abduco$|\.bin$' <<<"$listing" || true)"
+[ -z "$loose" ] || fail "tarball ships a loose abduco or staging .bin: $loose"
 pass "archive root is headless/ and carries the production file set"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/podium-assert-XXXXXX")"
@@ -275,9 +291,37 @@ size="$(stat -c%s "$CLI")"
   || fail "shipped podium-cli is only $size bytes — far too small to embed the Bun runtime"
 pass "shipped podium-cli is $EXPECT_FORMAT $EXPECT_ARCH, $size bytes"
 
+RUST_HOST="$WORK/headless/podium-host"
+
+# --- The retired C podium-host is nowhere: not embedded, not in podium-host's place ---
+#
+# The compiled CLI used to embed the C podium-host (`with { type: 'file' }`, materialized
+# on first start); it is retired (POD-4986) and the Rust host ships beside podium-cli
+# under the same name. A `with { type: 'file' }` import stores the file verbatim, so a C
+# host creeping back in carries its own `version` printf format — the Rust host prints the
+# same words through Rust formatting, never this string. Asked of podium-host too, so a C
+# host shipped in the Rust host's place is refused as well. This runs BEFORE the
+# podium-host and Darwin signature checks, so its failure line is unambiguous.
+legacy_report="$(python3 - "$CLI" "$RUST_HOST" <<'PY'
+import sys
+for label, path in (('cli', sys.argv[1]), ('rust_host', sys.argv[2])):
+    data = open(path, 'rb').read()
+    print(f"{label}_abduco={data.count(b'abduco-0.6-podium')}")
+    print(f"{label}_c_host={data.count(b'podium-host %s features=%d')}")
+PY
+)" || fail "C podium-host byte scan failed"
+echo "$legacy_report"
+eval "$(echo "$legacy_report" | sed 's/^/LEGACY_/')"
+[ "${LEGACY_cli_c_host}" = "0" ] \
+  || fail "shipped podium-cli carries an embedded C podium-host (${LEGACY_cli_c_host} C version strings)"
+[ "${LEGACY_rust_host_c_host}" = "0" ] \
+  || fail "shipped podium-host is the retired C podium-host, not the Rust host"
+[ "${LEGACY_rust_host_abduco}" = "0" ] \
+  || fail "shipped podium-host carries abduco (${LEGACY_rust_host_abduco} banner strings), not the Rust host"
+pass "no C podium-host inside podium-cli, and podium-host is the Rust host"
+
 # The Rust host is a standalone payload, so interrogate the extracted executable.
 # Linux must be static musl; Darwin must have a signature sealing its bytes.
-RUST_HOST="$WORK/headless/podium-host"
 rust_host_file="$(file -b "$RUST_HOST")"
 case "$rust_host_file" in
   *"$EXPECT_FORMAT"*"$EXPECT_ARCH"*) : ;;
@@ -303,33 +347,61 @@ else
 fi
 pass "shipped podium-host is $EXPECT_FORMAT $EXPECT_ARCH with the platform link/signature policy"
 
-# --- Nothing is embedded: no abduco, no C podium-host inside the shipped binaries ---
+# --- The embedded abduco attach client is the one built FOR THIS PLATFORM ---
 #
-# The compiled CLI used to embed abduco and the C podium-host (`with { type: 'file' }`
-# imports, materialized on first start). Both are retired (POD-4986): the Rust host ships
-# beside podium-cli and nothing is embedded. A `with { type: 'file' }` import stores the
-# file verbatim, so a helper creeping back in carries its own identifying strings: the
-# abduco banner, and the C host's `version` format (the Rust host prints the same words
-# through Rust formatting, never this printf string). Asked of podium-host too, so a C
-# host renamed into the Rust host's place is refused as well. This runs BEFORE the Darwin
-# signature checks so its failure line is unambiguous.
-legacy_report="$(python3 - "$CLI" "$RUST_HOST" <<'PY'
+# The abduco ATTACH CLIENT, kept only to adopt sessions started by older releases
+# (POD-4986): nothing spawns on abduco, but every released Podium before this one ran
+# its sessions on it, and an upgraded machine re-attaches them with this binary. A
+# bundle that embeds none, or the wrong platform's, strands every such session.
+if [ "$ABDUCO_IDENTITY" = required ]; then
+  [ -f "$ABDUCO_REF" ] || fail "reference abduco missing: $ABDUCO_REF (regenerate with scripts/abduco-cross.ts)"
+  # BOTH format and architecture, in order, and no looser alternative. This used to
+  # accept `*<arch>*` on its own, which made the FORMAT optional — so the check read as
+  # "is this an ELF aarch64?" while only asking "does the word aarch64 appear?". Among
+  # the four platforms we ship I could not construct a pair that actually exploited it
+  # (`file` prints x86-64 for ELF and x86_64 for Mach-O, arm64 for Mach-O and ARM
+  # aarch64 for ELF), so this is not a fixed bug — it is a check that now says what it
+  # means, and cannot be widened by a fifth platform arriving.
+  ref_file="$(file -b "$ABDUCO_REF")"
+  case "$ref_file" in
+    *"$EXPECT_FORMAT"*"$EXPECT_ARCH"*) : ;;
+    *) fail "reference abduco is not $EXPECT_FORMAT $EXPECT_ARCH (got: $ref_file)" ;;
+  esac
+  # The sibling entry sits beside the reference we were handed. Derived from that path
+  # rather than a literal cache directory: the cache is durable and outside the checkout
+  # (POD-3162), and this script must not have its own opinion about where it lives.
+  OTHER_REF="$(dirname "$ABDUCO_REF")/$OTHER_PLATFORM-$(basename "$ABDUCO_REF" | sed "s/^$PLATFORM-//")"
+  report="$(python3 - "$CLI" "$ABDUCO_REF" "$OTHER_REF" <<'PY'
 import sys
-for label, path in (('cli', sys.argv[1]), ('rust_host', sys.argv[2])):
-    data = open(path, 'rb').read()
-    print(f"{label}_abduco={data.count(b'abduco-0.6-podium')}")
-    print(f"{label}_c_host={data.count(b'podium-host %s features=%d')}")
+cli, ref, other = sys.argv[1:4]
+data = open(cli, 'rb').read()
+want = open(ref, 'rb').read()
+print(f"ref_len={len(want)}")
+print(f"ref_at={data.find(want)}")
+print(f"banner={data.count(b'abduco-0.6-podium')}")
+try:
+    print(f"other_at={data.find(open(other, 'rb').read())}")
+except OSError:
+    print("other_at=absent-input")
 PY
-)" || fail "retired-helper byte scan failed"
-echo "$legacy_report"
-eval "$(echo "$legacy_report" | sed 's/^/LEGACY_/')"
-[ "${LEGACY_cli_abduco}" = "0" ] \
-  || fail "shipped podium-cli carries an embedded abduco (${LEGACY_cli_abduco} banner strings)"
-[ "${LEGACY_cli_c_host}" = "0" ] \
-  || fail "shipped podium-cli carries an embedded C podium-host (${LEGACY_cli_c_host} C version strings)"
-[ "${LEGACY_rust_host_abduco}" = "0" ] && [ "${LEGACY_rust_host_c_host}" = "0" ] \
-  || fail "shipped podium-host is not the Rust host (it carries abduco or C podium-host strings)"
-pass "no abduco and no C podium-host inside podium-cli or podium-host"
+)" || fail "embedded-helper byte scan failed"
+  echo "$report"
+  eval "$(echo "$report" | sed 's/^/EMB_/')"
+  [ "${EMB_ref_at}" != "-1" ] \
+    || fail "the $PLATFORM abduco (${EMB_ref_len} bytes) does NOT appear inside the shipped binary — the wrong helper was embedded"
+  pass "shipped binary embeds the $PLATFORM abduco verbatim at offset ${EMB_ref_at}"
+  [ "${EMB_banner}" = "1" ] \
+    || fail "expected exactly one abduco copy in the shipped binary, found ${EMB_banner} banner strings"
+  pass "shipped binary carries exactly one abduco"
+  case "${EMB_other_at}" in
+    -1) pass "the $OTHER_PLATFORM abduco is absent from the shipped binary" ;;
+    absent-input) echo "NOTE: no $OTHER_PLATFORM reference built; cross-arch absence not checked" ;;
+    *) fail "the $OTHER_PLATFORM abduco is embedded at offset ${EMB_other_at} — wrong architecture helper" ;;
+  esac
+else
+  echo "NOTE: embedded-helper identity NOT checked (--no-abduco-identity was passed)"
+fi
+
 
 # --- Darwin signature + entitlements ---
 #

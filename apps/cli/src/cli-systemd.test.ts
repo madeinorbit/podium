@@ -82,7 +82,7 @@ describe('renderDaemonUnit', () => {
   it('PATH covers every per-user dir an agent CLI installs into (#220)', () => {
     const dirs = pathDirs(renderDaemonUnit())
     expect(dirs, 'daemon unit has no Environment=PATH').not.toEqual([])
-    // claude (native installer), grok and cursor-agent all land in ~/.local/bin.
+    // claude (native installer), grok, cursor-agent, and abduco all land in ~/.local/bin.
     expect(dirs).toContain('%h/.local/bin')
     // codex installs as a bun/npm global → ~/.bun/bin when bun is the package manager.
     expect(dirs).toContain('%h/.bun/bin')

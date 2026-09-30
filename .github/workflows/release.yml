@@ -24,9 +24,12 @@ permissions:
 # one, so the same tag drives the headless and desktop halves of one release to the same channel.
 # Edge assets always live under the fixed `edge` tag — that URL is baked into shipped updaters.
 env:
-  # Pin the Rust host cache back inside the checkout so actions/cache can name it as a
-  # `path`. The default is durable and outside the checkout (POD-3162), which is what a
+  # Pin the build caches back inside the checkout so actions/cache can name them as a
+  # `path`. The defaults are durable and outside the checkout (POD-3162), which is what a
   # developer box and a /tmp release worktree need and what an ephemeral runner cannot use.
+  # The abduco cache holds the abduco ATTACH CLIENT, kept only to adopt sessions started
+  # by older releases (POD-4986); nothing spawns on abduco.
+  PODIUM_ABDUCO_CACHE_DIR: dist-bun/abduco-cache
   PODIUM_RUST_HOST_CACHE_DIR: dist-bun/rust-host-cache
   # `inputs.channel` is a required choice with a default, so it is never the empty string and
   # cannot trip the Actions ternary bug the desktop workflow documents. A rolling channel's TAG
@@ -40,11 +43,12 @@ jobs:
   # ONE LINUX JOB, FOUR PLATFORMS [spec:SP-6144 section 8b].
   #
   # This used to be a matrix — x64 on Blacksmith Ubuntu, arm64 on a native ARM runner —
-  # because the compiled daemon embedded native C helpers (abduco and the C podium-host,
-  # both retired in POD-4986) and each helper had to be built on the architecture that
-  # would run it. The native binaries a bundle ships now, podium-host and
-  # podium-tunnel, are cross-built for every target from here by cargo-zigbuild. `rcodesign` does not add the Darwin signature — `bun build --compile`
-  # already emits an ad-hoc LINKER_SIGNED Mach-O (identifier a.out). rcodesign REPLACES
+  # because the compiled daemon embeds native helpers and each helper had to be built on
+  # the architecture that would run it. Everything native a bundle ships is now built for
+  # every target from here: podium-host and podium-tunnel by cargo-zigbuild, and the
+  # embedded abduco attach client by `zig cc`.
+  # `rcodesign` does not add the Darwin signature — `bun build --compile` already emits
+  # an ad-hoc LINKER_SIGNED Mach-O (identifier a.out). rcodesign REPLACES
   # that with identifier podium plus the five Bun JIT entitlement keys. Drop rcodesign
   # and the binary still "signs"; what breaks is JIT, at runtime. Adding both Darwin
   # platforms costs one more compile each, not one more runner each.
@@ -55,7 +59,8 @@ jobs:
       TURBO_CACHE_DIR: /tmp/podium-cache/podium/turbo
     steps:
       - uses: actions/checkout@v4
-      # zig links the Rust binaries (cargo-zigbuild). rcodesign re-signs Darwin Mach-Os with
+      # zig links the Rust binaries (cargo-zigbuild) and compiles the abduco attach client.
+      # rcodesign re-signs Darwin Mach-Os with
       # Bun's JIT entitlements — it does not add the signature (Bun already did).
       # All tool versions come from mise.toml — the one pin site dev machines share.
       # That includes pigz, the parallel compressor for the release tarballs (optional at
@@ -67,11 +72,16 @@ jobs:
         run: |
           mise trust packages/pty/vendor/podium-host/mise.toml
           mise -C packages/pty/vendor/podium-host install rust
-      # The Rust host cache is content-addressed on the crate, its pins and the build
-      # script, so this key is the honest one: touch any of them and every platform's host
-      # is rebuilt. PODIUM_RUST_HOST_CACHE_DIR pins it back inside the checkout: locally the
-      # default is a durable per-repository path outside it (POD-3162), which buys nothing
-      # on an ephemeral runner and cannot be named by an actions/cache `path`.
+      # The build caches are content-addressed on their sources, so these keys are the
+      # honest ones: touch abduco.c, or the Rust crate, its pins or its build script, and
+      # every platform's binary for that source is rebuilt. PODIUM_*_CACHE_DIR pins them
+      # back inside the checkout: locally the defaults are durable per-repository paths
+      # outside it (POD-3162), which buy nothing on an ephemeral runner and cannot be named
+      # by an actions/cache `path`.
+      - uses: actions/cache@v4
+        with:
+          path: dist-bun/abduco-cache
+          key: abduco-cross-${{ hashFiles('packages/pty/vendor/abduco/abduco.c') }}
       - uses: actions/cache@v4
         with:
           path: dist-bun/rust-host-cache
@@ -109,12 +119,14 @@ jobs:
       - name: Assert every bundle is what it claims to be
         run: |
           set -euo pipefail
+          HASH="$(bun -e 'import{abducoSourceHash}from"./scripts/abduco-cross.ts";console.log(abducoSourceHash().slice(0,16))')"
           for pair in "linux-x86_64:linux-x64" "linux-aarch64:linux-arm64" \
                       "darwin-aarch64:darwin-arm64" "darwin-x86_64:darwin-x64"; do
             platform="${pair%%:*}"; asset="${pair##*:}"
             bash scripts/assert-headless-bundle.sh \
               "dist-bun/release/podium-headless-${asset}.tar.gz" "$platform" \
-              --source-commit "$GITHUB_SHA"
+              --source-commit "$GITHUB_SHA" \
+              --abduco "dist-bun/abduco-cache/${platform}-${HASH}"
           done
       # RUN the one bundle this runner can run, BEFORE publishing it. Everything above
       # interrogates tarballs without executing anything — the only option for the three
@@ -256,8 +268,14 @@ jobs:
         with:
           install_args: bun
       # The published smoke opens the Darwin bundles it cannot execute, so it needs the
-      # Mach-O signature reader (rcodesign, pinned in mise.toml).
+      # Mach-O signature reader — and zig, to rebuild the reference abduco attach clients
+      # it checks the published binaries against. Without those references the
+      # embedded-client check could only be waived, and a waived check reads as a pass.
       - uses: jdx/mise-action@v2
+      - uses: actions/cache@v4
+        with:
+          path: dist-bun/abduco-cache
+          key: abduco-cross-${{ hashFiles('packages/pty/vendor/abduco/abduco.c') }}
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: Verify the published assets and signature
         env:

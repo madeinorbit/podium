@@ -4073,7 +4073,7 @@ describe('hibernation', () => {
   })
 
   // The hold must NOT swallow the census repair for PTY-driven rows of the same
-  // harnesses: the census measures a live podium-host under the row's label — an
+  // harnesses: the census measures a live durable host under the row's label — an
   // identity no server-family session ever has — so its revive stays a passive
   // PTY reattach and is exempt from the server-family hold.
   it('the census still revives a PTY-driven codex row the hold would otherwise catch', async () => {

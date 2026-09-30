@@ -484,7 +484,8 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     deps: ['packages/protocol', 'packages/runtime', 'packages/model'],
   },
   // The PTY kernel split out of agent-bridge (POD-396, ADR 8 D4): backends,
-  // the durable host (the vendored Rust podium-host), byte framing, OSC scan,
+  // the durable host (the vendored Rust podium-host; the abduco attach client for
+  // sessions older releases started), byte framing, OSC scan,
   // redraw. It owns `pty-port`, which agent-bridge used to claim alongside
   // `harness-adapters` — feature ownership is exclusive, so the tag moves rather
   // than being duplicated. HARNESS-AGNOSTIC by construction: HARNESS_ADAPTER_HOME
@@ -638,9 +639,9 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // config/sqlite plumbing.
   'packages/sync -> packages/runtime',
   'packages/telemetry -> packages/runtime',
-  // L2: pty resolves the host socket fallback under runtime's stateDir() rather
-  // than re-deriving the state directory (the `state-dir-defs` audit item is at 0
-  // and must stay there).
+  // L2: pty resolves the host socket fallback and the abduco attach-client cache
+  // under runtime's stateDir() rather than re-deriving the state directory (the
+  // `state-dir-defs` audit item is at 0 and must stay there).
   'packages/pty -> packages/runtime',
   // L2: harness reads config/stateDir/sqlite from runtime (POD-397).
   'packages/harness -> packages/runtime',

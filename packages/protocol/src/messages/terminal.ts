@@ -712,11 +712,11 @@ export const CAP_DAEMON_GEOMETRY_APPLIED = 'geometryApplied'
  * emits this before yielding — so a viewer learns the new grid ahead of any
  * output the daemon was still holding at the old one. A daemon on podium-host
  * sends it from the host's RESIZED, once the kernel applied the size (POD-4723).
- * An older daemon sends it when the resize is DISPATCHED to the attach pty; its
- * master (abduco, then) applied it a beat later and could forward already-read
- * old bytes after doing so; that transient is one SIGWINCH propagation plus one
- * repaint, and is what every terminal shows during a resize (see MODEL.md
- * "Accepted residuals").
+ * An older daemon sends it when the resize is DISPATCHED to the attach pty. For
+ * an abduco session (started by an older Podium, still adopted) the master
+ * applies it a beat later and may forward already-read old bytes after doing
+ * so; that transient is one SIGWINCH propagation plus one repaint, and is what
+ * every terminal shows during a resize (see MODEL.md "Accepted residuals").
  *
  * No request id: reports for one session travel in order on one channel, so
  * last-report-wins is the whole ordering rule.
