@@ -109,7 +109,8 @@ function history(): Native[] {
       const update = raw.params?.update
       if (item?.type === 'UserMessage') rows.push({ source, position: n + 1, kind: 'prompt', raw, texts: contentText(item.content), id: item.client_id })
       else if (update?.sessionUpdate === 'user_message_chunk') rows.push({ source, position: n + 1, kind: 'prompt', raw, texts: contentText(update.content), id: raw.params?._meta?.eventId })
-      else if (file.endsWith('/chat_history.jsonl') && raw.type === 'human') rows.push({ source, position: n + 1, kind: 'model-history', raw, texts: contentText(raw.content), id: raw.prompt_index?.toString() })
+      else if (file.endsWith('/chat_history.jsonl') && (raw.type === 'user' || raw.type === 'human')) rows.push({ source, position: n + 1, kind: 'model-history', raw, texts: contentText(raw.content), id: raw.prompt_index?.toString() })
+      else if (update?.sessionUpdate === 'turn_completed') rows.push({ source, position: n + 1, kind: 'turn-identity', raw, texts: [], id: update.prompt_id ?? raw.params?._meta?.promptId })
       else if (file.endsWith('/history.jsonl')) rows.push({ source, position: n + 1, kind: 'input-history', raw, texts: [raw.text ?? ''] })
       else if (file.endsWith('/prompt_history.jsonl')) rows.push({ source, position: n + 1, kind: 'input-history', raw, texts: [raw.prompt ?? ''] })
     }

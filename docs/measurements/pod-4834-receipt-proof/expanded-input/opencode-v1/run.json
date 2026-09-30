@@ -2,19 +2,19 @@
   "lane": "opencode-v1",
   "version": "1.18.33",
   "commandPath": "/home/mgw/.opencode/bin/opencode",
-  "startedAt": "2026-09-30T16:23:13.009Z",
-  "root": "/tmp/podium-4984-opencode-v1-8wAgFL",
+  "startedAt": "2026-09-30T16:25:44.082Z",
+  "root": "/tmp/podium-4984-opencode-v1-8n214T",
   "fakePort": 49984,
   "appPort": 49985,
   "env": {
     "PATH": "/home/mgw/.bun/install/global/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/mgw/.local/share/mise/installs/bun/1.4.2/bin:/home/mgw/.local/share/mise/installs/zig/0.16.0/bin:/home/mgw/.local/share/mise/installs/github-indygreg-apple-platform-rs/apple-codesign-0.29.0:/home/mgw/.local/share/mise/installs/conda-pigz/2.8/.mise-bins:/home/mgw/.cargo/bin:/home/mgw/.local/share/mise/installs/github-rust-cross-cargo-zigbuild/0.23.4:/home/mgw/.local/share/mise/shims:/home/mgw/google-cloud-sdk/bin:/home/mgw/.local/bin:/home/mgw/.codex/tmp/arg0/codex-arg0Zq4v2T:/home/mgw/.podium/hooks/browser-shims:/home/mgw/.bun/bin:/home/mgw/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin",
-    "HOME": "/tmp/podium-4984-opencode-v1-8wAgFL/home",
-    "CODEX_HOME": "/tmp/podium-4984-opencode-v1-8wAgFL/home/.codex",
-    "GROK_HOME": "/tmp/podium-4984-opencode-v1-8wAgFL/home/.grok",
-    "XDG_CONFIG_HOME": "/tmp/podium-4984-opencode-v1-8wAgFL/home/.config",
-    "XDG_CACHE_HOME": "/tmp/podium-4984-opencode-v1-8wAgFL/home/.cache",
-    "XDG_DATA_HOME": "/tmp/podium-4984-opencode-v1-8wAgFL/home/.local/share",
-    "XDG_STATE_HOME": "/tmp/podium-4984-opencode-v1-8wAgFL/home/.local/state",
+    "HOME": "/tmp/podium-4984-opencode-v1-8n214T/home",
+    "CODEX_HOME": "/tmp/podium-4984-opencode-v1-8n214T/home/.codex",
+    "GROK_HOME": "/tmp/podium-4984-opencode-v1-8n214T/home/.grok",
+    "XDG_CONFIG_HOME": "/tmp/podium-4984-opencode-v1-8n214T/home/.config",
+    "XDG_CACHE_HOME": "/tmp/podium-4984-opencode-v1-8n214T/home/.cache",
+    "XDG_DATA_HOME": "/tmp/podium-4984-opencode-v1-8n214T/home/.local/share",
+    "XDG_STATE_HOME": "/tmp/podium-4984-opencode-v1-8n214T/home/.local/state",
     "TERM": "xterm-256color",
     "COLORTERM": "truecolor",
     "LANG": "C.UTF-8",
@@ -22,7 +22,7 @@
     "OPENCODE_DISABLE_AUTOUPDATE": "1",
     "OPENCODE_DISABLE_MODELS_FETCH": "1",
     "OPENCODE_SERVER_PASSWORD": "dummy-local-password",
-    "OPENCODE_CONFIG": "/tmp/podium-4984-opencode-v1-8wAgFL/work/opencode.json"
+    "OPENCODE_CONFIG": "/tmp/podium-4984-opencode-v1-8n214T/work/opencode.json"
   },
   "config": {
     "provider": {
@@ -58,5 +58,6 @@
   "methods": [
     "paste: tmux paste-buffer -r -p, exact input bytes including LF and CR",
     "typed: tmux send-keys -l, unbracketed literal byte burst; 650ms pause then Enter; programs may detect bursts as paste"
-  ]
+  ],
+  "finishedAt": "2026-09-30T16:26:24.246Z"
 }
