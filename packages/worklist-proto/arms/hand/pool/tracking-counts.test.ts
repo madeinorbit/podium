@@ -4,7 +4,7 @@
  * `arms/mobx/pool/tracking-counts.test.ts`).
  *
  * WHAT IS COUNTED. The pool is created on the scenario feed as the arm
- * creates it (`handPoolArm.create`, one `replace`), then a first paint of a
+ * creates it (`harnessHandPoolArm.create`, one `replace`), then a first paint of a
  * 20-row window is read. A hand census (`harness/src/hand-census.ts`) traps
  * the graph's own class, so every cell built (`CellGraph.cell`) and every
  * cell body run (`CellGraph.run`) is seen as it happens; subscriptions are
@@ -25,7 +25,7 @@
  * reading.
  *
  * THE PHASES of startup, as counts of work (never times): `create`
- * (`handPoolArm.create` outside `apply`: the pool's constructor, its tables,
+ * (`harnessHandPoolArm.create` outside `apply`: the pool's constructor, its tables,
  * closure, filings and order) with `ingest` nested inside it
  * (`HandPool.apply`: the replace, residency, the relation engine's upkeep
  * and the commit's drains), then `firstPaint` (the window's watchers). Per
@@ -53,7 +53,7 @@
  * rewrites the file from the measured counts (and still checks nothing else).
  *
  * THE WRITE LAYER. The same census runs twice more on the arm that owns
- * optimism (`writableHandPoolArm`, re-applying the kernel outbox at
+ * optimism (`harnessWritableHandPoolArm`, re-applying the kernel outbox at
  * creation): `write-idle` (the layer attached, nothing pending) and
  * `write-pending` (title edits on the last rows of the paint window queued in
  * the kernel outbox, re-applied at creation, never receipted:
@@ -94,9 +94,14 @@ import { createReadFence } from '../../../shared/src/instrument/reads'
 import { ROW_DISPLAYED_FIELDS } from '../../../shared/src/row-view'
 import { type FixtureScale, startScenarioEngine } from '../../../shared/src/scenarios'
 import { coldByRule, type EntityName, SCHEMA, tableColdContext } from '../../../shared/src/schema'
-import { handPoolArm, type HandPoolHandle } from './arm'
+import {
+  harnessHandPoolArm,
+  harnessWritableHandPoolArm,
+  poolPendingLoads,
+  type HarnessHandPoolHandle,
+  type HarnessWritableHandPoolHandle,
+} from '../../../harness/src/adapters/hand-pool'
 import { HandPool } from './pool'
-import { writableHandPoolArm, type WritableHandPoolHandle } from './write/arm'
 
 // happy-dom rewrites `import.meta.url` (the package's own `test` lane); resolve
 // from the lane's cwd instead, as work-per-change.test.tsx does.
@@ -311,22 +316,22 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
         )
       : null
   const transport = silentTransport(pending?.queued ?? [])
-  let handle: (HandPoolHandle | WritableHandPoolHandle) | null = null
+  let handle: (HarnessHandPoolHandle | HarnessWritableHandPoolHandle) | null = null
   let stopPaint: (() => void) | null = null
   try {
     census.enter('create')
     const source = reads.wrapSource(feeds.rows.source)
     handle =
       variant === 'pool'
-        ? handPoolArm.create(source, feeds.locals.source, reads, NEVER_LOAD)
-        : (writableHandPoolArm(transport, NEVER_LOAD).create(
+        ? harnessHandPoolArm.create(source, feeds.locals.source, reads, NEVER_LOAD)
+        : (harnessWritableHandPoolArm(transport, NEVER_LOAD).create(
             source,
             feeds.locals.source,
             reads,
-          ) as WritableHandPoolHandle)
+          ) as HarnessWritableHandPoolHandle)
     census.exit()
     if (pending !== null) {
-      const { write } = handle as WritableHandPoolHandle
+      const { write } = handle as HarnessWritableHandPoolHandle
       const shown = [...pending.titles.keys()].filter(
         (id) => write.pendingDisplay('issue', id) !== undefined,
       )
@@ -338,12 +343,12 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
       census.snapshot().entries.length,
       'the census traps the pool’s cells from outside',
     ).toBeGreaterThan(0)
-    const startup = checkpoint(census.snapshot(), (handle as HandPoolHandle).pool, facts)
+    const startup = checkpoint(census.snapshot(), (handle as HarnessHandPoolHandle).pool, facts)
     census.enter('firstPaint')
-    stopPaint = paintWindow((handle as HandPoolHandle).pool)
+    stopPaint = paintWindow((handle as HarnessHandPoolHandle).pool)
     census.exit()
     const final = census.snapshot()
-    const paint = checkpoint(final, (handle as HandPoolHandle).pool, facts)
+    const paint = checkpoint(final, (handle as HarnessHandPoolHandle).pool, facts)
     const phases = phaseCounts(final)
     const counts: Record<string, number> = {}
     for (const [prefix, set] of [
@@ -368,7 +373,7 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
         startup: startup,
         firstPaint: paint,
         phases,
-        pendingLoadsAfterPaint: (handle as HandPoolHandle).pool.pendingLoads(),
+        pendingLoadsAfterPaint: poolPendingLoads((handle as HarnessHandPoolHandle).pool),
         pendingEdits: pending === null ? [] : [...pending.titles.keys()],
       },
     }
