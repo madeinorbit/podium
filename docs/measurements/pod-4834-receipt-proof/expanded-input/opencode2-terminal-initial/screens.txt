@@ -1,0 +1,517 @@
+START initial-argument/lines-2-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-lines-2 line-001 payload-END-1
+                                                     ┃  P4984-lines-2 line-002 payload-END-2
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/lines-2-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-lines-2 line-001 payload-END-1
+                                                     ┃  P4984-lines-2 line-002 payload-END-2
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START initial-argument/lines-2-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7 · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-lines-2 line-001 payload-END-1
+                                                     ┃  P4984-lines-2 line-002 payload-END-2
+                                                     ┃  [end podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/lines-2-frame
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7 · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-lines-2 line-001 payload-END-1
+                                                     ┃  P4984-lines-2 line-002 payload-END-2
+                                                     ┃  [end podium message msg_6d517697-7bdb-4000-8000-2c0f77fafdc7]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START initial-argument/lines-10-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-lines-10 line-001 payload-END-1
+                                                     ┃  P4984-lines-10 line-002 payload-END-2
+                                                     ┃  P4984-lines-10 line-003 payload-END-3
+                                                     ┃  P4984-lines-10 line-004 payload-END-4
+                                                     ┃  P4984-lines-10 line-005 payload-END-5
+                                                     ┃  P4984-lines-10 line-006 payload-END-6
+                                                     ┃  P4984-lines-10 line-007 payload-END-7
+                                                     ┃  P4984-lines-10 line-008 payload-END-8
+                                                     ┃  P4984-lines-10 line-009 payload-END-9
+                                                     ┃  P4984-lines-10 line-010 payload-END-10
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/lines-10-plain
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-lines-10 line-001 payload-END-1
+                                                     ┃  P4984-lines-10 line-002 payload-END-2
+                                                     ┃  P4984-lines-10 line-003 payload-END-3
+                                                     ┃  P4984-lines-10 line-004 payload-END-4
+                                                     ┃  P4984-lines-10 line-005 payload-END-5
+                                                     ┃  P4984-lines-10 line-006 payload-END-6
+                                                     ┃  P4984-lines-10 line-007 payload-END-7
+                                                     ┃  P4984-lines-10 line-008 payload-END-8
+                                                     ┃  P4984-lines-10 line-009 payload-END-9
+                                                     ┃  P4984-lines-10 line-010 payload-END-10
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START initial-argument/lines-10-frame
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-lines-10 line-001 payload-END-1
+                                                     ┃  P4984-lines-10 line-002 payload-END-2
+                                                     ┃  P4984-lines-10 line-003 payload-END-3
+                                                     ┃  P4984-lines-10 line-004 payload-END-4
+                                                     ┃  P4984-lines-10 line-005 payload-END-5
+                                                     ┃  P4984-lines-10 line-006 payload-END-6
+                                                     ┃  P4984-lines-10 line-007 payload-END-7
+                                                     ┃  P4984-lines-10 line-008 payload-END-8
+                                                     ┃  P4984-lines-10 line-009 payload-END-9
+                                                     ┃  P4984-lines-10 line-010 payload-END-10
+                                                     ┃  [end podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/lines-10-frame
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  [podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b · from agent
+                                                     ┃  · to you]
+                                                     ┃  P4984-lines-10 line-001 payload-END-1
+                                                     ┃  P4984-lines-10 line-002 payload-END-2
+                                                     ┃  P4984-lines-10 line-003 payload-END-3
+                                                     ┃  P4984-lines-10 line-004 payload-END-4
+                                                     ┃  P4984-lines-10 line-005 payload-END-5
+                                                     ┃  P4984-lines-10 line-006 payload-END-6
+                                                     ┃  P4984-lines-10 line-007 payload-END-7
+                                                     ┃  P4984-lines-10 line-008 payload-END-8
+                                                     ┃  P4984-lines-10 line-009 payload-END-9
+                                                     ┃  P4984-lines-10 line-010 payload-END-10
+                                                     ┃  [end podium message msg_c82accb4-3dd6-4000-8000-3841dbbe1d1b]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START initial-argument/lines-200-plain
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-lines-200 line-186 payload-END-186
+                                                     ┃  P4984-lines-200 line-187 payload-END-187
+                                                     ┃  P4984-lines-200 line-188 payload-END-188
+                                                     ┃  P4984-lines-200 line-189 payload-END-189
+                                                     ┃  P4984-lines-200 line-190 payload-END-190
+                                                     ┃  P4984-lines-200 line-191 payload-END-191
+                                                     ┃  P4984-lines-200 line-192 payload-END-192
+                                                     ┃  P4984-lines-200 line-193 payload-END-193
+                                                     ┃  P4984-lines-200 line-194 payload-END-194
+                                                     ┃  P4984-lines-200 line-195 payload-END-195
+                                                     ┃  P4984-lines-200 line-196 payload-END-196
+                                                     ┃  P4984-lines-200 line-197 payload-END-197
+                                                     ┃  P4984-lines-200 line-198 payload-END-198
+                                                     ┃  P4984-lines-200 line-199 payload-END-199
+                                                     ┃  P4984-lines-200 line-200 payload-END-200
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+initial-argument/lines-200-plain
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-lines-200 line-186 payload-END-186
+                                                     ┃  P4984-lines-200 line-187 payload-END-187
+                                                     ┃  P4984-lines-200 line-188 payload-END-188
+                                                     ┃  P4984-lines-200 line-189 payload-END-189
+                                                     ┃  P4984-lines-200 line-190 payload-END-190
+                                                     ┃  P4984-lines-200 line-191 payload-END-191
+                                                     ┃  P4984-lines-200 line-192 payload-END-192
+                                                     ┃  P4984-lines-200 line-193 payload-END-193
+                                                     ┃  P4984-lines-200 line-194 payload-END-194
+                                                     ┃  P4984-lines-200 line-195 payload-END-195
+                                                     ┃  P4984-lines-200 line-196 payload-END-196
+                                                     ┃  P4984-lines-200 line-197 payload-END-197
+                                                     ┃  P4984-lines-200 line-198 payload-END-198
+                                                     ┃  P4984-lines-200 line-199 payload-END-199
+                                                     ┃  P4984-lines-200 line-200 payload-END-200
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+
+START initial-argument/lines-200-frame
+
+
+
+
+
+
+
+
+
+
+                                                                                                        ▄
+                                                                       █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+                                                                       █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                                                                       ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+
+                                                     ┃
+                                                     ┃  P4984-lines-200 line-187 payload-END-187
+                                                     ┃  P4984-lines-200 line-188 payload-END-188
+                                                     ┃  P4984-lines-200 line-189 payload-END-189
+                                                     ┃  P4984-lines-200 line-190 payload-END-190
+                                                     ┃  P4984-lines-200 line-191 payload-END-191
+                                                     ┃  P4984-lines-200 line-192 payload-END-192
+                                                     ┃  P4984-lines-200 line-193 payload-END-193
+                                                     ┃  P4984-lines-200 line-194 payload-END-194
+                                                     ┃  P4984-lines-200 line-195 payload-END-195
+                                                     ┃  P4984-lines-200 line-196 payload-END-196
+                                                     ┃  P4984-lines-200 line-197 payload-END-197
+                                                     ┃  P4984-lines-200 line-198 payload-END-198
+                                                     ┃  P4984-lines-200 line-199 payload-END-199
+                                                     ┃  P4984-lines-200 line-200 payload-END-200
+                                                     ┃  [end podium message msg_f67aa431-8f6c-4000-8000-900c5b28cc6a]
+                                                     ┃
+                                                     ┃  Build auto · fake fake
+                                                     ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                                     /…/podium-4984-opencode2-te…/work:master  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+                                                                                                                                                                  0.0.0-beta-18866
+
+

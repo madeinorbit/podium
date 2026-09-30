@@ -270,12 +270,18 @@ try {
       if (terminal) await launchTerminal(label, method === 'initial-argument' ? c.text : undefined)
       const before = initialBefore ?? history(), modelBefore = initialModelBefore ?? modelRows().length
       const sentAt = Date.now()
-      let extraEnterAt: number | undefined, editorDrainedAt: number | undefined, editorDrainComplete: boolean | undefined
+      let extraEnterAt: number | undefined, editorDrainedAt: number | undefined, editorDrainComplete: boolean | undefined, initialSubmitAt: number | undefined
       let sessionId: string | undefined, protocolId: string | undefined, status: any, error: string | undefined
       try {
         if (terminal) {
           if (method === 'initial-argument') {
-            status = await until(() => history().filter(r => r.kind === 'prompt').length > before.filter(r => r.kind === 'prompt').length, 45000)
+            status = await until(() => history().filter(r => r.kind === 'prompt').length > before.filter(r => r.kind === 'prompt').length, 1000)
+            if (!status) {
+              // The beta --prompt prefills its editor; stable/Codex submit automatically.
+              initialSubmitAt = Date.now()
+              tmux('send-keys', '-t', 'measure', 'Enter')
+              status = await until(() => history().filter(r => r.kind === 'prompt').length > before.filter(r => r.kind === 'prompt').length, 15000)
+            }
           } else {
           if (method === 'paste' || method === 'typed-buffer') {
             writeFileSync(`${root}/paste.txt`, c.text)
@@ -345,7 +351,7 @@ try {
       const records = snapshot(label, before, history())
       const prompts = records.filter(r => r.kind === 'prompt')
       const models = modelRows().slice(modelBefore)
-      const summary = { label, sentAt, extraEnterAt, editorDrainComplete, editorDrainedAt, finishedAt: Date.now(), sessionId, protocolId, status, error,
+      const summary = { label, sentAt, extraEnterAt, initialSubmitAt, editorDrainComplete, editorDrainedAt, finishedAt: Date.now(), sessionId, protocolId, status, error,
         case: c.name, inputBytes: bytes(c.text), inputSha256: sha(c.text),
         records: prompts.map(r => ({ source: r.source, position: r.position, id: r.id, texts: r.texts.map(t => ({ bytes: bytes(t), sha256: sha(t), exact: t === c.text, first: t.slice(0, 100), last: t.slice(-100) })) })),
         modelRequests: models.map(r => r.n), modelReceivedBody: models.some(r => JSON.stringify(r.messages).includes(c.body.slice(0, 24))) }
