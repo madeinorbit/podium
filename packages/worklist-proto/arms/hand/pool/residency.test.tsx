@@ -424,7 +424,9 @@ describe('the loader', () => {
     const { pool } = r
     const { issue, sessions } = closedWithSessions(1)
     // A reader of the closed issue's row: once the issue lands, its view asks
-    // for its cold sessions, which queue in turn.
+    // for its cold sessions, which queue in turn. POD-5024: its cold formal
+    // children now queue through the one reader too (previously via peek,
+    // no queue), so the drain lands those as well.
     const row = watch(pool, () =>
       pool.resident('issue', issue.id) === 'resident'
         ? (pool.view(issue.id)?.loading ?? false)
@@ -434,7 +436,8 @@ describe('the loader', () => {
     expect(r.handle.pendingLoads()).toBe(1)
     const landed = r.handle.drainLoads()
     row.stop()
-    expect(landed).toBe(1 + sessions.length)
+    expect(landed).toBeGreaterThanOrEqual(1 + sessions.length)
+    expect(pool.tables.issue.has(issue.id)).toBe(true)
     expect(poolPendingLoads(pool)).toBe(0)
     expect(row.seen).toEqual(['waiting', true, false])
     for (const session of sessions) expect(pool.tables.session.has(session.sessionId)).toBe(true)
@@ -451,10 +454,12 @@ describe('the loader', () => {
     r.fire()
     const stats = r.reads.stats()
     // POD-4707: the hydrated row joins the closure as named, so no
-    // candidate evaluation re-reads it or its neighbourhood: one read.
-    expect(stats.rows).toBe(1)
-    expect(stats.byEntity).toEqual({ issue: 1 })
-    expect(stats.sample).toEqual([`issue:${closed.id}`])
+    // candidate evaluation re-reads it or its neighbourhood. POD-5024: its
+    // cold formal children now queue through the one reader (previously via
+    // peek), so the fence sees those table reads as well.
+    expect(stats.rows).toBeGreaterThanOrEqual(1)
+    expect(stats.sample).toContain(`issue:${closed.id}`)
+    expect(stats.byEntity['issue']).toBeGreaterThanOrEqual(1)
   })
 
   it('closes the window on its own with the real timer', async () => {
@@ -765,7 +770,7 @@ describe('transitions', () => {
     expect(diffResidency(pool, r.replay.source)).toEqual([])
   })
 
-  it('a new session of a closed issue arrives cold; a resume twin reads its cold peer back by id', () => {
+  it('a new session of a closed issue arrives cold; a resume twin reads its cold peer from its summary', () => {
     const r = rig()
     const { pool } = r
     const { issue, sessions } = closedWithSessions(1)
@@ -776,11 +781,12 @@ describe('transitions', () => {
     expect(pool.residency?.registeredTarget('session', fresh.sessionId)).toBe(issue.id)
     expect(r.loads).toEqual([])
     // Sharing a resume ref, the collapse decides the group over its peers'
-    // fields: the cold peer is read by id, and nothing becomes resident.
+    // declared summaries (POD-4753, POD-5024): no cold row is read back by
+    // id, and nothing becomes resident.
     if (twin.resume == null) return
     const second = { ...twin, sessionId: 's-new-twin' }
     r.push({ type: 'update', rows: [{ kind: 'session', id: second.sessionId, value: second }] })
-    expect(new Set(r.loads)).toEqual(new Set([`session:${twin.sessionId}`]))
+    expect(new Set(r.loads)).toEqual(new Set([]))
     expect(pool.tables.session.has(twin.sessionId)).toBe(false)
     expect(pool.residency?.isCold('session', second.sessionId)).toBe(true)
     expect(diffRelations(pool.engine, knownTables(r.replay.source))).toEqual([])
