@@ -81,7 +81,7 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { autorun } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { openFenceFeeds, parityLocals } from '../../../harness/src/fence-scenarios'
@@ -119,7 +119,12 @@ import { type WritableMobxPoolHandle, writableMobxPoolArm } from './write/arm'
 
 installMobxWarnTrap()
 
-const BASELINE_PATH = fileURLToPath(new URL('./tracking-counts.baseline.json', import.meta.url))
+// happy-dom rewrites `import.meta.url` (the package's own `test` lane); resolve
+// from the lane's cwd instead, as work-per-change.test.tsx does.
+const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
+  ? process.cwd()
+  : join(process.cwd(), 'packages', 'worklist-proto')
+const BASELINE_PATH = join(PACKAGE_DIR, 'arms', 'mobx', 'pool', 'tracking-counts.baseline.json')
 const UPDATE = process.env['POD_TRACKING_COUNTS_UPDATE']
 
 /** The first paint's window, in rows. */
