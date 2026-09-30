@@ -303,6 +303,10 @@ describe('message delivery under real failures', { retry: 0 }, () => {
       world.setHookDelayMs(session, 0)
       const held = phone.send(session, 'held by the daemon behind a working turn')
       await waitCarried(world, held.id)
+      // The server awaits the daemon's receipt before answering this send.
+      // Let that answer release the phone's FIFO outbox before stalling its
+      // link; otherwise the held receipt can block the next send entirely.
+      await held.settled
       world.link.stall()
       const queued = phone.send(session, 'forwarded into the stalled link, never arrived')
       // The server has handed it on: the stall holds its frame.
