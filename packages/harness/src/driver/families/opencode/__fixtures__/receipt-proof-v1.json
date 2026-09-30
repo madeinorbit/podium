@@ -1,0 +1,155 @@
+{
+  "source": "docs/measurements/pod-4834-receipt-proof/opencode-1.18.33/v1/timeline.jsonl",
+  "version": "opencode 1.18.33",
+  "measured": "2026-09-29",
+  "scenarios": {
+    "cold": {
+      "label": "S1",
+      "request": {
+        "messageID": "msg_cf6e3696-1323-404e-9431-1ecc1b18a156",
+        "parts": [
+          {
+            "type": "text",
+            "text": "S1 ALPHA idle send",
+            "id": "prt_000000000000cf6e3696-1323-404e-9431-1ecc1b18a156"
+          }
+        ]
+      },
+      "status": 204,
+      "replyMs": 25,
+      "message": {
+        "atMs": 263,
+        "info": {
+          "id": "msg_cf6e3696-1323-404e-9431-1ecc1b18a156",
+          "sessionID": "ses_f120c85aeffeml4hjuZeiOD12x",
+          "role": "user",
+          "time": {
+            "created": 1790698552130
+          },
+          "agent": "build",
+          "model": {
+            "providerID": "fake",
+            "modelID": "fake"
+          }
+        }
+      },
+      "part": {
+        "atMs": 2202,
+        "value": {
+          "id": "prt_000000000000cf6e3696-1323-404e-9431-1ecc1b18a156",
+          "messageID": "msg_cf6e3696-1323-404e-9431-1ecc1b18a156",
+          "sessionID": "ses_f120c85aeffeml4hjuZeiOD12x",
+          "type": "text",
+          "text": "S1 ALPHA idle send"
+        }
+      }
+    },
+    "warm": {
+      "label": "S1w",
+      "request": {
+        "messageID": "msg_3f71faf4-56b0-4c95-b396-e9240c1ddfb0",
+        "parts": [
+          {
+            "type": "text",
+            "text": "S1w ALPHA2 idle send, warm server",
+            "id": "prt_0000000000003f71faf4-56b0-4c95-b396-e9240c1ddfb0"
+          }
+        ]
+      },
+      "status": 204,
+      "replyMs": 18,
+      "message": {
+        "atMs": 25,
+        "info": {
+          "id": "msg_3f71faf4-56b0-4c95-b396-e9240c1ddfb0",
+          "sessionID": "ses_f120c6a7cffeg1VDQsOClEY5xZ",
+          "role": "user",
+          "time": {
+            "created": 1790698558875
+          },
+          "agent": "build",
+          "model": {
+            "providerID": "fake",
+            "modelID": "fake"
+          }
+        }
+      },
+      "part": {
+        "atMs": 58,
+        "value": {
+          "id": "prt_0000000000003f71faf4-56b0-4c95-b396-e9240c1ddfb0",
+          "messageID": "msg_3f71faf4-56b0-4c95-b396-e9240c1ddfb0",
+          "sessionID": "ses_f120c6a7cffeg1VDQsOClEY5xZ",
+          "type": "text",
+          "text": "S1w ALPHA2 idle send, warm server"
+        }
+      }
+    },
+    "killed": {
+      "label": "S6.C",
+      "request": {
+        "messageID": "msg_e2ac1c6b-3bbb-49af-b6bf-f767421a6bea",
+        "parts": [
+          {
+            "type": "text",
+            "text": "S6 OMICRON SLOWTEXT then the server dies",
+            "id": "prt_000000000000e2ac1c6b-3bbb-49af-b6bf-f767421a6bea"
+          }
+        ]
+      },
+      "status": 204,
+      "replyMs": 126,
+      "message": null,
+      "part": null
+    },
+    "badId": {
+      "label": "S10.badid",
+      "request": {
+        "messageID": "bad_id_1",
+        "parts": [
+          {
+            "type": "text",
+            "text": "S10 RHO bad message id",
+            "id": "prt_000000000000id_1"
+          }
+        ]
+      },
+      "status": 400,
+      "replyMs": 8,
+      "message": null,
+      "part": null
+    },
+    "badPart": {
+      "label": "S10.badbody",
+      "request": {
+        "parts": [
+          {
+            "type": "nope",
+            "text": "S10 SIGMA bad part"
+          }
+        ]
+      },
+      "status": 400,
+      "replyMs": 21,
+      "message": null,
+      "part": null
+    },
+    "unknownSession": {
+      "label": "S10.nosession",
+      "request": {
+        "messageID": "msg_5e08a9d6-af76-47f1-aea3-532f1cb3fb8e",
+        "parts": [
+          {
+            "type": "text",
+            "text": "S10 TAU unknown session",
+            "id": "prt_0000000000005e08a9d6-af76-47f1-aea3-532f1cb3fb8e"
+          }
+        ]
+      },
+      "status": 404,
+      "replyMs": 65,
+      "message": null,
+      "part": null
+    }
+  }
+}
