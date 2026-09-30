@@ -29,7 +29,7 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { attachTestTerminal, testSessions } from '../session/testing.js'
 import type { DaemonContext } from './context'
-import { sessionHandlers, stealTerminalWriter } from './session'
+import { recoverTerminalHost, sessionHandlers, stealTerminalWriter } from './session'
 
 const holder = vi.hoisted(() => ({ durable: undefined as unknown }))
 
@@ -70,10 +70,10 @@ interface World {
 function world(): World {
   const sent: DaemonMessage[] = []
   const adapter = {
-    attach: vi.fn(async () => {
+    attach: vi.fn(async (_options: unknown) => {
       throw new WriterLeaseRefusedError(LABEL, 1, 0)
     }),
-    steal: vi.fn(async () => ({
+    steal: vi.fn(async (_options: unknown) => ({
       attachment: fakeAttachment(),
       cmd: `podium-host attach /tmp/${LABEL}.sock`,
     })),
@@ -138,6 +138,26 @@ describe('a refused writer lease', () => {
   })
 })
 
+describe('a fresh tail attach (SPEC v4 B3)', () => {
+  it.each([
+    true,
+    false,
+  ])('replays only for an old server; pictures accepted = %s', async (accepted) => {
+    const { ctx, adapter } = world()
+    ctx.picturesAccepted = () => accepted
+    const replay = vi.fn(async () => {})
+    const attachment = { ...fakeAttachment(), connection: { lastSeq: 41n }, replay }
+    adapter.attach.mockResolvedValueOnce({ attachment, cmd: 'host attach' })
+    const ready = vi.fn()
+    await recoverTerminalHost(ctx, reattachMessage(), ready)
+    expect(ready).toHaveBeenCalledOnce()
+    expect(replay).toHaveBeenCalledTimes(accepted ? 0 : 1)
+    expect(adapter.attach.mock.calls[0]?.[0]).not.toHaveProperty('lastSeq')
+    expect(ctx.sessions.get(SESSION)).not.toHaveProperty('seqReader')
+    ctx.sessions.get(SESSION)?.clear()
+  })
+})
+
 describe('the stealWriter verb', () => {
   it('takes the lease, wires the stolen surface, and reports a bind', async () => {
     const { ctx, sent, adapter } = world()
@@ -150,6 +170,7 @@ describe('the stealWriter verb', () => {
     })
 
     expect(adapter.steal).toHaveBeenCalledTimes(1)
+    expect(adapter.steal.mock.calls[0]?.[0]).not.toHaveProperty('lastSeq')
     // The stolen surface is the session's ONE Terminal, built through the same
     // construction site as spawn and reattach.
     expect(ctx.sessions.get(SESSION)?.terminal).toBeDefined()
@@ -175,13 +196,12 @@ describe('the stealWriter verb', () => {
 })
 
 describe('park drops the Terminal and keeps the process', () => {
-  it('the session keeps its label, screen, held resize and replay cursor', async () => {
+  it('the session keeps its label and screen', async () => {
     const { ctx } = world()
     const owned = ctx.sessions.ensure(SESSION)
     owned.label = LABEL
-    // A live surface and a replay cursor.
+    // A live surface over the session-owned screen.
     attachTestTerminal(ctx, SESSION, fakeAttachment())
-    owned.seqReader = () => 41n
     const screen = owned.screen()
     expect(owned.attached).toBe(true)
 
@@ -189,10 +209,9 @@ describe('park drops the Terminal and keeps the process', () => {
 
     expect(owned.attached).toBe(false)
     expect(owned.terminal).toBeUndefined()
-    // The PROCESS side survives the park: label, screen, cursor.
+    // The PROCESS side survives the park: label and screen.
     expect(owned.label).toBe(LABEL)
     expect(owned.peekScreen()).toBe(screen)
-    expect(owned.seqReader?.()).toBe(41n)
   })
 })
 

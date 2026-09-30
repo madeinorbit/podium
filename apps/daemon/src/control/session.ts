@@ -447,27 +447,8 @@ function removeSessionInstructions(ctx: DaemonContext, sessionId: SessionId): vo
 /** The user's redraw button: the one repaint that reaches the program. */
 const CTRL_L = Uint8Array.of(0x0c)
 
-/** How much of the host's ring a `replayRequired` redraw replays: several screens of a TUI. */
+/** Old-server compatibility: its redraw can still ask for the host ring. */
 const HOST_REPLAY_TAIL_BYTES = 256 * 1024
-
-/**
- * Keep a way to read the host connection's resume point after the session is
- * gone: the host adapter's session exposes its connection, and `lastSeq` on it
- * survives the socket closing. Other backends record nothing.
- *
- * EXPORTED for the client-terminal host (`runtime/opencode-attach.ts`), which
- * holds the same kind of session — a host connection with a ring — on a path
- * that never becomes a bridge. It reports through a port, wired in
- * `host-runtime.ts`, because that module owns no context to write to.
- */
-export function rememberDurableSeq(
-  ctx: DaemonContext,
-  sessionId: SessionId,
-  session: DurableAttachment,
-): void {
-  const conn = (session as { connection?: { lastSeq?: bigint } }).connection
-  if (conn) ctx.sessions.ensure(sessionId).seqReader = () => conn.lastSeq
-}
 
 /**
  * What a bind states as the session's size: the host connection's, read at
@@ -569,7 +550,7 @@ export function wireBridge(
   durableLabel: string,
 ): Terminal {
   // THE ONE headed construction site (POD-4434): spawn and reattach both build
-  // their surface here. The Session owns the label and the replay cursor; the
+  // their surface here. The Session owns the label and screen; the
   // Terminal is the surface over the attachment just opened.
   const owned = ctx.sessions.ensure(sessionId)
   owned.label = durableLabel
@@ -847,7 +828,6 @@ export async function launchSpawn(
         stripEnv: harnessChildStripEnv(msg.loginHarness ?? msg.agentKind, msg.env),
       }
       const session = await durable.spawn(spawnOpts)
-      rememberDurableSeq(ctx, msg.sessionId, session)
       driverTiming.headedCliStage(msg.sessionId, msg.agentKind, 'native_cli_process_started', {
         adopted: session.adopted,
       })
@@ -2336,8 +2316,8 @@ export async function recoverTerminalHost(
     // NO REDRAW (POD-4723, design rev 3). This used to nudge the program on every
     // link-B reattach — two RESIZEs and a full repaint per session, fanned out to
     // every viewer — and the nudge is what put ptys back at a stale size. The
-    // server keeps its byte log across a link-B drop; a viewer that needs more
-    // asks with `redraw`, which repaints it from the snapshot or the ring.
+    // bind above requests the host picture for the server cache. Older servers
+    // keep their redraw path, which repaints from the snapshot or ring.
     // Re-push agent state for the same reason we re-seed the transcript below: a
     // freshly restarted SERVER (the daemon survived) starts with NO agentState for
     // this session, and an idle survivor fires no hook to re-establish it — so it
@@ -2388,7 +2368,6 @@ export async function recoverTerminalHost(
       const located = await durable.locate(msg.durableLabel, env, { waitMs: 1500 })
       if (located) {
         try {
-          const resumeFrom = ctx.sessions.get(msg.sessionId)?.seqReader?.()
           found = await located.adapter.attach({
             label: msg.durableLabel,
             socketPath: located.socketPath,
@@ -2397,7 +2376,6 @@ export async function recoverTerminalHost(
             // with reattachFailed, never read along silently.
             requireLease: true,
             lastKnownGeometry: msg.lastKnownGeometry,
-            ...(resumeFrom !== undefined ? { lastSeq: resumeFrom } : {}),
           })
         } catch (err) {
           // A refused lease is not a lookup failure: it must reach the
@@ -2420,7 +2398,6 @@ export async function recoverTerminalHost(
     // model before the ring replay below — and the bind carries the same size.
     // abduco cannot read its size back, so it states nothing and binds bare.
     const terminal = wireBridge(ctx, msg.sessionId, found.attachment, msg.agentKind, msg.durableLabel)
-    rememberDurableSeq(ctx, msg.sessionId, found.attachment)
     // The settings file from the original spawn still points at our fixed port,
     // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
     // all in-memory per-session state — rebuild it via the same path spawn uses.
@@ -2447,15 +2424,10 @@ export async function recoverTerminalHost(
         terminalScreenFor(ctx, msg.sessionId).model,
       )
     }
-    // A fresh host attachment starts at the output tail. Reconstruct the
-    // agent's missing screen through the existing bounded replay port after
-    // wiring all consumers; waiting for a viewer resize leaves idle survivors
-    // blank. Plain terminals retain their viewer-driven replay path. The
-    // program is never signalled: a fresh daemon repaints from the ring.
-    // With pictures on (POD-4912) the host's `reset` picture — asked for right
-    // after the bind below — seeds the models and serves the viewers instead:
-    // zero replayed bytes.
-    if (ready && !picturesActive(ctx, msg.sessionId)) await terminal.replay(HOST_REPLAY_TAIL_BYTES)
+    // Only an old server needs a ring repaint. A picture-capable link gets
+    // the reset requested after bind; a C host on that link gets live bytes
+    // only (SPEC v4 H6).
+    if (ready && !picturesAccepted(ctx)) await terminal.replay(HOST_REPLAY_TAIL_BYTES)
     ready?.()
     const recoveryProfile = terminalProfileFor(msg.agentKind)
     if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
@@ -2503,8 +2475,8 @@ export async function stealTerminalWriter(
   const owned = ctx.sessions.ensure(msg.sessionId)
   const label = msg.durableLabel ?? owned.label ?? ctx.durableLabelFor(msg.sessionId)
   owned.label = label
-  // Park first: the losing attachment detaches while the master, the screen
-  // and the replay cursor stay owned. The stolen attachment
+  // Park first: the losing attachment detaches while the master and screen
+  // stay owned. The stolen attachment
   // replaces the surface below; nothing is reaped. The slot would park it on
   // replace too — first is about ORDER: the old connection lets go before the
   // lease is taken over.
@@ -2514,18 +2486,15 @@ export async function stealTerminalWriter(
   const env = ctx.homeDir ? { ...process.env, HOME: ctx.homeDir } : process.env
   const located = await durable.locate(label, env, { waitMs: 1500 })
   if (!located) throw new Error('session not found')
-  const resumeFrom = owned.seqReader?.()
   const modelSize = owned.peekScreen()?.modelSize
   const found = await located.adapter.steal({
     label,
     socketPath: located.socketPath,
     lastKnownGeometry: msg.lastKnownGeometry ?? modelSize ?? { cols: 80, rows: 24 },
-    ...(resumeFrom !== undefined ? { lastSeq: resumeFrom } : {}),
   })
   log.warn('writer lease stolen on operator action', { sessionId: msg.sessionId, label })
   // The stolen connection's WELCOME states the size through the size event.
   const terminal = wireBridge(ctx, msg.sessionId, found.attachment, msg.agentKind, label)
-  rememberDurableSeq(ctx, msg.sessionId, found.attachment)
   // The observers were subscribed to the parked attachment: re-subscribe them
   // to the stolen one through the same path spawn and reattach use. The
   // synthetic reattach carries only daemon-held or operator-authored facts —
@@ -2862,12 +2831,7 @@ export const sessionHandlers: Pick<
     ctx.composerEngine.setTarget(msg.sessionId, msg.text)
   },
   redraw: (ctx, msg) => {
-    // A REDRAW NEVER SIGNALS THE PROGRAM (POD-4723, design rev 3 "Repaint").
-    // A same-size SIGWINCH repaints nothing in a Node TUI, and the nudge that
-    // forced one is what put ptys back at a stale size. The viewer is repainted
-    // from what the daemon holds — the headless snapshot or the host ring —
-    // and the one repaint that touches the program is the user's own redraw
-    // button, as a Ctrl-L (`hard`).
+    // The user's redraw is the one repaint that touches the program: Ctrl-L.
     const owned = ctx.sessions.get(msg.sessionId)
     const terminal = owned?.terminal?.live ? owned.terminal : undefined
     if (msg.hard && terminal) terminal.write(CTRL_L)
@@ -2875,10 +2839,12 @@ export const sessionHandlers: Pick<
     // the viewers itself; what it asks for is a fresh one (a viewer stayed owed
     // with nothing to serve — H2). No snapshot and no ring replay: the host's
     // `reset` is exact where they were approximate.
-    if (terminal && picturesActive(ctx, msg.sessionId)) {
-      if (msg.replayRequired) terminal.requestPicture()
+    if (picturesAccepted(ctx)) {
+      if (msg.replayRequired) terminal?.requestPicture()
       return
     }
+    // Old-server compatibility only: snapshots and ring replay answer that
+    // server's attach-time repaint. A C host on a new server never gets here.
     // A page with no server replay, for a native client TUI that is not open
     // yet: owe it the host ring, which the client's start path replays once it
     // is subscribed (`opencode-attach.ts`). Still the ring, never the program.

@@ -27,8 +27,6 @@ import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
 import type { AgentFrame, AgentPicture, DurableAttachment } from '@podium/process/screen'
 import { createDurable, scopeUnitName } from '@podium/process/durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DaemonContext } from '../control/context'
-import { rememberDurableSeq } from '../control/session'
 import { attributeMemory, type ProcSample } from '../memory-breakdown'
 import {
   CLIENT_TERMINAL_INPUT_MAX_BYTES,
@@ -174,16 +172,6 @@ interface HarnessOptions {
   adoptedGeometry?: { cols: number; rows: number }
   /** The client's backend cannot read its size back (abduco): no WELCOME. */
   unsized?: boolean
-  /**
-   * The client terminal's host connection resume point, when the backend has
-   * one. A live object the test holds: mutating `lastSeq` moves the point the
-   * daemon remembered, which is what proves it remembered a reader, not a
-   * value.
-   */
-  connectionSeq?: { lastSeq: bigint }
-  /** Where the daemon keeps the resume point — wired to the real
-   *  `rememberDurableSeq` exactly as `host-runtime.ts` wires it. */
-  rememberDurableSeq?: (sessionId: SessionId, session: DurableAttachment) => void
   replayFrame?: string
   subscribeFrame?: string
   /** Browser/replay history already owned by a master that survived the daemon. */
@@ -255,14 +243,12 @@ function harness(opts: HarnessOptions = {}) {
           : { cols: o.cols ?? 0, rows: o.rows ?? 0 }
       const client = fakeClient(opts.replayFrame, opts.subscribeFrame, welcome, opts.pictures)
       state.clients.push(client)
-      const withConnection = opts.connectionSeq ? { connection: opts.connectionSeq } : {}
       return opts.adopted
         ? {
             ...client,
             adopted: true,
-            ...withConnection,
           }
-        : { ...client, ...withConnection }
+        : client
     },
     reclaimClient: async (label) => {
       state.reclaimed.push(label)
@@ -274,7 +260,6 @@ function harness(opts: HarnessOptions = {}) {
     clients,
     ...(opts.sizeEvent ? { sizeEvent: opts.sizeEvent } : {}),
     ...(opts.birthGeometry ? { birthGeometry: opts.birthGeometry } : {}),
-    ...(opts.rememberDurableSeq ? { rememberDurableSeq: opts.rememberDurableSeq } : {}),
     frames: (streamId, data) => state.frames.push({ streamId, data }),
     picture: (streamId, picture, seed) =>
       state.pictures.push({ streamId, reason: picture.reason, seed }),
@@ -1756,63 +1741,6 @@ describe('a client terminal states its size through the size event', () => {
     await terminals.attach({ sessionId: SESSION, target })
 
     expect(sizes).toEqual([])
-  })
-})
-
-/**
- * AUDIT ITEM 7 (POD-3914): a client terminal populates a resume point.
- *
- * `rememberDurableSeq` used to run only on the bridge path, so a client
- * terminal — which has no bridge — kept no resume point and a reconnecting
- * daemon could only repaint. The point is populated here, at the one moment
- * this module holds the fresh session; consuming it (resuming from it instead
- * of repainting) is later work — the point is in-memory and cannot survive
- * the restart it was written for until it is persisted with the host.
- */
-describe('a client terminal populates its host resume point', () => {
-  function wired() {
-    // The resume point lives ON the session now (POD-4434); this wires the real
-    // `rememberDurableSeq` exactly as `host-runtime.ts` does, against the same
-    // registry the facade writes so the test reads the point back.
-    const sessions = testSessions()
-    const connectionSeq = { lastSeq: 41n }
-    const { terminals, state } = harness({
-      sessions,
-      connectionSeq,
-      rememberDurableSeq: (sessionId, session) =>
-        rememberDurableSeq({ sessions } as DaemonContext, sessionId, session),
-    })
-    return { terminals, state, sessions, connectionSeq }
-  }
-
-  it('audit item 7: the point is populated and carries the live value', async () => {
-    const { terminals, sessions, connectionSeq } = wired()
-
-    // ARMED: before the fix nothing remembered the client session, so no point
-    // was ever populated for it.
-    expect(sessions.get(SESSION)?.seqReader).toBeUndefined()
-
-    await terminals.attach({ sessionId: SESSION, target })
-
-    // The point the daemon remembered…
-    expect(sessions.get(SESSION)?.seqReader?.()).toBe(41n)
-    // …is a reader, not a value: it moves as the connection advances.
-    connectionSeq.lastSeq = 87n
-    expect(sessions.get(SESSION)?.seqReader?.()).toBe(87n)
-  })
-
-  it('audit item 7: a terminal with no host connection populates nothing', async () => {
-    const sessions = testSessions()
-    const { terminals } = harness({
-      sessions,
-      rememberDurableSeq: (sessionId, session) =>
-        rememberDurableSeq({ sessions } as DaemonContext, sessionId, session),
-    })
-
-    await terminals.attach({ sessionId: SESSION, target })
-
-    // The abduco-shaped half: no connection, no resume point — and no throw.
-    expect(sessions.get(SESSION)?.seqReader).toBeUndefined()
   })
 })
 

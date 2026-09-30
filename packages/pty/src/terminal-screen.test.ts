@@ -3,8 +3,7 @@
  *
  * A screen belongs to the SESSION; the attachment is merely the current way
  * of reaching it. Attach and you get an DurableAttachment-like frame source;
- * detach and it is gone — but the screen (model, mode, applied size, byte
- * log, title) stays, and the next attachment resumes feeding the SAME screen.
+ * detach and it is gone — but the screen (model, mode, applied size, title) stays, and the next attachment resumes feeding the SAME screen.
  * No SessionId, no daemon, no protocol anywhere in this file.
  */
 
@@ -33,7 +32,7 @@ function fakeAttachment() {
 }
 
 describe('TerminalScreen per-session survival', () => {
-  it('keeps model, mode, applied size and log across a detach/reattach cycle', async () => {
+  it('keeps model, mode and applied size across a detach/reattach cycle', async () => {
     const screen = new TerminalScreen({ cols: 80, rows: 24 })
     screen.setAppliedSize(80, 24)
 
@@ -55,8 +54,6 @@ describe('TerminalScreen per-session survival', () => {
     expect(screen.mode).toBe('alternate')
     expect(screen.appliedSize).toEqual({ cols: 80, rows: 24 })
     expect(screen.snapshotFirstFrame().toString('utf8')).toBe(before)
-    // The byte log still ends at the live frame, not the stale bytes.
-    expect(Buffer.from(screen.tailBytes(15)).toString('latin1')).toBe('Agent TUI frame')
 
     // Reattach: a new attachment resumes the SAME screen, which still knows
     // the program is on its alternate canvas at 80x24.
@@ -69,10 +66,6 @@ describe('TerminalScreen per-session survival', () => {
     const after = screen.snapshotFirstFrame().toString('utf8')
     expect(after).toContain('Agent TUI frame')
     expect(after).toContain('live update')
-    // Alternate reconstitutes from the model, never replays stale bytes.
-    expect(screen.decideReopen({ ringReplayable: true, replayRequired: true })).toEqual({
-      kind: 'snapshot',
-    })
     screen.dispose()
   })
 
@@ -89,9 +82,6 @@ describe('TerminalScreen per-session survival', () => {
     second.emit(`back to shell${LEAVE_ALT}`)
     await screen.flush()
     expect(screen.mode).toBe('normal')
-    expect(screen.decideReopen({ ringReplayable: false, replayRequired: false })).toEqual({
-      kind: 'none',
-    })
     screen.dispose()
   })
 
@@ -107,22 +97,12 @@ describe('TerminalScreen per-session survival', () => {
     screen.dispose()
   })
 
-  it('a reopen never asks the program for anything: alternate reopens from the model at any viewer size (POD-4723)', () => {
+  it('the old-server snapshot comes from the model at its applied size', async () => {
     const screen = new TerminalScreen({ cols: 80, rows: 24 })
     screen.setAppliedSize(80, 24)
     screen.push(Buffer.from(`${ENTER_ALT}frame`, 'latin1'))
-    expect(screen.decideReopen({ ringReplayable: true, replayRequired: true })).toEqual({
-      kind: 'snapshot',
-    })
-    screen.dispose()
-  })
-
-  it('bounds the byte log to its window', () => {
-    const screen = new TerminalScreen({ cols: 80, rows: 24, byteLogBytes: 16 })
-    screen.push(Buffer.from('0123456789abcdef', 'latin1'))
-    screen.push(Buffer.from('GHIJ', 'latin1'))
-    expect(screen.bufferedBytes).toBeLessThanOrEqual(16)
-    expect(Buffer.from(screen.tailBytes(20)).toString('latin1')).toBe('456789abcdefGHIJ')
+    await screen.flush()
+    expect(screen.snapshotFirstFrame().toString('latin1')).toContain('frame')
     screen.dispose()
   })
 

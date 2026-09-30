@@ -6,7 +6,7 @@
  * alive on the host across daemon restarts); the Terminal owns the live
  * attachment over it — the connection object whose disposal DETACHES, never
  * reaps. Parking drops the Terminal and keeps the process; resume rebuilds a
- * Terminal over the same process from the host's replay cursor.
+ * Terminal over the same process at the host's output tail.
  *
  * THE ONLY implementation of opening, adopting, parking, reaping and closing
  * anything with a pty, together with the Session: the headed bridge path
@@ -221,7 +221,7 @@ export class Terminal {
    * place in the stream. False when parked or the host keeps no screen.
    */
   requestPicture(): boolean {
-    if (this.settled) return false
+    if (!this.keepsScreen) return false
     return this.attachment.requestPicture?.() === true
   }
 
@@ -257,7 +257,7 @@ export class Terminal {
     return this.attachment.resize(cols, rows)
   }
 
-  /** Host-only replay port for the joint-restart hole; false when unsupported. */
+  /** Old-server compatibility: replay its host ring; false when unsupported. */
   async replay(tailBytes: number): Promise<boolean> {
     if (this.settled) return false
     const replay = (
@@ -284,7 +284,7 @@ export class Terminal {
    * PARK: drop the Terminal, keep the process. Unwires every callback and
    * disposes the attachment — a DETACH on the host, an attach-client exit on
    * abduco — while the durable master and the program inside it live on. The
-   * screen, the labels, the pending resize and the replay cursor stay with the
+   * screen, the labels and the pending resize stay with the
    * Session; resume rebuilds a Terminal over the same process.
    */
   park(): void {

@@ -1,7 +1,7 @@
 /**
  * THE DAEMON-SIDE SESSION MIRROR (POD-4434, layers §1b/§2): one object per
  * session that OWNS its durable process label(s), its Terminal if any, its
- * screen and its replay cursor — replacing the per-session
+ * screen — replacing the per-session
  * maps on DaemonContext (bridges, durableLabels, pendingResizes, the screen
  * registry).
  *
@@ -82,7 +82,7 @@ export interface ClientTerminalPolicy {
   /** The one Native generation allowed to accept input, plus what arrived
    *  while its process was starting. Replaced on every start. */
   generation?: { acceptingInput: boolean; pendingInput: Uint8Array[]; pendingBytes: number }
-  /** The parked master evolved while no relay was attached: replay the ring on return. */
+  /** Old-server compatibility: the parked master owes a ring repaint on return. */
   replayRequired?: boolean
   /** The next client continues the same surface: no scrollback-clear anchor. */
   preserveReplayOnRelaunch?: boolean
@@ -166,11 +166,6 @@ export class DaemonSession {
    * shape would bill the whole client TUI as the agent's memory.
    */
   clientLabel: string | undefined = undefined
-  /**
-   * The host ring resume reader: the seq after the last output byte this
-   * daemon saw. Set while a host attachment is live; `tail` when unknown.
-   */
-  seqReader: (() => bigint | undefined) | undefined = undefined
   /**
    * Bumped every time the terminal is parked or dropped. Lets in-flight async
    * work (a spawn racing a close, a reattach racing a reattach) detect it lost.
@@ -330,7 +325,7 @@ export class DaemonSession {
   /**
    * PARK: drop the Terminal, keep the process. The attachment detaches (the
    * master and its program survive), while the labels, the screen, the held
-   * resize and the replay cursor stay — resume rebuilds a Terminal over the
+   * resize stay — resume rebuilds a Terminal over the
    * same process. Returns the dropped Terminal, if there was one.
    */
   park(): Terminal | undefined {
@@ -359,7 +354,6 @@ export class DaemonSession {
   clear(): void {
     this.park()
     this.dropScreen()
-    this.seqReader = undefined
     this.clientLabel = undefined
     this.client = undefined
     this.keptEngine = undefined

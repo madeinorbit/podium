@@ -409,7 +409,7 @@ describe('rule 2 on bind, and rule 3 (report and bind broadcast only on change)'
 })
 
 describe('repaint', () => {
-  it('the user redraw button is the one hard repaint (Ctrl-L); the attach asks only for the snapshot or ring', async () => {
+  it('the user redraw button sends Ctrl-L; attach requests no repaint', async () => {
     const toDaemon: ControlMessage[] = []
     const session = new Session({
       sessionId: SESSION,
@@ -444,7 +444,7 @@ describe('repaint', () => {
     } as never)
     const client = makeClient('c-redraw')
     await ctl.onFrame(client.principal, client, { type: 'attach', sessionId: SESSION })
-    expect(redraws(toDaemon).every((m) => !('hard' in m))).toBe(true)
+    expect(redraws(toDaemon)).toEqual([])
     toDaemon.length = 0
     await ctl.onFrame(client.principal, client, { type: 'redrawRequest', sessionId: SESSION })
     expect(redraws(toDaemon)).toEqual([{ type: 'redraw', sessionId: SESSION, hard: true }])

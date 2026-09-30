@@ -193,7 +193,7 @@ export class SessionClientControl {
         this.ports.mutate(
           message.sessionId,
           (current) => {
-            current.terminal.attachClient(client, message.sinceSeq)
+            current.terminal.attachClient(client)
           },
           false,
         )

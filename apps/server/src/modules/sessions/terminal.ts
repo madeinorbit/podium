@@ -28,8 +28,6 @@ import { controlSubjectFromClient, identityOf } from './session-control-policy'
 
 const log = createLogger('server:sessions:terminal')
 
-const MAX_REPLAY_BYTES = 256 * 1024
-const MAX_REPLAY_FRAMES = 4096
 const MAX_TRANSCRIPT_ITEMS = 12_000
 const SHELL_BUSY_WINDOW_MS = 4000
 /** A viewer owed a catch-up with nothing to serve asks the daemon after this (H2). */
@@ -179,22 +177,6 @@ export function mergeLatestTranscriptPage(
   }
 }
 
-// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape sequences
-const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
-
-/**
- * Alternate-screen enter/leave (`CSI ? 1049 h` / `l`), possibly with a
- * multi-parameter set. Mirrors the daemon's canonical
- * `apps/daemon/src/screen-mode.ts`: the server needs the same signal for its
- * replay decision (an alternate reopen must not replay stale bytes), and it
- * sees the same byte stream, so it sniffs it here rather than growing a
- * cross-process mode report. 1047 is ignored, exactly as there.
- */
-// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape sequences
-const ALT_SCREEN_SEQUENCE = /\x1b\[\?([0-9;]*)([hl])/g
-/** Tail rescanned with the next frame so a 1049 split across frames still matches. */
-const MODE_CARRY_BYTES = 64
-
 interface OutputFanout {
   binary?: Uint8Array
   legacy?: ServerMessage
@@ -342,17 +324,6 @@ export class SessionTerminal {
   private watchLevelSent: 'coarse' | 'fine' = 'coarse'
   private readonly clients = new Map<string, ClientConn>()
   private readonly clientAttributions = new WeakMap<ClientConn, ReturnType<typeof perfPrincipal>>()
-  private readonly outputLog: { seq: number; bytes: Buffer }[] = []
-  private outputLogBytes = 0
-  /**
-   * Whether the program is painting its alternate canvas (POD-3918 P1b).
-   * Sniffed in {@link bufferFrame} from the same 1049 stream the daemon
-   * tracks; a fresh attach in this mode replays NO log bytes — the daemon's
-   * model reconstitution (same size) or size-first repaint (different size)
-   * is the first frame instead.
-   */
-  private altScreen = false
-  private modeCarry = ''
   private transcript: TranscriptItem[] = []
   /** Complete items committed through the runtime event log. Kept separately
    * so a legacy tail reset cannot erase the shared terminal bridge. */
@@ -374,8 +345,8 @@ export class SessionTerminal {
    * THE LAST BIND'S `pictures` (POD-4912): the daemon forwards its host's
    * pictures for this session, and viewers are served from them. `undefined`
    * until a daemon has bound this session (and again after its link
-   * detached): an attach then takes today's path, and the reset picture that
-   * follows a `pictures` bind catches it up.
+   * detached): an attach waits for that bind to decide between pictures and
+   * live bytes.
    */
   private pictures: boolean | undefined
   /** The program exited: the last screen stays servable across a detach. */
@@ -458,44 +429,11 @@ export class SessionTerminal {
     this.activityDirty_ = true
   }
 
-  attachClient(client: ClientConn, sinceSeq?: number): void {
+  attachClient(client: ClientConn): void {
     this.clients.set(client.id, client)
     if (this.controllerId === null) {
       this.setController(client.id, client)
       this.reconcile()
-    }
-    if (this.pictures === true) {
-      // A PICTURES SESSION (POD-4912): the viewer keeps its screen until the
-      // picture's RIS replaces it, so this is a resume; it is owed, and served
-      // the latest picture and the tail — never the byte log.
-      client.send({
-        type: 'attached',
-        sessionId: this.init.sessionId,
-        controllerId: this.controllerId,
-        controllerIdentity: this.controllerIdentity,
-        geometry: { ...this.geometry },
-        epoch: this.epoch,
-        resumed: true,
-        outputSeen: this.outputCount_ > 0,
-      })
-      this.owe(client.id, 'attach')
-      return
-    }
-    const oldest = this.outputLog[0]?.seq
-    const newest = this.outputLog.at(-1)?.seq
-    let frames = this.outputLog
-    let resumed = false
-    if (sinceSeq !== undefined) {
-      if (oldest === undefined || newest === undefined) {
-        resumed = true
-        frames = []
-      } else if (sinceSeq > newest) {
-        resumed = true
-        frames = this.outputLog
-      } else if (sinceSeq >= oldest - 1) {
-        resumed = true
-        frames = this.outputLog.filter((frame) => frame.seq > sinceSeq)
-      }
     }
     client.send({
       type: 'attached',
@@ -504,46 +442,12 @@ export class SessionTerminal {
       controllerIdentity: this.controllerIdentity,
       geometry: { ...this.geometry },
       epoch: this.epoch,
-      resumed,
-      // The client cannot tell a PTY that has printed nothing since spawn from
-      // one whose replay window we no longer hold — both attach onto a blank
-      // screen. The durable output counter can, so it travels with the attach
-      // and the panel keeps a startup affordance up while this is false
-      // [POD-385].
+      resumed: true,
       outputSeen: this.outputCount_ > 0,
     })
-    const startedAt = performance.now()
-    let replayBytes = 0
-    // An alternate fresh attach rebuilds its screen from the daemon, never
-    // from these bytes: they were produced at whatever grid was current then
-    // and replaying them into this grid is the corruption (POD-3918). A
-    // resumed attach keeps its delta — missed live bytes, not a rebuild.
-    const replayedFrames = !resumed && this.altScreen ? [] : frames
-    for (const frame of replayedFrames) {
-      replayBytes += frame.bytes.byteLength
-      this.sendOutput(client, frame.seq, frame.bytes, false)
-    }
-    perf.record(
-      'phase',
-      'attach.replay',
-      performance.now() - startedAt,
-      this.clientAttribution(client),
-      replayBytes,
-    )
-    // The replay log is a byte stream, not a screen: replaying it rebuilds the
-    // terminal only if the window still holds a whole-screen anchor, and a TUI that
-    // repaints a small region forever evicts one [POD-379]. So whenever the client is
-    // (re)building its screen from replay alone, ask the daemon to repaint THE VIEWER
-    // from what it holds — the headless snapshot on the alternate screen, the host
-    // ring on the normal one. This never signals the child (POD-4723, design rev 3):
-    // a same-size SIGWINCH repaints nothing in a Node TUI. A clean resume keeps its
-    // screen and only needs the delta — including a caught-up one, whose empty delta
-    // is "nothing changed", NOT "nothing to rebuild from"; only an EMPTY LOG (a
-    // restarted server) means the latter. An alternate fresh attach skipped the
-    // replay above, so the viewer holds nothing and the daemon must produce the
-    // first frame (`replayRequired`).
-    if (!resumed || this.outputLog.length === 0)
-      this.redraw({ replayRequired: this.outputLog.length === 0 || (!resumed && this.altScreen) })
+    // Before the first bind, wait for it to decide. Picture sessions get the
+    // picture and tail; a bind without pictures releases viewers to live bytes.
+    this.owe(client.id, 'attach')
   }
 
   reassignController(fromId: string, toId: string): void {
@@ -950,7 +854,7 @@ export class SessionTerminal {
 
   /**
    * Ask the daemon to repaint the viewers. `replayRequired`: the server holds
-   * nothing for an attaching page, so the daemon must send its snapshot or ring.
+   * no servable picture, so the daemon must request a fresh one from the host.
    * `hard`: the user pressed redraw — the one repaint that reaches the program,
    * as a Ctrl-L. Every other redraw leaves the child alone.
    */
@@ -994,7 +898,6 @@ export class SessionTerminal {
       ? bytes
       : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     const seq = this.nextSeq++
-    this.bufferFrame(seq, normalized)
     this.pictureCache.appendData(seq, normalized)
     const fanout: OutputFanout = {}
     for (const client of this.clients.values()) {
@@ -1067,8 +970,8 @@ export class SessionTerminal {
    * a terminal's birth report) states it. Set SYNCHRONOUSLY where the frame is
    * received, before anything awaits (H1): the reset picture right behind the
    * bind must find it set, whatever the bind's durable write is queued behind.
-   * Without pictures, owed viewers are released to live bytes and today's
-   * repaint, and the cache goes.
+   * Without pictures, owed viewers are released to live bytes and the cache
+   * goes (SPEC v4 H6).
    */
   setPictures(on: boolean): void {
     this.pictures = on
@@ -1080,7 +983,6 @@ export class SessionTerminal {
     if (this.owed.size === 0) return
     for (const clientId of [...this.owed.keys()]) this.release(clientId)
     this.stopNudge()
-    this.redraw({ replayRequired: true })
   }
 
   /**
@@ -1106,7 +1008,7 @@ export class SessionTerminal {
   /**
    * THE DAEMON'S LINK WENT AWAY (POD-4912). A live session's cache goes with
    * it — the returning daemon rebinds and asks for a fresh picture — and until
-   * that bind the session is back to today's attach. An exited session keeps
+   * that bind new viewers wait. An exited session keeps
    * its last screen.
    */
   linkDetached(): void {
@@ -1130,7 +1032,7 @@ export class SessionTerminal {
   }
 
   private markOwed(clientId: string, trigger: OweTrigger): boolean {
-    if (this.pictures !== true || !this.clients.has(clientId)) return false
+    if (this.pictures === false || !this.clients.has(clientId)) return false
     const owed = this.owed.get(clientId)
     if (owed) {
       // A serve in flight is about an older picture: end it, serve the latest.
@@ -1359,45 +1261,7 @@ export class SessionTerminal {
     this.shellBusyTimer.unref?.()
   }
 
-  private bufferFrame(seq: number, bytes: Buffer): void {
-    this.trackScreenMode(bytes)
-    if (SCREEN_RESET.test(bytes.toString('latin1'))) {
-      this.outputLog.length = 0
-      this.outputLogBytes = 0
-    }
-    // Own only the payload bytes. Binary envelope decoding returns a zero-copy
-    // view, so retaining that view would pin the entire websocket frame.
-    const retained = Buffer.from(bytes)
-    this.outputLog.push({ seq, bytes: retained })
-    this.outputLogBytes += retained.byteLength
-    while (
-      (this.outputLogBytes > MAX_REPLAY_BYTES || this.outputLog.length > MAX_REPLAY_FRAMES) &&
-      this.outputLog.length > 1
-    ) {
-      const dropped = this.outputLog.shift()
-      if (dropped) this.outputLogBytes -= dropped.bytes.byteLength
-    }
-  }
-
   /** Convert the canonical bytes only at one recipient's negotiated edge. */
-
-  /**
-   * Mirror of the daemon's 1049 mode tracker over this terminal's own byte
-   * stream. Split-safe across frames via the carried tail; idempotent and
-   * last-wins, so a rescanned overlap can never move the mode backwards.
-   */
-  private trackScreenMode(bytes: Buffer): void {
-    const text = this.modeCarry + bytes.toString('latin1')
-    ALT_SCREEN_SEQUENCE.lastIndex = 0
-    let match: RegExpExecArray | null
-    // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic exec loop
-    while ((match = ALT_SCREEN_SEQUENCE.exec(text)) !== null) {
-      if (!(match[1] ?? '').split(';').includes('1049')) continue
-      this.altScreen = match[2] === 'h'
-    }
-    this.modeCarry = text.slice(-MODE_CARRY_BYTES)
-  }
-
   private sendOutput(
     client: ClientConn,
     seq: number,

@@ -363,19 +363,19 @@ describe('what makes a viewer owed', () => {
 })
 
 describe('sessions without pictures, and the first bind', () => {
-  it('a bind without pictures releases owed viewers to live bytes and today’s repaint', () => {
+  it('a bind without pictures releases owed viewers to live bytes only', () => {
     const { t, toDaemon } = terminal()
     t.setPictures(true)
     const v = viewer('c1')
     t.attachClient(v)
     expect(v.text()).toBe('')
     t.setPictures(false)
-    expect(redraws(toDaemon)).toEqual([{ type: 'redraw', sessionId: SESSION, replayRequired: true }])
+    expect(redraws(toDaemon)).toEqual([])
     t.acceptOutput(bytes('live'), 1)
     expect(v.text()).toBe('live')
   })
 
-  it('an attach before the first bind takes today’s path; the bind’s reset picture then serves it', () => {
+  it('an attach waits for the first bind and its reset picture', () => {
     const { t } = terminal()
     const v = viewer('c1')
     t.attachClient(v)
@@ -404,8 +404,8 @@ describe('sessions without pictures, and the first bind', () => {
     t.acceptOutput(bytes('shell line\r\n'), 1)
     const v = viewer('c1')
     t.attachClient(v)
-    expect(attachedOf(v)?.resumed).toBe(false)
-    expect(v.text()).toBe('shell line\r\n')
+    expect(attachedOf(v)?.resumed).toBe(true)
+    expect(v.text()).toBe('')
   })
 })
 
@@ -475,12 +475,10 @@ describe('bounds: the tail cap, the detach, the stale-owed nudge', () => {
     const a = viewer('a')
     live.t.attachClient(a)
     expect(a.text()).not.toContain('<LIVE>')
-    // Until a daemon binds again the session is back to today's attach (one
-    // repaint request), and nothing nudges a daemon that is gone.
+    // Until a daemon binds again the viewer waits; nothing nudges a daemon
+    // that is gone.
     vi.advanceTimersByTime(5000)
-    expect(redraws(live.toDaemon)).toEqual([
-      { type: 'redraw', sessionId: SESSION, replayRequired: true },
-    ])
+    expect(redraws(live.toDaemon)).toEqual([])
 
     const exited = terminal()
     exited.t.setPictures(true)

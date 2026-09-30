@@ -25,7 +25,7 @@ function makeSession(
   toDaemon = vi.fn(),
   seed: { outputCount?: number; turnPreviewEnabled?: boolean } = {},
 ) {
-  return new Session({
+  const session = new Session({
     ownerUserId: firstAdminMemberId(),
     ...seed,
     sessionId: asSessionId('s1'),
@@ -39,6 +39,9 @@ function makeSession(
     machineId: TEST_MACHINE,
     toDaemon,
   })
+  // These live-output fixtures represent a daemon bound without pictures.
+  session.terminal.setPictures(false)
+  return session
 }
 function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
   const sent: ServerMessage[] = []
@@ -115,7 +118,7 @@ describe('Session', () => {
       controllerIdentity: { kind: 'user', user: a.principal.user },
       geometry: geo,
       epoch: 0,
-      resumed: false,
+      resumed: true,
       outputSeen: false,
     })
   })
@@ -463,8 +466,7 @@ describe('Session', () => {
     s.terminal.onFrame('ZGF0YQ==')
     s.terminal.onFrame('ZGF0Yg==')
     const frames = a.sent.filter((m) => m.type === 'outputFrame')
-    // The Session numbers frames itself (0,1,…), ignoring the bridge's own seq, so
-    // the client's resume cursor stays stable across daemon reattaches.
+    // The server numbers output frames independently of the host connection.
     expect(frames).toEqual([
       { type: 'outputFrame', sessionId: asSessionId('s1'), seq: 0, epoch: 0, data: 'ZGF0YQ==' },
       { type: 'outputFrame', sessionId: asSessionId('s1'), seq: 1, epoch: 0, data: 'ZGF0Yg==' },
@@ -506,7 +508,7 @@ describe('Session', () => {
     expect(s.terminal.activityDirty).toBe(true)
   })
 
-  it('fans identical live and replay bytes to binary and legacy clients', () => {
+  it('fans identical live bytes to binary and legacy clients without attach history', () => {
     const s = makeSession()
     const legacy = makeClient('legacy')
     const binary = makeClient('binary')
@@ -554,9 +556,11 @@ describe('Session', () => {
     replay.caps.add(CAP_TERMINAL_OUTPUT_BINARY_V1)
     replay.sendBinary = (frame) => replayFrames.push(frame)
     s.terminal.attachClient(replay)
-    const decodedReplay = decodeBinaryEnvelope(replayFrames[0]!, PtyOutputBinaryMetadata)
-    expect(decodedReplay.metadata).toMatchObject({ seq: 0, epoch: 0 })
-    expect(Buffer.from(decodedReplay.payload)).toEqual(payload)
+    expect(replayFrames).toEqual([])
+    s.terminal.acceptOutput(payload, 1)
+    const liveAfterAttach = decodeBinaryEnvelope(replayFrames[0]!, PtyOutputBinaryMetadata)
+    expect(liveAfterAttach.metadata).toMatchObject({ seq: 1, epoch: 0 })
+    expect(Buffer.from(liveAfterAttach.payload)).toEqual(payload)
   })
 
   it('tells the attaching client whether the PTY has ever produced output', () => {
@@ -573,9 +577,9 @@ describe('Session', () => {
     expect(second.sent.find((m) => m.type === 'attached')).toMatchObject({ outputSeen: true })
   })
 
-  it('reports output a restart inherited, even with an empty replay window', () => {
-    // The counter is durable; the replay buffer is not. A session revived with
-    // no frames to replay must NOT read as a child that has never spoken.
+  it('reports output a restart inherited, without a cached picture', () => {
+    // The durable counter distinguishes a revived session from one that has
+    // never produced output, even without a picture.
     const s = makeSession(undefined, { outputCount: 12 })
     const a = makeClient('a')
     s.terminal.attachClient(a)
@@ -583,165 +587,39 @@ describe('Session', () => {
     expect(a.sent.filter((m) => m.type === 'outputFrame')).toEqual([])
   })
 
-  it('resumes from a cursor: replays only newer frames and marks the attach resumed', () => {
+  it('a later viewer keeps its screen and receives only bytes after attach', () => {
     const s = makeSession()
-    s.terminal.onFrame('YQ==') // seq 0
-    s.terminal.onFrame('Yg==') // seq 1
-    s.terminal.onFrame('Yw==') // seq 2
+    s.terminal.onFrame('YQ==')
+    s.terminal.onFrame('Yg==')
     const a = makeClient('a')
-    s.terminal.attachClient(a, 1) // client last rendered seq 1
-    const attached = a.sent.find((m) => m.type === 'attached')
-    expect(attached).toMatchObject({ type: 'attached', resumed: true })
-    const frames = a.sent.filter((m) => m.type === 'outputFrame')
-    expect(frames).toEqual([
+    s.terminal.attachClient(a)
+    expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: true })
+    expect(a.sent.filter((m) => m.type === 'outputFrame')).toEqual([])
+    s.terminal.onFrame('Yw==')
+    expect(a.sent.filter((m) => m.type === 'outputFrame')).toEqual([
       { type: 'outputFrame', sessionId: asSessionId('s1'), seq: 2, epoch: 0, data: 'Yw==' },
     ])
   })
 
-  it('a caught-up client resumes with zero frames (no needless wipe)', () => {
+  it('does not retain large output or empty frames for later viewers', () => {
     const s = makeSession()
-    s.terminal.onFrame('YQ==') // seq 0
-    const a = makeClient('a')
-    s.terminal.attachClient(a, 0)
-    expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: true })
-    expect(a.sent.filter((m) => m.type === 'outputFrame')).toEqual([])
-  })
-
-  it('preserves the surviving screen and replays the new generation after a server restart', () => {
-    const s = makeSession()
-    s.terminal.onFrame('YQ==') // seq 0
-    s.terminal.onFrame('Yg==') // seq 1
-    const a = makeClient('a')
-    // Cursor 99 came from the prior server generation; the restarted server's new
-    // sequence is only at 1. Keep xterm intact and append this generation repaint.
-    s.terminal.attachClient(a, 99)
-    expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: true })
-    expect(a.sent.filter((m) => m.type === 'outputFrame')).toHaveLength(2)
-  })
-
-  it('preserves the surviving screen when a restarted server has no frames yet', () => {
-    const s = makeSession()
-    const a = makeClient('a')
-    s.terminal.attachClient(a, 99)
-    expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: true })
-    expect(a.sent.filter((m) => m.type === 'outputFrame')).toEqual([])
-  })
-
-  it('still clears for a same-generation cursor older than the replay window', () => {
-    const s = makeSession()
-    const largeFrame = Buffer.alloc(140_000, 0x78).toString('base64')
-    s.terminal.onFrame(largeFrame) // seq 0, evicted by later frames
-    s.terminal.onFrame(largeFrame) // seq 1, evicted by seq 2
-    s.terminal.onFrame(largeFrame) // seq 2
-    const a = makeClient('a')
-    s.terminal.attachClient(a, 0)
-    expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
-    expect(a.sent.filter((m) => m.type === 'outputFrame')).toHaveLength(1)
-  })
-
-  it('budgets replay by raw payload bytes rather than base64 characters', () => {
-    const s = makeSession()
-    const payload = Buffer.alloc(120_000, 0x78).toString('base64')
-    s.terminal.onFrame(payload)
-    s.terminal.onFrame(payload)
-    const client = makeClient('raw-budget')
-    s.terminal.attachClient(client)
-    expect(client.sent.filter((message) => message.type === 'outputFrame')).toHaveLength(2)
-  })
-  it('owns replay payload bytes independently of the received websocket envelope', () => {
-    const s = makeSession()
-    const backing = Buffer.alloc(1024)
-    backing.set(Buffer.from('abc'), 512)
-    const payload = backing.subarray(512, 515)
-    s.terminal.acceptOutput(payload, 1)
-    payload.fill(0)
-    const client = makeClient('owned-replay')
-    s.terminal.attachClient(client)
-    const replay = client.sent.filter((message) => message.type === 'outputFrame')
-    expect(Buffer.from(replay[0]!.data, 'base64').toString()).toBe('abc')
-  })
-
-  it('caps empty replay entries and rejects unsafe source-frame counts', () => {
-    const s = makeSession()
-    expect(() => s.terminal.acceptOutput(new Uint8Array(), Number.MAX_SAFE_INTEGER)).toThrow()
+    const payload = Buffer.alloc(140_000, 0x78)
+    for (let i = 0; i < 3; i += 1) s.terminal.acceptOutput(payload, 1)
     for (let i = 0; i < 4097; i += 1) s.terminal.acceptOutput(new Uint8Array(), 1)
-    const client = makeClient('empty-replay-budget')
-    s.terminal.attachClient(client)
-    expect(client.sent.filter((message) => message.type === 'outputFrame')).toHaveLength(4096)
-  })
-
-  it('scans reset sequences on canonical bytes and discards older replay', () => {
-    const s = makeSession()
-    s.terminal.onFrame(Buffer.from('old screen').toString('base64'))
-    s.terminal.onFrame(Buffer.from('\x1b[2Jnew screen').toString('base64'))
-    const client = makeClient('after-reset')
-    s.terminal.attachClient(client)
-    const frames = client.sent.filter((message) => message.type === 'outputFrame')
-    expect(frames).toHaveLength(1)
-    expect(Buffer.from(frames[0]!.data, 'base64').toString()).toBe('\x1b[2Jnew screen')
-  })
-
-  it('a fresh attach (no cursor) is a full replay', () => {
-    const s = makeSession()
-    s.terminal.onFrame('YQ==')
+    expect(() => s.terminal.acceptOutput(new Uint8Array(), Number.MAX_SAFE_INTEGER)).toThrow()
     const a = makeClient('a')
     s.terminal.attachClient(a)
-    expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
-    expect(a.sent.filter((m) => m.type === 'outputFrame')).toHaveLength(1)
+    expect(a.sent.filter((m) => m.type === 'outputFrame')).toEqual([])
+    expect(s.terminal.outputCount).toBe(4100)
   })
 
-  // POD-379: a full-screen TUI that repaints a region forever without re-anchoring
-  // (grok's idle logo animation) evicts every whole-screen frame from the replay
-  // window, so replaying it verbatim paints fragments onto a blank terminal. Every
-  // attach that rebuilds the screen from replay alone forces the PTY to repaint.
-  describe('repaint on attach', () => {
-    const redraws = (toDaemon: ReturnType<typeof vi.fn>): unknown[] =>
-      toDaemon.mock.calls.map(([m]) => m).filter((m) => (m as { type: string }).type === 'redraw')
-
-    it('nudges a repaint on a fresh attach, so a stale replay window cannot show blank', () => {
-      const toDaemon = vi.fn()
-      const s = makeSession(toDaemon)
-      s.terminal.onFrame('YQ==')
-      s.terminal.attachClient(makeClient('a'))
-      expect(redraws(toDaemon)).toEqual([{ type: 'redraw', sessionId: asSessionId('s1') }])
-    })
-
-    it('nudges when a same-generation cursor fell out of the replay window', () => {
-      const toDaemon = vi.fn()
-      const s = makeSession(toDaemon)
-      const largeFrame = Buffer.alloc(140_000, 0x78).toString('base64')
-      s.terminal.onFrame(largeFrame) // seq 0, evicted by later frames
-      s.terminal.onFrame(largeFrame) // seq 1, evicted by seq 2
-      s.terminal.onFrame(largeFrame) // seq 2
-      s.terminal.attachClient(makeClient('a'), 0)
-      expect(redraws(toDaemon)).toHaveLength(1)
-    })
-
-    it('nudges when a restarted server has no frames to replay at all', () => {
-      const toDaemon = vi.fn()
-      const s = makeSession(toDaemon)
-      s.terminal.attachClient(makeClient('a'), 99)
-      expect(redraws(toDaemon)).toEqual([
-        { type: 'redraw', sessionId: asSessionId('s1'), replayRequired: true },
-      ])
-    })
-
-    it('does NOT nudge a clean resume — the client keeps its screen and takes the delta', () => {
-      const toDaemon = vi.fn()
-      const s = makeSession(toDaemon)
-      s.terminal.onFrame('YQ==') // seq 0
-      s.terminal.onFrame('Yg==') // seq 1
-      s.terminal.attachClient(makeClient('a'), 0)
-      expect(redraws(toDaemon)).toEqual([])
-    })
-
-    it('does NOT nudge a CAUGHT-UP resume — an empty delta means nothing changed', () => {
-      const toDaemon = vi.fn()
-      const s = makeSession(toDaemon)
-      s.terminal.onFrame('YQ==') // seq 0
-      s.terminal.attachClient(makeClient('a'), 0)
-      expect(redraws(toDaemon)).toEqual([])
-    })
+  it('a fresh attach never automatically redraws an idle program', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    s.terminal.attachClient(makeClient('a'))
+    s.terminal.onFrame('YQ==')
+    s.terminal.attachClient(makeClient('b'))
+    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'redraw' }))
   })
 
   it('reassignController moves the role from a stale client to its reconnected self', () => {

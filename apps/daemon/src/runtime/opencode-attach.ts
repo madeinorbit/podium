@@ -118,7 +118,7 @@ import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import { ATTACH_TUI_WARM_TTL_MS } from '@podium/protocol'
-import type { AgentPicture, DurableAttachment } from '@podium/process/screen'
+import type { AgentPicture } from '@podium/process/screen'
 import type { ClientProcessOwner } from '../session/clients.js'
 import type { SessionRegistry } from '../session/registry.js'
 import type { ClientTerminalPolicy } from '../session/daemon-session.js'
@@ -161,15 +161,14 @@ export const WARM_TTL_MS = ATTACH_TUI_WARM_TTL_MS
  */
 const DEFAULT_GEOMETRY: Geometry = { cols: 120, rows: 40 }
 
-/** How much of a returning client's host ring is replayed: several screens of a TUI. */
+/** Old-server compatibility: how much of a returning client's ring is replayed. */
 const CLIENT_REPLAY_TAIL_BYTES = 256 * 1024
 
 export const CLIENT_TERMINAL_INPUT_MAX_MESSAGES = 64
 export const CLIENT_TERMINAL_INPUT_MAX_BYTES = 256 * 1024
 
 /** Cursor home, clear screen, clear scrollback: the anchor a cold-started client
- *  terminal draws onto. Matches the server's `SCREEN_RESET`, so it also truncates
- *  the replay log the next attach rebuilds from. */
+ *  terminal draws onto. Old servers also use it to truncate their replay log. */
 const CLIENT_GENERATION_RESET = '\x1b[H\x1b[2J\x1b[3J'
 
 /**
@@ -387,19 +386,6 @@ export interface OpencodeClientTerminalPorts {
    * call site passes `ctx.sessions`.
    */
   sessions: SessionRegistry
-   /**
-    * KEEP THIS CLIENT TERMINAL'S HOST RESUME POINT (POD-3919 audit item 7).
-   *
-   * A client terminal is a host connection with a ring like any bridge
-   * session, but it never becomes a bridge — so the bridge path's
-   * `rememberDurableSeq` never sees it and a reconnecting daemon could only
-   * repaint. Called with the fresh session at the one moment this module holds
-   * it; the wiring stores a live reader, not a value. Consuming the point
-   * (resuming from it instead of repainting) is later work: the point is
-   * in-memory and cannot survive the restart it was written for until it is
-   * persisted with the host.
-   */
-  rememberDurableSeq?: (sessionId: SessionId, session: DurableAttachment) => void
 }
 
 /**
@@ -435,7 +421,7 @@ export function createOpencodeClientTerminals(
    * Open the client TUI and build its surface through the ONE Terminal factory
    * (POD-4434): a client TUI is a Terminal with no driver, over the process
    * this spawn opened or adopted. The Session keeps owning the label and the
-   * replay cursor; the Terminal holds the live attachment while watched.
+   * screen; the Terminal holds the live attachment while watched.
    */
   async function start(
     sessionId: SessionId,
@@ -551,11 +537,6 @@ export function createOpencodeClientTerminals(
     driverTiming.nativeCliStage(sessionId, kind, 'native_cli_process_started', {
       adopted: session.adopted,
     })
-    // A RESUME POINT FOR A TERMINAL THAT HAS NO BRIDGE (POD-3919 audit item
-    // 7). The session is a host connection with a ring; remembering its live
-    // `lastSeq` is what lets a later reconnect replay what was missed. A
-    // backend with no connection records nothing.
-    ports.rememberDurableSeq?.(sessionId, session)
     /**
      * ASK THE SPAWN WHICH CASE THIS WAS — do not sample the socket directory
      * beforehand (POD-2761).
@@ -580,13 +561,11 @@ export function createOpencodeClientTerminals(
      * terminal addressed by SESSION, not by attachment (POD-2108), so one stream
      * outlives every client generation; without a reset the next full interface
      * lands below the first. A reattach is the opposite: `[3J` would delete the
-     * surviving TUI's history from both the browser and the replay log, while
-     * the ring replay on return restores only its tail.
+     * surviving TUI's history in the browser. Pictures restore that surface;
+     * old servers receive the ring replay on return.
      *
-     * Emitted only after spawn succeeds, so a refusal cannot blank a terminal,
-     * and before subscribing to client frames, so every observable byte from a
-     * new generation follows its anchor. The pair also matches the server's
-     * reset test, so the replay log re-anchors with the browser.
+     * Emitted only after spawn succeeds and before subscribing to frames, so
+     * every observable byte from a new generation follows its reset anchor.
      */
     if (!session.adopted && !policy.preserveReplayOnRelaunch) {
       ports.frames(sessionId, Buffer.from(CLIENT_GENERATION_RESET))
@@ -620,18 +599,11 @@ export function createOpencodeClientTerminals(
       },
     },
     { kind: 'client' })
-    /**
-     * A RETURNING CLIENT MISSED WHAT ITS TUI DREW WHILE PARKED. The master kept
-     * following its provider with no relay attached, so those bytes never
-     * reached the viewer or the model. Replay the host ring's tail through the
-     * relay — the program is never signalled (POD-4723: the repaint nudge that
-     * used to do this is what put ptys back at a stale size). A fresh
-     * generation paints itself at startup and needs nothing.
-     */
-    // A CLIENT TERMINAL IS BORN WITHOUT A BIND (H3, POD-4912), so the request
-    // a bind would make is made here: the host's `reset` picture repaints the
-    // returning viewer (and seeds the screen) exactly, instead of the ring.
-    if (ports.picturesAccepted?.() === true && terminal.requestPicture()) {
+    // Client terminals are born without a bind (H3): request the reset here.
+    // A C host on a new server gets live bytes only (H6). Ring replay remains
+    // solely for an old server that cannot serve pictures.
+    if (ports.picturesAccepted?.() === true) {
+      terminal.requestPicture()
       policy.replayRequired = false
     } else if (session.adopted && policy.replayRequired) {
       policy.replayRequired = false
@@ -764,8 +736,8 @@ export function createOpencodeClientTerminals(
     // or resize reaches a client whose writer was revoked.
     sessions.get(sessionId)?.park()
     // The master keeps following its provider while parked, but with this relay
-    // detached those bytes never enter SessionTerminal's replay. Returning to
-    // Native replays the ring after subscribing (see the start path).
+    // detached those bytes never reach the server. Returning to Native requests
+    // a picture; only an old server needs ring replay (see the start path).
     policy.replayRequired = true
     // Nobody is watching a parked client by definition. Its warm window is the
     // server's to measure (POD-4524) — this daemon arms nothing here; the

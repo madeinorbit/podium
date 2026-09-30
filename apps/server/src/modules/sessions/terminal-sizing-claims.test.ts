@@ -122,39 +122,35 @@ const spawns = (daemon: ControlMessage[]) =>
 // C3 (server half)
 // ---------------------------------------------------------------------------
 
-describe('C3: attachClient requests a redraw on every non-resumed replay and on an empty log', () => {
-  it('fresh attach (no sinceSeq) redraws; the attached frame carries the current geometry', () => {
+describe('C3: attach keeps the screen and never automatically redraws (SPEC v4 B3)', () => {
+  it('a fresh attach carries the current geometry without a redraw', () => {
     const { terminal, toDaemon } = makeTerminal({ cols: 120, rows: 40 })
     const client = makeClient('c-fresh')
     terminal.attachClient(client)
-
-    const attached = client.sent.find((m) => m.type === 'attached')
-    expect(attached).toMatchObject({ geometry: { cols: 120, rows: 40 }, resumed: false })
-    // Empty log AND not resumed → redraw, and `replayRequired` because the log is empty.
-    expect(redraws(toDaemon)).toEqual([
-      { type: 'redraw', sessionId: SESSION, replayRequired: true },
-    ])
-  })
-
-  it('a RESUMED attach with a non-empty log does NOT redraw', () => {
-    const { terminal, toDaemon } = makeTerminal()
-    terminal.onFrame(Buffer.from('hello').toString('base64'))
-    toDaemon.length = 0
-
-    const client = makeClient('c-resume')
-    terminal.attachClient(client, 0) // sinceSeq within the window → resumed
-    expect(client.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: true })
+    expect(client.sent.find((m) => m.type === 'attached')).toMatchObject({
+      geometry: { cols: 120, rows: 40 }, resumed: true,
+    })
     expect(redraws(toDaemon)).toEqual([])
   })
 
-  it('a resumed attach against an EMPTY log still redraws (replayRequired)', () => {
+  it('output before attach does not trigger a redraw or a replay', () => {
     const { terminal, toDaemon } = makeTerminal()
-    const client = makeClient('c-resume-empty')
-    terminal.attachClient(client, 5) // no frames at all → resumed, but nothing to rebuild from
+    terminal.setPictures(false)
+    terminal.onFrame(Buffer.from('hello').toString('base64'))
+    const client = makeClient('c-live')
+    terminal.attachClient(client)
     expect(client.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: true })
-    expect(redraws(toDaemon)).toEqual([
-      { type: 'redraw', sessionId: SESSION, replayRequired: true },
-    ])
+    expect(client.sent.filter((m) => m.type === 'outputFrame')).toEqual([])
+    expect(redraws(toDaemon)).toEqual([])
+  })
+
+  it('an attach before the first bind waits without a redraw', () => {
+    const { terminal, toDaemon } = makeTerminal()
+    const client = makeClient('c-waiting')
+    terminal.attachClient(client)
+    terminal.acceptOutput(Buffer.from('before bind'), 1)
+    expect(client.sent.filter((m) => m.type === 'outputFrame')).toEqual([])
+    expect(redraws(toDaemon)).toEqual([])
   })
 })
 

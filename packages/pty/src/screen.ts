@@ -5,9 +5,8 @@
  * OSC title scan), the title scanner itself, the cgroup
  * resource helpers the scope monitor reads, POSIX shell quoting for `sh -c`
  * attach paths, the alt-screen stripper, the headless screen model, the 1049
- * screen-mode tracker, the reopen policy, and `TerminalScreen` — the one
- * screen per session that owns the applied size, the byte log, one screen
- * model, the mode and the repaint policy, surviving detach/reattach while
+ * screen-mode tracker, the old-server reopen policy, and `TerminalScreen` —
+ * one model, size, mode and title per session, surviving detach/reattach while
  * attachments come and go.
  */
 
@@ -46,10 +45,8 @@ export {
 export { shellQuote } from './shell-quote.js'
 export {
   snapshotFirstFrame,
-  TERMINAL_SCREEN_BYTE_LOG_BYTES,
   TerminalScreen,
   type TerminalScreenAttachment,
   type TerminalScreenFrame,
   type TerminalScreenOptions,
-  type TerminalScreenReopenOptions,
 } from './terminal-screen.js'

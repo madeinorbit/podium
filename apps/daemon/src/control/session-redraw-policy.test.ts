@@ -1,5 +1,5 @@
 /**
- * MODE-AWARE REDRAW — daemon half (POD-3918 P1b, rewritten by POD-4723).
+ * OLD-SERVER MODE-AWARE REDRAW — daemon half (POD-3918 P1b, rewritten by POD-4723).
  *
  * A redraw repaints the VIEWER and never the program (design rev 3,
  * "Repaint"): alternate screens reopen from the headless model, a normal
@@ -48,6 +48,7 @@ function world(opts: { headed: boolean }): {
   }
   const ctx = {
     sessions: testSessions(),
+    picturesAccepted: () => false,
     send: vi.fn(),
     outputScheduler: {
       enqueue: (id: unknown, data: Uint8Array) => enqueued.push(data),

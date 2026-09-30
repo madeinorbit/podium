@@ -103,7 +103,6 @@ import {
   launchSpawn,
   onSessionSize,
   recoverTerminalHost,
-  rememberDurableSeq,
   sendBind,
   sessionRelayEnv,
   stopSessionProcess,
@@ -1092,10 +1091,6 @@ export async function createDaemonHostRuntime(args: {
     // The client TUI's pictures take the headed path's one forwarder (POD-4912).
     picture: (streamId, picture, seed) => forwardPicture(ctx, asSessionId(streamId), picture, seed),
     picturesAccepted: () => ctx.picturesAccepted?.() === true,
-    // A client terminal never becomes a bridge, so the bridge path's resume
-    // point never sees it (POD-3919 audit item 7). The same function, on the
-    // same map, for the same kind of session — a host connection with a ring.
-    rememberDurableSeq: (sessionId, session) => rememberDurableSeq(ctx, sessionId, session),
     /**
      * WHAT SIZE TO OPEN IT AT (POD-3809): the size the session's program last
      * had — its model's size, which only the host's size events move

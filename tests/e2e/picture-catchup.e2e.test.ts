@@ -24,7 +24,6 @@
 import { randomUUID } from 'node:crypto'
 import {
   mkdtempSync,
-  readdirSync,
   readFileSync,
   readlinkSync,
   rmSync,
@@ -222,27 +221,20 @@ async function hostScreen(label: string): Promise<{ text: string; cols: number; 
   }
 }
 
-/** Stop only the hosts this file started: the ones serving sockets under HOST_DIR. */
+/** PIDs recorded from this file's own hosts' WELCOME frames. */
+const ownedHosts = new Map<number, string>()
+
+/** Stop only recorded hosts that still own a socket in the private directory. */
 function stopOwnHosts(): void {
-  for (const entry of readdirSync('/proc')) {
-    if (!/^\d+$/.test(entry)) continue
-    let argv: string[]
+  for (const [pid, started] of ownedHosts) {
     try {
-      argv = readFileSync(`/proc/${entry}/cmdline`, 'utf8').split('\0')
-    } catch {
-      continue
-    }
-    const at = argv.indexOf('--socket')
-    if (at < 0 || !(argv[at + 1] ?? '').startsWith(`${HOST_DIR}/`)) continue
-    let exe = ''
-    try {
-      exe = readlinkSync(`/proc/${entry}/exe`)
-    } catch {
-      continue
-    }
-    if (!exe.includes('podium-host')) continue
-    try {
-      process.kill(Number(entry), 'SIGKILL')
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+      if (stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19] !== started) continue
+      const argv = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0')
+      const at = argv.indexOf('--socket')
+      if (at < 0 || !(argv[at + 1] ?? '').startsWith(`${HOST_DIR}/`)) continue
+      if (!readlinkSync(`/proc/${pid}/exe`).includes('podium-host')) continue
+      process.kill(pid, 'SIGKILL')
     } catch {
       // already gone
     }
@@ -319,7 +311,18 @@ describe.skipIf(RUST_HOST === undefined)('viewer catch-up from host pictures (re
       () => sessionOf(sid).status === 'live',
       () => `session ${sid} never went live`,
     )
-    return { sid, label: sessionOf(sid).durableLabel }
+    const label = sessionOf(sid).durableLabel
+    const conn = connectHost(hostSocketPath(label), { mode: 'reader' })
+    try {
+      const { hostPid } = await conn.welcome
+      const stat = readFileSync(`/proc/${hostPid}/stat`, 'utf8')
+      const started = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]
+      if (started === undefined) throw new Error('host start time missing')
+      ownedHosts.set(hostPid, started)
+    } finally {
+      conn.detach()
+    }
+    return { sid, label }
   }
 
   beforeAll(async () => {
@@ -495,7 +498,17 @@ describe.skipIf(RUST_HOST === undefined)('viewer catch-up from host pictures (re
     try {
       const { sid } = await liveShell()
       const seen = watch(sid)
+      const first = await viewer(port, cookie, sid)
+      first.send({ type: 'input', sessionId: sid, data: Buffer.from('b').toString('base64') })
+      await until(
+        () => Buffer.concat(first.payloads()).toString('latin1').includes('last-input=62'),
+        () => 'C host never completed its live paint',
+      )
+      first.close()
+      await until(() => sessionOf(sid).terminal.controllerId === null, () => 'first viewer never detached')
       const v = await viewer(port, cookie, sid)
+      await new Promise((r) => setTimeout(r, 100))
+      expect(v.payloads()).toEqual([])
       v.send({ type: 'input', sessionId: sid, data: Buffer.from('a').toString('base64') })
       await until(
         () => Buffer.concat(v.payloads()).toString('latin1').includes('last-input=61'),

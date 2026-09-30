@@ -1,6 +1,7 @@
 /**
  * HOW A REOPENING VIEWER IS REPAINTED — a pure decision (POD-3918 P1b,
- * rewritten by POD-4723 / design rev 3).
+ * rewritten by POD-4723 / design rev 3). Kept solely for old-server
+ * compatibility (SPEC v4 B3); picture-capable links never call it.
  *
  * A reopen NEVER touches the program (design rev 3, "Repaint"): a same-size
  * SIGWINCH repaints nothing in a Node TUI such as Claude, and the only way to
