@@ -52,7 +52,7 @@ import { createReadFence } from '../../../../shared/src/instrument/reads'
 import { type SettableLocalsHandle, settableLocals } from '../../../../shared/src/locals-source'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { RowRecord } from '../../../../shared/src/stats'
-import { harnessMobxPoolArm, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
+import { harnessMobxPoolArm, tracked, visibleOrderOf, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import type { MobxPool } from '../pool'
 
 interface Rig {
@@ -122,7 +122,7 @@ function groupOf(pool: MobxPool, id: string): string | null {
 function stageTarget(pool: MobxPool): string {
   return tracked(() => {
     let best: { id: string; size: number } | null = null
-    for (const id of pool.worklist.order) {
+    for (const id of visibleOrderOf(pool)) {
       const node = pool.knownIssue(id)
       const standing = node?.standing
       if (
@@ -149,7 +149,7 @@ function stageTarget(pool: MobxPool): string {
 /** An unread open-human root (a keep row: its `flat` never reads the cursor). */
 function clickTarget(pool: MobxPool): string {
   return tracked(() => {
-    const id = [...pool.worklist.order].find((candidate) => {
+    const id = [...visibleOrderOf(pool)].find((candidate) => {
       const node = pool.knownIssue(candidate)
       if (node?.standing === undefined) return false
       return (
@@ -274,7 +274,7 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
       let audit: { stop(): void } | undefined
       try {
         const { pool } = r.handle
-        const visible = tracked(() => pool.worklist.order.length)
+        const visible = visibleOrderOf(pool).length
         const target = stageTarget(pool)
         const key = tracked(() => groupOf(pool, target)) as string
         const base = corpusIssue(r, target)
@@ -341,7 +341,7 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
         // A childless unpinned open human root in a multi-member group (the
         // #6b rule), so its group survives the removal.
         const found = tracked(() => {
-          for (const id of pool.worklist.order) {
+          for (const id of visibleOrderOf(pool)) {
             const node = pool.knownIssue(id)
             const standing = node?.standing
             if (
@@ -385,7 +385,7 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
         expect(evals.get('latchedOpenId') ?? 0, 'latch executions').toBe(0)
         expectOnlyGroup(evals, key)
         expect(tracked(() => pool.knownIssue(target)?.visible), 'archived row leaves').toBe(false)
-        expect(tracked(() => pool.worklist.order.includes(target))).toBe(false)
+        expect(visibleOrderOf(pool).includes(target)).toBe(false)
         writeResult(`mobx-scaling-4686-${scale}x-archive`, {
           scale,
           at: 'archive',

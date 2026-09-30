@@ -27,7 +27,7 @@ import type { CheckableArm } from '../../../../shared/src/arm'
 import { countKinds, gen } from '../../../../shared/src/gen/changes'
 import { type CheckedArm, checkArm } from '../../../../shared/src/gen/check'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
-import { harnessMobxPoolArm, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
+import { harnessMobxPoolArm, visibleOrderOf, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import { rowViewOf } from '../models'
 
@@ -64,7 +64,7 @@ function gapped(base: CheckableArm, tally: { applied: number }): CheckedArm {
       const handle = base.create(source, locals, reads) as HarnessMobxPoolHandle
       const { pool } = handle
       const stop = reaction(
-        () => [pool.worklist.order.map((id) => rowViewOf(pool.issue(id))), pool.groups.layout],
+        () => [visibleOrderOf(pool).map((id) => rowViewOf(pool.issue(id))), pool.groups.layout],
         () => {},
         { name: 'gate.observer' },
       )

@@ -56,6 +56,7 @@ import {
   type HarnessMobxPoolHandle,
   harnessMobxPoolArm,
   tracked,
+  visibleOrderOf,
 } from '../src/adapters/mobx-pool'
 import { createReadFence, DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
 import { RowShell } from '../../shared/src/row-shell'
@@ -192,7 +193,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
         },
         { timeout: 20_000, interval: 50 },
       )
-      const visible = tracked(() => clean.pool.worklist.order.length)
+      const visible = visibleOrderOf(clean.pool).length
       // The plant draws the whole visible list: every drawn row is visible,
       // and far more than the real mount's window draws.
       const plantedIds = drawnIds(list)
@@ -255,14 +256,14 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
           repo: handle.pool.tables.repo.size,
         })),
         cold: {
-          issue: handle.pool.residency?.size('issue') ?? 0,
-          session: handle.pool.residency?.size('session') ?? 0,
+          issue: handle.pool.residency?.ids('issue').length ?? 0,
+          session: handle.pool.residency?.ids('session').length ?? 0,
         },
-        models: handle.pool.modelCount('issue') + handle.pool.modelCount('session'),
+        residentSessions: handle.pool.tables.session.size,
         observables: Object.values(built).reduce((a, b) => a + b, 0),
         byMap: built,
         drawn: drawn.length,
-        visible: tracked(() => handle.pool.worklist.order.length),
+        visible: visibleOrderOf(handle.pool).length,
         pendingLoads: handle.pendingLoads(),
       }
       // The lazy baseline (POD-4567, POD-4705): cold rows stay out, the mount
@@ -271,7 +272,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
       expect(cell.cold.issue, 'cold issues stay out at bootstrap').toBeGreaterThan(0)
       expect(cell.pendingLoads, 'the mount queues loads').toBeGreaterThan(0)
       console.info(
-        `[mobx-pool-native] bootstrap observables=${cell.observables} models=${cell.models} ` +
+        `[mobx-pool-native] bootstrap observables=${cell.observables} residentSessions=${cell.residentSessions} ` +
           `drawn=${cell.drawn}/${cell.visible} coldIssues=${cell.cold.issue} ` +
           `coldSessions=${cell.cold.session} pendingLoads=${cell.pendingLoads}`,
       )
@@ -304,7 +305,7 @@ const FullNativeList = observer(function FullNativeList({
 }): ReactElement {
   return (
     <View testID="mobx-pool-list">
-      {pool.worklist.order.map((id) => (
+      {visibleOrderOf(pool).map((id) => (
         <FullNativeSlot key={id} pool={pool} id={id} />
       ))}
     </View>
@@ -319,7 +320,7 @@ const PlantedSlot = observer(function PlantedSlot({
   pool: MobxPool
   id: string
 }): ReactElement | null {
-  for (const other of pool.worklist.order) void pool.issue(other)?.title
+  for (const other of visibleOrderOf(pool)) void pool.issue(other)?.title
   const model = pool.issue(id)
   if (model === undefined || !model.inMemory) return null
   return <RowShell row={model} component={PoolNativeRow} />
@@ -332,7 +333,7 @@ const PlantedNativeList = observer(function PlantedNativeList({
 }): ReactElement {
   return (
     <View testID="mobx-pool-list">
-      {pool.worklist.order.map((id) => (
+      {visibleOrderOf(pool).map((id) => (
         <PlantedSlot key={id} pool={pool} id={id} />
       ))}
     </View>

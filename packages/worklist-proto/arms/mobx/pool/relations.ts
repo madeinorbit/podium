@@ -510,13 +510,6 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     return link.forward.get(id) ?? link.coldForward.get(id) ?? null
   }
 
-  /** Cold rows the engine holds a summary of (POD-4753; the measurement record). */
-  summaryCount(): number {
-    let rows = 0
-    for (const held of this.summaries.values()) rows += held.size
-    return rows
-  }
-
   /** Whether `id`'s row is collapsed away by its entity's rule (tests). */
   isCollapsed(entity: EntityName, id: string): boolean {
     return this.collapses.get(entity)?.collapsed.has(id) ?? false

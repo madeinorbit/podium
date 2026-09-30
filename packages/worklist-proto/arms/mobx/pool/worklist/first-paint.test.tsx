@@ -17,65 +17,31 @@
  *   first 96 rows are the browser driver's first window (POD-4560).
  */
 
-import { Reaction } from 'mobx'
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import { mountArmForCounts } from '../../../../harness/src/count-harness'
 import { openFenceFeeds } from '../../../../harness/src/fence-scenarios'
+import {
+  collectReactions,
+  filingReactions,
+  objectsBehind,
+} from '../../../../harness/src/mobx-graph'
 import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../../shared/src/arm'
 import { startScenarioEngine } from '../../../../shared/src/scenarios'
-import { harnessMobxPoolArm, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
+import {
+  harnessMobxPoolArm,
+  poolPendingLoads,
+  tracked,
+  visibleOrderOf,
+  type HarnessMobxPoolHandle,
+} from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 
 installMobxWarnTrap()
 
 /** The browser driver's first window (POD-4560: 96 rows). */
 const FIRST_WINDOW = 96
-
-interface Derivation {
-  readonly name_: string
-  readonly observing_?: readonly Derivation[]
-}
-
-/** Every reaction MobX tracks while `run` runs. */
-function collectReactions(run: () => void): Set<Derivation> {
-  const seen = new Set<Derivation>()
-  const proto = Reaction.prototype as unknown as { track: (fn: () => void) => void }
-  const original = proto.track
-  proto.track = function (this: Derivation, fn: () => void) {
-    seen.add(this)
-    return original.call(this, fn)
-  }
-  try {
-    run()
-  } finally {
-    proto.track = original
-  }
-  return seen
-}
-
-/** Distinct `Class@n` objects behind the derivations reachable from `roots` (MobX's graph). */
-function objectsBehind(roots: Iterable<Derivation>): Record<string, number> {
-  const visited = new Set<Derivation>()
-  const objects = new Set<string>()
-  const stack = [...roots]
-  while (stack.length > 0) {
-    const next = stack.pop() as Derivation
-    if (visited.has(next)) continue
-    visited.add(next)
-    // `Class@n.key` (declared) or `Class@<id>.group` (a cached group).
-    const owner = /^(\w+@[^.]+)\./.exec(next.name_ ?? '')?.[1]
-    if (owner !== undefined) objects.add(owner)
-    for (const dependency of next.observing_ ?? []) stack.push(dependency)
-  }
-  const byClass: Record<string, number> = {}
-  for (const owner of objects) {
-    const cls = owner.split('@')[0] as string
-    byClass[cls] = (byClass[cls] ?? 0) + 1
-  }
-  return byClass
-}
 
 async function measure(scale: 1 | 4) {
   const ctx = await startScenarioEngine(scale)
@@ -103,9 +69,9 @@ async function measure(scale: 1 | 4) {
   const m = mounted as ReturnType<typeof mountArmForCounts>
   const { pool } = m.handle as HarnessMobxPoolHandle
   try {
-    const visibility = [...reactions].filter((r) => r.name_.startsWith('pool.file.'))
+    const visibility = filingReactions(reactions)
     const nodes = objectsBehind(visibility)
-    const order = tracked(() => [...pool.worklist.order])
+    const order = visibleOrderOf(pool)
     // The drawn rows in list order (Mb2 wraps each item and adds group headers).
     const slots = [
       ...document.querySelectorAll('[data-pool-list] [data-issue-row], [data-pool-list] [data-loading-row]'),
@@ -122,15 +88,16 @@ async function measure(scale: 1 | 4) {
         .slice(0, FIRST_WINDOW)
         .filter((id) => pool.residency?.isCold('issue', id) === true).length,
     }
-    // The harness resets the pool's stats at mount: read the held nodes instead.
+    // The harness resets the pool's stats at mount: read what the pool holds
+    // from outside (its tables and MobX's graph), never from product code.
+    // POD-4945: the product exposes no held-node or model counts.
     const held = {
-      issueNodes: pool.worklist.size(),
-      sessionNodes: pool.modelCount('session'),
+      issueNodes: tracked(() => pool.tables.issue.size),
+      residentSessions: tracked(() => pool.tables.session.size),
     }
-    const modelsAtPaint = pool.modelCount('issue') + pool.modelCount('session')
     phase = 'settle'
     let windows = 0
-    while (pool.residency?.hasQueued() && windows < 100) {
+    while (poolPendingLoads(pool) > 0 && windows < 100) {
       act(() => {
         pool.hydrate()
       })
@@ -138,7 +105,6 @@ async function measure(scale: 1 | 4) {
     }
     const settledLoading = document.querySelectorAll('[data-loading-row]').length
     // POD-4665: what first paint holds once its loads have landed, counted, not summed.
-    const modelsSettled = pool.modelCount('issue') + pool.modelCount('session')
     const byKind = (set: Set<string>) => {
       const out: Record<string, number> = {}
       for (const key of set) {
@@ -159,11 +125,7 @@ async function measure(scale: 1 | 4) {
       },
       loadWindows: windows,
       settledLoading,
-      poolHeld: {
-        ...held,
-        modelsAtFirstPaint: modelsAtPaint,
-        modelsSettled,
-      },
+      poolHeld: held,
     }
   } finally {
     m.unmount()

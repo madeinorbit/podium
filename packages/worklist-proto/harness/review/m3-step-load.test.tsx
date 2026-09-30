@@ -41,6 +41,7 @@ import { describe, expect, it } from 'vitest'
 import {
   type HarnessMobxPoolHandle,
   harnessMobxPoolArm,
+  poolPendingLoads,
   tracked,
 } from '../src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../src/mobx-trap'
@@ -120,13 +121,13 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
     if (residency === null) throw new Error('the counts pool is lazy; residency is null')
     // Settle exactly as counts.test.tsx does, then zero.
     let rounds = 0
-    while (residency.hasQueued() && rounds < 100) {
+    while (poolPendingLoads(pool) > 0 && rounds < 100) {
       act(() => {
         pool.hydrate()
       })
       rounds += 1
     }
-    expect(residency.hasQueued()).toBe(false)
+    expect(poolPendingLoads(pool)).toBe(0)
     mounted.log.reset()
     mounted.handle.stats.reset()
     mounted.reads.reset()
@@ -256,8 +257,7 @@ describe('a fence step counts the load its own change triggers (M3 re-review 2)'
       )
       try {
         const { pool } = mounted.handle as HarnessMobxPoolHandle
-        const residency = pool.residency!
-        while (residency.hasQueued()) act(() => pool.hydrate())
+        while (poolPendingLoads(pool) > 0) act(() => pool.hydrate())
         mounted.log.reset()
         mounted.reads.reset()
         const snapshot = mounted.handle.snapshot.bind(mounted.handle)

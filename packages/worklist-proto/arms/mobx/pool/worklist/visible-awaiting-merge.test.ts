@@ -16,7 +16,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { harnessMobxPoolArm, snapshotPool, tracked } from '../../../../harness/src/adapters/mobx-pool'
+import { harnessMobxPoolArm, snapshotPool, tracked, visibleOrderOf } from '../../../../harness/src/adapters/mobx-pool'
 import {
   engineLocals,
   openFenceFeeds,
@@ -126,7 +126,7 @@ function expectParity(ctx: ScenarioEngine, handle: ReturnType<typeof harnessMobx
   const locals = parityLocals(ctx)
   const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), locals.coarseNow)
   const expected = visibleIssueRows(derivation, locals).map((row) => row.issue.id)
-  expect(tracked(() => [...handle.pool.worklist.order]), 'visible order').toEqual(expected)
+  expect(visibleOrderOf(handle.pool), 'visible order').toEqual(expected)
   const diff = diffSnapshots(snapshot, snapshotFromStore(ctx.engine.getSnapshot(), locals))
   expect(diff, 'snapshot rows').toBeNull()
 }

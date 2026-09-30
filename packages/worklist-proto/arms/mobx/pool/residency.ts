@@ -128,13 +128,6 @@ export interface ResidencyOptions {
    */
   readonly lanes?: () => LaneReader
   /**
-   * Rows kept cold beside the schema's rule (tests: the not-in-memory path on
-   * a row the rule keeps resident, such as a visible one). Asked where the
-   * rule is, so such a row is cold until its first access loads it, like any
-   * other; a row in memory stays there.
-   */
-  readonly outOfMemory?: (entity: EntityName, id: string) => boolean
-  /**
    * POD-4753 — per entity, the fields its readers need of a row that is cold
    * BY THE RULE (so hidden: nothing can show it): a small declared summary,
    * kept beside the cold id from the row ingest hands over (`summary`), never
@@ -164,12 +157,9 @@ export class Residency {
   private readonly load: LoadRow
   private readonly clock: () => number
   private readonly schedule: Schedule
-  private readonly outOfMemory: (entity: EntityName, id: string) => boolean
   private readonly summaryFields: Partial<Readonly<Record<EntityName, readonly string[]>>>
   /** `entity:id` → the declared summary of a cold row (entities that declare one). */
   private readonly summaries = new Map<string, Readonly<Record<string, unknown>>>()
-  /** `entity:id` of cold rows kept out only beside the rule (`outOfMemory`): they may show. */
-  private readonly heldOut = new Set<string>()
   /** Entities whose rows can keep an `unlessShown` row resident (the schema's `keptBy`). */
   private readonly keeperKinds: ReadonlySet<EntityName>
   /** Per `members` source: owner id → member id → how long it keeps the owner shown, for EVERY known member row. */
@@ -229,7 +219,6 @@ export class Residency {
     }
     this.windowMs = options.windowMs ?? LOAD_WINDOW_MS
     this.schedule = options.schedule ?? realSchedule
-    this.outOfMemory = options.outOfMemory ?? (() => false)
     this.summaryFields = options.summaries ?? {}
     const prefixTargets = new Set<EntityName>()
     for (const spec of Object.values(this.schema)) {
@@ -273,24 +262,9 @@ export class Residency {
     return this.cold.get(entity)?.has(id) ?? false
   }
 
-  /** Cold rows of `entity` (tests, the gate's partition check). */
-  size(entity: EntityName): number {
-    return this.cold.get(entity)?.size ?? 0
-  }
-
-  /** Cold rows held with a declared summary (POD-4753; the measurement record). */
-  summaryCount(): number {
-    return this.summaries.size
-  }
-
   /** Cold ids of `entity` (the gate's partition check). */
   ids(entity: EntityName): readonly string[] {
     return [...(this.cold.get(entity)?.keys() ?? [])]
-  }
-
-  /** The id a cold `via` row inherits from, as registered (the partition check). */
-  registeredTarget(entity: EntityName, id: string): string | null | undefined {
-    return this.cold.get(entity)?.get(id)
   }
 
   /**
@@ -358,13 +332,12 @@ export class Residency {
 
   /**
    * TRACKED: whether `id` is cold BY THE RULE, so hidden: nothing can show it
-   * (POD-4745's complete rule). A row kept out only beside the rule
-   * (`outOfMemory`) may show, and is not hidden.
+   * (POD-4745's complete rule).
    */
   hidden(entity: EntityName, id: string): boolean {
     if (!this.capable(entity)) return false
     this.observe(entity, id)
-    return this.isCold(entity, id) && !this.heldOut.has(`${entity}:${id}`)
+    return this.isCold(entity, id)
   }
 
   /** TRACKED: the declared summary of a cold row (`ResidencyOptions.summaries`), else undefined. */
@@ -404,17 +377,6 @@ export class Residency {
     return true
   }
 
-  hasQueued(): boolean {
-    return this.queue.size > 0
-  }
-
-  /** Rows queued for a load and not yet taken. */
-  queued(): number {
-    let rows = 0
-    for (const ids of this.queue.values()) rows += ids.size
-    return rows
-  }
-
   /** Close the window now: the queued rows, cleared. */
   take(): [LoadableEntity, string][] {
     this.cancel?.()
@@ -451,9 +413,8 @@ export class Residency {
       this.warmDependents(target, entity, id, out)
       return
     }
-    const byRule = this.coldRule(entity, value)
-    if (byRule || this.outOfMemory(entity, id)) {
-      this.keepCold(target, entity, id, value, byRule, out)
+    if (this.coldRule(entity, value)) {
+      this.keepCold(target, entity, id, value, out)
       return
     }
     if (this.isCold(entity, id)) this.unregister(entity, id)
@@ -479,8 +440,8 @@ export class Residency {
     const ctx = this.placing
     if (ctx === null) throw new Error('[pool] place() outside a replace (reindex first)')
     const byRule = !hot && coldByRule(this.schema, entity, value, ctx)
-    if (!hot && (byRule || this.outOfMemory(entity, id))) {
-      this.keepCold(target, entity, id, value, byRule, out)
+    if (byRule) {
+      this.keepCold(target, entity, id, value, out)
       return
     }
     if (this.isCold(entity, id)) this.unregister(entity, id)
@@ -492,16 +453,19 @@ export class Residency {
     this.unregister(entity, id)
     if (entity === 'issue') target.volatile?.removeIssueRead(id)
     target.relations?.changed(entity, id, undefined, undefined)
-    out.cold += 1
+    // Reported as removed, like a table drop: the pool releases the row's
+    // model (it can never be asked for as the same row again).
+    out.removed.push([entity, id])
   }
 
   /**
    * A closed window's rows (inside the pool's batch action): each one still
    * cold is read by id and installed. Then every row installed whose rule no
    * longer holds warms the rows that inherit from it (asked for: the next
-   * window), and the lanes the new rows moved are settled.
+   * window), and the lanes the new rows moved are settled. Returns how many
+   * rows the window installed.
    */
-  install(target: IngestTarget, batch: readonly [LoadableEntity, string][], out: IngestOut): void {
+  install(target: IngestTarget, batch: readonly [LoadableEntity, string][], out: IngestOut): number {
     const installed: [LoadableEntity, string][] = []
     for (const [entity, id] of batch) {
       if (!this.isCold(entity, id)) continue
@@ -517,6 +481,7 @@ export class Residency {
     // longer registered, so only the ones still cold are asked for.
     for (const [entity, id] of installed) this.warmDependents(target, entity, id, out)
     this.settle(target, out)
+    return installed.length
   }
 
   /** Read a cold row by id: the one reader's `peek` (`MobxPool.row`), and nothing else. */
@@ -555,7 +520,6 @@ export class Residency {
     this.kept.clear()
     this.finish.clear()
     this.summaries.clear()
-    this.heldOut.clear()
   }
 
   /**
@@ -781,13 +745,11 @@ export class Residency {
     entity: EntityName,
     id: string,
     value: StoredRow,
-    byRule: boolean,
     out: IngestOut,
   ): void {
-    this.register(entity, id, value, byRule)
+    this.register(entity, id, value)
     if (entity === 'issue') target.volatile?.setIssueRead(id, value)
     target.relations?.changed(entity, id, undefined, value)
-    out.cold += 1
   }
 
   /**
@@ -804,7 +766,7 @@ export class Residency {
     }
   }
 
-  private register(entity: EntityName, id: string, row: object, byRule: boolean): void {
+  private register(entity: EntityName, id: string, row: object): void {
     const ids = this.cold.get(entity) as Map<string, string | null>
     const before = ids.get(id) ?? null
     const after = viaTargetOf(this.schema, entity, row)?.id ?? null
@@ -813,8 +775,6 @@ export class Residency {
     if (this.schema[entity].cold.kind === 'unlessShown') {
       this.finish.set(key, coldFinishOf(this.schema, entity, row))
     }
-    if (byRule) this.heldOut.delete(key)
-    else this.heldOut.add(key)
     const fields = this.summaryFields[entity]
     if (fields !== undefined) {
       const values = row as Readonly<Record<string, unknown>>
@@ -842,7 +802,6 @@ export class Residency {
     ids.delete(id)
     this.finish.delete(`${entity}:${id}`)
     this.summaries.delete(`${entity}:${id}`)
-    this.heldOut.delete(`${entity}:${id}`)
     const byTarget = this.dependents.get(entity)
     if (byTarget !== undefined && before !== null) unindex(byTarget, before, id)
     this.queue.get(entity as LoadableEntity)?.delete(id)

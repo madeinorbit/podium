@@ -24,7 +24,7 @@ import { type RowView } from '../../../shared/src/row-view'
 import { SCHEMA, tableColdRule } from '../../../shared/src/schema'
 import type { SliceIssue } from '../../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
-import { type HarnessMobxPoolHandle, harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
+import { type HarnessMobxPoolHandle, harnessMobxPoolArm, poolPendingLoads, tracked, visibleOrderOf } from '../../../harness/src/adapters/mobx-pool'
 import { ENFORCEMENT } from '../../../harness/src/mobx-enforce'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { rowViewOf } from './models'
@@ -139,7 +139,7 @@ function observeAll(handle: HarnessMobxPoolHandle): {
   const views = new Map<string, RowView | undefined>()
   const rerun = new Set<string>()
   const stops: IReactionDisposer[] = []
-  const ids = tracked(() => handle.pool.issueIds)
+  const ids = tracked(() => [...handle.pool.tables.issue.keys()])
   for (const id of ids) {
     stops.push(
       autorun(() => {
@@ -193,7 +193,7 @@ describe('ingest', () => {
       const sizes = tracked(() => ENTITIES.map((entity) => pool.tables[entity].size))
       const repos = new Set(corpus.sliceWorktrees.map((lane) => lane.repoId).filter(Boolean))
       // Hot plus cold is every row; the split itself is residency.test.ts's.
-      const cold = ENTITIES.map((entity) => pool.residency?.size(entity) ?? 0)
+      const cold = ENTITIES.map((entity) => pool.residency?.ids(entity).length ?? 0)
       expect(sizes.map((size, i) => size + cold[i]!)).toEqual([
         corpus.sliceIssues.length,
         corpus.sliceSessions.length,
@@ -202,15 +202,16 @@ describe('ingest', () => {
       ])
       expect(sizes[0]).toBe(residentIssues.length)
       expect(repos.size).toBeGreaterThan(0)
-      // One filing reaction per issue in memory, one object per issue it
-      // reads (its own, and the cold ones its walks reach: an ancestor, a
-      // child), and the sessions those read; no worktree or repo object
-      // until one is read.
-      expect(pool.worklist.size()).toBe(sizes[0])
-      expect(pool.modelCount('issue')).toBeGreaterThanOrEqual(pool.worklist.size())
-      expect(pool.modelCount('issue') - pool.worklist.size()).toBeLessThanOrEqual(cold[0]!)
-      expect(pool.modelCount('worktree')).toBe(0)
-      expect(pool.modelCount('repo')).toBe(0)
+      // One filing reaction per issue in memory (POD-4945: read per id, since
+      // the product exposes no tracked count), and no worktree or repo
+      // object until one is read. Model identity is the tracking gate's
+      // (`tracking-counts.test.ts` counts IssueModel owners from outside).
+      for (const id of tracked(() => [...pool.tables.issue.keys()])) {
+        expect(pool.worklist.tracks(id), `hot ${id} is tracked`).toBe(true)
+      }
+      for (const id of (pool.residency?.ids('issue') ?? [])) {
+        expect(pool.worklist.tracks(id), `cold ${id} is tracked`).toBe(false)
+      }
     } finally {
       r.dispose()
     }
@@ -282,10 +283,10 @@ describe('ingest', () => {
       const renamed = issueRecord(openIssues[7]!.id, { title: 'Reseeded' })
       const sessions = r.replay.source.snapshot('session').slice(0, 3)
       const lanes = r.replay.source.snapshot('worktree')
-      const hotBefore = tracked(() => [pool.issueIds.length, pool.tables.session.size] as const)
+      const hotBefore = tracked(() => [pool.tables.issue.size, pool.tables.session.size] as const)
       const seen: [number, number][] = []
       const watch = autorun(() => {
-        seen.push([pool.issueIds.length, pool.tables.session.size])
+        seen.push([pool.tables.issue.size, pool.tables.session.size])
       })
       const heldBefore = runInAction(() => keep.map((row) => pool.tables.issue.get(row.id)))
       r.push({ type: 'replace', rows: [...sessions, ...keep, renamed, ...lanes] })
@@ -295,8 +296,8 @@ describe('ingest', () => {
       expect(heldAfter).toEqual(heldBefore)
       for (const [i, row] of heldAfter.entries()) expect(row).toBe(heldBefore[i])
       // The kept rows and lanes were not rewritten: observers saw one transition.
-      expect(pool.residency?.size('issue')).toBe(0)
-      expect(pool.residency?.size('session')).toBe(0)
+      expect(pool.residency?.ids('issue')).toEqual([])
+      expect(pool.residency?.ids('session')).toEqual([])
     } finally {
       r.dispose()
     }
@@ -314,10 +315,8 @@ describe('ingest', () => {
       const watch = autorun(() => {
         titles.push(rowViewOf(pool.issue(id))?.title)
       })
-      const models = pool.modelCount('issue')
       r.push({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
       expect(runInAction(() => pool.tables.issue.has(id))).toBe(false)
-      expect(pool.modelCount('issue')).toBe(models - 1)
       expect(tracked(() => pool.issue(id))).toBeUndefined()
       r.push({ type: 'update', rows: [issueRecord(id, { title: 'Back again' })] })
       watch()
@@ -382,11 +381,9 @@ describe('locals', () => {
       for (const issue of corpus.sliceIssues) pool.resident('issue', issue.id)
     })
     pool.hydrate()
-    expect(pool.residency?.size('issue')).toBe(0)
+    expect(pool.residency?.ids('issue')).toEqual([])
     const all = observeAll(r.handle)
     try {
-      const waiting = pool.clock.waiting
-      expect(waiting).toBeGreaterThan(0)
       let crossings = pool.clock.crossings
       all.resetRuns()
       r.locals.set({ coarseNow: corpus.fixedNow + 60_000 })
@@ -408,7 +405,6 @@ describe('locals', () => {
       expect(changed).toBeGreaterThan(0)
       writeResult('mobx-pool-tick-1x', {
         issues: corpus.sliceIssues.length,
-        deadlinesWaitedOn: waiting,
         graceTick: {
           viewsChanged: changed,
           crossings: pool.clock.crossings - crossings,
@@ -432,7 +428,7 @@ describe('dispose', () => {
     const { pool } = r.handle
     // Mb1 (POD-4569): the list draws the visible rows; cold ones wait for their load.
     const visibleHot = tracked(
-      () => pool.worklist.order.filter((id) => pool.tables.issue.has(id)).length,
+      () => visibleOrderOf(pool).filter((id) => pool.tables.issue.has(id)).length,
     )
     expect(el.querySelectorAll('[data-issue-row]').length).toBe(visibleHot)
     const texts = [...el.querySelectorAll('[data-issue-row]')].map((row) => row.textContent ?? '')
@@ -441,13 +437,13 @@ describe('dispose', () => {
     // queue with everything else.
     const closed = corpus.sliceIssues.find((issue) => issue.closedAt != null)!
     expect(tracked(() => pool.resident('issue', closed.id))).toBe('loading')
-    expect(pool.residency?.hasQueued()).toBe(true)
-    const models = tracked(() => pool.issueIds.map((id) => pool.issue(id)!))
+    expect(poolPendingLoads(pool)).toBe(1)
+    const models = tracked(() => [...pool.tables.issue.keys()].map((id) => pool.issue(id)!))
     r.locals.set({ selectedIssueId: models[0]!.id })
     r.locals.flush()
     expect(r.listeners()).toBe(2)
     expect(getObserverTree(pool.groups, 'keys').observers?.length ?? 0).toBeGreaterThan(0)
-    expect(pool.worklist.size()).toBeGreaterThan(0)
+    expect(visibleOrderOf(pool).length).toBeGreaterThan(0)
 
     await act(async () => {
       r.dispose()
@@ -457,19 +453,17 @@ describe('dispose', () => {
     expect(el.querySelectorAll('[data-issue-row]').length).toBe(0)
     expect(tracked(() => ENTITIES.map((entity) => pool.tables[entity].size))).toEqual([0, 0, 0, 0])
     for (const entity of ENTITIES) {
-      expect(pool.modelCount(entity), entity).toBe(0)
       expect(getObserverTree(pool.tables[entity]).observers ?? [], entity).toEqual([])
     }
     expect(tracked(() => pool.selection.size)).toBe(0)
     expect(getObserverTree(pool.groups, 'keys').observers ?? []).toEqual([])
-    expect(pool.worklist.size()).toBe(0)
-    expect(pool.modelCount('session')).toBe(0)
+    expect(visibleOrderOf(pool)).toEqual([])
+    expect(tracked(() => pool.issue(models[0]!.id))).toBeUndefined()
     // A row view is a cached group on its issue, dropped once unobserved; one
     // still observed would observe its table slots, which the check above
-    // finds empty. The objects themselves are released (model counts, above).
-    expect(pool.clock.waiting).toBe(0)
-    expect(pool.residency?.hasQueued()).toBe(false)
-    expect(ENTITIES.map((entity) => pool.residency?.size(entity))).toEqual([0, 0, 0, 0])
+    // finds empty.
+    expect(poolPendingLoads(pool)).toBe(0)
+    expect(ENTITIES.map((entity) => pool.residency?.ids(entity))).toEqual([[], [], [], []])
     expect(_getGlobalState().pendingReactions.length).toBe(0)
     // After disposal the feed can publish; nothing listens.
     r.push({ type: 'update', rows: [issueRecord(models[1]!.id, { title: 'after dispose' })] })

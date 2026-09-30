@@ -14,7 +14,6 @@
  */
 
 import type { LocalsSource, RowSource } from '../../../../shared/src/arm'
-import type { ReadFence } from '../../../../shared/src/instrument/reads'
 import type { SliceIssue } from '../../../../shared/src/slice-types'
 import type { WriteTransport } from '../../../../shared/src/write-contract'
 import { type MobxPoolHandle, mobxPoolArm } from '../arm'
@@ -34,12 +33,12 @@ export function writableMobxPoolArm(
   transport: WriteTransport,
   loader: Omit<PoolLazyOptions, 'load'> = {},
 ): {
-  create(source: RowSource, locals: LocalsSource, reads?: ReadFence): WritableMobxPoolHandle
+  create(source: RowSource, locals: LocalsSource): WritableMobxPoolHandle
 } {
   return {
-    create(source: RowSource, locals: LocalsSource, reads?: ReadFence): WritableMobxPoolHandle {
+    create(source: RowSource, locals: LocalsSource): WritableMobxPoolHandle {
       const overlay = new PendingOverlay()
-      const handle = mobxPoolArm.create(source, locals, reads, loader, overlay)
+      const handle = mobxPoolArm.create(source, locals, loader, overlay)
       const write = createMobxWriteApi(handle.pool, overlay, transport)
       write.bootstrap(source)
       const offRemote = source.subscribe((event) => {

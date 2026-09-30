@@ -27,7 +27,7 @@ import { Residency, type Schedule } from '../../arms/mobx/pool/residency'
 import { ROW_DISPLAYED_FIELDS } from '../../shared/src/row-view'
 import { applyHeartbeat, applyTitleRename, startEngineOnCorpus } from '../../shared/src/scenarios'
 import { coldByRule, SCHEMA, tableColdContext } from '../../shared/src/schema'
-import { harnessMobxPoolArm, settlePoolLoads, tracked } from '../src/adapters/mobx-pool'
+import { harnessMobxPoolArm, settlePoolLoads, tracked, visibleOrderOf } from '../src/adapters/mobx-pool'
 import { openFenceFeeds } from '../src/fence-scenarios'
 import { buildCorpusCell, type CorpusCell } from '../src/fixture/corpus'
 import { startCensus } from '../src/mobx-census'
@@ -112,6 +112,15 @@ function countEntries(snapshot: ReturnType<ReturnType<typeof startCensus>['snaps
     out[key] = (out[key] ?? 0) + 1
   }
   return { ...out, ...snapshot.held }
+}
+
+/** Distinct model objects of one class the census sees (owners by identity). */
+function modelOwners(census: ReturnType<typeof startCensus>, cls: string): number {
+  const owners = new Set<object>()
+  for (const entry of census.snapshot().entries) {
+    if (entry.owner !== null && entry.owner.cls === cls) owners.add(entry.owner)
+  }
+  return owners.size
 }
 
 describe('POD-4942 post-rework probes', () => {
@@ -223,10 +232,14 @@ describe('POD-4942 post-rework probes', () => {
           residentIssues: pool.tables.issue.size,
           residentSessions: pool.tables.session.size,
           readStates: pool.readStates.size,
-          issueObjects: pool.modelCount('issue'),
-          sessionObjects: pool.modelCount('session'),
-          filingReactions: pool.worklist.size(),
-          visible: pool.worklist.order.length,
+          // POD-4945: the product exposes no object or filing counts. One
+          // filing reaction per resident issue (visible-lazy proves the 1:1),
+          // so resident issues stand in; model objects are the census's
+          // IssueModel owners (counted below in `startup`/`paint`).
+          issueObjects: modelOwners(census, 'IssueModel'),
+          sessionObjects: modelOwners(census, 'SessionModel'),
+          filingReactions: pool.tables.issue.size,
+          visible: visibleOrderOf(pool).length,
           startup,
           paint,
         }))

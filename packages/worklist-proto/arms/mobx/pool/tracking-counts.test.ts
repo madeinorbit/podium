@@ -192,9 +192,10 @@ function rowFacts(
 function wrapPhases(census: Census): () => void {
   const restores = [
     phaseMethod(census, MobxPool.prototype, 'apply', 'ingest'),
-    phaseMethod(census, PoolRelations.prototype, 'flush', 'relationUpkeep'),
-    phaseMethod(census, MobxPool.prototype, 'followHeldOut', 'ingest', () => {
-      // The rest of `apply`: its action ends and the batch's reactions run.
+    // `flush` is the last call inside `apply`'s action: when it returns the
+    // action's batch ends and its reactions run, so the tail is relabeled
+    // `firstReactiveRun` here (POD-4945: the old hook, `followHeldOut`, is gone).
+    phaseMethod(census, PoolRelations.prototype, 'flush', 'relationUpkeep', () => {
       if (census.phase === 'ingest') census.relabel('firstReactiveRun')
     }),
     phaseMethod(census, VisibleCollection.prototype, 'track', 'nodeConstruction'),
