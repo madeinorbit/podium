@@ -112,7 +112,7 @@ async function connect(tag: string): Promise<Rpc> {
 
 const text = (value: string) => [{ type: 'text', text: value, text_elements: [] }]
 async function start(rpc: Rpc, value: string) {
-  const answer = await rpc.call('thread/start', { cwd: workdir, model: 'fake', approvalPolicy: 'never', sandbox: 'readOnly' })
+  const answer = await rpc.call('thread/start', { cwd: workdir, model: 'fake', approvalPolicy: 'never', sandbox: 'read-only' })
   if (answer.error) throw new Error(JSON.stringify(answer.error))
   const thread = answer.result.thread
   const turn = await rpc.call('turn/start', { threadId: thread.id, input: text(value) })
@@ -148,14 +148,15 @@ try {
   const runningA = await connect('running-A')
   const running = await start(runningA, 'SLOWTEXT running across disconnect')
   await runningA.wait((f) => f.method === 'item/agentMessage/delta')
-  await runningA.close()
   const runningB = await connect('running-B')
   const runningLoaded = await runningB.call('thread/loaded/list')
+  const subscriptionBefore = await runningB.call('thread/unsubscribe', { threadId: running.thread.id })
   const rejoined = await runningB.call('thread/resume', { threadId: running.thread.id, path: running.thread.path })
+  await runningA.close()
   const completed = await runningB.wait((f) => f.method === 'turn/completed' && f.params.turn.id === running.turnId)
   const next = await runningB.call('turn/start', { threadId: running.thread.id, input: text('usable after running rejoin') })
   if (next.result) await runningB.wait((f) => f.method === 'turn/completed' && f.params.turn.id === next.result.turn.id)
-  results.push({ case: 'running', threadId: running.thread.id, turnId: running.turnId, loaded: runningLoaded, resumedId: rejoined.result?.thread?.id, resumeError: rejoined.error, completed, next, engineAlive: engine.exitCode === null })
+  results.push({ case: 'running', threadId: running.thread.id, turnId: running.turnId, loaded: runningLoaded, subscriptionBefore, resumedId: rejoined.result?.thread?.id, resumeError: rejoined.error, completed, next, engineAlive: engine.exitCode === null })
   writeFileSync(`${root}/results.json`, JSON.stringify(results, null, 2) + '\n')
   console.log(JSON.stringify(results, null, 2))
 } finally {
