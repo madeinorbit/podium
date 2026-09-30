@@ -52,6 +52,13 @@ const concierge = vi.fn(async () => ({ threadId: 'c1', podiumSessionId: 'h1', is
 const interruptTurn = vi.fn(async () => {})
 const sendText = vi.fn(async () => {})
 const latestTurnFailure = vi.fn(async (): Promise<SuperagentTurnFailure | null> => null)
+const offlineFailure: SuperagentTurnFailure = {
+  inputId: 'input-old',
+  userText: 'Recover this thread',
+  error:
+    "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
+  at: '2026-09-29T01:31:27.000Z',
+}
 
 const fakeTrpc = {
   sessions: {
@@ -498,7 +505,8 @@ describe('ChatView headless mode', () => {
     latestTurnFailure.mockResolvedValueOnce({
       inputId: 'input-1',
       userText: 'Reply with exactly the word PONG-SUPER.',
-      error: "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
+      error:
+        "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
       at: '2026-09-29T01:31:27.000Z',
     })
     mount()
@@ -506,7 +514,166 @@ describe('ChatView headless mode', () => {
     await flush()
     expect(container.textContent).toContain('ludovico')
     expect(container.textContent).toContain('is offline')
+    expect(container.querySelector('.composer-notices')?.textContent).toContain('Not sent')
     expect(container.textContent).not.toContain('SessionBinding')
+  })
+
+  it.each([
+    offlineFailure.userText,
+    null,
+  ])('does not restore Not sent on reopen when a newer transcript item exists (userText: %s)', async (userText) => {
+    latestTurnFailure.mockResolvedValueOnce({ ...offlineFailure, userText })
+    fakeTrpc.sessions.transcriptRead.query.mockResolvedValueOnce({
+      items: [
+        {
+          id: 'recovered-answer',
+          cursor: '2',
+          role: 'assistant',
+          text: 'The later turn succeeded',
+          ts: '2026-09-29T01:32:00.000Z',
+        },
+      ],
+      hasMore: false,
+    })
+    mount()
+    await flush()
+    await flush()
+    expect(container.textContent).toContain('The later turn succeeded')
+    expect(container.querySelector('.composer-notices')?.textContent ?? '').not.toContain(
+      'Not sent',
+    )
+    expect(container.textContent).not.toContain(offlineFailure.error)
+  })
+
+  it.each([
+    '2026-09-29T01:30:00.000Z',
+    offlineFailure.at,
+    undefined,
+    'unknown timestamp',
+  ])('keeps the last failure when transcript recency does not supersede it (%s)', async (ts) => {
+    latestTurnFailure.mockResolvedValueOnce(offlineFailure)
+    fakeTrpc.sessions.transcriptRead.query.mockResolvedValueOnce({
+      items: [{ id: 'earlier-prompt', cursor: '1', role: 'user', text: 'An earlier prompt', ts }],
+      hasMore: false,
+    })
+    mount()
+    await flush()
+    await flush()
+    expect(container.querySelector('.composer-notices')?.textContent).toContain('Not sent')
+    expect(container.textContent).toContain(offlineFailure.error)
+  })
+
+  it('uses newer raw tool results even when presentation folds them into an older call', async () => {
+    latestTurnFailure.mockResolvedValueOnce(offlineFailure)
+    fakeTrpc.sessions.transcriptRead.query.mockResolvedValueOnce({
+      items: [
+        {
+          id: 'call',
+          cursor: '1',
+          role: 'tool',
+          text: '',
+          toolUseId: 'tool-1',
+          toolName: 'Bash',
+          ts: '2026-09-29T01:30:00.000Z',
+        },
+        {
+          id: 'result',
+          cursor: '2',
+          role: 'tool',
+          text: '',
+          toolUseId: 'tool-1',
+          toolResult: 'done',
+          ts: '2026-09-29T01:32:00.000Z',
+        },
+      ],
+      hasMore: false,
+    })
+    mount()
+    await flush()
+    await flush()
+    expect(container.querySelector('.composer-notices')?.textContent ?? '').not.toContain(
+      'Not sent',
+    )
+    expect(container.textContent).not.toContain(offlineFailure.error)
+  })
+
+  it('drops a restored notice when newer history arrives and preserves a subsequent live error', async () => {
+    latestTurnFailure.mockResolvedValueOnce(offlineFailure)
+    mount()
+    await flush()
+    expect(container.querySelector('.composer-notices')?.textContent).toContain('Not sent')
+    act(() => {
+      for (const s of fakeHub.subscribes)
+        s.cb(
+          [
+            {
+              id: 'later-answer',
+              cursor: '2',
+              role: 'assistant',
+              text: 'A later answer',
+              ts: '2026-09-29T01:32:00.000Z',
+            },
+          ],
+          { reset: false },
+        )
+    })
+    await flush()
+    expect(container.textContent).toContain('A later answer')
+    expect(container.querySelector('.composer-notices')?.textContent ?? '').not.toContain(
+      'Not sent',
+    )
+    // Equal words do not make this current failure the restored one.
+    push({ kind: 'turn-end', error: offlineFailure.error })
+    expect(container.querySelector('.composer-notices')?.textContent).toContain('Not sent')
+    expect(container.textContent).toContain(offlineFailure.error)
+  })
+
+  it.each([
+    'send',
+    'remote turn',
+  ])('ignores a late restoration response after %s activity', async (activity) => {
+    let resolveFailure!: (failure: SuperagentTurnFailure) => void
+    latestTurnFailure.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFailure = resolve
+        }),
+    )
+    drafts = { h1: 'A new turn' }
+    mount()
+    await flush()
+    if (activity === 'send') {
+      await act(async () => {
+        ;(container.querySelector('[title="Send (Enter)"]') as HTMLButtonElement).click()
+      })
+      expect(sendTurn).toHaveBeenCalled()
+    } else {
+      push({ kind: 'turn-start' })
+      push({ kind: 'turn-end' })
+    }
+    await act(async () => resolveFailure(offlineFailure))
+    await flush()
+    expect(container.querySelector('.composer-notices')?.textContent ?? '').not.toContain(
+      'Not sent',
+    )
+    // A new prop object naming the same thread must not re-read an old failure.
+    mount()
+    await flush()
+    expect(latestTurnFailure).toHaveBeenCalledTimes(1)
+    expect(container.textContent).not.toContain(offlineFailure.error)
+  })
+
+  it('does not carry a restored failure into another thread', async () => {
+    latestTurnFailure.mockResolvedValueOnce(offlineFailure)
+    mount()
+    await flush()
+    expect(container.textContent).toContain(offlineFailure.error)
+    mount({ threadId: asThreadId('another-thread'), kind: 'global' })
+    await flush()
+    expect(latestTurnFailure).toHaveBeenLastCalledWith({ threadId: 'another-thread' })
+    expect(container.querySelector('.composer-notices')?.textContent ?? '').not.toContain(
+      'Not sent',
+    )
   })
 
   /**

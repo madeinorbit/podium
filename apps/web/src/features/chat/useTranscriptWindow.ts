@@ -110,6 +110,8 @@ export interface UseTranscriptWindowOptions {
 }
 
 export interface UseTranscriptWindowResult {
+  /** Loaded items before presentation folds tool results and media markers. */
+  items: readonly TranscriptItem[]
   blocks: ChatBlock[]
   rows: ChatRow[]
   /** Search over the same worker-produced block/row graph. */
@@ -717,6 +719,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   }, [transcriptController])
 
   return {
+    items,
     blocks,
     rows,
     search,

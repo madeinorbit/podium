@@ -1,9 +1,9 @@
 import type { SuperagentTurnFailure } from '@podium/client-core/api'
 import type { ChatSendRoute, SuperThreadRef } from '@podium/client-core/viewmodels'
 import { UNKNOWN_THREAD_REFUSAL } from '@podium/client-core/viewmodels'
-import { HarnessAgent, type SessionId } from '@podium/model/browser'
+import { HarnessAgent, type SessionId, type TranscriptItem } from '@podium/model/browser'
 import type { HeadlessActivityEvent } from '@podium/protocol'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Store, UserFocus } from '@/app/store'
 
 /**
@@ -61,21 +61,23 @@ export interface UseHeadlessTurnOptions {
   /** Grows as transcript items land — the streamed preview is superseded by the
    *  real item, so accumulated text clears whenever the transcript grows. */
   blockCount: number
+  /** Raw loaded items, including results folded out of the rendered blocks. */
+  transcriptItems: readonly TranscriptItem[]
 }
 
 export interface UseHeadlessTurnResult {
   /** True between turn-start and turn-end. Closes the composer. */
   turnRunning: boolean
   overlay: HeadlessOverlay | null
-  /** A rejection or turn error, shown inline above the composer. */
+  /** A current rejection/turn error, or an unsuperseded durable failure. */
   turnError: string | null
   setTurnError: (message: string | null) => void
   /** The thread's most recent durable turn failure (POD-4806): a turn that
    *  never reached a harness leaves no transcript, and the live turn-end
    *  error is gone after a reload — so the thread would read empty without
    *  this. Typed by the server (`latestTurnFailure`); null when no durable
-   *  failure exists. The surface drops it by structure (a newer transcript
-   *  item, or live send activity) — never by comparing words. */
+   *  failure remains relevant. This hook drops it by structure (a newer
+   *  transcript item, or live send activity) — never by comparing words. */
   restoredFailure: SuperagentTurnFailure | null
   /** Send one turn along an already-decided route. Throws on rejection so the
    *  caller can mark its optimistic bubble failed. Resolves `true` when the
@@ -103,8 +105,18 @@ export interface HeadlessBackendChoice {
 }
 
 export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnResult {
-  const { sessionId, hub, trpc, headless, superThread, backend, initialTurnRunning, blockCount } =
-    opts
+  const {
+    sessionId,
+    hub,
+    trpc,
+    headless,
+    superThread,
+    backend,
+    initialTurnRunning,
+    blockCount,
+    transcriptItems,
+  } = opts
+  const threadId = superThread?.threadId
   const model = backend?.model
   const effort = backend?.effort
   const agentKind = backend?.agentKind
@@ -113,14 +125,23 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
   const [overlay, setOverlay] = useState<HeadlessOverlay | null>(null)
   const [turnError, setTurnError] = useState<string | null>(null)
   const [restoredFailure, setRestoredFailure] = useState<SuperagentTurnFailure | null>(null)
+  // A read begun before a send/live frame must not restore that older failure
+  // after the current turn has already taken over this mount.
+  const activityVersion = useRef(0)
+  const clearRestoredFailure = useCallback(() => {
+    activityVersion.current += 1
+    setRestoredFailure(null)
+  }, [])
 
   useEffect(() => {
     setTurnRunning(initialTurnRunning)
     setOverlay(null)
     setTurnError(null)
+    clearRestoredFailure()
     if (!headless) return
     // Optional-chained: older hub fakes in tests don't implement it.
     return hub.subscribeHeadless?.(sessionId, (event: HeadlessActivityEvent) => {
+      clearRestoredFailure()
       switch (event.kind) {
         case 'turn-start':
           setTurnRunning(true)
@@ -130,7 +151,7 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
         case 'turn-end':
           setTurnRunning(false)
           setOverlay(null)
-          if (event.error) setTurnError(event.error)
+          setTurnError(event.error ?? null)
           break
         case 'partial-text':
           setTurnRunning(true)
@@ -151,7 +172,7 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
           break
       }
     })
-  }, [hub, sessionId, headless, initialTurnRunning])
+  }, [hub, sessionId, headless, initialTurnRunning, clearRestoredFailure])
 
   // Headless overlay lifecycle: the streamed partial text is a preview of the
   // assistant item that will land via the transcript tail — whenever new items
@@ -167,28 +188,40 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
   // a harness) and the thread reads as if nothing was sent. The server
   // persists the failure durably, so a late-joining client restores the most
   // recent one here through the typed `latestTurnFailure` read — found by
-  // column server-side, never by matching prose client-side. The surface
-  // drops the restoration by structure (see use-chat-surface: a newer
-  // transcript item, or live send activity), so one old failure cannot pin
-  // the thread forever.
+  // column server-side, never by matching prose client-side. Keep restoration
+  // separate from live errors: only the restored reason can be superseded by
+  // a newer transcript item, and a late read cannot replace live send activity.
   useEffect(() => {
-    if (!headless || !superThread) return
+    setRestoredFailure(null)
+    if (!headless || !threadId) return
     let cancelled = false
+    const requestedAtVersion = activityVersion.current
     void trpc.superagent.latestTurnFailure
-      .query({ threadId: superThread.threadId })
+      .query({ threadId })
       .then((failure) => {
-        if (cancelled || !failure) return
+        if (cancelled || activityVersion.current !== requestedAtVersion || !failure) return
         setRestoredFailure(failure)
-        setTurnError((current) => current ?? failure.error)
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
-  }, [headless, superThread, trpc])
+  }, [headless, sessionId, threadId, trpc])
+
+  const visibleFailure = useMemo(() => {
+    if (!headless || turnRunning || !restoredFailure) return null
+    const failureAt = Date.parse(restoredFailure.at)
+    if (
+      Number.isFinite(failureAt) &&
+      transcriptItems.some((item) => item.ts !== undefined && Date.parse(item.ts) > failureAt)
+    )
+      return null
+    return restoredFailure
+  }, [headless, turnRunning, restoredFailure, transcriptItems])
 
   const sendTurn = useCallback(
     async (route: ChatSendRoute, text: string, focus: UserFocus, attachSessionId?: SessionId) => {
+      clearRestoredFailure()
       // A refused route never reaches a mutation. Both "someone else's thread"
       // and "no such thread" arrive here as the same refusal, carrying the same
       // message — the client cannot be used to tell them apart.
@@ -240,7 +273,7 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
         throw e
       }
     },
-    [trpc, model, effort, agentKind],
+    [trpc, model, effort, agentKind, clearRestoredFailure],
   )
 
   // REJECTS rather than reporting for itself (POD-1214): a stop that failed is
@@ -251,5 +284,13 @@ export function useHeadlessTurn(opts: UseHeadlessTurnOptions): UseHeadlessTurnRe
     await trpc.superagent.interruptTurn.mutate({ threadId: superThread.threadId })
   }, [trpc, superThread])
 
-  return { turnRunning, overlay, turnError, setTurnError, restoredFailure, sendTurn, interrupt }
+  return {
+    turnRunning,
+    overlay,
+    turnError: turnError ?? visibleFailure?.error ?? null,
+    setTurnError,
+    restoredFailure: visibleFailure,
+    sendTurn,
+    interrupt,
+  }
 }

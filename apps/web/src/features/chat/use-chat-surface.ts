@@ -332,6 +332,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const verbosity: ChatVerbosity = 'normal'
 
   const {
+    items: transcriptItems,
     blocks,
     rows,
     visibleRows,
@@ -516,6 +517,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     backend: { model: backend.model, effort: backend.effort, agentKind: backend.agentKind },
     initialTurnRunning,
     blockCount: blocks.length,
+    transcriptItems,
   })
 
   const composer = useMemo(
