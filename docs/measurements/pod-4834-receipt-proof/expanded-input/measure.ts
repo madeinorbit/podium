@@ -203,7 +203,11 @@ try {
       if (lane!.startsWith('grok')) return /fake|Type a message|Grok/.test(screen)
       return /Ask anything|Build|fake/.test(screen)
     }, 45000)
-    if (!ready) throw new Error('Terminal editor did not become ready')
+    if (!ready) {
+      const screen = tmux('capture-pane', '-p', '-t', 'measure')
+      appendFileSync(`${out}/screens.txt`, `EDITOR NOT READY ${label}\n${screen}\n`)
+      throw new Error(`Terminal editor did not become ready: ${screen.trim().slice(0, 600)}`)
+    }
     await sleep(2000)
     appendFileSync(`${out}/screens.txt`, `START ${label}\n${tmux('capture-pane', '-p', '-t', 'measure')}\n`)
   }
@@ -233,7 +237,7 @@ try {
             writeFileSync(`${root}/paste.txt`, c.text)
             tmux('load-buffer', '-b', 'input', `${root}/paste.txt`)
             tmux('paste-buffer', '-r', '-p', '-b', 'input', '-t', 'measure')
-          } else if (method === 'typed-paced') {
+          } else if (method === 'typed-paced' || method === 'typed') {
             for (let i = 0; i < c.text.length; i += 256) {
               tmux('send-keys', '-t', 'measure', '-l', c.text.slice(i, i + 256))
               await sleep(40)
@@ -282,7 +286,10 @@ try {
           }, 45000)
           await http('GET', `/api/session/${sessionId}/message?order=asc&limit=200`)
         }
-      } catch (e) { error = String(e) }
+      } catch (e) {
+        const stderr = (e as { stderr?: string | Buffer }).stderr
+        error = stderr ? String(stderr).trim().slice(0, 600) : String(e).slice(0, 600)
+      }
       await sleep(300)
       const records = snapshot(label, before, history())
       const prompts = records.filter(r => r.kind === 'prompt')
