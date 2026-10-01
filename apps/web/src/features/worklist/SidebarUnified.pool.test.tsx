@@ -23,9 +23,10 @@ vi.mock('@/app/store', async importOriginal => {
     return original.useSlice(definition as Parameters<typeof original.useSlice>[0])
   } }
 })
-vi.mock('./sidebar-measurements', async () => {
+vi.mock('./sidebar-measurements', async importOriginal => {
+  const original = await importOriginal<typeof import('./sidebar-measurements')>()
   const { useLayoutEffect } = await import('react')
-  return { measureSidebarRow: (Row: (props: Record<string, unknown>) => unknown) => (props: Record<string, unknown>) => {
+  return { ...original, measureSidebarRow: (Row: (props: Record<string, unknown>) => unknown) => (props: Record<string, unknown>) => {
     const row = props['row'] as { issue?: { id: string } } | undefined
     const issue = props['issue'] as { id: string } | undefined
     const id = row?.issue?.id ?? issue?.id
@@ -45,6 +46,7 @@ function Capture() {
 const NOW = Date.parse('2026-10-01T08:00:00Z')
 
 async function mount(layer: 'legacy' | 'pool', rail = false, count = 12) {
+  localStorage.clear()
   mode.value = layer
   mode.reads = 0
   mode.commits.clear()
@@ -122,6 +124,7 @@ describe('real sidebar pool cutover', () => {
   it('keeps the collapsed rail off the legacy worklist', async () => {
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW)
     mode.value = 'pool'
+    mode.reads = 0
     const fixture = createSidebarFixture(12, NOW)
     render(<StoreProvider principal={asClientPrincipal(asUserId('rail-pool'))} config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
       api={fixture.api} createReplicaFn={() => fixture.replica} networkEnabled={false} onFatalError={message => { throw new Error(message) }}

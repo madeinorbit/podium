@@ -2,12 +2,13 @@ import { LOADING, type MobxPool } from '@podium/client-graph'
 import { observer, compareStructural, computed } from '@podium/client-graph/react'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
+import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import { shallowEqual } from '@podium/client-core/store'
 import { issueClosedFoldAt, planReorderKeys, type IssueNavigationModel } from '@podium/client-core/viewmodels'
 import { relativeTime } from '@podium/client-core/focus'
 import { asIssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
 import * as m from 'motion/react-m'
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type PointerEvent } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type AnimationEvent, type CSSProperties, type JSX, type MouseEvent, type PointerEvent } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
@@ -65,7 +66,7 @@ function matches(pool: MobxPool, slot: Slot, needle: string): boolean {
     const value = pool.sidebar.row(slot.id)
     return value !== undefined && value !== LOADING && poolIssueHaystack(value).includes(needle)
   }
-  const value = pool.row('worktree', slot.id)
+  const value = pool.row<SliceWorktree>('worktree', slot.id)
   return value !== undefined && value !== LOADING && `${value['repoName']} ${value['branch'] ?? ''} ${slot.id}`.toLowerCase().includes(needle)
 }
 
@@ -244,7 +245,7 @@ const PoolMotionRow = observer(function PoolMotionRow({ pool, item, actions, dig
 }): JSX.Element | null {
   const { id, kind, lane } = item.value
   const folded = lane === 'closed' || lane === 'snoozed'
-  const draw = useMemo(() => computed(() => {
+  const draw = useMemo(() => computed<{ value: SidebarRowValues | typeof LOADING | undefined; now: number; paint: unknown }>(() => {
     const value = kind === 'issue' ? pool.sidebar.row(id) : undefined
     const now = pool.clock.current
     let paint: unknown
@@ -293,7 +294,7 @@ const PoolMotionRow = observer(function PoolMotionRow({ pool, item, actions, dig
     {...(draggable ? { 'data-drag-key': id } : {})}
     className={cn('min-w-0', arriving && 'row-arrive', exiting && 'pointer-events-none', folded && 'opacity-50 transition-opacity duration-150 hover:opacity-80 focus-within:opacity-80')}
     style={arriving && value !== undefined && value !== LOADING ? { '--arrive-tint': issueColorHex(value.issue.color as Parameters<typeof issueColorHex>[0]) } as CSSProperties : undefined}
-    onAnimationEnd={arriving ? event => { if (event.animationName === 'podium-arrive-wash') settle(item.key, item.placement) } : undefined}
+    onAnimationEnd={arriving ? (event: AnimationEvent) => { if (event.animationName === 'podium-arrive-wash') settle(item.key, item.placement) } : undefined}
     data-transition-phase={item.phase}>
     <m.div initial={arriving && !reduceMotion ? { opacity: 0, y: -8 } : false} animate={exiting ? { opacity: 0, y: -6 } : { opacity: 1, y: 0 }}
       onAnimationComplete={exiting && quickArchive ? () => discardExit(item.key, item.placement) : undefined}

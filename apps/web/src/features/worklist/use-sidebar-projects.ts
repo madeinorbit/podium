@@ -2,6 +2,7 @@ import { shallowEqual } from '@podium/client-core/store'
 import { worklistSlice, type SidebarProject, type SidebarSections } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
+import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import type { SessionMeta } from '@podium/model/browser'
 import { useCallback } from 'react'
 import { useSlice, useStoreSelector } from '@/app/store'
@@ -32,7 +33,7 @@ export function useSidebarProjectSections(): SidebarSections {
   const layout = useLayout()
   const read = useCallback((pool: MobxPool): SidebarSections => {
     const lanes = [...pool.tables.worktree.keys()].flatMap(path => {
-      const row = pool.row('worktree', path)
+      const row = pool.row<SliceWorktree>('worktree', path)
       return row && typeof row === 'object' ? [row] : []
     })
     const worktrees = lanes.map(lane => ({ ...lane, isMain: lane['isMain'] === true, issues: [],

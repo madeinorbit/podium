@@ -10,6 +10,7 @@ import { navigationIssue } from './pool-row-data'
 /** Pool reads are gesture-local. Writes and batching remain the app's actions. */
 export function createPoolWorkActions(pool: MobxPool, runtime: Pick<ReturnType<typeof useStoreHandle>, 'getSnapshot'>, focus: (id: string) => void) {
   let lastIssueNavigation: string | null = null
+  const batch = (fn: () => void) => (runtime.getSnapshot() as unknown as { batchGesture: (fn: () => void) => void }).batchGesture(fn)
   const trace = (target: SessionId | null, issueId: IssueId | null) => {
     if (target && target !== runtime.getSnapshot().paneA && !target.startsWith('file:'))
       beginSwitch({ sessionId: asSessionId(target), issueId })
@@ -32,7 +33,7 @@ export function createPoolWorkActions(pool: MobxPool, runtime: Pick<ReturnType<t
       if (!issue) continue
       const ids = new Set([...pool.graph.many('issue', member, 'sessions'), ...issue.laneMemberIds])
       for (const sessionId of ids) {
-        const session = pool.row('session', sessionId)
+        const session = pool.row<SessionMeta>('session', sessionId)
         if (session !== undefined && session !== LOADING && !session.archived && session.status !== 'exited')
           members.set(sessionId, session as unknown as SessionMeta)
       }
@@ -40,7 +41,7 @@ export function createPoolWorkActions(pool: MobxPool, runtime: Pick<ReturnType<t
     const files = clicked.issue.worktreePath ? store.fileTabs.filter(f => f.worktreePath === clicked.issue.worktreePath).map(f => f.id) : []
     const target = paneSession ?? pickPaneSession([...members.values()], store.paneA, files)
     trace(target, asIssueId(id))
-    store.batchGesture(() => {
+    batch(() => {
       const changed = store.navigateWorkspace({ selectedIssueId: asIssueId(root.issue.id),
         ...(clicked.issue.worktreePath ? { selectedWorktree: clicked.issue.worktreePath } : {}),
         tabId: target, firstPane: true })
@@ -55,7 +56,7 @@ export function createPoolWorkActions(pool: MobxPool, runtime: Pick<ReturnType<t
   }
   const selectWorktree = (path: string): void => {
     const store = runtime.getSnapshot()
-    store.batchGesture(() => {
+    batch(() => {
       store.setSelectedIssueId(null)
       store.setSelectedWorktree(path)
       const members = [...pool.graph.many('worktree', path, 'sessions')].flatMap(id => {
@@ -76,7 +77,7 @@ export function createPoolWorkActions(pool: MobxPool, runtime: Pick<ReturnType<t
     selectWorktree,
     selectPanel: (path: string, sessionId: SessionId) => {
       const store = runtime.getSnapshot()
-      store.batchGesture(() => {
+      batch(() => {
         trace(sessionId, null)
         store.setSelectedIssueId(null)
         store.setSelectedWorktree(path)
