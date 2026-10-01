@@ -8,7 +8,7 @@ import { issueClosedFoldAt, planReorderKeys, type IssueNavigationModel } from '@
 import { relativeTime } from '@podium/client-core/focus'
 import { asIssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
 import * as m from 'motion/react-m'
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type AnimationEvent, type CSSProperties, type JSX, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
+import { isValidElement, memo, useCallback, useEffect, useId, useMemo, useRef, useState, type AnimationEvent, type CSSProperties, type JSX, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
@@ -105,6 +105,11 @@ export function PoolWorkSections({ query = '' }: { query?: string }): JSX.Elemen
 
 const ObservedClosedIssueFold = observer(ClosedIssueFold<Item>)
 const MemoFoldedWorkRow = memo(FoldedWorkRow)
+const stampPaint = (node: ReactNode) => isValidElement<{ title?: string; children?: ReactNode }>(node)
+  ? { title: node.props.title, children: node.props.children } : node
+const MemoPanelRow = memo(PanelRow, (a, b) => a.active === b.active && a.onSelect === b.onSelect &&
+  a.issueDisplayRef === b.issueDisplayRef && compareStructural(stampPaint(a.trailingMeta), stampPaint(b.trailingMeta)) &&
+  compareStructural(poolSessionPaint(a.session), poolSessionPaint(b.session)))
 
 const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({ pool, query }: { pool: MobxPool; query: string }): JSX.Element {
   const state = usePoolLayoutState()
@@ -311,8 +316,8 @@ const PoolMotionRow = observer(function PoolMotionRow({ pool, item, actions, dig
 const PoolWorktreeRow = observer(function PoolWorktreeRow({ pool, path, actions }: { pool: MobxPool; path: string; actions: PoolWorkActions }) {
   const state = useStoreSelector(s => { const active = s.selectedIssueId === null && s.selectedWorktree === path; return { selectedWorktree: active ? path : null, paneA: active ? s.paneA : null } }, shallowEqual)
   const value = useMemo(() => computed(() => pool.sidebar.worktree(path, state), { equals: (a, b) => compareStructural(
-    a && { worktree: a.worktree, active: a.active, issues: a.issues.map(i => ({ id: i.id, displayRef: i.displayRef, archived: i.archived, deletedAt: i.deletedAt })), visible: a.visible.map(s => s.sessionId), stale: a.stale.map(s => s.sessionId) },
-    b && { worktree: b.worktree, active: b.active, issues: b.issues.map(i => ({ id: i.id, displayRef: i.displayRef, archived: i.archived, deletedAt: i.deletedAt })), visible: b.visible.map(s => s.sessionId), stale: b.stale.map(s => s.sessionId) },
+    a && { worktree: { path: a.worktree.path, repoName: a.worktree.repoName, branch: a.worktree.branch }, active: a.active, issues: a.issues.map(i => ({ id: i.id, displayRef: i.displayRef, archived: i.archived, deletedAt: i.deletedAt })), visible: a.visible.map(s => s.sessionId), stale: a.stale.map(s => s.sessionId) },
+    b && { worktree: { path: b.worktree.path, repoName: b.worktree.repoName, branch: b.worktree.branch }, active: b.active, issues: b.issues.map(i => ({ id: i.id, displayRef: i.displayRef, archived: i.archived, deletedAt: i.deletedAt })), visible: b.visible.map(s => s.sessionId), stale: b.stale.map(s => s.sessionId) },
   ) }), [pool, path, state]).get()
   const select = useCallback(() => actions.selectWorktree(path), [actions, path])
   const panel = useCallback((sid: SessionId) => actions.selectPanel(path, sid), [actions, path])
@@ -332,5 +337,5 @@ const PoolPanelRow = observer(function PoolPanelRow({ pool, id, path, actions, a
   ) }), [pool, id]).get()
   const select = useCallback(() => actions.selectPanel(path, id as SessionId), [actions, path, id])
   return value === LOADING ? <div aria-busy="true" data-testid="pool-row-loading" className="min-h-6" /> : value === undefined ? null
-    : <PanelRow session={value} active={active} onSelect={select} dotRight roster issueDisplayRef={issueDisplayRef} trailingMeta={trailingMeta} />
+    : <MemoPanelRow session={value} active={active} onSelect={select} dotRight roster issueDisplayRef={issueDisplayRef} trailingMeta={trailingMeta} />
 })

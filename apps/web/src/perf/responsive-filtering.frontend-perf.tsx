@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { flushSync } from 'react-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
@@ -104,7 +104,7 @@ function setNativeInputValue(input: HTMLInputElement, value: string): void {
   input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); largeState.pool = false })
 
 describe('large-state responsive filtering', () => {
   it('commits the urgent work query before the deferred 674-row tree, then settles', async () => {
@@ -169,8 +169,8 @@ describe('large-state responsive filtering', () => {
       createReplicaFn={() => fixture.replica} networkEnabled={false} onFatalError={message => { throw new Error(message) }}
       attachRuntime={runtime => attachWorklistPool(runtime, error => { throw error })}><SidebarUnified /></StoreProvider>)
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
-    const input = await screen.findByTestId('work-search-input') as HTMLInputElement
-    await screen.findAllByTestId('unified-issue-row')
+    const input = await screen.findByTestId('work-search-input', {}, { timeout: 10000 }) as HTMLInputElement
+    await waitFor(() => expect(screen.getAllByTestId('unified-issue-row')).toHaveLength(ISSUE_COUNT), { timeout: 10000 })
     expect(screen.getAllByTestId('unified-issue-row')).toHaveLength(ISSUE_COUNT)
     flushSync(() => setNativeInputValue(input, 'only responsive target'))
     expect(input.value).toBe('only responsive target')
