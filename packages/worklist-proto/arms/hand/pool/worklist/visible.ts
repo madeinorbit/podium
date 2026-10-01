@@ -613,15 +613,23 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
   },
   /**
    * What this issue gives its parent's rescue: not excluded, and flat or kept
-   * below. The standing is read last, so a cold issue nothing below keeps is
-   * answered without its row; a hidden issue's from its summary (POD-4753).
+   * below. Excluded rows (including hidden summaries) answer false without
+   * reading their children, so history subtrees prune here instead of
+   * building per-row rescue cells. The standing is read last for
+   * non-excluded rows, so a cold issue nothing below keeps is answered
+   * without its row; a hidden issue's from its summary (POD-4753).
    */
   keeps(input, id, self) {
-    if (!self.flat && !self.keptBelow) return false
     const hidden = input.hidden?.(id)
-    if (hidden !== undefined) return !hiddenExcludedOf(hidden) && (self.flat || self.keptBelow)
+    if (hidden !== undefined) {
+      if (hiddenExcludedOf(hidden)) return false
+      if (!self.flat && !self.keptBelow) return false
+      return self.flat || self.keptBelow
+    }
     const standing = self.standing
-    return standing !== undefined && !standing.excluded
+    if (standing === undefined || standing.excluded) return false
+    if (!self.flat && !self.keptBelow) return false
+    return true
   },
   /**
    * Has a row before nesting: flat, or a rescued live human ancestor
