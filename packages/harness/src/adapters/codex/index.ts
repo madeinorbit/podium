@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { createLogger } from '@podium/logger'
-import { promptEchoCorrelation } from '../../accept-correlation.js'
+import { promptEchoCorrelation, submitHookCorrelation } from '../../accept-correlation.js'
 import {
   codexStateProvider,
   findCodexRolloutPath,
@@ -437,7 +437,10 @@ export const codexManifest: AgentManifest = {
     terminal: {
       driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
-      acceptCorrelation: { 'transcript-echo': promptEchoCorrelation(codexPromptTextMatches) },
+      acceptCorrelation: {
+        hook: submitHookCorrelation('codex-turn', codexPromptTextMatches),
+        'transcript-echo': promptEchoCorrelation(codexPromptTextMatches),
+      },
       // Rollout records carry an ISO `timestamp` at millisecond resolution
       // (checked against real rollouts, 2026-09-29).
       transcriptTimestamps: { resolutionMs: 1 },

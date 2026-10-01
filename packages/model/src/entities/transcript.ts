@@ -110,6 +110,9 @@ export const TranscriptItem = z.object({
    *  legacy formats. Absent means the reader has not classified the item.
    *  Display role alone does not establish eligibility. */
   promptEntry: z.boolean().optional(),
+  /** Native submit identity carried by this recorded prompt. A terminal hook
+   * must first be bound to our Enter and text before this id proves receipt. */
+  harnessRef: z.lazy(() => HarnessRef).optional(),
   /** PROOF-ONLY, NEVER SHOWN (POD-4905): the program's own record that it took
    *  the prompt in `text` into its queue and has not put it in the
    *  conversation yet — Claude's `queue-operation enqueue`. The terminal

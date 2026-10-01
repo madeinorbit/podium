@@ -160,6 +160,25 @@ describe('BindingStore schema lifecycle', () => {
 })
 
 describe('BindingStore records', () => {
+  it('keeps terminal typing floors through reopen, concurrent saves and unrelated binding writes', async () => {
+    const root = await tempRoot()
+    const dir = join(root, 'store')
+    const store = await BindingStore.open({ dir })
+    const sessionId = asSessionId('terminal-proof')
+    await store.ensureBinding({ sessionId, agentKind: 'claude-code', claimantMachineId: machine,
+      delegation: serverDelegation('terminal-proof') })
+    const one = { turnId: 'msg-one', text: 'Yes', typingStartedAt: '2026-10-01T08:19:35.000Z' }
+    const two = { turnId: 'msg-two', text: 'Proceed', typingStartedAt: '2026-10-01T08:20:35.000Z' }
+    await Promise.all([store.saveTerminalProofWatch(sessionId, one), store.saveTerminalProofWatch(sessionId, two)])
+    await store.observe({ sessionId, channel: 'resume-ref', nativeKind: 'claude-session',
+      value: 'native-session', confidence: 'exact', source: 'native-hook' })
+    const reopened = await BindingStore.open({ dir })
+    expect(await reopened.terminalProofWatches(sessionId)).toEqual([one, two])
+    await reopened.removeTerminalProofWatch(sessionId, one.turnId)
+    expect(await (await BindingStore.open({ dir })).terminalProofWatches(sessionId)).toEqual([two])
+    expect((await reopened.read(sessionId))?.observations.at(-1)?.value).toBe('native-session')
+  })
+
   it('persists alias history with observed-at time instead of replacing the current value', async () => {
     const root = await tempRoot()
     const store = await BindingStore.open({ dir: join(root, 'store') })

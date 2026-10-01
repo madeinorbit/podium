@@ -1302,7 +1302,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // lose their marker on the live tail alone (POD-4936).
     const liveRecordToItems: TranscriptRecordMapper = recordReceipts
       ? Object.assign(
-          (record: unknown) => [...recordToItems(record), ...recordReceipts(record)],
+          (record: unknown, previousRecord?: unknown) => [...recordToItems(record, previousRecord), ...recordReceipts(record)],
           recordToItems.endsTurn ? { endsTurn: recordToItems.endsTurn } : {},
         )
       : recordToItems

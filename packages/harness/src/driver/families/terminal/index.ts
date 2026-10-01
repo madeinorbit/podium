@@ -65,6 +65,7 @@ export {
 } from './permitted-failures.js'
 export {
   type TerminalHostPorts,
+  type TerminalProofWatch,
   type TerminalDriverReport,
   type TerminalForeignWrites,
   type TerminalReattachControl,

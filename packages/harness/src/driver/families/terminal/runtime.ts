@@ -134,6 +134,7 @@ import type {
   ResumeRef,
   SessionId,
   TranscriptItem,
+  HarnessRef,
 } from '@podium/model'
 import { asSessionId, isProofOnlyItem, transcriptItemRefOf } from '@podium/model'
 import type { AgentObservation, ObservationProvenance, ProviderCursor } from '@podium/protocol'
@@ -183,6 +184,13 @@ const PENDING_FRAME_LIMIT = 256
 /** How many of the newest history items the exit check reads (POD-4887). A
  *  send whose start lies further back is left unproven, never disproved. */
 const EXIT_HISTORY_READ_LIMIT = 500
+
+/** POD-4834: idle submit hooks arrive at +33..358 ms (Grok +42..270).
+ * One second allows local hook transport jitter, while excluding the measured
+ * +6..10 s busy/dequeue hooks. A hook still needs a matching saved id. */
+export const SUBMIT_HOOK_LINK_WINDOW_MS = 1_000
+const LATER_PROMPT_LIMIT = 4
+const PROOF_WATCH_MS = 30 * 60_000
 
 // ---------------------------------------------------------------------------
 // The host port — TerminalHostPorts in ./host-ports.ts (POD-4785)
@@ -262,6 +270,11 @@ type AcceptWaiter = {
   orderSpent: boolean
   queueSpent: boolean
   held: boolean
+  turnId?: string
+  submittedAtMs?: number
+  hookRefs?: HarnessRef
+  seenPrompts: Set<string>
+  cancel: () => void
 }
 
 interface DriverSession {
@@ -322,6 +335,8 @@ interface DriverSession {
   /** Open waiters for the send's record in the history — the proof. See
    *  `creditEchoWaiters`. */
   echoWaiters: Set<AcceptWaiter>
+  /** Deltas arriving while restart recovery reads back to its time floor. */
+  restoringProofItems?: TranscriptItem[]
   /** The furthest transcript position a delta has shown; each watch copies it
    *  when armed. See {@link TranscriptPosition}. */
   transcriptPosition: TranscriptPosition
@@ -1090,10 +1105,9 @@ export function createTerminalRuntime(
         // Credit BEFORE the position moves: each watch compares against where
         // the transcript stood when it was armed, not where this delta leaves it.
         creditEchoWaiters(session, msg.items)
-        // A REWRITE ENDS EVERY LATE WATCH (POD-4840): after a replaced store,
-        // "the next prompt after ours" no longer means anything. Credited
-        // first, so a re-read that carries our record still proves it.
-        if (msg.reset) for (const waiter of session.echoWaiters) waiter.pass()
+        session.restoringProofItems?.push(...msg.items.filter((item) => item.role === 'user'))
+        // A re-read keeps the time floor and deduplicates entries; restarting
+        // or rewriting the store does not itself exhaust a proof watch.
         session.transcriptPosition = advancePosition(
           msg.reset ? (msg.items.length === 0 ? { kind: 'empty' } : { kind: 'unknown' }) : session.transcriptPosition,
           msg.items,
@@ -1575,7 +1589,16 @@ export function createTerminalRuntime(
     // the prompt (POD-4841), which a send the history proves may keep —
     // whether that id can be the send's is the injection machine's call.
     const harnessRef = correlation.harnessRef?.(payload)
-    creditAcceptWaiter(session.hookWaiters, correlation, payload, harnessRef ? { harnessRef } : {})
+    const waiter = creditAcceptWaiter(
+      session.hookWaiters, correlation, payload, harnessRef ? { harnessRef } : {},
+      (waiter) => waiter.submittedAtMs !== undefined && host.now() >= waiter.submittedAtMs &&
+        host.now() - waiter.submittedAtMs <= SUBMIT_HOOK_LINK_WINDOW_MS,
+    )
+    if (!waiter || !harnessRef) return
+    const echoes = [...session.echoWaiters].filter((echo) =>
+      echo.turnId === waiter.turnId && echo.text === waiter.text,
+    )
+    if (echoes.length === 1) echoes[0]!.hookRefs = harnessRef
   }
 
   /**
@@ -1597,14 +1620,15 @@ export function createTerminalRuntime(
     // including one whose own fingerprint is null. The keystrokes still went
     // out; `unverified` is true and a mis-credit would be worse.
     if (fingerprint === null) return undefined
-    for (const waiter of [...waiters]) {
-      if (correlation.fingerprintText(waiter.text) !== fingerprint) continue
-      if (!eligible(waiter)) continue
-      waiters.delete(waiter)
-      waiter.resolve(seen)
-      return waiter
-    }
-    return undefined
+    const candidates = [...waiters].filter((waiter) => eligible(waiter) &&
+      (correlation.textMatches
+        ? correlation.textMatches(waiter.text, observation)
+        : correlation.fingerprintText(waiter.text) === fingerprint))
+    if (candidates.length !== 1) return undefined
+    const waiter = candidates[0]!
+    waiters.delete(waiter)
+    waiter.resolve(seen)
+    return waiter
   }
 
   /**
@@ -1613,16 +1637,12 @@ export function createTerminalRuntime(
    *
    *   - A WRAPPED message is credited by the entry's own frame id and nothing
    *     else — other text in the entry, or a foreign write, changes nothing.
-   *   - A PERSON'S OWN WORDS carry no id, so they are credited by ORDER: the
-   *     first prompt entry after the send's start is its record when nothing
-   *     else can have produced it — the foreign-write counter unchanged since
-   *     its typing started (on a terminal whose writer lease this daemon
-   *     holds: never on an adopted abduco session), the entry's text equal to the
-   *     typed text within the program's measured tolerance, and no other open
-   *     send with the same text. Otherwise no credit, ever: that first entry
-   *     spends the send's order, and it may still end `unknown`. Text alone
-   *     never credits. The marks live in memory, so no order credit crosses a
-   *     daemon restart.
+   *   - ORDER PLUS TEXT: the first prompt at/after typing started, equal within
+   *     the program's measured tolerance, with no other open send sharing it.
+   *     Foreign writes and writer leases remain diagnostics, not vetoes.
+   *   - HOOK PLUS HISTORY: our Enter and text bind a timely submit hook; a
+   *     recorded prompt after the time floor carries that hook's native id.
+   *     Its recorded text may differ. The hook alone proves nothing.
    *
    * A proof-only `queued` record (Claude's `enqueue`) is judged by the same
    * two rules and only HOLDS a send: `accepted`, not delivered.
@@ -1640,24 +1660,38 @@ export function createTerminalRuntime(
       const queued = item.queued === true
       if (!queued && !correlation.accepts(item)) continue
       const after = [...session.echoWaiters].filter((waiter) =>
-        echoIsAfterStart(item, waiter.start, timestamps),
+        host.now() < waiter.start.atMs + PROOF_WATCH_MS && echoIsAfterStart(item, waiter.start, timestamps) &&
+        !waiter.seenPrompts.has(item.id),
       )
       if (after.length === 0) continue
       const typed = queued ? item.text : correlation.typedText(item)
-      const credited = creditOne(session, correlation, typed, after, queued)
+      const linked = !queued && item.harnessRef?.length
+        ? after.filter((waiter) => waiter.hookRefs?.some((hook) =>
+          item.harnessRef!.some((ref) => ref.kind === hook.kind && ref.id === hook.id)))
+        : []
+      const credited = linked.length === 1 ? linked[0] : creditOne(session, correlation, typed, after, queued)
       if (queued) {
         if (credited) credited.hold()
         continue
       }
       if (credited) {
-        session.echoWaiters.delete(credited)
+        credited.cancel()
         const transcriptItem = transcriptItemRefOf(item)
-        credited.resolve(transcriptItem ? { transcriptItem } : {})
+        credited.resolve({ ...(transcriptItem ? { transcriptItem } : {}),
+          ...(item.harnessRef?.length ? { harnessRef: item.harnessRef } : {}) })
+        if (credited.turnId) removeProofWatch(session, credited.turnId)
       }
       // Every other watch this prompt came after has been passed by it
       // (POD-4840). Under the same floor as the credit: an older record a
       // re-read carries passes nothing.
-      for (const waiter of after) if (waiter !== credited) waiter.pass()
+      for (const waiter of after) {
+        waiter.seenPrompts.add(item.id)
+        if (waiter !== credited && waiter.seenPrompts.size >= LATER_PROMPT_LIMIT) {
+          waiter.pass()
+          waiter.cancel()
+          if (waiter.turnId) removeProofWatch(session, waiter.turnId)
+        }
+      }
     }
   }
 
@@ -1677,7 +1711,7 @@ export function createTerminalRuntime(
     timestamps: TranscriptTimestampFidelity,
   ): void {
     const after = [...session.echoWaiters].filter((waiter) =>
-      echoIsAfterStart(item, waiter.start, timestamps),
+      host.now() < waiter.start.atMs + PROOF_WATCH_MS && echoIsAfterStart(item, waiter.start, timestamps),
     )
     if (after.length === 0) return
     const frameId = podiumFrameId(item.text)
@@ -1698,8 +1732,9 @@ export function createTerminalRuntime(
       })
     }
     if (!dropped) return
-    session.echoWaiters.delete(dropped)
+    dropped.cancel()
     dropped.disprove({ proof: 'dropped-by-agent', reason: 'the agent program dropped it (a hook blocked it)' })
+    if (dropped.turnId) removeProofWatch(session, dropped.turnId)
   }
 
   /**
@@ -1745,11 +1780,12 @@ export function createTerminalRuntime(
       const reachesStart =
         !page.hasMore || (oldest !== undefined && !echoIsAfterStart(oldest, waiter.start, timestamps))
       if (!reachesStart) continue
-      session.echoWaiters.delete(waiter)
+      waiter.cancel()
       waiter.disprove({
         proof: 'agent-exited',
         reason: 'the agent program exited without recording it',
       })
+      if (waiter.turnId) removeProofWatch(session, waiter.turnId)
     }
   }
 
@@ -1803,18 +1839,27 @@ export function createTerminalRuntime(
     const twin = [...session.echoWaiters].some(
       (waiter) => waiter !== candidate && !waiter.frameId && matches(waiter.text, typed),
     )
-    if (!twin && unchanged(candidate)) return candidate
+    if (!twin) {
+      if (!unchanged(candidate)) log.debug('order credit with foreign-write diagnostics', {
+        sessionId, typingMark: candidate.typingMark(), count: host.foreignWrites?.count(sessionId),
+        orderTrustworthy: host.foreignWrites?.orderTrustworthy(sessionId),
+      })
+      return candidate
+    }
     log.warn('order credit withheld', {
       sessionId,
-      reason: twin
-        ? 'another open send has the same text'
-        : 'the terminal was written to, or is not ours alone',
+      reason: 'another open send has the same text',
       queued,
     })
     return undefined
   }
 
-  const acceptFor = (session: DriverSession, waiters: DriverSession['hookWaiters']): AcceptPort => ({
+  function removeProofWatch(session: DriverSession, turnId: string): void {
+    void host.proofWatches?.remove(session.sessionId, turnId).catch((err) =>
+      log.warn('receipt watch removal failed', { sessionId: session.sessionId, turnId, err }))
+  }
+
+  const acceptFor = (session: DriverSession, waiters: DriverSession['hookWaiters'], atMs?: number): AcceptPort => ({
     watch(text: string, turnId?: string) {
       let settle: ((seen: AcceptSeen) => void) | undefined
       const accepted = new Promise<AcceptSeen>((resolve) => {
@@ -1833,12 +1878,13 @@ export function createTerminalRuntime(
         markDisproved = resolve
       })
       // Read before the first byte: `typingStarts` marks the same count.
-      // No counter (a host without one) arms nothing: no order credit.
+      // The counter remains diagnostic even when the host has no writer lease.
       const armedAt = host.foreignWrites?.count(session.sessionId)
+      let deadline: TimerHandle | undefined
       const waiter: AcceptWaiter = {
         text,
         resolve: (seen) => settle?.(seen),
-        start: { atMs: host.now(), position: session.transcriptPosition },
+        start: { atMs: atMs ?? host.now(), position: session.transcriptPosition },
         pass: () => pass?.(),
         hold: () => {
           waiter.held = true
@@ -1853,19 +1899,111 @@ export function createTerminalRuntime(
         orderSpent: false,
         queueSpent: false,
         held: false,
+        turnId,
+        seenPrompts: new Set(),
+        cancel: () => {
+          waiters.delete(waiter)
+          if (deadline !== undefined) host.clearTimer(deadline)
+        },
       }
       waiters.add(waiter)
       return {
+        typingStartedAtMs: waiter.start.atMs,
         accepted,
         passed,
         held,
         disproved,
-        cancel() {
-          waiters.delete(waiter)
-        },
+        cancel: () => waiter.cancel(),
+        submitted() { waiter.submittedAtMs = host.now() },
+        ...(waiters === session.echoWaiters && turnId !== undefined && host.proofWatches && atMs === undefined ? {
+          async typingStarts() {
+            await host.proofWatches!.save(session.sessionId, {
+              turnId, text, typingStartedAt: new Date(waiter.start.atMs).toISOString(),
+            })
+            if (!session.disposed) deadline = host.setTimer(() => {
+              waiter.pass()
+              waiter.cancel()
+              removeProofWatch(session, turnId)
+            }, Math.max(0, waiter.start.atMs + PROOF_WATCH_MS - host.now()))
+          },
+        } : {}),
       }
     },
   })
+
+  async function restoreProofWatches(session: DriverSession): Promise<void> {
+    if (!host.proofWatches) return
+    session.restoringProofItems = []
+    try {
+      const saved = await host.proofWatches.load(session.sessionId)
+      if (session.disposed) return
+      const open = saved.filter((watch) => {
+        const atMs = Date.parse(watch.typingStartedAt)
+        if (!Number.isFinite(atMs) || host.now() >= atMs + PROOF_WATCH_MS) {
+          removeProofWatch(session, watch.turnId)
+          return false
+        }
+        return true
+      })
+      if (open.length === 0) return
+      const floor = Math.min(...open.map((watch) => Date.parse(watch.typingStartedAt)))
+      const timestamps = profiles.get(session.sessionId)?.transcriptTimestamps ?? 'absent'
+      // Rebuild order from the saved TIME. A tail page alone cannot establish
+      // which prompt was first, or whether four later prompts already passed.
+      const items: TranscriptItem[] = []
+      let from: RuntimeHistoryPage['head']
+      const heads = new Set<string>()
+      for (;;) {
+        const page = await host.readHistory({ sessionId: session.sessionId, agentKind: session.agentKind,
+          cwd: session.cwd, ...(session.resume ? { resume: session.resume } : {}) },
+          { limit: EXIT_HISTORY_READ_LIMIT, ...(from ? { from } : {}) })
+        if (session.disposed) return
+        items.unshift(...page.items)
+        const oldestTime = page.items[0]?.ts ? Date.parse(page.items[0]!.ts!) : Number.NaN
+        if (!page.hasMore || (timestamps !== 'absent' && Number.isFinite(oldestTime) &&
+          oldestTime < Math.floor(floor / timestamps.resolutionMs) * timestamps.resolutionMs)) break
+        const key = JSON.stringify(page.head)
+        if (!page.head || heads.has(key)) throw new Error('history read did not reach receipt time floor')
+        heads.add(key)
+        from = page.head
+      }
+      for (const watch of open) {
+        const atMs = Date.parse(watch.typingStartedAt)
+        if (host.now() >= atMs + PROOF_WATCH_MS) {
+          removeProofWatch(session, watch.turnId)
+          continue
+        }
+        if ([...session.echoWaiters].some((waiter) => waiter.turnId === watch.turnId)) continue
+        const echo = acceptFor(session, session.echoWaiters, atMs).watch(watch.text, watch.turnId)
+        const waiter = [...session.echoWaiters].find((waiter) => waiter.turnId === watch.turnId)!
+        const timer = host.setTimer(() => {
+          echo.cancel()
+          removeProofWatch(session, watch.turnId)
+        }, Math.max(0, atMs + PROOF_WATCH_MS - host.now()))
+        const close = () => { host.clearTimer(timer); echo.cancel() }
+        const cancel = waiter.cancel
+        waiter.cancel = () => { host.clearTimer(timer); cancel() }
+        void echo.accepted.then((seen) => {
+          close()
+          if (session.disposed) return
+          emit(session, { t: 'delivery', rowId: watch.turnId, outcome: 'delivered', ...seen },
+            new Date(host.now()).toISOString(), 'live')
+        })
+        void echo.passed?.then(close)
+        void echo.disproved?.then(({ proof, reason }) => {
+          close()
+          if (session.disposed) return
+          emit(session, { t: 'delivery', rowId: watch.turnId, outcome: 'failed', cause: proof, reason },
+            new Date(host.now()).toISOString(), 'live')
+        })
+      }
+      creditEchoWaiters(session, [...items, ...(session.restoringProofItems ?? [])])
+    } catch (err) {
+      log.warn('receipt watches could not be restored', { sessionId: session.sessionId, err })
+    } finally {
+      session.restoringProofItems = undefined
+    }
+  }
 
   // -- session records ------------------------------------------------------
 
@@ -2064,6 +2202,7 @@ export function createTerminalRuntime(
     sessions.set(session.sessionId, session)
     profiles.set(session.sessionId, profile)
     session.injection = injectionFor(session)
+    void restoreProofWatches(session)
     // A REBIND INTO A PROCESS THAT HAS NEVER SEEN THIS SESSION is the daemon
     // itself having restarted (the in-process rebind above is the other case).
     // Say so on the stream, as that branch does: `process/adopted` is what lets
@@ -2747,6 +2886,7 @@ export function createTerminalRuntime(
       session.answerScript?.cancel('the driver was disposed')
       session.disposed = true
       session.injection.dispose()
+      for (const waiter of [...session.echoWaiters, ...session.hookWaiters]) waiter.cancel()
       // The PROCESS is gone — `clear` is called from the daemon's teardown path
       // and on exit — so its stream position goes with it. Retaining it would
       // leak one entry per session for the daemon's life AND would fence out the
@@ -2777,6 +2917,7 @@ export function createTerminalRuntime(
         session.answerScript?.cancel('the driver was disposed')
         session.disposed = true
         session.injection.dispose()
+        for (const waiter of [...session.echoWaiters, ...session.hookWaiters]) waiter.cancel()
         for (const wake of [...session.wakers]) wake()
         forgetDriver(session.sessionId)
       }
@@ -3082,7 +3223,9 @@ function echoIsAfterStart(
 ): boolean {
   const writtenAtMs = timestamps !== 'absent' && item.ts ? Date.parse(item.ts) : Number.NaN
   const dated = Number.isFinite(writtenAtMs)
-  if (dated && timestamps !== 'absent' && writtenAtMs < start.atMs - timestamps.resolutionMs) return false
+  if (dated && timestamps !== 'absent') {
+    return writtenAtMs >= Math.floor(start.atMs / timestamps.resolutionMs) * timestamps.resolutionMs
+  }
   if (start.position.kind === 'empty') return true
   const parts = item.cursor ? decodeCursor(item.cursor) : null
   if (parts && start.position.kind === 'at' && parts.fileId === start.position.fileId) {

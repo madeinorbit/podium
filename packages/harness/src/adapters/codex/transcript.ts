@@ -82,6 +82,9 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
             // Preserve the older user_message display without asserting that
             // its legacy event satisfies the measured receipt contract.
             promptEntry: currentUserMessage !== undefined,
+            ...(currentUserMessage && stringField(payload, 'turn_id') ? {
+              harnessRef: [{ kind: 'codex-turn', id: stringField(payload, 'turn_id')! }],
+            } : {}),
             ...(ts ? { ts } : {}),
             text,
           },

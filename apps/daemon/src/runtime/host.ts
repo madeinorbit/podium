@@ -70,6 +70,11 @@ export function daemonRuntimeHost(
       markTyping: (sessionId, turnId) => ctx.sessions.get(sessionId)?.foreignWrites.markTyping(turnId),
       typingMark: (sessionId, turnId) => ctx.sessions.get(sessionId)?.foreignWrites.typingMark(turnId),
     },
+    proofWatches: {
+      load: (sessionId) => ctx.bindingStore.terminalProofWatches(sessionId),
+      save: (sessionId, watch) => ctx.bindingStore.saveTerminalProofWatch(sessionId, watch),
+      remove: (sessionId, turnId) => ctx.bindingStore.removeTerminalProofWatch(sessionId, turnId),
+    },
     draftSyncing: (sessionId) => ctx.composerEngine.has(sessionId),
     setDraftTarget: (sessionId, text) => ctx.composerEngine.setTarget(sessionId, text),
     processAlive: async (sessionId) => {

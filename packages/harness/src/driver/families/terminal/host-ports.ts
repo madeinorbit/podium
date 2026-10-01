@@ -124,9 +124,15 @@ export type TerminalMailBoundaryContext = (
  */
 export interface TerminalHostPorts {
   boundaryContext?: TerminalMailBoundaryContext
-  /** The per-session foreign-write counter (POD-4888). Absent = no counter:
-   *  nothing is marked, so no prompt entry is ever credited by order. */
+  /** Per-writer bookkeeping and diagnostics; never a receipt veto. */
   foreignWrites?: TerminalForeignWrites
+  /** Pending typed sends in the existing daemon binding record. The floor is
+   * time, never a transcript byte position. Save before the first byte. */
+  proofWatches?: {
+    load(sessionId: SessionId): Promise<readonly TerminalProofWatch[]>
+    save(sessionId: SessionId, watch: TerminalProofWatch): Promise<void>
+    remove(sessionId: SessionId, turnId: string): Promise<void>
+  }
   /** The driver's outbound reports: runtime events plus the instrumentation
    *  degradation diagnostic. Narrowed from the whole daemon wire — see
    *  `TerminalDriverReport` for the grep. */
@@ -248,4 +254,10 @@ export interface TerminalHostPorts {
    * never imports the daemon's timing module.
    */
   traceRuntimeEvent?(binding: SessionBinding, event: RuntimeEvent): void
+}
+
+export interface TerminalProofWatch {
+  turnId: string
+  text: string
+  typingStartedAt: string
 }

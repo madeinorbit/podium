@@ -82,13 +82,13 @@ export function describeTerminalEvidenceConformance(target: TerminalEvidenceTarg
       expect(receipts.map((receipt) => receipt.outcome)).toEqual(['unverified', 'unverified'])
     })
 
-    it('a foreign write while the send is open denies its credit by order', async () => {
+    it('a foreign write while the send is open preserves its credit by order', async () => {
       const { session, evidence, id } = await setup()
       const pending = session.send({ text: 'send-owned amber request' }, sendOptions)
       await evidence.submitted(id, 1)
       evidence.foreignWrite(id)
       evidence.userTurn(id, 'send-owned amber request')
-      expect(await pending).toMatchObject({ outcome: 'unverified' })
+      expect(await pending).toMatchObject({ outcome: 'accepted' })
     })
 
     it('a wrapped message is proven by its own frame id, whatever else the entry holds', async () => {

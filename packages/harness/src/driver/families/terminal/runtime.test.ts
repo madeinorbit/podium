@@ -1944,7 +1944,7 @@ describe('late proof (POD-4840)', () => {
     expect(outcomes.map((event) => event.outcome)).toEqual(['failed', 'delivered'])
   })
 
-  it('a rewrite of the history closes the watch', async () => {
+  it('a rewrite keeps the time-based watch open', async () => {
     const rewrite: Post = (world, sessionId) =>
       world.echo(sessionId, 'earlier prompt', {
         reset: true,
@@ -1956,7 +1956,7 @@ describe('late proof (POD-4840)', () => {
         ['unconfirmed', 1_000, rewrite],
         ['unconfirmed', 5_000, ours(100)],
       ]),
-    ).toMatchObject([UNCONFIRMED])
+    ).toMatchObject([UNCONFIRMED, { outcome: 'delivered' }])
   })
 
   it('the watch closes after its maximum wait', async () => {
@@ -5422,8 +5422,8 @@ describe('terminal receipts from the history (POD-4905)', () => {
     const toItems = transcriptRecordMapperFor(lane)
     if (!toItems) throw new Error(`no reader for ${lane}`)
     const receipts = transcriptReceiptMapperFor(lane)
-    return readFileItems(join(LANES, file), `lane-${lane}`, (record) => [
-      ...toItems(record),
+    return readFileItems(join(LANES, file), `lane-${lane}`, (record, previousRecord) => [
+      ...toItems(record, previousRecord),
       ...(receipts?.(record) ?? []),
     ])
   }
@@ -5597,7 +5597,7 @@ describe('terminal receipts from the history (POD-4905)', () => {
       },
     )
 
-    it('gives measured pasted content no order credit after a foreign write', async () => {
+    it('credits measured pasted content after a foreign write', async () => {
       const world = makeWorld()
       const row = measured('multiline-323')
       const { handle, sessionId } = await pastedSession(world)
@@ -5612,7 +5612,7 @@ describe('terminal receipts from the history (POD-4905)', () => {
         { id: 'msg-foreign-paste', text: row.input }, { origin: 'human', delivery: 'when-ready' },
       )
       expect(submitted).toBe(1)
-      expect(receipt.outcome).toBe('unverified')
+      expect(receipt.outcome).toBe('accepted')
       world.runtime.dispose()
     })
   })
@@ -5664,7 +5664,7 @@ describe('terminal receipts from the history (POD-4905)', () => {
       world.runtime.dispose()
     })
 
-    it('gives no order credit when anything else was written during the window', async () => {
+    it('credits order-plus-text despite foreign writes during the window', async () => {
       const world = makeWorld()
       const items = await history(lane)
       const at = entryAt(items, idle)
@@ -5678,11 +5678,11 @@ describe('terminal receipts from the history (POD-4905)', () => {
         { id: 'msg-foreign', text: idle },
         { origin: 'human', delivery: 'when-ready' },
       )
-      expect(receipt.outcome).toBe('unverified')
+      expect(receipt.outcome).toBe('accepted')
       world.runtime.dispose()
     })
 
-    it('gives no order credit on an adopted abduco session, which anyone can type into unseen', async () => {
+    it('credits order-plus-text on an adopted abduco session', async () => {
       const world = makeWorld({ writerLease: false })
       const items = await history(lane)
       const at = entryAt(items, idle)
@@ -5692,7 +5692,7 @@ describe('terminal receipts from the history (POD-4905)', () => {
         { id: 'msg-abduco', text: idle },
         { origin: 'human', delivery: 'when-ready' },
       )
-      expect(receipt.outcome).toBe('unverified')
+      expect(receipt.outcome).toBe('accepted')
       world.runtime.dispose()
     })
 
@@ -6024,8 +6024,8 @@ describe('terminal receipts from the history (POD-4905)', () => {
     const toItems = transcriptRecordMapperFor(lane)
     if (!toItems) throw new Error(`no reader for ${lane}`)
     const receipts = transcriptReceiptMapperFor(lane)
-    return readFileItems(join(LANES, file), `lane-${lane}`, (record) => [
-      ...toItems(record),
+    return readFileItems(join(LANES, file), `lane-${lane}`, (record, previousRecord) => [
+      ...toItems(record, previousRecord),
       ...(receipts?.(record) ?? []),
     ])
   }

@@ -1,5 +1,6 @@
 import type { HarnessRef, TranscriptItem } from '@podium/model'
 import { claudePromptHookFingerprint } from './adapters/claude-code/state.js'
+import { hookEventName, hookString } from './adapters/shared/hook-fields.js'
 import type { TerminalAcceptCorrelation, TerminalEchoCorrelation } from './manifest.js'
 
 /**
@@ -18,6 +19,12 @@ export const claudeHookAcceptCorrelation: TerminalAcceptCorrelation<unknown> = {
   },
   fingerprint: claudePromptHookFingerprint,
   fingerprintText: (text) => claudePromptHookFingerprint({ prompt: text }),
+  textMatches(text, payload) {
+    const prompt = hookString(payload, 'prompt', 'prompt')
+    return prompt === undefined
+      ? claudePromptHookFingerprint({ prompt: text }) === claudePromptHookFingerprint(payload)
+      : claudePromptTextMatches(text, prompt)
+  },
   harnessRef(payload): HarnessRef | undefined {
     if (typeof payload !== 'object' || payload === null) return undefined
     const promptId = (payload as Record<string, unknown>).prompt_id
@@ -25,6 +32,29 @@ export const claudeHookAcceptCorrelation: TerminalAcceptCorrelation<unknown> = {
       ? [{ kind: 'claude-prompt', id: promptId }]
       : undefined
   },
+}
+
+/** Program-owned submit ids are useful only after a history record links them.
+ * Hook text uses the same measured matcher as order-plus-text proof. */
+export function submitHookCorrelation(
+  kind: 'codex-turn' | 'grok-prompt',
+  textMatches: (submitted: string, recorded: string) => boolean,
+): TerminalAcceptCorrelation<unknown> {
+  return {
+    accepts: (payload) => hookEventName(payload) === 'UserPromptSubmit',
+    fingerprint: (payload) => hookString(payload, 'prompt', 'prompt')?.trim() || null,
+    fingerprintText: (text) => text.trim() || null,
+    textMatches: (text, payload) => {
+      const prompt = hookString(payload, 'prompt', 'prompt')
+      return prompt !== undefined && textMatches(text, prompt)
+    },
+    harnessRef: (payload) => {
+      const id = kind === 'codex-turn'
+        ? hookString(payload, 'turn_id', 'turnId')
+        : hookString(payload, 'prompt_id', 'promptId')
+      return id ? [{ kind, id }] : undefined
+    },
+  }
 }
 
 /**

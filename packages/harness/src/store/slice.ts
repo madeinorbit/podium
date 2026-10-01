@@ -64,9 +64,10 @@ export async function readFileItems(
   }
   const out: TranscriptItem[] = []
   const turnEnd = turnEndStamper(recordToItems)
+  const previous: { record?: unknown } = {}
   // Parse one line's bytes into stamped items at an absolute offset; skip blank/torn.
   const emit = (lineBytes: Buffer, recOffset: number): void => {
-    stampRecordLine(out, lineBytes, recOffset, fileId, recordToItems, turnEnd)
+    stampRecordLine(out, lineBytes, recOffset, fileId, recordToItems, turnEnd, previous)
   }
   // Walk line boundaries on the raw buffer, tracking each record's ABSOLUTE offset.
   let lineStart = 0
@@ -107,6 +108,7 @@ function stampRecordLine(
   fileId: string,
   recordToItems: TranscriptRecordMapper,
   turnEnd: TurnEndStamper | undefined,
+  previous: { record?: unknown },
 ): void {
   const trimmed = lineBytes.toString('utf8').trim()
   if (!trimmed) return
@@ -114,9 +116,11 @@ function stampRecordLine(
   try {
     record = JSON.parse(trimmed)
   } catch {
+    previous.record = undefined
     return
   }
-  const mapped = recordToItems(record)
+  const mapped = recordToItems(record, previous.record)
+  previous.record = record
   const items = mapped.length > 0 ? stampCursors(mapped, fileId, recOffset, recordUuid(record)) : []
   out.push(...items)
   const answer = turnEnd?.observe(record, items)
@@ -174,13 +178,14 @@ export async function readIndexWindow(
   // Within this window only: a reply the window's last line leaves open is
   // indexed unmarked, which search does not read.
   const turnEnd = turnEndStamper(recordToItems)
+  const previous: { record?: unknown } = {}
   let lineStart = 0
   for (let i = 0; i <= lastNl; i++) {
     if (buf[i] !== 0x0a /* \n */) continue
     const recOffset = from + lineStart
     const lineBytes = buf.subarray(lineStart, i)
     lineStart = i + 1
-    stampRecordLine(items, lineBytes, recOffset, fileId, recordToItems, turnEnd)
+    stampRecordLine(items, lineBytes, recOffset, fileId, recordToItems, turnEnd, previous)
   }
   return { items, consumed: lastNl + 1 }
 }

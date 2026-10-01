@@ -5,6 +5,7 @@ import type { Dirent } from 'node:fs'
 import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { manifestFor } from '@podium/harness'
+import type { TerminalProofWatch } from '@podium/harness/driver/host'
 import {
   AgentDelegation,
   type AgentIdentityId,
@@ -171,6 +172,8 @@ export interface SessionBindingRecord {
   state: BindingState
   createdAt: string
   retiredAt: string | null
+  /** Expand-only pending terminal receipts; no byte-position baseline. */
+  terminalProofWatches?: TerminalProofWatch[]
   /** Unknown future fields are retained by read-modify-write. */
   [key: string]: unknown
 }
@@ -1208,6 +1211,30 @@ export class BindingStore {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
       throw error
     }
+  }
+
+  async terminalProofWatches(sessionId: SessionId): Promise<readonly TerminalProofWatch[]> {
+    const record = await this.read(sessionId)
+    if (!record || record.state === 'retired' || record.state === 'exported') return []
+    return record.terminalProofWatches ?? []
+  }
+
+  async saveTerminalProofWatch(sessionId: SessionId, watch: TerminalProofWatch): Promise<void> {
+    await this.update(sessionId, (current) => {
+      if (!current) throw new Error(`binding ${sessionId} missing before terminal typing`)
+      return { ...current, terminalProofWatches: [
+        ...(current.terminalProofWatches ?? []).filter((entry) => entry.turnId !== watch.turnId), watch,
+      ] }
+    })
+  }
+
+  async removeTerminalProofWatch(sessionId: SessionId, turnId: string): Promise<void> {
+    if (!(await this.read(sessionId))) return
+    await this.update(sessionId, (current) => {
+      if (!current) throw new Error(`binding ${sessionId} missing while closing terminal receipt`)
+      return { ...current, terminalProofWatches: (current.terminalProofWatches ?? [])
+        .filter((entry) => entry.turnId !== turnId) }
+    })
   }
 
   /** Owner-scoped by construction; callers never receive other humans' rows. */

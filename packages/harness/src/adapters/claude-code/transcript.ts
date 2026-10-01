@@ -116,7 +116,11 @@ function metaImageSourceItems(
 }
 
 export function claudeRecordToItems(record: unknown): TranscriptItem[] {
-  const items = mapClaudeRecord(record)
+  const promptId = typeof record === 'object' && record !== null && 'promptId' in record &&
+    typeof record.promptId === 'string' && record.promptId ? record.promptId : undefined
+  const items = mapClaudeRecord(record).map((item): TranscriptItem =>
+    promptId && item.role === 'user' && item.promptEntry !== false && !item.event
+      ? { ...item, harnessRef: [{ kind: 'claude-prompt', id: promptId }] } : item)
   if (items.every((item) => item.id !== '')) return items
   // Pure fallback for direct mapper consumers. File readers replace these with
   // cursor identity, which also distinguishes identical records at two offsets.

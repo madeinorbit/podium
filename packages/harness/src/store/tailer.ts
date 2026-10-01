@@ -174,6 +174,7 @@ export function tailTranscript(
   // the turn end a poll after the reply often enough (turn-end.ts). Restarted
   // with every reset read, whose window starts somewhere new.
   let turnEnd = turnEndStamper(recordToItems)
+  let previousRecord: unknown
 
   /** Parse a single line's bytes into stamped items at the given absolute offset
    *  and append them to `out`; returns how many it appended. Skips blank/torn
@@ -192,9 +193,11 @@ export function tailTranscript(
     try {
       record = JSON.parse(trimmed)
     } catch {
+      previousRecord = undefined
       return 0 // torn write — skip the line
     }
-    const items = recordToItems(record)
+    const items = recordToItems(record, previousRecord)
+    previousRecord = record
     const timestamp = items.find((item) => item.ts)?.ts ??
       (typeof record === 'object' && record !== null && 'timestamp' in record ? record.timestamp : undefined)
     const at = typeof timestamp === 'string' && Number.isFinite(Date.parse(timestamp))
@@ -276,6 +279,7 @@ export function tailTranscript(
           first = false
           reset = true
           turnEnd = turnEndStamper(recordToItems)
+          previousRecord = undefined
         }
         // `offset + leftover.length` is the byte position we have already consumed
         // off disk. A shrink below that means the file was truncated/replaced.
@@ -291,6 +295,7 @@ export function tailTranscript(
           flushedOffset = -1
           reset = true
           turnEnd = turnEndStamper(recordToItems)
+          previousRecord = undefined
         }
         if (size === offset + leftover.length && !reset) {
           cycleSucceeded = true

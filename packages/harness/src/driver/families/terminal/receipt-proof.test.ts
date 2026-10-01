@@ -8,12 +8,12 @@ import type { TerminalHostPorts, TerminalProofWatch } from './host-ports.js'
 
 const SESSION = asSessionId('receipt-restart')
 const START = Date.parse('2026-10-01T08:19:35Z')
-const outcomes = (frames: unknown[]) => frames.flatMap((frame: any) =>
+const outcomes = (frames: import('@podium/protocol/daemon').DaemonMessage[]) => frames.flatMap((frame) =>
   frame.type === 'runtimeEvent' && frame.event.t === 'delivery' ? [frame.event] : [])
 
 function world(kind: 'claude-code' | 'codex' | 'grok' | 'opencode' = 'claude-code',
   saved = new Map<string, TerminalProofWatch>(), history: TranscriptItem[] = []) {
-  const frames: unknown[] = []
+  const frames: import('@podium/protocol/daemon').DaemonMessage[] = []
   const writes: string[] = []
   let count = 0
   const terminal = { live: true, writeBase64(data: string, role?: string) {
@@ -75,6 +75,7 @@ describe('terminal receipt operator regressions', () => {
     w.terminal.writeBase64(Buffer.from(foreign).toString('base64'))
     expect(w.count()).toBeGreaterThan(0)
     w.post('Yes')
+    await vi.advanceTimersByTimeAsync(10_000)
     expect(await pending).toMatchObject({ outcome: 'accepted', transcriptItem: { id: 'entry-0' } })
     w.runtime.dispose()
   })
@@ -91,6 +92,7 @@ describe('terminal receipt operator regressions', () => {
     expect(outcomes(w.frames)).toEqual([]) // a hook by itself is never proof
     const ref = { kind: kind === 'claude-code' ? 'claude-prompt' : kind === 'codex' ? 'codex-turn' : 'grok-prompt', id: 'native-id' }
     w.post('program expanded this text', { harnessRef: [ref] })
+    await vi.advanceTimersByTimeAsync(10_000)
     expect(await pending).toMatchObject({ outcome: 'accepted', transcriptItem: { id: 'entry-0' }, harnessRef: [ref] })
     w.runtime.dispose()
   })
@@ -105,6 +107,19 @@ describe('terminal receipt operator regressions', () => {
     w.post('different recorded text', { harnessRef: [{ kind: 'claude-prompt', id: fault === 'wrong-id' ? 'other' : 'native-id' }] })
     await vi.advanceTimersByTimeAsync(10_000)
     expect(await pending).toMatchObject({ outcome: 'unverified' })
+    w.runtime.dispose()
+  })
+
+  it('falls back to order plus text when the hook names the running turn, keeping the saved prompt id', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(START)
+    const w = world()
+    const pending = w.handle.send({ id: 'msg-fallback', text: 'Yes' }, { origin: 'human', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(w.writes).toContain('\r')
+    w.runtime.onHookPayload(SESSION, { hook_event_name: 'UserPromptSubmit', prompt: 'Yes', prompt_id: 'running-turn' })
+    w.post('Yes', { harnessRef: [{ kind: 'claude-prompt', id: 'saved-prompt' }] })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(await pending).toMatchObject({ outcome: 'accepted', harnessRef: [{ kind: 'claude-prompt', id: 'saved-prompt' }] })
     w.runtime.dispose()
   })
 
@@ -138,6 +153,38 @@ describe('terminal receipt operator regressions', () => {
     w.post(saved.get('msg-expired')?.text ?? '[podium message msg_a · from agent · to you]\nYes\n[end podium message msg_a]')
     await vi.advanceTimersByTimeAsync(0)
     expect(outcomes(w.frames).filter((ev) => ev.outcome === 'delivered')).toEqual([])
+    w.runtime.dispose()
+  })
+
+  it('a fourth entry still proves a restarted watch, and re-reading one entry does not consume its budget', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(START + 120_000)
+    const text = '[podium message msg_a · from agent · to you]\nYes\n[end podium message msg_a]'
+    const saved = new Map([['msg-budget', { turnId: 'msg-budget', text, typingStartedAt: new Date(START).toISOString() }]])
+    const w = world('claude-code', saved)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(saved.has('msg-budget')).toBe(true)
+    w.post('foreign one', { id: 'same-entry' })
+    w.post('foreign one', { id: 'same-entry' })
+    w.post('foreign two')
+    w.post('foreign three')
+    expect(saved.has('msg-budget')).toBe(true)
+    w.post(text)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(outcomes(w.frames)).toContainEqual(expect.objectContaining({ rowId: 'msg-budget', outcome: 'delivered' }))
+    w.runtime.dispose()
+  })
+
+  it('recovers a prompt saved while the daemon was down, using time rather than the current tail position', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(START + 125_000)
+    const saved = new Map([['msg-offline', { turnId: 'msg-offline', text: 'Yes', typingStartedAt: new Date(START).toISOString() }]])
+    const history: TranscriptItem[] = [
+      { id: 'old-yes', role: 'user', text: 'Yes', ts: new Date(START - 1).toISOString() },
+      { id: 'offline-yes', role: 'user', text: 'Yes', ts: new Date(START + 120_000).toISOString() },
+    ]
+    const w = world('claude-code', saved, history)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.writes).toEqual([])
+    expect(outcomes(w.frames)).toContainEqual(expect.objectContaining({ outcome: 'delivered', transcriptItem: { id: 'offline-yes' } }))
     w.runtime.dispose()
   })
 })

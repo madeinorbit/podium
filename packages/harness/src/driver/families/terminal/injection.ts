@@ -118,7 +118,7 @@ export const VERIFICATION_WINDOW_MS = SUBMIT_VERIFY_DELAY_MS * (SUBMIT_MAX_RETRI
  * the running turn or tool call ends, and 30 minutes is how long this machine
  * already believes such a turn may run. A proof later than that is not
  * awaited. The ceiling is the backstop, not the usual end: the watch closes
- * first when the history moves past the send without it (see
+ * first after four later prompt entries (see
  * {@link AcceptWatch.passed}).
  */
 export const LATE_PROOF_WAIT_MS = 30 * 60_000
@@ -167,9 +167,8 @@ export const DEFAULT_TERMINAL_INTERRUPT: TerminalInterruptConfig = {
 
 export type TimerHandle = { readonly __timer: unique symbol } | unknown
 
-/** An accept watch, armed before the first byte. The daemon matches through
- * manifest adapters (a frame id, or order plus text under the foreign-write
- * counter); this machine only arms watches and reads what they report. */
+/** Armed before the first byte. Manifest adapters match frame id, order plus
+ * text, or a timely submit hook linked to a saved prompt's native id. */
 export interface AcceptPort {
   /** `turnId` names the send's typing to the foreign-write counter
    *  (`typingStarts`), which order credit compares against. */
@@ -178,7 +177,7 @@ export interface AcceptPort {
 
 /** What the history showed for a send inside its window. */
 type Proven =
-  | { kind: 'recorded'; transcriptItem?: TranscriptItemRef }
+  | { kind: 'recorded'; transcriptItem?: TranscriptItemRef; harnessRef?: HarnessRef }
   | { kind: 'held' }
   | ({ kind: 'disproved' } & Disproof)
 
@@ -201,6 +200,7 @@ export interface AcceptSeen {
 }
 
 export interface AcceptWatch {
+  readonly typingStartedAtMs?: number
   /** Resolves only for this prompt, with what the observation saw. It never
    *  resolves otherwise: the caller's window ends the wait. */
   readonly accepted: Promise<AcceptSeen>
@@ -211,10 +211,8 @@ export interface AcceptWatch {
    */
   readonly held?: Promise<void>
   /**
-   * Resolves once the history has moved past this prompt without recording
-   * it (POD-4840): another prompt entry was recorded after the send started
-   * and did not credit this watch — history keeps submit order, so ours
-   * would have come first — or the history was rewritten. Only a late watch
+   * Resolves after four later prompt entries or thirty minutes from typing,
+   * without proof. A re-read counts each entry once. Only a late watch
    * reads it; inside the window a later entry changes nothing. Absent where
    * the channel cannot tell, as for a hook.
    */
@@ -229,6 +227,10 @@ export interface AcceptWatch {
   readonly disproved?: Promise<Disproof>
   /** Idempotent; removes the waiter when the send ends. */
   cancel(): void
+  /** Own Enter, stamped before dispatch so even a synchronous hook can link. */
+  submitted?(): void
+  /** Persist the actual typing floor before any content reaches the terminal. */
+  typingStarts?(): Promise<void>
 }
 
 /** Channel names retained for hosts using the existing injection ports. */
@@ -488,6 +490,7 @@ export function createTerminalInjection(
     echoWatch: AcceptWatch | undefined,
     signal?: AbortSignal,
     initialPrompt = false,
+    submitted?: () => void,
   ): Promise<Proven | null> {
     if (!echoWatch) return null
     let recorded: AcceptSeen | undefined
@@ -505,7 +508,8 @@ export function createTerminalInjection(
     const proven = (): Proven | null => {
       if (recorded) {
         const transcriptItem = recorded.transcriptItem
-        return { kind: 'recorded', ...(transcriptItem ? { transcriptItem } : {}) }
+        return { kind: 'recorded', ...(transcriptItem ? { transcriptItem } : {}),
+          ...(recorded.harnessRef ? { harnessRef: recorded.harnessRef } : {}) }
       }
       // A DROP OUTRANKS THE HOLD IT ENDS (POD-4887): Claude writes `enqueue`
       // and then, 25–32 ms later, `dropped_by_hook`; one read may carry both.
@@ -516,7 +520,7 @@ export function createTerminalInjection(
     let nudging = true
     const windowMs = initialPrompt ? 30_000 : VERIFICATION_WINDOW_MS
     let deadline = ports.now() + windowMs
-    const heldUntil = ports.now() + 30 * 60_000
+    const heldUntil = (echoWatch.typingStartedAtMs ?? ports.now()) + LATE_PROOF_WAIT_MS
 
     while (ports.now() < deadline && ports.now() < heldUntil) {
       // Race the proof against the tick so a proof that has already landed is
@@ -539,6 +543,7 @@ export function createTerminalInjection(
       if (phase === 'working' || phase === 'compacting') deadline = ports.now() + windowMs
       if (nudging && retriesLeft > 0) {
         retriesLeft -= 1
+        submitted?.()
         ports.write('\r', 'message')
       }
     }
@@ -579,8 +584,10 @@ export function createTerminalInjection(
     // before we would otherwise be listening, and a record we missed reads as
     // `unverified`. The history watch is the proof; the hook watch only lends
     // Claude's `prompt_id` to a send the history proved.
-    const hookWatch = ports.hookAccept?.watch(payload.body)
+    const hookWatch = ports.hookAccept?.watch(payload.body, options.turnId)
     const echoWatch = ports.echoAccept?.watch(payload.body, options.turnId)
+    const typingStartedAtMs = echoWatch?.typingStartedAtMs ?? ports.now()
+    const submitted = () => { echoWatch?.submitted?.(); hookWatch?.submitted?.() }
     let hookIds: HarnessRef | undefined
     void hookWatch?.accepted.then((seen) => {
       if (seen.harnessRef?.length) hookIds ??= seen.harnessRef
@@ -598,6 +605,7 @@ export function createTerminalInjection(
     /** The history watch that outlives this call: late proof, or a held send's record. */
     let kept: AcceptWatch | undefined
     try {
+      if (echoWatch?.typingStarts) await echoWatch.typingStarts()
       if (options.turnId !== undefined) ports.typingStarts?.(options.turnId)
       ports.write(payload.bytes, 'message')
       // A PASTE IS ALWAYS SUBMITTED (POD-4776). Once its bytes are in the
@@ -606,11 +614,14 @@ export function createTerminalInjection(
       // next. An abort after this point ends the wait for proof below, never
       // the submit itself.
       setTimer(() => {
-        if (ports.running()) ports.write('\r', 'message')
+        if (ports.running()) {
+          submitted()
+          ports.write('\r', 'message')
+        }
       }, SUBMIT_CR_DELAY_MS)
 
       const verificationStartedAt = ports.now()
-      const proof = await awaitProof(echoWatch, options.signal, options.initialPrompt)
+      const proof = await awaitProof(echoWatch, options.signal, options.initialPrompt, submitted)
       const unverified = (): TurnReceipt => ({
         outcome: 'unverified',
         deliveredAs: options.delivery,
@@ -619,7 +630,7 @@ export function createTerminalInjection(
       })
       if (!proof) {
         if (echoWatch && (options.onLateProof || options.onUnrecorded)) {
-          awaitLateProof(echoWatch, options)
+          awaitLateProof(echoWatch, options, typingStartedAtMs)
           kept = echoWatch
         }
         return unverified()
@@ -632,7 +643,7 @@ export function createTerminalInjection(
         return unverified()
       }
       if (proof.kind === 'held' && echoWatch) {
-        followHeld(echoWatch, options, ids)
+        followHeld(echoWatch, options, ids, typingStartedAtMs)
         kept = echoWatch
       }
       return {
@@ -645,6 +656,7 @@ export function createTerminalInjection(
           : {}),
         ...(proof.kind === 'held' ? { held: 'memory' as const } : {}),
         ...ids(),
+        ...(proof.kind === 'recorded' && proof.harnessRef ? { harnessRef: proof.harnessRef } : {}),
         at: new Date(ports.now()).toISOString(),
       }
     } finally {
@@ -666,6 +678,7 @@ export function createTerminalInjection(
   function awaitLateProof(
     echoWatch: AcceptWatch,
     options: Pick<DeliverOptions, 'onLateProof' | 'onUnrecorded'>,
+    typingStartedAtMs: number,
   ): void {
     let open = true
     const close = (): void => {
@@ -674,7 +687,7 @@ export function createTerminalInjection(
       ports.clearTimer(timer)
       echoWatch.cancel()
     }
-    const timer = setTimer(close, LATE_PROOF_WAIT_MS)
+    const timer = setTimer(close, Math.max(0, typingStartedAtMs + LATE_PROOF_WAIT_MS - ports.now()))
     void echoWatch.passed?.then(close)
     void echoWatch.accepted.then((seen) => {
       if (!open || disposed) return
@@ -703,6 +716,7 @@ export function createTerminalInjection(
     echoWatch: AcceptWatch,
     options: DeliverOptions,
     ids: () => { harnessRef?: HarnessRef },
+    typingStartedAtMs: number,
   ): void {
     let open = true
     const close = (reason: string, proof?: NotInConversationCause): void => {
@@ -717,7 +731,7 @@ export function createTerminalInjection(
     heldWatches.add(onDispose)
     const timer = setTimer(
       () => close('the harness did not record it within the maximum wait'),
-      LATE_PROOF_WAIT_MS,
+      Math.max(0, typingStartedAtMs + LATE_PROOF_WAIT_MS - ports.now()),
     )
     void echoWatch.passed?.then(() => close('the history moved past it without recording it'))
     // The program dropped it, or exited without it (POD-4887): a proven "no".
@@ -728,7 +742,7 @@ export function createTerminalInjection(
       ports.clearTimer(timer)
       heldWatches.delete(onDispose)
       echoWatch.cancel()
-      if (seen.transcriptItem) options.onTranscriptItem?.(seen.transcriptItem, ids().harnessRef)
+      if (seen.transcriptItem) options.onTranscriptItem?.(seen.transcriptItem, seen.harnessRef ?? ids().harnessRef)
       else options.onUnrecorded?.('the harness recorded it under no entry id')
     })
   }

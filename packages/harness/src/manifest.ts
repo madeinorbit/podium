@@ -1371,6 +1371,8 @@ export interface TerminalAcceptCorrelation<Observation> {
    * observation that credited a send; absent where the channel names none.
    */
   harnessRef?(observation: Observation): HarnessRef | undefined
+  /** Exact equality within this program's measured terminal text tolerance. */
+  textMatches?(submitted: string, observation: Observation): boolean
 }
 
 /**
@@ -1400,9 +1402,8 @@ export interface TerminalAcceptCorrelations {
  *
  * The echo proof matches by content, and short prompts repeat, so a record
  * counts toward a send only if the harness wrote it after the send started.
- * Position answers that inside one transcript segment. Across segments — a
- * resume onto a new file, a rotation, a first read that began after the send —
- * offsets compare nothing, and the entry's own timestamp is the only answer.
+ * The entry's timestamp is the floor, including across daemon restarts.
+ * Programs without timestamps can only use a live comparable position.
  *
  * `resolutionMs` is how finely the harness records that time; it is the only
  * slack the comparison allows, since the harness and the daemon share a clock.

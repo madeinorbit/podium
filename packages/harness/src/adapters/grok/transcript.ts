@@ -54,7 +54,7 @@ export const grokRecordToItems: TranscriptRecordMapper = Object.assign(mapGrokRe
   endsTurn: grokRecordEndsTurn,
 })
 
-function mapGrokRecord(record: unknown): TranscriptItem[] {
+function mapGrokRecord(record: unknown, previousRecord?: unknown): TranscriptItem[] {
   const params = recordField(record, 'params')
   const update = recordField(params, 'update')
   if (!params || !update) return []
@@ -63,6 +63,12 @@ function mapGrokRecord(record: unknown): TranscriptItem[] {
     case 'user_message_chunk': {
       if (recordField(update, '_meta')?.hideFromScrollback === true) return []
       const { text, tags } = contentBlock(update.content)
+      // Measured 35/35: the prompt's submit hook_execution is immediately
+      // before its chunk. Reader-local context only; a clipped read has no id.
+      const preceding = recordField(recordField(previousRecord, 'params'), 'update')
+      const promptId = stringField(preceding, 'sessionUpdate') === 'hook_execution' &&
+        stringField(preceding, 'event_name') === 'user_prompt_submit'
+        ? stringField(preceding, 'prompt_id') : undefined
       if (!text && tags.length === 0) return []
       return [
         {
@@ -70,6 +76,7 @@ function mapGrokRecord(record: unknown): TranscriptItem[] {
           role: 'user',
           ...(ts ? { ts } : {}),
           text,
+          ...(promptId ? { harnessRef: [{ kind: 'grok-prompt', id: promptId }] } : {}),
           ...(tags.length > 0 ? { tags } : {}),
         },
       ]
