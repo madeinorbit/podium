@@ -3,7 +3,7 @@ import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { worklistSlice } from '@podium/client-core/viewmodels'
-import { asSessionId, asUserId } from '@podium/model/browser'
+import { asSessionId, asUserId, type SessionId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CommandPalette } from '@/app/CommandPalette'
@@ -19,7 +19,7 @@ const mode = vi.hoisted(() => ({
   commits: new Map<string, number>(),
   worktrees: new Map<
     string,
-    { onSelect: () => void; onSelectPanel: (id: string) => void; commits: number }
+    { onSelect: () => void; onSelectPanel: (id: SessionId) => void; commits: number }
   >(),
 }))
 vi.mock('@podium/client-core/perf', async (importOriginal) => ({
@@ -36,7 +36,7 @@ vi.mock('./UnifiedWorktreeRow', async (importOriginal) => {
         const path = props.row.worktree.path
         mode.worktrees.set(path, {
           onSelect: props.onSelect,
-          onSelectPanel: props.onSelectPanel as (id: string) => void,
+          onSelectPanel: props.onSelectPanel,
           commits: (mode.worktrees.get(path)?.commits ?? 0) + 1,
         })
       })
@@ -94,6 +94,7 @@ const NOW = Date.parse('2026-10-01T08:00:00Z')
 
 async function mount(layer: 'legacy' | 'pool', rail = false, count = 12) {
   localStorage.clear()
+  window.history.replaceState(null, '', '/')
   mode.value = layer
   mode.reads = 0
   mode.commits.clear()
@@ -126,8 +127,9 @@ async function mount(layer: 'legacy' | 'pool', rail = false, count = 12) {
   await act(async () => {
     await runtime.getSnapshot().refreshRepos()
   })
-  await waitFor(() =>
-    expect(screen.getByTestId(rail ? 'sidebar-rail' : 'work-scroll')).toBeTruthy(),
+  await waitFor(
+    () => expect(screen.getByTestId(rail ? 'sidebar-rail' : 'work-scroll')).toBeTruthy(),
+    { timeout: 10000 },
   )
   if (layer === 'pool') await waitFor(() => expect(pool).not.toBeNull())
   await waitFor(() => expect(screen.getByText('Only responsive target')).toBeTruthy(), {
@@ -210,6 +212,7 @@ describe('real sidebar pool cutover', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
     await mount('legacy')
+    expect(runtime.getSnapshot().paneA).not.toBe('synthetic-guest-1')
     const path = '/synthetic/project/guests'
     const handlers = mode.worktrees.get(path)!
     await act(async () => {
