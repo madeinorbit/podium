@@ -46,7 +46,7 @@ const state = {
   issues: [selectedIssue, otherIssue],
   selectedIssueId: selectedIssue.id,
   shipOrders: [],
-      shipLanes: [],
+  shipLanes: [],
   coarseNow: Date.parse('2026-08-13T12:00:00.000Z'),
   setSelectedIssueId: vi.fn(),
   trpc: {

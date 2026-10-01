@@ -1,5 +1,9 @@
-import { canonicalShippingDestination, shipLaneId } from '@podium/model'
-import type { ShipLaneProjection, ShipOrderProjection } from '@podium/model'
+import {
+  canonicalShippingDestination,
+  type ShipLaneProjection,
+  type ShipOrderProjection,
+  shipLaneId,
+} from '@podium/model'
 
 export interface ShippingIssueSummary {
   id: string
@@ -65,14 +69,15 @@ export function shippingPanelModel(
   }
 
   const issuesById = new Map(issues.map((issue) => [issue.id, issue]))
-  const ranksByLane = new Map(
-    lanes
-      .filter((lane) => lane.repoId === repoId)
-      .map((lane) => [
-        lane.id,
-        new Map(lane.trains.flatMap((train, index) => train.orderIds.map((id) => [id, index + 1] as const))),
-      ] as const),
-  )
+  const ranksByLane = new Map<string, Map<ShipOrderProjection['id'], number>>()
+  for (const lane of lanes) {
+    if (lane.repoId !== repoId) continue
+    const ranks = new Map<ShipOrderProjection['id'], number>()
+    lane.trains.forEach((train, index) => {
+      for (const id of train.orderIds) ranks.set(id, index + 1)
+    })
+    ranksByLane.set(lane.id, ranks)
+  }
   const rows = orders
     .filter((order) => order.repoId === repoId)
     .map((order): ShippingPanelRow => {

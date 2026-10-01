@@ -16,6 +16,7 @@ vi.mock('./store', () => ({
       sessions: portfolioSessions.value,
       repos: portfolioRepos.value,
       shipOrders: shippingOrders.value,
+      shipLanes: [],
     }),
 }))
 
