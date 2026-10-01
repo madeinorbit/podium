@@ -34,7 +34,7 @@ try {
     const failures: string[] = []
     page.on('pageerror', error => { failures.push(error.message); console.error(error.message) })
     await page.goto(`${origin}/test/sidebar-renderer.browser.html?mobxSidebar=${mode === 'pool' ? 1 : 0}&perfPanel=1${requireCheck && mode === 'pool' ? '&mobxSidebarCheck=1' : ''}`, { timeout: 60000, waitUntil: 'networkidle' })
-    await page.waitForFunction(() => window.__sidebarRenderer?.ready() && document.querySelector('[data-issue-row="synthetic-17"]'), null, { timeout: 30000 }).catch(async error => {
+    await page.waitForFunction(() => window.__sidebarRenderer?.ready() && document.querySelector('[data-issue-row="synthetic-17"]') !== null, null, { timeout: 30000 }).catch(async error => {
       console.error(mode, await page.evaluate(() => ({ ready: window.__sidebarRenderer?.ready(), state: window.__sidebarRenderer?.state(), errors: window.__sidebarRenderer?.failures(), text: document.body.innerText.slice(0, 4000) })))
       throw error
     })
@@ -77,13 +77,7 @@ try {
       await cdp.send('HeapProfiler.collectGarbage')
       await cdp.send('HeapProfiler.collectGarbage')
       const survivors = await page.evaluate(() => window.__sidebarRenderer.survivors())
-      if (survivors.length) {
-        const chunks: string[] = []
-        cdp.on('HeapProfiler.addHeapSnapshotChunk', event => chunks.push(event.chunk))
-        await cdp.send('HeapProfiler.takeHeapSnapshot')
-        await writeFile(`${out}/synthetic-retainers.heapsnapshot`, chunks.join(''))
-        throw new Error(`${mode} principal retained ${survivors.join(', ')}`)
-      }
+      if (survivors.length) throw new Error(`${mode} principal retained ${survivors.join(', ')}`)
       const heap = await cdp.send('Runtime.getHeapUsage')
       builds.push({ name, rebuild, readyMs, elapsedMs: performance.now() - began, heap: heap.usedSize, survivors })
     }
