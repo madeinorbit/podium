@@ -7,9 +7,12 @@ import {
 } from '@podium/client-core/perf'
 import { autorun, computed, observable, Reaction, runInAction } from 'mobx'
 import { afterEach, describe, expect, it } from 'vitest'
-import { installMobxWarnTrap } from '../../worklist-proto/harness/src/mobx-trap'
-import { MobxPool } from './pool'
-import { measureWorklistPoolDelivery, observeWorklistPoolPerf } from './sidebar-perf'
+import { MobxPool } from '@podium/client-graph'
+import {
+  measureWorklistPoolDelivery,
+  observeWorklistPoolPerf,
+} from '@podium/client-graph/sidebar-perf'
+import { installMobxWarnTrap } from './mobx-trap'
 
 installMobxWarnTrap()
 
