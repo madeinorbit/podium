@@ -1804,24 +1804,63 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     },
   )
 
-  it('POD-4992: still delivers a terminal phase that preceded the child stop', async () => {
-    const h = await harness({ sessions: [
-      fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated' }),
-      fakeSession({
-        sessionId: asSessionId('child'), status: 'hibernated', spawnedBy: 'session:parent',
-        stoppedAt: '2026-07-02T01:41:00.000Z',
-      }),
-    ] })
-    const ackFallback = vi.fn()
-    h.deps.messaging = { ackFallback }
-    await h.store.events.appendEvent({
-      ts: '2026-07-02T01:40:00.000Z', kind: 'session.phase', subject: 'child',
-      payload: { phase: 'idle', verdict: 'done' },
-    })
-    await new StewardService(h.deps).tick()
-    expect(h.sendNotice).toHaveBeenCalledTimes(1)
-    expect(ackFallback).toHaveBeenCalledTimes(1)
-  })
+  it.each((['hibernated', 'exited'] as const).flatMap((status) =>
+    (['legacy', 'causal'] as const).flatMap((source) =>
+      (['idle', 'errored'] as const).map((phase) => ({ status, source, phase })),
+    ),
+  ))(
+    'POD-5128: consumes a queued $source $phase phase after the child is $status without reporting settlement',
+    async ({ status, source, phase }) => {
+      const childId = asSessionId('child')
+      const parentId = asSessionId('parent')
+      const sessions = [
+        fakeSession({ sessionId: parentId, status: 'hibernated' }),
+        fakeSession({ sessionId: childId, status: 'live', spawnedBy: 'session:parent' }),
+      ]
+      const h = await harness({ sessions })
+      const ackFallback = vi.fn()
+      h.deps.messaging = { ackFallback }
+      await h.store.events.addSubscription({
+        id: 'queued-child-settled', subscriberKind: 'session', subscriberId: parentId,
+        sourceKind: 'session', sourceRef: childId,
+        event: phase === 'idle' ? 'session.finished' : 'session.errored',
+        deliverNudge: true, deliverNotify: true, origin: 'custom', enabled: true,
+        createdAt: '2026-07-02T00:00:00.000Z',
+      })
+      // The event was produced while live. A ten-hour backlog makes the
+      // steward see it only after the parent explicitly stopped the child.
+      const eventId = await h.store.events.appendEvent({
+        ts: '2026-07-02T10:48:34.290Z', kind: 'session.phase', subject: childId,
+        payload: {
+          producer: 'notify.session.stateChanged', sessionStatus: 'live', phase,
+          ...(phase === 'idle' ? { verdict: 'done' } : {}),
+          ...(source === 'causal' ? {
+            transitionId: 'terminal-before-stop', transitionKind: 'turn_terminal',
+            provenance: 'live', observerGeneration: 3, turnEpoch: 2,
+            providerCursor: { segmentId: 'child-rollout', components: { file: 42 } },
+            priorPhase: 'working', nextPhase: phase,
+          } : {}),
+        },
+      })
+      sessions[1] = fakeSession({
+        ...sessions[1], status, stoppedAt: '2026-07-02T12:19:13.703Z',
+      })
+      h.advanceTime(Date.parse('2026-07-02T22:05:27.495Z') - Date.parse('2026-07-02T00:00:00.000Z'))
+      expect(await h.store.events.getStewardState('cursor')).toBe('0')
+      const steward = new StewardService(h.deps)
+      await steward.tick({ limit: JANITOR_STEWARD_EVENT_LIMIT })
+      expect(h.sendNotice).not.toHaveBeenCalled()
+      expect(h.notify).not.toHaveBeenCalled()
+      expect(ackFallback).not.toHaveBeenCalled()
+      expect(await h.arbiter.isClaimed(`settle:${childId}`, childId)).toBe(false)
+      expect(await h.arbiter.isClaimed(`sessionparentnudge:phase-reported:${childId}`, parentId)).toBe(false)
+      expect(await h.store.events.getStewardState('cursor')).toBe(String(eventId))
+      // The historical row remains readable; only notification production is fenced.
+      expect(await h.store.events.listEventsSince(0)).toHaveLength(1)
+      await steward.tick()
+      expect(h.sendNotice).not.toHaveBeenCalled()
+    },
+  )
 
   it('wakes a PARKED session parent when the child settles idle+done', async () => {
     const sessions = [
