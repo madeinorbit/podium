@@ -930,19 +930,37 @@ describe('history rule warming', () => {
     expect(r.handle.snapshot().rowsById['history-child']).toBeDefined()
   })
 
-  it('a renewed keeper loads a cold agent parent only when its live child needs the nesting verdict', () => {
+  it('a stopped unbound starter answers ownership from its summary without becoming resident', () => {
     const r = rig()
-    r.push({ type: 'update', rows: [issue('history-outer', { archived: true }),
-      issue('history-parent', { parentId: 'history-outer', audience: 'agent',
-        stage: 'done', closedAt: old, closedReason: 'done' }),
-      issue('history-child', { parentId: 'history-parent' }),
-      seat('history-parent-seat', { issueId: 'history-parent', stoppedAt: old })] })
-    expect(r.pool.residency?.isCold('issue', 'history-parent')).toBe(true)
-    expect(poolPendingLoads(r.pool)).toBe(0)
+    const worktreePath = '/history-rule/starter-lane'
+    r.push({ type: 'update', rows: [issue('history-root', { worktreePath }),
+      issue('history-child', { audience: 'agent', stage: 'done', closedAt: old, closedReason: 'done',
+        startedBySession: 'history-starter' }),
+      seat('history-child-seat', { issueId: 'history-child' }),
+      seat('history-starter', { cwd: `${worktreePath}/agent`, stoppedAt: old })] })
+    expect(r.pool.residency?.isCold('session', 'history-starter')).toBe(true)
     expect(r.handle.snapshot().rowsById['history-child']).toBeDefined()
-    r.push({ type: 'update', rows: [seat('history-parent-seat', { issueId: 'history-parent', stoppedAt: null })] })
-    drain(r)
-    expect(r.pool.residency?.isCold('issue', 'history-parent')).toBe(false)
-    expect(r.handle.snapshot().rowsById['history-child']).toBeUndefined()
+    expect(r.pool.residency?.isCold('session', 'history-starter')).toBe(true)
+  })
+
+  it('a renewed keeper loads a cold agent parent only when its live child needs the nesting verdict', () => {
+    for (const lane of [false, true]) {
+      const r = rig()
+      const worktreePath = '/history-rule/parent-lane'
+      const binding = lane ? { cwd: `${worktreePath}/agent` } : { issueId: 'history-parent' }
+      r.push({ type: 'update', rows: [issue('history-outer', { archived: true }),
+        issue('history-parent', { parentId: 'history-outer', audience: 'agent', worktreePath,
+          stage: 'done', closedAt: old, closedReason: 'done' }),
+        issue('history-child', { parentId: 'history-parent' }),
+        seat('history-parent-seat', { ...binding, stoppedAt: old })] })
+      expect(r.pool.residency?.isCold('issue', 'history-parent')).toBe(true)
+      expect(poolPendingLoads(r.pool)).toBe(0)
+      expect(r.handle.snapshot().rowsById['history-child']).toBeDefined()
+      r.push({ type: 'update', rows: [seat('history-parent-seat', { ...binding, stoppedAt: null })] })
+      drain(r)
+      expect(r.pool.residency?.isCold('issue', 'history-parent')).toBe(false)
+      expect(r.handle.snapshot().rowsById['history-child']).toBeUndefined()
+      r.dispose()
+    }
   })
 })

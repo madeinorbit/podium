@@ -427,10 +427,9 @@ const EMPTY_IDS: readonly string[] = Object.freeze([])
 /**
  * The retained members of `self` at the clock (`rows.ts:70-76`);
  * `retained`/`liveRoster` stop at the first, the roll-ups (Hb3) take the
- * list. A COLD member keeps nothing and is not read: a session is cold only
- * while its issue is cold by the shared rule, which holds only once every
- * member's keep has passed (schema doc §5.1). `live` also drops exited ones
- * (`sessionVisibleInLiveRoster`).
+ * list. A cold member answers retention from its declared summary. A loaded
+ * placement-cold parent can still have pre-nesting presence from that seat.
+ * `live` also drops exited ones (`sessionVisibleInLiveRoster`).
  */
 export function retainedSeatIdsOf(
   input: VisibleInputs,
@@ -444,7 +443,7 @@ export function retainedSeatIdsOf(
   const out: string[] = []
   for (const sessionId of self.memberIds) {
     const session = input.session(sessionId)
-    if (session === undefined || !session.resident) continue
+    if (session === undefined) continue
     const retention = session.retention
     if (retention == null || !retention.seat || (live && retention.exited)) continue
     if (retention.finish.kind === 'idleDone' && standing.finished) issue ??= input.issueRow(id)
@@ -456,10 +455,7 @@ export function retainedSeatIdsOf(
 /**
  * The retained members of `self` at the clock, stopping at the first
  * (`rows.ts:70-76`); `live` also drops exited ones (`sessionVisibleInLiveRoster`).
- * A COLD member keeps nothing and is not read: a session is cold only while
- * its issue is cold by the shared rule, which holds only once every member's
- * keep has passed (schema doc §5.1). Its issue may be resident all the same
- * (loaded on first access), so this is decided per member.
+ * Cold members use the same declared retention summary as the full list.
  */
 function anyRetained(input: VisibleInputs, id: string, self: VisibleParts, live: boolean): boolean {
   return retainedSeatIdsOf(input, id, self, live).length > 0
@@ -477,12 +473,6 @@ function anyRetained(input: VisibleInputs, id: string, self: VisibleParts, live:
 function ownerOf(input: VisibleInputs, sessionId: string): string | null {
   const session = input.session(sessionId)
   if (session === undefined) return null
-  if (!session.resident) {
-    const link = session.issueLink
-    if (link === null || input.issue(link)?.present !== true) return null
-    const retention = session.retention
-    return retention !== null && !retention.archived && retention.issueId === link ? link : null
-  }
   const retention = session.retention
   if (retention === null || retention.archived) return null
   if (retention.issueId !== undefined) {

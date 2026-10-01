@@ -737,6 +737,7 @@ export class Residency {
       if (!counted) continue
       for (const owner of reader.members(lane.lane, at, lane.owners)) {
         this.ancestorDirty.get(lane.owner)?.add(owner)
+        this.notify(lane.owner, owner)
         if (!this.isCold(lane.owner, owner)) continue
         const finish = this.finish.get(`${lane.owner}:${owner}`)?.finish ?? null
         if (this.now() > keepDeadline(keep, finish)) continue
