@@ -29,7 +29,7 @@
     "1x.firstPaint.observables.object": 11,
     "1x.firstPaint.observables.set": 3004,
     "1x.firstPaint.observables.value.mapEntry": 24638,
-    "1x.firstPaint.observables.value.mapHas": 9455,
+    "1x.firstPaint.observables.value.mapHas": 9464,
     "1x.firstPaint.observables.value.standalone": 2,
     "1x.firstPaint.reactions.built": 2450,
     "1x.firstPaint.reactions.live": 2450,
@@ -43,7 +43,7 @@
     "1x.phases.firstPaint.built.atom": 129,
     "1x.phases.firstPaint.built.computed": 1019,
     "1x.phases.firstPaint.built.object": 8,
-    "1x.phases.firstPaint.built.observableValue": 593,
+    "1x.phases.firstPaint.built.observableValue": 594,
     "1x.phases.firstPaint.built.reaction": 61,
     "1x.phases.firstPaint.changes": 48,
     "1x.phases.firstPaint.computedRuns": 1014,
@@ -53,7 +53,7 @@
     "1x.phases.firstReactiveRun.built.array": 21,
     "1x.phases.firstReactiveRun.built.atom": 567,
     "1x.phases.firstReactiveRun.built.computed": 11727,
-    "1x.phases.firstReactiveRun.built.observableValue": 8883,
+    "1x.phases.firstReactiveRun.built.observableValue": 8891,
     "1x.phases.firstReactiveRun.changes": 2196,
     "1x.phases.firstReactiveRun.computedRuns": 11727,
     "1x.phases.firstReactiveRun.distinctRows": 3793,
@@ -64,7 +64,7 @@
     "1x.phases.ingest.built.set": 56,
     "1x.phases.ingest.changes": 19742,
     "1x.phases.ingest.distinctRows": 21219,
-    "1x.phases.ingest.rowReads": 339651,
+    "1x.phases.ingest.rowReads": 349359,
     "1x.phases.nodeConstruction.built.reaction": 2389,
     "1x.phases.relationUpkeep.built.array": 2133,
     "1x.phases.relationUpkeep.built.atom": 5081,
@@ -96,42 +96,42 @@
     "1x.startup.observables.object": 3,
     "1x.startup.observables.set": 3004,
     "1x.startup.observables.value.mapEntry": 24638,
-    "1x.startup.observables.value.mapHas": 8862,
+    "1x.startup.observables.value.mapHas": 8870,
     "1x.startup.observables.value.standalone": 2,
     "1x.startup.reactions.built": 2389,
     "1x.startup.reactions.live": 2389,
     "1x.startup.visibleRows": 732,
     "4x.firstPaint.byOwner.GroupNode.computeds": 48,
     "4x.firstPaint.byOwner.GroupNode.owners": 8,
-    "4x.firstPaint.byOwner.IssueModel.computeds": 41649,
-    "4x.firstPaint.byOwner.IssueModel.owners": 11045,
-    "4x.firstPaint.byOwner.IssueModel.reactions": 9655,
-    "4x.firstPaint.byOwner.SessionModel.computeds": 6483,
-    "4x.firstPaint.byOwner.SessionModel.owners": 5897,
+    "4x.firstPaint.byOwner.IssueModel.computeds": 41651,
+    "4x.firstPaint.byOwner.IssueModel.owners": 11044,
+    "4x.firstPaint.byOwner.IssueModel.reactions": 9656,
+    "4x.firstPaint.byOwner.SessionModel.computeds": 6485,
+    "4x.firstPaint.byOwner.SessionModel.owners": 5899,
     "4x.firstPaint.byOwner.WorklistGroups.computeds": 3,
     "4x.firstPaint.byOwner.WorklistGroups.owners": 1,
-    "4x.firstPaint.closedIssues.computeds": 12146,
-    "4x.firstPaint.closedIssues.owners": 3177,
-    "4x.firstPaint.closedIssues.reactions": 1757,
-    "4x.firstPaint.coldIssues.computeds": 1935,
-    "4x.firstPaint.coldIssues.owners": 1430,
+    "4x.firstPaint.closedIssues.computeds": 12148,
+    "4x.firstPaint.closedIssues.owners": 3176,
+    "4x.firstPaint.closedIssues.reactions": 1758,
+    "4x.firstPaint.coldIssues.computeds": 1933,
+    "4x.firstPaint.coldIssues.owners": 1428,
     "4x.firstPaint.coldSessions.computeds": 51,
     "4x.firstPaint.coldSessions.owners": 51,
-    "4x.firstPaint.computeds.declared": 48183,
-    "4x.firstPaint.computeds.total": 48183,
+    "4x.firstPaint.computeds.declared": 48187,
+    "4x.firstPaint.computeds.total": 48187,
     "4x.firstPaint.held.arrayElements": 23292,
-    "4x.firstPaint.held.mapEntries": 99384,
-    "4x.firstPaint.held.setMembers": 52790,
+    "4x.firstPaint.held.mapEntries": 99397,
+    "4x.firstPaint.held.setMembers": 52807,
     "4x.firstPaint.observables.array": 8574,
-    "4x.firstPaint.observables.atom": 23038,
+    "4x.firstPaint.observables.atom": 23040,
     "4x.firstPaint.observables.map": 31,
     "4x.firstPaint.observables.object": 11,
-    "4x.firstPaint.observables.set": 12132,
-    "4x.firstPaint.observables.value.mapEntry": 99384,
-    "4x.firstPaint.observables.value.mapHas": 36281,
+    "4x.firstPaint.observables.set": 12136,
+    "4x.firstPaint.observables.value.mapEntry": 99397,
+    "4x.firstPaint.observables.value.mapHas": 36306,
     "4x.firstPaint.observables.value.standalone": 5,
-    "4x.firstPaint.reactions.built": 9676,
-    "4x.firstPaint.reactions.live": 9676,
+    "4x.firstPaint.reactions.built": 9677,
+    "4x.firstPaint.reactions.live": 9677,
     "4x.firstPaint.visibleRows": 2928,
     "4x.phases.create.built.atom": 35,
     "4x.phases.create.built.computed": 3,
@@ -150,55 +150,55 @@
     "4x.phases.firstPaint.reactionRuns": 61,
     "4x.phases.firstPaint.rowReads": 3738,
     "4x.phases.firstReactiveRun.built.array": 24,
-    "4x.phases.firstReactiveRun.built.atom": 2168,
-    "4x.phases.firstReactiveRun.built.computed": 46830,
-    "4x.phases.firstReactiveRun.built.observableValue": 35441,
+    "4x.phases.firstReactiveRun.built.atom": 2166,
+    "4x.phases.firstReactiveRun.built.computed": 46834,
+    "4x.phases.firstReactiveRun.built.observableValue": 35466,
     "4x.phases.firstReactiveRun.changes": 8724,
-    "4x.phases.firstReactiveRun.computedRuns": 46830,
-    "4x.phases.firstReactiveRun.distinctRows": 15467,
-    "4x.phases.firstReactiveRun.reactionRuns": 9615,
-    "4x.phases.firstReactiveRun.rowReads": 438474,
+    "4x.phases.firstReactiveRun.computedRuns": 46834,
+    "4x.phases.firstReactiveRun.distinctRows": 15470,
+    "4x.phases.firstReactiveRun.reactionRuns": 9616,
+    "4x.phases.firstReactiveRun.rowReads": 438539,
     "4x.phases.ingest.built.atom": 169,
-    "4x.phases.ingest.built.observableValue": 78851,
+    "4x.phases.ingest.built.observableValue": 78860,
     "4x.phases.ingest.built.set": 169,
-    "4x.phases.ingest.changes": 79641,
-    "4x.phases.ingest.distinctRows": 84913,
-    "4x.phases.ingest.rowReads": 1326486,
-    "4x.phases.nodeConstruction.built.reaction": 9615,
+    "4x.phases.ingest.changes": 79650,
+    "4x.phases.ingest.distinctRows": 84914,
+    "4x.phases.ingest.rowReads": 1362047,
+    "4x.phases.nodeConstruction.built.reaction": 9616,
     "4x.phases.relationUpkeep.built.array": 8550,
-    "4x.phases.relationUpkeep.built.atom": 20513,
-    "4x.phases.relationUpkeep.built.observableValue": 20513,
-    "4x.phases.relationUpkeep.built.set": 11963,
-    "4x.phases.relationUpkeep.changes": 87171,
-    "4x.startup.byOwner.IssueModel.computeds": 40509,
-    "4x.startup.byOwner.IssueModel.owners": 10954,
-    "4x.startup.byOwner.IssueModel.reactions": 9615,
-    "4x.startup.byOwner.SessionModel.computeds": 6321,
-    "4x.startup.byOwner.SessionModel.owners": 5897,
+    "4x.phases.relationUpkeep.built.atom": 20517,
+    "4x.phases.relationUpkeep.built.observableValue": 20517,
+    "4x.phases.relationUpkeep.built.set": 11967,
+    "4x.phases.relationUpkeep.changes": 87192,
+    "4x.startup.byOwner.IssueModel.computeds": 40511,
+    "4x.startup.byOwner.IssueModel.owners": 10953,
+    "4x.startup.byOwner.IssueModel.reactions": 9616,
+    "4x.startup.byOwner.SessionModel.computeds": 6323,
+    "4x.startup.byOwner.SessionModel.owners": 5899,
     "4x.startup.byOwner.WorklistGroups.computeds": 3,
     "4x.startup.byOwner.WorklistGroups.owners": 1,
-    "4x.startup.closedIssues.computeds": 11679,
-    "4x.startup.closedIssues.owners": 3088,
-    "4x.startup.closedIssues.reactions": 1755,
-    "4x.startup.coldIssues.computeds": 1664,
-    "4x.startup.coldIssues.owners": 1339,
+    "4x.startup.closedIssues.computeds": 11681,
+    "4x.startup.closedIssues.owners": 3087,
+    "4x.startup.closedIssues.reactions": 1756,
+    "4x.startup.coldIssues.computeds": 1662,
+    "4x.startup.coldIssues.owners": 1337,
     "4x.startup.coldSessions.computeds": 51,
     "4x.startup.coldSessions.owners": 51,
-    "4x.startup.computeds.declared": 46833,
-    "4x.startup.computeds.total": 46833,
+    "4x.startup.computeds.declared": 46837,
+    "4x.startup.computeds.total": 46837,
     "4x.startup.held.arrayElements": 23292,
-    "4x.startup.held.mapEntries": 99384,
-    "4x.startup.held.setMembers": 52790,
+    "4x.startup.held.mapEntries": 99397,
+    "4x.startup.held.setMembers": 52807,
     "4x.startup.observables.array": 8574,
-    "4x.startup.observables.atom": 22885,
+    "4x.startup.observables.atom": 22887,
     "4x.startup.observables.map": 31,
     "4x.startup.observables.object": 3,
-    "4x.startup.observables.set": 12132,
-    "4x.startup.observables.value.mapEntry": 99384,
-    "4x.startup.observables.value.mapHas": 35417,
+    "4x.startup.observables.set": 12136,
+    "4x.startup.observables.value.mapEntry": 99397,
+    "4x.startup.observables.value.mapHas": 35442,
     "4x.startup.observables.value.standalone": 5,
-    "4x.startup.reactions.built": 9615,
-    "4x.startup.reactions.live": 9615,
+    "4x.startup.reactions.built": 9616,
+    "4x.startup.reactions.live": 9616,
     "4x.startup.visibleRows": 2928,
     "write-idle.1x.firstPaint.byOwner.GroupNode.computeds": 48,
     "write-idle.1x.firstPaint.byOwner.GroupNode.owners": 8,
@@ -227,7 +227,7 @@
     "write-idle.1x.firstPaint.observables.object": 11,
     "write-idle.1x.firstPaint.observables.set": 3004,
     "write-idle.1x.firstPaint.observables.value.mapEntry": 24638,
-    "write-idle.1x.firstPaint.observables.value.mapHas": 11844,
+    "write-idle.1x.firstPaint.observables.value.mapHas": 11853,
     "write-idle.1x.firstPaint.observables.value.standalone": 2,
     "write-idle.1x.firstPaint.reactions.built": 2450,
     "write-idle.1x.firstPaint.reactions.live": 2450,
@@ -241,7 +241,7 @@
     "write-idle.1x.phases.firstPaint.built.atom": 129,
     "write-idle.1x.phases.firstPaint.built.computed": 1019,
     "write-idle.1x.phases.firstPaint.built.object": 8,
-    "write-idle.1x.phases.firstPaint.built.observableValue": 593,
+    "write-idle.1x.phases.firstPaint.built.observableValue": 594,
     "write-idle.1x.phases.firstPaint.built.reaction": 61,
     "write-idle.1x.phases.firstPaint.changes": 48,
     "write-idle.1x.phases.firstPaint.computedRuns": 1014,
@@ -251,7 +251,7 @@
     "write-idle.1x.phases.firstReactiveRun.built.array": 21,
     "write-idle.1x.phases.firstReactiveRun.built.atom": 567,
     "write-idle.1x.phases.firstReactiveRun.built.computed": 11727,
-    "write-idle.1x.phases.firstReactiveRun.built.observableValue": 11272,
+    "write-idle.1x.phases.firstReactiveRun.built.observableValue": 11280,
     "write-idle.1x.phases.firstReactiveRun.changes": 2196,
     "write-idle.1x.phases.firstReactiveRun.computedRuns": 11727,
     "write-idle.1x.phases.firstReactiveRun.distinctRows": 3793,
@@ -262,7 +262,7 @@
     "write-idle.1x.phases.ingest.built.set": 56,
     "write-idle.1x.phases.ingest.changes": 19742,
     "write-idle.1x.phases.ingest.distinctRows": 21219,
-    "write-idle.1x.phases.ingest.rowReads": 339651,
+    "write-idle.1x.phases.ingest.rowReads": 349359,
     "write-idle.1x.phases.nodeConstruction.built.reaction": 2389,
     "write-idle.1x.phases.relationUpkeep.built.array": 2133,
     "write-idle.1x.phases.relationUpkeep.built.atom": 5081,
@@ -294,42 +294,42 @@
     "write-idle.1x.startup.observables.object": 3,
     "write-idle.1x.startup.observables.set": 3004,
     "write-idle.1x.startup.observables.value.mapEntry": 24638,
-    "write-idle.1x.startup.observables.value.mapHas": 11251,
+    "write-idle.1x.startup.observables.value.mapHas": 11259,
     "write-idle.1x.startup.observables.value.standalone": 2,
     "write-idle.1x.startup.reactions.built": 2389,
     "write-idle.1x.startup.reactions.live": 2389,
     "write-idle.1x.startup.visibleRows": 732,
     "write-idle.4x.firstPaint.byOwner.GroupNode.computeds": 48,
     "write-idle.4x.firstPaint.byOwner.GroupNode.owners": 8,
-    "write-idle.4x.firstPaint.byOwner.IssueModel.computeds": 41649,
-    "write-idle.4x.firstPaint.byOwner.IssueModel.owners": 11045,
-    "write-idle.4x.firstPaint.byOwner.IssueModel.reactions": 9655,
-    "write-idle.4x.firstPaint.byOwner.SessionModel.computeds": 6483,
-    "write-idle.4x.firstPaint.byOwner.SessionModel.owners": 5897,
+    "write-idle.4x.firstPaint.byOwner.IssueModel.computeds": 41651,
+    "write-idle.4x.firstPaint.byOwner.IssueModel.owners": 11044,
+    "write-idle.4x.firstPaint.byOwner.IssueModel.reactions": 9656,
+    "write-idle.4x.firstPaint.byOwner.SessionModel.computeds": 6485,
+    "write-idle.4x.firstPaint.byOwner.SessionModel.owners": 5899,
     "write-idle.4x.firstPaint.byOwner.WorklistGroups.computeds": 3,
     "write-idle.4x.firstPaint.byOwner.WorklistGroups.owners": 1,
-    "write-idle.4x.firstPaint.closedIssues.computeds": 12146,
-    "write-idle.4x.firstPaint.closedIssues.owners": 3177,
-    "write-idle.4x.firstPaint.closedIssues.reactions": 1757,
-    "write-idle.4x.firstPaint.coldIssues.computeds": 1935,
-    "write-idle.4x.firstPaint.coldIssues.owners": 1430,
+    "write-idle.4x.firstPaint.closedIssues.computeds": 12148,
+    "write-idle.4x.firstPaint.closedIssues.owners": 3176,
+    "write-idle.4x.firstPaint.closedIssues.reactions": 1758,
+    "write-idle.4x.firstPaint.coldIssues.computeds": 1933,
+    "write-idle.4x.firstPaint.coldIssues.owners": 1428,
     "write-idle.4x.firstPaint.coldSessions.computeds": 51,
     "write-idle.4x.firstPaint.coldSessions.owners": 51,
-    "write-idle.4x.firstPaint.computeds.declared": 48183,
-    "write-idle.4x.firstPaint.computeds.total": 48183,
+    "write-idle.4x.firstPaint.computeds.declared": 48187,
+    "write-idle.4x.firstPaint.computeds.total": 48187,
     "write-idle.4x.firstPaint.held.arrayElements": 23292,
-    "write-idle.4x.firstPaint.held.mapEntries": 99384,
-    "write-idle.4x.firstPaint.held.setMembers": 52790,
+    "write-idle.4x.firstPaint.held.mapEntries": 99397,
+    "write-idle.4x.firstPaint.held.setMembers": 52807,
     "write-idle.4x.firstPaint.observables.array": 8574,
-    "write-idle.4x.firstPaint.observables.atom": 23039,
+    "write-idle.4x.firstPaint.observables.atom": 23041,
     "write-idle.4x.firstPaint.observables.map": 32,
     "write-idle.4x.firstPaint.observables.object": 11,
-    "write-idle.4x.firstPaint.observables.set": 12132,
-    "write-idle.4x.firstPaint.observables.value.mapEntry": 99384,
-    "write-idle.4x.firstPaint.observables.value.mapHas": 45896,
+    "write-idle.4x.firstPaint.observables.set": 12136,
+    "write-idle.4x.firstPaint.observables.value.mapEntry": 99397,
+    "write-idle.4x.firstPaint.observables.value.mapHas": 45922,
     "write-idle.4x.firstPaint.observables.value.standalone": 5,
-    "write-idle.4x.firstPaint.reactions.built": 9676,
-    "write-idle.4x.firstPaint.reactions.live": 9676,
+    "write-idle.4x.firstPaint.reactions.built": 9677,
+    "write-idle.4x.firstPaint.reactions.live": 9677,
     "write-idle.4x.firstPaint.visibleRows": 2928,
     "write-idle.4x.phases.create.built.atom": 36,
     "write-idle.4x.phases.create.built.computed": 3,
@@ -348,55 +348,55 @@
     "write-idle.4x.phases.firstPaint.reactionRuns": 61,
     "write-idle.4x.phases.firstPaint.rowReads": 3738,
     "write-idle.4x.phases.firstReactiveRun.built.array": 24,
-    "write-idle.4x.phases.firstReactiveRun.built.atom": 2168,
-    "write-idle.4x.phases.firstReactiveRun.built.computed": 46830,
-    "write-idle.4x.phases.firstReactiveRun.built.observableValue": 45056,
+    "write-idle.4x.phases.firstReactiveRun.built.atom": 2166,
+    "write-idle.4x.phases.firstReactiveRun.built.computed": 46834,
+    "write-idle.4x.phases.firstReactiveRun.built.observableValue": 45082,
     "write-idle.4x.phases.firstReactiveRun.changes": 8724,
-    "write-idle.4x.phases.firstReactiveRun.computedRuns": 46830,
-    "write-idle.4x.phases.firstReactiveRun.distinctRows": 15467,
-    "write-idle.4x.phases.firstReactiveRun.reactionRuns": 9615,
-    "write-idle.4x.phases.firstReactiveRun.rowReads": 438474,
+    "write-idle.4x.phases.firstReactiveRun.computedRuns": 46834,
+    "write-idle.4x.phases.firstReactiveRun.distinctRows": 15470,
+    "write-idle.4x.phases.firstReactiveRun.reactionRuns": 9616,
+    "write-idle.4x.phases.firstReactiveRun.rowReads": 438539,
     "write-idle.4x.phases.ingest.built.atom": 169,
-    "write-idle.4x.phases.ingest.built.observableValue": 78851,
+    "write-idle.4x.phases.ingest.built.observableValue": 78860,
     "write-idle.4x.phases.ingest.built.set": 169,
-    "write-idle.4x.phases.ingest.changes": 79641,
-    "write-idle.4x.phases.ingest.distinctRows": 84913,
-    "write-idle.4x.phases.ingest.rowReads": 1326486,
-    "write-idle.4x.phases.nodeConstruction.built.reaction": 9615,
+    "write-idle.4x.phases.ingest.changes": 79650,
+    "write-idle.4x.phases.ingest.distinctRows": 84914,
+    "write-idle.4x.phases.ingest.rowReads": 1362047,
+    "write-idle.4x.phases.nodeConstruction.built.reaction": 9616,
     "write-idle.4x.phases.relationUpkeep.built.array": 8550,
-    "write-idle.4x.phases.relationUpkeep.built.atom": 20513,
-    "write-idle.4x.phases.relationUpkeep.built.observableValue": 20513,
-    "write-idle.4x.phases.relationUpkeep.built.set": 11963,
-    "write-idle.4x.phases.relationUpkeep.changes": 87171,
-    "write-idle.4x.startup.byOwner.IssueModel.computeds": 40509,
-    "write-idle.4x.startup.byOwner.IssueModel.owners": 10954,
-    "write-idle.4x.startup.byOwner.IssueModel.reactions": 9615,
-    "write-idle.4x.startup.byOwner.SessionModel.computeds": 6321,
-    "write-idle.4x.startup.byOwner.SessionModel.owners": 5897,
+    "write-idle.4x.phases.relationUpkeep.built.atom": 20517,
+    "write-idle.4x.phases.relationUpkeep.built.observableValue": 20517,
+    "write-idle.4x.phases.relationUpkeep.built.set": 11967,
+    "write-idle.4x.phases.relationUpkeep.changes": 87192,
+    "write-idle.4x.startup.byOwner.IssueModel.computeds": 40511,
+    "write-idle.4x.startup.byOwner.IssueModel.owners": 10953,
+    "write-idle.4x.startup.byOwner.IssueModel.reactions": 9616,
+    "write-idle.4x.startup.byOwner.SessionModel.computeds": 6323,
+    "write-idle.4x.startup.byOwner.SessionModel.owners": 5899,
     "write-idle.4x.startup.byOwner.WorklistGroups.computeds": 3,
     "write-idle.4x.startup.byOwner.WorklistGroups.owners": 1,
-    "write-idle.4x.startup.closedIssues.computeds": 11679,
-    "write-idle.4x.startup.closedIssues.owners": 3088,
-    "write-idle.4x.startup.closedIssues.reactions": 1755,
-    "write-idle.4x.startup.coldIssues.computeds": 1664,
-    "write-idle.4x.startup.coldIssues.owners": 1339,
+    "write-idle.4x.startup.closedIssues.computeds": 11681,
+    "write-idle.4x.startup.closedIssues.owners": 3087,
+    "write-idle.4x.startup.closedIssues.reactions": 1756,
+    "write-idle.4x.startup.coldIssues.computeds": 1662,
+    "write-idle.4x.startup.coldIssues.owners": 1337,
     "write-idle.4x.startup.coldSessions.computeds": 51,
     "write-idle.4x.startup.coldSessions.owners": 51,
-    "write-idle.4x.startup.computeds.declared": 46833,
-    "write-idle.4x.startup.computeds.total": 46833,
+    "write-idle.4x.startup.computeds.declared": 46837,
+    "write-idle.4x.startup.computeds.total": 46837,
     "write-idle.4x.startup.held.arrayElements": 23292,
-    "write-idle.4x.startup.held.mapEntries": 99384,
-    "write-idle.4x.startup.held.setMembers": 52790,
+    "write-idle.4x.startup.held.mapEntries": 99397,
+    "write-idle.4x.startup.held.setMembers": 52807,
     "write-idle.4x.startup.observables.array": 8574,
-    "write-idle.4x.startup.observables.atom": 22886,
+    "write-idle.4x.startup.observables.atom": 22888,
     "write-idle.4x.startup.observables.map": 32,
     "write-idle.4x.startup.observables.object": 3,
-    "write-idle.4x.startup.observables.set": 12132,
-    "write-idle.4x.startup.observables.value.mapEntry": 99384,
-    "write-idle.4x.startup.observables.value.mapHas": 45032,
+    "write-idle.4x.startup.observables.set": 12136,
+    "write-idle.4x.startup.observables.value.mapEntry": 99397,
+    "write-idle.4x.startup.observables.value.mapHas": 45058,
     "write-idle.4x.startup.observables.value.standalone": 5,
-    "write-idle.4x.startup.reactions.built": 9615,
-    "write-idle.4x.startup.reactions.live": 9615,
+    "write-idle.4x.startup.reactions.built": 9616,
+    "write-idle.4x.startup.reactions.live": 9616,
     "write-idle.4x.startup.visibleRows": 2928,
     "write-pending.1x.firstPaint.byOwner.GroupNode.computeds": 48,
     "write-pending.1x.firstPaint.byOwner.GroupNode.owners": 8,
@@ -425,7 +425,7 @@
     "write-pending.1x.firstPaint.observables.object": 11,
     "write-pending.1x.firstPaint.observables.set": 3004,
     "write-pending.1x.firstPaint.observables.value.mapEntry": 24641,
-    "write-pending.1x.firstPaint.observables.value.mapHas": 11844,
+    "write-pending.1x.firstPaint.observables.value.mapHas": 11853,
     "write-pending.1x.firstPaint.observables.value.standalone": 2,
     "write-pending.1x.firstPaint.reactions.built": 2450,
     "write-pending.1x.firstPaint.reactions.live": 2450,
@@ -442,7 +442,7 @@
     "write-pending.1x.phases.firstPaint.built.atom": 129,
     "write-pending.1x.phases.firstPaint.built.computed": 1019,
     "write-pending.1x.phases.firstPaint.built.object": 8,
-    "write-pending.1x.phases.firstPaint.built.observableValue": 593,
+    "write-pending.1x.phases.firstPaint.built.observableValue": 594,
     "write-pending.1x.phases.firstPaint.built.reaction": 61,
     "write-pending.1x.phases.firstPaint.changes": 48,
     "write-pending.1x.phases.firstPaint.computedRuns": 1014,
@@ -452,7 +452,7 @@
     "write-pending.1x.phases.firstReactiveRun.built.array": 21,
     "write-pending.1x.phases.firstReactiveRun.built.atom": 567,
     "write-pending.1x.phases.firstReactiveRun.built.computed": 11727,
-    "write-pending.1x.phases.firstReactiveRun.built.observableValue": 11272,
+    "write-pending.1x.phases.firstReactiveRun.built.observableValue": 11280,
     "write-pending.1x.phases.firstReactiveRun.changes": 2196,
     "write-pending.1x.phases.firstReactiveRun.computedRuns": 11727,
     "write-pending.1x.phases.firstReactiveRun.distinctRows": 3793,
@@ -463,7 +463,7 @@
     "write-pending.1x.phases.ingest.built.set": 56,
     "write-pending.1x.phases.ingest.changes": 19742,
     "write-pending.1x.phases.ingest.distinctRows": 21219,
-    "write-pending.1x.phases.ingest.rowReads": 339651,
+    "write-pending.1x.phases.ingest.rowReads": 349359,
     "write-pending.1x.phases.nodeConstruction.built.reaction": 2389,
     "write-pending.1x.phases.relationUpkeep.built.array": 2133,
     "write-pending.1x.phases.relationUpkeep.built.atom": 5081,
@@ -495,42 +495,42 @@
     "write-pending.1x.startup.observables.object": 3,
     "write-pending.1x.startup.observables.set": 3004,
     "write-pending.1x.startup.observables.value.mapEntry": 24641,
-    "write-pending.1x.startup.observables.value.mapHas": 11251,
+    "write-pending.1x.startup.observables.value.mapHas": 11259,
     "write-pending.1x.startup.observables.value.standalone": 2,
     "write-pending.1x.startup.reactions.built": 2389,
     "write-pending.1x.startup.reactions.live": 2389,
     "write-pending.1x.startup.visibleRows": 732,
     "write-pending.4x.firstPaint.byOwner.GroupNode.computeds": 48,
     "write-pending.4x.firstPaint.byOwner.GroupNode.owners": 8,
-    "write-pending.4x.firstPaint.byOwner.IssueModel.computeds": 41649,
-    "write-pending.4x.firstPaint.byOwner.IssueModel.owners": 11045,
-    "write-pending.4x.firstPaint.byOwner.IssueModel.reactions": 9655,
-    "write-pending.4x.firstPaint.byOwner.SessionModel.computeds": 6483,
-    "write-pending.4x.firstPaint.byOwner.SessionModel.owners": 5897,
+    "write-pending.4x.firstPaint.byOwner.IssueModel.computeds": 41651,
+    "write-pending.4x.firstPaint.byOwner.IssueModel.owners": 11044,
+    "write-pending.4x.firstPaint.byOwner.IssueModel.reactions": 9656,
+    "write-pending.4x.firstPaint.byOwner.SessionModel.computeds": 6485,
+    "write-pending.4x.firstPaint.byOwner.SessionModel.owners": 5899,
     "write-pending.4x.firstPaint.byOwner.WorklistGroups.computeds": 3,
     "write-pending.4x.firstPaint.byOwner.WorklistGroups.owners": 1,
-    "write-pending.4x.firstPaint.closedIssues.computeds": 12146,
-    "write-pending.4x.firstPaint.closedIssues.owners": 3177,
-    "write-pending.4x.firstPaint.closedIssues.reactions": 1757,
-    "write-pending.4x.firstPaint.coldIssues.computeds": 1935,
-    "write-pending.4x.firstPaint.coldIssues.owners": 1430,
+    "write-pending.4x.firstPaint.closedIssues.computeds": 12148,
+    "write-pending.4x.firstPaint.closedIssues.owners": 3176,
+    "write-pending.4x.firstPaint.closedIssues.reactions": 1758,
+    "write-pending.4x.firstPaint.coldIssues.computeds": 1933,
+    "write-pending.4x.firstPaint.coldIssues.owners": 1428,
     "write-pending.4x.firstPaint.coldSessions.computeds": 51,
     "write-pending.4x.firstPaint.coldSessions.owners": 51,
-    "write-pending.4x.firstPaint.computeds.declared": 48183,
-    "write-pending.4x.firstPaint.computeds.total": 48183,
+    "write-pending.4x.firstPaint.computeds.declared": 48187,
+    "write-pending.4x.firstPaint.computeds.total": 48187,
     "write-pending.4x.firstPaint.held.arrayElements": 23292,
-    "write-pending.4x.firstPaint.held.mapEntries": 99387,
-    "write-pending.4x.firstPaint.held.setMembers": 52790,
+    "write-pending.4x.firstPaint.held.mapEntries": 99400,
+    "write-pending.4x.firstPaint.held.setMembers": 52807,
     "write-pending.4x.firstPaint.observables.array": 8574,
-    "write-pending.4x.firstPaint.observables.atom": 23039,
+    "write-pending.4x.firstPaint.observables.atom": 23041,
     "write-pending.4x.firstPaint.observables.map": 32,
     "write-pending.4x.firstPaint.observables.object": 11,
-    "write-pending.4x.firstPaint.observables.set": 12132,
-    "write-pending.4x.firstPaint.observables.value.mapEntry": 99387,
-    "write-pending.4x.firstPaint.observables.value.mapHas": 45896,
+    "write-pending.4x.firstPaint.observables.set": 12136,
+    "write-pending.4x.firstPaint.observables.value.mapEntry": 99400,
+    "write-pending.4x.firstPaint.observables.value.mapHas": 45922,
     "write-pending.4x.firstPaint.observables.value.standalone": 5,
-    "write-pending.4x.firstPaint.reactions.built": 9676,
-    "write-pending.4x.firstPaint.reactions.live": 9676,
+    "write-pending.4x.firstPaint.reactions.built": 9677,
+    "write-pending.4x.firstPaint.reactions.live": 9677,
     "write-pending.4x.firstPaint.visibleRows": 2928,
     "write-pending.4x.phases.create.built.atom": 36,
     "write-pending.4x.phases.create.built.computed": 3,
@@ -552,55 +552,55 @@
     "write-pending.4x.phases.firstPaint.reactionRuns": 61,
     "write-pending.4x.phases.firstPaint.rowReads": 4078,
     "write-pending.4x.phases.firstReactiveRun.built.array": 24,
-    "write-pending.4x.phases.firstReactiveRun.built.atom": 2168,
-    "write-pending.4x.phases.firstReactiveRun.built.computed": 46830,
-    "write-pending.4x.phases.firstReactiveRun.built.observableValue": 45056,
+    "write-pending.4x.phases.firstReactiveRun.built.atom": 2166,
+    "write-pending.4x.phases.firstReactiveRun.built.computed": 46834,
+    "write-pending.4x.phases.firstReactiveRun.built.observableValue": 45082,
     "write-pending.4x.phases.firstReactiveRun.changes": 8724,
-    "write-pending.4x.phases.firstReactiveRun.computedRuns": 46830,
-    "write-pending.4x.phases.firstReactiveRun.distinctRows": 15467,
-    "write-pending.4x.phases.firstReactiveRun.reactionRuns": 9615,
-    "write-pending.4x.phases.firstReactiveRun.rowReads": 438474,
+    "write-pending.4x.phases.firstReactiveRun.computedRuns": 46834,
+    "write-pending.4x.phases.firstReactiveRun.distinctRows": 15470,
+    "write-pending.4x.phases.firstReactiveRun.reactionRuns": 9616,
+    "write-pending.4x.phases.firstReactiveRun.rowReads": 438539,
     "write-pending.4x.phases.ingest.built.atom": 169,
-    "write-pending.4x.phases.ingest.built.observableValue": 78851,
+    "write-pending.4x.phases.ingest.built.observableValue": 78860,
     "write-pending.4x.phases.ingest.built.set": 169,
-    "write-pending.4x.phases.ingest.changes": 79641,
-    "write-pending.4x.phases.ingest.distinctRows": 84913,
-    "write-pending.4x.phases.ingest.rowReads": 1326486,
-    "write-pending.4x.phases.nodeConstruction.built.reaction": 9615,
+    "write-pending.4x.phases.ingest.changes": 79650,
+    "write-pending.4x.phases.ingest.distinctRows": 84914,
+    "write-pending.4x.phases.ingest.rowReads": 1362047,
+    "write-pending.4x.phases.nodeConstruction.built.reaction": 9616,
     "write-pending.4x.phases.relationUpkeep.built.array": 8550,
-    "write-pending.4x.phases.relationUpkeep.built.atom": 20513,
-    "write-pending.4x.phases.relationUpkeep.built.observableValue": 20513,
-    "write-pending.4x.phases.relationUpkeep.built.set": 11963,
-    "write-pending.4x.phases.relationUpkeep.changes": 87171,
-    "write-pending.4x.startup.byOwner.IssueModel.computeds": 40509,
-    "write-pending.4x.startup.byOwner.IssueModel.owners": 10954,
-    "write-pending.4x.startup.byOwner.IssueModel.reactions": 9615,
-    "write-pending.4x.startup.byOwner.SessionModel.computeds": 6321,
-    "write-pending.4x.startup.byOwner.SessionModel.owners": 5897,
+    "write-pending.4x.phases.relationUpkeep.built.atom": 20517,
+    "write-pending.4x.phases.relationUpkeep.built.observableValue": 20517,
+    "write-pending.4x.phases.relationUpkeep.built.set": 11967,
+    "write-pending.4x.phases.relationUpkeep.changes": 87192,
+    "write-pending.4x.startup.byOwner.IssueModel.computeds": 40511,
+    "write-pending.4x.startup.byOwner.IssueModel.owners": 10953,
+    "write-pending.4x.startup.byOwner.IssueModel.reactions": 9616,
+    "write-pending.4x.startup.byOwner.SessionModel.computeds": 6323,
+    "write-pending.4x.startup.byOwner.SessionModel.owners": 5899,
     "write-pending.4x.startup.byOwner.WorklistGroups.computeds": 3,
     "write-pending.4x.startup.byOwner.WorklistGroups.owners": 1,
-    "write-pending.4x.startup.closedIssues.computeds": 11679,
-    "write-pending.4x.startup.closedIssues.owners": 3088,
-    "write-pending.4x.startup.closedIssues.reactions": 1755,
-    "write-pending.4x.startup.coldIssues.computeds": 1664,
-    "write-pending.4x.startup.coldIssues.owners": 1339,
+    "write-pending.4x.startup.closedIssues.computeds": 11681,
+    "write-pending.4x.startup.closedIssues.owners": 3087,
+    "write-pending.4x.startup.closedIssues.reactions": 1756,
+    "write-pending.4x.startup.coldIssues.computeds": 1662,
+    "write-pending.4x.startup.coldIssues.owners": 1337,
     "write-pending.4x.startup.coldSessions.computeds": 51,
     "write-pending.4x.startup.coldSessions.owners": 51,
-    "write-pending.4x.startup.computeds.declared": 46833,
-    "write-pending.4x.startup.computeds.total": 46833,
+    "write-pending.4x.startup.computeds.declared": 46837,
+    "write-pending.4x.startup.computeds.total": 46837,
     "write-pending.4x.startup.held.arrayElements": 23292,
-    "write-pending.4x.startup.held.mapEntries": 99387,
-    "write-pending.4x.startup.held.setMembers": 52790,
+    "write-pending.4x.startup.held.mapEntries": 99400,
+    "write-pending.4x.startup.held.setMembers": 52807,
     "write-pending.4x.startup.observables.array": 8574,
-    "write-pending.4x.startup.observables.atom": 22886,
+    "write-pending.4x.startup.observables.atom": 22888,
     "write-pending.4x.startup.observables.map": 32,
     "write-pending.4x.startup.observables.object": 3,
-    "write-pending.4x.startup.observables.set": 12132,
-    "write-pending.4x.startup.observables.value.mapEntry": 99387,
-    "write-pending.4x.startup.observables.value.mapHas": 45032,
+    "write-pending.4x.startup.observables.set": 12136,
+    "write-pending.4x.startup.observables.value.mapEntry": 99400,
+    "write-pending.4x.startup.observables.value.mapHas": 45058,
     "write-pending.4x.startup.observables.value.standalone": 5,
-    "write-pending.4x.startup.reactions.built": 9615,
-    "write-pending.4x.startup.reactions.live": 9615,
+    "write-pending.4x.startup.reactions.built": 9616,
+    "write-pending.4x.startup.reactions.live": 9616,
     "write-pending.4x.startup.visibleRows": 2928
   },
   "comparisonBase": "477f878df",
@@ -609,19 +609,19 @@
       "before": 12300,
       "after": 11038,
       "delta": -1262,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.firstPaint.byOwner.IssueModel.owners": {
       "before": 3252,
       "after": 2828,
       "delta": -424,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.firstPaint.byOwner.IssueModel.reactions": {
       "before": 2776,
       "after": 2429,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.firstPaint.byOwner.SessionModel.computeds": {
       "before": 2007,
@@ -639,19 +639,19 @@
       "before": 4024,
       "after": 3362,
       "delta": -662,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.firstPaint.closedIssues.owners": {
       "before": 1086,
       "after": 859,
       "delta": -227,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.firstPaint.closedIssues.reactions": {
       "before": 578,
       "after": 432,
       "delta": -146,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.firstPaint.coldIssues.computeds": {
       "before": 726,
@@ -721,8 +721,8 @@
     },
     "1x.firstPaint.observables.value.mapHas": {
       "before": 10545,
-      "after": 9455,
-      "delta": -1090,
+      "after": 9464,
+      "delta": -1081,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "1x.firstPaint.observables.value.standalone": {
@@ -735,13 +735,13 @@
       "before": 2797,
       "after": 2450,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.firstPaint.reactions.live": {
       "before": 2797,
       "after": 2450,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.phases.firstPaint.built.atom": {
       "before": 123,
@@ -757,8 +757,8 @@
     },
     "1x.phases.firstPaint.built.observableValue": {
       "before": 584,
-      "after": 593,
-      "delta": 9,
+      "after": 594,
+      "delta": 10,
       "reason": "The same 20-row paint window observes the smaller resident graph; cold session activity reads declared summaries without synchronous loads."
     },
     "1x.phases.firstPaint.computedRuns": {
@@ -793,8 +793,8 @@
     },
     "1x.phases.firstReactiveRun.built.observableValue": {
       "before": 9982,
-      "after": 8883,
-      "delta": -1099,
+      "after": 8891,
+      "delta": -1091,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "1x.phases.firstReactiveRun.computedRuns": {
@@ -841,15 +841,15 @@
     },
     "1x.phases.ingest.rowReads": {
       "before": 225145,
-      "after": 339651,
-      "delta": 114506,
+      "after": 349359,
+      "delta": 124214,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "1x.phases.nodeConstruction.built.reaction": {
       "before": 2736,
       "after": 2389,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.phases.relationUpkeep.built.atom": {
       "before": 5833,
@@ -879,19 +879,19 @@
       "before": 11433,
       "after": 10164,
       "delta": -1269,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.startup.byOwner.IssueModel.owners": {
       "before": 3172,
       "after": 2742,
       "delta": -430,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.startup.byOwner.IssueModel.reactions": {
       "before": 2736,
       "after": 2389,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.startup.byOwner.SessionModel.computeds": {
       "before": 1910,
@@ -909,19 +909,19 @@
       "before": 3612,
       "after": 2944,
       "delta": -668,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.startup.closedIssues.owners": {
       "before": 1006,
       "after": 775,
       "delta": -231,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.startup.closedIssues.reactions": {
       "before": 570,
       "after": 424,
       "delta": -146,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.startup.coldIssues.computeds": {
       "before": 514,
@@ -991,8 +991,8 @@
     },
     "1x.startup.observables.value.mapHas": {
       "before": 9961,
-      "after": 8862,
-      "delta": -1099,
+      "after": 8870,
+      "delta": -1091,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "1x.startup.observables.value.standalone": {
@@ -1005,72 +1005,72 @@
       "before": 2736,
       "after": 2389,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "1x.startup.reactions.live": {
       "before": 2736,
       "after": 2389,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.firstPaint.byOwner.IssueModel.computeds": {
       "before": 46635,
-      "after": 41649,
-      "delta": -4986,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 41651,
+      "delta": -4984,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.firstPaint.byOwner.IssueModel.owners": {
       "before": 12764,
-      "after": 11045,
-      "delta": -1719,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 11044,
+      "delta": -1720,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.firstPaint.byOwner.IssueModel.reactions": {
       "before": 11017,
-      "after": 9655,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9656,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.firstPaint.byOwner.SessionModel.computeds": {
       "before": 7890,
-      "after": 6483,
-      "delta": -1407,
+      "after": 6485,
+      "delta": -1405,
       "reason": "Stopped unbound sessions and sessions belonging to excluded or unplaceable history issues no longer construct resident session models."
     },
     "4x.firstPaint.byOwner.SessionModel.owners": {
       "before": 7304,
-      "after": 5897,
-      "delta": -1407,
+      "after": 5899,
+      "delta": -1405,
       "reason": "Stopped unbound sessions and sessions belonging to excluded or unplaceable history issues no longer construct resident session models."
     },
     "4x.firstPaint.closedIssues.computeds": {
       "before": 14733,
-      "after": 12146,
-      "delta": -2587,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 12148,
+      "delta": -2585,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.firstPaint.closedIssues.owners": {
       "before": 4100,
-      "after": 3177,
-      "delta": -923,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 3176,
+      "delta": -924,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.firstPaint.closedIssues.reactions": {
       "before": 2315,
-      "after": 1757,
-      "delta": -558,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 1758,
+      "delta": -557,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.firstPaint.coldIssues.computeds": {
       "before": 2275,
-      "after": 1935,
-      "delta": -340,
+      "after": 1933,
+      "delta": -342,
       "reason": "The widened predicate and nesting bound change which requested issue models are classified cold; hidden issue summaries remain available."
     },
     "4x.firstPaint.coldIssues.owners": {
       "before": 1787,
-      "after": 1430,
-      "delta": -357,
+      "after": 1428,
+      "delta": -359,
       "reason": "The widened predicate and nesting bound change which requested issue models are classified cold; hidden issue summaries remain available."
     },
     "4x.firstPaint.coldSessions.computeds": {
@@ -1087,50 +1087,50 @@
     },
     "4x.firstPaint.computeds.declared": {
       "before": 54576,
-      "after": 48183,
-      "delta": -6393,
+      "after": 48187,
+      "delta": -6389,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.firstPaint.computeds.total": {
       "before": 54576,
-      "after": 48183,
-      "delta": -6393,
+      "after": 48187,
+      "delta": -6389,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.firstPaint.held.mapEntries": {
       "before": 115143,
-      "after": 99384,
-      "delta": -15759,
+      "after": 99397,
+      "delta": -15746,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "4x.firstPaint.held.setMembers": {
       "before": 59340,
-      "after": 52790,
-      "delta": -6550,
+      "after": 52807,
+      "delta": -6533,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "4x.firstPaint.observables.atom": {
       "before": 26435,
-      "after": 23038,
-      "delta": -3397,
+      "after": 23040,
+      "delta": -3395,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.firstPaint.observables.set": {
       "before": 15243,
-      "after": 12132,
-      "delta": -3111,
+      "after": 12136,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "4x.firstPaint.observables.value.mapEntry": {
       "before": 115143,
-      "after": 99384,
-      "delta": -15759,
+      "after": 99397,
+      "delta": -15746,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "4x.firstPaint.observables.value.mapHas": {
       "before": 40620,
-      "after": 36281,
-      "delta": -4339,
+      "after": 36306,
+      "delta": -4314,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.firstPaint.observables.value.standalone": {
@@ -1141,15 +1141,15 @@
     },
     "4x.firstPaint.reactions.built": {
       "before": 11038,
-      "after": 9676,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9677,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.firstPaint.reactions.live": {
       "before": 11038,
-      "after": 9676,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9677,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.phases.firstPaint.built.atom": {
       "before": 145,
@@ -1177,158 +1177,158 @@
     },
     "4x.phases.firstReactiveRun.built.atom": {
       "before": 2462,
-      "after": 2168,
-      "delta": -294,
+      "after": 2166,
+      "delta": -296,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.phases.firstReactiveRun.built.computed": {
       "before": 53235,
-      "after": 46830,
-      "delta": -6405,
+      "after": 46834,
+      "delta": -6401,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.phases.firstReactiveRun.built.observableValue": {
       "before": 39791,
-      "after": 35441,
-      "delta": -4350,
+      "after": 35466,
+      "delta": -4325,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.phases.firstReactiveRun.computedRuns": {
       "before": 53235,
-      "after": 46830,
-      "delta": -6405,
+      "after": 46834,
+      "delta": -6401,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.phases.firstReactiveRun.distinctRows": {
       "before": 18287,
-      "after": 15467,
-      "delta": -2820,
+      "after": 15470,
+      "delta": -2817,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.phases.firstReactiveRun.reactionRuns": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
+      "after": 9616,
+      "delta": -1361,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.phases.firstReactiveRun.rowReads": {
       "before": 503342,
-      "after": 438474,
-      "delta": -64868,
+      "after": 438539,
+      "delta": -64803,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.phases.ingest.built.observableValue": {
       "before": 91528,
-      "after": 78851,
-      "delta": -12677,
+      "after": 78860,
+      "delta": -12668,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "4x.phases.ingest.changes": {
       "before": 92376,
-      "after": 79641,
-      "delta": -12735,
+      "after": 79650,
+      "delta": -12726,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "4x.phases.ingest.distinctRows": {
       "before": 77205,
-      "after": 84913,
-      "delta": 7708,
+      "after": 84914,
+      "delta": 7709,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "4x.phases.ingest.rowReads": {
       "before": 890888,
-      "after": 1326486,
-      "delta": 435598,
+      "after": 1362047,
+      "delta": 471159,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "4x.phases.nodeConstruction.built.reaction": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9616,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.phases.relationUpkeep.built.atom": {
       "before": 23624,
-      "after": 20513,
-      "delta": -3111,
+      "after": 20517,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "4x.phases.relationUpkeep.built.observableValue": {
       "before": 23624,
-      "after": 20513,
-      "delta": -3111,
+      "after": 20517,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "4x.phases.relationUpkeep.built.set": {
       "before": 15074,
-      "after": 11963,
-      "delta": -3111,
+      "after": 11967,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "4x.phases.relationUpkeep.changes": {
       "before": 96832,
-      "after": 87171,
-      "delta": -9661,
+      "after": 87192,
+      "delta": -9640,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "4x.startup.byOwner.IssueModel.computeds": {
       "before": 45507,
-      "after": 40509,
-      "delta": -4998,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 40511,
+      "delta": -4996,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.startup.byOwner.IssueModel.owners": {
       "before": 12680,
-      "after": 10954,
-      "delta": -1726,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 10953,
+      "delta": -1727,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.startup.byOwner.IssueModel.reactions": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9616,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.startup.byOwner.SessionModel.computeds": {
       "before": 7728,
-      "after": 6321,
-      "delta": -1407,
+      "after": 6323,
+      "delta": -1405,
       "reason": "Stopped unbound sessions and sessions belonging to excluded or unplaceable history issues no longer construct resident session models."
     },
     "4x.startup.byOwner.SessionModel.owners": {
       "before": 7304,
-      "after": 5897,
-      "delta": -1407,
+      "after": 5899,
+      "delta": -1405,
       "reason": "Stopped unbound sessions and sessions belonging to excluded or unplaceable history issues no longer construct resident session models."
     },
     "4x.startup.closedIssues.computeds": {
       "before": 14274,
-      "after": 11679,
-      "delta": -2595,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 11681,
+      "delta": -2593,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.startup.closedIssues.owners": {
       "before": 4016,
-      "after": 3088,
-      "delta": -928,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 3087,
+      "delta": -929,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.startup.closedIssues.reactions": {
       "before": 2313,
-      "after": 1755,
-      "delta": -558,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 1756,
+      "delta": -557,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.startup.coldIssues.computeds": {
       "before": 2017,
-      "after": 1664,
-      "delta": -353,
+      "after": 1662,
+      "delta": -355,
       "reason": "The widened predicate and nesting bound change which requested issue models are classified cold; hidden issue summaries remain available."
     },
     "4x.startup.coldIssues.owners": {
       "before": 1703,
-      "after": 1339,
-      "delta": -364,
+      "after": 1337,
+      "delta": -366,
       "reason": "The widened predicate and nesting bound change which requested issue models are classified cold; hidden issue summaries remain available."
     },
     "4x.startup.coldSessions.computeds": {
@@ -1345,50 +1345,50 @@
     },
     "4x.startup.computeds.declared": {
       "before": 53238,
-      "after": 46833,
-      "delta": -6405,
+      "after": 46837,
+      "delta": -6401,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.startup.computeds.total": {
       "before": 53238,
-      "after": 46833,
-      "delta": -6405,
+      "after": 46837,
+      "delta": -6401,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.startup.held.mapEntries": {
       "before": 115143,
-      "after": 99384,
-      "delta": -15759,
+      "after": 99397,
+      "delta": -15746,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "4x.startup.held.setMembers": {
       "before": 59340,
-      "after": 52790,
-      "delta": -6550,
+      "after": 52807,
+      "delta": -6533,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "4x.startup.observables.atom": {
       "before": 26290,
-      "after": 22885,
-      "delta": -3405,
+      "after": 22887,
+      "delta": -3403,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.startup.observables.set": {
       "before": 15243,
-      "after": 12132,
-      "delta": -3111,
+      "after": 12136,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "4x.startup.observables.value.mapEntry": {
       "before": 115143,
-      "after": 99384,
-      "delta": -15759,
+      "after": 99397,
+      "delta": -15746,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "4x.startup.observables.value.mapHas": {
       "before": 39767,
-      "after": 35417,
-      "delta": -4350,
+      "after": 35442,
+      "delta": -4325,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "4x.startup.observables.value.standalone": {
@@ -1399,33 +1399,33 @@
     },
     "4x.startup.reactions.built": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9616,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "4x.startup.reactions.live": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9616,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.firstPaint.byOwner.IssueModel.computeds": {
       "before": 12300,
       "after": 11038,
       "delta": -1262,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.firstPaint.byOwner.IssueModel.owners": {
       "before": 3252,
       "after": 2828,
       "delta": -424,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.firstPaint.byOwner.IssueModel.reactions": {
       "before": 2776,
       "after": 2429,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.firstPaint.byOwner.SessionModel.computeds": {
       "before": 2007,
@@ -1443,19 +1443,19 @@
       "before": 4024,
       "after": 3362,
       "delta": -662,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.firstPaint.closedIssues.owners": {
       "before": 1086,
       "after": 859,
       "delta": -227,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.firstPaint.closedIssues.reactions": {
       "before": 578,
       "after": 432,
       "delta": -146,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.firstPaint.coldIssues.computeds": {
       "before": 726,
@@ -1525,8 +1525,8 @@
     },
     "write-idle.1x.firstPaint.observables.value.mapHas": {
       "before": 13281,
-      "after": 11844,
-      "delta": -1437,
+      "after": 11853,
+      "delta": -1428,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.1x.firstPaint.observables.value.standalone": {
@@ -1539,13 +1539,13 @@
       "before": 2797,
       "after": 2450,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.firstPaint.reactions.live": {
       "before": 2797,
       "after": 2450,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.phases.firstPaint.built.atom": {
       "before": 123,
@@ -1561,8 +1561,8 @@
     },
     "write-idle.1x.phases.firstPaint.built.observableValue": {
       "before": 584,
-      "after": 593,
-      "delta": 9,
+      "after": 594,
+      "delta": 10,
       "reason": "The same 20-row paint window observes the smaller resident graph; cold session activity reads declared summaries without synchronous loads."
     },
     "write-idle.1x.phases.firstPaint.computedRuns": {
@@ -1597,8 +1597,8 @@
     },
     "write-idle.1x.phases.firstReactiveRun.built.observableValue": {
       "before": 12718,
-      "after": 11272,
-      "delta": -1446,
+      "after": 11280,
+      "delta": -1438,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.1x.phases.firstReactiveRun.computedRuns": {
@@ -1645,15 +1645,15 @@
     },
     "write-idle.1x.phases.ingest.rowReads": {
       "before": 225145,
-      "after": 339651,
-      "delta": 114506,
+      "after": 349359,
+      "delta": 124214,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "write-idle.1x.phases.nodeConstruction.built.reaction": {
       "before": 2736,
       "after": 2389,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.phases.relationUpkeep.built.atom": {
       "before": 5833,
@@ -1683,19 +1683,19 @@
       "before": 11433,
       "after": 10164,
       "delta": -1269,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.startup.byOwner.IssueModel.owners": {
       "before": 3172,
       "after": 2742,
       "delta": -430,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.startup.byOwner.IssueModel.reactions": {
       "before": 2736,
       "after": 2389,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.startup.byOwner.SessionModel.computeds": {
       "before": 1910,
@@ -1713,19 +1713,19 @@
       "before": 3612,
       "after": 2944,
       "delta": -668,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.startup.closedIssues.owners": {
       "before": 1006,
       "after": 775,
       "delta": -231,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.startup.closedIssues.reactions": {
       "before": 570,
       "after": 424,
       "delta": -146,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.startup.coldIssues.computeds": {
       "before": 514,
@@ -1795,8 +1795,8 @@
     },
     "write-idle.1x.startup.observables.value.mapHas": {
       "before": 12697,
-      "after": 11251,
-      "delta": -1446,
+      "after": 11259,
+      "delta": -1438,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.1x.startup.observables.value.standalone": {
@@ -1809,72 +1809,72 @@
       "before": 2736,
       "after": 2389,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.1x.startup.reactions.live": {
       "before": 2736,
       "after": 2389,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.firstPaint.byOwner.IssueModel.computeds": {
       "before": 46635,
-      "after": 41649,
-      "delta": -4986,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 41651,
+      "delta": -4984,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.firstPaint.byOwner.IssueModel.owners": {
       "before": 12764,
-      "after": 11045,
-      "delta": -1719,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 11044,
+      "delta": -1720,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.firstPaint.byOwner.IssueModel.reactions": {
       "before": 11017,
-      "after": 9655,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9656,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.firstPaint.byOwner.SessionModel.computeds": {
       "before": 7890,
-      "after": 6483,
-      "delta": -1407,
+      "after": 6485,
+      "delta": -1405,
       "reason": "Stopped unbound sessions and sessions belonging to excluded or unplaceable history issues no longer construct resident session models."
     },
     "write-idle.4x.firstPaint.byOwner.SessionModel.owners": {
       "before": 7304,
-      "after": 5897,
-      "delta": -1407,
+      "after": 5899,
+      "delta": -1405,
       "reason": "Stopped unbound sessions and sessions belonging to excluded or unplaceable history issues no longer construct resident session models."
     },
     "write-idle.4x.firstPaint.closedIssues.computeds": {
       "before": 14733,
-      "after": 12146,
-      "delta": -2587,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 12148,
+      "delta": -2585,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.firstPaint.closedIssues.owners": {
       "before": 4100,
-      "after": 3177,
-      "delta": -923,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 3176,
+      "delta": -924,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.firstPaint.closedIssues.reactions": {
       "before": 2315,
-      "after": 1757,
-      "delta": -558,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 1758,
+      "delta": -557,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.firstPaint.coldIssues.computeds": {
       "before": 2275,
-      "after": 1935,
-      "delta": -340,
+      "after": 1933,
+      "delta": -342,
       "reason": "The widened predicate and nesting bound change which requested issue models are classified cold; hidden issue summaries remain available."
     },
     "write-idle.4x.firstPaint.coldIssues.owners": {
       "before": 1787,
-      "after": 1430,
-      "delta": -357,
+      "after": 1428,
+      "delta": -359,
       "reason": "The widened predicate and nesting bound change which requested issue models are classified cold; hidden issue summaries remain available."
     },
     "write-idle.4x.firstPaint.coldSessions.computeds": {
@@ -1891,50 +1891,50 @@
     },
     "write-idle.4x.firstPaint.computeds.declared": {
       "before": 54576,
-      "after": 48183,
-      "delta": -6393,
+      "after": 48187,
+      "delta": -6389,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.firstPaint.computeds.total": {
       "before": 54576,
-      "after": 48183,
-      "delta": -6393,
+      "after": 48187,
+      "delta": -6389,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.firstPaint.held.mapEntries": {
       "before": 115143,
-      "after": 99384,
-      "delta": -15759,
+      "after": 99397,
+      "delta": -15746,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-idle.4x.firstPaint.held.setMembers": {
       "before": 59340,
-      "after": 52790,
-      "delta": -6550,
+      "after": 52807,
+      "delta": -6533,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-idle.4x.firstPaint.observables.atom": {
       "before": 26436,
-      "after": 23039,
-      "delta": -3397,
+      "after": 23041,
+      "delta": -3395,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.firstPaint.observables.set": {
       "before": 15243,
-      "after": 12132,
-      "delta": -3111,
+      "after": 12136,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-idle.4x.firstPaint.observables.value.mapEntry": {
       "before": 115143,
-      "after": 99384,
-      "delta": -15759,
+      "after": 99397,
+      "delta": -15746,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-idle.4x.firstPaint.observables.value.mapHas": {
       "before": 51597,
-      "after": 45896,
-      "delta": -5701,
+      "after": 45922,
+      "delta": -5675,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.firstPaint.observables.value.standalone": {
@@ -1945,15 +1945,15 @@
     },
     "write-idle.4x.firstPaint.reactions.built": {
       "before": 11038,
-      "after": 9676,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9677,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.firstPaint.reactions.live": {
       "before": 11038,
-      "after": 9676,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9677,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.phases.firstPaint.built.atom": {
       "before": 145,
@@ -1981,158 +1981,158 @@
     },
     "write-idle.4x.phases.firstReactiveRun.built.atom": {
       "before": 2462,
-      "after": 2168,
-      "delta": -294,
+      "after": 2166,
+      "delta": -296,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.phases.firstReactiveRun.built.computed": {
       "before": 53235,
-      "after": 46830,
-      "delta": -6405,
+      "after": 46834,
+      "delta": -6401,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.phases.firstReactiveRun.built.observableValue": {
       "before": 50768,
-      "after": 45056,
-      "delta": -5712,
+      "after": 45082,
+      "delta": -5686,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.phases.firstReactiveRun.computedRuns": {
       "before": 53235,
-      "after": 46830,
-      "delta": -6405,
+      "after": 46834,
+      "delta": -6401,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.phases.firstReactiveRun.distinctRows": {
       "before": 18287,
-      "after": 15467,
-      "delta": -2820,
+      "after": 15470,
+      "delta": -2817,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.phases.firstReactiveRun.reactionRuns": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
+      "after": 9616,
+      "delta": -1361,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.phases.firstReactiveRun.rowReads": {
       "before": 503342,
-      "after": 438474,
-      "delta": -64868,
+      "after": 438539,
+      "delta": -64803,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.phases.ingest.built.observableValue": {
       "before": 91528,
-      "after": 78851,
-      "delta": -12677,
+      "after": 78860,
+      "delta": -12668,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "write-idle.4x.phases.ingest.changes": {
       "before": 92376,
-      "after": 79641,
-      "delta": -12735,
+      "after": 79650,
+      "delta": -12726,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "write-idle.4x.phases.ingest.distinctRows": {
       "before": 77205,
-      "after": 84913,
-      "delta": 7708,
+      "after": 84914,
+      "delta": 7709,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "write-idle.4x.phases.ingest.rowReads": {
       "before": 890888,
-      "after": 1326486,
-      "delta": 435598,
+      "after": 1362047,
+      "delta": 471159,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "write-idle.4x.phases.nodeConstruction.built.reaction": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9616,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.phases.relationUpkeep.built.atom": {
       "before": 23624,
-      "after": 20513,
-      "delta": -3111,
+      "after": 20517,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-idle.4x.phases.relationUpkeep.built.observableValue": {
       "before": 23624,
-      "after": 20513,
-      "delta": -3111,
+      "after": 20517,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-idle.4x.phases.relationUpkeep.built.set": {
       "before": 15074,
-      "after": 11963,
-      "delta": -3111,
+      "after": 11967,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-idle.4x.phases.relationUpkeep.changes": {
       "before": 96832,
-      "after": 87171,
-      "delta": -9661,
+      "after": 87192,
+      "delta": -9640,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-idle.4x.startup.byOwner.IssueModel.computeds": {
       "before": 45507,
-      "after": 40509,
-      "delta": -4998,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 40511,
+      "delta": -4996,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.startup.byOwner.IssueModel.owners": {
       "before": 12680,
-      "after": 10954,
-      "delta": -1726,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 10953,
+      "delta": -1727,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.startup.byOwner.IssueModel.reactions": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9616,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.startup.byOwner.SessionModel.computeds": {
       "before": 7728,
-      "after": 6321,
-      "delta": -1407,
+      "after": 6323,
+      "delta": -1405,
       "reason": "Stopped unbound sessions and sessions belonging to excluded or unplaceable history issues no longer construct resident session models."
     },
     "write-idle.4x.startup.byOwner.SessionModel.owners": {
       "before": 7304,
-      "after": 5897,
-      "delta": -1407,
+      "after": 5899,
+      "delta": -1405,
       "reason": "Stopped unbound sessions and sessions belonging to excluded or unplaceable history issues no longer construct resident session models."
     },
     "write-idle.4x.startup.closedIssues.computeds": {
       "before": 14274,
-      "after": 11679,
-      "delta": -2595,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 11681,
+      "delta": -2593,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.startup.closedIssues.owners": {
       "before": 4016,
-      "after": 3088,
-      "delta": -928,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 3087,
+      "delta": -929,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.startup.closedIssues.reactions": {
       "before": 2313,
-      "after": 1755,
-      "delta": -558,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 1756,
+      "delta": -557,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.startup.coldIssues.computeds": {
       "before": 2017,
-      "after": 1664,
-      "delta": -353,
+      "after": 1662,
+      "delta": -355,
       "reason": "The widened predicate and nesting bound change which requested issue models are classified cold; hidden issue summaries remain available."
     },
     "write-idle.4x.startup.coldIssues.owners": {
       "before": 1703,
-      "after": 1339,
-      "delta": -364,
+      "after": 1337,
+      "delta": -366,
       "reason": "The widened predicate and nesting bound change which requested issue models are classified cold; hidden issue summaries remain available."
     },
     "write-idle.4x.startup.coldSessions.computeds": {
@@ -2149,50 +2149,50 @@
     },
     "write-idle.4x.startup.computeds.declared": {
       "before": 53238,
-      "after": 46833,
-      "delta": -6405,
+      "after": 46837,
+      "delta": -6401,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.startup.computeds.total": {
       "before": 53238,
-      "after": 46833,
-      "delta": -6405,
+      "after": 46837,
+      "delta": -6401,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.startup.held.mapEntries": {
       "before": 115143,
-      "after": 99384,
-      "delta": -15759,
+      "after": 99397,
+      "delta": -15746,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-idle.4x.startup.held.setMembers": {
       "before": 59340,
-      "after": 52790,
-      "delta": -6550,
+      "after": 52807,
+      "delta": -6533,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-idle.4x.startup.observables.atom": {
       "before": 26291,
-      "after": 22886,
-      "delta": -3405,
+      "after": 22888,
+      "delta": -3403,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.startup.observables.set": {
       "before": 15243,
-      "after": 12132,
-      "delta": -3111,
+      "after": 12136,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-idle.4x.startup.observables.value.mapEntry": {
       "before": 115143,
-      "after": 99384,
-      "delta": -15759,
+      "after": 99397,
+      "delta": -15746,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-idle.4x.startup.observables.value.mapHas": {
       "before": 50744,
-      "after": 45032,
-      "delta": -5712,
+      "after": 45058,
+      "delta": -5686,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-idle.4x.startup.observables.value.standalone": {
@@ -2203,33 +2203,33 @@
     },
     "write-idle.4x.startup.reactions.built": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9616,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-idle.4x.startup.reactions.live": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9616,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.firstPaint.byOwner.IssueModel.computeds": {
       "before": 12300,
       "after": 11038,
       "delta": -1262,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.firstPaint.byOwner.IssueModel.owners": {
       "before": 3252,
       "after": 2828,
       "delta": -424,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.firstPaint.byOwner.IssueModel.reactions": {
       "before": 2776,
       "after": 2429,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.firstPaint.byOwner.SessionModel.computeds": {
       "before": 2007,
@@ -2247,19 +2247,19 @@
       "before": 4024,
       "after": 3362,
       "delta": -662,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.firstPaint.closedIssues.owners": {
       "before": 1086,
       "after": 859,
       "delta": -227,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.firstPaint.closedIssues.reactions": {
       "before": 578,
       "after": 432,
       "delta": -146,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.firstPaint.coldIssues.computeds": {
       "before": 726,
@@ -2329,8 +2329,8 @@
     },
     "write-pending.1x.firstPaint.observables.value.mapHas": {
       "before": 13281,
-      "after": 11844,
-      "delta": -1437,
+      "after": 11853,
+      "delta": -1428,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.1x.firstPaint.observables.value.standalone": {
@@ -2343,13 +2343,13 @@
       "before": 2797,
       "after": 2450,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.firstPaint.reactions.live": {
       "before": 2797,
       "after": 2450,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.phases.firstPaint.built.atom": {
       "before": 123,
@@ -2365,8 +2365,8 @@
     },
     "write-pending.1x.phases.firstPaint.built.observableValue": {
       "before": 584,
-      "after": 593,
-      "delta": 9,
+      "after": 594,
+      "delta": 10,
       "reason": "The same 20-row paint window observes the smaller resident graph; cold session activity reads declared summaries without synchronous loads."
     },
     "write-pending.1x.phases.firstPaint.computedRuns": {
@@ -2401,8 +2401,8 @@
     },
     "write-pending.1x.phases.firstReactiveRun.built.observableValue": {
       "before": 12718,
-      "after": 11272,
-      "delta": -1446,
+      "after": 11280,
+      "delta": -1438,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.1x.phases.firstReactiveRun.computedRuns": {
@@ -2449,15 +2449,15 @@
     },
     "write-pending.1x.phases.ingest.rowReads": {
       "before": 225145,
-      "after": 339651,
-      "delta": 114506,
+      "after": 349359,
+      "delta": 124214,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "write-pending.1x.phases.nodeConstruction.built.reaction": {
       "before": 2736,
       "after": 2389,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.phases.relationUpkeep.built.atom": {
       "before": 5833,
@@ -2487,19 +2487,19 @@
       "before": 11433,
       "after": 10164,
       "delta": -1269,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.startup.byOwner.IssueModel.owners": {
       "before": 3172,
       "after": 2742,
       "delta": -430,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.startup.byOwner.IssueModel.reactions": {
       "before": 2736,
       "after": 2389,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.startup.byOwner.SessionModel.computeds": {
       "before": 1910,
@@ -2517,19 +2517,19 @@
       "before": 3612,
       "after": 2944,
       "delta": -668,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.startup.closedIssues.owners": {
       "before": 1006,
       "after": 775,
       "delta": -231,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.startup.closedIssues.reactions": {
       "before": 570,
       "after": 424,
       "delta": -146,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.startup.coldIssues.computeds": {
       "before": 514,
@@ -2599,8 +2599,8 @@
     },
     "write-pending.1x.startup.observables.value.mapHas": {
       "before": 12697,
-      "after": 11251,
-      "delta": -1446,
+      "after": 11259,
+      "delta": -1438,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.1x.startup.observables.value.standalone": {
@@ -2613,72 +2613,72 @@
       "before": 2736,
       "after": 2389,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.1x.startup.reactions.live": {
       "before": 2736,
       "after": 2389,
       "delta": -347,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.firstPaint.byOwner.IssueModel.computeds": {
       "before": 46635,
-      "after": 41649,
-      "delta": -4986,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 41651,
+      "delta": -4984,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.firstPaint.byOwner.IssueModel.owners": {
       "before": 12764,
-      "after": 11045,
-      "delta": -1719,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 11044,
+      "delta": -1720,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.firstPaint.byOwner.IssueModel.reactions": {
       "before": 11017,
-      "after": 9655,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9656,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.firstPaint.byOwner.SessionModel.computeds": {
       "before": 7890,
-      "after": 6483,
-      "delta": -1407,
+      "after": 6485,
+      "delta": -1405,
       "reason": "Stopped unbound sessions and sessions belonging to excluded or unplaceable history issues no longer construct resident session models."
     },
     "write-pending.4x.firstPaint.byOwner.SessionModel.owners": {
       "before": 7304,
-      "after": 5897,
-      "delta": -1407,
+      "after": 5899,
+      "delta": -1405,
       "reason": "Stopped unbound sessions and sessions belonging to excluded or unplaceable history issues no longer construct resident session models."
     },
     "write-pending.4x.firstPaint.closedIssues.computeds": {
       "before": 14733,
-      "after": 12146,
-      "delta": -2587,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 12148,
+      "delta": -2585,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.firstPaint.closedIssues.owners": {
       "before": 4100,
-      "after": 3177,
-      "delta": -923,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 3176,
+      "delta": -924,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.firstPaint.closedIssues.reactions": {
       "before": 2315,
-      "after": 1757,
-      "delta": -558,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 1758,
+      "delta": -557,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.firstPaint.coldIssues.computeds": {
       "before": 2275,
-      "after": 1935,
-      "delta": -340,
+      "after": 1933,
+      "delta": -342,
       "reason": "The widened predicate and nesting bound change which requested issue models are classified cold; hidden issue summaries remain available."
     },
     "write-pending.4x.firstPaint.coldIssues.owners": {
       "before": 1787,
-      "after": 1430,
-      "delta": -357,
+      "after": 1428,
+      "delta": -359,
       "reason": "The widened predicate and nesting bound change which requested issue models are classified cold; hidden issue summaries remain available."
     },
     "write-pending.4x.firstPaint.coldSessions.computeds": {
@@ -2695,50 +2695,50 @@
     },
     "write-pending.4x.firstPaint.computeds.declared": {
       "before": 54576,
-      "after": 48183,
-      "delta": -6393,
+      "after": 48187,
+      "delta": -6389,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.firstPaint.computeds.total": {
       "before": 54576,
-      "after": 48183,
-      "delta": -6393,
+      "after": 48187,
+      "delta": -6389,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.firstPaint.held.mapEntries": {
       "before": 115146,
-      "after": 99387,
-      "delta": -15759,
+      "after": 99400,
+      "delta": -15746,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-pending.4x.firstPaint.held.setMembers": {
       "before": 59340,
-      "after": 52790,
-      "delta": -6550,
+      "after": 52807,
+      "delta": -6533,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-pending.4x.firstPaint.observables.atom": {
       "before": 26436,
-      "after": 23039,
-      "delta": -3397,
+      "after": 23041,
+      "delta": -3395,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.firstPaint.observables.set": {
       "before": 15243,
-      "after": 12132,
-      "delta": -3111,
+      "after": 12136,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-pending.4x.firstPaint.observables.value.mapEntry": {
       "before": 115146,
-      "after": 99387,
-      "delta": -15759,
+      "after": 99400,
+      "delta": -15746,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-pending.4x.firstPaint.observables.value.mapHas": {
       "before": 51597,
-      "after": 45896,
-      "delta": -5701,
+      "after": 45922,
+      "delta": -5675,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.firstPaint.observables.value.standalone": {
@@ -2749,15 +2749,15 @@
     },
     "write-pending.4x.firstPaint.reactions.built": {
       "before": 11038,
-      "after": 9676,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9677,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.firstPaint.reactions.live": {
       "before": 11038,
-      "after": 9676,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9677,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.phases.firstPaint.built.atom": {
       "before": 145,
@@ -2785,158 +2785,158 @@
     },
     "write-pending.4x.phases.firstReactiveRun.built.atom": {
       "before": 2462,
-      "after": 2168,
-      "delta": -294,
+      "after": 2166,
+      "delta": -296,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.phases.firstReactiveRun.built.computed": {
       "before": 53235,
-      "after": 46830,
-      "delta": -6405,
+      "after": 46834,
+      "delta": -6401,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.phases.firstReactiveRun.built.observableValue": {
       "before": 50768,
-      "after": 45056,
-      "delta": -5712,
+      "after": 45082,
+      "delta": -5686,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.phases.firstReactiveRun.computedRuns": {
       "before": 53235,
-      "after": 46830,
-      "delta": -6405,
+      "after": 46834,
+      "delta": -6401,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.phases.firstReactiveRun.distinctRows": {
       "before": 18287,
-      "after": 15467,
-      "delta": -2820,
+      "after": 15470,
+      "delta": -2817,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.phases.firstReactiveRun.reactionRuns": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
+      "after": 9616,
+      "delta": -1361,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.phases.firstReactiveRun.rowReads": {
       "before": 503342,
-      "after": 438474,
-      "delta": -64868,
+      "after": 438539,
+      "delta": -64803,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.phases.ingest.built.observableValue": {
       "before": 91528,
-      "after": 78851,
-      "delta": -12677,
+      "after": 78860,
+      "delta": -12668,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "write-pending.4x.phases.ingest.changes": {
       "before": 92376,
-      "after": 79641,
-      "delta": -12735,
+      "after": 79650,
+      "delta": -12726,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "write-pending.4x.phases.ingest.distinctRows": {
       "before": 77205,
-      "after": 84913,
-      "delta": 7708,
+      "after": 84914,
+      "delta": 7709,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "write-pending.4x.phases.ingest.rowReads": {
       "before": 890888,
-      "after": 1326486,
-      "delta": 435598,
+      "after": 1362047,
+      "delta": 471159,
       "reason": "History routing and ancestor bounds add upfront maintenance reads from publication rows and declared summaries; filing maintenance uses the one pool reader."
     },
     "write-pending.4x.phases.nodeConstruction.built.reaction": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9616,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.phases.relationUpkeep.built.atom": {
       "before": 23624,
-      "after": 20513,
-      "delta": -3111,
+      "after": 20517,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-pending.4x.phases.relationUpkeep.built.observableValue": {
       "before": 23624,
-      "after": 20513,
-      "delta": -3111,
+      "after": 20517,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-pending.4x.phases.relationUpkeep.built.set": {
       "before": 15074,
-      "after": 11963,
-      "delta": -3111,
+      "after": 11967,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-pending.4x.phases.relationUpkeep.changes": {
       "before": 96832,
-      "after": 87171,
-      "delta": -9661,
+      "after": 87192,
+      "delta": -9640,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-pending.4x.startup.byOwner.IssueModel.computeds": {
       "before": 45507,
-      "after": 40509,
-      "delta": -4998,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 40511,
+      "delta": -4996,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.startup.byOwner.IssueModel.owners": {
       "before": 12680,
-      "after": 10954,
-      "delta": -1726,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 10953,
+      "delta": -1727,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.startup.byOwner.IssueModel.reactions": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9616,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.startup.byOwner.SessionModel.computeds": {
       "before": 7728,
-      "after": 6321,
-      "delta": -1407,
+      "after": 6323,
+      "delta": -1405,
       "reason": "Stopped unbound sessions and sessions belonging to excluded or unplaceable history issues no longer construct resident session models."
     },
     "write-pending.4x.startup.byOwner.SessionModel.owners": {
       "before": 7304,
-      "after": 5897,
-      "delta": -1407,
+      "after": 5899,
+      "delta": -1405,
       "reason": "Stopped unbound sessions and sessions belonging to excluded or unplaceable history issues no longer construct resident session models."
     },
     "write-pending.4x.startup.closedIssues.computeds": {
       "before": 14274,
-      "after": 11679,
-      "delta": -2595,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 11681,
+      "delta": -2593,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.startup.closedIssues.owners": {
       "before": 4016,
-      "after": 3088,
-      "delta": -928,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 3087,
+      "delta": -929,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.startup.closedIssues.reactions": {
       "before": 2313,
-      "after": 1755,
-      "delta": -558,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 1756,
+      "delta": -557,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.startup.coldIssues.computeds": {
       "before": 2017,
-      "after": 1664,
-      "delta": -353,
+      "after": 1662,
+      "delta": -355,
       "reason": "The widened predicate and nesting bound change which requested issue models are classified cold; hidden issue summaries remain available."
     },
     "write-pending.4x.startup.coldIssues.owners": {
       "before": 1703,
-      "after": 1339,
-      "delta": -364,
+      "after": 1337,
+      "delta": -366,
       "reason": "The widened predicate and nesting bound change which requested issue models are classified cold; hidden issue summaries remain available."
     },
     "write-pending.4x.startup.coldSessions.computeds": {
@@ -2953,50 +2953,50 @@
     },
     "write-pending.4x.startup.computeds.declared": {
       "before": 53238,
-      "after": 46833,
-      "delta": -6405,
+      "after": 46837,
+      "delta": -6401,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.startup.computeds.total": {
       "before": 53238,
-      "after": 46833,
-      "delta": -6405,
+      "after": 46837,
+      "delta": -6401,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.startup.held.mapEntries": {
       "before": 115146,
-      "after": 99387,
-      "delta": -15759,
+      "after": 99400,
+      "delta": -15746,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-pending.4x.startup.held.setMembers": {
       "before": 59340,
-      "after": 52790,
-      "delta": -6550,
+      "after": 52807,
+      "delta": -6533,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-pending.4x.startup.observables.atom": {
       "before": 26291,
-      "after": 22886,
-      "delta": -3405,
+      "after": 22888,
+      "delta": -3403,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.startup.observables.set": {
       "before": 15243,
-      "after": 12132,
-      "delta": -3111,
+      "after": 12136,
+      "delta": -3107,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-pending.4x.startup.observables.value.mapEntry": {
       "before": 115146,
-      "after": 99387,
-      "delta": -15759,
+      "after": 99400,
+      "delta": -15746,
       "reason": "Fewer resident issues and sessions populate observable relation slots and buckets; existing known-row indexes remain for the deferred cutoff."
     },
     "write-pending.4x.startup.observables.value.mapHas": {
       "before": 50744,
-      "after": 45032,
-      "delta": -5712,
+      "after": 45058,
+      "delta": -5686,
       "reason": "The smaller resident graph constructs and evaluates fewer observable nodes; cold session lookups use declared summaries."
     },
     "write-pending.4x.startup.observables.value.standalone": {
@@ -3007,15 +3007,15 @@
     },
     "write-pending.4x.startup.reactions.built": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9616,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     },
     "write-pending.4x.startup.reactions.live": {
       "before": 10977,
-      "after": 9615,
-      "delta": -1362,
-      "reason": "Excluded history and agent children without a warm human nesting ancestor no longer construct resident issue filings and their observed models."
+      "after": 9616,
+      "delta": -1361,
+      "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
     }
   },
   "historyProbe": {
@@ -3179,6 +3179,7 @@
     "mapGrowthAccountedFor": 35720,
     "setGrowthAccountedFor": 30848,
     "filingEligibility": "Archived/deleted resident rows release their filing reaction. Proposed/shipping resident rows retain theirs because pending stage edits can make them show without a table publication.",
-    "coldReads": "Zero synchronous cold reads at startup, paint, and after settling at both history sizes; the existing load window batches requested rows."
+    "coldReads": "Zero synchronous cold reads at startup, paint, and after settling at both history sizes; the existing load window batches requested rows.",
+    "placementDependency": "A cold agent parent with a live descendant is loaded in the existing batch window only while its declared flatUntil summary (existing own/member/lane keepers) can give pre-nesting presence. Parentless agent ancestors retain their started-by fallback, and cold starter/keeper sessions answer through their declared summary."
   }
 }
