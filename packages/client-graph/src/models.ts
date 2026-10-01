@@ -434,11 +434,23 @@ function sameVerdict(a: LoadedRow<SeatVerdict>, b: LoadedRow<SeatVerdict>): bool
   return left === right && compareStructural(leftFacts, rightFacts)
 }
 
+function sameSidebar(a: LoadedRow<SidebarRowValues>, b: LoadedRow<SidebarRowValues>): boolean {
+  if (a === b) return true
+  if (a === LOADING || b === LOADING || a === undefined || b === undefined) return false
+  const { sessions: ownA, aggregateSessions: allA, ...factsA } = a
+  const { sessions: ownB, aggregateSessions: allB, ...factsB } = b
+  const sameSeats = (left: readonly SliceSession[], right: readonly SliceSession[]): boolean =>
+    left === right || (left.length === right.length && left.every((seat, index) => seat === right[index]))
+  return sameSeats(ownA, ownB) && sameSeats(allA, allB) && compareStructural(factsA, factsB)
+}
+
 export class IssueModel extends EntityModel implements HeldIssue, RowView {
   /** The schema fields the row answers (`installFields`): the row's value of them, not the fed row's. */
   static override readonly answers: ReadonlySet<string> = new Set<string>(ROW_VIEW_FIELDS)
 
   private static readonly groups = {
+    /** One drawn row's complete payload, suppressing equal intermediate roll-ups. */
+    sidebar: cachedGroup('sidebar', (issue: IssueModel) => issue.sidebarValues(), sameSidebar),
     /** The own row, hot or cold, and the clock: standing, own part, settled placement. */
     facts: cachedGroup('facts', (issue: IssueModel) =>
       issueFactsPartOf(issue.host.visibleInputs, issue.id),
@@ -557,6 +569,10 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   /** All facts needed by the real row; reuses the issue's existing caches. */
   get sidebar(): SidebarRowValues | typeof LOADING | undefined {
+    return IssueModel.groups.sidebar(this)
+  }
+
+  private sidebarValues(): SidebarRowValues | typeof LOADING | undefined {
     const own = this.host.rollupInputs.loadedIssue(this.id)
     if (own === LOADING) return LOADING
     if (own === undefined) return undefined

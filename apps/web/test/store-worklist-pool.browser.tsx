@@ -8,6 +8,7 @@ import type { MobxPool } from '@podium/client-graph'
 import { asUserId } from '@podium/model'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
+import { useEffect } from 'react'
 import { buildCorpus } from '../../../packages/worklist-proto/harness/src/fixture'
 import type { RuntimePoolFixture } from '../../../packages/worklist-proto/harness/browser/runtime-pool-fixture'
 import { attachWorklistPool, useWorklistPool, worklistPoolSurvivors } from '../src/app/store-worklist-pool'
@@ -42,7 +43,21 @@ function replica() {
 }
 
 function Probe(): null {
-  current = useWorklistPool()
+  const pool = useWorklistPool()
+  current = pool
+  useEffect(() => {
+    if (pool === null) return
+    let gone = false
+    let stop: (() => void) | undefined
+    void import('mobx').then(({ autorun }) => {
+      if (gone) return
+      stop = autorun(() => {
+        void pool.sidebar.sections()
+        void pool.sidebar.row(id)
+      })
+    })
+    return () => { gone = true; stop?.() }
+  }, [pool])
   return null
 }
 

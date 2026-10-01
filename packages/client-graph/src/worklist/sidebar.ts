@@ -5,8 +5,9 @@
 import type { MobxPool } from '../pool'
 import type { ModelHost } from '../models'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
+import { issueExcluded } from '../shared/schema'
 import { LOADING, attentionGroup } from './rollup'
-import { retains } from './visible'
+import { retains, retentionOf, type HiddenIssue } from './visible'
 import { sortedSidebarSessions, type SidebarRowValues } from './sidebar-row'
 
 export interface SidebarState {
@@ -68,7 +69,16 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
   for (const id of host.relations.many('worktree', path, 'sessions')) {
     const session = host.model('session', id)
     if (session === undefined) {
+      // Reason about a historical seat from declared summaries. Only a seat
+      // the summaries cannot rule out requests a batch; no cold id is indexed.
+      const summary = host.hidden('session', id)
+      const retention = retentionOf(summary as SliceSession | undefined)
+      if (retention === null || !retention.seat) continue
+      const owner = retention.issueId ? host.hidden('issue', retention.issueId) as HiddenIssue | undefined : undefined
+      if (owner && (issueExcluded(owner) || (owner.flatUntil !== undefined && input.passed(owner.flatUntil)))) continue
+      if (!owner && !retains(retention, undefined, undefined, input)) continue
       if (host.resident('session', id) === 'loading') pending += 1
+      if (owner && retention.issueId) void host.resident('issue', retention.issueId)
       continue
     }
     const retention = session.retention
