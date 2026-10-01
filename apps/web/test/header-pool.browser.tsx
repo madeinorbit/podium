@@ -25,6 +25,11 @@ let runtime: ClientRuntime | undefined
 let pool: ReturnType<typeof useWorklistPool> = null
 let ready = false
 let commits: Record<string, { commits: number; ms: number }> = {}
+type HeaderFixtureStats = {
+  header: ReturnType<typeof headerStats.read>
+  store: ReturnType<typeof storeStats.snapshot>
+  commits: typeof commits
+}
 headerStats.enable(); storeStats.enable()
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
@@ -59,7 +64,7 @@ root.render(<StoreProvider principal={asClientPrincipal(asUserId('header-synthet
 const driver = {
   ready: () => ready, failures: () => [...failures],
   reset: () => { headerStats.reset(); storeStats.reset(); commits = {} },
-  stats: () => ({ header: headerStats.read(), store: storeStats.snapshot(), commits }),
+  stats: (): HeaderFixtureStats => ({ header: headerStats.read(), store: storeStats.snapshot(), commits }),
   metrics: fixture.publishMetrics, activity: fixture.activity, idle: fixture.idle,
   async check() {
     if (!pool || !runtime) return null

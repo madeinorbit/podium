@@ -9,6 +9,8 @@ import { useNow } from '@/lib/useNow'
 import { useReplicaIssues, useStoreSelector, type Store } from './store'
 import { useWorklistPoolProjection } from './store-worklist-pool'
 
+type HeaderActions = Pick<Store, 'trpc' | 'setView' | 'setSettingsTab'>
+
 /** Stable actions and transport handles stay on the existing mutation owner.
  * No snapshot subscription and no legacy data derivation in the pool branch. */
 function usePoolActions() {
@@ -21,7 +23,7 @@ function usePoolActions() {
 function useLegacyActions() {
   return useStoreSelector((state) => ({ trpc: state.trpc, setView: state.setView, setSettingsTab: state.setSettingsTab }), shallowEqual)
 }
-export function useHeaderActions() {
+export function useHeaderActions(): HeaderActions {
   const useRead = headerDataLayer() === 'pool' ? usePoolActions : useLegacyActions
   return useRead()
 }
