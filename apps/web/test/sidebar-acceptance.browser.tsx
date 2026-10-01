@@ -34,8 +34,8 @@ import '../src/styles.css'
 const params = new URLSearchParams(location.search)
 const scale = Number(params.get('scale') ?? 1) as 1 | 4
 const corpus = params.get('cell') === 'h10a1'
-  ? buildCorpusCell({ history: 10, active: 1 }, 1)
-  : buildCorpus(scale, 1)
+  ? buildCorpusCell({ history: 10, active: 1 }, 4443)
+  : buildCorpus(scale, 4443)
 const targets = pickTargets(corpus)
 const full = params.get('surface') === 'full'
 const measured = params.get('measure') === '1'

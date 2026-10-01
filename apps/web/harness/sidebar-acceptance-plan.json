@@ -3,7 +3,7 @@
   "host": "flatblock",
   "browser": "Chromium",
   "maxLoad": 8,
-  "seed": 1,
+  "seed": 4443,
   "samples": 40,
   "startupAndMemorySamples": 10,
   "warmups": 6,
