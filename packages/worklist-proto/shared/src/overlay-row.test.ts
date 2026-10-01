@@ -26,6 +26,6 @@ it('the unchanged copy fence accepts borrowed overlays and rejects full-record c
   const fence = createReadFence({ enabled: true })
   const borrowed = fence.wrapSource(source).snapshot('issue')[0]!.value as typeof row
   const shown = overlayRow(borrowed, { readAt: 'new' })
-  expect(() => fence.sweep({ shown, borrowed })).not.toThrow()
-  expect(() => fence.sweep({ copied: { ...borrowed, readAt: 'new' }, borrowed })).toThrow(/holds copies of fed rows/)
+  expect(() => fence.assertNoCopies({ shown, borrowed })).not.toThrow()
+  expect(() => fence.assertNoCopies({ copied: { ...borrowed, readAt: 'new' }, borrowed })).toThrow(/holds copies of fed rows/)
 })
