@@ -14,7 +14,11 @@ export default defineConfig({
   cacheDir: `${root}/node_modules/.cache/sidebar-pool-perf-vite`,
   plugins: [tailwindcss()],
   optimizeDeps: {
-    entries: ['test/sidebar-pool-perf.browser.html', 'test/store-worklist-pool.browser.html'],
+    entries: [
+      'test/sidebar-pool-perf.browser.html',
+      'test/store-worklist-pool.browser.html',
+      'test/sidebar-renderer.browser.html',
+    ],
   },
   resolve: {
     conditions: ['@podium/source'],

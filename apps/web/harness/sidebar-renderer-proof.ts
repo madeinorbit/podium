@@ -116,6 +116,10 @@ try {
       failures.push(error.message)
       console.error(error.message)
     })
+    page.on('response', async (response) => {
+      if (response.status() >= 400)
+        console.error(response.status(), response.url(), (await response.text()).slice(0, 4000))
+    })
     await page.goto(
       `${origin}/test/sidebar-renderer.browser.html?rows=${count}&mobxSidebar=${mode === 'pool' ? 1 : 0}&perfPanel=1${worklistProof ? '&worklistProof=1' : ''}${requireCheck && mode === 'pool' ? '&mobxSidebarCheck=1' : ''}`,
       { timeout: 60000, waitUntil: 'networkidle' },
