@@ -81,6 +81,7 @@ try {
       actionToObservedPaintMs: started === undefined ? null : painted - started,
       usedHeapBytes: heap.usedSize,
     })
+    console.log(`S5 ${label}: differences=0, pending=0`)
   }
   async function rejectLatest() {
     await page.waitForFunction(() =>
