@@ -308,7 +308,7 @@ describe('ShippingService enqueue transaction', () => {
         now = `2026-08-13T10:00:0${index}.000Z`
         const title = ['lower', 'upper', 'other'][index]!
         const issue = await issues.create({ repoPath, title, startNow: false })
-        await issues.update(issue.id, { stage: 'review' })
+        await issues.update(issue.id, { stage: 'review', branch: `issue/${title}` })
         await service.enqueue({
           issueId: issue.id,
           ...approval,
