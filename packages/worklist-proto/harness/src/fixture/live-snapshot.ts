@@ -113,6 +113,7 @@ export const KEEP_KEYS: ReadonlySet<string> = new Set([
   'workState',
   'visibility',
   'intentOrigin',
+  'origin',
   'suggestedStage',
   'stopReason',
   'stateSource',

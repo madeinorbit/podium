@@ -188,6 +188,16 @@ describe('repo-root lanes (POD-4565 addendum)', () => {
 })
 
 describe('anonymisation', () => {
+  it('keeps both sidebar origin spellings as enums', () => {
+    const raw = buildCorpus(1)
+    const input = { ...raw,
+      issues: raw.issues.map(issue => ({ ...issue, origin: 'human' as const })),
+      issueProjections: raw.issueProjections.map(issue => ({ ...issue, intentOrigin: 'human' as const })),
+    }
+    const output = anonymiseCollections(input)
+    expect(output.issues[0]!.origin).toBe('human')
+    expect(output.issueProjections[0]!.intentOrigin).toBe('human')
+  })
   it('keeps every lane relation and seating when paths are hashed', () => {
     const raw = measureShape(corpusFromLive(lanesWorkspace, NOW))
     const hashed = measureShape(corpusFromLive(anonymiseCollections(lanesWorkspace), NOW))
