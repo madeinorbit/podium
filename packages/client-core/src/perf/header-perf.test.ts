@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { headerStats, measureHeader, measureLegacyHeader } from './header-perf'
 import { storeStats } from './store-stats'
 
-afterEach(() => { headerStats.disable(); headerStats.reset(); storeStats.disable(); storeStats.reset() })
+afterEach(() => { headerStats.disable(); headerStats.reset(); storeStats.enable(false); storeStats.reset() })
 describe('header derivation counters', () => {
   it('counts the actual legacy derivation in the store and preserves its result and error', () => {
     const owner = {}
