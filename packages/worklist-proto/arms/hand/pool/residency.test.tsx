@@ -906,7 +906,7 @@ describe('history rule warming', () => {
     expect(r.pool.residency?.isCold('issue', 'history-child')).toBe(true)
     r.loads.length = 0
     r.push({ type: 'update', rows: [issue('history-parent', { archived: false })] })
-    
+
     drain(r)
     expect(r.pool.residency?.isCold('issue', 'history-child')).toBe(false)
     expect(r.pool.residency?.isCold('session', 'history-child-seat')).toBe(false)
