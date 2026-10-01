@@ -60,7 +60,11 @@ export function StatusStrip(): JSX.Element {
           <span className="status-strip-seam" aria-hidden="true" />
           <span className="status-strip-issue" title={issue.title}>
             <IssueReference
-              model={issueReferenceModel({ ...issue, id: issue.id as IssueId, stage: issue.stage as IssueStage })}
+              model={issueReferenceModel({
+                id: issue.id as IssueId, seq: issue.seq, title: issue.title,
+                stage: issue.stage as IssueStage, displayRef: issue.displayRef,
+                archived: issue.archived, deletedAt: issue.deletedAt ?? undefined,
+              })}
               size={11}
               refClassName="status-strip-ref"
               titleClassName="status-strip-issue-title"
