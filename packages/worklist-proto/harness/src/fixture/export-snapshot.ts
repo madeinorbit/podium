@@ -15,8 +15,9 @@
  * minted for the CLI in `~/.podium/cli-session.json`. The bootstrap is read
  * once, as one stream (the live corpus is ~5,000 issues).
  *
- * The export is written under `harness/.live/` (gitignored). Never commit it;
- * attach it to the issue. The hashing key is random per run and never stored.
+ * The export is written under `harness/.live/` (gitignored). It never leaves
+ * ludovico and is never attached, committed or mailed. The hashing key is
+ * random per run and never stored.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -107,7 +108,7 @@ const EXPORTED_ENTITIES: Record<string, keyof LiveCollections> = {
   issueDep: 'issueDeps',
 }
 
-async function readLive(origin: string): Promise<{
+export async function readLive(origin: string): Promise<{
   raw: LiveCollections
   snapshotSeq: number
   bootstrapEntityCounts: Record<string, number>

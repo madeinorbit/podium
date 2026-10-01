@@ -101,4 +101,33 @@ describe('per-issue pool references', () => {
     }
     f.dispose()
   })
+
+  it('batches 50 cold references in one existing load window, never per chip', async () => {
+    const cold = Array.from({ length: 50 }, (_, i) => issue(i + 1, { archived: true }))
+    const load = vi.fn((_entity: string, id: string) => cold.find(row => row.id === id))
+    const due: Array<() => void> = []
+    const resolveReferences = vi.fn(async (refs: readonly string[]) => refs.map(ref => ({ ref, id: ref === 'POD-999' ? null : `iss_${Number(ref.split('-')[1])}` })))
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
+      load, resolveReferences, schedule: run => { due.push(run); return () => {} },
+    })
+    pool.apply({ type: 'replace', rows: cold.map(row => ({ kind: 'issue', id: row.id, value: row as never })) })
+    const paints = cold.map(() => vi.fn())
+    const stops = cold.map((row, i) => reaction(() => pool.references.read(`POD-${row.seq}`), paints[i]!, { fireImmediately: true }))
+    expect(pool.references.read('POD-01')).toBe(LOADING)
+    expect(pool.references.read('POD-999')).toBe(LOADING)
+    expect(resolveReferences).not.toHaveBeenCalled()
+    expect(load).not.toHaveBeenCalled()
+    expect(due).toHaveLength(1)
+    due.shift()!()
+    await Promise.resolve()
+    expect(resolveReferences).toHaveBeenCalledTimes(1)
+    expect(resolveReferences.mock.calls[0]?.[0]).toHaveLength(51)
+    expect(load).not.toHaveBeenCalled()
+    expect(pool.references.read('POD-999')).toBeNull()
+    expect(due).toHaveLength(1)
+    due.shift()!()
+    expect(load).toHaveBeenCalledTimes(50)
+    expect(paints.every(paint => paint.mock.calls.at(-1)?.[0]?.availability === 'archived')).toBe(true)
+    stops.forEach(stop => stop()); pool.dispose()
+  })
 })

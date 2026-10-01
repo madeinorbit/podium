@@ -95,7 +95,18 @@ function PoolRefMiniviewHost(): JSX.Element {
       const model = pool.references.readById(next)
       const issue = row as RefIssueLike
       const description = (row as { description?: string | { value?: string } }).description
+      let childCount = 0, childDoneCount = 0
+      // The card's enrichment reads only the declared raw child relation.
+      // Archived children count too, matching the existing card projection.
+      for (const childId of pool.relations.many('issue', next, 'treeChildren')) {
+        const child = pool.row('issue', childId)
+        if (typeof child === 'symbol') { loading = true; continue }
+        if (!child) continue
+        childCount++
+        if ((child as { stage: string }).stage === 'done') childDoneCount++
+      }
       issues.push({ ...issue, description: typeof description === 'string' ? description : description?.value ?? '',
+        childCount, childDoneCount,
         ...(model && typeof model !== 'symbol' ? { displayRef: model.ref, prefix: parseAnyRef(model.ref)?.prefix } : {}) })
       next = pool.relations.one('issue', next, 'treeParent')
     }

@@ -2,7 +2,7 @@ import { resolveIssueReference, type IssueReferenceModel as IssueReferenceView }
 import { useStoreHandle } from '@podium/client-core/react'
 import { recordChipWork } from '@podium/client-core/perf'
 import type { JSX } from 'react'
-import { memo, useCallback } from 'react'
+import { memo, useCallback, useLayoutEffect } from 'react'
 import { useReplicaIssues } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { MobxPool } from '@podium/client-graph'
@@ -24,7 +24,10 @@ export const LiveIssueReference = memo(function LiveIssueReference(props: ChipPr
 })
 
 function LegacyIssueReference({ token, ...props }: ChipProps): JSX.Element {
+  const owner = useStoreHandle()
   const issues = useReplicaIssues()
+  recordChipWork(owner, 'legacyScans')
+  recordChipWork(owner, 'legacyRows', issues.length)
   return <IssueReference {...props} model={resolveIssueReference(token, issues) ?? unavailable(token)} />
 }
 
@@ -35,6 +38,7 @@ function PoolIssueReference({ token, ...props }: ChipProps): JSX.Element {
     return pool.references.read(token)
   }, [owner, token])
   const model = useWorklistPoolProjection(read, undefined)
+  useLayoutEffect(() => { recordChipWork(owner, 'redraws') }, [owner, model])
   return <IssueReference {...props} model={typeof model === 'symbol' || model === undefined ? unavailable(token, true) : model ?? unavailable(token)} />
 }
 

@@ -4,6 +4,10 @@ import { canonicalIssueRef, issueReferenceModel, type IssueReferenceModel, type 
 import { compareStructural } from 'mobx'
 import { issueRefKey, type IssueReferenceReader } from '../src/issue-reference'
 import { LOADING } from '../src/worklist/rollup'
+import { allIssueViewModels } from '@podium/client-core/replica'
+import type { PodiumClientApi } from '@podium/client-core/api'
+import type { Store } from '@podium/client-core/engine'
+import { reportChipCheck } from '@podium/client-core/perf'
 
 export interface ChipDifference {
   readonly chipIndex: number
@@ -41,4 +45,31 @@ export function checkIssueChips(
     }
   }
   return { chips: tokens.length, pending, differences, first }
+}
+
+/** Startup opt-in only. Comparison runs outside mount/render and retains no
+ * values; it is separate from the normal per-chip read and redraw census. */
+export function startChipCheck(
+  runtime: { getSnapshot(): Store<PodiumClientApi> },
+  reader: IssueReferenceReader,
+  tokens: () => readonly string[],
+  intervalMs = 5000,
+): () => void {
+  let disposed = false, checks = 0
+  const idle = { checks: 0, chips: 0, pending: 0, differences: 0, first: null }
+  reportChipCheck(runtime, { state: 'waiting', ...idle })
+  const tick = (): void => {
+    if (disposed) return
+    try {
+      const store = runtime.getSnapshot()
+      const result = checkIssueChips(reader, allIssueViewModels(store.replica, store.issueProjections, store.issues), tokens())
+      checks++
+      reportChipCheck(runtime, { state: result.pending ? 'waiting' : result.differences ? 'different' : 'match', checks, ...result })
+    } catch {
+      reportChipCheck(runtime, { state: 'error', ...idle, checks })
+    }
+    if (!disposed) timer = setTimeout(tick, intervalMs)
+  }
+  let timer = setTimeout(tick, intervalMs)
+  return () => { disposed = true; clearTimeout(timer); reportChipCheck(runtime, { state: 'off', ...idle }) }
 }
