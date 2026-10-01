@@ -497,15 +497,15 @@ export async function runFenceStep(
       const stop = content === undefined ? undefined : feeds.rows.source.subscribe(() =>
         outsideArm(() => publications.push(content())))
       try {
-      // The write is the engine's work, the drain the feed's (its listener
-      // calls are the arm's): neither counts as the arm's (POD-4746).
-      await outsideArm(() => entry.write(ctx))
-      outsideArm(() => flush())
-      // A handle that turns lazy inside the step is asked here too. Its
-      // loads are the arm's work.
-      const hooks = loadHooks(mounted.handle, feeds, step)
-      if (hooks !== null) await insideArm(() => hooks.settleLoads())
-      settledAt = feeds.rowReads()
+        // The write is the engine's work, the drain the feed's (its listener
+        // calls are the arm's): neither counts as the arm's (POD-4746).
+        await outsideArm(() => entry.write(ctx))
+        outsideArm(() => flush())
+        // A handle that turns lazy inside the step is asked here too. Its
+        // loads are the arm's work.
+        const hooks = loadHooks(mounted.handle, feeds, step)
+        if (hooks !== null) await insideArm(() => hooks.settleLoads())
+        settledAt = feeds.rowReads()
       } finally { stop?.() }
     },
     expected: () => {
