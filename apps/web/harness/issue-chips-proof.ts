@@ -53,16 +53,22 @@ try {
     })
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
+    await page.route('**/*', route => {
+      const url = new URL(route.request().url())
+      return url.origin === origin || ['data:', 'blob:'].includes(url.protocol)
+        ? route.continue() : route.abort()
+    })
+    const fixtureUrl = `${origin}/test/issue-chips.browser.html?issues=4887&mobxSidebar=0&mobxChips=${mode === 'pool' ? 1 : 0}`
     const waitReady = async (phase: string) => {
       try {
         await page.waitForFunction(() => window.__issueChips?.ready(), null, { timeout: 30000 })
       } catch (error) {
-        console.error(JSON.stringify({ phase, errors, status: await page.evaluate(() => window.__issueChips?.status()), failures: await page.evaluate(() => window.__issueChips?.failures()) }))
+        console.error(JSON.stringify({ phase, url: page.url(), errors, status: await page.evaluate(() => window.__issueChips?.status()), failures: await page.evaluate(() => window.__issueChips?.failures()) }))
         throw error
       }
     }
     await page.goto(
-      `${origin}/test/issue-chips.browser.html?issues=4887&mobxSidebar=0&mobxChips=${mode === 'pool' ? 1 : 0}`,
+      fixtureUrl,
       { waitUntil: 'networkidle', timeout: 60000 },
     )
     await waitReady(`${mode}:boot`)
@@ -74,7 +80,9 @@ try {
     )
     const times: number[] = []
     for (let sample = 0; sample < (correctnessOnly ? 1 : 5); sample++) {
-      await page.reload({ waitUntil: 'networkidle', timeout: 60000 })
+      // ChatView writes the selected session into the browser URL. A reload
+      // there loads the app entry, so return to the private fixture explicitly.
+      await page.goto(fixtureUrl, { waitUntil: 'networkidle', timeout: 60000 })
       await waitReady(`${mode}:reload:${sample}`)
       if (correctnessOnly) {
         await page.evaluate(() => window.__issueChips.open())
