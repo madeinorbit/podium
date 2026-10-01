@@ -1,4 +1,4 @@
-/** Small synthetic reductions of POD-5056–POD-5060. No operator records. */
+/** Small synthetic sidebar parity reductions. No operator records. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { createClientRuntime, dedupeSessions } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -246,6 +246,57 @@ describe('POD-5059 section label from root rows', () => {
       expect(band().expected.label).toBe('renamed-root')
       expect(band().actual.label).toBe(band().expected.label)
       expect(ctx.check().first).toBeNull()
+    } finally { ctx.dispose() }
+  })
+})
+
+
+describe('POD-5072 snoozed roster section label', () => {
+  it('follows the retained worktree head until an issue sorts ahead of it', () => {
+    const task = issue('iss_synthetic_snoozed_label', { deferUntil: new Date(NOW + 3_600_000).toISOString() })
+    const seat = session('synthetic-unowned-label', '', { issueId: null })
+    const ctx = replay(collections([task], [seat]))
+    try {
+      const band = () => {
+        const sections = ctx.sections()
+        return { actual: required(sections.actual.bands.find(b => b.key === 'synthetic-repo')), expected: required(sections.expected.bands.find(b => b.key === 'synthetic-repo')) }
+      }
+      expect(band().expected).toMatchObject({ label: 'Synthetic project', rowIds: [], worktreeIds: [ROOT], snoozedIds: [task.id] })
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
+      expect(band().actual.label).toBe(band().expected.label)
+      const renamed = { ...task, repoPath: '/synthetic/renamed-checkout' }
+      ctx.updateIssue(renamed)
+      expect(band().expected.label).toBe('Synthetic project')
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
+      // An awake root sorts ahead of the worktree even with an idle roster.
+      ctx.updateIssue({ ...renamed, deferUntil: null })
+      expect(band().expected.label).toBe('renamed-checkout')
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
+      ctx.updateIssue(renamed)
+      expect(band().expected.label).toBe('Synthetic project')
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
+      // Without the retained seat, the snoozed root supplies the label.
+      ctx.updateSession({ ...seat, archived: true })
+      expect(band().expected).toMatchObject({ label: 'renamed-checkout', worktreeIds: [] })
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
+    } finally { ctx.dispose() }
+  })
+  it('keeps a closed root ahead of the roster when the only open root is snoozed', () => {
+    const old = new Date(NOW - 2 * 24 * 3_600_000).toISOString()
+    const snoozed = issue('iss_synthetic_snoozed_with_closed', { seq: 2, deferUntil: new Date(NOW + 3_600_000).toISOString() })
+    const closed = issue('iss_synthetic_closed_label', { repoPath: '/synthetic/closed-checkout', stage: 'done', closedReason: 'done', closedAt: old, tuckedAt: old })
+    const seat = session('synthetic-unowned-closed-label', '', { issueId: null })
+    const ctx = replay(collections([snoozed, closed], [seat]))
+    try {
+      const { expected } = ctx.sections()
+      expect(required(expected.bands.find(b => b.key === 'synthetic-repo'))).toMatchObject({
+        label: 'closed-checkout', rowIds: [], worktreeIds: [ROOT], snoozedIds: [snoozed.id], closedIds: [closed.id],
+      })
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
+      // Closed-fold membership cannot substitute for the root's ordering band.
+      ctx.updateIssue({ ...closed, deferUntil: snoozed.deferUntil })
+      expect(required(ctx.sections().expected.bands.find(b => b.key === 'synthetic-repo'))).label).toBe('Synthetic project')
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
     } finally { ctx.dispose() }
   })
 })
