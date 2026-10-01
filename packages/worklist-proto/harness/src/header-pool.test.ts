@@ -6,6 +6,8 @@ import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { checkHeader, legacyHeaderSnapshot, poolHeaderSnapshot } from '@podium/client-graph/diagnostics/header-check'
 import { startHeaderCheck } from '@podium/client-graph/diagnostics/header-runtime-check'
 import { HEADER_RELATIONS, HEADER_SCHEMA } from '@podium/client-graph/header-schema'
+import { legacyDerivationFromStore } from '@podium/client-graph/diagnostics/legacy'
+import { buildFlightDeckRows, selectedMissionRoot } from '@podium/client-core/viewmodels'
 import type { HostMetricsWire, MachineId } from '@podium/model/browser'
 import {
   startScenarioEngine, writeArchiveIssue, writeBurst50, writeClockTick, writeEvictIssue,
@@ -32,6 +34,21 @@ async function fixture(scale: 1 | 4 = 1) {
     settle()
     const value = runInAction(() => checkHeader(handle.pool, ctx.engine.getSnapshot(), inputs()))
     if (value.first) {
+      const legacy = legacyDerivationFromStore(ctx.engine.getSnapshot())
+      const sessions = ctx.engine.getSnapshot().sessions
+      const root = selectedMissionRoot(legacy.models, sessions, ctx.engine.getSnapshot().selectedIssueId)
+      const folded = runInAction(() => handle.pool.headerViews.folded())
+      if (root && folded.issueIds) {
+        const expectedIds = new Set([root.id, ...(buildFlightDeckRows(legacy.models, sessions, root.id)[0]?.descendantIds ?? [])])
+        console.log({ extra: folded.issueIds.filter((id) => !expectedIds.has(id)).map((id) => {
+          const row = handle.pool.row('issue', id) as { stage?: string; archived?: boolean; deletedAt?: string; deps?: { type: string }[]; startedBySession?: string; parentId?: string }
+          const before = legacy.models.find((value) => value.id === id)
+          return { id, stage: row.stage, archived: row.archived, removed: !!row.deletedAt, legacyArchived: before?.archived,
+            parentAligned: row.parentId === before?.parentId, starterAligned: row.startedBySession === before?.startedBySession,
+            deps: row.deps?.map((dep) => dep.type), legacyDeps: before?.deps?.map((dep) => dep.type),
+            crew: sessions.filter((session) => session.issueId === id && !session.archived && session.status !== 'exited').length }
+        }) })
+      }
       const expected = legacyHeaderSnapshot(ctx.engine.getSnapshot(), inputs(), handle.pool.clock.current)
       const actual = runInAction(() => poolHeaderSnapshot(handle.pool, inputs()))
       expect(actual.sections[value.first.sectionIndex], label).toEqual(expected.sections[value.first.sectionIndex])

@@ -141,7 +141,7 @@ export function createHeaderViews(pool: MobxPool) {
       const sidebar = pool.model('issue', root.id)?.sidebar
       if (sidebar === LOADING) loading = true
       return { root, progress: sidebar && sidebar !== LOADING ? sidebar.progress : NO_PROGRESS,
-        live: crew.length, working: crew.filter(isSessionWorking).length, needs, loading }
+        live: crew.length, working: crew.filter(isSessionWorking).length, needs, loading, issueIds: [...ids] }
     })
   }
   function shipping() {
