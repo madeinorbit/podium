@@ -914,7 +914,7 @@ const DECLARED = defineSchema({
           why: "R3 (POD-4745): an issueless session running in the issue's own checkout is one of its seats by containment (`indexSessionOwnership`, session-ownership.ts:152-158), and a retained seat keeps the row shown exactly as an explicit member does. Without it the bound held only on today's data (no closed row at 1x or 4x is kept by such a session alone), and an arm had to evaluate every cold row at bootstrap to be safe.",
         },
       ],
-      why: 'History stays out of observable tables unless R-VIS can show it: closed folds, completion windows, merge work and retained sessions. Archived/deleted rows and internal children without a warm human nesting ancestor cannot show, whatever a session keeps. A clock rewind remains the loading exception.',
+      why: 'History stays out of observable tables unless R-VIS can show it: closed folds, completion windows, merge work and retained sessions. Archived/deleted rows and internal children with no potential nesting path cannot show, whatever a session keeps. A parentless ancestor may use its started-by fallback; a live descendant loads an unplaced parent only when its compact keeper bound can give pre-nesting presence. A clock rewind remains the loading exception.',
     },
   },
 

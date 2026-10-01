@@ -219,12 +219,12 @@ function excludedOf(issue: Partial<Pick<SliceIssue, 'archived' | 'deletedAt' | '
 
 /**
  * POD-4753 — what visibility reads of a HIDDEN issue: one the complete cold
- * rule (POD-4745) keeps out of memory, so nothing can show it, and it is
- * neither flat nor present. Only two things about it reach other rows: its
- * raw parent (the nesting walk passes through it) and whether it is excluded
- * (else a kept row below it still counts for its ancestors' rescue). The pool
- * keeps exactly these fields of each such row (`Residency` summaries), never
- * the row, and reads none of its sessions.
+ * rule keeps out of memory. The raw parent and exclusion fields let nesting
+ * pass through it and rescue compose below it. An unplaced agent ancestor
+ * can still attract a live child before nesting; its compact `flatUntil`
+ * keeper bound decides whether that child needs the ancestor loaded. Cold
+ * leaves read none of their sessions. These fields and the derived deadline
+ * are the declared summary, never the full row.
  */
 export const HIDDEN_ISSUE_FIELDS = ['parentId', 'audience', 'archived', 'deletedAt', 'stage'] as const
 

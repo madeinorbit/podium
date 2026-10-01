@@ -105,13 +105,11 @@ export const RESORT_FRACTION = 1 / 8
 
 /**
  * POD-4753 — what visibility reads of a HIDDEN issue: one the complete cold
- * rule keeps out of memory, so nothing can show it, and it is neither flat
- * nor present. Only two things about it reach other rows: its raw parent
- * (the nesting walk passes through it) and whether it is excluded (else a
- * kept row below it still counts for its ancestors' rescue). The pool keeps
- * exactly these fields of each such row (`Residency` summaries), never the
- * row, and reads none of its sessions. The hand mirror of the MobX pool's
- * `HIDDEN_ISSUE_FIELDS`.
+ * rule keeps out of memory. Its raw parent and exclusion fields let nesting
+ * pass through it and rescue compose below it. The derived `flatUntil`
+ * keeper bound tells a live descendant when it needs an unplaced agent
+ * ancestor loaded to decide pre-nesting presence. Cold leaves read none of
+ * their sessions. The hand mirror of the MobX pool's declared summary.
  */
 export const HIDDEN_ISSUE_FIELDS = [
   'parentId',
@@ -466,9 +464,9 @@ function anyRetained(input: VisibleInputs, id: string, self: VisibleParts, live:
  * ownership index, `session-ownership.ts:371-410`): its explicit issue when
  * that one is present, else, for a session with no `issueId`, a present
  * issue checked out at its worktree (lowest id: legacy takes the first in its
- * list order, which no pool has). A COLD session is cold through its issue
- * (`via`), so it names one and only the explicit branch applies; its row is
- * read only when that issue is present.
+ * list order, which no pool has). A cold session answers these facts from
+ * its declared summary and the maintained links, including an unbound
+ * stopped starter whose checkout still owns a present issue.
  */
 function ownerOf(input: VisibleInputs, sessionId: string): string | null {
   const session = input.session(sessionId)
