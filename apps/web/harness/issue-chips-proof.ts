@@ -143,6 +143,21 @@ try {
       throw new Error('Legacy scan positive control inactive')
     if (errors.length || (await page.evaluate(() => window.__issueChips.failures())).length)
       throw new Error(`Browser errors: ${errors.join('; ')}`)
+    // The full conversation owns the existing Markdown click router. Drive
+    // one chip through it and inspect the actual floating card's header.
+    await page.locator('a.ref-link--issue[data-ref="SYN-1000"]').last().click()
+    const card = page.getByRole('dialog', { name: 'Reference SYN-1000' })
+    await card.getByText('Changed chip title', { exact: true }).waitFor()
+    const miniview = await card.locator('[data-issue-reference="SYN-1000"]').evaluate((el) => ({
+      ref: el.getAttribute('data-issue-reference'),
+      stage: el.getAttribute('data-issue-stage'),
+      availability: el.getAttribute('data-issue-availability'),
+      label: el.getAttribute('aria-label'),
+      text: el.textContent,
+    }))
+    if (mode === 'pool' && (await page.evaluate(() => window.__issueChips.stats())).legacyScans !== 0)
+      throw new Error('The pool miniview called a legacy issue derivation')
+    await page.screenshot({ path: `${out}/${mode}-miniview.png`, fullPage: false })
     times.sort((a, b) => a - b)
     results.push({
       mode,
@@ -158,8 +173,9 @@ try {
       after,
       changedChips,
       check,
+      miniview,
     })
-    snapshots.push({ initial, changed })
+    snapshots.push({ initial, changed, miniview })
     await page.close()
   }
   if (JSON.stringify(snapshots[0]) !== JSON.stringify(snapshots[1]))

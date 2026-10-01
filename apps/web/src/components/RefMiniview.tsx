@@ -1,4 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
+import { recordChipWork } from '@podium/client-core/perf'
+import { useStoreHandle } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
 import { type IssueReferenceModel, issueReferenceModel } from '@podium/client-core/viewmodels'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
@@ -69,6 +71,7 @@ export function RefMiniviewHost(): JSX.Element | null {
 
 function LegacyRefMiniviewHost(): JSX.Element {
   const issues = useReplicaIssues()
+  recordChipWork(useStoreHandle(), 'legacyScans')
   return <RefMiniviewContents issues={issues} resolveIssue={(token) => resolveRef(token, issues, [])} />
 }
 
@@ -549,6 +552,7 @@ export function RefPrefixSync(): JSX.Element {
 
 function LegacyRefPrefixSync(): JSX.Element {
   const issues = useReplicaIssues()
+  recordChipWork(useStoreHandle(), 'legacyScans')
   return <RefPrefixSyncContents issuePrefixKey={[...collectRefPrefixes(issues)].sort().join(',')} />
 }
 

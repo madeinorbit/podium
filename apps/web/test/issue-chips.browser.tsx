@@ -11,6 +11,7 @@ import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { LiveIssueReference } from '../src/components/IssueReference'
+import { RefMiniviewHost } from '../src/components/RefMiniview'
 import { ChatView } from '../src/features/chat/ChatView'
 import { IssueChipLiveness } from '../src/features/chat/IssueChipLiveness'
 import { chipsDataLayer, initializeChipsDataLayer } from '../src/lib/chips-data-layer'
@@ -31,6 +32,7 @@ for (let i = 674; i < count; i++) synthetic.records.delete(`session:synthetic-se
 // scanning rows. The production resolver is separately checked for permissions.
 synthetic.api.issues = {
   ...synthetic.api.issues,
+  comments: { query: async () => [] },
   resolveRefs: {
     query: async ({ refs }) =>
       refs.map((ref) => {
@@ -87,6 +89,7 @@ function Fixture() {
   }, [attached, owner])
   return (
     <main className="flex h-screen flex-col bg-background text-foreground">
+      <RefMiniviewHost />
       <div ref={setRoot}>
         <IssueChipLiveness root={root} />
         <div className="p-3" data-surface="issue-page">
