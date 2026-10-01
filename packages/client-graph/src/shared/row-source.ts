@@ -109,7 +109,9 @@
  * top-level entry whose path is another entry's linked worktree is dropped,
  * as legacy `reposToViews` does: a real scan reports each linked worktree
  * twice, and the lane belongs to its parent root. A `repos` address emits
- * only that repo's lanes.
+ * only that repo's lanes. Before discovery has reported a repo, snapshots
+ * and replaces carry its borrowed replica row (the same raw-row signal as
+ * a `repos` address), so persisted prefixes are available offline too.
  *
  * DISCOVERY LANES (POD-4606). Discovery is not a kernel row: `refreshRepos`
  * publishes a whole new `repos` array, with no address. A flush that sees the
@@ -580,6 +582,21 @@ export function createRowSource(
     return out
   }
 
+  /** Repo facts already persisted before discovery has supplied any lanes.
+   *  Only snapshots and replaces enumerate these; ordinary updates keep the
+   *  keyed `resolveReposFanout` path. Raw rows never enter the lane diff. */
+  function unscannedRepos(): RowRecord[] {
+    const index = indexFor(currentRepos())
+    const out: RowRecord[] = []
+    for (const raw of replica.rows('repos')) {
+      const id = idOf(raw)
+      if (id === null || index.byId.has(id)) continue
+      stats.rowsVisited += 1
+      out.push({ kind: 'worktree', id, value: raw as unknown as SliceWorktree })
+    }
+    return out
+  }
+
   function flush(): RowSourceEvent | null {
     if (disposed) return null
     const hadReplace = pendingReplace
@@ -602,7 +619,10 @@ export function createRowSource(
       held = new Map(lanes.map((row) => [row.id, row.value as SliceWorktree]))
       const event: RowSourceEvent = {
         type: 'replace',
-        rows: [...enumerate('session', pending), ...enumerate('issue', pending), ...lanes],
+        rows: [
+          ...enumerate('session', pending), ...enumerate('issue', pending),
+          ...lanes, ...unscannedRepos(),
+        ],
       }
       emit(event)
       return event
@@ -687,7 +707,7 @@ export function createRowSource(
       )
     }
     stats.enumerations += 1
-    if (kind === 'worktree') return allLanes()
+    if (kind === 'worktree') return [...allLanes(), ...unscannedRepos()]
     return enumerate(kind, readPending())
   }
 

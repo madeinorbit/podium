@@ -89,9 +89,10 @@ describe('the pool over the app-owned runtime', () => {
 
   it('a known row absent from memory answers LOADING and loads through a nonblocking batch', async () => {
     const ctx = await startScenarioEngine(1)
+    const read = vi.spyOn(ctx.replica, 'row')
     const handle = createRuntimeWorklistPool(ctx.engine)
     try {
-      const read = vi.spyOn(ctx.replica, 'row')
+      read.mockClear()
       const id = ctx.targets.heartbeatSessionId
       expect(tracked(() => handle.pool.tables.session.has(id))).toBe(false)
       expect(tracked(() => handle.pool.row('session', id))).toBe(LOADING)

@@ -882,7 +882,8 @@ describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)'
         const handle = createRowSource(engine, replica, { mode })
         const held = new Map<string, LaneFacts>()
         for (const lane of handle.source.snapshot('worktree')) {
-          const value = lane.value as { repoPath: string; repoId?: string | null }
+          const value = lane.value as { path?: string; repoPath: string; repoId?: string | null }
+          if (typeof value.path !== 'string') continue // Raw repo facts are not lanes.
           held.set(lane.id, { repoPath: value.repoPath, repoId: value.repoId ?? null })
         }
         const events: RowSourceEvent[] = []
@@ -890,9 +891,9 @@ describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)'
           events.push(e)
           for (const row of e.rows) {
             if (row.kind !== 'worktree') continue
-            const value = row.value as { repoPath: string; repoId?: string | null } | undefined
+            const value = row.value as { path?: string; repoPath: string; repoId?: string | null } | undefined
             if (value === undefined) held.delete(row.id)
-            else held.set(row.id, { repoPath: value.repoPath, repoId: value.repoId ?? null })
+            else if (typeof value.path === 'string') held.set(row.id, { repoPath: value.repoPath, repoId: value.repoId ?? null })
           }
         })
         const discover = async (repos: unknown[]) => {
