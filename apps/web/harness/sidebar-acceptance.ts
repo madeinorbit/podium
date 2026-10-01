@@ -13,6 +13,8 @@ import type {} from '../test/sidebar-acceptance.browser'
 
 const arg = (name: string, fallback: string) => process.argv.find(a => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=') ?? fallback
 const phase = arg('phase', 'timing')
+const requestedScales = arg('scales', plan.scales.join(',')).split(',')
+if (requestedScales.some(scale => !plan.scales.includes(scale))) throw new Error('Unknown acceptance scale')
 const base = resolve(process.cwd(), '.artifacts/sidebar-acceptance')
 const out = resolve(base, phase)
 const build = resolve(base, 'build')
@@ -201,13 +203,22 @@ try {
       }
     }
   } else if (phase === 'timing' || phase === 'attribution') {
-    for (const scale of plan.scales) for (const surface of (phase === 'attribution' ? ['full'] : ['sidebar', 'full'])) {
+    for (const scale of requestedScales) for (const surface of (phase === 'attribution' ? ['full'] : ['sidebar', 'full'])) {
       const pages = { legacy: await open('legacy', scale, surface), pool: await open('pool', scale, surface) }
       const rowIds = await pages.legacy.page.locator('[data-issue-row]').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute('data-issue-row')!))])
       const shapes = await pages.legacy.page.evaluate(ids => window.__acceptance.shape(ids), rowIds)
       const ranked = shapes.filter(shape => shape.rows > 0).sort((a, b) => b.rows - a.rows)
       const canonical = await pages.legacy.page.evaluate(() => window.__acceptance.targets)
-      const targets = [ranked[0]!.id, ranked[1]!.id, canonical.markReadId, canonical.stageMoveId, canonical.archiveId, canonical.evictId]
+      const proposed = [ranked[0]!.id, ranked[1]!.id, canonical.markReadId, canonical.stageMoveId, canonical.archiveId, canonical.evictId]
+      // Resolve the nomination against mounted normal issues before any samples.
+      // Some canonical mutation targets are folded or overlap a large mission at 4x.
+      const targets = [...new Set(proposed.filter(id => rowIds.includes(id)))]
+      for (const shape of [...ranked].reverse()) {
+        if (targets.length === 6) break
+        if (!targets.includes(shape.id)) targets.push(shape.id)
+      }
+      await writeFile(resolve(out, `target-preflight-${scale}-${surface}.json`), JSON.stringify({ proposed, targets,
+        missing: proposed.filter(id => !rowIds.includes(id)), duplicateProposals: proposed.length - new Set(proposed).size }, null, 2))
       if (new Set(targets).size !== 6 || targets.some(id => !rowIds.includes(id)))
         throw new Error('Warm switch needs six distinct mounted normal issues')
       await writeFile(resolve(out, `targets-${scale}-${surface}.json`), JSON.stringify(shapes.filter(shape => targets.includes(shape.id)), null, 2))
