@@ -3,7 +3,8 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { chromium } from '@playwright/test'
-import { spawn, sleep } from 'bun'
+import { spawn } from 'node:child_process'
+import { setTimeout as sleep } from 'node:timers/promises'
 import type {} from './header-pool.browser'
 
 const rows = Number(process.argv.find((arg) => arg.startsWith('--rows='))?.slice(7) ?? 5600)
@@ -12,7 +13,8 @@ const activityMs = Number(process.argv.find((arg) => arg.startsWith('--activity-
 const output = resolve('.artifacts/header-pool')
 await mkdir(output, { recursive: true })
 const origin = 'http://127.0.0.1:45079'
-const server = spawn([process.execPath, 'apps/web/node_modules/vite/bin/vite.js', '--config', 'apps/web/vite.sidebar-pool-perf.config.ts', '--port', '45079'], { stdout: 'ignore', stderr: 'inherit' })
+const server = spawn(process.execPath, ['apps/web/node_modules/vite/bin/vite.js', '--config', 'apps/web/vite.sidebar-pool-perf.config.ts', '--port', '45079'], { stdio: ['ignore', 'ignore', 'inherit'] })
+const exited = new Promise<void>((resolve, reject) => { server.once('exit', () => resolve()); server.once('error', reject) })
 console.log(`Header fixture Vite PID ${server.pid}`)
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
 try {
@@ -77,4 +79,4 @@ try {
   }
   await writeFile(`${output}/results.json`, JSON.stringify({ rows, ...results }, null, 2))
   console.log(JSON.stringify({ rows, ...results }))
-} finally { await browser?.close(); server.kill(); await server.exited }
+} finally { await browser?.close(); server.kill(); await exited }

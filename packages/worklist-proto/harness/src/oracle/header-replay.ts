@@ -50,7 +50,7 @@ async function main() {
   for await (const chunk of source.bootstrap()) {
     for (const change of chunk.changes) {
       if (change.op !== 'upsert') continue
-      cache.put(change.entity, change.entityId, change.payload)
+      cache.put(change.entity as Parameters<ScenarioCache['put']>[0], change.entityId, change.payload)
       const rows = byEntity.get(change.entity) ?? []
       rows.push(change.payload); byEntity.set(change.entity, rows)
     }
