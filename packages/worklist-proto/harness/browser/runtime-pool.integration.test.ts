@@ -1,38 +1,32 @@
 /** Real-browser lifetime evidence belongs to the integration lane. */
 import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
+import { createServer, type Server } from 'node:http'
+import { resolve } from 'node:path'
 import { chromium, type Browser, type Page } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { createServer, type ViteDevServer } from 'vite'
 import type {} from '../../../../apps/web/test/store-worklist-pool.browser'
 
-let server: ViteDevServer
+let server: Server
 let browser: Browser
 let origin: string
 
 beforeAll(async () => {
-  const appRoot = fileURLToPath(new URL('../../../../apps/web/', import.meta.url))
-  server = await createServer({
-    configFile: false, root: appRoot,
-    resolve: {
-      conditions: ['@podium/source'], dedupe: ['react', 'react-dom'],
-      alias: { '@': `${appRoot}/src` },
-    },
-    esbuild: { jsx: 'automatic' },
-    server: { host: '127.0.0.1', port: 0 },
-    optimizeDeps: { include: ['react', 'react-dom', 'react-dom/client', 'mobx', 'mobx-react-lite'] },
-    plugins: [{
-      name: 'private-pool-fixture',
-      configureServer(vite) {
-        vite.middlewares.use((request, response, next) => {
-          if (!request.url?.startsWith('/__pool_test')) return next()
-          response.setHeader('Content-Type', 'text/html')
-          response.end('<div id="root"></div><script type="module" src="/test/store-worklist-pool.browser.tsx"></script>')
-        })
-      },
-    }],
+  const dist = fileURLToPath(new URL('../../node_modules/.cache/runtime-pool-browser/', import.meta.url))
+  server = createServer((request, response) => {
+    const pathname = new URL(request.url ?? '/', 'http://fixture').pathname
+    const relative = pathname === '/__pool_test' ? '/test/store-worklist-pool.browser.html' : pathname
+    const target = resolve(dist, `.${relative}`)
+    if (!target.startsWith(dist)) { response.writeHead(403).end(); return }
+    try {
+      response.setHeader('Content-Type', target.endsWith('.js') ? 'application/javascript' : 'text/html')
+      response.end(readFileSync(target))
+    } catch {
+      response.writeHead(404).end()
+    }
   })
-  await server.listen()
-  const address = server.httpServer!.address()
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
+  const address = server.address()
   if (address === null || typeof address === 'string') throw new Error('fixture did not bind TCP')
   origin = `http://127.0.0.1:${address.port}`
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] })
@@ -40,7 +34,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await browser?.close()
-  await server?.close()
+  if (server !== undefined) await new Promise<void>((done) => server.close(() => done()))
 })
 
 async function ready(page: Page): Promise<void> {
@@ -83,7 +77,7 @@ describe('principal pool lifetime in Chromium', () => {
     const page = await browser.newPage()
     const graphRequests: string[] = []
     page.on('request', (request) => {
-      if (/client-graph|\/mobx(?:[_.\/]|$)/.test(request.url())) graphRequests.push(request.url())
+      if (/client-graph|runtime-pool|\/mobx(?:[_.\/]|$)/.test(request.url())) graphRequests.push(request.url())
     })
     try {
       await page.goto(`${origin}/__pool_test?mobxSidebar=0`)
