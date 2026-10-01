@@ -638,8 +638,10 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
   present(input, id, self) {
     const hidden = input.hidden?.(id)
     if (hidden !== undefined) {
-      if (hidden.audience === 'agent' && !hiddenExcludedOf(hidden) && self.keptBelow &&
-        hidden.flatUntil !== undefined && !input.passed(hidden.flatUntil)) input.loadIssue?.(id)
+      // Check the compact keeper bound before walking children: expired
+      // ancestors and historical leaves build nothing and load nothing.
+      if (hidden.audience === 'agent' && !hiddenExcludedOf(hidden) &&
+        hidden.flatUntil !== undefined && !input.passed(hidden.flatUntil) && self.keptBelow) input.loadIssue?.(id)
       return false
     }
     if (self.flat) return true
