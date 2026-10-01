@@ -269,6 +269,7 @@
         "src/modules/sessions/turn-preview.ts",
         "src/modules/settings/superagent-default.test.ts",
         "src/modules/settings/superagent-default.ts",
+        "src/modules/shipping/projection.ts",
         "src/modules/shipping/queue.test.ts",
         "src/modules/shipping/queue.ts",
         "src/modules/shipping/shipwright-router.test.ts",
