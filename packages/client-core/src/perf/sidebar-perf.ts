@@ -61,6 +61,7 @@ export function createSidebarPerf(clock: () => number = () => performance.now())
   let poolConnected = false
   let check: SidebarCheckReport = { state: 'off', differences: 0, checkedAt: null }
   let checking = 0
+  let checkGeneration = 0
 
   function prune(at: number): void {
     const cutoff = at - WINDOW_MS
@@ -141,11 +142,12 @@ export function createSidebarPerf(clock: () => number = () => performance.now())
     /** S5's deliberate comparison work has its own counter, even when it reads the pool. */
     beginCheck(): () => void {
       checking++
+      const generation = checkGeneration
       let ended = false
       return () => {
         if (!ended) {
           ended = true
-          checking--
+          if (generation === checkGeneration) checking--
         }
       }
     },
@@ -192,6 +194,7 @@ export function createSidebarPerf(clock: () => number = () => performance.now())
       poolConnected = false
       poolRows = null
       check = { state: 'off', differences: 0, checkedAt: null }
+      checkGeneration++
       checking = 0
     },
   }

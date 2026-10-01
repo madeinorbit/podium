@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   bindSidebarPerf,
+  beginSidebarCheck,
   observeSidebarPerfBinding,
   createSidebarPerf,
   recordSidebarDerivation,
@@ -98,6 +99,30 @@ describe('passive sidebar report', () => {
     for (let i = 0; i < 20_001; i++) perf.record({ rows: 1 })
     expect(perf.read().complete).toBe(false)
     expect(perf.read().idle.rows).toBe(20_000)
+  })
+
+  it.each(['before', 'during'] as const)('ignores pre-reset check completions %s the next comparison', when => {
+    const owner = {}
+    const perf = createSidebarPerf(() => 100)
+    const stop = bindSidebarPerf(owner, perf)
+    try {
+      const oldEnd = beginSidebarCheck(owner)
+      perf.record({ rows: 9 })
+      perf.reset()
+      if (when === 'before') oldEnd()
+      const end = beginSidebarCheck(owner)
+      if (when === 'during') oldEnd()
+      oldEnd()
+      perf.record({ rows: 1, derivations: 1, start: 10, end: 12 })
+      end()
+      end()
+      expect(perf.read().checkWork).toEqual({ rows: 1, derivations: 1, mainThreadMs: 2 })
+      expect(perf.read().idle).toEqual({ rows: 0, derivations: 0, mainThreadMs: 0 })
+      perf.record({ rows: 2 })
+      expect(perf.read().idle.rows).toBe(2)
+    } finally {
+      stop()
+    }
   })
 
   it('scopes legacy row/derive pulses to the open panel and actual store owner', () => {
