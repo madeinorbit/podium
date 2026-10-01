@@ -41,21 +41,46 @@ def measurement(record):
 
 
 def cpu(record):
+    if '_cpu' in record:
+        return record['_cpu']
     return union_ms([i for i in measurement(record)['intervals'] if i['kind'] != 'sidebar row render'])
 
 
 def derives(record):
+    if '_derives' in record:
+        return record['_derives']
     panel = measurement(record).get('panel') or {}
     return (panel.get('idle') or {}).get('derivations', 0) + ((panel.get('lastUpdate') or {}).get('work') or {}).get('derivations', 0)
 
 
 def publications(record):
+    if '_publications' in record:
+        return record['_publications']
     pubs = measurement(record)['stats']['publishes']
     navigation = [p for p in pubs if 'selectedIssueId' in p['changedKeys']]
     optimism = [p for p in pubs if 'selectedIssueId' not in p['changedKeys'] and any(k in p['changedKeys'] for k in ['issues', 'issueProjections', 'outboxSize', 'outboxDeadLetters'])]
     clock = [p for p in pubs if p['changedKeys'] and set(p['changedKeys']) <= {'coarseNow'}]
     other = [p for p in pubs if p not in navigation and p not in optimism and p not in clock]
     return {'navigation': len(navigation), 'optimistic_or_outbox': len(optimism), 'clock': len(clock), 'other': len(other), 'total': len(pubs)}
+
+
+def compact_record(record):
+    """Keep every decision input while releasing each large interval list.
+
+    Original JSONL remains untouched; CPU is reduced by the same union function.
+    This avoids holding nearly a gigabyte of raw JSON as Python objects at once.
+    """
+    small = {key: value for key, value in record.items() if key not in ['result', 'stats']}
+    if record['kind'] in ['click', 'unrelated', 'title', 'phase', 'draft', 'idle']:
+        small['_cpu'] = cpu(record)
+        small['_derives'] = derives(record)
+        small['_publications'] = publications(record)
+        meter = measurement(record)
+        small['result'] = {'intervals': meter['intervals'] if record['kind'] == 'idle' else [],
+            'stats': {'publishes': meter['stats']['publishes']}, 'panel': meter.get('panel')}
+    elif record['kind'] == 'parity':
+        small['result'] = record['result']
+    return small
 
 
 def regression(pilot, legacy):
@@ -66,6 +91,17 @@ def check_math():
     assert union_ms([{'start': 0, 'end': 8}, {'start': 2, 'end': 6}]) == 8
     assert distribution([1] * 37 + [7, 999, 1000])['p95'] == 7
     assert distribution([1, 2, 3])['p95'] is None
+    probe = {'kind': 'click', 'result': {'intervals': [
+        {'start': 0, 'end': 9, 'kind': 'runtime batch'},
+        {'start': 2, 'end': 4, 'kind': 'sidebar derivation'},
+        {'start': 10, 'end': 100, 'kind': 'sidebar row render'}],
+        'stats': {'publishes': [{'changedKeys': keys} for keys in [['selectedIssueId'], ['outboxSize'], ['coarseNow'], ['drafts']]]},
+        'panel': {'idle': {'derivations': 2}, 'lastUpdate': {'work': {'derivations': 3}}}}}
+    compacted = compact_record(probe)
+    assert cpu(compacted) == 9
+    assert derives(compacted) == 5
+    assert publications(compacted) == {'navigation': 1, 'optimistic_or_outbox': 1, 'clock': 1, 'other': 1, 'total': 4}
+    assert compacted['result']['intervals'] == []
 
 
 def controls(out):
@@ -137,6 +173,9 @@ def controls(out):
         'nested_cpu_double_count': ('end = -math.inf', "return sum(i['end'] - i['start'] for i in intervals)\n    end = -math.inf"),
         'max_as_p95': ('ordered[math.ceil(0.95 * len(ordered)) - 1]', 'ordered[-1]'),
         'sparse_p95_as_max': ("len(ordered) >= PLAN['samples']", 'len(ordered) > 0'),
+        'compacted_cpu_lost': ("small['_cpu'] = cpu(record)", "small['_cpu'] = 0"),
+        'compacted_derivations_lost': ("small['_derives'] = derives(record)", "small['_derives'] = 0"),
+        'compacted_publications_lost': ("small['_publications'] = publications(record)", "small['_publications'] = {}"),
     }
     try:
         for name, (old, wrong) in source_plants.items():
@@ -161,7 +200,10 @@ def analyze(root):
     for phase in ['counts', 'timing', 'memory', 'attribution']:
         path = root / phase / 'records.jsonl'
         if path.exists():
-            records.extend(dict(json.loads(line), phase=phase) for line in path.read_text().splitlines() if line.strip())
+            with path.open() as source:
+                for line in source:
+                    if line.strip():
+                        records.append(dict(compact_record(json.loads(line)), phase=phase))
     void = [r for r in records if not r['valid'] or r.get('before', {}).get('loadavg', [0])[0] > PLAN['maxLoad']]
     accepted = [r for r in records if r not in void]
     summary = {'plan': PLAN, 'records': len(records), 'voidRecords': len(void), 'cells': {}, 'bars': {}, 's9': 'PENDING: one operator day on ludovico with panel'}
