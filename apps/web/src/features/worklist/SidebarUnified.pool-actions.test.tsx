@@ -387,6 +387,8 @@ describe('pool navigation uses the existing gesture semantics', () => {
     'departed-spin',
     'shell-and-guest',
     'archived-parent',
+    'resume-collapsed-starter',
+    'resume-collapsed-pane',
   ])('chooses the same mission pane as legacy for %s', async (scenario) => {
     const fixture = await mount((fixture) => {
       patchIssue(fixture, 'synthetic-7', { parentId: 'synthetic-3' })
@@ -423,6 +425,19 @@ describe('pool navigation uses the existing gesture semantics', () => {
         })
       }
       if (scenario === 'archived-parent') patchIssue(fixture, 'synthetic-1', { archived: true })
+      if (scenario.startsWith('resume-collapsed')) {
+        const resume = { kind: 'codex-thread', value: 'synthetic-navigation-twin' }
+        const loser = scenario === 'resume-collapsed-pane' ? '7' : '3'
+        patchIssue(fixture, 'synthetic-6', { parentId: null, startedBySession: null })
+        if (scenario === 'resume-collapsed-pane')
+          patchIssue(fixture, 'synthetic-7', { parentId: 'synthetic-3', startedBySession: null })
+        fixture.patch('session', `synthetic-session-${loser}`, {
+          resume, status: 'hibernated', lastActiveAt: new Date(NOW - 20).toISOString(),
+        })
+        fixture.patch('session', 'synthetic-session-6', {
+          resume, status: 'hibernated', lastActiveAt: new Date(NOW - 10).toISOString(),
+        })
+      }
     })
     const store = runtime.getSnapshot()
     const models = allIssueViewModels(runtime.replica, store.issueProjections, store.issues)

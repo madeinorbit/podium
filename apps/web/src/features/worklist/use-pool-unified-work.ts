@@ -18,11 +18,20 @@ import { navigationIssue } from './pool-row-data'
 /** Navigation includes the formal mission at every depth and tasks filed by
  * its explicitly attached sessions. Display nesting is narrower than this:
  * hidden descendants and unstarted spin-offs can still supply a pane. */
-function sessionMembership(pool: MobxPool): Map<string, SessionMeta[]> {
+function sessionMembership(pool: MobxPool, retainedOnly = false): Map<string, SessionMeta[]> {
   const byIssue = new Map<string, SessionMeta[]>()
+  const retainedByIssue = new Map<string, ReadonlySet<string>>()
   for (const id of pool.tables.session.keys()) {
     const session = pool.row('session', id) as SessionMeta | typeof LOADING | undefined
     if (session === undefined || session === LOADING || !session.issueId) continue
+    if (retainedOnly && session.headless !== true) {
+      let retained = retainedByIssue.get(session.issueId)
+      if (!retained) {
+        retained = new Set(pool.graph.many('issue', session.issueId, 'sessions'))
+        retainedByIssue.set(session.issueId, retained)
+      }
+      if (!retained.has(id)) continue
+    }
     const members = byIssue.get(session.issueId)
     if (members) members.push(session)
     else byIssue.set(session.issueId, [session])
@@ -106,7 +115,9 @@ export function createPoolWorkActions(
     }
     const store = runtime.getSnapshot()
     const members = new Map<string, SessionMeta>()
-    const sessions = sessionMembership(pool)
+    // R2 already applies resume collapse. Headless provenance remains raw;
+    // it never participates in collapse or supplies a workspace pane.
+    const sessions = sessionMembership(pool, true)
     const mission = missionMembers(pool, root.issue.id, sessions)
     // The legacy candidate order is the slice order, including tie-breaking
     // on lastActiveAt. Walk resident keys, reading only this mission's rows.
