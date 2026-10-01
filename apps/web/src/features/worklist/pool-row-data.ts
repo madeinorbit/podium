@@ -126,7 +126,9 @@ export function poolIssueDisplay(value: SidebarRowValues): PoolIssueDisplay {
     unread: value.unread,
     errorLine: value.errorClass === null ? null : errorPhrase(value.errorClass, 'lower'),
     draftAgentOnly: value.draftAgentOnly,
-    statusLine: poolIssueStatus(value),
+    statusLine: value.continuation
+      ? `${value.continuation.kind} · ${value.continuation.ref}`
+      : poolIssueStatus(value),
     unsnoozed: value.unsnoozed,
     deferred: value.deferred,
     fleet: value.fleet,

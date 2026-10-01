@@ -22,10 +22,12 @@
  */
 import { issueDisplayRef } from '@podium/protocol'
 import type { UnifiedIssueRow as UnifiedIssueRowView } from '@podium/client-core/viewmodels'
+import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { UnifiedIssueRow, UnifiedIssueRowInner } from './UnifiedIssueRow'
+import { poolIssueDisplay } from './pool-row-data'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -53,6 +55,47 @@ const NOW = Date.parse('2026-08-12T12:00:00.000Z')
 const PROG_A = { total: 3, done: 1, run: 1, review: 0, stall: 0, block: 0, wait: 1 }
 const PROG_B = { total: 2, done: 0, run: 1, review: 0, stall: 0, block: 0, wait: 1 }
 const PROG_C = { total: 4, done: 2, run: 0, review: 0, stall: 0, block: 0, wait: 2 }
+
+it('preserves legacy continuation text ahead of child progress and pending decisions', () => {
+  const row = {
+    ...baseRows(baseIssues()).rowA,
+    continuation: 'continued · POD-2',
+    missionRollup: { progress: PROG_A, fromChildren: true },
+  }
+  const props = {
+    row,
+    active: false,
+    progress: PROG_A,
+    origin: null,
+    now: NOW,
+    onSelectIssue: fixedSelect,
+    onSelectPanelForIssue: fixedSelectPanel,
+    onOpenIssue: fixedOpen,
+    onRenameIssue: fixedRename,
+  }
+  const legacy = render(<UnifiedIssueRow {...props} />)
+  expect(legacy.getByText('continued · POD-2')).toBeTruthy()
+  legacy.unmount()
+  const facts = {
+    issue: row.issue,
+    timing: { phase: 'queued', sinceMs: 1 },
+    working: false,
+    decision: 'review',
+    unread: false,
+    errorClass: null,
+    draftAgentOnly: false,
+    deferred: false,
+    unsnoozed: false,
+    awaitingFirstPrompt: false,
+    statusFromChildren: true,
+    progress: PROG_A,
+    continuation: { kind: 'continued', ref: 'POD-2' },
+    fleet: { total: 0, parkedCount: 0, nativeCount: 0, tiles: [] },
+  } as unknown as SidebarRowValues
+  const pool = render(<UnifiedIssueRow {...props} display={poolIssueDisplay(facts)} />)
+  expect(pool.getByText('continued · POD-2')).toBeTruthy()
+  expect(pool.queryByText('1/3 subtasks done · 1 underway')).toBeNull()
+})
 
 function baseIssues() {
   const a = makeIssue({ id: 'a', seq: 1, displayRef: 'POD-1', title: 'Alpha' })
