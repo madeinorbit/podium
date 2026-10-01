@@ -349,6 +349,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private baseSessions: EngineState['sessions'] = []
   private baseIssues: EngineState['issues'] = []
   private baseIssueProjections: EngineState['issueProjections'] = []
+  private baseIssueUserStates: EngineState['issueUserStates'] = []
   private prevRoute: RouteState
   /** Which workspace is on screen (POD-710). A change here is a TASK SWITCH, and
    *  the pane mirrors are re-derived from the workspace being switched to. */
@@ -469,10 +470,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       api: this.api,
       outbox: this.outbox,
       notices: this.notices,
+      userId: this.principal.userId,
       base: () => ({
         sessions: this.baseSessions,
         issues: this.baseIssues,
         issueProjections: this.baseIssueProjections,
+        issueUserStates: this.baseIssueUserStates,
       }),
       paintedIssues: () => this.state.issues,
       publish: (patch) => this.apply(patch),
@@ -521,6 +524,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.baseSessions = dedupeSessions(replicaSeed.sessions)
     this.baseIssues = replicaSeed.issues
     this.baseIssueProjections = replicaSeed.issueProjections
+    this.baseIssueUserStates = replicaSeed.issueUserStates
     this.reactions = new Reactions({
       state: () => this.state,
       publish: (patch) => this.apply(patch),
@@ -544,18 +548,21 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.baseSessions,
       (s) => s.sessionId,
     )
-    const seededIssueFold = this.optimism.foldSeed('issues', this.baseIssues, (i) => i.id)
     const seededProjectionFold = this.optimism.foldSeed(
       'issueProjections',
       this.baseIssueProjections,
       (i) => i.id,
     )
+    const seededUserStates = this.optimism.foldSeedUserStates(this.baseIssueUserStates)
+    // The old record's paint is derived from the normalized overlays (POD-4969).
+    const seededIssueFold = this.optimism.foldSeed('issues', this.baseIssues, (i) => i.id)
     this.state = initialEngineState({
       persisted,
       route,
       sessions: seededSessionFold.rows,
       issues: seededIssueFold.rows,
       issueProjections: seededProjectionFold.rows,
+      issueUserStates: seededUserStates,
       issueEvents: replicaSeed.issueEvents,
       pendingInteractions: replicaSeed.pendingInteractions,
       messageRecords: replicaSeed.messageRecords,
@@ -1365,13 +1372,19 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           this.baseSessions = dedupeSessions(snapshot.sessions)
           this.optimism.recomputeSessions()
         }
-        if (changed.has('issues')) {
-          this.baseIssues = snapshot.issues
-          this.optimism.recomputeIssues()
-        }
-        if (changed.has('issueProjections')) {
-          this.baseIssueProjections = snapshot.issueProjections
-          this.optimism.recomputeIssueProjections()
+        // Any issue kind repaints all three (POD-4969): the overlays of record
+        // are judged on the normalized rows, a retirement there drops the old
+        // record's derived copy, and the slice decides what an absent per-user
+        // row means.
+        if (changed.has('issues')) this.baseIssues = snapshot.issues
+        if (changed.has('issueProjections')) this.baseIssueProjections = snapshot.issueProjections
+        if (changed.has('issueUserStates')) this.baseIssueUserStates = snapshot.issueUserStates
+        if (
+          changed.has('issues') ||
+          changed.has('issueProjections') ||
+          changed.has('issueUserStates')
+        ) {
+          this.optimism.recomputeFor(['issueProjections', 'issueUserStates', 'issues'])
         }
         const patch: Partial<EngineState> = {}
         if (changed.has('issueEvents')) patch.issueEvents = snapshot.issueEvents

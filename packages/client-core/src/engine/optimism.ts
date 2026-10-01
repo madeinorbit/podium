@@ -34,13 +34,21 @@ import { createLogger } from '@podium/logger'
 import type {
   AgentKind,
   IssueId,
-  IssueProjection,
+  IssueUserStateWire,
   IssueWire,
   MutationId,
   SessionId,
   SessionMeta,
+  UserId,
 } from '@podium/model'
-import { asIssueId, asMutationId, asSessionId, dedupeSessionsByResume } from '@podium/model'
+import {
+  asIssueId,
+  asMutationId,
+  asSessionId,
+  dedupeSessionsByResume,
+  IssueProjection,
+  issueUserStateRowId,
+} from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import { shallowEqual } from '../store'
@@ -64,11 +72,11 @@ import {
   type AwaitingTruth,
   foldOverlays,
   insertOverlay,
-  type OverlayEntity,
-  overlayForOutboxEntry,
+  type OverlayRow,
+  type OverlayTarget,
+  overlaysForOutboxEntry,
   type PendingOverlay,
   patchedCellsMovedPast,
-  projectionCurationOverlay,
   pruneAwaiting,
   rowFingerprint,
 } from './overlay'
@@ -103,7 +111,7 @@ const LOCAL_OVERLAY_SWEEP_AT = 16
  */
 interface LocalOverlay {
   input: unknown
-  overlay: PendingOverlay
+  overlays: PendingOverlay[]
   /** True until the durable enqueue settles. While it holds, the overlay paints
    *  on its own — there is no queue entry to carry it yet. */
   unqueued: boolean
@@ -114,12 +122,49 @@ export interface OptimismBase {
   sessions: SessionMeta[]
   issues: IssueWire[]
   issueProjections: IssueProjection[]
+  /** The per-user issue markers. The ledger only ever paints the rows whose
+   *  `userId` is {@link OptimismPorts.userId}. */
+  issueUserStates: IssueUserStateWire[]
+}
+
+type PatchOverlay = Extract<PendingOverlay, { op: 'patch' }>
+
+/** Every issue target, in recompute order: the normalized rows, then the old
+ *  record (its part of each entry, and the spawn placeholder). */
+const ISSUE_TARGETS: readonly OverlayTarget[] = ['issueProjections', 'issueUserStates', 'issues']
+
+/** Fields of the normalized issue row, for the spawn placeholder's copy. */
+const PROJECTION_KEYS: readonly string[] = Object.keys(IssueProjection.shape)
+
+/**
+ * The spawn placeholder in the NORMALIZED spelling (POD-4969). The builders in
+ * `viewmodels/optimistic-spawn.ts` mint the old record, which still has readers;
+ * this copies the same facts onto the normalized row: the durable fields by
+ * name, the description as a document, and the two keys the old record spells
+ * differently (`origin`, `draft`). Per-user cells (`readAt`) and derived ones
+ * (`deps`, `ready`, `repoPath`, ...) are not normalized-row fields and drop out.
+ */
+export function placeholderProjection(issue: IssueWire): IssueProjection {
+  const source = issue as unknown as Record<string, unknown>
+  const row: Record<string, unknown> = {}
+  for (const key of PROJECTION_KEYS) {
+    const value = source[key]
+    if (value !== undefined && value !== null) row[key] = value
+  }
+  row.description = { value: issue.description ?? '' }
+  if (typeof source.notes === 'string') row.notes = { value: source.notes }
+  row.intentOrigin = issue.origin ?? 'human'
+  row.isDraftVessel = issue.draft === true
+  return row as unknown as IssueProjection
 }
 
 export interface OptimismPorts<TApi extends PodiumClientApi> {
   readonly api: TApi
   readonly outbox: EngineOutbox
   readonly notices: StoreNotices
+  /** The principal this ledger paints for. Per-user overlays land on this
+   *  user's `(user, issue)` rows and on no one else's. */
+  readonly userId: UserId
   /** Server truth, read fresh — the runtime owns these lists. */
   readonly base: () => OptimismBase
   /** The PAINTED issue list, for the draft's sort-key placement. */
@@ -139,11 +184,14 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   private spawnOverlays: PendingOverlay[] = []
   // One bounded fold per entity. Retirement still runs on every recompute;
   // only the pure paint is reusable across press → queue → awaiting truth.
-  private readonly folds = new Map<OverlayEntity, {
-    base: object[]
-    overlays: PendingOverlay[]
-    result: { rows: object[]; pendingInsertIds: ReadonlySet<string> }
-  }>()
+  private readonly folds = new Map<
+    OverlayTarget,
+    {
+      base: object[]
+      overlays: PendingOverlay[]
+      result: { rows: object[]; pendingInsertIds: ReadonlySet<string> }
+    }
+  >()
   /** First turns keyed by optimistic session id. ChatView seeds its own pending
    * reconciliation state from this map before the transcript exists. */
   private spawnPrompts: ReadonlyMap<string, string> = new Map()
@@ -168,6 +216,16 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
    * (POD-546, same class as the POD-1613 terminal-attach race).
    */
   private readonly spawnConfirmWaiters = new Map<string, Set<() => void>>()
+  /** Projected overlays per queued entry object, so a re-projection between
+   *  recomputes hands back the SAME patch objects (a document cell is an object,
+   *  and a fresh one per recompute would re-mint the painted row each time).
+   *  `input` identity guards a recovery-surface edit. */
+  private readonly projected = new WeakMap<
+    OutboxEntry,
+    { input: unknown; overlays: PendingOverlay[] }
+  >()
+  /** The issue ids in the normalized slice, cached per base array. */
+  private sliceIds: { base: readonly IssueProjection[]; ids: ReadonlySet<string> } | null = null
 
   constructor(ports: OptimismPorts<TApi>) {
     this.ports = ports
@@ -179,8 +237,12 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     // already landed. Unprojectable leftovers have nothing to await: retire.
     const restored: AwaitingTruth[] = []
     for (const e of ports.outbox.awaiting()) {
-      const overlay = overlayForOutboxEntry(e)
-      if (overlay?.op === 'patch') {
+      const overlays = overlaysForOutboxEntry(e).filter((o): o is PatchOverlay => o.op === 'patch')
+      if (overlays.length === 0) {
+        ports.outbox.retireAwaiting(e.mutationId)
+        continue
+      }
+      for (const overlay of overlays) {
         restored.push({
           overlay,
           // A chained entry (enqueued behind a same-row sibling, #263 review
@@ -190,8 +252,6 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
           baseline: e.chained === true ? undefined : e.baseline,
           resolvedAt: e.resolvedAt ?? Date.now(),
         })
-      } else {
-        ports.outbox.retireAwaiting(e.mutationId)
       }
     }
     this.awaitingTruth = restored
@@ -252,23 +312,27 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   }
 
   /**
-   * The overlay one queued entry paints.
+   * The overlays one queued entry paints.
    *
-   * Normally that is `overlayForOutboxEntry`, a pure function of the entry. The
+   * Normally that is `overlaysForOutboxEntry`, a pure function of the entry. The
    * exception is an entry this ledger enqueued itself (POD-1053): it painted
-   * before the durable commit, so the overlay of record is the one minted at the
-   * press — carrying the PRESS's clock rather than the storage commit's. Without
-   * that, the five clock-stamped kinds (`issueSetTucked`, `issueMarkRead`,
-   * `sessionMarkRead`, `issueDelete`, `issueUndefer`) would repaint a
-   * millisecond-different timestamp when the entry landed, and a repaint is not
-   * cheap here: a moved cell is a new row identity, and a new row identity
-   * re-derives the whole worklist. The press instant is also the more honest
-   * value — it is when the user acted.
+   * before the durable commit, so the overlays of record are the ones minted at
+   * the press — carrying the PRESS's clock rather than the storage commit's.
+   * Without that, the five clock-stamped kinds (`issueSetTucked`,
+   * `issueMarkRead`, `sessionMarkRead`, `issueDelete`, `issueUndefer`) would
+   * repaint a millisecond-different timestamp when the entry landed, and a
+   * repaint is not cheap here: a moved cell is a new row identity, and a new row
+   * identity re-derives the whole worklist. The press instant is also the more
+   * honest value — it is when the user acted.
    */
-  private overlayFor(entry: OutboxEntry): PendingOverlay | null {
+  private entryOverlays(entry: OutboxEntry): PendingOverlay[] {
     const local = this.localOverlays.get(entry.mutationId)
-    if (local !== undefined && local.input === entry.input) return local.overlay
-    return overlayForOutboxEntry(entry)
+    if (local !== undefined && local.input === entry.input) return local.overlays
+    const cached = this.projected.get(entry)
+    if (cached !== undefined && cached.input === entry.input) return cached.overlays
+    const overlays = overlaysForOutboxEntry(entry)
+    this.projected.set(entry, { input: entry.input, overlays })
+    return overlays
   }
 
   /** Drop press-time overlays for entries the queue no longer holds. See
@@ -282,6 +346,60 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     }
   }
 
+  /** The issue ids of the normalized slice, plus pending spawn placeholders:
+   *  the issues whose per-user row may be absent and still mean "nothing set". */
+  private inSlice(issueId: IssueId): boolean {
+    const base = this.ports.base().issueProjections
+    if (this.sliceIds?.base !== base) {
+      this.sliceIds = { base, ids: new Set(base.map((row) => row.id)) }
+    }
+    return (
+      this.sliceIds.ids.has(issueId) ||
+      this.spawnOverlays.some((o) => o.entity === 'issueProjections' && o.id === issueId)
+    )
+  }
+
+  /**
+   * What an absent per-user row means for this principal (POD-4969): a row of
+   * three nulls, the state the server deletes the row for. Only for an issue
+   * still in the slice — once the issue has left it, absence is real and an
+   * overlay on it retires like any other whose row is gone.
+   */
+  private absentUserState(issueId: IssueId): IssueUserStateWire | undefined {
+    if (!this.inSlice(issueId)) return undefined
+    return {
+      userId: this.ports.userId,
+      entityId: issueId,
+      readAt: null,
+      tuckedAt: null,
+      pinned: false,
+    }
+  }
+
+  /** The fold key of a per-user row: the issue id for THIS principal's rows,
+   *  and the full composite id for anyone else's — which no overlay ever
+   *  targets, so another principal's row is never painted (principal isolation). */
+  private readonly userStateKey = (row: IssueUserStateWire): string =>
+    row.userId === this.ports.userId ? row.entityId : issueUserStateRowId(row.userId, row.entityId)
+
+  /** The current server-truth row an overlay of record is judged against. */
+  private truthRow(entity: OverlayTarget, id: string): OverlayRow | undefined {
+    const base = this.ports.base()
+    switch (entity) {
+      case 'sessions':
+        return sessionById(base.sessions).get(id)
+      case 'issues':
+        return base.issues.find((i) => i.id === id)
+      case 'issueProjections':
+        return base.issueProjections.find((i) => i.id === id)
+      case 'issueUserStates':
+        return (
+          base.issueUserStates.find((row) => this.userStateKey(row) === id) ??
+          this.absentUserState(asIssueId(id))
+        )
+    }
+  }
+
   /** The pending overlays for one entity, in application order: resolved
    *  patches awaiting truth first (they were sent earliest), then the queued
    *  outbox entries FIFO — so two pending mutations on the same row compose in
@@ -289,31 +407,29 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
    *  there are), plus the #119 spawn placeholder inserts (order-independent:
    *  folding applies inserts before any patch). Derived fresh each recompute:
    *  the outbox itself is the queued-overlay state, never a second copy. */
-  overlaysFor(entity: OverlayEntity): PendingOverlay[] {
+  overlaysFor(entity: OverlayTarget): PendingOverlay[] {
     const out: PendingOverlay[] = []
     const include = (overlay: PendingOverlay): void => {
-      if (overlay.entity === entity) out.push(overlay)
-      // The curation mirror (POD-781): curation writes overlay the retained issue
-      // row, and the BOARD reads the normalized projection over it.
-      // Without this the sidebar moved on the press and the board did not.
-      if (entity === 'issueProjections') {
-        const curation = projectionCurationOverlay(overlay)
-        if (curation) out.push(curation)
-      }
+      if (overlay.entity !== entity) return
+      // An absent per-user row is "nothing set" while the issue is in the slice.
+      const absent =
+        overlay.op === 'patch' && entity === 'issueUserStates'
+          ? this.absentUserState(asIssueId(overlay.id))
+          : undefined
+      out.push(overlay.op === 'patch' && absent !== undefined ? { ...overlay, absent } : overlay)
     }
     for (const overlay of this.spawnOverlays) include(overlay)
     for (const awaiting of this.awaitingTruth) include(awaiting.overlay)
     const queued = new Set<string>()
     for (const entry of this.ports.outbox.pending()) {
       queued.add(entry.mutationId)
-      const overlay = this.overlayFor(entry)
-      if (overlay) include(overlay)
+      for (const overlay of this.entryOverlays(entry)) include(overlay)
     }
     // Pressed, painted, not yet committed: nothing in the queue carries these
     // yet. A synchronous enqueue notifies before its await settles: queue
     // membership already carries that paint, even while unqueued is true.
     for (const [id, held] of this.localOverlays) {
-      if (held.unqueued && !queued.has(id)) include(held.overlay)
+      if (held.unqueued && !queued.has(id)) for (const overlay of held.overlays) include(overlay)
     }
     return out
   }
@@ -322,7 +438,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
    *  (POD-4553). O(pending entries), never the entity's row count: a per-row
    *  reader looks one row's overlays up here and folds them with
    *  `foldRowOverlays` instead of diffing the folded arrays. */
-  pendingByRow(entity: OverlayEntity): ReadonlyMap<string, readonly PendingOverlay[]> {
+  pendingByRow(entity: OverlayTarget): ReadonlyMap<string, readonly PendingOverlay[]> {
     const byRow = new Map<string, PendingOverlay[]>()
     for (const overlay of this.overlaysFor(entity)) {
       const list = byRow.get(overlay.id)
@@ -332,18 +448,23 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     return byRow
   }
 
-  /** Fold the seed (construction-time) session/issue/projection lists without
-   *  publishing — the very first snapshot must already carry queued optimism. */
+  /** Fold the seed (construction-time) lists without publishing — the very
+   *  first snapshot must already carry queued optimism. */
   foldSeed<T extends object>(
-    entity: OverlayEntity,
+    entity: OverlayTarget,
     base: T[],
     keyOf: (row: T) => string,
   ): { rows: T[]; pendingInsertIds: ReadonlySet<string> } {
     return this.foldStable(entity, base, keyOf)
   }
 
+  /** {@link foldSeed} for the per-user rows, keyed for this principal. */
+  foldSeedUserStates(base: IssueUserStateWire[]): IssueUserStateWire[] {
+    return this.foldStable('issueUserStates', base, this.userStateKey).rows
+  }
+
   private foldStable<T extends object>(
-    entity: OverlayEntity,
+    entity: OverlayTarget,
     base: T[],
     keyOf: (row: T) => string,
   ): { rows: T[]; pendingInsertIds: ReadonlySet<string> } {
@@ -351,24 +472,37 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     const previous = this.folds.get(entity)
     // Membership/stage and coverage predicates do not affect the pure fold.
     // Compare the ordered paint, including edits to an existing queued entry.
-    if (previous?.base === base && previous.overlays.length === overlays.length &&
+    if (
+      previous?.base === base &&
+      previous.overlays.length === overlays.length &&
       overlays.every((o, i) => {
         const old = previous.overlays[i]!
-        return o.id === old.id && (o.op === 'patch' && old.op === 'patch'
-          ? shallowEqual(o.patch, old.patch)
-          : o.op === 'insert' && old.op === 'insert' && o.insert === old.insert)
-      })) {
+        return (
+          o.id === old.id &&
+          (o.op === 'patch' && old.op === 'patch'
+            ? shallowEqual(o.patch, old.patch) &&
+              (o.absent === undefined) === (old.absent === undefined)
+            : o.op === 'insert' && old.op === 'insert' && o.insert === old.insert)
+        )
+      })
+    ) {
       return previous.result as { rows: T[]; pendingInsertIds: ReadonlySet<string> }
     }
     const result = foldOverlays(base, overlays, keyOf)
     // Changed inputs can still compose to the same effective rows. Retain
     // their identity without comparing serialized data or hiding new cells.
-    if (previous && previous.result.rows.length === result.rows.length &&
-      result.rows.every((row, i) => shallowEqual(row, previous.result.rows[i]))) {
+    if (
+      previous &&
+      previous.result.rows.length === result.rows.length &&
+      result.rows.every((row, i) => shallowEqual(row, previous.result.rows[i]))
+    ) {
       result.rows = previous.result.rows as T[]
     }
-    if (previous && previous.result.pendingInsertIds.size === result.pendingInsertIds.size &&
-      [...result.pendingInsertIds].every((id) => previous.result.pendingInsertIds.has(id))) {
+    if (
+      previous &&
+      previous.result.pendingInsertIds.size === result.pendingInsertIds.size &&
+      [...result.pendingInsertIds].every((id) => previous.result.pendingInsertIds.has(id))
+    ) {
       result.pendingInsertIds = previous.result.pendingInsertIds
     }
     this.folds.set(entity, { base, overlays, result })
@@ -398,8 +532,9 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   recomputeAll(): void {
     this.batched(() => {
       this.recomputeSessions()
-      this.recomputeIssues()
       this.recomputeIssueProjections()
+      this.recomputeIssueUserStates()
+      this.recomputeIssues()
     })
   }
 
@@ -407,24 +542,47 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
    *  truth (same id) landed in the replica; resolved patches retire when the
    *  row covers the mutation, moved past the enqueue baseline (oldest per row),
    *  or outlived the TTL. Retiring an awaiting patch also deletes its durable
-   *  storage entry (finding 1: deletion happens at retirement, not resolution). */
+   *  storage entry (finding 1: deletion happens at retirement, not resolution)
+   *  once no other overlay of the same entry still awaits. */
   private retireCovered<T extends object>(
-    entity: OverlayEntity,
+    entity: OverlayTarget,
     base: T[],
     keyOf: (row: T) => string,
+    absentRow?: (id: string) => T | undefined,
   ): void {
     if (this.spawnOverlays.some((o) => o.entity === entity)) {
       const known = new Set(base.map(keyOf))
-      const keep = this.spawnOverlays.filter((o) => o.entity !== entity || !known.has(o.id))
+      const keep = this.spawnOverlays.filter((o) => {
+        if (o.entity !== entity) return true
+        // The per-user placeholder lives exactly as long as its issue's: the
+        // server writes no marker on create, so its own row may never come.
+        if (entity === 'issueUserStates') {
+          return this.spawnOverlays.some((p) => p.entity === 'issueProjections' && p.id === o.id)
+        }
+        return !known.has(o.id)
+      })
       if (keep.length !== this.spawnOverlays.length) this.spawnOverlays = keep
     }
-    const pruned = pruneAwaiting(this.awaitingTruth, entity, base, keyOf)
+    const pruned = pruneAwaiting(
+      this.awaitingTruth,
+      entity,
+      base,
+      keyOf,
+      Date.now(),
+      undefined,
+      absentRow,
+    )
     if (pruned !== this.awaitingTruth) {
       const dropped = this.awaitingTruth.filter((a) => !pruned.includes(a))
       // Assign BEFORE the durable retire, so any re-entrant recompute already
       // sees the pruned stage.
       this.awaitingTruth = pruned
-      for (const a of dropped) this.ports.outbox.retireAwaiting(asMutationId(a.overlay.key))
+      for (const a of dropped) {
+        const key = a.overlay.key
+        if (!pruned.some((other) => other.overlay.key === key)) {
+          this.ports.outbox.retireAwaiting(asMutationId(key))
+        }
+      }
     }
   }
 
@@ -447,6 +605,10 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     this.notifySpawnConfirmWaiters(pendingInsertIds)
   }
 
+  /** The old record, painted for the readers that have not moved to the
+   *  normalized rows (POD-4969): only the old-record part of each issue entry
+   *  (`legacyIssuePart`) and the spawn placeholder target it. Goes with the old
+   *  record (POD-4973). */
   recomputeIssues(): void {
     const base = this.ports.base().issues
     const keyOf = (i: IssueWire): string => i.id
@@ -463,73 +625,73 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     this.ports.publish({ issueProjections: rows })
   }
 
-  recomputeFor(entity: OverlayEntity | undefined): void {
-    if (entity === 'sessions') this.recomputeSessions()
-    // Curation writes on the issue row mirror into the projection for normalized
-    // issue surfaces, so an issue recompute also refreshes that derived mirror.
-    else if (entity === 'issues') {
-      this.batched(() => {
-        this.recomputeIssues()
-        this.recomputeIssueProjections()
-      })
-    } else if (entity === 'issueProjections') {
-      this.recomputeIssueProjections()
-    }
+  recomputeIssueUserStates(): void {
+    const base = this.ports.base().issueUserStates
+    this.retireCovered('issueUserStates', base, this.userStateKey, (id) =>
+      this.absentUserState(asIssueId(id)),
+    )
+    const { rows } = this.foldStable('issueUserStates', base, this.userStateKey)
+    this.ports.publish({ issueUserStates: rows })
   }
 
-  /** Drain success (#263): hand the entry's overlay to the awaiting-truth
+  /** Repaint the given targets, in one snapshot. */
+  recomputeFor(targets: Iterable<OverlayTarget>): void {
+    const set = new Set(targets)
+    if (set.size === 0) return
+    this.batched(() => {
+      if (set.has('sessions')) this.recomputeSessions()
+      if (set.has('issueProjections')) this.recomputeIssueProjections()
+      if (set.has('issueUserStates')) this.recomputeIssueUserStates()
+      if (set.has('issues')) this.recomputeIssues()
+    })
+  }
+
+  /** Drain success (#263): hand the entry's overlays to the awaiting-truth
    *  stage. Called by the outbox BEFORE it notifies subscribers of the
    *  shrunken queue, so no intermediate snapshot ever lacks the overlay.
    *  Returns true to keep the entry DURABLY in storage (finding 1) until
-   *  covering truth retires it. */
+   *  covering truth retires every overlay it holds. */
   mutationApplied(entry: OutboxEntry): boolean {
-    const overlay = this.overlayFor(entry)
-    if (overlay?.op !== 'patch') {
+    const overlays = this.entryOverlays(entry).filter((o): o is PatchOverlay => o.op === 'patch')
+    if (overlays.length === 0) {
       this.localOverlays.delete(entry.mutationId)
       return false
     }
-    const { sessions, issues, issueProjections } = this.ports.base()
-    const row =
-      overlay.entity === 'sessions'
-        ? sessionById(sessions).get(overlay.id)
-        : overlay.entity === 'issues'
-          ? issues.find((i) => i.id === overlay.id)
-          : issueProjections.find((i) => i.id === overlay.id)
-    // Hold the overlay until covering truth lands. Nothing to hold when the
-    // row is gone, already reflects the mutation (the broadcast echo raced
-    // ahead of the response), or a patched cell left the ENQUEUE-time baseline
-    // for a value that is not this mutation's (finding 2: a competing write on
-    // the same field already landed — a resolution-time fingerprint of that
-    // final row would never "move" again and the overlay would mask it).
-    //
-    // EXCEPT (#263 review round 2): when an OLDER same-row entry exists — this
-    // entry was enqueued behind a sibling (`chained`), or a sibling is still
-    // awaiting truth — the movement is almost certainly the PREDECESSOR'S echo,
-    // not a competing writer. Dropping here would flash the predecessor's value
-    // until this entry's own echo lands. Hold instead, WITHOUT the moved-past
-    // escape (baseline undefined — the stale enqueue baseline would trip on the
-    // sibling's echo at the very next prune pass); coveredBy / row-gone / the
-    // TTL retire it, exactly the bounds the oldest-first rule already relies on.
     let hold = false
-    if (row !== undefined && !overlay.coveredBy(row)) {
+    for (const overlay of overlays) {
+      const row = this.truthRow(overlay.entity, overlay.id)
+      // Hold the overlay until covering truth lands. Nothing to hold when the
+      // row is gone, already reflects the mutation (the broadcast echo raced
+      // ahead of the response), or a patched cell left the ENQUEUE-time baseline
+      // for a value that is not this mutation's (finding 2: a competing write on
+      // the same field already landed — a resolution-time fingerprint of that
+      // final row would never "move" again and the overlay would mask it).
+      //
+      // EXCEPT (#263 review round 2): when an OLDER same-row entry exists — this
+      // entry was enqueued behind a sibling (`chained`), or a sibling is still
+      // awaiting truth — the movement is almost certainly the PREDECESSOR'S echo,
+      // not a competing writer. Dropping here would flash the predecessor's value
+      // until this entry's own echo lands. Hold instead, WITHOUT the moved-past
+      // escape (baseline undefined — the stale enqueue baseline would trip on the
+      // sibling's echo at the very next prune pass); coveredBy / row-gone / the
+      // TTL retire it, exactly the bounds the oldest-first rule already relies on.
+      if (row === undefined || overlay.coveredBy(row)) continue
       const olderSameRow =
         entry.chained === true ||
         this.awaitingTruth.some(
           (a) => a.overlay.entity === overlay.entity && a.overlay.id === overlay.id,
         )
       const moved = patchedCellsMovedPast(overlay, row, entry.baseline)
-      if (moved && !olderSameRow) {
-        // Competing truth won while the mutation was in flight — server wins.
-      } else {
-        hold = true
-        this.awaitingTruth = [
-          ...this.awaitingTruth,
-          { overlay, baseline: olderSameRow ? undefined : entry.baseline, resolvedAt: Date.now() },
-        ]
-        this.armAwaitingSweep()
-      }
+      // Competing truth won while the mutation was in flight — server wins.
+      if (moved && !olderSameRow) continue
+      hold = true
+      this.awaitingTruth = [
+        ...this.awaitingTruth,
+        { overlay, baseline: olderSameRow ? undefined : entry.baseline, resolvedAt: Date.now() },
+      ]
     }
-    this.recomputeFor(overlay.entity)
+    if (hold) this.armAwaitingSweep()
+    this.recomputeFor(overlays.map((o) => o.entity))
     // AFTER the recompute: the outbox fires this before subscribers see the
     // shrunken queue, so the entry can still be in `pending()` above — and the
     // queued copy must keep painting the same values as the awaiting one it was
@@ -539,11 +701,11 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   }
 
   /** Definitive failure — retirement rule (b): the wiring already surfaced the
-   *  poison toast; repaint without the dropped entry's overlay. */
+   *  poison toast; repaint without the dropped entry's overlays. */
   mutationDropped(entry: OutboxEntry): void {
-    const entity = this.overlayFor(entry)?.entity
+    const targets = this.entryOverlays(entry).map((o) => o.entity)
     this.localOverlays.delete(entry.mutationId)
-    this.recomputeFor(entity)
+    this.recomputeFor(targets)
   }
 
   /**
@@ -562,7 +724,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
    * would have lost anything else in flight. Nothing downstream of the paint
    * assumes durability; retirement is judged against server truth either way.
    *
-   * The overlay is minted ONCE, filed under the id the entry WILL carry, and
+   * The overlays are minted ONCE, filed under the id the entry WILL carry, and
    * never re-projected — so the fold that runs when the entry lands paints the
    * SAME VALUES the press already painted. That is what keeps splitting the
    * press in two from costing anything: the shared view-model cache compares the
@@ -573,7 +735,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
    * `issueUndefer`) and pay the whole fan-out again for a millisecond nobody can
    * see. The id has to be minted here rather than read off the enqueue's result
    * because the drain can fire `onApplied` before that promise resolves.
-   * See {@link overlayFor}.
+   * See {@link entryOverlays}.
    *
    * `opts.mutationId` lets a caller that must know the id synchronously name it
    * (POD-4554: a round-three prototype returns it from its `edit()` as the
@@ -585,59 +747,75 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     enqueueOpts?: { mutationId?: MutationId },
   ): Promise<void> {
     // Enqueue-time baseline (#263 review finding 2): fingerprint the target
-    // row's REPLICA truth (unpainted — the replica is server truth only) so
+    // rows' REPLICA truth (unpainted — the replica is server truth only) so
     // resolution can tell whether truth already moved while in flight.
     const mutationId = enqueueOpts?.mutationId ?? asMutationId(randomUUID())
     const queuedAt = Date.now()
-    const probe = overlayForOutboxEntry({ mutationId, kind, input, queuedAt })
+    const probe = overlaysForOutboxEntry({ mutationId, kind, input, queuedAt }).filter(
+      (o): o is PatchOverlay => o.op === 'patch',
+    )
     let baseline: string | undefined
     let chained = false
-    if (probe?.op === 'patch') {
-      const { sessions, issues, issueProjections } = this.ports.base()
-      const row =
-        probe.entity === 'sessions'
-          ? sessionById(sessions).get(probe.id)
-          : probe.entity === 'issues'
-            ? issues.find((i) => i.id === probe.id)
-            : issueProjections.find((i) => i.id === probe.id)
-      if (row !== undefined) baseline = rowFingerprint(row)
+    if (probe.length > 0) {
+      // ONE fingerprint per entry, over every row it lands on. The normalized
+      // rows' patched keys are disjoint by construction (`issueUpdateRoute`
+      // sends each key to exactly one home), and the old record's part repeats
+      // them in its own spelling, which `sameCell` reads as the same value. The
+      // baseline is only ever read by patched key, so merging the rows loses
+      // nothing a reader asks for.
+      //
+      // The OLD RECORD MERGES LAST while the replica holds it. Against a server
+      // that publishes both, the two agree and the order is moot. Against one
+      // that never sends the per-user kind (older than POD-4967), the absent
+      // per-user row reads "nothing set" while the old record carries the real
+      // marker: its value is the true baseline, which keeps the meaning other
+      // readers of `baseline` rely on (`client-graph`'s receipts), and lets the
+      // per-user part see that row as already moved and back off at resolution
+      // instead of masking until its TTL. A client that stops storing the old
+      // record (POD-4970) has no such row, and the normalized rows decide alone.
+      const rows = [...probe]
+        .sort((a, b) => Number(a.entity === 'issues') - Number(b.entity === 'issues'))
+        .map((o) => this.truthRow(o.entity, o.id))
+        .filter((row): row is OverlayRow => row !== undefined)
+      if (rows.length > 0) baseline = rowFingerprint(Object.assign({}, ...rows))
       // Chained stamp (#263 review round 2): a same-row entry already pending
       // (queued, awaiting, or pressed and not yet durable) means ITS echo will
       // move the row past this baseline while this mutation is in flight —
       // resolution must not read that movement as a competing writer (see
       // mutationApplied).
-      const sameRow = (o: PendingOverlay | null): boolean =>
-        o?.op === 'patch' && o.entity === probe.entity && o.id === probe.id
+      const sameRow = (o: PendingOverlay): boolean =>
+        o.op === 'patch' && probe.some((p) => o.entity === p.entity && o.id === p.id)
       chained =
         this.awaitingTruth.some((a) => sameRow(a.overlay)) ||
-        [...this.localOverlays.values()].some((l) => l.unqueued && sameRow(l.overlay)) ||
-        this.ports.outbox.pending().some((e) => sameRow(this.overlayFor(e)))
+        [...this.localOverlays.values()].some((l) => l.unqueued && l.overlays.some(sameRow)) ||
+        this.ports.outbox.pending().some((e) => this.entryOverlays(e).some(sameRow))
     }
     const opts = {
       mutationId,
       ...(baseline !== undefined ? { baseline } : {}),
       ...(chained ? { chained } : {}),
     }
-    // The overlay OF RECORD, projected from the entry as it will be stored —
+    // The overlays OF RECORD, projected from the entry as it will be stored —
     // baseline included. `probe` above could not carry it (the baseline is
     // derived FROM the probe), and a baseline-less `coveredBy` is not merely
     // approximate: `issueMarkRead` judges coverage as "the cursor moved past the
     // enqueue-time one", so an absent baseline retires the overlay on its own
     // resolution and the paint vanishes.
-    const overlay =
-      probe === null ? null : overlayForOutboxEntry({ ...opts, kind, input, queuedAt })
+    const overlays =
+      probe.length === 0 ? [] : overlaysForOutboxEntry({ ...opts, kind, input, queuedAt })
+    const targets = overlays.map((o) => o.entity)
     // PAINT, then persist.
-    if (overlay !== null) {
-      this.localOverlays.set(mutationId, { input, overlay, unqueued: true })
-      this.recomputeFor(overlay.entity)
+    if (overlays.length > 0) {
+      this.localOverlays.set(mutationId, { input, overlays, unqueued: true })
+      this.recomputeFor(targets)
     }
     let entry: OutboxEntry
     try {
       entry = await this.ports.outbox.enqueue(kind, input, opts)
     } catch (error) {
-      if (overlay !== null) {
+      if (overlays.length > 0) {
         this.localOverlays.delete(mutationId)
-        this.recomputeFor(overlay.entity)
+        this.recomputeFor(targets)
       }
       throw error
     }
@@ -646,7 +824,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     const held = this.localOverlays.get(mutationId)
     if (held !== undefined) held.unqueued = false
     this.sweepLocalOverlays()
-    this.recomputeFor(this.overlayFor(entry)?.entity)
+    this.recomputeFor(this.entryOverlays(entry).map((o) => o.entity))
   }
 
   private paintSpawn(args: {
@@ -665,16 +843,26 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     outcome: Promise<TaskSpawnOutcome>
   } {
     const { sessionId, issueId } = args
+    // The placeholder issue lands on the NORMALIZED row (POD-4969), with this
+    // principal's markers beside it (just created by them, so read), and on the
+    // old record for the readers that have not moved. Each insert of record
+    // retires when its own row lands; the per-user one with its issue's, since
+    // the server writes no marker on create.
     this.spawnOverlays = [
       ...this.spawnOverlays,
       insertOverlay('sessions', sessionId, args.session),
+      insertOverlay('issueProjections', issueId, placeholderProjection(args.issue)),
+      insertOverlay('issueUserStates', issueId, {
+        userId: this.ports.userId,
+        entityId: issueId,
+        readAt: args.issue.readAt ?? null,
+        tuckedAt: args.issue.tuckedAt ?? null,
+        pinned: args.issue.pinned === true,
+      }),
       insertOverlay('issues', issueId, args.issue),
     ]
     if (args.prompt) this.spawnPrompts = new Map(this.spawnPrompts).set(sessionId, args.prompt)
-    this.batched(() => {
-      this.recomputeSessions()
-      this.recomputeIssues()
-    })
+    this.recomputeFor(['sessions', ...ISSUE_TARGETS])
     let settle: (outcome: TaskSpawnOutcome) => void = () => {}
     const outcome = new Promise<TaskSpawnOutcome>((resolve) => {
       settle = resolve
@@ -686,7 +874,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
         const arrived = (): boolean =>
           this.ports.base().sessions.some((row) => row.sessionId === sessionId)
         const issueArrived = (): boolean =>
-          this.ports.base().issues.some((row) => row.id === issueId)
+          this.ports.base().issueProjections.some((row) => row.id === issueId)
         const settleFailure = (): void => {
           if (arrived()) {
             log.debug(
@@ -703,10 +891,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
             this.spawnOverlays = this.spawnOverlays.filter(
               (overlay) => overlay.id !== sessionId && overlay.id !== issueId,
             )
-            this.batched(() => {
-              this.recomputeSessions()
-              this.recomputeIssues()
-            })
+            this.recomputeFor(['sessions', ...ISSUE_TARGETS])
             this.ports.notices.error(
               `The task was saved, but its agent couldn't start — ${error instanceof Error ? error.message : 'unknown error'}`,
             )
@@ -716,10 +901,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
           this.spawnOverlays = this.spawnOverlays.filter(
             (overlay) => overlay.id !== sessionId && overlay.id !== issueId,
           )
-          this.batched(() => {
-            this.recomputeSessions()
-            this.recomputeIssues()
-          })
+          this.recomputeFor(['sessions', ...ISSUE_TARGETS])
           this.ports.notices.error(
             `Couldn't start the ${args.failureSubject} — ${error instanceof Error ? error.message : 'unknown error'}`,
           )

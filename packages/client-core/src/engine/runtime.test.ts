@@ -13,6 +13,7 @@ import type {
   GitRepositoryWire,
   HostMetricsWire,
   IssueProjection,
+  IssueUserStateWire,
   IssueWire,
   SessionId,
   SessionMeta,
@@ -25,6 +26,7 @@ import {
   asMutationId,
   asSessionId,
   asUserId,
+  issueUserStateRowId,
   UNADDRESSABLE_SEND_REASON,
 } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
@@ -46,7 +48,7 @@ import { readStoreStats, storeStats } from '../perf/store-stats'
 import { Reactions } from './reactions'
 import { foregroundIssue, type EngineState } from './state'
 import { foldOverlays, insertOverlay, type OverlayEntity } from './overlay'
-import type { OptimismLedger } from './optimism'
+import { type OptimismLedger, placeholderProjection } from './optimism'
 import { COARSE_CLOCK_MS, type CoarseClock, createClientRuntime } from './runtime'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -1525,11 +1527,7 @@ describe('unified optimistic overlay (#263)', () => {
     expect(derivedUnread()).toBe(false)
     // Echo: the server's own readAt clock differs from the client stamp; any
     // non-null readAt on the persisted issue row covers the optimistic overlay.
-    engine.replica.applyChanges(
-      'issues',
-      [{ ...issue, readAt: '2026-07-09T00:00:00.000Z' } as typeof issue],
-      [],
-    )
+    applyIssueRecords(engine, [{ ...issue, readAt: '2026-07-09T00:00:00.000Z' } as typeof issue])
     await settle()
     expect(engine.getSnapshot().issues[0]?.readAt).toBe('2026-07-09T00:00:00.000Z')
     expect(derivedUnread()).toBe(false) // persist echo covers without a bounce
@@ -2074,7 +2072,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     })
     const optimisticIssue = engine.getSnapshot().issues.find((row) => row.id === made.issueId)
     if (!optimisticIssue) throw new Error('missing optimistic issue')
-    engine.replica.applyChanges('issues', [{ ...optimisticIssue, seq: 1 }], [])
+    applyIssueRecords(engine, [{ ...optimisticIssue, seq: 1 }])
 
     expect(await made.outcome).toBe('issue-only')
     expect(engine.getSnapshot().issues.some((row) => row.id === made.issueId)).toBe(true)
@@ -2108,7 +2106,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     if (!lateIssue) throw new Error('missing optimistic issue')
     expect(await first.outcome).toBe('failed')
 
-    engine.replica.applyChanges('issues', [{ ...lateIssue, seq: 1 }], [])
+    applyIssueRecords(engine, [{ ...lateIssue, seq: 1 }])
     const retry = engine.getSnapshot().spawnIssueAgent({
       issueId: first.issueId,
       sessionId: first.sessionId,
@@ -2782,16 +2780,14 @@ describe('eager mark-read-on-view (POD-272)', () => {
       readAt: '2026-07-01T00:00:00.000Z',
       updatedAt: '2026-07-01T00:00:00.000Z',
     } as unknown as IssueWire
-    engine.replica.applyChanges('issues', [issue], [])
+    applyIssueRecords(engine, [issue])
     await settle()
     engine.getSnapshot().setOpenIssueId(asIssueId('iss_1'))
     engine.getSnapshot().setView('issues')
     await settle()
-    engine.replica.applyChanges(
-      'issues',
-      [{ ...issue, unread: true, updatedAt: '2026-07-01T00:05:00.000Z' } as typeof issue],
-      [],
-    )
+    applyIssueRecords(engine, [
+      { ...issue, unread: true, updatedAt: '2026-07-01T00:05:00.000Z' } as typeof issue,
+    ])
     await settle()
     expect(api.issues.markRead.mutate).toHaveBeenCalledTimes(1)
     const readAt = engine.getSnapshot().issues[0]?.readAt
@@ -3620,7 +3616,7 @@ describe('atomic navigation publication', () => {
         archived: false, worktreePath: '/tmp/known-repo/.worktrees/wt1' } as IssueWire
       const session = { sessionId: asSessionId('nav-session'), cwd: issue.worktreePath,
         issueId: issue.id, name: 'Navigation', unread: false } as SessionMeta
-      engine.replica.applyChanges('issues', [issue], [])
+      applyIssueRecords(engine, [issue])
       engine.replica.applyChanges('sessions', [session], [])
       await settle()
       if (scenario === 'warm') {
@@ -3628,7 +3624,7 @@ describe('atomic navigation publication', () => {
         // and the workspace surface is already open. No first-open/view switch.
         const otherIssue = { ...issue, id: asIssueId('other-issue') }
         const otherSession = { ...session, sessionId: asSessionId('other-session'), issueId: otherIssue.id }
-        engine.replica.applyChanges('issues', [otherIssue], [])
+        applyIssueRecords(engine, [otherIssue])
         engine.replica.applyChanges('sessions', [otherSession], [])
         await settle()
         engine.getSnapshot().navigateWorkspace({ selectedIssueId: issue.id,
@@ -3678,7 +3674,7 @@ describe('atomic navigation publication', () => {
       expect(engine.getSnapshot().issues.find((i) => i.id === issue.id)?.readAt).not.toBe(issue.readAt)
       storeStats.reset()
       const networkWindow = storeStats.begin('feed')
-      engine.replica.applyChanges('issues', [{ ...issue, readAt: '2099-01-01T00:00:00.000Z' }], [])
+      applyIssueRecords(engine, [{ ...issue, readAt: '2099-01-01T00:00:00.000Z' }])
       await settle()
       storeStats.end(networkWindow)
       const network = readStoreStats().publishes.filter((p) => p.changedKeys.includes('issues')).length
@@ -3938,6 +3934,47 @@ function legacyOptimisticFolds(engine: ReturnType<typeof makeEngine>['engine']):
   return () => spy.mockRestore()
 }
 
+/**
+ * Publish issue rows the way the server does (POD-4967 / POD-4969): ONE commit
+ * carries the old record, the normalized row and this principal's per-user
+ * markers. The engine's issue overlays are judged on the normalized rows, so a
+ * test that seeds or echoes only the old record is describing a server that no
+ * longer exists.
+ */
+function applyIssueRecords(
+  engine: ReturnType<typeof makeEngine>['engine'],
+  rows: IssueWire[],
+  userId = 'operator',
+): void {
+  // One frame: the replica's batch publishes the three kinds together.
+  engine.replica.batch(() => applyIssueKinds(engine, rows, userId))
+}
+
+function applyIssueKinds(
+  engine: ReturnType<typeof makeEngine>['engine'],
+  rows: IssueWire[],
+  userId: string,
+): void {
+  engine.replica.applyChanges('issues', rows, [])
+  engine.replica.applyChanges('issueProjections', rows.map(placeholderProjection), [])
+  const upserts: IssueUserStateWire[] = []
+  const removes: string[] = []
+  for (const row of rows) {
+    const state = {
+      userId: asUserId(userId),
+      entityId: asIssueId(row.id),
+      readAt: row.readAt ?? null,
+      tuckedAt: row.tuckedAt ?? null,
+      pinned: row.pinned === true,
+    }
+    // The server deletes a row whose markers are all clear.
+    if (state.readAt === null && state.tuckedAt === null && !state.pinned) {
+      removes.push(issueUserStateRowId(state.userId, state.entityId))
+    } else upserts.push(state)
+  }
+  engine.replica.applyChanges('issueUserStates', upserts, removes)
+}
+
 const b11Issue = () => ({ id: asIssueId('b11-issue'), title: 'B11', stage: 'in_progress',
   archived: false, createdAt: '2025-01-01T00:00:00Z', updatedAt: '2025-01-01T00:00:00Z',
   readAt: null }) as IssueWire
@@ -3978,7 +4015,7 @@ describe('stable optimistic folds (B11)', () => {
           const issue = b11Issue()
           const row = session('b11-session', '/tmp/known-repo')
           if (scenario === 'reaction-read') issue.readAt = '2099-01-01T00:00:00Z'
-          engine.replica.applyChanges('issues', [issue], [])
+          applyIssueRecords(engine, [issue])
           engine.replica.applyChanges('sessions', [row], [])
           await settle()
           if (scenario === 'reaction-read') {
@@ -3997,6 +4034,8 @@ describe('stable optimistic folds (B11)', () => {
           storeStats.reset(); storeStats.enable()
           let command: Promise<void> | undefined
           if (scenario === 'reaction-read') {
+            // Only the row the reaction reads: this replica publishes each kind
+            // apart, and the count below is about the reaction's boundary.
             engine.replica.applyChanges('issues', [{ ...issue, updatedAt: '2100-01-01T00:00:00Z' }], [])
           } else if (scenario === 'rename') {
             command = engine.getSnapshot().renameSession(row.sessionId, 'renamed')
@@ -4016,7 +4055,7 @@ describe('stable optimistic folds (B11)', () => {
           expect(engine.outbox.size()).toBe(0)
           expect(engine.outbox.awaiting()).toHaveLength(1)
           if (scenario === 'rename') engine.replica.applyChanges('sessions', [{ ...row, name: 'renamed' }], [])
-          else engine.replica.applyChanges('issues', [{ ...issue, readAt: '2026-09-18T12:00:01.000Z' }], [])
+          else applyIssueRecords(engine, [{ ...issue, readAt: '2026-09-18T12:00:01.000Z' }])
           const echo = phase()
           const final = painted()
           expect(final).toBe(scenario === 'rename' ? 'renamed' : '2026-09-18T12:00:01.000Z')
@@ -4142,7 +4181,7 @@ describe('S5 one publication per click', () => {
         archived: false, worktreePath: '/tmp/known-repo' } as IssueWire
       const sessionA = { ...session('s5-session-a', '/tmp/known-repo'), issueId: issueA.id } as SessionMeta
       const sessionB = { ...session('s5-session-b', '/tmp/known-repo'), issueId: issueB.id } as SessionMeta
-      engine.replica.applyChanges('issues', [issueA, issueB], [])
+      applyIssueRecords(engine, [issueA, issueB])
       engine.replica.applyChanges('sessions', [sessionA, sessionB], [])
       await settle()
       engine.getSnapshot().navigateWorkspace({ selectedIssueId: issueA.id,
@@ -4226,7 +4265,7 @@ describe('S5 one publication per click', () => {
       expect(engine.outbox.pending()).toHaveLength(0)
       // Network echo stays separate too: server truth arrives later and retires
       // the awaiting overlay without changing the gesture's publication count.
-      engine.replica.applyChanges('issues', [{ ...issueB, readAt: '2099-01-01T00:00:00.000Z' }], [])
+      applyIssueRecords(engine, [{ ...issueB, readAt: '2099-01-01T00:00:00.000Z' }])
       await settle()
       const echo = engine.getSnapshot()
       const echoReadAt = echo.issues.find((i) => i.id === issueB.id)?.readAt
@@ -4263,7 +4302,7 @@ describe('S5 one publication per click', () => {
       readAt: null, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
       archived: false, worktreePath: '/tmp/known-repo' } as IssueWire
     const row = { ...session('s5-gesture-session', '/tmp/known-repo'), issueId: issue.id } as SessionMeta
-    engine.replica.applyChanges('issues', [issue], [])
+    applyIssueRecords(engine, [issue])
     engine.replica.applyChanges('sessions', [row], [])
     await settle()
     const seen: Array<ReturnType<typeof engine.getSnapshot>> = []

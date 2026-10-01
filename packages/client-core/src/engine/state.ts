@@ -25,6 +25,7 @@ import type {
   IssueEventWire,
   IssueId,
   IssueProjection,
+  IssueUserStateWire,
   IssueWire,
   MachineWire,
   MessageRecordWire,
@@ -69,6 +70,9 @@ export interface EngineState {
   sessions: SessionMeta[]
   issues: IssueWire[]
   issueProjections: IssueProjection[]
+  /** This principal's per-user issue markers (`readAt`, `tuckedAt`, `pinned`),
+   *  one row per issue they touched, optimistic edits folded in (POD-4969). */
+  issueUserStates: IssueUserStateWire[]
   /** The curated cross-project issue-event window (POD-1772) — replicated rows,
    *  not a timer's answer. Newest last, as the feed renders them. */
   issueEvents: IssueEventWire[]
@@ -641,6 +645,7 @@ export interface EngineStateSeed {
   readonly sessions: SessionMeta[]
   readonly issues: IssueWire[]
   readonly issueProjections: IssueProjection[]
+  readonly issueUserStates: IssueUserStateWire[]
   readonly issueEvents: IssueEventWire[]
   readonly pendingInteractions: PendingInteractionWire[]
   readonly messageRecords: MessageRecordWire[]
@@ -678,6 +683,7 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     sessions: seed.sessions,
     issues: seed.issues,
     issueProjections: seed.issueProjections,
+    issueUserStates: seed.issueUserStates,
     issueEvents: seed.issueEvents,
     pendingInteractions: seed.pendingInteractions,
     messageRecords: seed.messageRecords,

@@ -55,40 +55,65 @@
 
 import { createLogger } from '@podium/logger'
 import type { IssueWire, SessionMeta, WorkState } from '@podium/model'
-import { IssueProjection, isIssueDeferred, UNSNOOZE_BACKDATE_MS } from '@podium/model'
+import {
+  IssueProjection,
+  IssueUserStateWire,
+  isIssueDeferred,
+  UNSNOOZE_BACKDATE_MS,
+} from '@podium/model'
 import type { OutboxEntry } from '../outbox'
 import type { OutboxKinds } from './wiring'
 
 const log = createLogger('client-core:overlay')
 
-/** The two overlaid entity kinds. Conversations carry no optimistic writes. */
+/** The entities a per-row reader may ask the ledger about (the pool's row
+ *  source reads exactly these). Conversations carry no optimistic writes. */
 export type OverlayEntity = 'sessions' | 'issues' | 'issueProjections'
+
+/**
+ * Every entity an overlay can paint (POD-4969). The per-user issue state —
+ * `readAt`, `tuckedAt`, `pinned`, one row per (user, issue) — is a target of its
+ * own: the normalized issue row deliberately carries no per-user cell.
+ */
+export type OverlayTarget = OverlayEntity | 'issueUserStates'
 
 /** Fields folded over a base row. Loose on purpose — the projection functions
  *  below are the typed constructors; folding is structural. */
 type OverlayPatch = Record<string, unknown>
+
+/** The rows a `coveredBy` judges. */
+export type OverlayRow = SessionMeta | IssueWire | IssueProjection | IssueUserStateWire
 
 export type PendingOverlay =
   | {
       op: 'patch'
       /** Stable identity: the outbox entry's mutationId. */
       key: string
-      entity: OverlayEntity
-      /** Target row id (sessionId / issue id). */
+      entity: OverlayTarget
+      /** Target row id (sessionId / issue id; the issue id for per-user state). */
       id: string
       patch: OverlayPatch
       /** True when `row` (current server truth) already reflects this
        *  mutation — applying the patch would be observationally a no-op. */
-      coveredBy: (row: SessionMeta | IssueWire | IssueProjection) => boolean
+      coveredBy: (row: OverlayRow) => boolean
+      /**
+       * The row this patch folds over when the target row is ABSENT. Only
+       * per-user state has one: an absent `(user, issue)` row means "nothing
+       * set" (the server deletes the row rather than store three nulls), so a
+       * mark-read on a never-touched issue must still paint. The ledger sets it,
+       * because only the ledger knows the principal and whether the issue is in
+       * the slice; an overlay built from an entry alone never carries it.
+       */
+      absent?: object
     }
   | {
       op: 'insert'
       /** Stable identity: `spawn:<row id>`. */
       key: string
-      entity: OverlayEntity
+      entity: OverlayTarget
       id: string
       /** The whole placeholder row, shown until a base row (same id) lands. */
-      insert: SessionMeta | IssueWire
+      insert: SessionMeta | IssueWire | IssueProjection | IssueUserStateWire
     }
 
 /** A resolved patch overlay still awaiting covering server truth (rule (a)).
@@ -151,8 +176,42 @@ export function rowFingerprint(row: object): string {
  * reason (JSON.stringify drops undefined-valued keys).
  */
 function sameCell(a: unknown, b: unknown): boolean {
-  return (a ?? null) === (b ?? null)
+  return cellValue(a) === cellValue(b)
 }
+
+/**
+ * What a cell IS, for comparison.
+ *
+ * An op-stream document (`description`, `notes` on the normalized issue row) is
+ * its materialized `value`. Its `revision` and `opsTail` are the authority's
+ * bookkeeping: a painted `{ value }` and the echoed `{ value, revision }` show
+ * the same text, and comparing the objects by identity would read every pending
+ * document edit as a competing write (and retire it at the first prune).
+ *
+ * Any other structured cell (`labels`, `asked`) is its JSON. The enqueue
+ * baseline is a PARSED fingerprint, so its arrays are never the row's arrays:
+ * by identity, an unchanged `labels` read as "moved past the baseline", and a
+ * label edit was dropped at resolution — the old chips flashed back until the
+ * echo landed (found by POD-4969's per-kind echo test).
+ *
+ * Unset is one value here too.
+ */
+function cellValue(v: unknown): unknown {
+  if (v !== null && typeof v === 'object') {
+    const doc = v as Record<string, unknown>
+    if (
+      !Array.isArray(v) &&
+      typeof doc.value === 'string' &&
+      Object.keys(doc).every((k) => DOC_KEYS.has(k))
+    ) {
+      return doc.value
+    }
+    return JSON.stringify(v)
+  }
+  return v ?? null
+}
+
+const DOC_KEYS: ReadonlySet<string> = new Set(['value', 'revision', 'opsTail'])
 
 /**
  * True when a PATCHED cell left its enqueue-time value for something that is
@@ -204,34 +263,84 @@ function baselineCell(entry: OutboxEntry, key: string): unknown {
 }
 
 function patchOverlay(
-  entity: OverlayEntity,
+  entity: OverlayTarget,
   id: string,
   key: string,
   patch: OverlayPatch,
-  coveredBy: (row: SessionMeta | IssueWire | IssueProjection) => boolean,
-): PendingOverlay {
+  coveredBy: (row: OverlayRow) => boolean,
+): Extract<PendingOverlay, { op: 'patch' }> {
   return { op: 'patch', key, entity, id, patch, coveredBy }
 }
 
 /** A spawn placeholder (#119) as a unified overlay entry: same bookkeeping as
  *  an outboxed patch, but the transport stays direct tRPC (see engine). */
 export function insertOverlay(
-  entity: OverlayEntity,
+  entity: OverlayTarget,
   id: string,
-  insert: SessionMeta | IssueWire,
+  insert: Extract<PendingOverlay, { op: 'insert' }>['insert'],
 ): PendingOverlay {
   return { op: 'insert', key: `spawn:${id}`, entity, id, insert }
 }
 
+/** The per-user markers an issue write can carry: the `(user, issue)` row's
+ *  own cells, read off its wire schema rather than listed. */
+const ISSUE_USER_STATE_KEYS: ReadonlySet<string> = new Set(
+  Object.keys(IssueUserStateWire.shape).filter((key) => key !== 'userId' && key !== 'entityId'),
+)
+
+/** The normalized issue row's own fields. */
+const ISSUE_PROJECTION_KEYS: ReadonlySet<string> = new Set(Object.keys(IssueProjection.shape))
+
+/** Op-stream documents on the normalized row (`{ value, revision?, opsTail? }`)
+ *  that a write spells as plain text. */
+const ISSUE_DOCUMENT_KEYS: ReadonlySet<string> = new Set(['description', 'notes'])
+
 /**
- * Project one queued outbox entry into its overlay. Mirrors — field for field —
+ * Split an `issues.update` patch by the row each key lives on (POD-4969).
+ *
+ * A per-user marker goes to the `(user, issue)` row; a durable field goes to
+ * the normalized issue row, in ITS spelling — `description` and `notes` are
+ * documents there, so the text is painted as `{ value }`. A key neither row
+ * carries is not painted at all: no row could ever cover it, so it would sit
+ * on the TTL. `overlay.test.ts` holds every key the contract accepts to one of
+ * the two homes, so a new contract key cannot fall through silently.
+ */
+export function issueUpdateRoute(patch: OverlayPatch): { issue: OverlayPatch; user: OverlayPatch } {
+  const issue: OverlayPatch = {}
+  const user: OverlayPatch = {}
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue
+    if (ISSUE_USER_STATE_KEYS.has(key)) user[key] = value
+    else if (ISSUE_DOCUMENT_KEYS.has(key)) issue[key] = { value }
+    else if (ISSUE_PROJECTION_KEYS.has(key)) issue[key] = value
+  }
+  return { issue, user }
+}
+
+/**
+ * Project one queued outbox entry into its overlays. Mirrors — field for field —
  * the optimistic patches the engine used to write straight into the replica,
  * so the painted result is byte-identical to the old mechanism's. Kinds with
- * no visible optimism (resumeAndSend) project to null. Each kind's `coveredBy`
- * encodes what SERVER truth reflecting the mutation looks like (the server
- * trims names, stamps its own readAt clock, derives `unread`).
+ * no visible optimism project to nothing. Each kind's `coveredBy` encodes what
+ * SERVER truth reflecting the mutation looks like (the server trims names,
+ * stamps its own readAt clock, derives `unread`).
+ *
+ * ONE ENTRY, ONE OVERLAY PER ROW IT LANDS ON (POD-4969). Issue writes target
+ * the NORMALIZED rows: the durable fields on `issueProjections`, the per-user
+ * markers on `issueUserStates`. Every kind lands on exactly one of them except
+ * `issueUpdate`, whose patch may carry `pinned` beside durable fields. While the
+ * old issue record still has readers, each issue entry also carries ONE part on
+ * it ({@link legacyIssuePart}). All overlays of one entry share its mutationId
+ * as `key`, and each is held and retired against its own row.
  */
-export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null {
+export function overlaysForOutboxEntry(entry: OutboxEntry): PendingOverlay[] {
+  const projected = overlayOf(entry)
+  const overlays = projected === null ? [] : Array.isArray(projected) ? projected : [projected]
+  const legacy = legacyIssuePart(overlays)
+  return legacy === null ? overlays : [...overlays, legacy]
+}
+
+function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null {
   switch (entry.kind as keyof OutboxKinds) {
     case 'rename': {
       const i = entry.input as OutboxKinds['rename']
@@ -326,30 +435,31 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
     case 'issueMarkRead': {
       const i = entry.input as OutboxKinds['issueMarkRead']
       const previousReadAt = baselineCell(entry, 'readAt')
-      // `readAt` has the same client home as `tuckedAt`: the retained issue row
-      // that persistence writes. The projection is durable issue content and
-      // deliberately carries no per-user cursor. Unlike tuck, mark-read can
-      // start from an OLDER non-null cursor, so mere presence is not covering
-      // truth: the persisted cursor must move past the enqueue-time cell.
+      // `readAt` is PER-USER state (POD-4969): its home is this principal's
+      // `(user, issue)` row, never the shared normalized issue row. Unlike tuck,
+      // mark-read can start from an OLDER non-null cursor, so mere presence is
+      // not covering truth: the cursor must move past the enqueue-time cell.
       return patchOverlay(
-        'issues',
+        'issueUserStates',
         i.id,
         entry.mutationId,
         { readAt: new Date(entry.queuedAt).toISOString() },
         (r) => {
-          const readAt = (r as IssueWire).readAt
+          const readAt = (r as IssueUserStateWire).readAt
           return readAt != null && readAt !== previousReadAt
         },
       )
     }
     case 'issueMarkUnread': {
+      // Covered by an ABSENT row too: the server deletes a row whose three
+      // markers are all null, and the ledger folds absence as that null row.
       const i = entry.input as OutboxKinds['issueMarkUnread']
       return patchOverlay(
-        'issues',
+        'issueUserStates',
         i.id,
         entry.mutationId,
         { readAt: null },
-        (r) => (r as IssueWire).readAt == null,
+        (r) => (r as IssueUserStateWire).readAt == null,
       )
     }
     case 'issueSetTucked': {
@@ -361,25 +471,24 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
       // snapshot taken before the mutation reached the server, which is exactly
       // the un-fold flicker the old ui-state path could not avoid.
       return patchOverlay(
-        'issues',
+        'issueUserStates',
         i.id,
         entry.mutationId,
         { tuckedAt: i.tucked ? new Date(entry.queuedAt).toISOString() : null },
-        (r) => ((r as IssueWire).tuckedAt != null) === i.tucked,
+        (r) => ((r as IssueUserStateWire).tuckedAt != null) === i.tucked,
       )
     }
     case 'issueUpdate': {
-      // THE PATCH IS THE OVERLAY (POD-781). Every key `issues.update` accepts is
-      // a plain field on `IssueWire` — checked against `packages/model`'s
-      // `entities/issue.ts`, key for key — so the patch folds over the row as it
-      // stands, with no per-field translation table to fall out of date. The
-      // per-user fields such as `readAt` are ordinary issue-row overlays with
-      // their own command kinds above.
+      // THE PATCH IS THE OVERLAY (POD-781), ROUTED BY HOME (POD-4969). Every key
+      // `issues.update` accepts is either a field of the normalized issue row or
+      // one of the per-user markers (`pinned`), so the patch splits into at most
+      // two overlays, one per row it lands on, both keyed by this mutation. The
+      // routing is read off the two schemas (`issueUpdateRoute`), not listed.
       //
-      // COVERED = every key the caller set now reads back equal. Not "the row
-      // changed": a competing writer moving some OTHER field must not retire
-      // this overlay, and the moved-past-baseline escape in `pruneAwaiting`
-      // already handles the case where one genuinely won.
+      // COVERED = every key the caller set now reads back equal, on that row.
+      // Not "the row changed": a competing writer moving some OTHER field must
+      // not retire this overlay, and the moved-past-baseline escape in
+      // `pruneAwaiting` already handles the case where one genuinely won.
       //
       // The server is trusted to land these verbatim, which is a claim about
       // THIS command and was verified: `IssueCrud.update` normalizes only by
@@ -389,16 +498,25 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
       // change, the mismatch costs one prune pass, not a wedge: the row moves
       // past the enqueue baseline without covering, and server truth wins.
       const i = entry.input as OutboxKinds['issueUpdate']
-      const patch = i.patch as OverlayPatch
-      const keys = Object.keys(patch)
-      // An empty patch is a write with nothing to paint. Returning null keeps it
-      // out of the overlay set entirely rather than parking a no-op that has to
-      // wait for coverage it would get for free.
-      if (keys.length === 0) return null
-      return patchOverlay('issues', i.id, entry.mutationId, patch, (r) => {
-        const row = r as unknown as Record<string, unknown>
-        return keys.every((k) => sameCell(row[k], patch[k]))
-      })
+      const { issue, user } = issueUpdateRoute(i.patch as OverlayPatch)
+      const out: Extract<PendingOverlay, { op: 'patch' }>[] = []
+      // An empty half is a write with nothing to paint on that row. Leaving it
+      // out keeps it from parking a no-op that has to wait for coverage it would
+      // get for free; an empty patch projects to no overlay at all.
+      for (const [entity, patch] of [
+        ['issueProjections', issue],
+        ['issueUserStates', user],
+      ] as const) {
+        const keys = Object.keys(patch)
+        if (keys.length === 0) continue
+        out.push(
+          patchOverlay(entity, i.id, entry.mutationId, patch, (r) => {
+            const row = r as unknown as Record<string, unknown>
+            return keys.every((k) => sameCell(row[k], patch[k]))
+          }),
+        )
+      }
+      return out
     }
     case 'issueArchive': {
       // `issues.archive` is one-way — there is no `archived: false` arm on this
@@ -407,11 +525,11 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
       // and the row leaves the list on the press.
       const i = entry.input as OutboxKinds['issueArchive']
       return patchOverlay(
-        'issues',
+        'issueProjections',
         i.id,
         entry.mutationId,
         { archived: true },
-        (r) => (r as IssueWire).archived === true,
+        (r) => (r as IssueProjection).archived === true,
       )
     }
     case 'issueDelete': {
@@ -442,13 +560,13 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
       // tombstone lands a beat before the session tombstones.
       const i = entry.input as OutboxKinds['issueDelete']
       return patchOverlay(
-        'issues',
+        'issueProjections',
         i.id,
         entry.mutationId,
         // The server stamps its own clock; covering truth is judged on PRESENCE,
         // like `sessionMarkRead`'s readAt and `issueSetTucked`'s tuckedAt.
         { deletedAt: new Date(entry.queuedAt).toISOString() },
-        (r) => (r as IssueWire).deletedAt != null,
+        (r) => (r as IssueProjection).deletedAt != null,
       )
     }
     case 'issueClose': {
@@ -469,11 +587,12 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
       // (Done / Won't fix) both send a reason.
       const i = entry.input as OutboxKinds['issueClose']
       return patchOverlay(
-        'issues',
+        'issueProjections',
         i.id,
         entry.mutationId,
         { stage: 'done', ...(i.reason == null ? {} : { closedReason: i.reason }) },
-        (r) => (r as IssueWire).stage === 'done' && (r as IssueWire).closedReason != null,
+        (r) =>
+          (r as IssueProjection).stage === 'done' && (r as IssueProjection).closedReason != null,
       )
     }
     case 'issueDefer': {
@@ -483,8 +602,12 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
       // is an exact match, through `sameCell` because clearing a defer sends
       // `null` while a never-deferred row may simply not carry the field.
       const i = entry.input as OutboxKinds['issueDefer']
-      return patchOverlay('issues', i.id, entry.mutationId, { deferUntil: i.until }, (r) =>
-        sameCell((r as IssueWire).deferUntil, i.until),
+      return patchOverlay(
+        'issueProjections',
+        i.id,
+        entry.mutationId,
+        { deferUntil: i.until },
+        (r) => sameCell((r as IssueProjection).deferUntil, i.until),
       )
     }
     case 'issueUndefer': {
@@ -505,11 +628,11 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
       // right — there is nothing for truth to catch up to.
       const i = entry.input as OutboxKinds['issueUndefer']
       return patchOverlay(
-        'issues',
+        'issueProjections',
         i.id,
         entry.mutationId,
         { deferUntil: new Date(entry.queuedAt - UNSNOOZE_BACKDATE_MS).toISOString() },
-        (r) => !isIssueDeferred(r as IssueWire, Date.now()),
+        (r) => !isIssueDeferred(r as IssueProjection, Date.now()),
       )
     }
     case 'issueSetLabels': {
@@ -528,8 +651,8 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
       // nobody can see.
       const i = entry.input as OutboxKinds['issueSetLabels']
       const labels = [...new Set(i.labels.map((l) => l.trim()).filter(Boolean))].sort()
-      return patchOverlay('issues', i.id, entry.mutationId, { labels }, (r) => {
-        const current = (r as IssueWire).labels ?? []
+      return patchOverlay('issueProjections', i.id, entry.mutationId, { labels }, (r) => {
+        const current = (r as IssueProjection).labels ?? []
         return current.length === labels.length && labels.every((l) => current.includes(l))
       })
     }
@@ -554,8 +677,8 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
       // row that lags was the complaint.
       const i = entry.input as OutboxKinds['issueSetPlacement']
       const parentId = i.placement === 'mission' ? i.originId : null
-      return patchOverlay('issues', i.id, entry.mutationId, { parentId }, (r) =>
-        sameCell((r as IssueWire).parentId, parentId),
+      return patchOverlay('issueProjections', i.id, entry.mutationId, { parentId }, (r) =>
+        sameCell((r as IssueProjection).parentId, parentId),
       )
     }
     case 'issueRestore': {
@@ -576,8 +699,8 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
       // against this restore (they share `issue-deleted:<id>`), no cascade ever
       // ran, and the row returns with its sessions intact.
       const i = entry.input as OutboxKinds['issueRestore']
-      return patchOverlay('issues', i.id, entry.mutationId, { deletedAt: null }, (r) =>
-        sameCell((r as IssueWire).deletedAt, null),
+      return patchOverlay('issueProjections', i.id, entry.mutationId, { deletedAt: null }, (r) =>
+        sameCell((r as IssueProjection).deletedAt, null),
       )
     }
     case 'resumeAndSend': {
@@ -618,8 +741,8 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
  * THE CONTRACT ↔ REDUCER MAP (POD-380).
  *
  * POD-311 puts an "optional command-specific optimistic reducer" on the contract.
- * The reducers themselves are these `overlayForOutboxEntry` cases and they must
- * stay here — they read `SessionMeta` / `IssueWire`, which a leaf contract package
+ * The reducers themselves are these `overlaysForOutboxEntry` cases and they must
+ * stay here — they read `SessionMeta` / `IssueProjection`, which a leaf contract package
  * cannot import. What this map adds is the JOIN: which presence CONTRACT each
  * outbox kind reduces for, so a migrated command is provably reduced rather than
  * reduced-by-coincidence-of-having-an-outbox-kind.
@@ -654,57 +777,50 @@ export const PRESENCE_REDUCER_KINDS: Record<string, keyof OutboxKinds & string> 
 }
 
 /**
- * THE CURATION MIRROR (POD-781 group 2) — why the issue BOARD paints on the
- * press and not only the sidebar.
+ * THE OLD-RECORD PART (POD-4969) — why a reader of the old issue record still
+ * sees every edit on the press, and never sees it flicker back.
  *
- * THE PROBLEM IT SOLVES, measured rather than assumed. The two surfaces read
- * two different rows. The sidebar's worklist slice derives from the LEGACY issue
- * wire (`IssueNavigationModel` is `IssueWire`), which is the entity every
- * curation kind overlays — so a rename or a colour paints there immediately. The
- * board and the issue page read `useIssueViewModels`, which merges
- * `{...legacyWire, ...projection, ...derived}` — and `IssueProjection` is the
- * issue's whole DURABLE row (`wireShape(IssueAggregate.shape)`), so it carries
- * `title`, `stage`, `priority`, `labels`, `color`, `deferUntil`, `closedReason`,
- * `archived`, `deletedAt` and `sortKey` and OVERRIDES the overlaid wire for every
- * one of them. Un-mirrored, the board would keep painting server truth until the
- * round trip landed while the sidebar had already moved — the same lag this issue
- * exists to delete, hidden on the surface nobody thought to check.
+ * Every issue overlay of record targets the NORMALIZED rows: `issueProjections`
+ * for durable fields and `issueUserStates` for the per-user markers. But the old
+ * record (`issues`, `IssueWire`) still has readers that have not moved: mobile
+ * reads nothing else, the web's view models spread it first, and the pool
+ * sidebar joins its per-user cells. For them, an issue entry carries one more
+ * part: the same patch on the old row, in the old spelling.
  *
- * WHY A FOLD-TIME MIRROR rather than a second overlay per kind. An overlay is a
- * pure function of ONE outbox entry, and the entry names one command against one
- * issue — not two entities. Emitting two overlays per kind would double every
- * kind's bookkeeping (awaiting-truth, retirement, baselines) to express one fact
- * twice. Mirroring at the fold keeps ONE overlay of record, retired by its own
- * `coveredBy` against the wire row, and derives the projection's copy from it —
- * without creating a second overlay of record.
+ * IT RETIRES ON ITS OWN ROW, not with the normalized part, because the server
+ * does not publish the two together for every command: `markIssueRead`,
+ * `markIssueUnread` and `setIssueTucked` commit the per-user row first and
+ * republish the old record in a SECOND commit (`IssueCrud`, `writeIssueUserState`
+ * then `persist`). A copy that left with the normalized part would hand the old
+ * record's readers its pre-edit value for that gap: the unread dot flashing back.
+ * So the part is held and retired like any overlay, against the old row, and
+ * the entry's durable outbox record stays until every part has retired.
  *
- * WHAT IS NOT MIRRORED, and why the key set is DERIVED. The mirrorable keys are
- * `IssueProjection`'s own, read off the schema, so a field added to the durable
- * row is mirrored the day it arrives instead of the day someone remembers a list.
- * Two are excluded by name: `description` and `notes` are op-stream DOCUMENTS on
- * the projection (`{ value }`) and plain strings in the patch, so copying one
- * across would put a string where a document lives and the board would render
- * nothing. They are the two `projectionOnLegacySpelling` already re-spells, and a
- * patch of only those mirrors nothing at all rather than half-landing. `readAt`,
- * `pinned`, and `tuckedAt` are not excluded — they simply are not projection
- * fields (they are per-user state), so the filter drops them and the board keeps
- * reading them off the overlaid wire, where they already paint.
+ * Its `coveredBy` is the normalized parts' own, all of them: each reads only the
+ * keys its part wrote, and the old record spells every key an overlay writes the
+ * same way — except the documents (`{ value }` normalized, plain text here),
+ * which `sameCell` compares by text.
+ *
+ * Nothing is painted on a row the replica no longer stores (a client that drops
+ * the old record holds no part), and the part goes with the old record
+ * (POD-4973).
  */
-const PROJECTION_MIRROR_KEYS: ReadonlySet<string> = new Set(
-  Object.keys(IssueProjection.shape).filter((key) => key !== 'description' && key !== 'notes'),
-)
-
-export function projectionCurationOverlay(overlay: PendingOverlay): PendingOverlay | null {
-  if (overlay.op !== 'patch' || overlay.entity !== 'issues') return null
-  const mirrored: OverlayPatch = {}
-  for (const [key, value] of Object.entries(overlay.patch)) {
-    if (PROJECTION_MIRROR_KEYS.has(key)) mirrored[key] = value
+export function legacyIssuePart(overlays: readonly PendingOverlay[]): PendingOverlay | null {
+  const parts = overlays.filter(
+    (o): o is Extract<PendingOverlay, { op: 'patch' }> =>
+      o.op === 'patch' && (o.entity === 'issueProjections' || o.entity === 'issueUserStates'),
+  )
+  const first = parts[0]
+  if (first === undefined) return null
+  const patch: OverlayPatch = {}
+  for (const part of parts) {
+    for (const [key, value] of Object.entries(part.patch)) {
+      patch[key] = ISSUE_DOCUMENT_KEYS.has(key) ? (value as { value: string }).value : value
+    }
   }
-  if (Object.keys(mirrored).length === 0) return null
-  // The SOURCE overlay stays the one of record: it is what `mutationApplied`
-  // holds and what `pruneAwaiting` retires, judged against the wire row. This
-  // copy is derived fresh on every fold, so it appears and disappears with it.
-  return patchOverlay('issueProjections', overlay.id, overlay.key, mirrored, overlay.coveredBy)
+  return patchOverlay('issues', first.id, first.key, patch, (row) =>
+    parts.every((part) => part.coveredBy(row)),
+  )
 }
 
 /** True when the fold actually moved one of the cells it wrote. Only the patched
@@ -761,11 +877,18 @@ export function foldOverlays<T extends object>(
   const known = new Set(base.map(keyOf))
   const inserts = overlays.filter((o) => o.op === 'insert' && !known.has(o.id))
   const patchesById = new Map<string, OverlayPatch[]>()
+  // Patches whose target row is absent but which say what absence means (the
+  // per-user "nothing set" row): folded over that row and added, in first-seen
+  // order, unless they paint nothing it does not already say.
+  const absentById = new Map<string, object>()
   for (const o of overlays) {
     if (o.op !== 'patch') continue
     const list = patchesById.get(o.id)
     if (list) list.push(o.patch)
     else patchesById.set(o.id, [o.patch])
+    if (o.absent !== undefined && !known.has(o.id) && !absentById.has(o.id)) {
+      absentById.set(o.id, o.absent)
+    }
   }
   let rows: T[] = base
   if (inserts.length > 0) {
@@ -773,6 +896,10 @@ export function foldOverlays<T extends object>(
       ...base,
       ...inserts.map((o) => (o as Extract<PendingOverlay, { op: 'insert' }>).insert as T),
     ]
+  }
+  for (const id of absentById.keys()) {
+    // An insert placeholder for the same id is a row: patches fold over it below.
+    if (inserts.some((o) => o.id === id)) absentById.delete(id)
   }
   if (patchesById.size > 0) {
     let touched = false
@@ -787,6 +914,13 @@ export function foldOverlays<T extends object>(
       touched = true
       return merged
     })
+    for (const [id, absent] of absentById) {
+      const patches = patchesById.get(id) ?? []
+      const merged = Object.assign({}, absent, ...patches) as T
+      if (!movedAnyCell(absent, merged, patches)) continue
+      touched = true
+      next.push(merged)
+    }
     // A patch that matched no row, or that painted the values already there, is
     // a no-op — keep the previous array identity in that case.
     if (touched) rows = next
@@ -801,8 +935,9 @@ export function foldOverlays<T extends object>(
  * {@link foldOverlays} for ONE row (POD-4553): `base` is that row's server
  * truth (undefined when absent) and `overlays` are that row's own pending
  * overlays in fold order. Same rules — a base row wins against an insert,
- * patches compose oldest-first, and a composition that moves no patched cell
- * returns `base` itself — so a per-row reader agrees with the whole-entity fold
+ * patches compose oldest-first, an absent row folds over the patch's `absent`
+ * row when it has one, and a composition that moves no patched cell returns
+ * `base` itself — so a per-row reader agrees with the whole-entity fold
  * without folding the entity.
  */
 export function foldRowOverlays<T extends object>(
@@ -811,16 +946,23 @@ export function foldRowOverlays<T extends object>(
 ): T | undefined {
   if (overlays.length === 0) return base
   let row = base
+  let absent = false
   if (row === undefined) {
     const insert = overlays.find((o) => o.op === 'insert')
-    if (insert === undefined) return undefined
-    row = insert.insert as T
+    const fallback = overlays.find((o) => o.op === 'patch' && o.absent !== undefined)
+    if (insert !== undefined) row = insert.insert as T
+    else if (fallback?.op === 'patch') {
+      row = fallback.absent as T
+      absent = true
+    } else return undefined
   }
   const patches: OverlayPatch[] = []
   for (const o of overlays) if (o.op === 'patch') patches.push(o.patch)
   if (patches.length === 0) return row
   const merged = Object.assign({}, row, ...patches) as T
-  return movedAnyCell(row, merged, patches) ? merged : row
+  if (movedAnyCell(row, merged, patches)) return merged
+  // An absent row that the patches leave saying "nothing set" stays absent.
+  return absent ? undefined : row
 }
 
 /**
@@ -842,7 +984,7 @@ export function foldRowOverlays<T extends object>(
  */
 export function pruneAwaiting<T extends object>(
   awaiting: AwaitingTruth[],
-  entity: OverlayEntity,
+  entity: OverlayTarget,
   base: readonly T[],
   keyOf: (row: T) => string,
   now: number = Date.now(),
@@ -862,6 +1004,14 @@ export function pruneAwaiting<T extends object>(
    * paintable by client optimism, because doing so would fabricate visibility.
    */
   removedIds?: ReadonlySet<string>,
+  /**
+   * What an ABSENT row means, for an entity where absence is a value (POD-4969):
+   * the per-user `(user, issue)` row is deleted when all three markers clear, so
+   * its absence is "nothing set" and a mark-unread is covered by it. Return
+   * undefined when the absence is real — the issue left the slice — and the
+   * overlay retires as for any gone row.
+   */
+  absentRow?: (id: string) => T | undefined,
 ): AwaitingTruth[] {
   if (!awaiting.some((a) => a.overlay.entity === entity)) return awaiting
   const byId = new Map(base.map((r) => [keyOf(r), r]))
@@ -875,13 +1025,12 @@ export function pruneAwaiting<T extends object>(
   }
   const keep = awaiting.filter((a) => {
     if (a.overlay.entity !== entity) return true
-    const row = byId.get(a.overlay.id)
+    const row = byId.get(a.overlay.id) ?? absentRow?.(a.overlay.id)
     if (row === undefined) {
       void removedIds
       return false
     }
-    if (a.overlay.coveredBy(row as unknown as SessionMeta | IssueWire | IssueProjection))
-      return false
+    if (a.overlay.coveredBy(row as unknown as OverlayRow)) return false
     if (now - a.resolvedAt > AWAITING_TRUTH_TTL_MS) {
       // Covering truth never arrived — bound the mask instead of wedging (see
       // the AWAITING_TRUTH_TTL_MS tradeoff note).

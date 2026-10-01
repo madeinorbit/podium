@@ -154,8 +154,12 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   sessions: SessionMeta[]
   /** Issues (work items) broadcast by the server — full list, refreshed on every mutation. */
   issues: IssueWire[]
-  /** Normalized durable issue rows. Per-user readAt lives on `issues`. */
+  /** Normalized durable issue rows. Per-user markers live on `issueUserStates`. */
   issueProjections: IssueProjection[]
+  /** This principal's per-user issue markers (`readAt`, `tuckedAt`, `pinned`):
+   *  one row per issue they touched, absent = none set. Optimistic edits are
+   *  folded in (POD-4969). */
+  issueUserStates: import('@podium/model').IssueUserStateWire[]
   /** The cross-project issue-event window, replicated (POD-1772). A bounded,
    *  server-curated tail — the superagent feed reads THESE rows rather than
    *  re-asking `issues.events` on a timer. */

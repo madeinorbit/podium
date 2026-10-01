@@ -5,10 +5,14 @@
  * and pruneAwaiting implements retirement rule (a) (see overlay.ts header).
  */
 
-import { sessionStateCommand, sessionStateCommandNames } from '@podium/commands'
+import { ISSUE_CONTRACTS, sessionStateCommand, sessionStateCommandNames } from '@podium/commands'
 import { addSink, resetLevels, setLogLevel } from '@podium/logger'
 import {
+  asIssueId,
   asMutationId,
+  asUserId,
+  type IssueProjection,
+  type IssueUserStateWire,
   type IssueWire,
   type SessionMeta,
   type SessionMetaInput,
@@ -24,10 +28,11 @@ import {
   foldOverlays,
   foldRowOverlays,
   insertOverlay,
-  overlayForOutboxEntry,
+  issueUpdateRoute,
+  legacyIssuePart,
+  overlaysForOutboxEntry,
   type PendingOverlay,
   PRESENCE_REDUCER_KINDS,
-  projectionCurationOverlay,
   pruneAwaiting,
   rowFingerprint,
 } from './overlay'
@@ -37,6 +42,24 @@ const entry = (kind: string, input: unknown, queuedAt = 1751500800000): OutboxEn
   kind,
   input,
   queuedAt,
+})
+
+/** The one overlay of record an entry paints on its own row — every kind but
+ *  a mixed `issueUpdate` has at most one. An issue entry's old-record part
+ *  (`legacyIssuePart`) is pinned by its own tests below. */
+function overlayForOutboxEntry(e: OutboxEntry): PendingOverlay | null {
+  const overlays = overlaysForOutboxEntry(e).filter((o) => o.entity !== 'issues')
+  expect(overlays.length).toBeLessThanOrEqual(1)
+  return overlays[0] ?? null
+}
+
+const userState = (over: Partial<IssueUserStateWire> = {}): IssueUserStateWire => ({
+  userId: asUserId('u1'),
+  entityId: asIssueId('i1'),
+  readAt: null,
+  tuckedAt: null,
+  pinned: false,
+  ...over,
 })
 
 const sess = (over: Partial<SessionMetaInput> = {}): SessionMeta =>
@@ -121,7 +144,7 @@ describe('overlayForOutboxEntry projection', () => {
 
     const issueRead = overlayForOutboxEntry(entry('issueMarkRead', { id: 'i1' }, 1751500800000))
     if (issueRead?.op !== 'patch') throw new Error('expected patch')
-    expect(issueRead.entity).toBe('issues')
+    expect(issueRead.entity).toBe('issueUserStates')
     expect(issueRead.patch).toEqual({ readAt: new Date(1751500800000).toISOString() })
     // Persistence stamps its own clock on this SAME row, so presence covers.
     expect(issueRead.coveredBy({ readAt: '2099-01-01T00:00:00.000Z' } as IssueWire)).toBe(true)
@@ -139,7 +162,7 @@ describe('overlayForOutboxEntry projection', () => {
 
     const unread = overlayForOutboxEntry(entry('issueMarkUnread', { id: 'i1' }))
     if (unread?.op !== 'patch') throw new Error('expected patch')
-    expect(unread.entity).toBe('issues')
+    expect(unread.entity).toBe('issueUserStates')
     expect(unread.patch).toEqual({ readAt: null })
     expect(unread.coveredBy({ readAt: null } as IssueWire)).toBe(true)
   })
@@ -153,7 +176,7 @@ describe('overlayForOutboxEntry projection', () => {
       entry('issueSetTucked', { id: 'i1', tucked: true }, 1751500800000),
     )
     if (tuck?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(tuck.entity).toBe('issues')
+    expect(tuck.entity).toBe('issueUserStates')
     expect(tuck.id).toBe('i1')
     expect(tuck.patch).toEqual({ tuckedAt: new Date(1751500800000).toISOString() })
     // The server stamps its own clock, so ANY stamp covers…
@@ -170,7 +193,7 @@ describe('overlayForOutboxEntry projection', () => {
     expect(untuck.coveredBy({ tuckedAt: '2026-07-03T00:00:00.000Z' } as IssueWire)).toBe(false)
   })
 
-  it('an unknown kind projects to null', () => {
+  it('an unknown kind projects to nothing', () => {
     expect(overlayForOutboxEntry(entry('someFutureKind', {}))).toBeNull()
   })
 
@@ -183,7 +206,7 @@ describe('overlayForOutboxEntry projection', () => {
       entry('issueUpdate', { id: 'i1', patch: { title: 'Renamed', priority: 2 } }),
     )
     if (o?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(o.entity).toBe('issues')
+    expect(o.entity).toBe('issueProjections')
     expect(o.id).toBe('i1')
     expect(o.patch).toEqual({ title: 'Renamed', priority: 2 })
     expect(o.coveredBy({ title: 'Renamed', priority: 2 } as IssueWire)).toBe(true)
@@ -217,7 +240,7 @@ describe('overlayForOutboxEntry projection', () => {
   it('issueArchive is a one-way patch — the sidebar drops the row on `archived`', () => {
     const o = overlayForOutboxEntry(entry('issueArchive', { id: 'i1' }))
     if (o?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(o.entity).toBe('issues')
+    expect(o.entity).toBe('issueProjections')
     expect(o.patch).toEqual({ archived: true })
     expect(o.coveredBy({ archived: true } as IssueWire)).toBe(true)
     expect(o.coveredBy({ archived: false } as IssueWire)).toBe(false)
@@ -226,7 +249,7 @@ describe('overlayForOutboxEntry projection', () => {
   it('issueDelete stamps deletedAt from queuedAt; covering truth is judged on PRESENCE', () => {
     const o = overlayForOutboxEntry(entry('issueDelete', { id: 'i1' }, 1751500800000))
     if (o?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(o.entity).toBe('issues')
+    expect(o.entity).toBe('issueProjections')
     expect(o.id).toBe('i1')
     expect(o.patch).toEqual({ deletedAt: new Date(1751500800000).toISOString() })
     // The server stamps its own tombstone clock, so any stamp covers…
@@ -239,7 +262,7 @@ describe('overlayForOutboxEntry projection', () => {
   it('issueClose settles the stage and stamps the reason, and is covered by the DERIVED closed fact', () => {
     const o = overlayForOutboxEntry(entry('issueClose', { id: 'i1', reason: 'wontfix' }))
     if (o?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(o.entity).toBe('issues')
+    expect(o.entity).toBe('issueProjections')
     expect(o.patch).toEqual({ stage: 'done', closedReason: 'wontfix' })
     // Covered on stage + a reason being PRESENT, not on the reason matching: the
     // server supplies its own default when the caller omits one.
@@ -322,7 +345,7 @@ describe('overlayForOutboxEntry projection', () => {
       entry('issueSetPlacement', { id: 'i1', placement: 'mission', originId: 'origin-1' }),
     )
     if (intoMission?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(intoMission.entity).toBe('issues')
+    expect(intoMission.entity).toBe('issueProjections')
     expect(intoMission.id).toBe('i1')
     expect(intoMission.patch).toEqual({ parentId: 'origin-1' })
     expect(intoMission.coveredBy({ parentId: 'origin-1' } as IssueWire)).toBe(true)
@@ -344,7 +367,7 @@ describe('overlayForOutboxEntry projection', () => {
     const del = overlayForOutboxEntry(entry('issueDelete', { id: 'i1' }, 1751500800000))
     const o = overlayForOutboxEntry(entry('issueRestore', { id: 'i1' }))
     if (del?.op !== 'patch' || o?.op !== 'patch') throw new Error('expected patch overlays')
-    expect(o.entity).toBe('issues')
+    expect(o.entity).toBe('issueProjections')
     expect(o.id).toBe('i1')
     expect(o.patch).toEqual({ deletedAt: null })
     // They write the one cell, which is why they share a collapse key.
@@ -358,83 +381,109 @@ describe('overlayForOutboxEntry projection', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // POD-781 — the curation mirror onto the normalized projection, which is what
-  // the issue BOARD and the issue page read (the sidebar reads the legacy wire).
+  // POD-4969 — issue overlays of record land on the NORMALIZED rows, and the old
+  // record gets a derived copy for the readers that have not moved yet.
   // ---------------------------------------------------------------------------
 
-  it('mirrors a curation patch onto the projection, or the board keeps painting the old value', () => {
-    const source = overlayForOutboxEntry(
-      entry('issueUpdate', { id: 'i1', patch: { title: 'Renamed', stage: 'review' } }),
+  it('routes an issueUpdate by home: durable fields to the projection, pinned to the per-user row', () => {
+    const overlays = overlaysForOutboxEntry(
+      entry('issueUpdate', {
+        id: 'i1',
+        patch: { title: 'Renamed', description: 'new prose', pinned: true },
+      }),
     )
-    if (source?.op !== 'patch') throw new Error('expected patch overlay')
-    const mirror = projectionCurationOverlay(source)
-    if (mirror?.op !== 'patch') throw new Error('expected a mirrored overlay')
-    expect(mirror.entity).toBe('issueProjections')
-    expect(mirror.id).toBe('i1')
-    // `IssueProjection` carries the whole durable row, so it OVERRIDES the
-    // overlaid wire in `useIssueViewModels`' merge. Both keys must travel.
-    expect(mirror.patch).toEqual({ title: 'Renamed', stage: 'review' })
-  })
-
-  it('mirrors close, defer and labels too — the whole family, not just the patch kind', () => {
-    const mirrored = (kind: string, input: unknown) => {
-      const source = overlayForOutboxEntry(entry(kind, input))
-      if (source?.op !== 'patch') throw new Error(`expected a patch overlay for ${kind}`)
-      const mirror = projectionCurationOverlay(source)
-      if (mirror?.op !== 'patch') throw new Error(`expected a mirror for ${kind}`)
-      return mirror.patch
+    expect(overlays.map((o) => o.entity)).toEqual(['issueProjections', 'issueUserStates', 'issues'])
+    const [issue, user, legacy] = overlays
+    if (issue?.op !== 'patch' || user?.op !== 'patch' || legacy?.op !== 'patch') {
+      throw new Error('expected patch overlays')
     }
-    expect(mirrored('issueClose', { id: 'i1', reason: 'done' })).toEqual({
-      stage: 'done',
-      closedReason: 'done',
-    })
-    expect(mirrored('issueDefer', { id: 'i1', until: '2099-01-01' })).toEqual({
-      deferUntil: '2099-01-01',
-    })
-    expect(mirrored('issueSetLabels', { id: 'i1', labels: ['bug'] })).toEqual({ labels: ['bug'] })
-    expect(mirrored('issueArchive', { id: 'i1' })).toEqual({ archived: true })
-    expect(mirrored('issueDelete', { id: 'i1' })).toEqual({
-      deletedAt: new Date(1751500800000).toISOString(),
-    })
+    // One mutation: every part shares its key, so retirement can tell when the
+    // whole entry is accounted for.
+    expect(new Set(overlays.map((o) => o.key))).toEqual(new Set([issue.key]))
+    // The description is a DOCUMENT on the normalized row — painted as one.
+    expect(issue.patch).toEqual({ title: 'Renamed', description: { value: 'new prose' } })
+    expect(user.patch).toEqual({ pinned: true })
+    // Coverage reads the document's materialized value, not its bookkeeping.
+    const echoed = {
+      title: 'Renamed',
+      description: { value: 'new prose', revision: 4 },
+    } as unknown as IssueProjection
+    expect(issue.coveredBy(echoed)).toBe(true)
+    expect(
+      issue.coveredBy({ ...echoed, description: { value: 'old prose' } } as IssueProjection),
+    ).toBe(false)
+    expect(user.coveredBy(userState({ pinned: true }))).toBe(true)
+    expect(user.coveredBy(userState())).toBe(false)
   })
 
-  it('mirrors NOTHING for a patch the projection has no home for', () => {
-    // `pinned` and `tuckedAt` are per-user state and are not projection fields —
-    // the board reads them off the overlaid wire, where they already paint.
-    const pinned = overlayForOutboxEntry(
-      entry('issueUpdate', { id: 'i1', patch: { pinned: true } }),
-    )
-    if (pinned?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(projectionCurationOverlay(pinned)).toBeNull()
-
-    const tucked = overlayForOutboxEntry(entry('issueSetTucked', { id: 'i1', tucked: true }))
-    if (tucked?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(projectionCurationOverlay(tucked)).toBeNull()
-
-    // The op-stream DOCUMENTS are excluded by name: `description` is `{ value }`
-    // on the projection and a plain string in the patch, so copying it across
-    // would put a string where a document lives.
-    const described = overlayForOutboxEntry(
-      entry('issueUpdate', { id: 'i1', patch: { description: 'new prose' } }),
-    )
-    if (described?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(projectionCurationOverlay(described)).toBeNull()
-
-    // A MIXED patch mirrors the half that has a home rather than nothing.
-    const mixed = overlayForOutboxEntry(
-      entry('issueUpdate', { id: 'i1', patch: { description: 'new prose', priority: 1 } }),
-    )
-    if (mixed?.op !== 'patch') throw new Error('expected patch overlay')
-    const mirror = projectionCurationOverlay(mixed)
-    if (mirror?.op !== 'patch') throw new Error('expected a mirrored overlay')
-    expect(mirror.patch).toEqual({ priority: 1 })
+  it('every key `issues.update` accepts has exactly one home, so none paints where it can never be covered', () => {
+    const keys = Object.keys(ISSUE_CONTRACTS.update.input.shape.patch.shape)
+    expect(keys.length).toBeGreaterThan(20)
+    for (const key of keys) {
+      const { issue, user } = issueUpdateRoute({ [key]: 'x' })
+      expect(
+        [Object.keys(issue).length, Object.keys(user).length].sort(),
+        `${key} must land on exactly one normalized row`,
+      ).toEqual([0, 1])
+    }
   })
 
-  it('does not mirror per-user readAt onto the durable projection', () => {
-    const read = overlayForOutboxEntry(entry('issueMarkRead', { id: 'i1' }))
-    if (read?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(read.entity).toBe('issues')
-    expect(projectionCurationOverlay(read)).toBeNull()
+  it('carries ONE old-record part per issue entry, in the old spelling, covered on the old row', () => {
+    const overlays = overlaysForOutboxEntry(
+      entry('issueUpdate', { id: 'i1', patch: { title: 'Renamed', notes: 'n', pinned: true } }),
+    )
+    const legacy = overlays.filter((o) => o.entity === 'issues')
+    expect(legacy).toHaveLength(1)
+    const [part] = legacy
+    if (part?.op !== 'patch') throw new Error('expected a patch part')
+    expect(part.id).toBe('i1')
+    expect(part.key).toBe(overlays[0]?.key)
+    // Plain text where the old record keeps plain text; the per-user cell too.
+    expect(part.patch).toEqual({ title: 'Renamed', notes: 'n', pinned: true })
+    // Covered only when the OLD row reflects every part of the write.
+    expect(part.coveredBy({ title: 'Renamed', notes: 'n', pinned: true } as IssueWire)).toBe(true)
+    expect(part.coveredBy({ title: 'Renamed', notes: 'n', pinned: false } as IssueWire)).toBe(false)
+    expect(part.coveredBy({ title: 'Old', notes: 'n', pinned: true } as IssueWire)).toBe(false)
+  })
+
+  it('every per-user write carries its old-record part, judged on the old row', () => {
+    for (const [kind, input, patch, covering] of [
+      [
+        'issueMarkRead',
+        { id: 'i1' },
+        { readAt: new Date(1751500800000).toISOString() },
+        { readAt: '2099-01-01T00:00:00.000Z' },
+      ],
+      ['issueMarkUnread', { id: 'i1' }, { readAt: null }, { readAt: null }],
+      [
+        'issueSetTucked',
+        { id: 'i1', tucked: true },
+        { tuckedAt: new Date(1751500800000).toISOString() },
+        { tuckedAt: '2099-01-01T00:00:00.000Z' },
+      ],
+      ['issueUpdate', { id: 'i1', patch: { pinned: true } }, { pinned: true }, { pinned: true }],
+    ] as const) {
+      const overlays = overlaysForOutboxEntry(entry(kind, input))
+      expect(
+        overlays.map((o) => o.entity),
+        kind,
+      ).toEqual(['issueUserStates', 'issues'])
+      const part = overlays[1]
+      if (part?.op !== 'patch') throw new Error(`expected a part for ${kind}`)
+      expect(part, kind).toMatchObject({ id: 'i1', patch })
+      // The server republishes the old record in a SECOND commit after the
+      // per-user row (IssueCrud): until that lands, the part keeps painting.
+      expect(part.coveredBy({ ...covering } as unknown as IssueWire), kind).toBe(true)
+    }
+  })
+
+  it('carries no old-record part for a session write or a placeholder insert', () => {
+    expect(
+      overlaysForOutboxEntry(entry('rename', { sessionId: 's1', name: 'x' })).map((o) => o.entity),
+    ).toEqual(['sessions'])
+    expect(
+      legacyIssuePart([insertOverlay('issueProjections', 'i1', {} as IssueProjection)]),
+    ).toBeNull()
   })
 
   // POD-762: a wake is row-visible. The queue depth is the fact — the operator's
@@ -615,6 +664,42 @@ describe('foldRowOverlays (POD-4553: the per-row fold agrees with foldOverlays)'
   }
 })
 
+// POD-4969: the per-user row is DELETED when its markers all clear, so the
+// ledger hands a per-user patch the row its absence stands for. Both folds must
+// paint over it, and both must leave a patch that paints only "nothing set" off
+// the list.
+describe('folding over an absent per-user row', () => {
+  const key = (row: IssueUserStateWire): string => row.entityId
+  const onAbsent = (kind: string, input: unknown): PendingOverlay => {
+    const o = overlayForOutboxEntry(entry(kind, input))
+    if (o?.op !== 'patch') throw new Error('expected patch')
+    return { ...o, absent: userState() }
+  }
+
+  it('paints a mark-read onto the "nothing set" row, in both folds', () => {
+    const read = onAbsent('issueMarkRead', { id: 'i1' })
+    const whole = foldOverlays<IssueUserStateWire>([], [read], key).rows
+    expect(whole).toEqual([userState({ readAt: new Date(1751500800000).toISOString() })])
+    expect(foldRowOverlays<IssueUserStateWire>(undefined, [read])).toEqual(whole[0])
+  })
+
+  it('adds nothing for a patch that leaves the row saying "nothing set"', () => {
+    const base: IssueUserStateWire[] = []
+    const unread = onAbsent('issueMarkUnread', { id: 'i1' })
+    expect(foldOverlays(base, [unread], key).rows).toBe(base)
+    expect(foldRowOverlays<IssueUserStateWire>(undefined, [unread])).toBeUndefined()
+  })
+
+  it('a present row wins over the absent one, and a patch without one paints nothing', () => {
+    const present = userState({ tuckedAt: 'T' })
+    const read = onAbsent('issueMarkRead', { id: 'i1' })
+    expect(foldOverlays([present], [read], key).rows[0]).toMatchObject({ tuckedAt: 'T' })
+    const bare = overlayForOutboxEntry(entry('issueMarkRead', { id: 'i1' })) as PendingOverlay
+    expect(foldOverlays<IssueUserStateWire>([], [bare], key).rows).toEqual([])
+    expect(foldRowOverlays<IssueUserStateWire>(undefined, [bare])).toBeUndefined()
+  })
+})
+
 describe('rowFingerprint', () => {
   it('ignores TanStack $-metadata and key order — only DATA changes read as movement', () => {
     const stored = {
@@ -689,10 +774,41 @@ describe('pruneAwaiting (retirement rule (a))', () => {
     ]
     const issueKey = (i: IssueWire): string => i.id
     const noisy = { ...base, childCount: 2, revision: 4, commentCount: 3 } as IssueWire
-    expect(pruneAwaiting(awaiting, 'issues', [noisy], issueKey, NOW)).toBe(awaiting)
+    expect(pruneAwaiting(awaiting, 'issueProjections', [noisy], issueKey, NOW)).toBe(awaiting)
     // A competing reorder of the SAME cell does retire.
     expect(
-      pruneAwaiting(awaiting, 'issues', [{ ...base, sortKey: 'z9' } as IssueWire], issueKey, NOW),
+      pruneAwaiting(
+        awaiting,
+        'issueProjections',
+        [{ ...base, sortKey: 'z9' } as IssueWire],
+        issueKey,
+        NOW,
+      ),
+    ).toEqual([])
+  })
+
+  // POD-4969. The server DELETES a per-user row whose three markers all clear,
+  // so for that entity absence is a value, and only the ledger knows whether it
+  // means "nothing set" (the issue is in the slice) or "gone" (it left).
+  it('judges an absent per-user row as the "nothing set" row it stands for, while the issue is in the slice', () => {
+    const unread = overlayForOutboxEntry(entry('issueMarkUnread', { id: 'i1' }))
+    if (unread?.op !== 'patch') throw new Error('expected patch')
+    const awaiting: AwaitingTruth[] = [{ overlay: unread, baseline: undefined, resolvedAt: NOW }]
+    const key = (row: IssueUserStateWire): string => row.entityId
+    // In the slice: the deleted row is the covering truth of a mark-unread.
+    expect(
+      pruneAwaiting(awaiting, 'issueUserStates', [], key, NOW, undefined, () => userState()),
+    ).toEqual([])
+    const read = overlayForOutboxEntry(entry('issueMarkRead', { id: 'i1' }))
+    if (read?.op !== 'patch') throw new Error('expected patch')
+    const reading: AwaitingTruth[] = [{ overlay: read, baseline: undefined, resolvedAt: NOW }]
+    // …and is NOT the covering truth of a mark-read, which keeps painting.
+    expect(
+      pruneAwaiting(reading, 'issueUserStates', [], key, NOW, undefined, () => userState()),
+    ).toBe(reading)
+    // Out of the slice: absence is real, and the overlay retires like any other.
+    expect(
+      pruneAwaiting(reading, 'issueUserStates', [], key, NOW, undefined, () => undefined),
     ).toEqual([])
   })
 
