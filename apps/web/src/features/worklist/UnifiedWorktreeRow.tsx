@@ -57,7 +57,7 @@ export function UnifiedWorktreeRow({
     active: boolean,
     issueDisplayRef: string | undefined,
     trailingMeta: ReactNode,
-  ) => ReactNode
+  ) => JSX.Element
 }): JSX.Element {
   const { worktree } = row
   const { visible, stale } = partition ?? partitionStaleSessions(worktree.sessions, now)

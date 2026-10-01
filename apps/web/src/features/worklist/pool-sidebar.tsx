@@ -1,5 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
-import { type Store, shallowEqual } from '@podium/client-core/store'
+import type { Store } from '@podium/client-core/react'
+import { shallowEqual } from '@podium/client-core/store'
 import {
   type IssueNavigationModel,
   issueClosedFoldAt,
@@ -126,7 +127,7 @@ function matches(pool: MobxPool, slot: Slot, needle: string): boolean {
     const value = pool.sidebar.row(slot.id)
     return value !== undefined && value !== LOADING && poolIssueHaystack(value).includes(needle)
   }
-  const value = pool.row<SliceWorktree>('worktree', slot.id)
+  const value = pool.row('worktree', slot.id) as SliceWorktree | typeof LOADING | undefined
   return (
     value !== undefined &&
     value !== LOADING &&
@@ -887,7 +888,7 @@ const PoolPanelRow = observer(function PoolPanelRow({
 }) {
   const value = useMemo(
     () =>
-      computed(() => pool.row<SessionMeta>('session', id), {
+      computed(() => pool.row('session', id) as SessionMeta | typeof LOADING | undefined, {
         equals: (a, b) =>
           compareStructural(
             a !== undefined && a !== LOADING ? poolSessionPaint(a) : a,

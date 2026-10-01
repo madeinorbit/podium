@@ -5,7 +5,6 @@ import { LOADING, type MobxPool } from '@podium/client-graph'
 import {
   asIssueId,
   asSessionId,
-  isHeadlessSession,
   type IssueColorSlot,
   type IssueId,
   type SessionId,
@@ -54,12 +53,12 @@ export function createPoolWorkActions(
       if (!issue) continue
       const ids = new Set([...pool.graph.many('issue', member, 'sessions'), ...issue.laneMemberIds])
       for (const sessionId of ids) {
-        const session = pool.row<SessionMeta>('session', sessionId)
+        const session = pool.row('session', sessionId) as SessionMeta | typeof LOADING | undefined
         if (
           session !== undefined &&
           session !== LOADING &&
           !session.archived &&
-          !isHeadlessSession(session)
+          session.headless !== true
         )
           members.set(sessionId, session as unknown as SessionMeta)
       }
@@ -91,11 +90,11 @@ export function createPoolWorkActions(
       store.setSelectedIssueId(null)
       store.setSelectedWorktree(path)
       const members = [...pool.graph.many('worktree', path, 'sessions')].flatMap((id) => {
-        const session = pool.row('session', id)
+        const session = pool.row('session', id) as SessionMeta | typeof LOADING | undefined
         return session === undefined ||
           session === LOADING ||
-          session['archived'] ||
-          session['headless'] === true
+          session.archived ||
+          session.headless === true
           ? []
           : [session as unknown as SessionMeta]
       })
