@@ -91,6 +91,7 @@ function Capture() {
   return null
 }
 const NOW = Date.parse('2026-10-01T08:00:00Z')
+const LAYERS = ['legacy', 'pool'] as const
 
 async function mount(layer: 'legacy' | 'pool', rail = false, count = 12) {
   localStorage.clear()
@@ -142,6 +143,12 @@ async function mount(layer: 'legacy' | 'pool', rail = false, count = 12) {
   return fixture
 }
 
+function worktreeHandlers(path: string) {
+  const handlers = mode.worktrees.get(path)
+  if (!handlers) throw new Error(`Worktree row not mounted: ${path}`)
+  return handlers
+}
+
 function rowPaint() {
   return [...document.querySelectorAll('[data-testid="unified-issue-row"]')].map((row) => {
     const body = row.querySelector('[data-issue-row]') ?? row
@@ -161,52 +168,46 @@ afterEach(() => {
 })
 
 describe('real sidebar pool cutover', () => {
-  it.each(['legacy', 'pool'] as const)(
-    '%s worktree header ignores a session archived after mount',
-    async (layer) => {
-      vi.useFakeTimers({ toFake: ['Date'] })
-      vi.setSystemTime(NOW)
-      const fixture = await mount(layer)
-      const path = '/synthetic/project/guests'
-      const handlers = mode.worktrees.get(path)!
-      await act(async () => {
-        fixture.patch('session', 'synthetic-guest-0', {
-          archived: true,
-          lastActiveAt: new Date(NOW).toISOString(),
-        })
-        runtime.getSnapshot().setPane('A', null)
+  it.each(LAYERS)('%s worktree header ignores a session archived after mount', async (layer) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    const fixture = await mount(layer)
+    const path = '/synthetic/project/guests'
+    const handlers = worktreeHandlers(path)
+    await act(async () => {
+      fixture.patch('session', 'synthetic-guest-0', {
+        archived: true,
+        lastActiveAt: new Date(NOW).toISOString(),
       })
-      await waitFor(() =>
-        expect(document.querySelector('[data-session="synthetic-guest-0"]')).toBeNull(),
-      )
-      expect(mode.worktrees.get(path)!.onSelect).toBe(handlers.onSelect)
-      expect(mode.worktrees.get(path)!.onSelectPanel).toBe(handlers.onSelectPanel)
-      fireEvent.click(screen.getByTitle(path))
-      expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
-      expect(runtime.getSnapshot().selectedWorktree).toBe(path)
-    },
-  )
+      runtime.getSnapshot().setPane('A', null)
+    })
+    await waitFor(() =>
+      expect(document.querySelector('[data-session="synthetic-guest-0"]')).toBeNull(),
+    )
+    expect(worktreeHandlers(path).onSelect).toBe(handlers.onSelect)
+    expect(worktreeHandlers(path).onSelectPanel).toBe(handlers.onSelectPanel)
+    fireEvent.click(screen.getByTitle(path))
+    expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
+    expect(runtime.getSnapshot().selectedWorktree).toBe(path)
+  })
 
-  it.each(['legacy', 'pool'] as const)(
-    '%s worktree header preserves the current pane session',
-    async (layer) => {
-      vi.useFakeTimers({ toFake: ['Date'] })
-      vi.setSystemTime(NOW)
-      const fixture = await mount(layer)
-      const path = '/synthetic/project/guests'
-      const handlers = mode.worktrees.get(path)!
-      await act(async () => {
-        fixture.patch('session', 'synthetic-guest-0', {
-          lastActiveAt: new Date(NOW).toISOString(),
-        })
-        runtime.getSnapshot().setPane('A', asSessionId('synthetic-guest-1'))
+  it.each(LAYERS)('%s worktree header preserves the current pane session', async (layer) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    const fixture = await mount(layer)
+    const path = '/synthetic/project/guests'
+    const handlers = worktreeHandlers(path)
+    await act(async () => {
+      fixture.patch('session', 'synthetic-guest-0', {
+        lastActiveAt: new Date(NOW).toISOString(),
       })
-      expect(mode.worktrees.get(path)!.onSelect).toBe(handlers.onSelect)
-      expect(mode.worktrees.get(path)!.onSelectPanel).toBe(handlers.onSelectPanel)
-      fireEvent.click(screen.getByTitle(path))
-      expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
-    },
-  )
+      runtime.getSnapshot().setPane('A', asSessionId('synthetic-guest-1'))
+    })
+    expect(worktreeHandlers(path).onSelect).toBe(handlers.onSelect)
+    expect(worktreeHandlers(path).onSelectPanel).toBe(handlers.onSelectPanel)
+    fireEvent.click(screen.getByTitle(path))
+    expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
+  })
 
   it('legacy worktree panel uses the current pane without restarting a switch', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
@@ -214,11 +215,11 @@ describe('real sidebar pool cutover', () => {
     await mount('legacy')
     expect(runtime.getSnapshot().paneA).not.toBe('synthetic-guest-1')
     const path = '/synthetic/project/guests'
-    const handlers = mode.worktrees.get(path)!
+    const handlers = worktreeHandlers(path)
     await act(async () => {
       runtime.getSnapshot().setPane('A', asSessionId('synthetic-guest-1'))
     })
-    expect(mode.worktrees.get(path)!.onSelectPanel).toBe(handlers.onSelectPanel)
+    expect(worktreeHandlers(path).onSelectPanel).toBe(handlers.onSelectPanel)
     vi.mocked(beginSwitch).mockClear()
     fireEvent.click(screen.getByText('Synthetic guest 1'))
     expect(runtime.getSnapshot().selectedWorktree).toBe(path)
@@ -231,12 +232,12 @@ describe('real sidebar pool cutover', () => {
     vi.setSystemTime(NOW)
     const fixture = await mount('legacy')
     const path = '/synthetic/project/guests'
-    const before = mode.worktrees.get(path)!
+    const before = worktreeHandlers(path)
     await act(async () => {
       fixture.patch('issueProjection', 'synthetic-11', { title: 'Changed visible title' })
     })
     expect(screen.getByText('Changed visible title')).toBeTruthy()
-    expect(mode.worktrees.get(path)).toBe(before)
+    expect(worktreeHandlers(path)).toBe(before)
   })
 
   it('draws the same rows, bands and folds as legacy, without a worklistSlice read', async () => {
