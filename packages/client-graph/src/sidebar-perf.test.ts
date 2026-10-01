@@ -39,11 +39,23 @@ describe('outside pool telemetry', () => {
     runInAction(() => pool.tables.repo.set('resident', unreadable))
     stops.push(bindSidebarPerf(owner, perf))
     expect(perf.read().pool).toEqual({ connected: true, rows: 1 })
-    runInAction(() => {
-      pool.tables.repo.set('resident', unreadable)
-      pool.tables.repo.set('second', unreadable)
-      pool.tables.repo.delete('resident')
-    })
+    runInAction(() =>
+      pool.tables.repo.set(
+        'resident',
+        new Proxy(
+          {},
+          {
+            get() {
+              throw new Error('telemetry read an updated row')
+            },
+          },
+        ),
+      ),
+    )
+    expect(perf.read().pool.rows).toBe(1)
+    runInAction(() => pool.tables.repo.set('second', unreadable))
+    expect(perf.read().pool.rows).toBe(2)
+    runInAction(() => pool.tables.repo.delete('resident'))
     expect(perf.read().pool.rows).toBe(1)
     const before = perf.read()
     for (let i = 0; i < 100; i++) expect(perf.read().idle).toEqual(before.idle)

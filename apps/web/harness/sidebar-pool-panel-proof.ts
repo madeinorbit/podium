@@ -110,6 +110,9 @@ try {
     )
   }
   const idleElapsedMs = Date.now() - began
+  const memory = await page.getByTestId('perf-memory').textContent()
+  if (!memory || memory.includes('unavailable') || !memory.includes('Pool rows 1'))
+    throw new Error('Chromium heap or resident pool count missing from panel')
   await page.screenshot({ path: resolve(out, 'pool-idle.png') })
   await page.evaluate(() => window.__poolPerfFixture.update())
   await page.getByTestId('pool-row').filter({ hasText: 'Updated synthetic pool row' }).waitFor()
@@ -183,6 +186,7 @@ try {
     path: 'app-runtime-pool',
     requestedSeconds: idleSeconds,
     idleElapsedMs,
+    memory,
     samples,
     before,
     updated,

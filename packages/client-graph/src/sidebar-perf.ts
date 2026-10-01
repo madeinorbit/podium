@@ -61,10 +61,17 @@ export function observeWorklistPoolPerf(owner: object, pool: MobxPool): () => vo
     }),
   )
   let stopMeter: (() => void) | undefined
-  const stopBinding = observeSidebarPerfBinding(owner, (perf) => {
-    stopMeter?.()
-    stopMeter = perf ? measureDerivations(perf) : undefined
-  })
+  let stopBinding: () => void
+  try {
+    stopBinding = observeSidebarPerfBinding(owner, (perf) => {
+      stopMeter?.()
+      stopMeter = perf ? measureDerivations(perf) : undefined
+    })
+  } catch (error) {
+    for (const stop of stops) stop()
+    reportSidebarPool(owner, null, false)
+    throw error
+  }
   let disposed = false
   return () => {
     if (disposed) return
