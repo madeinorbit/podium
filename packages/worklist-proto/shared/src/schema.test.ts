@@ -36,7 +36,9 @@ import {
 import { fieldsOf, validateSources } from './schema-sources'
 
 /** A deep-enough copy to mutate one corner for a negative control. */
-function clone(): ModelSchema {
+type MutableSchema = { -readonly [E in keyof ModelSchema]: ModelSchema[E] }
+
+function clone(): MutableSchema {
   const out: Record<string, unknown> = {}
   for (const [name, entity] of Object.entries(SCHEMA)) {
     out[name] = {
@@ -46,7 +48,7 @@ function clone(): ModelSchema {
       relations: { ...entity.relations },
     }
   }
-  return out as ModelSchema
+  return out as MutableSchema
 }
 
 function relationsOf(entity: EntityName): Record<string, RelationSpec> {
