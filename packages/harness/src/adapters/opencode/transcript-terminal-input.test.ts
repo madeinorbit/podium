@@ -195,8 +195,11 @@ async function receiptFor(measured: Measured, control: { foreign?: boolean; repl
     })
     const pending = handle.send({ id, text: measured.text }, { origin: measured.framed ? 'mail' : 'human', delivery: 'when-ready' })
     await vi.advanceTimersByTimeAsync(6000)
-    expect(submitted).toEqual([measured.text])
-    expect(writes.slice(0, 2)).toEqual([`\x1b[200~${measured.text}\x1b[201~`, '\r'])
+    // The paste codec canonicalizes CRLF on the wire, while the receipt watch
+    // must still identify the original submitted text. Tabs stay on the wire.
+    const wireText = measured.text.replace(/\r\n/g, '\n')
+    expect(submitted).toEqual([wireText])
+    expect(writes.slice(0, 2)).toEqual([`\x1b[200~${wireText}\x1b[201~`, '\r'])
     return { receipt: await pending, item: items[0]! }
   } finally { runtime.dispose() }
 }
