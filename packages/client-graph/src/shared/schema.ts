@@ -293,7 +293,17 @@ export type ColdSpec =
       readonly predicate: (row: Readonly<Record<string, unknown>>) => boolean
       readonly why: string
     }
-  | { readonly kind: 'via'; readonly relation: string; readonly why: string }
+  | {
+      readonly kind: 'via'
+      readonly relation: string
+      /** Own decay when the raw reference is absent; a missing referenced row stays conservative. */
+      readonly unbound?: {
+        readonly dependsOn: readonly string[]
+        readonly predicate: (row: Readonly<Record<string, unknown>>) => boolean
+        readonly shownUntil: (row: Readonly<Record<string, unknown>>) => number
+      }
+      readonly why: string
+    }
   | UnlessShownColdSpec
 
 /**
@@ -315,6 +325,14 @@ export interface UnlessShownColdSpec {
   readonly dependsOn: readonly string[]
   /** Whether the row may be cold at all. */
   readonly predicate: (row: Readonly<Record<string, unknown>>) => boolean
+  /** Structural/placement bound, shared with member-triggered warming. */
+  readonly canShow?: {
+    /** Small summary kept for cold rows; never the full row. */
+    readonly fields: readonly string[]
+    /** Ancestor relation whose inverse must be revisited when an ancestor changes. */
+    readonly through: string
+    readonly test: (row: Readonly<Record<string, unknown>>, ctx: ColdContext) => boolean
+  }
   /** The last instant the row can show on its own; `-Infinity` never, `Infinity` without limit. */
   readonly shownUntil: (row: Readonly<Record<string, unknown>>) => number
   /**
@@ -511,7 +529,7 @@ function decayDeadline(finishMs: number, unread: boolean, readMs: number | null)
 }
 
 /** `rows.ts:62-69`: archived, deleted, `proposed`, or system-owned (`shipping`). */
-function issueExcluded(row: Readonly<Record<string, unknown>>): boolean {
+export function issueExcluded(row: Readonly<Record<string, unknown>>): boolean {
   return (
     row['archived'] === true ||
     row['deletedAt'] != null ||
@@ -626,6 +644,27 @@ function issueShownUntil(row: Readonly<Record<string, unknown>>): number {
 /** `issueFinishedAt` (`issues.ts:310`) when the issue is finished; an idle finished turn decays from it. */
 function issueFinishOf(row: Readonly<Record<string, unknown>>): number | null {
   return issueFinished(row) ? epochMs(row['closedAt'] ?? row['updatedAt']) : null
+}
+
+/**
+ * Internal children only render under a placed, non-agent ancestor. An
+ * excluded or cold human ancestor cannot be that row at this clock. Walk
+ * the raw tree, as nesting does; an unknown ancestor remains conservative.
+ * Parentless issues keep their started-by fallback and are not tightened.
+ */
+function issueCanShow(row: Readonly<Record<string, unknown>>, ctx: ColdContext): boolean {
+  if (issueExcluded(row)) return false
+  if (row['audience'] !== 'agent' || !row['parentId'] || ctx.summary === undefined) return true
+  const seen = new Set<string>([row['id'] as string])
+  let parent = row['parentId']
+  while (typeof parent === 'string' && parent.length > 0 && !seen.has(parent)) {
+    seen.add(parent)
+    const ancestor = ctx.summary('issue', parent)
+    if (ancestor === undefined) return true
+    if (ancestor['audience'] !== 'agent' && !issueExcluded(ancestor) && !ctx.coldTarget('issue', parent)) return true
+    parent = ancestor['parentId']
+  }
+  return false
 }
 
 /** The session fields {@link sessionKeep} reads. */
@@ -825,7 +864,7 @@ const DECLARED = defineSchema({
     },
     cold: {
       kind: 'unlessShown',
-      when: 'closedAt != null, and neither the issue itself (its standing, or an unlanded branch), nor any member session, nor any issueless session in its own checkout can keep it in the list at the current clock',
+      when: 'archived, deleted, or closed, and structurally unable to show or past every own/member/lane keeper at the current clock',
       dependsOn: [
         'closedAt',
         'archived',
@@ -835,12 +874,18 @@ const DECLARED = defineSchema({
         'blocked',
         'audience',
         'parentId',
+        'worktreePath',
         'readAt',
         'updatedAt',
         'branch',
         'gitState',
       ],
-      predicate: (row) => row['closedAt'] != null,
+      predicate: (row) => row['closedAt'] != null || row['archived'] === true || row['deletedAt'] != null,
+      canShow: {
+        fields: ['id', 'parentId', 'audience', 'archived', 'deletedAt', 'stage', 'worktreePath'],
+        through: 'treeParent',
+        test: issueCanShow,
+      },
       shownUntil: issueShownUntil,
       finishOf: issueFinishOf,
       keptBy: [
@@ -977,7 +1022,12 @@ const DECLARED = defineSchema({
     cold: {
       kind: 'via',
       relation: 'issue',
-      why: "A session is cold exactly when its issue is closed; the session row alone cannot decide it, so residency is inherited through the relation.",
+      unbound: {
+        dependsOn: ['issueId', ...SESSION_KEEP_FIELDS],
+        predicate: (row) => row['stoppedAt'] != null || (row['agentState'] as { phase?: unknown } | undefined)?.phase === 'ended',
+        shownUntil: (row) => keepDeadline(sessionKeep(row), null),
+      },
+      why: 'A bound session inherits its issue’s residency. An unbound stopped run is cold after the same acknowledgment/decay window its issue keeper uses.',
     },
   },
 
@@ -1143,6 +1193,8 @@ export interface ColdContext {
   readonly now: number
   /** Whether `to:id` is known and cold by rule (a `via` row's target). */
   coldTarget(to: EntityName, id: string): boolean
+  /** Only the entity's declared canShow summary, from resident input or a cold summary. */
+  summary?(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined
   /**
    * The keeps of the members one `source` of an `unlessShown` entity's
    * `keptBy` holds at `key` ({@link keptByKey}): for `members`, every member
@@ -1174,7 +1226,9 @@ export function coldByRule(
   if (spec.kind === 'never') return false
   if (spec.kind === 'own') return spec.predicate(fields)
   if (spec.kind === 'unlessShown') {
-    if (!spec.predicate(fields) || ctx.now <= spec.shownUntil(fields)) return false
+    if (!spec.predicate(fields)) return false
+    if (spec.canShow !== undefined && !spec.canShow.test(fields, ctx)) return true
+    if (ctx.now <= spec.shownUntil(fields)) return false
     const finish = spec.finishOf(fields)
     for (const source of spec.keptBy) {
       const key = keptByKey(schema, entity, fields, source)
@@ -1186,7 +1240,9 @@ export function coldByRule(
     return true
   }
   const target = viaTargetOf(schema, entity, row)
-  return target !== null && ctx.coldTarget(target.to, target.id)
+  return target === null
+    ? spec.unbound !== undefined && spec.unbound.predicate(fields) && ctx.now > spec.unbound.shownUntil(fields)
+    : ctx.coldTarget(target.to, target.id)
 }
 
 /** A member's deadline given its row's `finishOf` (null: an idle finished turn never decays). */
@@ -1480,6 +1536,12 @@ export function tableColdContext(
   }
   const ctx: ColdContext = {
     now,
+    summary: (entity, id) => {
+      const row = tables(entity)?.get(id) as Readonly<Record<string, unknown>> | undefined
+      const spec = schema[entity].cold
+      if (row === undefined || spec.kind !== 'unlessShown' || spec.canShow === undefined) return undefined
+      return Object.fromEntries(spec.canShow.fields.map((field) => [field, row[field]]))
+    },
     coldTarget: (to, id) => {
       const row = tables(to)?.get(id)
       return row !== undefined && coldByRule(schema, to, row as object, ctx)
@@ -1687,6 +1749,15 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
       }
     }
     if (entity.cold.kind === 'unlessShown') {
+      if (entity.cold.canShow !== undefined) {
+        for (const field of entity.cold.canShow.fields) {
+          if (!(field in entity.fields)) problems.push(`${from}.cold.canShow names undeclared field "${field}"`)
+        }
+        const through = entity.relations[entity.cold.canShow.through]
+        if (through?.kind !== 'belongsTo' || through.to !== from) {
+          problems.push(`${from}.cold.canShow.through must name a self belongsTo`)
+        }
+      }
       for (const source of entity.cold.keptBy) {
         let member: EntityName
         if (source.kind === 'members') {
@@ -1717,6 +1788,11 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
     }
     if (entity.cold.kind === 'via' && !(entity.cold.relation in entity.relations)) {
       problems.push(`${from}.cold.via names undeclared relation "${entity.cold.relation}"`)
+    }
+    if (entity.cold.kind === 'via') {
+      for (const field of entity.cold.unbound?.dependsOn ?? []) {
+        if (!(field in entity.fields)) problems.push(`${from}.cold.unbound.dependsOn names undeclared field "${field}"`)
+      }
     }
 
     if (entity.collapse !== undefined) {

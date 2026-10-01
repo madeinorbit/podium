@@ -86,6 +86,7 @@ import {
   type EntityName,
   type KeptBySpec,
   keepDeadline,
+  keptByKey,
   keeperEntities,
   keeperOf,
   type LaneSource,
@@ -211,7 +212,9 @@ export class Residency {
   /** A `replace`'s rule over the new slice, while it is being placed (`reindex` → `replaced`). */
   private placing: ColdContext | null = null
   /** A cold `unlessShown` row's `finishOf`, kept with its id (its members decay from it). */
-  private readonly finish = new Map<string, number | null>()
+  private readonly finish = new Map<string, { finish: number | null; shownUntil: number }>()
+  /** Changed ancestors, only until this publication settles; no known-row index. */
+  private readonly ancestorDirty = new Map<EntityName, Set<string>>()
   /** The highest clock seen (`now`). */
   private high = Number.NEGATIVE_INFINITY
   /** Per cold-capable entity: cold id → the id it inherits from (`via`), else null. */
@@ -229,7 +232,16 @@ export class Residency {
     this.options = options
     this.windowMs = options.windowMs ?? LOAD_WINDOW_MS
     this.schedule = options.schedule ?? realSchedule
-    this.summaryFields = options.summaries ?? {}
+    this.summaryFields = { ...options.summaries }
+    for (const [entity, declared] of Object.entries(this.options.schema)) {
+      const spec = declared.cold
+      if (spec.kind !== 'unlessShown' || spec.canShow === undefined) continue
+      const kind = entity as EntityName
+      ;(this.summaryFields as Partial<Record<EntityName, readonly string[]>>)[kind] = [
+        ...new Set([...(this.summaryFields[kind] ?? []), ...spec.canShow.fields]),
+      ]
+      this.ancestorDirty.set(kind, new Set())
+    }
     const { schema } = options
     this.keeperKinds = keeperEntities(schema)
     this.laneSources = laneSources(schema)
@@ -312,8 +324,61 @@ export class Residency {
   private context(): ColdContext {
     return {
       now: this.now(),
+      summary: (entity, id) => this.ruleSummary(entity, id),
       coldTarget: (to, id) => this.coldTarget(to, id),
       keeps: (_entity, source, key) => this.keepsAt(source, key),
+    }
+  }
+
+  /** The declared placement summary; input at hand wins, then resident input, then the cold summary. */
+  private ruleSummary(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined {
+    const row = this.options.hot[entity].get(id)
+    if (row === undefined) return this.summaries.get(`${entity}:${id}`)
+    const spec = this.options.schema[entity].cold
+    if (spec.kind !== 'unlessShown' || spec.canShow === undefined) return undefined
+    const fields = row as Readonly<Record<string, unknown>>
+    return Object.fromEntries(spec.canShow.fields.map((field) => [field, fields[field]]))
+  }
+
+  private canShow(entity: EntityName, id: string): boolean {
+    const spec = this.options.schema[entity].cold
+    const summary = this.ruleSummary(entity, id)
+    return spec.kind !== 'unlessShown' || spec.canShow === undefined || summary === undefined ||
+      spec.canShow.test(summary, this.context())
+  }
+
+  /** Recheck only the raw-tree descendants of changed ancestors, using existing relation buckets. */
+  private settleAncestors(target: IngestTarget, out: IngestOut): void {
+    const reader = this.options.lanes?.() ?? null
+    if (reader === null) return
+    for (const [entity, dirty] of this.ancestorDirty) {
+      const spec = this.options.schema[entity].cold
+      if (spec.kind !== 'unlessShown' || spec.canShow === undefined) continue
+      const through = this.options.schema[entity].relations[spec.canShow.through]
+      if (through?.kind !== 'belongsTo') continue
+      const todo = [...dirty]
+      dirty.clear()
+      const seen = new Set<string>()
+      while (todo.length > 0) {
+        const ancestor = todo.pop()!
+        if (seen.has(ancestor)) continue
+        seen.add(ancestor)
+        for (const child of reader.members(entity, ancestor, through.inverse)) {
+          todo.push(child)
+          if (!this.isCold(entity, child) || !this.canShow(entity, child)) continue
+          const summary = this.ruleSummary(entity, child)
+          const bound = this.finish.get(`${entity}:${child}`)
+          if (summary === undefined || bound === undefined) continue
+          const ctx = this.context()
+          const kept = ctx.now <= bound.shownUntil || spec.keptBy.some((source) => {
+            const key = keptByKey(this.options.schema, entity, summary, source)
+            return key !== null && [...ctx.keeps(entity, source, key)].some(
+              (keep) => ctx.now <= keepDeadline(keep, bound.finish),
+            )
+          })
+          if (kept) this.warm(target, entity, child, out)
+        }
+      }
     }
   }
 
@@ -445,6 +510,7 @@ export class Residency {
     value: StoredRow | undefined,
     out: IngestOut,
   ): void {
+    this.ancestorDirty.get(entity)?.add(id)
     if (this.keeperKinds.has(entity)) this.member(target, entity, id, value, out)
     const hot = target.read[entity].get(id) !== undefined
     if (value === undefined) {
@@ -552,6 +618,7 @@ export class Residency {
     for (const dirty of this.laneDirty.values()) dirty.clear()
     this.placing = null
     this.finish.clear()
+    for (const dirty of this.ancestorDirty.values()) dirty.clear()
     this.summaries.clear()
   }
 
@@ -616,7 +683,10 @@ export class Residency {
         work = [lane, first.value]
         break
       }
-      if (work === null) return
+      if (work === null) {
+        this.settleAncestors(target, out)
+        return
+      }
       const [lane, member] = work
       const keep = this.laneKeeps.get(lane.source)?.get(member)
       if (keep === undefined) continue
@@ -632,7 +702,7 @@ export class Residency {
       if (!counted) continue
       for (const owner of [...reader.members(lane.lane, at, lane.owners)]) {
         if (!this.isCold(lane.owner, owner)) continue
-        const finish = this.finish.get(`${lane.owner}:${owner}`) ?? null
+        const finish = this.finish.get(`${lane.owner}:${owner}`)?.finish ?? null
         if (this.now() > keepDeadline(keep, finish)) continue
         this.warm(target, lane.owner, owner, out)
       }
@@ -655,6 +725,7 @@ export class Residency {
   ): void {
     this.unindexMember(entity, id)
     const keeper = value === undefined ? null : this.indexMember(entity, id, value)
+    if (keeper !== null) this.ancestorDirty.get(keeper.to)?.add(keeper.id)
     // A lane member's deadline (a row with an explicit owner is none), and a
     // re-check of its lane once the publication is in when it can keep: its
     // own update can extend how long.
@@ -664,13 +735,14 @@ export class Residency {
       }
     }
     if (keeper === null || !this.isCold(keeper.to, keeper.id)) return
-    const finish = this.finish.get(`${keeper.to}:${keeper.id}`) ?? null
+    const finish = this.finish.get(`${keeper.to}:${keeper.id}`)?.finish ?? null
     if (this.now() > keepDeadline(keeper.keep, finish)) return
     this.warm(target, keeper.to, keeper.id, out)
   }
 
   /** Install the cold row `entity:id` because a member can keep it shown, with its dependents. */
   private warm(target: IngestTarget, entity: EntityName, id: string, out: IngestOut): void {
+    if (!this.canShow(entity, id)) return
     const row = this.options.load(entity as LoadableEntity, id) as StoredRow | undefined
     if (row === undefined) return // its removal is on the way
     this.unregister(entity, id)
@@ -745,6 +817,7 @@ export class Residency {
    * rule (it reopened, or left): read each by id and install it now.
    */
   private warmDependents(target: IngestTarget, to: EntityName, id: string, out: IngestOut): void {
+    this.ancestorDirty.get(to)?.add(id)
     const entities = this.inheritors.get(to)
     if (entities === undefined || this.coldTarget(to, id)) return
     for (const entity of entities) {
@@ -770,7 +843,11 @@ export class Residency {
     const after = viaTargetOf(this.options.schema, entity, row)?.id ?? null
     ids.set(id, after)
     if (this.options.schema[entity].cold.kind === 'unlessShown') {
-      this.finish.set(`${entity}:${id}`, coldFinishOf(this.options.schema, entity, row))
+      const spec = this.options.schema[entity].cold
+      if (spec.kind === 'unlessShown') this.finish.set(`${entity}:${id}`, {
+        finish: coldFinishOf(this.options.schema, entity, row),
+        shownUntil: spec.shownUntil(row as Readonly<Record<string, unknown>>),
+      })
     }
     const fields = this.summaryFields[entity]
     if (fields !== undefined) {

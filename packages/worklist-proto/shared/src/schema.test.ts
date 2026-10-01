@@ -163,8 +163,11 @@ describe('the declared schema', () => {
     if (lane?.kind !== 'hasMany') throw new Error('unreachable')
     expect(lane.subsets?.['issueless']?.fields).toEqual(['issueId'])
 
-    // A session cannot decide its own residency: it inherits the issue's.
+    // Bound sessions inherit; stopped unbound sessions use their own decay.
     expect(SCHEMA.session.cold).toMatchObject({ kind: 'via', relation: 'issue' })
+    expect(cold.dependsOn).toEqual(expect.arrayContaining(['archived', 'deletedAt', 'audience', 'parentId']))
+    expect(SCHEMA.session.cold.kind === 'via' && SCHEMA.session.cold.unbound?.dependsOn)
+      .toEqual(expect.arrayContaining(['issueId', 'stoppedAt', 'agentState', 'unread', 'readAt', 'archived', 'agentKind']))
     expect(SCHEMA.worktree.cold.kind).toBe('never')
     expect(SCHEMA.repo.cold.kind).toBe('never')
   })
@@ -663,6 +666,78 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
       false,
     )
     expect(coldByRule(SCHEMA, 'repo', { id: 'r' }, { ...ctx, coldTarget: () => true })).toBe(false)
+  })
+
+  it('history predicate: archived and deleted open issues are cold, and clearing either warms them', () => {
+    for (const excluded of [{ archived: true }, { deletedAt: ago(30) }]) {
+      const row = { id: 'i', stage: 'in_progress', audience: 'human', closedAt: null, ...excluded }
+      expect(ruleAt([row]).issue('i')).toBe(true)
+      expect(ruleAt([{ ...row, archived: false, deletedAt: null }]).issue('i')).toBe(false)
+      const schema = clone()
+      const cold = schema.issue.cold
+      if (cold.kind !== 'unlessShown') throw new Error('unreachable')
+      schema.issue = { ...schema.issue, cold: { ...cold, predicate: (r) => r['closedAt'] != null } }
+      expect(ruleAt([row], [], NOW, [], schema).issue('i')).toBe(false)
+    }
+  })
+
+  it('excluded keeper control: members and lanes cannot keep an excluded closed issue', () => {
+    for (const excluded of [{ archived: true }, { deletedAt: ago(30) }, { stage: 'proposed' }, { stage: 'shipping' }]) {
+      const row = child('i', 30, { worktreePath: '/w', ...excluded })
+      const seats = [session('bound', 'i'), { sessionId: 'unbound', cwd: '/w' }]
+      expect(ruleAt([row], seats, NOW, ['/w']).issue('i')).toBe(true)
+      const schema = clone()
+      const cold = schema.issue.cold
+      if (cold.kind !== 'unlessShown') throw new Error('unreachable')
+      schema.issue = { ...schema.issue, cold: { ...cold, canShow: undefined } }
+      expect(ruleAt([row], seats, NOW, ['/w'], schema).issue('i')).toBe(false)
+    }
+  })
+
+  it('nesting keeper control: a closed agent child without a warm human ancestor cannot show', () => {
+    const agent = child('i', 30, { audience: 'agent' })
+    const seats = [session('s', 'i')]
+    for (const parent of [child('p', 30, { parentId: null, archived: true }),
+      child('p', 30, { parentId: 'older' }), child('p', 30, { parentId: null, audience: 'agent' })]) {
+      const rows = [agent, parent]
+      expect(ruleAt(rows, seats).issue('i')).toBe(true)
+      expect(ruleAt(rows, seats).session('s')).toBe(true)
+      const schema = clone()
+      const cold = schema.issue.cold
+      if (cold.kind !== 'unlessShown') throw new Error('unreachable')
+      schema.issue = { ...schema.issue, cold: { ...cold, canShow: undefined } }
+      expect(ruleAt(rows, seats, NOW, [], schema).issue('i')).toBe(false)
+    }
+    // Unknown ancestor remains conservative. A warm human above an excluded
+    // intermediate still provides nesting, and parentless started-by is untouched.
+    expect(ruleAt([agent], seats).issue('i')).toBe(false)
+    const human = { id: 'root', audience: 'human', stage: 'in_progress' }
+    expect(ruleAt([agent, child('p', 30, { parentId: 'root', archived: true }), human], seats).issue('i')).toBe(false)
+    expect(ruleAt([{ ...agent, parentId: null, startedBySession: 'starter' }], seats).issue('i')).toBe(false)
+    expect(ruleAt([agent, { id: 'p', audience: 'human', stage: 'review' }], seats).issue('i')).toBe(false)
+  })
+
+  it('unbound decay control: stopped sessions use the keeper deadline, and a restart warms them', () => {
+    const rows = [
+      { sessionId: 'old', stoppedAt: ago(8) },
+      { sessionId: 'unread', stoppedAt: ago(6), unread: true },
+      { sessionId: 'read', stoppedAt: ago(3), readAt: ago(2) },
+      { sessionId: 'reread', stoppedAt: ago(30), readAt: new Date(NOW - DAY / 2).toISOString() },
+      { sessionId: 'ended', agentState: { phase: 'ended', since: ago(8) } },
+      { sessionId: 'running', stoppedAt: null, agentState: { phase: 'working' } },
+    ]
+    const rule = ruleAt([], rows)
+    for (const id of ['old', 'read', 'ended']) expect(rule.session(id), id).toBe(true)
+    for (const id of ['unread', 'reread', 'running']) expect(rule.session(id), id).toBe(false)
+    expect(ruleAt([], [{ ...rows[0], stoppedAt: null }]).session('old')).toBe(false)
+    // Inclusive deadline, exactly as sessionKeep: one millisecond later is cold.
+    expect(ruleAt([], [rows[0]!], NOW - DAY).session('old')).toBe(false)
+    expect(ruleAt([], [rows[0]!], NOW - DAY + 1).session('old')).toBe(true)
+    const schema = clone()
+    const cold = schema.session.cold
+    if (cold.kind !== 'via') throw new Error('unreachable')
+    schema.session = { ...schema.session, cold: { ...cold, unbound: undefined } }
+    expect(ruleAt([], rows, NOW, [], schema).session('old')).toBe(false)
   })
 
   it('follows the raw reference: a headless session of a closed issue is cold', () => {

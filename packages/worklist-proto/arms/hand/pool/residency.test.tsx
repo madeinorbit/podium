@@ -851,3 +851,65 @@ describe('transitions', () => {
     expect(diffResidency(pool, r.replay.source)).toEqual([])
   })
 })
+
+// History transitions are measured through the real publication and load window.
+describe('history rule warming', () => {
+  const old = new Date(corpus.fixedNow - 30 * 24 * 60 * 60 * 1000).toISOString()
+  const issue = (id: string, extra: Partial<SliceIssue> = {}): RowRecord => ({
+    kind: 'issue', id, value: { id, seq: 99999, title: id, createdAt: old, updatedAt: old,
+      repoPath: '/history-rule', stage: 'in_progress', audience: 'human', ...extra },
+  })
+  const seat = (id: string, extra: Partial<SliceSession> = {}): RowRecord => ({
+    kind: 'session', id, value: { sessionId: id, cwd: '/history-rule/gone', lastActiveAt: old,
+      agentKind: 'codex', agentState: { phase: 'working' }, ...extra },
+  })
+  const drain = (r: Rig) => {
+    for (let n = 0; n < 20 && poolPendingLoads(r.pool) > 0; n++) r.fire()
+    expect(poolPendingLoads(r.pool)).toBe(0)
+  }
+
+  it('warms reopened, unarchived and undeleted rows and their bound sessions', () => {
+    for (const flags of [{ archived: true }, { deletedAt: old },
+      { stage: 'done', closedAt: old, closedReason: 'done', parentId: 'missing-history-parent' }]) {
+      const r = rig()
+      r.push({ type: 'update', rows: [issue('history-owner', flags),
+        seat('history-seat', { issueId: 'history-owner', stoppedAt: old })] })
+      expect(r.pool.residency?.isCold('issue', 'history-owner')).toBe(true)
+      expect(r.pool.residency?.isCold('session', 'history-seat')).toBe(true)
+      r.loads.length = 0
+      r.push({ type: 'update', rows: [issue('history-owner', {
+        archived: false, deletedAt: null, closedAt: null, closedReason: null,
+      })] })
+      expect(r.pool.residency?.isCold('issue', 'history-owner')).toBe(false)
+      drain(r)
+      expect(r.pool.residency?.isCold('session', 'history-seat')).toBe(false)
+      expect(diffResidency(r.pool, r.replay.source)).toEqual([])
+      r.dispose()
+    }
+  })
+
+  it('warms a stopped unbound session when it restarts', () => {
+    const r = rig()
+    r.push({ type: 'update', rows: [seat('history-unbound', { stoppedAt: old })] })
+    expect(r.pool.residency?.isCold('session', 'history-unbound')).toBe(true)
+    r.push({ type: 'update', rows: [seat('history-unbound', { stoppedAt: null })] })
+    expect(r.pool.residency?.isCold('session', 'history-unbound')).toBe(false)
+    expect(diffResidency(r.pool, r.replay.source)).toEqual([])
+  })
+
+  it('warms a retained agent child when its excluded human ancestor returns', () => {
+    const r = rig()
+    r.push({ type: 'update', rows: [issue('history-parent', { archived: true }),
+      issue('history-child', { parentId: 'history-parent', audience: 'agent',
+        stage: 'done', closedAt: old, closedReason: 'done' }),
+      seat('history-child-seat', { issueId: 'history-child' })] })
+    expect(r.pool.residency?.isCold('issue', 'history-child')).toBe(true)
+    r.loads.length = 0
+    r.push({ type: 'update', rows: [issue('history-parent', { archived: false })] })
+    
+    drain(r)
+    expect(r.pool.residency?.isCold('issue', 'history-child')).toBe(false)
+    expect(r.pool.residency?.isCold('session', 'history-child-seat')).toBe(false)
+    expect(diffResidency(r.pool, r.replay.source)).toEqual([])
+  })
+})

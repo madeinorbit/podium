@@ -115,6 +115,20 @@ function countEntries(snapshot: ReturnType<ReturnType<typeof startCensus>['snaps
   return { ...out, ...snapshot.held }
 }
 
+function containers(snapshot: ReturnType<ReturnType<typeof startCensus>['snapshot']>) {
+  const counts: Record<string, number> = {}
+  for (const entry of snapshot.entries) {
+    if (entry.kind !== 'map' && entry.kind !== 'set') continue
+    const key = `${entry.kind}:${entry.name}`
+    counts[key] = (counts[key] ?? 0) + (entry.size ?? 0)
+  }
+  for (const [kind, held] of [['map', snapshot.held.mapEntries], ['set', snapshot.held.setMembers]] as const) {
+    expect(Object.entries(counts).filter(([name]) => name.startsWith(`${kind}:`))
+      .reduce((n, [, size]) => n + size, 0)).toBe(held)
+  }
+  return counts
+}
+
 /** Distinct model objects of one class the census sees (owners by identity). */
 function modelOwners(census: ReturnType<typeof startCensus>, cls: string): number {
   const owners = new Set<object>()
@@ -132,6 +146,7 @@ describe('POD-4942 post-rework probes', () => {
       const { feeds, handle, ctx } = await openCell(cell)
       try {
         const startup = countEntries(census.snapshot())
+        const startupContainers = containers(census.snapshot())
         const stop = paintWindow(handle.pool)
         const paint = countEntries(census.snapshot())
         stop()
@@ -307,15 +322,14 @@ describe('POD-4942 post-rework probes', () => {
           residentIssues: pool.tables.issue.size,
           residentSessions: pool.tables.session.size,
           readStates: pool.readStates.size,
-          // POD-4945: the product exposes no object or filing counts. One
-          // filing reaction per resident issue (visible-lazy proves the 1:1),
-          // so resident issues stand in; model objects are the census's
-          // IssueModel owners (counted below in `startup`/`paint`).
+          // Count actual filing subscriptions: excluded resident rows have none.
+          // Model objects remain measured from the census owners outside the product.
           issueObjects: modelOwners(census, 'IssueModel'),
           sessionObjects: modelOwners(census, 'SessionModel'),
-          filingReactions: pool.tables.issue.size,
+          filingReactions: [...pool.tables.issue.keys()].filter((id) => pool.worklist.tracks(id)).length,
           visible: visibleOrderOf(pool).length,
           startup,
+          startupContainers,
           paint,
         }))
         void ctx
@@ -327,6 +341,10 @@ describe('POD-4942 post-rework probes', () => {
     }
     console.log(`[probe] growth ${JSON.stringify(report)}`)
     expect(Object.keys(report)).toHaveLength(3)
+    const cells = report as Record<string, { residentIssues: number; residentSessions: number; filingReactions: number }>
+    for (const key of ['residentIssues', 'residentSessions', 'filingReactions'] as const) {
+      expect(cells['h10a1']![key], `${key}: history x10 stays within 10%`).toBeLessThanOrEqual(cells['h1a1']![key] * 1.1)
+    }
   }, 900_000)
 
   it('2. idle: no timer armed, a quiet clock advance runs nothing', async () => {

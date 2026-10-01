@@ -239,7 +239,10 @@ describe('bootstrap', () => {
     // pool's own release; the product exposes no tracked count) — and the
     // sessions those read; one table slot per HOT row (MobX's own report).
     for (const { id } of hotIssues) {
-      expect(pool.worklist.tracks(id), `hot ${id} is tracked`).toBe(true)
+      expect(pool.worklist.tracks(id), `hot ${id} filing eligibility`).toBe(
+        issueById.get(id)?.archived !== true && issueById.get(id)?.deletedAt == null &&
+          !['proposed', 'shipping'].includes(issueById.get(id)?.stage ?? ''),
+      )
     }
     const coldIssueIds = new Set(pool.residency?.ids('issue') ?? [])
     expect(coldIssueIds.size).toBe(corpus.sliceIssues.length - hotIssues.length)
@@ -1070,5 +1073,95 @@ describe('the lane source (R3, POD-4745)', () => {
     r.push({ type: 'update', rows: [runRecord({ headless: true })] })
     r.push({ type: 'update', rows: [runRecord({ issueId: openIssue.id })] })
     expectCold(r)
+  })
+})
+
+// History transitions are measured through the real publication and load window.
+describe('history rule warming', () => {
+  const old = new Date(corpus.fixedNow - 30 * 24 * 60 * 60 * 1000).toISOString()
+  const issue = (id: string, extra: Partial<SliceIssue> = {}): RowRecord => ({
+    kind: 'issue', id, value: { id, seq: 99999, title: id, createdAt: old, updatedAt: old,
+      repoPath: '/history-rule', stage: 'in_progress', audience: 'human', ...extra },
+  })
+  const seat = (id: string, extra: Partial<SliceSession> = {}): RowRecord => ({
+    kind: 'session', id, value: { sessionId: id, cwd: '/history-rule/gone', lastActiveAt: old,
+      agentKind: 'codex', agentState: { phase: 'working' }, ...extra },
+  })
+  const drain = (r: Rig) => {
+    for (let n = 0; n < 20 && poolPendingLoads(r.pool) > 0; n++) r.fire()
+    expect(poolPendingLoads(r.pool)).toBe(0)
+  }
+
+  it('warms reopened, unarchived and undeleted rows and their bound sessions', () => {
+    for (const flags of [{ archived: true }, { deletedAt: old },
+      { stage: 'done', closedAt: old, closedReason: 'done', parentId: 'missing-history-parent' }]) {
+      const r = rig()
+      r.push({ type: 'update', rows: [issue('history-owner', flags),
+        seat('history-seat', { issueId: 'history-owner', stoppedAt: old })] })
+      expect(r.pool.residency?.isCold('issue', 'history-owner')).toBe(true)
+      expect(r.pool.residency?.isCold('session', 'history-seat')).toBe(true)
+      r.loads.length = 0
+      r.push({ type: 'update', rows: [issue('history-owner', {
+        archived: false, deletedAt: null, closedAt: null, closedReason: null,
+      })] })
+      expect(r.pool.residency?.isCold('issue', 'history-owner')).toBe(false)
+      drain(r)
+      expect(r.pool.residency?.isCold('session', 'history-seat')).toBe(false)
+      expect(diffResidency(r.pool, r.replay.source)).toEqual([])
+      r.dispose()
+    }
+  })
+
+  it('warms a stopped unbound session when it restarts', () => {
+    const r = rig()
+    r.push({ type: 'update', rows: [seat('history-unbound', { stoppedAt: old })] })
+    expect(r.pool.residency?.isCold('session', 'history-unbound')).toBe(true)
+    r.push({ type: 'update', rows: [seat('history-unbound', { stoppedAt: null })] })
+    expect(r.pool.residency?.isCold('session', 'history-unbound')).toBe(false)
+    expect(diffResidency(r.pool, r.replay.source)).toEqual([])
+  })
+
+  it('warms a retained agent child when its excluded human ancestor returns', () => {
+    const r = rig()
+    r.push({ type: 'update', rows: [issue('history-parent', { archived: true }),
+      issue('history-child', { parentId: 'history-parent', audience: 'agent',
+        stage: 'done', closedAt: old, closedReason: 'done' }),
+      seat('history-child-seat', { issueId: 'history-child' })] })
+    expect(r.pool.residency?.isCold('issue', 'history-child')).toBe(true)
+    r.loads.length = 0
+    r.push({ type: 'update', rows: [issue('history-parent', { archived: false })] })
+    expect(r.loads).toEqual([])
+    expect(tracked(() => r.pool.resident('issue', 'history-child'))).toBe('loading')
+    drain(r)
+    expect(r.pool.residency?.isCold('issue', 'history-child')).toBe(false)
+    expect(r.pool.residency?.isCold('session', 'history-child-seat')).toBe(false)
+    expect(diffResidency(r.pool, r.replay.source)).toEqual([])
+  })
+})
+
+describe('excluded issue filings', () => {
+  it('needs no reaction while archived or deleted, even if explicitly loaded; returning files the row', () => {
+    const r = rig()
+    const old = new Date(corpus.fixedNow - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const base = { id: 'history-filing', seq: 99998, title: 'History filing', createdAt: old,
+      updatedAt: old, repoPath: '/history-filing', audience: 'human', stage: 'in_progress' }
+    const push = (flags: object) => r.push({ type: 'update', rows: [
+      { kind: 'issue', id: base.id, value: { ...base, ...flags } },
+    ] })
+    push({ archived: true })
+    expect(r.pool.worklist.tracks(base.id)).toBe(false)
+    expect(tracked(() => r.pool.resident('issue', base.id))).toBe('loading')
+    r.fire()
+    expect(tracked(() => r.pool.resident('issue', base.id))).toBe('resident')
+    expect(r.pool.worklist.tracks(base.id)).toBe(false)
+    push({ archived: false })
+    expect(r.pool.worklist.tracks(base.id)).toBe(true)
+    expect(tracked(() => visibleOrderOf(r.pool).includes(base.id))).toBe(true)
+    push({ deletedAt: old })
+    expect(r.pool.worklist.tracks(base.id)).toBe(false)
+    expect(tracked(() => visibleOrderOf(r.pool).includes(base.id))).toBe(false)
+    push({ deletedAt: null })
+    expect(r.pool.worklist.tracks(base.id)).toBe(true)
+    expect(tracked(() => visibleOrderOf(r.pool).includes(base.id))).toBe(true)
   })
 })

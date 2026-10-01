@@ -113,6 +113,9 @@ export interface CensusEntry {
    */
   readonly sub: string
   readonly owner: Owner | null
+  /** Container attribution for the history probe; read from the same objects as held totals. */
+  readonly name?: string
+  readonly size?: number
 }
 
 export interface CensusSnapshot {
@@ -134,6 +137,7 @@ export interface Census {
 }
 
 interface Internal {
+  name_?: string
   scope_?: unknown
   observing_?: readonly unknown[]
   isDisposed?: boolean
@@ -386,7 +390,11 @@ function classify(
         owner: shared ? null : describe(single),
       })
     } else {
-      entries.push({ kind, phase, sub: kind, owner: null })
+      const size = kind === 'map' || kind === 'set' ? internal.data_?.size :
+        kind === 'array' ? (internal.values_ as readonly unknown[]).length : undefined
+      entries.push({ kind, phase, sub: kind, owner: null,
+        ...(size === undefined ? {} : { name: internal.name_ ?? '(unnamed)', size }),
+      })
     }
   }
   const copy: Record<string, PhaseWork> = {}

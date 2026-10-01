@@ -57,7 +57,7 @@ import {
 } from 'mobx'
 import type { RelationReader } from './shared/relation-reader'
 import { relationLinks } from './shared/links'
-import { type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
+import { type EntityName, issueExcluded, type ModelSchema, SCHEMA } from './shared/schema'
 import type {
   LocalsKey,
   SliceIssue,
@@ -688,10 +688,11 @@ export class MobxPool {
    * memory takes its filing reaction, a row leaving releases it.
    */
   private followTable(type: 'add' | 'update' | 'delete', id: string): void {
-    if (type === 'add') {
-      this.worklist.track(id)
-    } else if (type === 'delete') {
+    const row = type === 'delete' ? undefined : this.tables.issue.get(id)
+    if (row === undefined || issueExcluded(row as Readonly<Record<string, unknown>>)) {
       this.worklist.untrack(id)
+    } else {
+      this.worklist.track(id)
     }
   }
 
