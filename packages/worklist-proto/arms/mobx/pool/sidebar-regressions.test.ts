@@ -255,7 +255,7 @@ describe('POD-5072 snoozed roster section label', () => {
   const repos = [{ ...REPO, originUrl: 'https://github.com/synthetic/synthetic-project.git' }]
   it('follows the retained worktree head until an issue sorts ahead of it', () => {
     const task = issue('iss_synthetic_snoozed_label', { deferUntil: new Date(NOW + 3_600_000).toISOString() })
-    const seat = session('synthetic-unowned-label', '', { issueId: null })
+    const seat = session('synthetic-unowned-label', '', { issueId: undefined })
     const ctx = replay(collections([task], [seat], repos))
     try {
       const band = () => {
@@ -270,7 +270,7 @@ describe('POD-5072 snoozed roster section label', () => {
       expect(band().expected.label).toBe('synthetic-project')
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
       // An awake root sorts ahead of the worktree even with an idle roster.
-      ctx.updateIssue({ ...renamed, deferUntil: null })
+      ctx.updateIssue({ ...renamed, deferUntil: undefined })
       expect(band().expected.label).toBe('renamed-checkout')
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
       ctx.updateIssue(renamed)
@@ -286,7 +286,7 @@ describe('POD-5072 snoozed roster section label', () => {
     const old = new Date(NOW - 2 * 24 * 3_600_000).toISOString()
     const snoozed = issue('iss_synthetic_snoozed_with_closed', { seq: 2, deferUntil: new Date(NOW + 3_600_000).toISOString() })
     const closed = issue('iss_synthetic_closed_label', { repoPath: '/synthetic/closed-checkout', stage: 'done', closedReason: 'done', closedAt: old, tuckedAt: old })
-    const seat = session('synthetic-unowned-closed-label', '', { issueId: null })
+    const seat = session('synthetic-unowned-closed-label', '', { issueId: undefined })
     const ctx = replay(collections([snoozed, closed], [seat], repos))
     try {
       const { expected } = ctx.sections()
