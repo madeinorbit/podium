@@ -20,7 +20,8 @@ initializeSidebarDataLayer({ get: () => null })
 initializeSidebarMeasurements()
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
-const synthetic = createSidebarFixture(Number(new URLSearchParams(location.search).get('rows') ?? 18))
+const count = Number(new URLSearchParams(location.search).get('rows') ?? 18)
+const synthetic = createSidebarFixture(count)
 let runtime: ClientRuntime | undefined
 let ready = false
 let toggleRail: ((value: boolean) => void) | undefined
@@ -63,7 +64,7 @@ const fixture = {
   failures: () => [...failures],
   show,
   rail: (value: boolean) => toggleRail?.(value),
-  update: (patch: Record<string, unknown>) => synthetic.patch('issueProjection', 'synthetic-17', patch),
+  update: (patch: Record<string, unknown>) => synthetic.patch('issueProjection', `synthetic-${count - 1}`, patch),
   select: (id: string) => runtime?.getSnapshot().setSelectedIssueId(asIssueId(id)),
   state: () => ({ mode: sidebarDataLayer(), selected: runtime?.getSnapshot().selectedIssueId, pane: runtime?.getSnapshot().paneA }),
   survivors: worklistPoolSurvivors,

@@ -5,7 +5,9 @@ import { resolve } from 'node:path'
 import { chromium, type Page } from '@playwright/test'
 import type {} from '../test/sidebar-renderer.browser'
 
-const out = resolve('.artifacts/sidebar-renderer')
+const count = Number(process.argv.find(arg => arg.startsWith('--rows='))?.slice(7) ?? 18)
+const target = `synthetic-${count - 1}`
+const out = resolve(`.artifacts/sidebar-renderer/${count}`)
 await mkdir(out, { recursive: true })
 const origin = 'http://127.0.0.1:41655'
 const server = Bun.spawn(['timeout', '600s', process.execPath, 'run', '--cwd', 'apps/web', 'dev', '--', '--config', 'vite.sidebar-pool-perf.config.ts', '--host', '127.0.0.1', '--port', '41655'],
@@ -22,7 +24,13 @@ try {
   }
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--enable-precise-memory-info', '--js-flags=--expose-gc'] })
   const readPaint = (page: Page) => page.evaluate(() => ({
-    rows: [...document.querySelectorAll('[data-testid="unified-issue-row"]')].map(row => ({ id: row.getAttribute('data-issue-row'), text: row.textContent, selected: row.getAttribute('data-selected'), class: row.className })),
+    rows: [...document.querySelectorAll('[data-testid="unified-issue-row"]')].map(row => {
+      const body = row.querySelector('[data-issue-row]')!
+      const css = getComputedStyle(body)
+      return { id: body.getAttribute('data-issue-row'), text: row.textContent, selected: body.getAttribute('data-selected'), class: body.className,
+        height: body.getBoundingClientRect().height, color: css.color, background: css.backgroundColor, font: css.font }
+    }),
+    guests: [...document.querySelectorAll('[data-session]')].map(row => ({ id: row.getAttribute('data-session'), text: row.textContent, class: row.className })),
     bands: [...document.querySelectorAll('[data-testid="project-group-label"]')].map(row => row.textContent),
     folds: [...document.querySelectorAll('[data-testid="snoozed-fold-toggle"], [data-testid="closed-fold-toggle"]')].map(row => row.textContent),
   }))
@@ -33,16 +41,20 @@ try {
     pages.push(page)
     const failures: string[] = []
     page.on('pageerror', error => { failures.push(error.message); console.error(error.message) })
-    await page.goto(`${origin}/test/sidebar-renderer.browser.html?mobxSidebar=${mode === 'pool' ? 1 : 0}&perfPanel=1${requireCheck && mode === 'pool' ? '&mobxSidebarCheck=1' : ''}`, { timeout: 60000, waitUntil: 'networkidle' })
-    await page.waitForFunction(() => window.__sidebarRenderer?.ready() && document.querySelector('[data-issue-row="synthetic-17"]') !== null, null, { timeout: 30000 }).catch(async error => {
+    await page.goto(`${origin}/test/sidebar-renderer.browser.html?rows=${count}&mobxSidebar=${mode === 'pool' ? 1 : 0}&perfPanel=1${requireCheck && mode === 'pool' ? '&mobxSidebarCheck=1' : ''}`, { timeout: 60000, waitUntil: 'networkidle' })
+    await page.waitForFunction(target => window.__sidebarRenderer?.ready() && document.querySelector(`[data-issue-row="${target}"]`) !== null && document.querySelectorAll('[data-session^="synthetic-guest-"]').length === 2, target, { timeout: 30000 }).catch(async error => {
       console.error(mode, await page.evaluate(() => ({ ready: window.__sidebarRenderer?.ready(), state: window.__sidebarRenderer?.state(), errors: window.__sidebarRenderer?.failures(), text: document.body.innerText.slice(0, 4000) })))
       throw error
     })
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await page.evaluate(() => document.fonts.ready)
+    if (requireCheck && mode === 'pool') await page.waitForFunction(() => globalThis.__podiumSidebarPerf?.read().check.state === 'match', null, { timeout: 30000 })
+    const check = await page.evaluate(() => globalThis.__podiumSidebarPerf?.read().check)
     const initial = await readPaint(page)
     await page.screenshot({ path: `${out}/${mode}.png`, fullPage: true })
     await page.getByText('Only responsive target', { exact: true }).click()
-    await page.waitForFunction(() => window.__sidebarRenderer.state().selected === 'synthetic-17')
+    await page.waitForFunction(target => window.__sidebarRenderer.state().selected === target, target)
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
     const navigation = await page.evaluate(() => window.__sidebarRenderer.state())
     const click = await page.evaluate(() => globalThis.__podiumSidebarPerf?.read().input)
     await page.getByTestId('snoozed-fold-toggle').click()
@@ -59,6 +71,9 @@ try {
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
     const update = await page.evaluate(() => globalThis.__podiumSidebarPerf?.read().lastUpdate)
     const updated = await readPaint(page)
+    await page.locator('[data-session="synthetic-guest-0"] button').first().click()
+    await page.waitForFunction(() => window.__sidebarRenderer.state().pane === 'synthetic-guest-0')
+    const guestNavigation = await page.evaluate(() => window.__sidebarRenderer.state())
     await page.evaluate(() => window.__sidebarRenderer.rail(true))
     await page.getByTestId('sidebar-rail').waitFor()
     const rail = await page.locator('[data-testid="sidebar-rail"]').innerText()
@@ -84,13 +99,14 @@ try {
     if (failures.length) throw new Error(`${mode} browser errors: ${failures.join('; ')}`)
     const fixtureFailures = await page.evaluate(() => window.__sidebarRenderer.failures())
     if (fixtureFailures.length) throw new Error(fixtureFailures.join('; '))
-    results[mode] = { initial, navigation, click, folded, filter, update, updated, rail, builds }
+    results[mode] = { initial, navigation, guestNavigation, click, check, folded, filter, update, updated, rail, builds }
   }
-  const legacy = results['legacy'] as { initial: unknown; navigation: { selected: unknown; pane: unknown }; folded: unknown; filter: unknown; updated: unknown; rail: unknown; update: { work: { rows: number } } }
+  const legacy = results['legacy'] as { initial: unknown; navigation: { selected: unknown; pane: unknown }; guestNavigation: { selected: unknown; pane: unknown }; folded: unknown; filter: unknown; updated: unknown; rail: unknown; update: { work: { rows: number } } }
   const pool = results['pool'] as typeof legacy
   for (const field of ['initial', 'folded', 'filter', 'updated', 'rail'] as const)
     if (JSON.stringify(legacy[field]) !== JSON.stringify(pool[field])) throw new Error(`Sidebar parity differs at ${field}`)
   if (legacy.navigation.selected !== pool.navigation.selected || legacy.navigation.pane !== pool.navigation.pane) throw new Error('Sidebar navigation differs')
+  if (legacy.guestNavigation.selected !== pool.guestNavigation.selected || legacy.guestNavigation.pane !== pool.guestNavigation.pane) throw new Error('Guest navigation differs')
   if ((pool.update?.work.rows ?? Infinity) > (legacy.update?.work.rows ?? 0)) throw new Error('Pool row commits exceed legacy')
   await writeFile(`${out}/results.json`, JSON.stringify(results, null, 2))
   console.log(`Sidebar browser parity green; evidence ${out}`)
