@@ -87,15 +87,17 @@ describe('the pool over the app-owned runtime', () => {
     }
   }, 120_000)
 
-  it('an absent row answers LOADING and its queued batch does not block', async () => {
+  it('a known row absent from memory answers LOADING and loads through a nonblocking batch', async () => {
     const ctx = await startScenarioEngine(1)
     const handle = createRuntimeWorklistPool(ctx.engine)
     try {
       const read = vi.spyOn(ctx.replica, 'row')
-      expect(tracked(() => handle.pool.row('issue', 'absent-principal-row'))).toBe(LOADING)
-      expect(handle.pool.hydrate()).toBe(0)
-      expect(read).toHaveBeenCalledWith('issues', 'absent-principal-row')
-      expect(tracked(() => handle.pool.row('issue', 'absent-principal-row'))).toBe(LOADING)
+      const id = ctx.targets.heartbeatSessionId
+      expect(tracked(() => handle.pool.tables.session.has(id))).toBe(false)
+      expect(tracked(() => handle.pool.row('session', id))).toBe(LOADING)
+      expect(handle.pool.hydrate()).toBeGreaterThan(0)
+      expect(read).toHaveBeenCalledWith('sessions', id)
+      expect(tracked(() => handle.pool.row('session', id))).toBe(ctx.replica.row!('sessions', id))
     } finally {
       handle.dispose()
       ctx.engine.destroy()

@@ -39,8 +39,7 @@ function Probe(): null {
 
 function show(name: string | null, rebuild = false): void {
   if (current !== null) {
-    const model = current.issue(id)
-    if (model === undefined) throw new Error('the fixture pool has no row object to retire')
+    const model = current.object('issue', id)
     models.push(new WeakRef(model))
   }
   current = null
