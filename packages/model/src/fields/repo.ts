@@ -75,6 +75,8 @@ export const RepoIdentity = z.object({
    * failure, one repo's whole issue list reading `#13`.
    */
   prefix: z.string().nullable(),
+  /** A registered root path for this logical repo. Older rows omit it. */
+  repoPath: z.string().nullable().default(null),
 })
 export type RepoIdentity = z.infer<typeof RepoIdentity>
 

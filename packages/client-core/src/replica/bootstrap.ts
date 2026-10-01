@@ -60,6 +60,8 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   // by the installer — `kind === undefined → continue`). Empty until the cap
   // flips, but the map is where they must be listed when they arrive.
   issueProjection: 'issueProjections',
+  issueUserState: 'issueUserStates',
+  issueGitState: 'issueGitStates',
   issueDep: 'issueDeps',
   repo: 'repos',
   shipOrder: 'shipOrders',

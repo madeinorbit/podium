@@ -27,6 +27,7 @@ export * from './entities/conversation'
 export * from './entities/draft-doc'
 export * from './entities/handoff'
 export * from './entities/issue'
+export * from './entities/issue-git-state'
 export * from './entities/issue-color'
 // The flat STATUS vocabulary (POD-1074): `stage` and `closedReason` joined into
 // the one list every picker renders, plus the legacy `wontfix` → `cancelled`

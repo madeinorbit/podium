@@ -63,6 +63,8 @@ import type {
   IssueDepProjection,
   IssueEventWire,
   IssueProjection,
+  IssueGitStateProjection,
+  IssueUserStateWire,
   IssueWire,
   LayoutWire,
   MessageRecordWire,
@@ -101,6 +103,10 @@ export interface ReplicaRows {
    *  two kinds below (see `readViewInputs`). Empty unless the authority's flag is
    *  on and this client offered the cap. */
   issueProjections: IssueProjection
+  /** Personal markers, keyed by the user and issue; never shared with a grantee. */
+  issueUserStates: IssueUserStateWire
+  /** Server git observations, keyed by issue. Missing means not probed yet. */
+  issueGitStates: IssueGitStateProjection
   /** Issue dependency EDGES [POD-822] — `issue_deps` as first-class rows. The
    *  views join these by `fromId` to derive `blocked`/`ready`/`dependents`; the
    *  projection cannot carry them (an edge belongs to two issues). */
@@ -159,6 +165,8 @@ export interface ReplicaHydrateResult {
    *  warm reload paints the views from local data and re-seeds the hub's
    *  in-memory lists (see `seedMetadata`). Empty until the cap flips. */
   issueProjections: IssueProjection[]
+  issueUserStates: IssueUserStateWire[]
+  issueGitStates: IssueGitStateProjection[]
   issueDeps: IssueDepProjection[]
   repos: RepoProjection[]
   issueEvents: IssueEventWire[]

@@ -43,8 +43,8 @@
  */
 
 import { z } from 'zod'
-import { perUserKey } from '../fields/per-user-key'
-import { IssueIdField } from '../ids'
+import { parseUserEntityKey, perUserKey, userEntityKey } from '../fields/per-user-key'
+import { asIssueId, IssueIdField, type IssueId, type UserId } from '../ids'
 import { perUserKeyOfString } from './session-state'
 
 /**
@@ -127,3 +127,26 @@ export const issueOverlayOf = (
   row === undefined
     ? NO_ISSUE_USER_STATE
     : { readAt: row.readAt, tuckedAt: row.tuckedAt, pinned: row.pinnedAt != null }
+
+/** R4 personal issue markers. The key and timestamps compose the stored shape;
+ * the pin keeps the existing boolean wire meaning. An absent row means none. */
+export const IssueUserStateWire = IssueUserState.omit({ pinnedAt: true }).extend({
+  pinned: z.boolean(),
+})
+export type IssueUserStateWire = z.infer<typeof IssueUserStateWire>
+
+export const issueUserStateToWire = (row: IssueUserState): IssueUserStateWire => ({
+  userId: row.userId,
+  entityId: row.entityId,
+  ...issueOverlayOf(row),
+})
+
+/** The family's canonical composite encoding, also used for removes/evictions. */
+export const issueUserStateRowId = (userId: UserId, issueId: IssueId): string =>
+  userEntityKey(userId, { kind: 'issue', id: issueId })
+
+export function parseIssueUserStateRowId(id: string): Pick<IssueUserState, 'userId' | 'entityId'> {
+  const key = parseUserEntityKey(id)
+  if (key.kind !== 'issue') throw new Error('issue user-state key must name an issue')
+  return { userId: key.user, entityId: asIssueId(key.id) }
+}

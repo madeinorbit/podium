@@ -63,6 +63,9 @@ import {
   interactionRowId,
   type IssueEventWire,
   type IssueProjection,
+  type IssueGitStateProjection,
+  type IssueUserStateWire,
+  issueUserStateRowId,
   type IssueWire,
   type LayoutWire,
   layoutRowId,
@@ -300,6 +303,8 @@ const ENTITY_STORE_KINDS = [
   'sessions',
   'issues',
   'issueProjections',
+  'issueUserStates',
+  'issueGitStates',
   'issueDeps',
   'repos',
   'issueEvents',
@@ -453,6 +458,15 @@ class TanstackReplica implements Replica {
         guardedEvents,
       ),
       issues: this.makeCollection<IssueWire>('issues', (i) => i.id, guarded, guardedEvents),
+      issueUserStates: this.makeCollection<IssueUserStateWire>(
+        'issueUserStates',
+        (row) => issueUserStateRowId(row.userId, row.entityId),
+        guarded,
+        guardedEvents,
+      ),
+      issueGitStates: this.makeCollection<IssueGitStateProjection>(
+        'issueGitStates', (row) => row.id, guarded, guardedEvents,
+      ),
       issueProjections: this.makeCollection<IssueProjection>(
         'issueProjections',
         (i) => i.id,
@@ -557,6 +571,8 @@ class TanstackReplica implements Replica {
       sessions: [],
       issues: [],
       issueProjections: [],
+      issueUserStates: [],
+      issueGitStates: [],
       issueDeps: [],
       repos: [],
       issueEvents: [],
@@ -607,6 +623,8 @@ class TanstackReplica implements Replica {
         sessions: this.cols.sessions.toArray as SessionMeta[],
         issues: this.cols.issues.toArray as IssueWire[],
         issueProjections: this.cols.issueProjections.toArray as IssueProjection[],
+        issueUserStates: this.cols.issueUserStates.toArray as IssueUserStateWire[],
+        issueGitStates: this.cols.issueGitStates.toArray as IssueGitStateProjection[],
         issueDeps: this.cols.issueDeps.toArray as IssueDepProjection[],
         repos: this.cols.repos.toArray as RepoProjection[],
         issueEvents: this.cols.issueEvents.toArray as IssueEventWire[],
@@ -1584,6 +1602,12 @@ class TanstackReplica implements Replica {
 
   private keyFor<K extends ReplicaKind>(kind: K): (row: ReplicaRows[K]) => string {
     if (kind === 'sessions') return (row) => (row as SessionMeta).sessionId
+    if (kind === 'issueUserStates') {
+      return (row) => {
+        const state = row as IssueUserStateWire
+        return issueUserStateRowId(state.userId, state.entityId)
+      }
+    }
     // Layout rows have no `id` of their own — their identity is the authority's
     // (userId, key) composite, the same one `kernel/kinds.ts` derives.
     if (kind === 'userLayouts') {

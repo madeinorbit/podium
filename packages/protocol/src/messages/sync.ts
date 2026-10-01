@@ -10,6 +10,8 @@ import {
   IssueDepProjection,
   IssueEventWire,
   IssueProjection,
+  IssueGitStateProjection,
+  IssueUserStateWire,
   IssueWire,
   LayoutWire,
   MessageRecordWire,
@@ -34,6 +36,8 @@ import { PendingInteractionWire } from './runtime-interactions'
  * consumers stay on protocol.
  */
 export {
+  IssueGitStateProjection,
+  IssueUserStateWire,
   IssueDepProjection,
   IssueEventWire,
   IssueProjection,
@@ -150,6 +154,8 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  Emitted unconditionally after POD-797; CAP_ISSUES_NORMALIZED tells clients
    *  which issue collection to render. */
   metadataChangeArm(z.literal('issueProjection'), IssueProjection),
+  metadataChangeArm(z.literal('issueUserState'), IssueUserStateWire),
+  metadataChangeArm(z.literal('issueGitState'), IssueGitStateProjection),
   /** An issue dependency EDGE [POD-822, ADR 4 D7.1] — `issue_deps` rows as
    *  first-class entities, keyed by their own primary key (`issueDepId`).
    *

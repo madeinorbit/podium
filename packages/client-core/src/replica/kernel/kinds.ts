@@ -17,7 +17,7 @@
  * "not mine" — never "corrupt".
  */
 
-import { layoutRowId } from '@podium/model'
+import { issueUserStateRowId, layoutRowId } from '@podium/model'
 import type { ReplicaKind, ReplicaRows } from '../contract'
 
 /** Kernel entity name → engine collection kind. */
@@ -32,6 +32,8 @@ const ENTITY_TO_KIND = {
   // partial: all three would have answered `undefined` through a signature that
   // says it cannot.
   issueProjection: 'issueProjections',
+  issueUserState: 'issueUserStates',
+  issueGitState: 'issueGitStates',
   issueDep: 'issueDeps',
   repo: 'repos',
   /** POD-1772's curated issue events. Same rule as the three kinds above: the
@@ -81,6 +83,10 @@ export function entityForKind(kind: ReplicaKind): KernelEntity {
  */
 export function rowKey<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): string {
   if (kind === 'sessions') return (row as ReplicaRows['sessions']).sessionId
+  if (kind === 'issueUserStates') {
+    const state = row as ReplicaRows['issueUserStates']
+    return issueUserStateRowId(state.userId, state.entityId)
+  }
   // A layout row's identity is the authority's (userId, key) composite — the id
   // its own change rows are logged under. `layoutRowId` is imported rather than
   // re-spelled: an id derived two ways is an id that can disagree, and a remove
