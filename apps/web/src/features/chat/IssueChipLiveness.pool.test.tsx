@@ -30,6 +30,7 @@ describe('pool chip DOM boundary', () => {
     }
     try {
       await act(async () => { react.render(<Host />); await new Promise(resolve => setTimeout(resolve, 0)) })
+      await act(async () => { await vi.dynamicImportSettled() })
       const anchors = container.querySelectorAll('a')
       expect(anchors[0]?.getAttribute('aria-label')).toContain('Task 1')
       const before = chipPerf.read(fixture.owner)
