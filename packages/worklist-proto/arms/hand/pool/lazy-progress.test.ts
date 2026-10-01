@@ -12,11 +12,16 @@
  * - i2141.progressTotal: live 1, direct 0 (child i2230, hot hidden)
  * - i4615.progressDone/Total: live 0/0, direct 1/1 (child i4632, cold done)
  *
- * The bootstrap closure roots only present/keeping rows, so unrelated hidden
- * roots were never filed and their `formalChildren` read empty. A first
- * `view(id)` now files the row's formal subtree on demand (see
- * `HandPool.view`), so hidden parents compose correctly once read — exactly
- * what the probe does before it compares.
+ * The bootstrap closure now roots every known formal parent (bucket probe,
+ * residency-independent), so hidden parents file their formal subtrees at
+ * `replace` and compose correctly once read — exactly what the probe does
+ * before it compares. `view()` stays pure (no read-path filing, H3-F3).
+ *
+ * POD-5033 (cold rule): i2141 is archived, so the shared rule keeps it cold
+ * (hidden, no view). Both arms agree it is cold (direct skips cold
+ * non-resident, live has no view). The test still files it (formal filing is
+ * residency-independent) and checks progress where views exist, absence
+ * where correctly cold.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -47,13 +52,19 @@ describe('lazy progress over hidden formal subtrees (H3 seed 1 snapshot 1)', () 
       for (const id of PARENTS) {
         const live = pool.view(id)
         const direct = want.get(id)
-        expect(live, `${id} has no live view`).toBeDefined()
-        expect(direct, `${id} has no direct view`).toBeDefined()
-        if (live === undefined || direct === undefined) throw new Error(`${id} missing view`)
-        expect({ done: live.progressDone, total: live.progressTotal }, `${id} progress`).toEqual({
-          done: direct.progressDone,
-          total: direct.progressTotal,
-        })
+        // Correctly cold (archived i2141): both arms agree it is hidden (no
+        // view). Still filed (formal filing is residency-independent), still
+        // checked below. Otherwise both views exist and progress composes.
+        if (direct === undefined) {
+          expect(live, `${id} correctly cold has no live view`).toBeUndefined()
+        } else {
+          expect(live, `${id} has no live view`).toBeDefined()
+          if (live === undefined) throw new Error(`${id} missing view`)
+          expect({ done: live.progressDone, total: live.progressTotal }, `${id} progress`).toEqual({
+            done: direct.progressDone,
+            total: direct.progressTotal,
+          })
+        }
         // The filing itself: every engine bucket member is filed under it.
         const filed = [...pool.rollup.inputs.formalChildren(id)].sort()
         const bucket = [...pool.engine.members('issue', id, 'children')].sort()

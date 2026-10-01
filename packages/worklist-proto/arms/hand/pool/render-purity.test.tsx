@@ -16,6 +16,11 @@
  * own view cells are created, lazily, as designed). Against the read-path
  * version (f0cc6d268) the first render files five formal subtrees, so the
  * filings/members assertions fail there.
+ *
+ * POD-5033 (cold rule): i2141 is archived, so the shared rule keeps it cold
+ * (hidden, no view). It still draws through the same pure path (missing,
+ * correctly cold) and still files nothing. Resident hidden parents draw
+ * their composed progress.
  */
 
 import { act, type ReactElement, useCallback, useSyncExternalStore } from 'react'
@@ -86,9 +91,16 @@ describe('first render of hidden rows notifies and files nothing', () => {
         pool.worklist.held('member') - membersBefore,
         'member cells created while rendering',
       ).toBe(0)
-      // The rows still draw their composed progress.
+      // The rows draw through the pure path: resident hidden parents draw
+      // their composed progress; correctly cold i2141 (archived, hidden, no
+      // view) draws missing. Both file nothing (checked above).
       for (const id of ROWS) {
-        expect(el.querySelector(`[data-hidden-row="${id}"]`)?.textContent).toMatch(/^\d+\/\d+$/)
+        const text = el.querySelector(`[data-hidden-row="${id}"]`)?.textContent
+        if (id === 'i2141') {
+          expect(text, `${id} correctly cold draws missing`).toBe('missing')
+        } else {
+          expect(text, `${id} draws composed progress`).toMatch(/^\d+\/\d+$/)
+        }
       }
     } finally {
       console.error = originalError
