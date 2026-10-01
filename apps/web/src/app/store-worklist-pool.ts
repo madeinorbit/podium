@@ -134,6 +134,7 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
     if (disposed) return
     disposed = true
     stopCheck?.()
+    stopCheck = undefined
     const handle = slot.handle
     slot.handle = null
     slot.project = null
