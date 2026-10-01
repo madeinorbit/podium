@@ -338,6 +338,8 @@ describe('replica adapter', () => {
       issueGitStates: [],
       issueDeps: [],
       issueEvents: [],
+      pendingInteractions: [],
+      messageRecords: [],
       repos: [],
       conversations: [],
       automations: [],
