@@ -2149,6 +2149,7 @@ const NON_MUTATING_NAMES = [
   'preflight',
   'prime',
   'ready',
+  'resolveRefs',
   'search',
   'stale',
   'stats',

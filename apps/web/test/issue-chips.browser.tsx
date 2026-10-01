@@ -37,7 +37,7 @@ const sessionId = asSessionId('synthetic-session-0')
 const items = Array.from({ length: 120 }, (_, i): TranscriptItem => ({
   id: `message-${i}`, cursor: `cursor-${i}`, role: i % 2 ? 'assistant' : 'user', text: `Conversation message ${i}. Review SYN-${1000 + i % 40}, SYN-${1000 + (i + 1) % 40}, and SYN-${1000 + (i + 2) % 40}.`,
 }))
-synthetic.api.sessions = { ...synthetic.api.sessions, transcriptRead: { query: async () => ({ items, head: 'cursor-0', tail: 'cursor-119', hasMore: false }) } }
+synthetic.api.sessions = Object.assign({ ...synthetic.api.sessions }, { transcriptRead: { query: async () => ({ items, head: 'cursor-0', tail: 'cursor-119', hasMore: false }) } })
 let runtime: ClientRuntime | undefined
 let pool: ReturnType<typeof useWorklistPool> = null
 let ready = false

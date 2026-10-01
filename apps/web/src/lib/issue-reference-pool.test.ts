@@ -3,6 +3,7 @@ import { MobxPool, LOADING } from '@podium/client-graph'
 import { IssueReferences } from '@podium/client-graph/issue-reference'
 import { checkIssueChips } from '@podium/client-graph/diagnostics/chip-check'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { asIssueId } from '@podium/model/browser'
 import { describe, expect, it, vi } from 'vitest'
 
 function reaction<T>(read: () => T, paint: (value: T) => void, _options: { fireImmediately: boolean }): () => void {
@@ -12,8 +13,8 @@ function reaction<T>(read: () => T, paint: (value: T) => void, _options: { fireI
 }
 
 function issue(i: number, patch: Record<string, unknown> = {}) {
-  return { id: `iss_${i}`, seq: i, title: `Task ${i}`, prefix: 'POD', displayRef: `POD-${i}`,
-    stage: 'in_progress', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  return { id: asIssueId(`iss_${i}`), seq: i, title: `Task ${i}`, prefix: 'POD', displayRef: `POD-${i}`,
+    stage: 'in_progress' as const, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
     archived: false, repoPath: '/r', deps: [], ...patch }
 }
 function setup(count = 2000) {
