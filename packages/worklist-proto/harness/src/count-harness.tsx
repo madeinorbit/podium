@@ -276,6 +276,9 @@ export interface CountInput {
   /** Additional displayed data consumed by the measured row (POD-4953).
    * Always from the oracle's input, outside the counted arm window. */
   content?(): Readonly<Record<string, unknown>>
+  /** Intermediate oracle publications, including optimistic paint/rollback.
+   * An action can restore its initial value after legitimately drawing it. */
+  contentDuring?(): readonly Readonly<Record<string, unknown>>[]
 }
 
 export interface CountStats {
@@ -384,6 +387,7 @@ function changedViews(
   log: CommitLog,
   contentBefore: Readonly<Record<string, unknown>> | null = null,
   contentAfter: Readonly<Record<string, unknown>> | null = null,
+  contentDuring: readonly Readonly<Record<string, unknown>>[] = [],
 ): { changed: string[]; drawn: string[]; remounted: string[]; entered: string[]; left: string[] } {
   const changed: string[] = []
   const drawn: string[] = []
@@ -393,7 +397,9 @@ function changedViews(
     const was = before[id]
     const now = after[id]
     if (was !== undefined && now !== undefined && (displayChanged(was, now) ||
-      (contentBefore !== null && contentAfter !== null && !isDeepStrictEqual(contentBefore[id], contentAfter[id])))) changed.push(id)
+      (contentBefore !== null && contentAfter !== null && (
+        !isDeepStrictEqual(contentBefore[id], contentAfter[id]) ||
+        contentDuring.some(publication => !isDeepStrictEqual(contentBefore[id], publication[id])))))) changed.push(id)
     if ((log.mounts.get(id) ?? 0) > 0 && !log.counts.has(id)) remounted.push(id)
   }
   const both = new Set(Object.keys(before).filter((id) => id in after))
@@ -468,7 +474,7 @@ export async function runCountScenario(
   const exact =
     viewsBefore === null || input.views === undefined
       ? null
-      : changedViews(viewsBefore, input.views(), mounted.log, contentBefore, input.content?.() ?? null)
+      : changedViews(viewsBefore, input.views(), mounted.log, contentBefore, input.content?.() ?? null, input.contentDuring?.())
   return {
     scenario: input.scenario,
     methodology: input.methodology,

@@ -6,6 +6,7 @@ import type { MobxPool } from '../pool'
 import type { ModelHost } from '../models'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
 import { issueExcluded } from '../shared/schema'
+import { overlayRow } from '../shared/overlay-row'
 import { LOADING, attentionGroup } from './rollup'
 import { retains, retentionOf, type HiddenIssue } from './visible'
 import { sortedSidebarSessions, type SidebarRowValues } from './sidebar-row'
@@ -150,7 +151,7 @@ export class SidebarIndex {
       if (session.issueId && owner) {
         const raw = this.pool.row('issue', session.issueId)
         if (raw === LOADING) pending += 1
-        else if (raw !== undefined) issues.set(session.issueId, { ...(raw as SliceIssue), displayRef: this.pool.issue(session.issueId)!.displayRef })
+        else if (raw !== undefined) issues.set(session.issueId, overlayRow(raw as SliceIssue, { displayRef: this.pool.issue(session.issueId)!.displayRef }))
       }
       activityAt = Math.max(activityAt, Date.parse(session.lastActiveAt) || 0)
       if (session.status !== 'exited') sessions.push(session)

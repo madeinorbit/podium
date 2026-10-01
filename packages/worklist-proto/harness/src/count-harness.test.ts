@@ -189,4 +189,19 @@ it('complete row content detects a redraw and a missed redraw beyond the prototy
   const unchanged = await runCountScenario(mounted, { ...input, apply() {} })
   expect(unchanged.oracleChangedRows).toEqual([])
   expect(() => assertCommits(unchanged)).not.toThrow()
+  const publications: Readonly<Record<string, unknown>>[] = []
+  const rolledBack = await runCountScenario(mounted, {
+    ...input, contentDuring: () => publications,
+    apply() {
+      color = 'orange'
+      publications.push(input.content())
+      log.record('a')
+      color = 'green'
+      publications.push(input.content())
+      log.record('a')
+    },
+  })
+  expect(rolledBack.oracleChangedRows).toEqual(['a'])
+  expect(rolledBack.rowsCommitted).toBe(2)
+  expect(() => assertCommits(rolledBack)).not.toThrow()
 })

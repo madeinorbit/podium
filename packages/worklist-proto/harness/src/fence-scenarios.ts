@@ -488,11 +488,15 @@ export async function runFenceStep(
     return Object.fromEntries(visibleIssueRows(derivation, locals).map(row =>
       [row.issue.id, legacySidebarRow(row, derivation, locals.coarseNow)]))
   }
+  const publications: Readonly<Record<string, unknown>>[] = []
   feeds.takeNamed()
   const result = await runCountScenario(mounted, {
     scenario: entry.scenario,
     methodology: entry.methodology,
     apply: async () => {
+      const stop = content === undefined ? undefined : feeds.rows.source.subscribe(() =>
+        outsideArm(() => publications.push(content())))
+      try {
       // The write is the engine's work, the drain the feed's (its listener
       // calls are the arm's): neither counts as the arm's (POD-4746).
       await outsideArm(() => entry.write(ctx))
@@ -502,6 +506,7 @@ export async function runFenceStep(
       const hooks = loadHooks(mounted.handle, feeds, step)
       if (hooks !== null) await insideArm(() => hooks.settleLoads())
       settledAt = feeds.rowReads()
+      } finally { stop?.() }
     },
     expected: () => {
       const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
@@ -509,6 +514,7 @@ export async function runFenceStep(
     },
     views: () => rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
     content,
+    contentDuring: () => publications,
   })
   // LOAD ISOLATION (G2): a load pending now, or one that landed after the
   // step's settle (in the harness's own `snapshot()`, after the reads were
