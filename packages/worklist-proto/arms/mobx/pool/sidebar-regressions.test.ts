@@ -141,3 +141,32 @@ describe('POD-5056 fleet resume-twin ties', () => {
     } finally { ctx.dispose() }
   })
 })
+
+
+describe('POD-5057 timing after cross-owner resume collapse', () => {
+  it('uses the retained session anchor instead of a false sessionless review anchor', () => {
+    const task = issue('iss_synthetic_timer', { stage: 'review' })
+    const other = issue('iss_synthetic_timer_other', { seq: 2 })
+    const since = new Date(NOW - 3_600_000).toISOString()
+    const resume = { kind: 'codex-thread', value: 'synthetic-timer-twin' } as SessionMeta['resume']
+    const mine = session('a-timer', task.id, { resume, agentState: { phase: 'needs_user', since } as SessionMeta['agentState'] })
+    const theirs = session('z-timer', other.id, { resume, agentState: mine.agentState })
+    const ctx = replay(collections([task, other], [theirs, mine]))
+    try {
+      const { actual, expected } = ctx.row(task.id)
+      expect(expected.timing).toEqual({ phase: 'waiting', sinceMs: Date.parse(since) })
+      expect(actual.timing).toEqual(expected.timing)
+      expect(ctx.check().first).toBeNull()
+    } finally { ctx.dispose() }
+  })
+  it('preserves the zero session anchor of a completed sessionless row', () => {
+    const task = issue('iss_synthetic_done_timer', { stage: 'done', closedReason: 'done', closedAt: STAMP })
+    const ctx = replay(collections([task]))
+    try {
+      const { actual, expected } = ctx.row(task.id)
+      expect(expected.timing).toEqual({ phase: 'done', sinceMs: 0 })
+      expect(actual.timing).toEqual(expected.timing)
+      expect(ctx.check().first).toBeNull()
+    } finally { ctx.dispose() }
+  })
+})
