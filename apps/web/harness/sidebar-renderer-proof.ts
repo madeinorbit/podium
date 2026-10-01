@@ -77,7 +77,13 @@ try {
       await cdp.send('HeapProfiler.collectGarbage')
       await cdp.send('HeapProfiler.collectGarbage')
       const survivors = await page.evaluate(() => window.__sidebarRenderer.survivors())
-      if (survivors.length) throw new Error(`${mode} principal retained ${survivors.join(', ')}`)
+      if (survivors.length) {
+        const chunks: string[] = []
+        cdp.on('HeapProfiler.addHeapSnapshotChunk', event => chunks.push(event.chunk))
+        await cdp.send('HeapProfiler.takeHeapSnapshot')
+        await writeFile(`${out}/synthetic-retainers.heapsnapshot`, chunks.join(''))
+        throw new Error(`${mode} principal retained ${survivors.join(', ')}`)
+      }
       const heap = await cdp.send('Runtime.getHeapUsage')
       builds.push({ name, rebuild, readyMs, elapsedMs: performance.now() - began, heap: heap.usedSize, survivors })
     }
