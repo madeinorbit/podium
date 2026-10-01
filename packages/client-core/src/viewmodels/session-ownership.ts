@@ -127,7 +127,7 @@ function appendSession(map: Map<string, SessionMeta[]>, key: string, session: Se
  */
 export function indexSessionOwnership(
   sessions: readonly SessionMeta[],
-  issues: readonly IssueWire[],
+  issues: readonly Pick<IssueWire, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[],
   allWorktreePaths: readonly string[],
 ): SessionOwnershipIndex {
   // ONE root index for the whole pass. Building it is O(roots); every session
@@ -139,7 +139,7 @@ export function indexSessionOwnership(
     ...allWorktreePaths,
     ...issues.flatMap((issue) => (issue.worktreePath ? [issue.worktreePath] : [])),
   ])
-  const issuesByWorktree = new Map<string, IssueWire[]>()
+  const issuesByWorktree = new Map<string, Pick<IssueWire, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[]>()
   for (const issue of issues) {
     if (issue.archived || issue.deletedAt || !issue.worktreePath) continue
     const existing = issuesByWorktree.get(issue.worktreePath)
@@ -371,7 +371,7 @@ export function archivedSessionsForWorktreePath(
 export function issueIdOwningSession(
   sessionId: SessionId,
   sessions: readonly SessionMeta[],
-  issues: readonly IssueWire[],
+  issues: readonly Pick<IssueWire, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[],
   allWorktreePaths: string[],
   ownership?: SessionOwnershipIndex,
 ): IssueId | null {

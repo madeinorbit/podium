@@ -15,6 +15,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asRepoId, asUserId, type GitRepositoryWire, type IssueProjection, type IssueWire, type SessionMeta } from '@podium/model'
 import { reaction, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
+import { fixtureProjection } from '../../../harness/src/fixture/normalized-issues'
 import { corpusFromLive, type LiveCollections } from '../../../harness/src/fixture/live-snapshot'
 import { sidebarReplayStore } from '../../../harness/src/oracle/sidebar-replay'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
@@ -44,10 +45,17 @@ function session(sessionId: string, owner: string, patch: Partial<SessionMeta> =
     readAt: STAMP, unread: false, agentState: { phase: 'idle', since: STAMP }, ...patch } as unknown as SessionMeta
 }
 function collections(issues: IssueWire[], sessions: SessionMeta[] = [], repos = [REPO]): LiveCollections {
+  const repoIds = new Set([...issues.map(row => row.repoId), ...repos.map(row => row.repoId)])
+  const repoProjections = [...repoIds].filter((id): id is NonNullable<typeof id> => id != null).map(id => {
+    const roots = issues.filter(row => row.repoId === id && !row.parentId)
+    const owner = roots.find(row => row.stage !== 'done' && row.closedReason == null && !row.deferUntil)
+      ?? roots.find(row => !row.deferUntil) ?? roots[0]
+    return { id, prefix: 'SYN', repoPath: owner?.repoPath ?? repos.find(row => row.repoId === id)?.path ?? '' } as LiveCollections['repoProjections'][number]
+  })
   return { issues, sessions, repos, machines: [],
     issueDeps: issues.flatMap(row => (row.deps ?? []).map((edge, index) => ({ id: `synthetic-dep-${row.id}-${index}`, fromId: row.id, toId: edge.id, type: edge.type } as LiveCollections['issueDeps'][number]))),
-    issueProjections: issues.map(row => ({ ...row, description: { value: '', revision: 0 }, isDraftVessel: row.draft ?? false, intentOrigin: 'human' }) as unknown as IssueProjection),
-    repoProjections: [{ id: 'synthetic-repo', prefix: 'SYN' } as LiveCollections['repoProjections'][number]],
+    issueProjections: issues.map(row => fixtureProjection(row)),
+    repoProjections,
     pins: { repos: [], worktrees: [], panels: [] } }
 }
 /** Same app-owned replica/row-source seam as offline replay, with tiny inputs.
@@ -97,6 +105,15 @@ function replay(data: LiveCollections) {
         replica.onKernelEvent({ type: 'upserted', record: { entity, entityId: row.id, value, provenance: { seq: 1 } }, readmitted: false })
       }
       store = { ...store, issues: replica.rows('issues') as IssueWire[], issueProjections: replica.rows('issueProjections') as IssueProjection[] }
+      publish(); rows.flush(); settle()
+    },
+    updateRepoPath: (id: string, repoPath: string) => {
+      const current = replica.row?.('repos', id)
+      if (!current) throw new Error('Synthetic repository absent')
+      const value = { ...current, repoPath }
+      cache.put('repo', id, value)
+      replica.onKernelEvent({ type: 'upserted', record: { entity: 'repo', entityId: id, value, provenance: { seq: 2 } }, readmitted: false })
+      store = { ...store, repoProjections: replica.rows('repos') }
       publish(); rows.flush(); settle()
     },
     runtimeRow: (id: string) => {
@@ -238,11 +255,11 @@ describe('POD-5059 section label from root rows', () => {
       expect(band().expected.label).toBe('repo')
       expect(band().actual.label).toBe(band().expected.label)
       expect(ctx.check().first).toBeNull()
-      ctx.updateIssue({ ...child, repoPath: '/synthetic/renamed-child' })
+      ctx.updateIssue({ ...child, worktreePath: '/synthetic/renamed-child' })
       expect(band().actual.label).toBe('repo')
       expect(ctx.check().first).toBeNull()
       // A root rename changes the header without moving the group or its rows.
-      ctx.updateIssue({ ...root, repoPath: '/synthetic/renamed-root' })
+      ctx.updateRepoPath('synthetic-repo', '/synthetic/renamed-root')
       expect(band().expected.label).toBe('renamed-root')
       expect(band().actual.label).toBe(band().expected.label)
       expect(ctx.check().first).toBeNull()
@@ -268,6 +285,7 @@ describe('POD-5072 snoozed roster section label', () => {
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
       expect(band().actual.label).toBe(band().expected.label)
       const renamed = { ...task, repoPath: '/synthetic/renamed-checkout' }
+      ctx.updateRepoPath('synthetic-repo', renamed.repoPath)
       ctx.updateIssue(renamed)
       expect(band().expected.label).toBe('synthetic-project')
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })

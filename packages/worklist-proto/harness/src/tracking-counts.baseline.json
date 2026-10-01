@@ -1,6 +1,6 @@
 {
-  "updatedBy": "POD-4956",
-  "reason": "Reconcile integration-only growth since POD-4953 baseline 3cb72877e: retained VISIBLE rail offer reads landed in POD-4955; one cached first-root section metadata field landed in POD-5059, with POD-5060 removing its redundant computation runs. Per-landing census attribution covers POD-4954, POD-4955, all five POD-5063 children, POD-5072, POD-4957, POD-5062, POD-5033, POD-5071 and POD-4967. POD-4956 headless presence reuses the existing standing facts and adds no census reads, owners or tracking objects.",
+  "updatedBy": "POD-4968",
+  "reason": "The normalized row source no longer joins the old issue record. With three pending title edits, bootstrap performs 24 fewer row reads at both scales; every tracking-object count and all other read counts are unchanged.",
   "counts": {
     "1x.firstPaint.byOwner.GroupNode.computeds": 64,
     "1x.firstPaint.byOwner.GroupNode.owners": 8,
@@ -462,7 +462,7 @@
     "write-pending.1x.phases.create.changes": 10,
     "write-pending.1x.phases.create.computedRuns": 5,
     "write-pending.1x.phases.create.distinctRows": 4,
-    "write-pending.1x.phases.create.rowReads": 432,
+    "write-pending.1x.phases.create.rowReads": 408,
     "write-pending.1x.phases.firstPaint.built.atom": 911,
     "write-pending.1x.phases.firstPaint.built.computed": 1084,
     "write-pending.1x.phases.firstPaint.built.object": 8,
@@ -569,7 +569,7 @@
     "write-pending.4x.phases.create.changes": 10,
     "write-pending.4x.phases.create.computedRuns": 5,
     "write-pending.4x.phases.create.distinctRows": 5,
-    "write-pending.4x.phases.create.rowReads": 439,
+    "write-pending.4x.phases.create.rowReads": 415,
     "write-pending.4x.phases.firstPaint.built.atom": 3512,
     "write-pending.4x.phases.firstPaint.built.computed": 1435,
     "write-pending.4x.phases.firstPaint.built.object": 8,

@@ -267,7 +267,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const storeHandle = useStoreHandle()
   const getIssueSeq = useCallback(
     (issueId: string): number | null =>
-      storeHandle.getSnapshot().issues?.find((issue) => issue.id === issueId)?.seq ?? null,
+      storeHandle.getSnapshot().issueProjections?.find((issue) => issue.id === issueId)?.seq ?? null,
     [storeHandle],
   )
 

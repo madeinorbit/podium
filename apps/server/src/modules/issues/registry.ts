@@ -368,6 +368,10 @@ const defs = {
     kind: 'query',
     handler: async (ctx, input) => await ctx.reports.search(input, async (id) => await ctx.mayReadIssue(id)),
   }),
+  searchNormalized: def('searchNormalized', {
+    kind: 'query',
+    handler: async (ctx, input) => await ctx.reports.searchNormalized(input, async (id) => await ctx.mayReadIssue(id)),
+  }),
   count: def('count', {
     kind: 'query',
     handler: async (ctx, input) => await ctx.reports.count(input.repoPath, async (id) => await ctx.mayReadIssue(id)),

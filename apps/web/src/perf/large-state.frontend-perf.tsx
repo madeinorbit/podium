@@ -1,9 +1,10 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { kernelFixture } from './kernel-fixture'
 import { indexSessionOwnership, sidebarSections } from '@podium/client-core/viewmodels'
 import {
   type GitRepositoryWire,
   ISSUE_STAGES,
-  type IssueWire,
+
   type SessionMeta,
 } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
@@ -65,7 +66,7 @@ function worktreePath(index: number): string {
   return slot === 0 ? `/srv/repos/repo-${repo}` : `/srv/worktrees/wt-${index}`
 }
 
-function issueAt(index: number): IssueWire {
+function issueAt(index: number): IssueViewModel {
   const stage = ISSUE_STAGES[index % ISSUE_STAGES.length] ?? 'backlog'
   const worktree = index % (SCALE.repositories * SCALE.worktreesPerRepository)
   return {
@@ -86,9 +87,9 @@ function issueAt(index: number): IssueWire {
     archived: false,
     needsHuman: index % 19 === 0,
     sessions: [],
-    origin: index % 7 === 0 ? 'agent' : 'human',
+    intentOrigin: index % 7 === 0 ? 'agent' : 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     childCount: 0,
     childDoneCount: 0,
     priority: index % 5,
@@ -101,7 +102,7 @@ function issueAt(index: number): IssueWire {
     ready: true,
     blocked: false,
     deferred: false,
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 function sessionAt(index: number): SessionMeta {
@@ -314,27 +315,30 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
 
   it('uses the shipped kernel facade and updates only the changed durable row', async () => {
     const { cache, replica, upsert } = kernelFixture()
-    const initial = Array.from({ length: SCALE.issues }, (_, index) => issueAt(index))
-    for (const row of initial) cache.put('issue', row.id, row)
-    const before = replica.rows('issues')
+    const initial = Array.from({ length: SCALE.issues }, (_, index) => {
+      const row = issueAt(index)
+      return { ...row, description: { value: row.description } }
+    })
+    for (const row of initial) cache.put('issueProjection', row.id, row)
+    const before = replica.rows('issueProjections')
     const notify = vi.fn()
-    const off = replica.subscribeRows('issues', notify)
+    const off = replica.subscribeRows('issueProjections', notify)
     // Kernel events follow a committed durable write; the facade never writes
     // wire-v1 snapshots. Replaying an identical durable object is a no-op.
-    upsert('issue', initial[337]!.id, initial[337]!)
+    upsert('issueProjection', initial[337]!.id, initial[337]!)
     await replica.flush()
-    expect(replica.rows('issues')).toBe(before)
+    expect(replica.rows('issueProjections')).toBe(before)
     const scans = cache.scans
     cache.reads = 0
     notify.mockClear()
-    upsert('issue', initial[337]!.id, { ...initial[337]!, title: 'Changed title' })
+    upsert('issueProjection', initial[337]!.id, { ...initial[337]!, title: 'Changed title' })
     await replica.flush()
     expect(notify).toHaveBeenCalledOnce()
-    expect(replica.rows('issues')[337]?.title).toBe('Changed title')
-    expect(replica.rows('issues')[0]).toBe(before[0])
+    expect(replica.rows('issueProjections')[337]?.title).toBe('Changed title')
+    expect(replica.rows('issueProjections')[0]).toBe(before[0])
     expect(cache.scans).toBe(scans)
     expect(cache.reads).toBe(1)
-    expect(() => replica.applySnapshot('issues', initial)).toThrow('wire-v1')
+    expect(() => replica.applySnapshot('issueProjections', initial.map(issue => ({ ...issue, notes: issue.notes === undefined ? undefined : { value: issue.notes }, worktreePath: issue.worktreePath ?? undefined, branch: issue.branch ?? undefined })))).toThrow('wire-v1')
     off()
     metric('kernel-replica', {
       issues: SCALE.issues,

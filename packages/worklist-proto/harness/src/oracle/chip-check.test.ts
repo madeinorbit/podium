@@ -18,7 +18,7 @@ describe('chip differential replay', () => {
       const feeds = openFenceFeeds(ctx, 'overlaid')
       const legacy = () => {
         const state = ctx.engine.getSnapshot()
-        return allIssueViewModels(ctx.replica, state.issueProjections, state.issues)
+        return allIssueViewModels(ctx.replica, state.issueProjections, state.issueUserStates)
       }
       const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
         resolveReferences: async (refs) => {

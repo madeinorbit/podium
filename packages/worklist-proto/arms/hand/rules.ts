@@ -348,7 +348,7 @@ export function displayRefOf(issue: SliceIssue, prefix: string | null): string {
 
 /** issueDisplayTitle (slices/issues.ts:236): drafts wear the session's name. */
 export function displayTitleOf(issue: SliceIssue, firstMember?: SliceSession): string {
-  if (issue.draft === true) {
+  if (issue.isDraftVessel === true) {
     const title = (issue.title ?? '').trim()
     if (title === DRAFT_ISSUE_TITLE || title === '') {
       if (!firstMember) return 'New agent'

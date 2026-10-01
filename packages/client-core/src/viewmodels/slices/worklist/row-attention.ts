@@ -1,3 +1,4 @@
+import type { IssueNavigationModel } from '../issues'
 /**
  * POD-330/POD-1496 — worklist row ATTENTION: what a row is doing, what it is
  * waiting for, and the words and clock it wears while it waits.
@@ -13,7 +14,7 @@
  * the Flight Deck strip and the issue explorer print. Duplicating that
  * predicate here is how a row and a strip end up disagreeing about one task.
  */
-import { type IssueWire, issueStatusLabel, type SessionMeta } from '@podium/model'
+import { issueStatusLabel, type SessionMeta } from '@podium/model'
 import { issueErroredSession } from '../../mission'
 import {
   agentBadge,
@@ -28,8 +29,8 @@ import {
 } from '../../session-status'
 import { mostUrgentSession } from '../../session-urgency'
 import {
-  type IssueNavigationModel,
   type IssuePendingDecision,
+  issueDraftVessel,
   issueFinishedAt,
   issuePendingDecision,
   pendingDecisionLabel,
@@ -192,8 +193,8 @@ function pendingDecisionStats(row: UnifiedIssueRow): {
  *  `row` (1 = direct child). Null when no descendant is waiting. */
 export function deepAttentionSource(
   row: UnifiedIssueRow,
-): { issue: IssueWire; depth: number; kind: 'session' | IssuePendingDecision } | null {
-  let best: { issue: IssueWire; depth: number; kind: 'session' | IssuePendingDecision } | null =
+): { issue: IssueNavigationModel; depth: number; kind: 'session' | IssuePendingDecision } | null {
+  let best: { issue: IssueNavigationModel; depth: number; kind: 'session' | IssuePendingDecision } | null =
     null
   const stack: Array<{ row: UnifiedIssueRow; depth: number }> = [{ row, depth: 0 }]
   while (stack.length > 0) {
@@ -277,7 +278,7 @@ export function rowStatusLine(
   // nothing was asked yet. Say so instead of the phase word.
   if (
     row.kind === 'issue' &&
-    row.issue.draft &&
+    issueDraftVessel(row.issue) &&
     phase === 'queued' &&
     sessions.length > 0 &&
     sessions.every(isUnstartedSession)

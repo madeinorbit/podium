@@ -1,3 +1,4 @@
+import { fixtureMarkers, fixtureGitStates } from '../fixture/normalized-issues'
 /**
  * POD-4443 — parity oracle: the exact rows, order and groups the current app
  * would show for a fixture corpus.
@@ -47,6 +48,8 @@ export { legacyDerivationFromStore, visibleIssueRows, type LegacyDerivation } fr
 function stubReplica(corpus: FixtureCorpus): Replica {
   const byKind = {
     issueProjections: corpus.issueProjections,
+    issueUserStates: corpus.issueUserStates ?? fixtureMarkers(corpus.issues),
+    issueGitStates: corpus.issueGitStates ?? fixtureGitStates(corpus.issues),
     issues: corpus.issues,
     repos: corpus.repoProjections,
     issueDeps: corpus.issueDeps,
@@ -79,6 +82,7 @@ export function runLegacyDerivation(corpus: FixtureCorpus, locals: SliceLocals):
     replica,
     issues: corpus.issues,
     issueProjections: corpus.issueProjections,
+    issueUserStates: replica.rows('issueUserStates'),
     repos: corpus.repos,
     machines: corpus.machines,
     sessions,
@@ -88,8 +92,8 @@ export function runLegacyDerivation(corpus: FixtureCorpus, locals: SliceLocals):
   const slice = worklistSlice.derive(store)
   // The same shared model cache the slice derived from: identical inputs, so
   // the progress fallback below reads the same objects, never a rebuild.
-  const models = allIssueViewModels(replica, corpus.issueProjections, corpus.issues)
-  return { slice, models, sessions, allWorktreePaths: slice.allWorktreePaths, temporaryIssues: corpus.issues }
+  const models = allIssueViewModels(replica, corpus.issueProjections, replica.rows('issueUserStates'))
+  return { slice, models, sessions, allWorktreePaths: slice.allWorktreePaths }
 }
 
 function projectRow(

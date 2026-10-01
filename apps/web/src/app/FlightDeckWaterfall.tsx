@@ -217,7 +217,7 @@ interface FlightDeckWaterfallProps {
 
 function issueFuture(row: FlightDeckRow): WaterfallFuture | null {
   const issue = row.issue
-  const question = issue.humanQuestion?.trim()
+  const question = issue.asked?.question?.trim()
   if (question) return { label: 'Needs you', detail: question, state: 'attention' }
   const blocked = issue.blockedByNotes?.map((note) => note.trim()).find(Boolean)
   if (blocked) return { label: 'Blocked', detail: blocked, state: 'blocked' }
@@ -234,7 +234,7 @@ function sessionReason(row: FlightDeckRow, session: SessionMeta): string | null 
   const runtime = session.agentState?.need?.summary?.trim()
   if (runtime) return runtime
   if (!sessionAsksOnIssue(row.issue, session)) return null
-  return row.issue.humanQuestion?.trim() || 'Waiting for operator'
+  return row.issue.asked?.question?.trim() || 'Waiting for operator'
 }
 
 /**

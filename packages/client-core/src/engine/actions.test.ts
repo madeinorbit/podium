@@ -1,6 +1,6 @@
 import { planNavigation, type NavigationIntent } from './navigation'
 import type { EngineState } from './state'
-import type { IssueWire, LayoutSnapshot, SessionId, SessionMeta } from '@podium/model'
+import type { IssueProjection, LayoutSnapshot, SessionId, SessionMeta } from '@podium/model'
 import { asIssueId, asMutationId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -49,6 +49,11 @@ function harness(
     tabOrders: {},
     sessions: [],
     issues: [],
+    issueProjections: [],
+    issueUserStates: [],
+    issueDeps: [],
+    issueGitStates: [],
+    repoProjections: [],
     repos: [],
     superThreadId: 'global',
     superOpen: false,
@@ -629,7 +634,7 @@ describe('ask superagent (BTW) attaches a session to the next turn (POD-1069)', 
  */
 describe('focusIssueSession waits for the session a launch started', () => {
   const issueId = asIssueId('issue-1')
-  const issue = (id: string) => ({ id: asIssueId(id) }) as unknown as IssueWire
+  const issue = (id: string) => ({ id: asIssueId(id) }) as unknown as IssueProjection
   const meta = (id: string, ownedBy: string): SessionMeta =>
     ({
       sessionId: asSessionId(id),
@@ -640,7 +645,7 @@ describe('focusIssueSession waits for the session a launch started', () => {
 
   it('opens the tab for a session that arrives AFTER the start resolved', async () => {
     const h = harness()
-    h.seed({ issues: [issue('issue-1')] })
+    h.seed({ issueProjections: [issue('issue-1')] })
 
     const landed = h.actions.focusIssueSession(issueId)
     // Nothing to open yet — this is the window the old code navigated in.
@@ -668,14 +673,14 @@ describe('focusIssueSession waits for the session a launch started', () => {
     expect(h.state().paneA).toBeNull()
     expect(h.state().workspaces).toEqual({})
 
-    h.seed({ issues: [issue('issue-1')] })
+    h.seed({ issueProjections: [issue('issue-1')] })
     expect(await landed).toBe('session-1')
     expect(Object.keys(h.state().workspaces)).toEqual(['mission:issue-1'])
   })
 
   it('does not overrule an operator who selected another task while it waited', async () => {
     const h = harness()
-    h.seed({ issues: [issue('issue-1'), issue('issue-2')] })
+    h.seed({ issueProjections: [issue('issue-1'), issue('issue-2')] })
 
     const landed = h.actions.focusIssueSession(issueId)
     h.actions.setSelectedIssueId(asIssueId('issue-2'))
@@ -690,7 +695,7 @@ describe('focusIssueSession waits for the session a launch started', () => {
     const h = harness()
     const existingId = asSessionId('session-existing')
     h.seed({
-      issues: [issue('issue-1')],
+      issueProjections: [issue('issue-1')] as never,
       sessions: [meta(existingId, 'issue-1')],
     })
 
@@ -707,7 +712,7 @@ describe('focusIssueSession waits for the session a launch started', () => {
 
   it('gives up when no session ever arrives, leaving the selection it made', async () => {
     const h = harness()
-    h.seed({ issues: [issue('issue-1')] })
+    h.seed({ issueProjections: [issue('issue-1')] })
 
     expect(await h.actions.focusIssueSession(issueId, { timeoutMs: 1 })).toBeNull()
     expect(h.state().selectedIssueId).toBe(issueId)

@@ -1,3 +1,5 @@
+import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
+import { makeIssue } from '@/lib/test-issue'
 /**
  * POD-647 — the seams the OLD WorkflowsView had NO test for, and which a
  * refactor therefore does not inherit coverage of.
@@ -18,6 +20,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+let subjects: ReturnType<typeof makeIssue>[] = []
 const list = vi.fn()
 const get = vi.fn()
 const bindings = vi.fn<() => Promise<unknown[]>>(async () => [])
@@ -54,9 +57,9 @@ const detailOf = (id: string) => ({
 })
 
 vi.mock('@/app/store', () => {
-  const useStore = () => ({
+  const useStore = () => normalizedFixtureStore({
     machines: [],
-    issues: [],
+    issues: subjects,
     sessions: [],
     trpc: {
       workflows: {
@@ -78,7 +81,7 @@ vi.mock('@/app/store', () => {
         : (useStore().sessions as Array<{ sessionId: string }>).find(
             (session) => session.sessionId === id,
           ),
-    useReplicaIssues: () => [],
+    useReplicaIssues: () => normalizedFixtureIssues({ issues: subjects }),
   }
 })
 
@@ -87,6 +90,7 @@ const { WorkflowsView } = await import('./WorkflowsView')
 
 beforeEach(() => {
   vi.clearAllMocks()
+  subjects = []
   list.mockResolvedValue([workflow('wf-1', 'One')])
   get.mockImplementation(async ({ id }: { id: string }) => detailOf(id))
   runs.mockResolvedValue([])
@@ -154,6 +158,17 @@ describe('run progress', () => {
     startedAt: '2026-01-01T00:00:00.000Z',
     completedAt: null,
     ...over,
+  })
+
+  it('renders a present subject with only normalized replica rows', async () => {
+    subjects = [makeIssue({ id: 'iss-visible', title: 'Projection subject' })]
+    const world = normalizedFixtureStore({ issues: subjects })
+    expect(world.replica.rows('issues')).toEqual([])
+    runs.mockResolvedValue([run({ subjectId: 'iss-visible' })])
+    render(<WorkflowsView />)
+    fireEvent.click(screen.getByRole('button', { name: 'Progress' }))
+    expect(await screen.findByText('issue · iss-visible')).toBeTruthy()
+    expect(screen.queryByText(/iss-visible · no access/)).toBeNull()
   })
 
   it('renders an invisible subject as an opaque reference, not as loading or deleted', async () => {

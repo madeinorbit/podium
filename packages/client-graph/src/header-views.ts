@@ -178,7 +178,7 @@ export function createHeaderViews(pool: MobxPool) {
       }
       collect(root.id)
       const crew = [...sessions.values()].filter((member) => sessionPresentOnTask(member as SessionMeta))
-      if (root.draft && !root.worktreePath && ![...pool.graph.many('issue', root.id, 'sessions')].some((sid) => {
+      if (root.isDraftVessel && !root.worktreePath && ![...pool.graph.many('issue', root.id, 'sessions')].some((sid) => {
         const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
         return member && member !== LOADING && !member.archived
       })) return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading }

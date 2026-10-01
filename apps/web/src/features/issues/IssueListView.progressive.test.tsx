@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -12,7 +12,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function issue(index: number): IssueWire {
+function issue(index: number): IssueViewModel {
   return {
     id: `issue-${index}`,
     repoPath: '/repo',
@@ -46,7 +46,7 @@ function issue(index: number): IssueWire {
     sessions: [],
     origin: 'human',
     draft: false,
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 function rows(count: number): IssueRow[] {

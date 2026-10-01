@@ -6,7 +6,7 @@ import { reaction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { SIDEBAR_ROW_FIELDS } from '@podium/client-graph/worklist/sidebar-row'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
-import { temporaryIssueInput } from '@podium/client-graph/shared/temporary-issue-input'
+import { issueInput } from '@podium/client-graph/shared/issue-input'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { settableLocals } from '@podium/client-graph/shared/locals-source'
 import { createReplaySource } from '../../../harness/src/count-harness'
@@ -77,22 +77,18 @@ describe('real sidebar oracle (POD-4953)', () => {
     } finally { handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
   }, 600_000)
 
-  it('normalizes the one temporary input without letting stale durable wire facts win', () => {
+  it('joins normalized facts and clears an absent ask without old rows', () => {
     const projection = { id: 'normalized', seq: 42, title: 'Projection title', stage: 'review',
       isDraftVessel: true, intentOrigin: 'agent', asked: { question: 'Pick one', options: ['A'], at: '2026-09-30', by: 'session' } }
-    const wire = { title: 'Stale title', stage: 'backlog', draft: false, origin: 'human', humanQuestion: 'Stale question',
-      pinned: true, tuckedAt: 'tucked', readAt: 'read', gitState: { ahead: 2 }, repoPath: '/repo', commentCount: 8 }
-    const joined = temporaryIssueInput(projection, wire, [], false)!
-    expect(joined).toMatchObject({ title: 'Projection title', stage: 'review', draft: true, origin: 'agent',
-      humanQuestion: 'Pick one', humanQuestionOptions: ['A'], pinned: true, tuckedAt: 'tucked', readAt: 'read',
-      gitState: { ahead: 2 }, repoPath: '/repo', commentCount: 8 })
-    expect(temporaryIssueInput({ ...projection, asked: null, isDraftVessel: false, intentOrigin: 'human' }, wire, [], false)).toMatchObject({
-      draft: false, origin: 'human', humanQuestion: undefined, humanQuestionOptions: undefined,
-    })
+    const markers = { pinned: true, tuckedAt: 'tucked', readAt: 'read' }
+    const git = { id: 'normalized', ahead: 2 }
+    const repo = { repoPath: '/repo' }
+    const joined = issueInput(projection, markers, git, repo, [], false, undefined)!
+    expect(joined).toMatchObject({ title: 'Projection title', stage: 'review', isDraftVessel: true, intentOrigin: 'agent',
+      asked: projection.asked, pinned: true, tuckedAt: 'tucked', readAt: 'read', gitState: { ahead: 2 }, repoPath: '/repo' })
+    expect(joined).not.toHaveProperty('commentCount')
     const { asked: _asked, ...withoutAsk } = projection
-    expect(temporaryIssueInput(withoutAsk, wire, [], false)).toMatchObject({
-      humanQuestion: undefined, humanQuestionOptions: undefined,
-    })
+    expect(issueInput(withoutAsk, markers, git, repo, [], false, undefined)?.asked).toBeUndefined()
   })
 
   it('cold sidebar reads answer LOADING and batch loads; eviction only clears a previously seen selection', () => {

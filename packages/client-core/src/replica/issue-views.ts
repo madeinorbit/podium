@@ -60,6 +60,7 @@ import {
   asIssueId,
   type IssueId,
   type IssueProjection,
+  type IssueUserStateWire,
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
@@ -476,9 +477,8 @@ export function buildIssueBoard(
  * The collection JOIN is the fix, and it is where D7.3 actually happens:
  *
  *  - `issueProjections` — the issue's own durable row. The source now.
- *  - `issues` — the retained principal-scoped row whose `readAt` persistence
- *    and optimistic overlays both write. The projection carries no per-user
- *    cursor; unread derivation reads this one home.
+ *  - `issueUserStates` — this principal's personal cursor. An absent row
+ *    means unread; the normalized projection carries no per-user cursor.
  *  - `issueDeps` — the edges, indexed by `fromId`. Issue X's `deps` are the
  *    edges leaving X, each `{ id: toId, type }` — exactly what `deriveIssueViews`
  *    reads. An edge add/remove touches ONE row here and re-derives `blocked` on
@@ -500,11 +500,12 @@ export function buildIssueBoard(
 export function readViewInputs(
   replica: Replica,
   projections: readonly IssueProjection[] = replica.rows('issueProjections'),
+  userStates: readonly IssueUserStateWire[] = replica.rows('issueUserStates'),
 ): {
   issues: IssueViewInput[]
   sessions: SessionViewInput[]
 } {
-  const readAtByIssueId = new Map(replica.rows('issues').map((issue) => [issue.id, issue.readAt]))
+  const readAtByIssueId = new Map(userStates.map(state => [state.entityId, state.readAt]))
   const prefixByRepoId = new Map<string, string | null>()
   for (const repo of replica.rows('repos')) prefixByRepoId.set(repo.id, repo.prefix ?? null)
   const depsByFrom = new Map<string, { id: string; type: string }[]>()

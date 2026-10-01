@@ -418,6 +418,12 @@ describe('rowStatusLine — task status, separate from agent activity', () => {
     expect(rowStatusLine(issueRow([fresh]), NOW)).toBe('in progress')
     expect(rowStatusLine(issueRow([sess()], true), NOW)).toBe('in progress')
   })
+
+  it('uses isDraftVessel for a normalized awaiting-first-prompt row', () => {
+    const row = issueRow([sess({ title: '✳ Claude Code' })], false, { isDraftVessel: true })
+    delete row.issue.draft
+    expect(rowStatusLine(row, NOW)).toBe('awaiting first prompt')
+  })
 })
 
 describe('isUnstartedSession — blank-vessel detection', () => {

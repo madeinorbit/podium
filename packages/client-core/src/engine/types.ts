@@ -146,6 +146,8 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  memory — `replica.persistent` is false and a reload cold-starts. */
   replica: Replica
   repos: GitRepositoryWire[]
+  /** Normalized replica repo facts, including path and issue prefix. */
+  repoProjections: import('@podium/model').RepoProjection[]
   reposLoading: boolean
   /** True once the first repo refresh has resolved — lets the UI distinguish
    *  "still loading" from "registry is genuinely empty" (first-run onboarding). */
@@ -160,6 +162,8 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  one row per issue they touched, absent = none set. Optimistic edits are
    *  folded in (POD-4969). */
   issueUserStates: import('@podium/model').IssueUserStateWire[]
+  issueGitStates: import('@podium/model').IssueGitStateProjection[]
+  issueDeps: import('@podium/model').IssueDepProjection[]
   /** The cross-project issue-event window, replicated (POD-1772). A bounded,
    *  server-curated tail — the superagent feed reads THESE rows rather than
    *  re-asking `issues.events` on a timer. */

@@ -17,7 +17,7 @@ import { sessionById } from '../session-index'
  * after a different principal took over (POD-404 AC).
  */
 
-import type { IssueWire, SessionId, IssueId } from '@podium/model'
+import type { IssueProjection, SessionId, IssueId } from '@podium/model'
 import { markSwitch } from '../perf/switch-trace'
 import type { SocketHub } from '../socket-transport'
 import {
@@ -380,7 +380,7 @@ export class Reactions {
     this.ports.publish({
       issueVisitBaseline: {
         issueId: issue.id,
-        readAt: issue.readAt,
+        readAt: state.issueUserStates.find(marker => marker.entityId === issue.id)?.readAt ?? null,
         openedAt: new Date().toISOString(),
       },
     })
@@ -439,7 +439,7 @@ export class Reactions {
   updateIssueMarkReadTimer(): void {
     const issue = foregroundIssue(this.ports.state())
     const key = issue
-      ? `${issue.id}\n${issueActivityAt(issue, this.ports.state().sessions, this.ports.state().issues)}`
+      ? `${issue.id}\n${issueActivityAt(issue, this.ports.state().sessions, this.ports.state().issueProjections)}`
       : null
     if (key === this.issueMarkReadKey) return
     this.issueMarkReadKey = key
@@ -462,10 +462,11 @@ export class Reactions {
 
   private fireMarkIssueRead(issueId: IssueId): void {
     const st = this.ports.state()
-    const issue: IssueWire | undefined = foregroundIssue(st)
+    const issue: IssueProjection | undefined = foregroundIssue(st)
     if (issue?.id !== issueId || !this.isVisible()) return
-    const activityAt = Date.parse(issueActivityAt(issue, st.sessions, st.issues))
-    const readAt = issue.readAt ? Date.parse(issue.readAt) : Number.NaN
+    const activityAt = Date.parse(issueActivityAt(issue, st.sessions, st.issueProjections))
+    const marker = st.issueUserStates.find(row => row.entityId === issue.id)
+    const readAt = marker?.readAt ? Date.parse(marker.readAt) : Number.NaN
     const unread = !Number.isFinite(readAt) || (Number.isFinite(activityAt) && activityAt > readAt)
     if (!unread) return
     this.issueMarkReadFiredAt = Date.now()

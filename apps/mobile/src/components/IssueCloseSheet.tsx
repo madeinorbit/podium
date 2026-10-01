@@ -1,8 +1,7 @@
-import type { IssueCloseConcern } from '@podium/client-core/viewmodels'
+import type { IssueCloseConcern, IssueNavigationModel } from '@podium/client-core/viewmodels'
 import {
   ISSUE_STATUS_LABELS,
   type IssueCloseReason,
-  type IssueWire,
   type SessionMeta,
 } from '@podium/model'
 import {
@@ -60,7 +59,7 @@ export function IssueCloseSheet({
   onConfirm,
   onClose,
 }: {
-  issue: IssueWire
+  issue: IssueNavigationModel
   /** The whole roster; membership is resolved by {@link issueCloseBlockers}. */
   sessions: readonly SessionMeta[]
   /** The ending being recorded, or `null` when the sheet is down. */

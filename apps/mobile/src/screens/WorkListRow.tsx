@@ -29,7 +29,7 @@ import {
   rowWaitingCount,
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { memo, useEffect, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
@@ -96,7 +96,7 @@ export interface WorkListRowProps {
   onTuck?: () => void
   /** This row's open is in flight — show the delayed native loader. */
   navPending: boolean
-  onOpenIssue: (issue: IssueWire) => void
+  onOpenIssue: (issue: IssueNavigationModel) => void
   onOpenSession: (sessionId: SessionId, rowKey: string) => void
   onLongPress: (issue: IssueNavigationModel) => void
 }

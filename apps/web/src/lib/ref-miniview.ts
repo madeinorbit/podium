@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 /**
  * Pure resolution + state for the floating ref miniview (#474, area 7).
  *
@@ -13,7 +14,6 @@
 import type {
   IssuePanelArtifact,
   IssuePanelTodo,
-  IssueWire,
   SessionId,
   IssueId,
 } from '@podium/model/browser'
@@ -21,20 +21,20 @@ import { type AnyRef, parseAnyRef } from '@podium/protocol'
 
 /**
  * The issue shape the resolver needs and the miniview card renders — COMPOSED
- * from `IssueWire` rather than restated (POD-367; POD-364's inventory #12 called
+ * from `IssueViewModel` rather than restated (POD-367; POD-364's inventory #12 called
  * this the largest client-side restatement in the repo, 22 keys).
  *
  * Identity is required; the at-a-glance fields stay optional, which is the one
  * thing this projection legitimately changes about them — a lean fixture or a
  * legacy row must still fit. That is `Partial<Pick<…>>`, so the optionality is
  * declared once here instead of field by field, and every field's TYPE now comes
- * from the aggregate: when `IssueWire.stage` gains a stage or `id` gains a brand,
+ * from the aggregate: when `IssueViewModel.stage` gains a stage or `id` gains a brand,
  * this shape follows instead of drifting.
  */
-export type RefIssueLike = Pick<IssueWire, 'id' | 'seq' | 'title'> &
+export type RefIssueLike = Pick<IssueViewModel, 'id' | 'seq' | 'title'> &
   Partial<
     Pick<
-      IssueWire,
+      IssueViewModel,
       | 'prefix'
       | 'displayRef'
       | 'stage'
@@ -54,7 +54,7 @@ export type RefIssueLike = Pick<IssueWire, 'id' | 'seq' | 'title'> &
       // coordinator wins over the merely-most-recent member.
       | 'coordinatorSessionId'
       // Startability fields for the card's "Run now" action (POD-110) — the same
-      // structural subset `isIssueStartable` reads off IssueWire.
+      // structural subset `isIssueStartable` reads off IssueViewModel.
       | 'worktreePath'
       | 'defaultAgent'
       | 'defaultModel'

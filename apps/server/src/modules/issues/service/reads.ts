@@ -596,6 +596,19 @@ export class IssueReportsModule {
     return out.sort((a, b) => a.seq - b.seq)
   }
 
+  /** Normalized durable search hits plus the reference label. This additive
+   * endpoint preserves the existing filtering, ordering and authorization. */
+  async searchNormalized(filter: IssueSearchFilter, mayRead: IssueReadPredicate = () => true) {
+    const hits = await this.search(filter, mayRead)
+    return await Promise.all(hits.map(async hit => {
+      const row = this.store.rows.get(hit.id)
+      if (!row) throw new IssueNotFound(hit.id)
+      const [change] = await this.store.projectionChanges(row)
+      if (!change) throw new IssueNotFound(hit.id)
+      return { ...change.value, displayRef: hit.displayRef ?? `#${hit.seq}` }
+    }))
+  }
+
   async search(filter: IssueSearchFilter, mayRead: IssueReadPredicate = () => true): Promise<IssueWire[]> {
     const text = filter.text?.toLowerCase()
     const commentCounts = await this.store.deps.store.issues.countIssueCommentsByIssue()

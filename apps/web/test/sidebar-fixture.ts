@@ -2,9 +2,10 @@
  * connection, operator cache, export, or second runtime is used by this fixture. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { asIssueId, asUserId, issueUserStateRowId } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
 
-export function createSidebarFixture(count = 18, now = Date.now(), simple = false) {
+export function createSidebarFixture(count = 18, now = Date.now(), simple = false, userId = 'operator') {
   const iso = (offset: number) => new Date(now + offset).toISOString()
   const records = new Map<string, EntityRecord>()
   const put = (entity: string, entityId: string, value: unknown) => {
@@ -35,7 +36,7 @@ export function createSidebarFixture(count = 18, now = Date.now(), simple = fals
   for (const repo of repos)
     put('repo', repo.repoId, {
       id: repo.repoId,
-      path: repo.path,
+      repoPath: repo.path,
       prefix: 'SYN',
       name: repo.path.split('/').at(-1),
     })
@@ -84,8 +85,10 @@ export function createSidebarFixture(count = 18, now = Date.now(), simple = fals
       ...(!simple && (i === 3 || i === 4) ? { parentId: 'synthetic-1' } : {}),
     }
     put('issue', id, issue)
+    const { readAt, tuckedAt, pinned, origin, draft, repoPath, sessions, sessionSummary, comments, deps, dependents, ready, blocked, deferred, childCount, childDoneCount, unread, ...normalized } = issue
+    put('issueUserState', issueUserStateRowId(asUserId(userId), asIssueId(id)), { userId, entityId: id, readAt, tuckedAt: tuckedAt ?? null, pinned })
     put('issueProjection', id, {
-      ...issue,
+      ...normalized,
       description: { value: '' },
       intentOrigin: 'human',
       isDraftVessel: false,

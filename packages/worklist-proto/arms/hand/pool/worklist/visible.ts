@@ -260,7 +260,7 @@ export function standingOf(issue: SliceIssue): Standing {
     parentId: issue.parentId || null,
     startedBy:
       !issue.parentId && !spinOff && issue.startedBySession ? issue.startedBySession : null,
-    draftVessel: issue.draft === true && !issue.worktreePath,
+    draftVessel: issue.isDraftVessel === true && !issue.worktreePath,
     finishedMs: parseMs(issue.closedAt ?? issue.updatedAt) ?? 0,
     readMs,
     hasReadAt: Boolean(issue.readAt),

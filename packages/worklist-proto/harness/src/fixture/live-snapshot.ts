@@ -1,3 +1,4 @@
+import { fixtureProjection, fixtureMarkers, fixtureGitStates } from './normalized-issues'
 /**
  * POD-4552 — an anonymised snapshot of a live Podium workspace, and the
  * adapter that feeds it to the same oracle and shape measures the fixture uses.
@@ -37,6 +38,8 @@ export const LIVE_SNAPSHOT_FORMAT = 'podium-live-snapshot/1'
 
 /** The collections as the web client holds them, before or after hashing. */
 export interface LiveCollections {
+  issueUserStates?: import('@podium/model').IssueUserStateWire[]
+  issueGitStates?: import('@podium/model').IssueGitStateProjection[]
   issues: IssueWire[]
   issueProjections: IssueProjection[]
   sessions: SessionMeta[]
@@ -290,6 +293,7 @@ export function anonymiseCollections(
  * fixture-only markers are empty: nothing here reads them.
  */
 export function corpusFromLive(live: LiveCollections, coarseNow: number): FixtureCorpus {
+  const oldById = new Map(live.issues.map(issue => [issue.id, issue]))
   return {
     seed: 0,
     scale: 1 as CorpusScale,
@@ -297,9 +301,16 @@ export function corpusFromLive(live: LiveCollections, coarseNow: number): Fixtur
     units: [],
     fixedNow: coarseNow,
     issues: live.issues,
-    issueProjections: live.issueProjections,
+    issueProjections: live.issueProjections.map(projection => {
+      const old = oldById.get(projection.id)
+      return old ? fixtureProjection(old, projection) : projection
+    }),
+    issueUserStates: live.issueUserStates ?? fixtureMarkers(live.issues),
+    issueGitStates: live.issueGitStates ?? fixtureGitStates(live.issues),
     sessions: live.sessions,
-    repoProjections: live.repoProjections,
+    repoProjections: live.repoProjections.map(repo => repo.repoPath !== undefined ? repo : {
+      ...repo, repoPath: live.issues.find(issue => issue.repoId === repo.id)?.repoPath ?? '',
+    }),
     issueDeps: live.issueDeps,
     repos: live.repos,
     machines: live.machines,

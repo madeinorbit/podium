@@ -18,7 +18,7 @@
  */
 import {
   type AgentKind,
-  type IssueWire,
+  type IssueProjection,
   idleVerdictFinishedTurn,
   type SessionMeta,
 } from '@podium/model'
@@ -156,7 +156,7 @@ export interface AgentBadge {
 
 /** Map harness-observed runtime state to the little badge on a session row.
  *  Null = nothing to show (uninstrumented agent kinds stay clean). */
-export function agentBadge(meta: SessionMeta, issue?: IssueWire): AgentBadge | null {
+export function agentBadge(meta: SessionMeta, issue?: Pick<IssueProjection, 'stage' | 'closedReason'>): AgentBadge | null {
   // An offer is an explicit pending decision even when the turn that produced
   // it has already classified as idle/done. Keep every status surface (session
   // dot, sidebar meta, chat activity) amber until that offer is cleared —
@@ -457,7 +457,7 @@ export type MotionPhase = 'queued' | 'working' | 'waiting' | 'done'
  * (POD-415); starting/exited/uninstrumented-quiet sessions fall through to
  * `queued`.
  */
-export function motionPhase(s: SessionMeta, issue?: IssueWire): MotionPhase {
+export function motionPhase(s: SessionMeta, issue?: Pick<IssueProjection, 'stage' | 'closedReason'>): MotionPhase {
   const state = s.agentState
   // Offers outlive the turn that created them, so attention must win over the
   // transcript's terminal idle/done verdict — unless the owning issue is already

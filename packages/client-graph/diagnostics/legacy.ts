@@ -3,7 +3,7 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import { worklistSlice, sortUnifiedWorkRows, type WorklistSlice, type IssueNavigationModel, type UnifiedIssueRow, type UnifiedWorkRow } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model'
 import type { SliceLocals } from '../src/shared/slice-types'
 
 export interface LegacyDerivation {
@@ -11,7 +11,6 @@ export interface LegacyDerivation {
   models: IssueNavigationModel[]
   sessions: SessionMeta[]
   allWorktreePaths: string[]
-  temporaryIssues?: readonly IssueWire[]
 }
 
 export function legacyDerivationFromStore(
@@ -20,12 +19,9 @@ export function legacyDerivationFromStore(
 ): LegacyDerivation {
   const replica = store.replica
   const projections = store.issueProjections ?? []
-  const models =
-    replica !== undefined && replica !== null && projections.length > 0
-      ? allIssueViewModels(replica, projections, store.issues)
-      : store.issues
+  const models = allIssueViewModels(replica, projections, store.issueUserStates)
   const slice = worklistSlice.derive(atClock(store, coarseNow))
-  return { slice, models, sessions: store.sessions, allWorktreePaths: slice.allWorktreePaths, temporaryIssues: store.issues }
+  return { slice, models, sessions: store.sessions, allWorktreePaths: slice.allWorktreePaths }
 }
 
 /** The store as the derivation reads it, with its clock read as `coarseNow`. */

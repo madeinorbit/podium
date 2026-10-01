@@ -1,3 +1,4 @@
+import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 /**
  * The two mobile-handoff surfaces, against the three rules that define them
@@ -50,9 +51,9 @@ const fixture = vi.hoisted(() => {
 })
 
 vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => fixture.issues,
+  useReplicaIssues: () => normalizedFixtureIssues({ issues: fixture.issues }),
   useStoreSelector: (selector: (store: unknown) => unknown) =>
-    selector({
+    selector(normalizedFixtureStore({
       uiState: fixture.uiState,
       trpc: fixture.trpc,
       httpOrigin: 'https://local.example',
@@ -64,7 +65,7 @@ vi.mock('@/app/store', () => ({
       paneB: null,
       split: false,
       focusedPane: 'A',
-    }),
+    })),
 }))
 
 import { MobileHandoffChip } from './MobileHandoffChip'

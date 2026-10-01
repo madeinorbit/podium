@@ -294,7 +294,7 @@ function IssueCardLeaf({
               {issue.type}
             </span>
           )}
-          {issue.origin === 'agent' && (
+          {issue.intentOrigin === 'agent' && (
             <span
               className="font-mono shell-type-micro text-text-faint"
               role="img"

@@ -29,6 +29,7 @@
 import {
   DRAFT_ISSUE_TITLE,
   type IssueWire,
+  type IssueProjection,
   isHeadlessSession,
   issueStatusOf,
   issueStatusOutcome,
@@ -48,7 +49,9 @@ import { sortSessionsForSidebar } from '../session-urgency'
 // The issue nav model, and the sub-issue tree.
 // ---------------------------------------------------------------------------
 
-export type IssueNavigationModel = Omit<IssueWire, 'commentCount'> & {
+export type IssueNavigationModel = Omit<IssueWire, 'commentCount' | 'origin' | 'draft'> & Partial<Pick<IssueProjection, 'asked' | 'intentOrigin' | 'isDraftVessel'>> & {
+  origin?: IssueWire['origin']
+  draft?: boolean
   memberSessionIds?: string[]
   unread?: boolean
   sessionSummary?: { total: number; byPhase: Record<string, number> }
@@ -77,10 +80,10 @@ export function subIssuesOf<T extends Pick<IssueWire, 'parentId' | 'deletedAt' |
  *  see" is an existence fact and therefore a §3.1.2 policy question, not a
  *  default this function may take. */
 export function branchRollup(
-  issues: readonly IssueWire[],
+  issues: readonly Pick<IssueNavigationModel, 'id' | 'parentId' | 'archived' | 'deletedAt' | 'stage' | 'closedReason'>[],
   rootId: string,
 ): { total: number; done: number } {
-  const childrenOf = new Map<string, IssueWire[]>()
+  const childrenOf = new Map<string, (typeof issues)[number][]>()
   for (const issue of issues) {
     if (issue.archived || issue.deletedAt || !issue.parentId) continue
     const list = childrenOf.get(issue.parentId) ?? []
@@ -122,17 +125,17 @@ export type CrossBoundaryPolicy = 'hidden' | 'opaque'
  *
  *  `'pending'` renders as neither: it has not arrived YET and is the one state a
  *  spinner is correct for. */
-export interface IssueEdge {
-  readonly resolution: ReferentResolution<IssueWire>
+export interface IssueEdge<T extends IssueNavigationModel = IssueNavigationModel> {
+  readonly resolution: ReferentResolution<T>
   readonly render: 'issue' | 'opaque' | 'hidden' | 'pending'
 }
 
-export function resolveIssueEdge(
+export function resolveIssueEdge<T extends IssueNavigationModel>(
   targetId: string | undefined | null,
-  lookup: (id: string) => IssueWire | undefined,
+  lookup: (id: string) => T | undefined,
   policy: CrossBoundaryPolicy,
   exitOf: (id: string) => ReferentExit | undefined = () => undefined,
-): IssueEdge {
+): IssueEdge<T> {
   const resolution = resolveReferent(targetId, lookup, exitOf)
   switch (resolution.state) {
     case 'present':
@@ -260,7 +263,7 @@ export function issueDisplayTitle(
  *  a task with NO NAME AT ALL, which is strictly worse than the placeholder
  *  this function exists to replace. Nobody named it, so it reads as unnamed. */
 function isUnnamedDraft(issue: IssueNavigationModel): boolean {
-  if (!issue.draft) return false
+  if (!issueDraftVessel(issue)) return false
   const title = issue.title.trim()
   return title === DRAFT_ISSUE_TITLE || title === ''
 }
@@ -270,8 +273,8 @@ function isUnnamedDraft(issue: IssueNavigationModel): boolean {
  *  IS the agent (clicking opens the session, nothing folds out beneath it), so
  *  it can never parent real work either. Both the nesting decision and the row
  *  rendering read this one predicate so they cannot drift apart (POD-282). */
-export function isDraftAgentVessel(issue: IssueWire, sessions: readonly SessionMeta[]): boolean {
-  return Boolean(issue.draft) && !issue.worktreePath && sessions.length > 0
+export function isDraftAgentVessel(issue: IssueNavigationModel, sessions: readonly SessionMeta[]): boolean {
+  return issueDraftVessel(issue) && !issue.worktreePath && sessions.length > 0
 }
 
 /**
@@ -287,10 +290,10 @@ export function isDraftAgentVessel(issue: IssueWire, sessions: readonly SessionM
  * one of these rather than dressing it up as a mission (POD-1112).
  */
 export function isEmptyDraftVessel(
-  issue: Pick<IssueWire, 'id' | 'draft' | 'worktreePath'>,
+  issue: Pick<IssueNavigationModel, 'id' | 'draft' | 'worktreePath' | 'isDraftVessel'>,
   sessions: readonly SessionMeta[],
 ): boolean {
-  if (!issue.draft || issue.worktreePath) return false
+  if (!issueDraftVessel(issue) || issue.worktreePath) return false
   // Attachment only, deliberately: a vessel has no worktree, so cwd
   // containment — the fallback `sessionsForIssueNav` uses — cannot put a
   // session in one. Archived sessions do not count as content; an emptied
@@ -345,7 +348,7 @@ export function issueAbandoned(
  *  The explicit ahead check keeps a never-moved/empty branch out, while
  *  `merged !== true` reuses the cleanup guard's ancestry verdict.
  *  Unknown/computing git state stays conservative (not actionable). */
-function issueHasUnmergedDelivery(issue: IssueWire): boolean {
+function issueHasUnmergedDelivery(issue: IssueNavigationModel): boolean {
   const git = issue.gitState
   return (
     Boolean(issue.branch) && git?.shared === false && git.merged !== true && (git.ahead ?? 0) > 0
@@ -366,7 +369,7 @@ function issueHasUnmergedDelivery(issue: IssueWire): boolean {
  * gesture available to dismiss it. Completion is the only ending that leaves a
  * merge outstanding.
  */
-export function issueAwaitingMerge(issue: IssueWire): boolean {
+export function issueAwaitingMerge(issue: IssueNavigationModel): boolean {
   const finished = issue.stage === 'done' || issue.closedReason != null
   return finished && !issueAbandoned(issue) && issueHasUnmergedDelivery(issue)
 }
@@ -388,7 +391,7 @@ export function issueAwaitingMerge(issue: IssueWire): boolean {
  *  reasoning as the tray's review backstop, POD-118). */
 export type IssuePendingDecision = 'merge' | 'review'
 
-export function issuePendingDecision(issue: IssueWire): IssuePendingDecision | null {
+export function issuePendingDecision(issue: IssueNavigationModel): IssuePendingDecision | null {
   const finished = issue.stage === 'done' || issue.closedReason != null
   if (!finished && issue.stage !== 'review') return null
   // `blocked` is derived from open outgoing `blocks` edges by the replica. Such
@@ -405,7 +408,7 @@ export function issuePendingDecision(issue: IssueWire): IssuePendingDecision | n
 
 /** How many commits the merge would land — the one number that makes "ready to
  *  merge" a fact instead of a label. Absent unless the decision is a merge. */
-export function issuePendingMergeCommits(issue: IssueWire): number {
+export function issuePendingMergeCommits(issue: IssueNavigationModel): number {
   return issuePendingDecision(issue) === 'merge' ? (issue.gitState?.ahead ?? 0) : 0
 }
 
@@ -415,7 +418,7 @@ export function issuePendingMergeCommits(issue: IssueWire): number {
  *  "· 2" under a branch glyph reads as commits. {@link pendingDecisionTitle}
  *  spells it out on hover. */
 export function pendingDecisionLabel(
-  issue: IssueWire,
+  issue: IssueNavigationModel,
   decision: IssuePendingDecision = 'review',
 ): string {
   if (decision !== 'merge') return 'needs review'
@@ -426,7 +429,7 @@ export function pendingDecisionLabel(
 /** The unabbreviated sentence behind {@link pendingDecisionLabel} — hover copy,
  *  and the accessible name where the row has no room to say it. */
 export function pendingDecisionTitle(
-  issue: IssueWire,
+  issue: IssueNavigationModel,
   decision: IssuePendingDecision = 'review',
 ): string {
   if (decision !== 'merge') return 'Waiting on your review'
@@ -435,4 +438,16 @@ export function pendingDecisionTitle(
   return commits > 0
     ? `${commits} commit${commits === 1 ? '' : 's'} ready to land on ${target}`
     : `Ready to land on ${target}`
+}
+
+/** Compatibility for mobile until its separate cutover. Web models carry only
+ * the normalized fields, so these fallback values cannot affect web output. */
+export function issueDraftVessel(issue: { isDraftVessel?: boolean; draft?: boolean }): boolean {
+  return issue.isDraftVessel ?? issue.draft ?? false
+}
+export function issueAsked(issue: Pick<IssueNavigationModel, 'asked' | 'humanQuestion' | 'humanQuestionOptions' | 'humanQuestionAskedAt' | 'humanQuestionAskedBy'>): { question: string; options?: string[]; at?: string; by?: NonNullable<IssueProjection['asked']>['by'] } | undefined {
+  if (issue.asked) return issue.asked
+  if (!issue.humanQuestion) return undefined
+  return { question: issue.humanQuestion, options: issue.humanQuestionOptions,
+    at: issue.humanQuestionAskedAt, by: issue.humanQuestionAskedBy }
 }

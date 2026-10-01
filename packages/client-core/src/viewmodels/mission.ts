@@ -1,3 +1,4 @@
+import type { IssueProjection } from '@podium/model'
 import {
   type AgentKind,
   asIssueId,
@@ -385,10 +386,10 @@ export function issueNeedsHuman(
   return issue.stage === 'review'
 }
 
-export function missionRootFor(
-  issues: readonly IssueNavigationModel[],
+export function missionRootFor<T extends MissionIssueTopology>(
+  issues: readonly T[],
   selectedIssueId: IssueId | null,
-): IssueNavigationModel | undefined {
+): T | undefined {
   if (!selectedIssueId) return undefined
   // Shared per-snapshot index (POD-4419 S1): the per-call
   // `new Map(issues.map(...))` rebuilt the whole corpus on every call, and this
@@ -520,7 +521,7 @@ const UNDERWAY = new Set(['planning', 'in_progress', 'shipping'])
  * by a mission agent was dragged back onto the origin's spine for good, counted
  * in its progress, and the origin could never read as finished (POD-679).
  */
-export function hasLeftMission(issue: IssueNavigationModel): boolean {
+export function hasLeftMission(issue: Pick<MissionIssueTopology, 'stage' | 'deps'>): boolean {
   return !UNSTARTED.has(issue.stage) && spinOffOriginId(issue) !== null
 }
 
@@ -811,9 +812,14 @@ export function isVacatedOrigin(
  * The halves of {@link missionIssueIds} that depend on the ISSUE SLICE ALONE —
  * not on the root, not on the sessions — so they can be built once and reused.
  */
-interface MissionIssueIndex {
+/** Facts needed for workspace membership, without a render-model dependency. */
+export type MissionIssueTopology = Pick<IssueProjection, 'id' | 'parentId' | 'archived' | 'deletedAt' | 'stage' | 'startedBySession'> & {
+  deps?: readonly { id: string; type: string }[]
+}
+
+interface MissionIssueIndex<T extends MissionIssueTopology = MissionIssueTopology> {
   /** Live issues by `parentId`: the formal subtree walk's adjacency list. */
-  children: Map<string, IssueNavigationModel[]>
+  children: Map<string, T[]>
   /**
    * The only issues the provenance fallback can ever claim, in `issues` order.
    *
@@ -846,7 +852,7 @@ interface MissionIssueIndex {
    * on, so sharing one map is what lets the `discovered-from` adjacency survive
    * from one caller to the next within a publish.
    */
-  byId: Map<string, IssueNavigationModel>
+  byId: Map<string, T>
 }
 
 let missionIndexBuilds = 0
@@ -897,8 +903,8 @@ let missionIndexComparisons = 0
  * reference is replaced on the next miss and never returned for a corpus it
  * was not compared against.
  */
-const missionIndexes = new WeakMap<readonly IssueNavigationModel[], MissionIssueIndex>()
-let lastMissionIndexIssues: readonly IssueNavigationModel[] | undefined
+const missionIndexes = new WeakMap<readonly MissionIssueTopology[], MissionIssueIndex>()
+let lastMissionIndexIssues: readonly MissionIssueTopology[] | undefined
 let lastMissionIndex: MissionIssueIndex | undefined
 
 /** Formal-tree eligibility, shared with the incremental relationship index. */
@@ -906,9 +912,9 @@ export function missionParentId(issue: { parentId?: string | null; archived?: bo
   return issue.archived || issue.deletedAt ? null : issue.parentId || null
 }
 
-function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssueIndex {
+function missionIssueIndex<T extends MissionIssueTopology>(issues: readonly T[]): MissionIssueIndex<T> {
   const cached = missionIndexes.get(issues)
-  if (cached) return cached
+  if (cached) return cached as MissionIssueIndex<T>
   // Same rows, new array: `[...issues]`, a fresh fold, a fresh view-model `all`
   // array around reused models. Nothing the index is built from moved, so hand
   // back the previous build rather than rescanning the corpus. Element-wise
@@ -929,13 +935,13 @@ function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssu
     if (same) {
       missionIndexes.set(issues, prior)
       lastMissionIndexIssues = issues
-      return prior
+      return prior as MissionIssueIndex<T>
     }
   }
   missionIndexBuilds += 1
-  const children = new Map<string, IssueNavigationModel[]>()
+  const children = new Map<string, T[]>()
   const parents = new Map<string, string>()
-  const byId = new Map<string, IssueNavigationModel>()
+  const byId = new Map<string, T>()
   const startedCandidates: Array<{ id: string; startedBySession: SessionId }> = []
   for (const issue of issues) {
     byId.set(issue.id, issue)
@@ -949,7 +955,7 @@ function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssu
     children.set(parent, siblings)
     parents.set(issue.id, parent)
   }
-  const index: MissionIssueIndex = { children, parents, byId, startedCandidates }
+  const index: MissionIssueIndex<T> = { children, parents, byId, startedCandidates }
   missionIndexes.set(issues, index)
   lastMissionIndexIssues = issues
   lastMissionIndex = index
@@ -1004,8 +1010,8 @@ export function missionIndexStats(): {
  * the whole derivation; with it the first one computes and the rest read.
  */
 function memoBySlices<T>(
-  table: WeakMap<readonly IssueNavigationModel[], WeakMap<readonly SessionMeta[], Map<string, T>>>,
-  issues: readonly IssueNavigationModel[],
+  table: WeakMap<readonly MissionIssueTopology[], WeakMap<readonly SessionMeta[], Map<string, T>>>,
+  issues: readonly MissionIssueTopology[],
   sessions: readonly SessionMeta[],
   key: string,
   compute: () => T,
@@ -1091,7 +1097,7 @@ let missionMemberComputes = 0
  * asking about the same mission in the same publish.
  */
 export function missionIssueIds(
-  issues: readonly IssueNavigationModel[],
+  issues: readonly MissionIssueTopology[],
   rootId: string,
   sessions: readonly SessionMeta[] = NO_SESSIONS,
 ): Set<string> {
@@ -1101,7 +1107,7 @@ export function missionIssueIds(
 }
 
 function computeMissionIssueIds(
-  issues: readonly IssueNavigationModel[],
+  issues: readonly MissionIssueTopology[],
   rootId: string,
   sessions: readonly SessionMeta[],
 ): Set<string> {

@@ -1,9 +1,10 @@
 import {
   blockingCloseConcerns,
   type IssueCloseConcern,
+  type IssueNavigationModel,
   issueCloseConcerns,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model'
 
 /**
  * THE PHONE'S HALF OF THE CLOSE GUARD [POD-1129] — membership, and nothing else.
@@ -22,7 +23,7 @@ import type { IssueWire, SessionMeta } from '@podium/model'
  * that keeps that an assertion rather than an assumption.
  */
 export function issueCloseBlockers(
-  issue: IssueWire,
+  issue: IssueNavigationModel,
   sessions: readonly SessionMeta[],
 ): IssueCloseConcern[] {
   return blockingCloseConcerns(

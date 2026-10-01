@@ -57,7 +57,7 @@ vi.mock('@/app/store', () => ({
       replica: replicaAnswersExits
         ? {
             exitKind: (entity: string, id: string) =>
-              entity === 'issue' ? replicaExits[id] : undefined,
+              entity === 'issueProjection' ? replicaExits[id] : undefined,
           }
         : {},
     } as never),

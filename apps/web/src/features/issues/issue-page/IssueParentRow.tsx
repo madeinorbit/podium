@@ -60,8 +60,8 @@ export const REPARENT_SCOPE_NOTE =
  * to hand scope to.
  */
 export function crossesOwnerBoundary(
-  issue: Pick<IssueViewModel, 'owner'>,
-  target: Pick<IssueViewModel, 'owner'> | undefined,
+  issue: Partial<Pick<IssueViewModel, 'owner'>>,
+  target: Partial<Pick<IssueViewModel, 'owner'>> | undefined,
 ): boolean {
   const mine = issue.owner
   const theirs = target?.owner
@@ -88,7 +88,7 @@ export function IssueParentRow({
   /** The parent reference, resolved against the partial world — an issue the
    *  principal cannot see renders per the surface's cross-boundary policy
    *  rather than as a missing parent. */
-  parentEdge: IssueEdge
+  parentEdge: IssueEdge<IssueViewModel>
   busy: boolean
   mateOptions: PropertyOption[]
   /** Repo-mates by id — the pool the menu offers, used to resolve the chosen

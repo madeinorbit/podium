@@ -1,3 +1,4 @@
+import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -76,7 +77,7 @@ function issue(id: string, title: string, over: Record<string, unknown> = {}) {
     ready: true,
     blocked: false,
     deferred: false,
-    readAt: '2026-06-20T00:00:00.000Z',
+    readAt: '2026-07-06T12:00:00.000Z',
     unread: false,
     ...over,
   }
@@ -127,7 +128,7 @@ vi.mock('@/app/store', () => {
   // The selector-store hook reads slices off the same store shape.
   return {
     useStore,
-    useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
+    useReplicaIssues: () => normalizedFixtureIssues(useStore()),
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
     // POD-331: the worklist is a PUBLISHED slice now, so the component reads it
     // through `useSlice` instead of deriving it locally. These suites assert
@@ -136,7 +137,7 @@ vi.mock('@/app/store', () => {
     // and a mock that pretended to memoize here would be a second, untested
     // implementation of the mechanism.
     useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive({ ...(useStore() as object), coarseNow: Date.now() } as never),
+      def.derive(normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never)),
   }
 })
 

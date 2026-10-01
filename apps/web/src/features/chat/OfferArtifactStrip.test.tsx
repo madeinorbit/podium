@@ -1,9 +1,9 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   type ArtifactId,
   asArtifactId,
   asSessionId,
   type IssuePanelArtifact,
-  type IssueWire,
   type SessionMeta,
   type SessionOffer,
 } from '@podium/model'
@@ -18,7 +18,7 @@ import { OfferArtifactStrip } from './OfferArtifactStrip'
 
 const openArtifact = vi.fn()
 const openFileInWorktree = vi.fn()
-let issues: IssueWire[] = []
+let issues: IssueViewModel[] = []
 let publication = 0
 const storeListeners = new Set<() => void>()
 let storeSnapshot = {
@@ -73,14 +73,14 @@ const art = (path: string, addedAt: string, artifactId?: ArtifactId): IssuePanel
   ...(artifactId ? { artifactId } : {}),
 })
 
-const makeIssue = (artifacts: IssuePanelArtifact[]): IssueWire =>
+const makeIssue = (artifacts: IssuePanelArtifact[]): IssueViewModel =>
   ({
     id: 'iss_1',
     worktreePath: '/wt',
     repoPath: '/repo',
     panel: { todos: [], artifacts, deferred: [] },
     sessions: [],
-  }) as unknown as IssueWire
+  }) as unknown as IssueViewModel
 
 const session = { sessionId: asSessionId('sess_1'), issueId: 'iss_1' } as unknown as SessionMeta
 

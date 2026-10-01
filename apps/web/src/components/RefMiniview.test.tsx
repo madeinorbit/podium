@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import '@/test-support/model-catalog-mock'
 import { asIssueId, asSessionId, asUserId } from '@podium/model'
@@ -75,7 +76,7 @@ const parent: RefIssueLike = {
   title: 'Epic',
 }
 
-/** A fully-populated issue (a structural subset of IssueWire, like the store holds). */
+/** A fully-populated issue (a structural subset of like the store holds). */
 const rich: RefIssueLike = {
   id: asIssueId('iss_1'),
   prefix: 'POD',

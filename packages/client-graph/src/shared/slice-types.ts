@@ -38,7 +38,7 @@ export interface SliceIssue {
   stage: string
   closedReason?: string | null
   audience?: 'human' | 'agent'
-  draft?: boolean
+  isDraftVessel?: boolean
   /** Pinned issues move out of their group into the PINNED section (spec §3 R-GROUP). */
   pinned?: boolean
   /** Persisted manual key, meaningful only against siblings (spec §3 R-ORDER). */
@@ -63,10 +63,8 @@ export interface SliceIssue {
   branch?: string | null
   parentBranch?: string | null
   gitState?: { shared?: boolean; merged?: boolean; ahead?: number; [key: string]: unknown } | null
-  commentCount?: number
-  origin?: 'human' | 'agent'
-  humanQuestion?: string | null
-  humanQuestionOptions?: readonly string[]
+  intentOrigin?: 'human' | 'agent'
+  asked?: { question?: string; options?: readonly string[]; at?: string; by?: string }
   supersededBy?: string | null
   duplicateOf?: string | null
   /** Declared small summary over the raw normalized session lane (resume

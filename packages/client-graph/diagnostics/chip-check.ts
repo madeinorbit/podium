@@ -79,7 +79,7 @@ export function startChipCheck(
       const store = runtime.getSnapshot()
       const result = checkIssueChips(
         reader,
-        allIssueViewModels(store.replica, store.issueProjections, store.issues),
+        allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates),
         tokens(),
       )
       checks++

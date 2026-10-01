@@ -19,9 +19,12 @@ import {
   GitRepositoryWire,
   GitWorktreeWire,
   IssueDepWire,
+  IssueDepProjection,
   IssueGitState,
   IssueProjection,
-  IssueWire,
+  IssueUserStateWire,
+  IssueGitStateProjection,
+  IssueDerived,
   RepoProjection,
   ResumeRef,
   SessionMeta,
@@ -40,9 +43,12 @@ export interface ShapeCarrier {
  * typecheck, so the citation vocabulary cannot drift from the model.
  */
 export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
-  IssueWire,
+  IssueUserStateWire,
+  IssueGitStateProjection,
+  IssueDerived,
   IssueProjection,
   IssueDepWire,
+  IssueDepProjection,
   SessionMeta,
   AgentRuntimeState,
   SessionOffer,

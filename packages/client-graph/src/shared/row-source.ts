@@ -32,7 +32,7 @@
  * emits nothing (POD-1053).
  *
  * IDENTITY. Sessions without overlays borrow the replica's row object. Issue
- * composition is memoized by projection, temporary input and declared summary
+ * composition is memoized by projection, user markers, git observation, repo and declared summary
  * identities, so a rejection restores the previous composed issue itself.
  * A folded value that is shallow-equal to the one last emitted
  * for that row keeps the earlier object, as the ledger's whole-list fold does.
@@ -84,10 +84,9 @@
  * `conversations`, `automations`, `automationRuns`, `userLayouts`) never
  * produce rows. A publication touching only those kinds emits no event.
  *
- * ISSUE INPUT (POD-4953). Durable issue facts come from the folded normalized
- * projection. One temporary adapter supplies the six old-only fields and
- * translates compatibility spellings. A projection-only write therefore wins
- * over a stale old record. Wire/projection addresses dedupe to one issue row.
+ * ISSUE INPUT. Durable facts come from issueProjections; user markers,
+ * git observations and repo paths come from their normalized kinds. Address
+ * summaries retain only keys so each update resolves just its affected rows.
  *
  * SESSION RESUME TWINS (a known divergence, not a silent one). The runtime
  * hides all-parked legacy sessions that share a resume ref
@@ -136,13 +135,13 @@
 
 import {
   foldRowOverlays,
-  type OverlayEntity,
+  type OverlayTarget,
   type PendingOverlay,
 } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
-import { temporaryIssueInput } from './temporary-issue-input'
+import { issueInput } from './issue-input'
 import { shallowEqual } from '@podium/client-core/store'
-import { normalizeOriginUrl, repoNameFromOrigin } from '@podium/model'
+import { normalizeOriginUrl, repoNameFromOrigin, parseIssueUserStateRowId, issueUserStateRowId, asUserId, asIssueId } from '@podium/model'
 import type { RowSource } from './source'
 import type { SliceIssue, SliceSession, SliceWorktree } from './slice-types'
 import type { RowRecord, RowSourceEvent } from './source'
@@ -168,7 +167,7 @@ interface RepoEntry {
 export interface RowSourceRuntime {
   subscribe(listener: () => void): () => void
   getSnapshot(): { repos: readonly RepoEntry[] }
-  pendingOverlaysByRow(entity: OverlayEntity): ReadonlyMap<string, readonly PendingOverlay[]>
+  pendingOverlaysByRow(entity: OverlayTarget): ReadonlyMap<string, readonly PendingOverlay[]>
 }
 
 /** The replica surface the row source reads. `row()` and the addressed seam
@@ -207,18 +206,20 @@ export interface RowSourceHandle {
 
 const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'sessions',
-  'issues',
+  'issueUserStates',
+  'issueGitStates',
   'issueProjections',
   'issueDeps',
   'repos',
 ])
 
-const OVERLAID: readonly OverlayEntity[] = ['sessions', 'issues', 'issueProjections']
+const OVERLAID: readonly OverlayTarget[] = ['sessions', 'issueUserStates', 'issueProjections']
 const NO_OVERLAYS: readonly PendingOverlay[] = []
-type PendingByRow = Record<OverlayEntity, ReadonlyMap<string, readonly PendingOverlay[]>>
+type PendingByRow = Record<OverlayTarget, ReadonlyMap<string, readonly PendingOverlay[]>>
 const NO_PENDING: PendingByRow = {
   sessions: new Map(),
   issues: new Map(),
+  issueUserStates: new Map(),
   issueProjections: new Map(),
 }
 
@@ -276,6 +277,40 @@ export function createRowSource(
   const subscribeAddressed: NonNullable<RowSourceReplica['subscribeAddressedBatch']> = addressedOf
   const listeners = new Set<(event: RowSourceEvent) => void>()
   let disposed = false
+
+  const userStateKeys = new Map<string, string>()
+  const issueRepos = new Map<string, string>()
+  const repoIssues = new Map<string, Set<string>>()
+  function installIssueRepo(id: string, row: AnyRow | undefined): void {
+    const previous = issueRepos.get(id)
+    if (previous) repoIssues.get(previous)?.delete(id)
+    issueRepos.delete(id)
+    if (typeof row?.repoId === 'string') {
+      issueRepos.set(id, row.repoId)
+      let members = repoIssues.get(row.repoId)
+      if (!members) { members = new Set(); repoIssues.set(row.repoId, members) }
+      members.add(id)
+    }
+  }
+  function installUserKey(key: string): string {
+    const { entityId } = parseIssueUserStateRowId(key)
+    if (authority('issueUserStates', key)) userStateKeys.set(entityId, key)
+    else userStateKeys.delete(entityId)
+    return entityId
+  }
+  function seedIssueJoins(): void {
+    userStateKeys.clear(); issueRepos.clear(); repoIssues.clear()
+    for (const row of replica.rows('issueUserStates')) {
+      if (typeof row.userId === 'string' && typeof row.entityId === 'string') {
+        // Composite keys use the same encoding as the facade, including removals.
+        userStateKeys.set(row.entityId, issueUserStateRowId(asUserId(row.userId), asIssueId(row.entityId)))
+      }
+    }
+    for (const row of replica.rows('issueProjections')) {
+      const id = idOf(row)
+      if (id) installIssueRepo(id, row)
+    }
+  }
 
   // Pending signals since the last flush.
   const pendingAddresses = new Map<string, { kind: ReplicaKind; id: string }>()
@@ -354,7 +389,8 @@ export function createRowSource(
     if (mode === 'truth') return NO_PENDING
     return {
       sessions: runtime.pendingOverlaysByRow('sessions'),
-      issues: runtime.pendingOverlaysByRow('issues'),
+      issues: new Map(),
+      issueUserStates: runtime.pendingOverlaysByRow('issueUserStates'),
       issueProjections: runtime.pendingOverlaysByRow('issueProjections'),
     }
   }
@@ -369,7 +405,7 @@ export function createRowSource(
   }
 
   function folded(
-    kind: OverlayEntity,
+    kind: OverlayTarget,
     id: string,
     pending: PendingByRow | null,
   ): AnyRow | undefined {
@@ -473,7 +509,7 @@ export function createRowSource(
   function closedInput(id: string): boolean | undefined {
     // Replica blocking is a truth fact. Optimistic stages change their own
     // row immediately, but a neighbour stops blocking only on the server echo.
-    const projection = authority('issueProjections', id) ?? authority('issues', id)
+    const projection = authority('issueProjections', id)
     return projection === undefined ? undefined : projection.stage === 'done'
   }
 
@@ -486,15 +522,17 @@ export function createRowSource(
     ensureEdges()
     ensureSessionFacts()
     const projection = folded('issueProjections', id, pending)
-    const temporary = folded('issues', id, pending)
+    const userState = foldRowOverlays(authority('issueUserStates', userStateKeys.get(id) ?? ''), pending?.issueUserStates.get(id) ?? NO_OVERLAYS)
+    const gitState = authority('issueGitStates', id)
+    const repo = typeof projection?.repoId === 'string' ? authority('repos', projection.repoId) : undefined
     const deps = outgoing.get(id) ?? EMPTY
     const blocked = deps.some(edge => edge.type === 'blocks' && closedInput(edge.id) === false)
-    return temporaryIssueInput(projection, temporary, deps, blocked, issueSessionFacts.get(id) ?? NO_SESSION_FACTS)
+    return issueInput(projection, userState, gitState, repo, deps, blocked, issueSessionFacts.get(id) ?? NO_SESSION_FACTS)
   }
 
   function hasOverlays(kind: 'session' | 'issue', id: string, pending: PendingByRow): boolean {
     if (kind === 'session') return pending.sessions.has(id)
-    return pending.issues.has(id) || pending.issueProjections.has(id)
+    return pending.issueUserStates.has(id) || pending.issueProjections.has(id)
   }
 
   function prefixOf(repoId: string): string | null {
@@ -670,11 +708,8 @@ export function createRowSource(
       for (const row of replica.rows('sessions')) add(sessionIdOf(row))
       for (const id of pending.sessions.keys()) add(id)
     } else {
-      for (const row of replica.rows('issues')) add(idOf(row))
-      // Projections without a wire row still install (a wire that arrives a
-      // beat later upserts over them).
       for (const row of replica.rows('issueProjections')) add(idOf(row))
-      for (const id of pending.issues.keys()) add(id)
+      for (const id of pending.issueUserStates.keys()) add(id)
       for (const id of pending.issueProjections.keys()) add(id)
     }
     const out: RowRecord[] = []
@@ -732,6 +767,7 @@ export function createRowSource(
 
     stats.flushes += 1
     if (hadReplace) {
+      seedIssueJoins()
       edgesReady = false
       edgeRows.clear(); outgoing.clear(); incoming.clear(); closure.clear()
       ensureEdges()
@@ -762,6 +798,16 @@ export function createRowSource(
     for (const address of addresses) {
       if (address.kind === 'repos') {
         for (const row of resolveReposFanout(address.id)) byKey.set(`${row.kind}:${row.id}`, row)
+        for (const owner of repoIssues.get(address.id) ?? EMPTY) addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
+        continue
+      }
+      if (address.kind === 'issueUserStates') {
+        const owner = installUserKey(address.id)
+        addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
+        continue
+      }
+      if (address.kind === 'issueGitStates') {
+        addressed.set(`issue:${address.id}`, { kind: 'issue', id: address.id })
         continue
       }
       if (address.kind === 'sessions') {
@@ -779,6 +825,7 @@ export function createRowSource(
         }
       } else {
         addressed.set(`issue:${address.id}`, { kind: 'issue', id: address.id })
+        installIssueRepo(address.id, authority('issueProjections', address.id))
         const closed = closedInput(address.id)
         if (closure.get(address.id) !== closed) {
           for (const owner of incoming.get(address.id) ?? EMPTY) addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
@@ -800,7 +847,7 @@ export function createRowSource(
     const ledgerRows = new Map<string, { kind: 'session' | 'issue'; id: string }>()
     for (const id of pending.sessions.keys())
       ledgerRows.set(`session:${id}`, { kind: 'session', id })
-    for (const id of pending.issues.keys()) ledgerRows.set(`issue:${id}`, { kind: 'issue', id })
+    for (const id of pending.issueUserStates.keys()) ledgerRows.set(`issue:${id}`, { kind: 'issue', id })
     for (const id of pending.issueProjections.keys())
       ledgerRows.set(`issue:${id}`, { kind: 'issue', id })
     for (const key of overlaid.keys()) {
@@ -891,6 +938,7 @@ export function createRowSource(
   // hide a whole-kind scan inside an ordinary publication.
   ensureEdges()
   ensureSessionFacts()
+  seedIssueJoins()
 
   // Seed the overlaid memo with the rows already painted at creation, so the
   // first flush compares against what `snapshot()` would have served. O(pending).

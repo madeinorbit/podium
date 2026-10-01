@@ -14,6 +14,7 @@ import {
   flightDeckRowIsFolded,
   formatClock,
   type IssueContinuation,
+  type IssueNavigationModel,
   isCoordinatorSession,
   issueAbandoned,
   issueContinuation,
@@ -126,8 +127,8 @@ export const MissionDeck = memo(function MissionDeck({
    *  the panel answers "where am I" as well as "what else is there". */
   currentSessionId: SessionId | undefined
   onOpenSession: (session: SessionMeta) => void
-  onOpenTask: (issue: IssueWire) => void
-  onOpenTaskMenu?: (issue: IssueWire) => void
+  onOpenTask: (issue: IssueNavigationModel) => void
+  onOpenTaskMenu?: (issue: IssueNavigationModel) => void
   onLaunchAgent: () => void
   onTuckRoot: () => void
   onFileRoot: () => void
@@ -250,7 +251,7 @@ export const MissionDeck = memo(function MissionDeck({
    *  and ask it why. Unresolvable (a human create, or an agent long gone) means
    *  no author line rather than a raw session id. */
   const authorOf = useCallback(
-    (issue: IssueWire): string | null => {
+    (issue: IssueNavigationModel): string | null => {
       const id = issue.startedBySession
       if (!id) return null
       return sessions.find((s) => s.sessionId === id)?.displayRef?.trim() || null
@@ -563,8 +564,8 @@ function SpineRow({
   folded: boolean
   currentSessionId: SessionId | undefined
   onToggleFold: () => void
-  onOpenTask: (i: IssueWire) => void
-  onOpenTaskMenu?: (i: IssueWire) => void
+  onOpenTask: (i: IssueNavigationModel) => void
+  onOpenTaskMenu?: (i: IssueNavigationModel) => void
   onOpenSession: (s: SessionMeta) => void
 }) {
   const state = deckIssueState(row.issue, row.sessions, byId)

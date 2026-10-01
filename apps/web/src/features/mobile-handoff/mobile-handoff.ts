@@ -152,7 +152,7 @@ export function useFocusedHandoffSessionId(): string | null {
     // Focused component tests intentionally expose only the fields their
     // subject reads. Treat those partial fixtures like a shell with no focused
     // session rather than making an unrelated handoff affordance throw.
-    if (!Array.isArray(store.issues) || !store.workspaces || typeof store.workspaces !== 'object') {
+    if (!Array.isArray(store.issueProjections) || !store.workspaces || typeof store.workspaces !== 'object') {
       return null
     }
     return focusedPaneSession(store)

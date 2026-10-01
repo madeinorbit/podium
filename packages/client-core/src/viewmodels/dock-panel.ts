@@ -95,7 +95,7 @@ export function resolveActiveWorktree(args: {
  *  match, the deepest containing worktreePath wins (a repo-root worktree must
  *  not swallow `.worktrees/*` checkouts), and equal depths tie-break on lowest
  *  seq — never on broadcast array order (#243). */
-type IssuePanelLike = Omit<IssueWire, 'sessions'>
+type IssuePanelLike = Pick<IssueWire, 'id' | 'worktreePath' | 'archived' | 'deletedAt' | 'seq' | 'parentId' | 'panel'>
 
 export function issueForCwd<T extends IssuePanelLike>(issues: T[], cwd: string): T | null {
   let best: T | null = null

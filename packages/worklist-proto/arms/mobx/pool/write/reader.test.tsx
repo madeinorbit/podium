@@ -98,7 +98,7 @@ function stageKeptIssue(pool: MobxPool): string {
       const row = pool.row('issue', candidate, 'peek') as SliceIssue | undefined
       return (
         node !== undefined &&
-        row?.draft !== true &&
+        row?.isDraftVessel !== true &&
         node.standing?.sessionless === 'keep' &&
         !node.retained &&
         !node.keptBelow

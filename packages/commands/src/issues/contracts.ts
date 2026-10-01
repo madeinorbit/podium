@@ -883,6 +883,9 @@ export const issueSearchContract = {
   conflict: 'n/a',
 } as const satisfies CommandContract
 
+/** Additive normalized search response; legacy clients keep issues.search. */
+export const issueSearchNormalizedContract = { ...issueSearchContract, name: 'issues.searchNormalized', conflict: 'n/a' } as const satisfies CommandContract
+
 export const issueCountContract = {
   name: 'issues.count',
   version: 1,
@@ -2031,6 +2034,7 @@ export const ISSUE_CONTRACTS = {
   resolveShipHold: issueResolveShipHoldContract,
   restore: issueRestoreContract,
   search: issueSearchContract,
+  searchNormalized: issueSearchNormalizedContract,
   setCoordinator: issueSetCoordinatorContract,
   setLabels: issueSetLabelsContract,
   setPlacement: issueSetPlacementContract,
@@ -2151,6 +2155,7 @@ const NON_MUTATING_NAMES = [
   'ready',
   'resolveRefs',
   'search',
+  'searchNormalized',
   'stale',
   'stats',
   'subscriptionList',

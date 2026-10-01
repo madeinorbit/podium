@@ -22,6 +22,7 @@ import {
   asIssueId,
   asSessionId,
   asUserId,
+  issueUserStateRowId,
   type SessionMeta,
   type HostMetricsWire,
 } from '@podium/model/browser'
@@ -176,44 +177,21 @@ describe('kernel-backed interaction counts', () => {
             repoId: `r${repositoryFor(i, profile.repositories)}`,
             title: `Issue ${i}`,
             stage: 'in_progress',
+            intentOrigin: 'human', isDraftVessel: false, audience: 'human',
+            archived: false, labels: [], blockedByNotes: [], priority: 2, type: 'task',
             description: { value: '' },
             createdAt: '2026-09-18T10:00:00Z',
             updatedAt: '2026-09-18T10:00:00Z',
             readAt: '2026-09-18T11:00:00Z',
           })
-          cache.put('issue', `i${i}`, {
-            id: `i${i}`,
-            title: `Issue ${i}`,
-            seq: i + 1,
-            stage: 'in_progress',
-            createdAt: '2026-09-18T10:00:00Z',
-            updatedAt: '2026-09-18T10:00:00Z',
-            readAt: '2026-09-18T11:00:00Z',
-            repoPath: `/repo-${repositoryFor(i, profile.repositories)}`,
-            pinned: false,
-            origin: 'human',
-            audience: 'human',
-            draft: false,
-            archived: false,
-            labels: [],
-            deps: [],
-            dependents: [],
-            comments: [],
-            blockedByNotes: [],
-            childCount: 0,
-            childDoneCount: 0,
-            priority: 2,
-            type: 'task',
-            ready: true,
-            blocked: false,
-            deferred: false,
-            needsHuman: false,
+          cache.put('issueUserState', issueUserStateRowId(asUserId('benchmark'), asIssueId(`i${i}`)), {
+            userId: 'benchmark', entityId: `i${i}`, readAt: '2026-09-18T11:00:00Z', tuckedAt: null, pinned: false,
           })
         }
         for (let i = 0; i < profile.sessions; i++)
           cache.put('session', `s${i}`, session(i, profile.repositories))
         for (let i = 0; i < profile.repositories; i++)
-          cache.put('repo', `r${i}`, { id: `r${i}`, prefix: 'POD', path: `/repo-${i}` })
+          cache.put('repo', `r${i}`, { id: `r${i}`, prefix: 'POD', repoPath: `/repo-${i}` })
         const repos = Array.from({ length: profile.repositories }, (_, i) => ({
           path: `/repo-${i}`,
           branch: 'main',
@@ -227,6 +205,7 @@ describe('kernel-backed interaction counts', () => {
           ),
         }))
         const { replica, upsert } = kernelFixture(cache)
+        expect(replica.rows('issues')).toEqual([])
         const hub = new Hub()
         let rejectRename = false
         const api = {

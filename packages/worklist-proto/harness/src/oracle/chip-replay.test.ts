@@ -69,7 +69,7 @@ describe('chip replay coverage', () => {
     })
     try {
       const store = app.getSnapshot()
-      const actual = allIssueViewModels(replica, store.issueProjections, store.issues)
+      const actual = allIssueViewModels(replica, store.issueProjections, store.issueUserStates)
       const replay = chipReplayLegacy(replica)
       expect(actual.map((row) => row.id)).toEqual(['iss_a', 'iss_z'])
       expect(replay.map(issueReferenceModel)).toEqual(actual.map(issueReferenceModel))

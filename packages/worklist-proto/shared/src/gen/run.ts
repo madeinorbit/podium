@@ -473,6 +473,8 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           archived: false,
           audience: 'agent',
           draft: true,
+          isDraftVessel: true,
+          intentOrigin: 'agent',
           repoId: ctx.targets.newIssueRepo.repoId,
         }
         ctx.replica.batch(() => {

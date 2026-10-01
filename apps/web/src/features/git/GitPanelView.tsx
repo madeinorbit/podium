@@ -1,6 +1,7 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueWire, MachineId } from '@podium/model/browser'
+import type { MachineId } from '@podium/model/browser'
 import { ChevronRight, GitBranch, Maximize2, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -101,7 +102,7 @@ export function GitPanelView({
 }: {
   cwd: string
   machineId?: MachineId
-  issue?: IssueWire
+  issue?: IssueViewModel
 }): JSX.Element {
   const { gitStatus, gitLog, gitCommitFiles } = useStoreSelector(
     (s) => ({ gitStatus: s.gitStatus, gitLog: s.gitLog, gitCommitFiles: s.gitCommitFiles }),

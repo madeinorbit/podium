@@ -18,6 +18,7 @@ import {
   asIssueId,
   asSessionId,
   asUserId,
+  issueUserStateRowId,
   type IssueId,
   type IssueProjection,
   type SessionMeta,
@@ -435,7 +436,7 @@ describe('scoped session render subscriptions', () => {
     for (let index = 0; index < issueCount; index++) {
       const issue = issueProjection(index)
       cache.put('issueProjection', issue.id, issue)
-      cache.put('issue', issue.id, { id: issue.id, pinned: false })
+      cache.put('issueUserState', issueUserStateRowId(asUserId('u-test'), issue.id), { userId: 'u-test', entityId: issue.id, pinned: false, readAt: null, tuckedAt: null })
     }
     cache.put('repo', 'repo-1', { id: 'repo-1', prefix: 'POD' })
     for (let index = 0; index < sessionCount; index++) {
@@ -513,7 +514,7 @@ describe('scoped session render subscriptions', () => {
     renderCommits.clear()
     const buildsBeforeLegacy = issueViewModelProjectionStats(replica).builds
     act(() => {
-      replica.onKernelEvent(upserted(cache.put('issue', 'i0', { id: 'i0', pinned: true })))
+      replica.onKernelEvent(upserted(cache.put('issueUserState', issueUserStateRowId(asUserId('u-test'), asIssueId('i0')), { userId: 'u-test', entityId: 'i0', pinned: true, readAt: null, tuckedAt: null })))
     })
     await flush()
 

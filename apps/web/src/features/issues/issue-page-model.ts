@@ -113,12 +113,10 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   const [comments, setComments] = useState<ActivityComment[]>([])
   const [mail, setMail] = useState<IssueMailMessage[]>([])
 
-  // Seed comments on issue switch from the (legacy, pre-#175) embedded thread if
-  // the wire still carries one; the lazy fetch below replaces it with server
-  // truth.
+  // A new issue starts empty; its comments are loaded on demand below.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
   useEffect(() => {
-    setComments(issue.comments ?? [])
+    setComments([])
   }, [issue.id])
 
   // Lazy comment fetch (#175): comment bodies no longer ride IssueViewModel — fetch
@@ -136,7 +134,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
       .then(() => loadIssueComments(trpc, issue.id))
       .then((rows) => {
         if (cancelled) return
-        setComments(rows.length === 0 ? (issue.comments ?? []) : rows)
+        setComments(rows)
       })
       .catch(() => {
         // best-effort — keep whatever we already have

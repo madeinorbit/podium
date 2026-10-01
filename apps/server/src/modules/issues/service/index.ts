@@ -126,6 +126,7 @@ export type IssueReportsCapability = Pick<
   | 'preflight'
   | 'orphans'
   | 'search'
+  | 'searchNormalized'
   | 'count'
   | 'stats'
   | 'get'

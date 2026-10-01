@@ -155,7 +155,7 @@ const proof = {
     if (!runtime || !pool) throw new Error('Pool absent')
     const { checkIssueChips } = await import('@podium/client-graph/diagnostics/chip-check')
     const state = runtime.getSnapshot()
-    const legacy = allIssueViewModels(runtime.replica, state.issueProjections, state.issues)
+    const legacy = allIssueViewModels(runtime.replica, state.issueProjections, state.issueUserStates)
     return checkIssueChips(
       pool.references,
       legacy,

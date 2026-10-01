@@ -1512,7 +1512,7 @@ describe('unified optimistic overlay (#263)', () => {
       issueViewModelsFromReplica(
         engine.replica,
         engine.getSnapshot().issueProjections,
-        engine.getSnapshot().issues,
+        engine.getSnapshot().issueUserStates,
       ).get('iss_1')?.unread
     engine.replica.applyChanges('issueProjections', [projection], [])
     engine.replica.applyChanges('issues', [issue], [])
@@ -2780,17 +2780,18 @@ describe('eager mark-read-on-view (POD-272)', () => {
       readAt: '2026-07-01T00:00:00.000Z',
       updatedAt: '2026-07-01T00:00:00.000Z',
     } as unknown as IssueWire
-    applyIssueRecords(engine, [issue])
+    applyNormalizedIssueRecords(engine, [issue])
     await settle()
     engine.getSnapshot().setOpenIssueId(asIssueId('iss_1'))
     engine.getSnapshot().setView('issues')
     await settle()
-    applyIssueRecords(engine, [
+    applyNormalizedIssueRecords(engine, [
       { ...issue, unread: true, updatedAt: '2026-07-01T00:05:00.000Z' } as typeof issue,
     ])
     await settle()
     expect(api.issues.markRead.mutate).toHaveBeenCalledTimes(1)
-    const readAt = engine.getSnapshot().issues[0]?.readAt
+    expect(engine.replica.rows('issues')).toEqual([])
+    const readAt = engine.getSnapshot().issueUserStates[0]?.readAt
     expect(readAt).not.toBeNull()
     expect(Date.parse(readAt ?? '')).toBeGreaterThanOrEqual(Date.parse('2026-07-01T00:05:00.000Z'))
     engine.dispose()
@@ -3360,6 +3361,24 @@ describe('reconnect nudges from the platform (POD-2060)', () => {
 })
 
 describe('issue visit baseline', () => {
+  it('publishes normalized repo facts when only the repo kind changes', async () => {
+    const { engine } = makeEngine()
+    engine.start()
+    await settle()
+    const issue = { id: asIssueId('repo-only'), seq: 1, title: 'Repo-only facts', repoId: 'repo',
+      stage: 'backlog', archived: false, createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-01T00:00:00Z' } as IssueWire
+    applyNormalizedIssueRecords(engine, [issue])
+    const before = engine.getSnapshot()
+    engine.replica.applyChanges('repos', [{ id: 'repo', prefix: 'NEW', repoPath: '/new-home' } as never], [])
+    const after = engine.getSnapshot()
+    expect(engine.replica.rows('issues')).toEqual([])
+    expect(after).not.toBe(before)
+    expect(after.repoProjections).toMatchObject([{ repoPath: '/new-home' }])
+    const model = issueViewModelsFromReplica(engine.replica).get(issue.id)!
+    expect(model).toMatchObject({ repoPath: '/new-home', displayRef: 'NEW-1' })
+    engine.destroy()
+  })
+
   afterEach(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
   })
@@ -3387,7 +3406,7 @@ describe('issue visit baseline', () => {
       readAt: '2026-07-03T00:00:00.000Z',
       updatedAt: '2026-07-04T00:00:00.000Z',
     } as IssueWire
-    engine.replica.applyChanges('issues', [first, second], [])
+    applyIssueRecords(engine, [first, second])
     await settle()
 
     engine.getSnapshot().setSelectedIssueId(asIssueId('iss_1'))
@@ -3806,7 +3825,13 @@ describe('coalesced outbox and reaction publications', () => {
         const row = { ...session('b2-session', scenario === 'fallback' ? '/unregistered' : '/tmp/known-repo'),
           issueId: oldId, readAt: '2099-01-01T00:00:00Z' } as SessionMeta
         if (scenario !== 'visit-baseline') {
-          engine.replica.applyChanges('issues', [issue, { ...issue, id: newId }], [])
+          applyIssueRecords(engine, [issue, { ...issue, id: newId }])
+        } else {
+          // This case measures the arrival of one projection. Personal state
+          // is already hydrated; the legacy fixture adapter emits one notice
+          // per kind, whereas the kernel publishes a whole kind batch.
+          engine.replica.applyChanges('issueUserStates', [{ userId: asUserId('operator'),
+            entityId: oldId, readAt: issue.readAt ?? null, tuckedAt: null, pinned: false }], [])
         }
         engine.replica.applyChanges('sessions', [row], [])
         await settle()
@@ -3835,13 +3860,13 @@ describe('coalesced outbox and reaction publications', () => {
               engine.replica.applyChanges('sessions', [{ ...row, issueId: newId }], [])
               break
             case 'visit-baseline':
-              engine.replica.applyChanges('issues', [issue], [])
+              engine.replica.applyChanges('issueProjections', [placeholderProjection(issue)], [])
               break
             case 'session-read':
               engine.replica.applyChanges('sessions', [{ ...row, lastActiveAt: '2026-07-01T00:01:00Z', readAt: null, unread: true }], [])
               break
             case 'issue-read':
-              engine.replica.applyChanges('issues', [{ ...issue, updatedAt: '2100-07-01T00:01:00Z' }], [])
+              engine.replica.applyChanges('issueProjections', [placeholderProjection({ ...issue, updatedAt: '2100-07-01T00:01:00Z' })], [])
               break
           }
           // Replica notifications and reactions are synchronous. End this
@@ -3941,6 +3966,12 @@ function legacyOptimisticFolds(engine: ReturnType<typeof makeEngine>['engine']):
  * test that seeds or echoes only the old record is describing a server that no
  * longer exists.
  */
+function applyNormalizedIssueRecords(
+  engine: ReturnType<typeof makeEngine>['engine'], rows: IssueWire[], userId = 'operator',
+): void {
+  engine.replica.batch(() => applyIssueKinds(engine, rows, userId, false))
+}
+
 function applyIssueRecords(
   engine: ReturnType<typeof makeEngine>['engine'],
   rows: IssueWire[],
@@ -3954,8 +3985,9 @@ function applyIssueKinds(
   engine: ReturnType<typeof makeEngine>['engine'],
   rows: IssueWire[],
   userId: string,
+  withOld = true,
 ): void {
-  engine.replica.applyChanges('issues', rows, [])
+  if (withOld) engine.replica.applyChanges('issues', rows, [])
   engine.replica.applyChanges('issueProjections', rows.map(placeholderProjection), [])
   const upserts: IssueUserStateWire[] = []
   const removes: string[] = []
@@ -4036,7 +4068,7 @@ describe('stable optimistic folds (B11)', () => {
           if (scenario === 'reaction-read') {
             // Only the row the reaction reads: this replica publishes each kind
             // apart, and the count below is about the reaction's boundary.
-            engine.replica.applyChanges('issues', [{ ...issue, updatedAt: '2100-01-01T00:00:00Z' }], [])
+            engine.replica.applyChanges('issueProjections', [placeholderProjection({ ...issue, updatedAt: '2100-01-01T00:00:00Z' })], [])
           } else if (scenario === 'rename') {
             command = engine.getSnapshot().renameSession(row.sessionId, 'renamed')
           } else command = engine.getSnapshot().markIssueRead(issue.id)

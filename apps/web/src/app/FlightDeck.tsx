@@ -3350,7 +3350,7 @@ export function FlightDeck({
     return ids
   }, [rows])
   const rootSession = root ? rows[0]?.sessions[0] : focusedSession
-  const draftFilling = Boolean(root?.draft && rootSession)
+  const draftFilling = Boolean(root?.isDraftVessel && rootSession)
   // Naming and lifecycle answer different questions. `draftFilling` governs
   // the temporary mission brief; the title switches as soon as the optimistic
   // rename carries a non-placeholder value, before the server clears `draft`.

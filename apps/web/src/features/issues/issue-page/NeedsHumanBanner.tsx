@@ -1,7 +1,7 @@
 /**
  * THE NEEDS-HUMAN BANNER — a question that belongs to a PERSON (POD-646).
  *
- * `humanQuestionAskedBy` is server-authoritative precisely so "did a person or
+ * `asked.by` is server-authoritative precisely so "did a person or
  * an agent ask this?" stays answerable (`entities/issue.ts` note 2), and under
  * docs/multi-user-readiness.md §3.1.6 S3 attention routing is per-user by
  * construction — the question reaches ITS human, not a shared operator inbox.
@@ -16,8 +16,8 @@
  *     is deliberately no "answering as…" control here, and adding one would be
  *     the client asserting identity that ADR 3 D7 makes the server's.
  *
- * The legacy flat field (`humanQuestionAskedBy`, a bare SessionId) is still
- * shown when the nested pair is absent — an older row genuinely knows only the
+ * The asking actor (`asked.by`, a bare SessionId) is still
+ * shown when the attribution pair is absent — an older row genuinely knows only the
  * actor half, and showing one honest half beats fabricating the other.
  */
 import type { JSX } from 'react'
@@ -46,7 +46,7 @@ export function NeedsHumanBanner({
         Needs human
       </p>
       <p className="break-words text-[13px] text-foreground">
-        {asked?.question || issue.humanQuestion || 'Needs a human decision'}
+        {asked?.question || 'Needs a human decision'}
       </p>
       <NeedsHumanAsker issue={issue} />
       <Button
@@ -73,7 +73,7 @@ function NeedsHumanAsker({ issue }: { issue: IssueViewModel }): JSX.Element | nu
       </p>
     )
   }
-  const legacyAsker = asked?.by ?? issue.humanQuestionAskedBy
+  const legacyAsker = asked?.by
   if (!legacyAsker) return null
   return (
     <p className="text-[11px] text-muted-foreground" data-testid="needs-human-asker-legacy">

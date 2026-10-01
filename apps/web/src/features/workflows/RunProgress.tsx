@@ -1,3 +1,4 @@
+import { useReplicaIssues } from '@/app/store'
 /**
  * RUN PROGRESS (POD-647) — the runs list and one run's card, over the workflows
  * slice's `currentStepOf` / `runAdvances` / `runAttribution` /
@@ -93,7 +94,7 @@ function RunCard({
   source: WorkflowsSource
   rights: WorkflowRights
 }): JSX.Element {
-  const issues = useStoreSelector((s) => s.issues)
+  const issues = useReplicaIssues()
   const subjectSession = useSession(
     run.subjectKind === 'session' ? asSessionId(run.subjectId) : undefined,
   )

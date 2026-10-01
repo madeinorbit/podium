@@ -413,7 +413,7 @@ describe('IssuePanelView inspector', () => {
     cleanup()
 
     mockIssues = [
-      { ...ROOT, needsHuman: true, humanQuestion: 'Merge this or send it back?' },
+      { ...ROOT, needsHuman: true, asked: { question: 'Merge this or send it back?', at: 'asked-at', by: 's-asker' as never, attribution: { actor: { kind: 'agent', id: 's-asker' as never }, onBehalfOf: null } } },
       OPEN_CHILD,
       DONE_CHILD,
       GRANDCHILD,

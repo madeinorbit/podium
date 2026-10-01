@@ -1,3 +1,4 @@
+import type { IssueNavigationModel } from '../issues'
 /**
  * POD-330/POD-1496 — live-roster VISIBILITY: does a finished issue or session
  * still belong on a current-work surface, or has it decayed into history?
@@ -7,12 +8,11 @@
  * visibility is shared with the Flight Deck's unassigned roster so two current-
  * work surfaces cannot disagree about whether the same agent is still present.
  */
-import { idleVerdictFinishedTurn, type IssueWire, type SessionMeta } from '@podium/model'
+import { idleVerdictFinishedTurn, type SessionMeta } from '@podium/model'
 import {
   isClosedTopLevelIssue,
   issueAwaitingMerge,
   issueFinishedAt,
-  type IssueNavigationModel,
 } from '../issues'
 
 export const SIDEBAR_FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
@@ -44,7 +44,7 @@ export function issueVisibleInSidebar(issue: IssueNavigationModel, now: number):
 export function sessionRetainsWorklistRow(
   s: SessionMeta,
   now: number,
-  issue?: IssueWire,
+  issue?: IssueNavigationModel,
 ): boolean {
   if (s.archived) return false
   const issueFinished =
@@ -73,7 +73,7 @@ export function sessionRetainsWorklistRow(
 export function sessionVisibleInLiveRoster(
   s: SessionMeta,
   now: number,
-  issue?: IssueWire,
+  issue?: IssueNavigationModel,
 ): boolean {
   // Process exit ends roster membership immediately. Row existence is a
   // separate acknowledgment/decay question answered above: an unread final

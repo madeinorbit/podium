@@ -28,7 +28,7 @@ export function issue(partial: Partial<SliceIssue> & { id: string }): SliceIssue
     stage: 'in_progress',
     closedReason: null,
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     pinned: false,
     sortKey: null,
     deferUntil: null,

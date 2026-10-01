@@ -221,7 +221,7 @@ const fixture = {
     pool: graph !== null, runtimeDestroyed: (owner as unknown as { destroyed?: boolean })?.destroyed }),
   shape(ids: string[]) {
     const snapshot = owner!.getSnapshot()
-    const issues = allIssueViewModels(assembly.replica, snapshot.issueProjections, snapshot.issues)
+    const issues = allIssueViewModels(assembly.replica, snapshot.issueProjections, snapshot.issueUserStates)
     return ids.map(id => ({ id, rows: buildFlightDeckRows(issues, snapshot.sessions, id, 'full', []).length }))
   },
   async event(kind: string, iteration: number) {

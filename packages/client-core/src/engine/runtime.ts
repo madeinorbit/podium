@@ -93,7 +93,7 @@ import { createHostMetricsStore } from './host-metrics'
 import { machinesMaterialSignature } from './machines-material'
 import { type NavigationIntent, planNavigation } from './navigation'
 import { dedupeSessions, OptimismLedger } from './optimism'
-import type { OverlayEntity, PendingOverlay } from './overlay'
+import type { OverlayEntity, OverlayTarget, PendingOverlay } from './overlay'
 import { Reactions, WORKSPACE_PRUNE_GRACE_MS } from './reactions'
 import {
   createReplicaBinding,
@@ -563,6 +563,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       issues: seededIssueFold.rows,
       issueProjections: seededProjectionFold.rows,
       issueUserStates: seededUserStates,
+      issueDeps: replicaSeed.issueDeps,
+      issueGitStates: replicaSeed.issueGitStates,
+      repoProjections: replicaSeed.repos,
       issueEvents: replicaSeed.issueEvents,
       pendingInteractions: replicaSeed.pendingInteractions,
       messageRecords: replicaSeed.messageRecords,
@@ -640,7 +643,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    *  diffing the snapshot's folded arrays. Derived at call time; retirement
    *  runs in each recompute, so read it after a publication, not inside one. */
   readonly pendingOverlaysByRow = (
-    entity: OverlayEntity,
+    entity: OverlayTarget,
   ): ReadonlyMap<string, readonly PendingOverlay[]> => this.optimism.pendingByRow(entity)
 
   // ----------------------------------------------------------------- write seam
@@ -1071,9 +1074,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.reactions.worktreeFallback()
     // TASK SWITCH → restore that workspace's panes (POD-710). The layouts are
     // the truth; the pane scalars follow whichever workspace is now on screen.
-    // `issues` is in the trigger set because the key resolves through the
+    // `issueProjections` is in the trigger set because the key resolves through the
     // mission root, which an issue update can move.
-    if (any('selectedIssueId', 'selectedWorktree', 'issues')) this.syncWorkspaceSelection()
+    if (any('selectedIssueId', 'selectedWorktree', 'issueProjections')) this.syncWorkspaceSelection()
     // A tab whose session or file is GONE (POD-710). Nothing else can remove it
     // — it renders nothing, so there is no ✕ to click — and it is persisted, so
     // it comes back on every reload until this drops it.
@@ -1095,9 +1098,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     if (any('sessions', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces'))
       this.reactions.updateMarkReadTimer()
     // …and the same for the issue the operator has in the foreground (POD-272).
-    if (any('issues', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
+    if (any('issueProjections', 'issueUserStates', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
       this.reactions.updateIssueVisitBaseline()
-    if (any('issues', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
+    if (any('issueProjections', 'issueUserStates', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
       this.reactions.updateIssueMarkReadTimer()
   }
 
@@ -1387,6 +1390,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           this.optimism.recomputeFor(['issueProjections', 'issueUserStates', 'issues'])
         }
         const patch: Partial<EngineState> = {}
+        if (changed.has('issueDeps')) patch.issueDeps = snapshot.issueDeps
+        if (changed.has('issueGitStates')) patch.issueGitStates = snapshot.issueGitStates
+        if (changed.has('repos')) patch.repoProjections = snapshot.repos
         if (changed.has('issueEvents')) patch.issueEvents = snapshot.issueEvents
         if (changed.has('pendingInteractions'))
           patch.pendingInteractions = snapshot.pendingInteractions

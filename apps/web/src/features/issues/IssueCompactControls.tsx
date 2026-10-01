@@ -157,7 +157,7 @@ export function resolveTaskAction(
 /** One line naming the decision, in the operator's words. The agent's own
  *  question wins when it asked one. */
 export function decisionLine(issue: IssueViewModel, active: readonly SessionMeta[]): string {
-  const asked = issue.humanQuestion?.trim()
+  const asked = issue.asked?.question?.trim()
   if (asked) return asked
   const waiting = active.find((session) => sessionNeedsHuman(session))
   if (waiting) return `${sessionDisplayName(waiting)} is waiting on your reply.`

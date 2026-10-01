@@ -11,7 +11,6 @@
 import type {
   AgentKind,
   IssueId,
-  IssueWire,
   LayoutSnapshot,
   MutationId,
   SessionId,
@@ -195,7 +194,7 @@ type ActionState = {
   pins: PinState
   tabOrders: Record<string, string[]>
   sessions: SessionMeta[]
-  issues: IssueWire[]
+  issueProjections: Store['issueProjections']
   repos: Store['repos']
   superThreadId: ThreadId
   superOpen: boolean
@@ -344,7 +343,7 @@ function reducePin(state: PinState, kind: PinKind, id: string, pinned: boolean):
 /** The slice of action state a workspace write reads. */
 type WorkspaceStateSlice = Pick<
   ActionState,
-  'issues' | 'selectedIssueId' | 'selectedWorktree' | 'workspaces'
+  'issueProjections' | 'selectedIssueId' | 'selectedWorktree' | 'workspaces'
 >
 
 /** Reduce the current workspace and re-derive the pane mirrors — the pure core
@@ -726,7 +725,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         (listener) => rt.subscribe(listener),
         () => {
           const st = rt.state()
-          if (!st.issues.some((issue) => issue.id === issueId)) return undefined
+          if (!st.issueProjections.some((issue) => issue.id === issueId)) return undefined
           return st.sessions.find(
             (candidate) =>
               candidate.issueId === issueId &&

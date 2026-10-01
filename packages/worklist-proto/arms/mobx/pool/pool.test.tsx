@@ -254,7 +254,7 @@ describe('ingest', () => {
     const all = observeAll(r.handle)
     try {
       const { pool } = r.handle
-      const id = openIssues.find((issue) => !issue.draft)!.id
+      const id = openIssues.find((issue) => !issue.isDraftVessel)!.id
       const before = new Map(all.views)
       all.resetRuns()
       r.push({ type: 'update', rows: [issueRecord(id, { title: 'Renamed by the test' })] })
@@ -309,7 +309,7 @@ describe('ingest', () => {
       const { pool } = r.handle
       // No spin-off origin: its view would build the origin's model too.
       const id = openIssues.find(
-        (issue) => !issue.draft && !issue.deps?.some((dep) => dep.type === 'discovered-from'),
+        (issue) => !issue.isDraftVessel && !issue.deps?.some((dep) => dep.type === 'discovered-from'),
       )!.id
       const titles: (string | undefined)[] = []
       const watch = autorun(() => {

@@ -1,3 +1,4 @@
+import { issueAsked } from './slices/issues'
 import type { SessionId, SessionMeta, SessionOffer } from '@podium/model'
 import type { IssueNavigationModel } from './slices/issues'
 import { attentionGroup } from '../focus'
@@ -63,7 +64,7 @@ export function deriveTrayItems(
       items.push({
         kind: 'question',
         issue,
-        text: issue.humanQuestion?.trim() || 'Needs your input.',
+        text: issueAsked(issue)?.question?.trim() || 'Needs your input.',
         since: issue.updatedAt,
       })
     }

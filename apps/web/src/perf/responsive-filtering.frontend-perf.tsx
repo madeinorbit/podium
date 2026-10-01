@@ -1,3 +1,4 @@
+import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import { asUserId } from '@podium/model/browser'
@@ -80,7 +81,7 @@ const largeState = vi.hoisted(() => ({ store: {} as Record<string, unknown>, poo
 vi.mock('@/app/store', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/app/store')>()
   const useStore = () => largeState.store
-  const useLegacyIssues = () => largeState.store.issues ?? []
+  const useLegacyIssues = () => normalizedFixtureIssues(largeState.store)
   const useLegacySelector: typeof original.useStoreSelector = (selector) =>
     selector(largeState.store as unknown as Parameters<typeof selector>[0])
   return {
@@ -101,7 +102,7 @@ vi.mock('@/app/store', async (importOriginal) => {
     },
     useSlice: (definition: { derive: (store: Record<string, unknown>) => unknown }) => {
       if (largeState.pool) throw new Error('Responsive pool sidebar read a legacy slice')
-      return definition.derive(largeState.store)
+      return definition.derive(normalizedFixtureStore(largeState.store))
     },
   }
 })
@@ -180,7 +181,7 @@ describe('large-state responsive filtering', () => {
     largeState.pool = true
     history.replaceState(null, '', '/?mobxSidebar=1')
     initializeSidebarDataLayer({ get: () => null })
-    const fixture = createSidebarFixture(ISSUE_COUNT, Date.now(), true)
+    const fixture = createSidebarFixture(ISSUE_COUNT, Date.now(), true, 'responsive-pool')
     render(
       <StoreProvider
         principal={asClientPrincipal(asUserId('responsive-pool'))}

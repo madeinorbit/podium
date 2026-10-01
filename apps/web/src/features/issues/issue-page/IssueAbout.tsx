@@ -71,7 +71,7 @@ export const ABOUT_ROWS: readonly AboutRowSpec[] = [
     label: 'Created by',
     testId: 'about-created-by',
     value: (issue) =>
-      issue.createdBy ? createdByPhrase(issue.createdBy) : phraseOr(ORIGIN_PHRASE, issue.origin),
+      issue.createdBy ? createdByPhrase(issue.createdBy) : phraseOr(ORIGIN_PHRASE, issue.intentOrigin),
     title: (issue) =>
       issue.createdBy
         ? createdByTitle(issue.createdBy)

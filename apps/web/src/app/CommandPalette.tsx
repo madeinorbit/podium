@@ -1,3 +1,4 @@
+import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import type { SpawnTarget } from '@podium/client-core'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -9,7 +10,7 @@ import {
   resolveDefaultAgent,
   spawnTargetForRepo,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, IssueId, IssueWire, SessionId } from '@podium/model/browser'
+import type { AgentKind, IssueId, SessionId } from '@podium/model/browser'
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
 import { resolveRole } from '@podium/runtime'
 import {
@@ -83,11 +84,13 @@ import {
 } from './shell-state'
 import { type IssueViewModel, type MainView, useReplicaIssues, useStoreSelector } from './store'
 
+type PaletteIssue = Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage' | 'displayRef' | 'linearIdentifier' | 'color' | 'parentId'>
+
 const SEARCH_DEBOUNCE_MS = 150
 const SEARCH_MIN_QUERY_LEN = 2
 
 /**
- * Debounced, race-guarded issue search over `trpc.issues.search` — merged into
+ * Debounced, race-guarded issue search over `trpc.issues.searchNormalized` — merged into
  * the local task results once the query is ≥2 chars. Failures degrade silently
  * to local-only.
  *
@@ -95,9 +98,9 @@ const SEARCH_MIN_QUERY_LEN = 2
  * runs the braille spinner while — and only while — a search is genuinely in
  * flight, which is the same predicate the agent-state grammar gates on.
  */
-function useIssueSearch(query: string, enabled: boolean): { hits: IssueWire[]; pending: boolean } {
+function useIssueSearch(query: string, enabled: boolean): { hits: PaletteIssue[]; pending: boolean } {
   const trpc = useStoreSelector((s) => s.trpc)
-  const [hits, setHits] = useState<IssueWire[]>([])
+  const [hits, setHits] = useState<PaletteIssue[]>([])
   const [pending, setPending] = useState(false)
   const seq = useRef(0)
   useEffect(() => {
@@ -110,7 +113,7 @@ function useIssueSearch(query: string, enabled: boolean): { hits: IssueWire[]; p
     }
     const t = setTimeout(() => {
       setPending(true)
-      trpc.issues.search
+      trpc.issues.searchNormalized
         .query({ text })
         .then((rows) => {
           if (seq.current === mySeq) {
@@ -158,7 +161,7 @@ export function CommandPalette(): JSX.Element {
   // controls: dismissing nulls the REASON, which is what closes the dialog, and
   // the target stays so the alert can play its exit rather than being yanked out
   // of the tree mid-fade.
-  const [closeTarget, setCloseTarget] = useState<IssueViewModel | null>(null)
+  const [closeTarget, setCloseTarget] = useState<IssueNavigationModel | null>(null)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
   const [closing, setClosing] = useState(false)
   const needsCloseGuard = useIssueCloseGuard()
@@ -227,7 +230,7 @@ function PaletteDialog({
   onClose: () => void
   onNewIssue: () => void
   onAddRepo: () => void
-  onRequestClose: (issue: IssueViewModel, reason: IssueCloseReason) => void
+  onRequestClose: (issue: IssueNavigationModel, reason: IssueCloseReason) => void
 }): JSX.Element {
   const {
     trpc,
@@ -409,7 +412,7 @@ function PaletteDialog({
       session: s,
       run: () => openSession(s.sessionId, s.cwd),
     })
-    const issueCommand = (i: IssueWire, group: 'recent' | 'task'): PaletteCommand => ({
+    const issueCommand = (i: PaletteIssue, group: 'recent' | 'task'): PaletteCommand => ({
       id: `${group}-issue:${i.id}`,
       group,
       label: i.title,
@@ -433,7 +436,7 @@ function PaletteDialog({
       recent.push({ at: stamp(s.lastActiveAt), cmd: sessionCommand(s, 'recent') })
     }
     for (const i of issues) {
-      if (i.archived || i.deletedAt || i.draft) continue
+      if (i.archived || i.deletedAt || i.isDraftVessel) continue
       recent.push({ at: stamp(i.updatedAt), cmd: issueCommand(i, 'recent') })
     }
     recent.sort((a, b) => b.at - a.at)
@@ -442,7 +445,7 @@ function PaletteDialog({
     // ── Tasks (local replica + server search hits, deduped) ───────────────
     const localIds = new Set<string>()
     for (const i of issues) {
-      if (i.archived || i.deletedAt || i.draft) continue
+      if (i.archived || i.deletedAt || i.isDraftVessel) continue
       localIds.add(i.id)
       out.push(issueCommand(i, 'task'))
     }

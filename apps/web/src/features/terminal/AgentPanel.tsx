@@ -1,3 +1,4 @@
+import { useReplicaIssues } from '@/app/store'
 import { beginSwitch, isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
@@ -299,12 +300,8 @@ export function AgentPanel({
   const settleOptimisticFirstPrompt = useCallback(() => {
     setHeldOptimisticFirstPrompt((current) => (current?.sessionId === sessionId ? null : current))
   }, [sessionId])
-  // Agent chrome needs durable issue fields (colour, branch, git state), not
-  // session-derived rollups. `useReplicaIssues` intentionally invalidates on
-  // every session row change to refresh those rollups, which would wake all
-  // warm panels again; the engine's issue rows stay stable across session-only
-  // publications and carry every field used below.
-  const issues = useStoreSelector((s) => s.issues)
+  // Terminal chrome and ref underlines share the normalized issue model cache.
+  const issues = useReplicaIssues()
   // Live stage lookup for native-terminal ref underlines (POD-529). A ref keeps
   // the getter fresh without remounting the terminal when the replica updates.
   const issuesRef = useRef(issues)

@@ -1,4 +1,5 @@
-import { type ArtifactId, asArtifactId, type IssuePanelArtifact, type IssueWire, type SessionOffer } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { type ArtifactId, asArtifactId, type IssuePanelArtifact, type SessionOffer } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolveOfferArtifacts } from './offer-artifacts'
 
@@ -12,8 +13,8 @@ const art = (path: string, addedAt: string, artifactId?: ArtifactId): IssuePanel
   ...(artifactId ? { artifactId } : {}),
 })
 
-const issueWith = (artifacts: IssuePanelArtifact[]): IssueWire =>
-  ({ id: 'iss_1', panel: { todos: [], artifacts, deferred: [] } }) as unknown as IssueWire
+const issueWith = (artifacts: IssuePanelArtifact[]): IssueViewModel =>
+  ({ id: 'iss_1', panel: { todos: [], artifacts, deferred: [] } }) as unknown as IssueViewModel
 
 const offerWith = (artifacts?: string[]): SessionOffer => ({
   message: 'm',

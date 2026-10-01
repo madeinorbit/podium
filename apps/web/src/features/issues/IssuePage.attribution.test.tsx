@@ -1,3 +1,5 @@
+import { allIssueViewModels } from '@podium/client-core/replica'
+import { normalizedFixtureStore } from '@/test-support/normalized-issues'
 /**
  * ATTRIBUTION, OWNERSHIP AND THE NEEDS-HUMAN ASKER, RENDERED THROUGH THE REAL
  * PAGE (POD-646).
@@ -19,6 +21,8 @@ import { makeIssue } from '@/lib/test-issue'
 import '@/test-support/model-catalog-mock'
 import { IssuePage } from './IssuePage'
 
+const world = vi.hoisted(() => ({ current: null as ReturnType<typeof normalizedFixtureStore> | null }))
+
 vi.mock('@/app/store', () => {
   const state = () =>
     ({
@@ -37,6 +41,7 @@ vi.mock('@/app/store', () => {
       machines: [],
       sessions: [],
       issues: [],
+      ...world.current,
       httpOrigin: 'http://localhost',
       openArtifact: vi.fn(),
       openFileInWorktree: vi.fn(),
@@ -45,14 +50,16 @@ vi.mock('@/app/store', () => {
   return {
     useStore: () => state(),
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(state()),
-    useReplicaIssues: () => [],
+    useReplicaIssues: () => world.current ? allIssueViewModels(world.current.replica) : [],
   }
 })
 
 afterEach(cleanup)
 
 const show = (over: Parameters<typeof makeIssue>[0]) => {
-  const issue = makeIssue({ id: 'i-1', repoPath: '/r', ...over })
+  world.current = normalizedFixtureStore({ issues: [makeIssue({ id: 'i-1', repoPath: '/r', ...over })], sessions: [] })
+  expect(world.current.replica.rows('issues')).toEqual([])
+  const issue = allIssueViewModels(world.current.replica)[0]!
   render(<IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />)
 }
 

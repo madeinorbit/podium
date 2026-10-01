@@ -1,8 +1,8 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   asIssueId,
   asMachineId,
   asSessionId,
-  type IssueWire,
   type MachineId,
   type SessionMeta,
   type SessionMetaInput,
@@ -82,7 +82,7 @@ const session = (over: Partial<SessionMetaInput> & Pick<SessionMeta, 'sessionId'
     // construction site `wire-input.ts` describes.
   }) as unknown as SessionMeta
 
-function open(issue: IssueWire & { memberSessionIds?: string[] }): void {
+function open(issue: IssueViewModel & { memberSessionIds?: string[] }): void {
   const viewIssue = {
     ...issue,
     memberSessionIds: issue.memberSessionIds?.map(asSessionId),

@@ -1,5 +1,6 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssueUpdatePatch } from '@podium/commands'
-import { asMachineId, HOST_REPOS, type IssueWire, type MachineId } from '@podium/model/browser'
+import { asMachineId, HOST_REPOS, type MachineId } from '@podium/model/browser'
 import { Check, ChevronDown, LoaderCircle } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -15,9 +16,9 @@ import { cn } from '@/lib/utils'
 import type { LaunchMachine } from './LaunchBox'
 import { useAgentFleetOptions } from './use-agent-fleet-options'
 
-type SettingsIssue = Pick<IssueWire, 'id'> &
+type SettingsIssue = Pick<IssueViewModel, 'id'> &
   Partial<
-    Pick<IssueWire, 'repoPath' | 'defaultAgent' | 'defaultModel' | 'defaultEffort' | 'machineId'>
+    Pick<IssueViewModel, 'repoPath' | 'defaultAgent' | 'defaultModel' | 'defaultEffort' | 'machineId'>
   >
 type SettingsPatch = Pick<
   IssueUpdatePatch,

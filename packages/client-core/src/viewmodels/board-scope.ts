@@ -1,4 +1,6 @@
-import { type IssueWire, isSystemOwnedIssueStage } from '@podium/model'
+import type { IssueNavigationModel } from './slices/issues'
+import { issueDraftVessel } from './slices/issues'
+import { isSystemOwnedIssueStage } from '@podium/model'
 
 /**
  * Board/list scope filter (issue-as-workspace): drafts and internal
@@ -18,11 +20,11 @@ import { type IssueWire, isSystemOwnedIssueStage } from '@podium/model'
  * an agent acting for the human can cut a human-audience issue that belongs on the
  * board, and the human's own quick note to an agent can be internal.
  */
-export function filterBoardScope<T extends IssueWire>(
+export function filterBoardScope<T extends IssueNavigationModel>(
   issues: readonly T[],
   showAgentTasks: boolean,
 ): T[] {
-  const noDrafts = issues.filter((i) => !i.draft || !!i.deletedAt)
+  const noDrafts = issues.filter((i) => !issueDraftVessel(i) || !!i.deletedAt)
   if (showAgentTasks) return noDrafts
   const byId = new Map(noDrafts.map((i) => [i.id, i]))
   const topLevelVisible = (i: T): boolean => !!i.deletedAt || i.audience !== 'agent'
@@ -46,7 +48,7 @@ export function filterBoardScope<T extends IssueWire>(
 /** Live board population: nothing archived, nothing tombstoned, no draft
  *  vessels, no internal decomposition at top level. The one predicate a
  *  task board (desktop or phone) starts from. */
-export function boardIssues(issues: IssueWire[], showAgentTasks = false): IssueWire[] {
+export function boardIssues<T extends IssueNavigationModel>(issues: readonly T[], showAgentTasks = false): T[] {
   return filterBoardScope(
     issues.filter((i) => !i.archived && !i.deletedAt && !isSystemOwnedIssueStage(i.stage)),
     showAgentTasks,

@@ -15,9 +15,10 @@ export const makeIssue = (
   // construction site (`entities/wire-input.ts`) — a per-field `asIssueId` in
   // every test would be noise, and a plain `Partial<IssueViewModel>` would not
   // accept `id: 'i'` at all.
-  over: Partial<UnbrandIds<IssueViewModel>> & { sessions?: SessionMeta[] } = {},
-): TestIssue =>
-  ({
+  over: Partial<UnbrandIds<IssueViewModel>> & { sessions?: SessionMeta[]; draft?: boolean; origin?: 'human' | 'agent'; humanQuestion?: string; humanQuestionOptions?: string[]; humanQuestionAskedBy?: string; humanQuestionAskedAt?: string } = {},
+): TestIssue => {
+  const { draft, origin, humanQuestion, humanQuestionOptions, humanQuestionAskedBy, humanQuestionAskedAt, ...normalized } = over
+  return ({
     id: 'i',
     repoPath: '/r',
     seq: 4,
@@ -34,7 +35,8 @@ export const makeIssue = (
     createdAt: 't',
     updatedAt: 't',
     archived: false,
-    origin: 'human',
+    readAt: null,
+    tuckedAt: null,
     audience: 'human',
     priority: 2,
     type: 'task',
@@ -50,5 +52,10 @@ export const makeIssue = (
     childDoneCount: 0,
     memberSessionIds: [],
     sessionSummary: { total: 0, byPhase: {} },
-    ...over,
+    ...normalized,
+    isDraftVessel: normalized.isDraftVessel ?? draft ?? false,
+    intentOrigin: normalized.intentOrigin ?? origin ?? 'human',
+    asked: normalized.asked ?? (humanQuestion ? { question: humanQuestion, options: humanQuestionOptions,
+      by: humanQuestionAskedBy, at: humanQuestionAskedAt } : undefined),
   }) as TestIssue
+}

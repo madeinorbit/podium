@@ -1,3 +1,4 @@
+import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   discoveredPlacement,
@@ -23,7 +24,6 @@ import { Check, ChevronRight } from 'lucide-react'
 import { Fragment, type JSX, type ReactNode, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
-import type { IssueViewModel } from '@/app/store'
 import { useStoreSelector } from '@/app/store'
 import { IssueColorSwatches } from '@/components/IssueColorSwatches'
 import { useConfirm } from '@/lib/hooks/use-confirm'
@@ -102,8 +102,8 @@ export function IssueContextMenu({
   surface = 'board',
   primaryStart = false,
 }: {
-  issues: IssueViewModel[]
-  allIssues: IssueViewModel[]
+  issues: IssueNavigationModel[]
+  allIssues: IssueNavigationModel[]
   anchor: ContextMenuAnchor
   onClose: () => void
   /** Optional because a surface can rule the `Open` entry out entirely —

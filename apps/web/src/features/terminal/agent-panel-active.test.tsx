@@ -1,3 +1,5 @@
+import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
+import { makeIssue } from '@/lib/test-issue'
 // @vitest-environment happy-dom
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { act, StrictMode } from 'react'
@@ -67,6 +69,8 @@ vi.mock('@/lib/voice', () => ({
 
 // The store: AgentPanel destructures these. panelMode drives effectiveMode
 // (native vs chat) so a test can flip the mounted panel's mode without a prop.
+let storeIssues: ReturnType<typeof makeIssue>[] = []
+let selectedIssueId: string | null = null
 let storeSessions: SessionMeta[] = []
 let storePanelMode: Record<string, 'chat' | 'native'> = {}
 let storeStartScreen: 'chat' | 'native' = 'native'
@@ -116,7 +120,7 @@ const stableStoreFns = {
 }
 
 vi.mock('@/app/store', () => {
-  const useStore = () => ({
+  const useStore = () => normalizedFixtureStore({
     hub: fakeHub,
     sessions: storeSessions,
     machines: [],
@@ -126,13 +130,14 @@ vi.mock('@/app/store', () => {
     trpc: fakeTrpc,
     drafts: {},
     panelMode: storePanelMode,
-    issues: [],
+    issues: storeIssues,
+    selectedIssueId,
     ...stableStoreFns,
   })
   // The selector-store hook reads slices off the same store shape.
   return {
     useStore,
-    useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
+    useReplicaIssues: () => normalizedFixtureIssues({ issues: storeIssues, sessions: storeSessions }),
     useSession: (id: string | undefined) =>
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: () => '',
@@ -171,6 +176,8 @@ let root: Root
 
 beforeEach(() => {
   storeSessions = [meta({})]
+  storeIssues = []
+  selectedIssueId = null
   storePanelMode = { s1: 'native' }
   storeStartScreen = 'native'
   setActive.mockClear()
@@ -200,6 +207,22 @@ async function flush(): Promise<void> {
 }
 
 describe('AgentPanel active wiring', () => {
+  it('renders issue git chrome from a normalized-only replica', async () => {
+    storeIssues = [makeIssue({ id: 'iss-normalized', title: 'Normalized terminal owner', branch: 'issue/1',
+      worktreePath: '/w', repoPath: '/w', color: 'blue',
+      gitState: { branch: 'issue/1', ahead: 3, dirtyFiles: 2, shared: false, merged: false, updatedAt: '2026-09-30T12:00:00Z' } })]
+    selectedIssueId = 'iss-normalized'
+    storeSessions = [meta({ issueId: storeIssues[0]!.id })]
+    const world = normalizedFixtureStore({ issues: storeIssues, sessions: storeSessions })
+    expect(world.replica.rows('issues')).toEqual([])
+    await act(async () => root.render(<AgentPanel sessionId={asSessionId('s1')} active />))
+    await flush()
+    const stamp = container.querySelector('[data-testid="git-stamp"]')
+    expect(stamp?.textContent).toContain('issue/1')
+    expect(stamp?.textContent).toContain('↑3')
+    expect(stamp?.textContent).toContain('2')
+  })
+
   it('focuses the native CLI prompt and toggles the focused panel to Chat', async () => {
     await act(async () => {
       root.render(<AgentPanel sessionId={asSessionId('s1')} active focused />)

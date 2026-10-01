@@ -27,7 +27,7 @@ import { knownTabIdsForWorkspace, sessionBelongsToWorkspace } from './state'
 /** Exactly the slices the membership rule reads. */
 type MembershipState = Pick<
   EngineState,
-  'issues' | 'sessions' | 'pendingSpawnIds' | 'pendingSpawnPrompts' | 'fileTabs'
+  'issueProjections' | 'issueDeps' | 'sessions' | 'pendingSpawnIds' | 'pendingSpawnPrompts' | 'fileTabs'
 >
 
 function issue(id: string, over: Record<string, unknown> = {}): IssueWire {
@@ -86,7 +86,8 @@ function membership(
   over: Partial<MembershipState> = {},
 ): MembershipState {
   return {
-    issues,
+    issueProjections: issues.map(row => ({ ...row, description: { value: row.description }, isDraftVessel: row.draft, intentOrigin: row.origin } as unknown as import('@podium/model').IssueProjection)),
+    issueDeps: issues.flatMap(row => row.deps.map((dep, index) => ({ id: `${row.id}:${index}`, fromId: row.id, toId: dep.id, type: dep.type } as import('@podium/model').IssueDepProjection))),
     sessions,
     pendingSpawnIds: new Set<string>(),
     pendingSpawnPrompts: new Map<string, string>(),
@@ -100,7 +101,7 @@ function membership(
  * `find` per session, the mission set rebuilt per session, and all.
  */
 function legacyBelongs(
-  st: Pick<EngineState, 'issues' | 'sessions'>,
+  st: Pick<MembershipState, 'issueProjections' | 'issueDeps' | 'sessions'>,
   key: WorkspaceKey,
   session: SessionMeta,
 ): boolean {
@@ -112,15 +113,15 @@ function legacyBelongs(
   if (key.startsWith('issue:')) {
     const issueId = key.slice(6)
     if (session.issueId !== undefined) return session.issueId === issueId
-    const found = st.issues.find((candidate) => candidate.id === issueId)
+    const found = st.issueProjections.find((candidate) => candidate.id === issueId)
     const wt = found?.worktreePath
     return Boolean(wt && (session.cwd === wt || session.cwd.startsWith(`${wt}/`)))
   }
   if (key.startsWith('mission:')) {
     const rootId = key.slice(8)
-    const ids = missionIssueIds(st.issues, rootId, st.sessions)
+    const ids = missionIssueIds(st.issueProjections, rootId, st.sessions)
     if (session.issueId !== undefined) return ids.has(session.issueId)
-    for (const candidate of st.issues) {
+    for (const candidate of st.issueProjections) {
       if (!ids.has(candidate.id) || !candidate.worktreePath) continue
       if (
         session.cwd === candidate.worktreePath ||

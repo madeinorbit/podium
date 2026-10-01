@@ -28,7 +28,7 @@
  *     alike as "another issue".
  */
 import { motionPhase, motionTiming } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionId, SessionMeta } from '@podium/model/browser'
+import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -69,7 +69,7 @@ function SessionRosterRow({
 }): JSX.Element {
   const AgentIcon = agentIconFor(session.agentKind)
   const timing = motionTiming(session)
-  const phase = motionPhase(session, issue as unknown as IssueWire)
+  const phase = motionPhase(session, issue as unknown as IssueViewModel)
   return (
     <button
       data-pressable

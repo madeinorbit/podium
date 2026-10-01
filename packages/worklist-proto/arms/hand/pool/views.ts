@@ -206,7 +206,7 @@ export function displayTitleOf(
   firstMemberOf: () => SliceSession | undefined,
 ): string {
   const title = issue.title.trim()
-  if (issue.draft !== true || (title !== '' && title !== DRAFT_TITLE)) return issue.title
+  if (issue.isDraftVessel !== true || (title !== '' && title !== DRAFT_TITLE)) return issue.title
   const firstMember = firstMemberOf()
   if (firstMember === undefined) return 'New agent'
   const kind = firstMember.agentKind ?? 'undefined'

@@ -1,3 +1,4 @@
+import { fixtureMarkers, fixtureGitStates, fixtureProjection } from './normalized-issues'
 /**
  * POD-4443 / POD-4635 — deterministic live-shaped corpus at 1x, 2x and 4x.
  *
@@ -217,6 +218,8 @@ export interface FixtureCorpus {
   issues: IssueWire[]
   /** Normalized durable rows (replica `issueProjections` kind). */
   issueProjections: IssueProjection[]
+  issueUserStates?: import('@podium/model').IssueUserStateWire[]
+  issueGitStates?: import('@podium/model').IssueGitStateProjection[]
   /** Session rows (`store.sessions`, replica `sessions` kind). */
   sessions: SessionMeta[]
   /** Logical repos (replica `repos` kind, `displayRef` prefix join). */
@@ -2286,6 +2289,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
       worktreePath: m.worktree,
       branch: null,
       needsHuman: needsHuman.has(i),
+      ...(needsHuman.has(i) ? { humanQuestion: `Question ${i}`, humanQuestionOptions: ['Ship', 'Hold'], humanQuestionAskedAt: iso(FIXED_NOW), humanQuestionAskedBy: `s-asker-${i}` } : {}),
       priority: 2,
       type: 'task',
       labels: [],
@@ -2325,7 +2329,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
       deletedAt: m.deletedAt,
       audience: m.audience,
     } as unknown as Record<string, unknown>
-    if (drafts.has(i)) projection['draft'] = true
+    if (drafts.has(i)) projection['isDraftVessel'] = true
     if (startedBy.has(i)) projection['startedBySession'] = startedBy.get(i)
     if (coordinator.has(i)) projection['coordinatorSessionId'] = coordinator.get(i)
     issues.push(wire as unknown as IssueWire)
@@ -2497,7 +2501,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
       stage: wire.stage,
       closedReason: (w['closedReason'] as string | null) ?? null,
       audience: wire.audience,
-      draft: (w['draft'] as boolean) ?? false,
+      isDraftVessel: (w['draft'] as boolean) ?? false,
       pinned: (w['pinned'] as boolean) ?? false,
       sortKey: (w['sortKey'] as string | null) ?? null,
       deferUntil: (w['deferUntil'] as string | null) ?? null,
@@ -2588,14 +2592,16 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
     units: spans,
     fixedNow: FIXED_NOW,
     issues,
-    issueProjections,
+    issueProjections: issueProjections.map((projection, index) => fixtureProjection(issues[index]!, projection)),
+    issueUserStates: fixtureMarkers(issues),
+    issueGitStates: fixtureGitStates(issues),
     sessions: typedSessions,
-    repoProjections,
+    repoProjections: repoProjections.map(repo => ({ ...repo, repoPath: units[0]!.primaryRoot.get(repo.id) ?? '' })),
     issueDeps,
     repos,
     machines,
     pins: { panels: [], worktrees: [], repos: [] },
-    sliceIssues,
+    sliceIssues: sliceIssues.map((issue, index) => ({ ...issue, isDraftVessel: issues[index]?.draft ?? false, intentOrigin: issues[index]?.origin, asked: issueProjections[index]?.asked })),
     sliceSessions,
     sliceWorktrees,
     unscannedWorktree: {

@@ -33,8 +33,7 @@ export function poolIssuePaint(value: SidebarRowValues) {
       closedReason: issue.closedReason,
       closedAt: issue.closedAt,
       needsHuman: issue.needsHuman,
-      humanQuestion: issue.humanQuestion,
-      humanQuestionOptions: issue.humanQuestionOptions,
+      asked: issue.asked,
     },
   }
 }
@@ -53,8 +52,7 @@ export interface PoolIssueDisplay {
   fleet: SidebarRowValues['fleet']
 }
 
-/** The feed borrows the runtime's compatibility record. This is the one UI
- * type boundary, never a new issue record or a lookup in the legacy store. */
+/** The pool supplies normalized facts through the shared navigation port. */
 export function navigationIssue(value: SidebarRowValues['issue']): IssueNavigationModel {
   return value as unknown as IssueNavigationModel
 }

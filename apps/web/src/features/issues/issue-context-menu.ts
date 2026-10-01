@@ -1,3 +1,4 @@
+import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import {
   type HandoffAvailability,
   type HandoffIssue,
@@ -8,7 +9,6 @@ import {
   type SessionId,
   type SessionMeta,
 } from '@podium/model/browser'
-import type { IssueViewModel } from '@/app/store'
 import type { IssuesKeyState } from './issues-keys'
 
 /**
@@ -99,7 +99,7 @@ export function describeCascade(taskCount: number, sessionCount: number): string
 }
 
 /** Closed = a close reason is recorded (server: isClosed ⇔ closedReason != null). */
-export function issueHasCloseReason(issue: IssueViewModel): boolean {
+export function issueHasCloseReason(issue: IssueNavigationModel): boolean {
   return issue.closedReason != null
 }
 
@@ -154,7 +154,7 @@ export function isIssueList(surface: IssueMenuSurface): boolean {
  * and priority, labels and the agent entry are off every list (POD-1470).
  */
 export function issueMenuEligibility(
-  issues: readonly IssueViewModel[],
+  issues: readonly IssueNavigationModel[],
   surface: IssueMenuSurface = 'board',
 ): {
   canOpen: boolean
@@ -274,7 +274,7 @@ export function deferDateFromNow(now: number, days: number): string {
  * it. Returns only the issues whose label set actually changes.
  */
 export function toggleLabelAcross(
-  issues: readonly IssueViewModel[],
+  issues: readonly IssueNavigationModel[],
   label: string,
 ): { id: string; labels: string[] }[] {
   const allHave = issues.every((i) => i.labels.includes(label))

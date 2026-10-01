@@ -1,4 +1,5 @@
-import { asIssueId, type IssueId, type IssueWire, type IssueWireInput } from '@podium/model'
+import { makeIssue } from '@/lib/test-issue'
+import { asIssueId, type IssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { flattenRowGroups, issueRowsByStage } from './issue-hierarchy'
 import { type IssuesKeyState, type IssuesNav, issuesKeyReduce } from './issues-keys'
@@ -10,42 +11,7 @@ import { type IssuesKeyState, type IssuesNav, issuesKeyReduce } from './issues-k
  * flatten state and focus, selection, and the bulk-op visibility filter.
  */
 
-function issue(over: Partial<IssueWireInput> = {}): IssueWire {
-  return {
-    id: 'i',
-    repoPath: '/home/u/acme',
-    seq: 1,
-    title: 'Fix login',
-    description: '',
-    stage: 'backlog',
-    worktreePath: null,
-    branch: null,
-    parentBranch: 'main',
-    defaultAgent: 'claude-code',
-    defaultModel: 'auto',
-    defaultEffort: 'auto',
-    blockedByNotes: [],
-    priority: 2,
-    type: 'task',
-    pinned: false,
-    needsHuman: false,
-    labels: [],
-    deps: [],
-    dependents: [],
-    comments: [],
-    ready: true,
-    blocked: false,
-    deferred: false,
-    childCount: 0,
-    childDoneCount: 0,
-    createdAt: '2026-06-01T00:00:00.000Z',
-    updatedAt: '2026-06-20T00:00:00.000Z',
-    archived: false,
-    origin: 'human' as const,
-    draft: false,
-    ...over,
-  } as IssueWire
-}
+const issue = makeIssue
 
 const parent = issue({ id: 'p', stage: 'backlog', childCount: 2, seq: 1 })
 const c1 = issue({ id: 'c1', parentId: 'p', stage: 'backlog', seq: 2 })

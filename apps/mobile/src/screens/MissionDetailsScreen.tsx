@@ -1,6 +1,7 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { useSlice } from '@podium/client-core/react'
 import {
+  type IssueNavigationModel,
   missionRootFor,
   missionSessions as missionSessionsOf,
   worklistSlice,
@@ -34,7 +35,7 @@ export function MissionDetailsScreen() {
   )
   const router = useRouter()
   const { allWorktreePaths } = useSlice(worklistSlice)
-  const [menuIssue, setMenuIssue] = useState<(typeof issues)[number] | null>(null)
+  const [menuIssue, setMenuIssue] = useState<IssueNavigationModel | null>(null)
   const [launchIssue, setLaunchIssue] = useState<(typeof issues)[number] | null>(null)
   const root = useMemo(() => missionRootFor(issues, missionId), [issues, missionId])
   const missionSessions = useMemo(

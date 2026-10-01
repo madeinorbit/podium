@@ -1,3 +1,4 @@
+import { fixtureMarkers, fixtureGitStates, fixtureProjection } from '../../harness/src/fixture/normalized-issues'
 /**
  * POD-4444 / POD-4550 — the scenario replay library (methodology §5.8), over
  * the ONE corpus.
@@ -91,7 +92,7 @@ import {
 } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RouterWindow } from '@podium/client-core/ui-state'
-import { asIssueId, asUserId, type SessionMeta } from '@podium/model'
+import { asIssueId, asUserId, issueUserStateRowId, type SessionMeta } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { buildCorpus, type CorpusScale, type FixtureCorpus } from '../../harness/src/fixture/index'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
@@ -134,6 +135,13 @@ export class ScenarioCache implements KernelCacheRead {
     return 'durable'
   }
   put(entity: KernelEntity, entityId: string, value: unknown): void {
+    if (entity === 'issue') {
+      const issue = value as import('@podium/model').IssueWire
+      const state = fixtureMarkers([issue])[0]!
+      this.put('issueUserState', issueUserStateRowId(state.userId, issue.id), state)
+      if (issue.gitState) this.put('issueGitState', issue.id, { id: issue.id, ...issue.gitState })
+      else this.drop('issueGitState', issue.id)
+    }
     const key = keyOf(entity, entityId)
     // Re-insert at the end, like an upsert into an append log.
     this.byKey.delete(key)
@@ -172,6 +180,10 @@ export function seedCacheFromCorpus(
     rows.push({ entity: 'issue', entityId: issue.id, value: own(issue) })
   for (const projection of corpus.issueProjections)
     rows.push({ entity: 'issueProjection', entityId: projection.id, value: own(projection) })
+  for (const state of corpus.issueUserStates ?? fixtureMarkers(corpus.issues))
+    rows.push({ entity: 'issueUserState', entityId: issueUserStateRowId(state.userId, state.entityId), value: own(state) })
+  for (const git of corpus.issueGitStates ?? fixtureGitStates(corpus.issues))
+    rows.push({ entity: 'issueGitState', entityId: git.id, value: own(git) })
   for (const session of corpus.sessions)
     rows.push({ entity: 'session', entityId: session.sessionId, value: own(session) })
   for (const repo of corpus.repoProjections)
@@ -986,12 +998,22 @@ export function upsert(
   seq = 2,
   readmitted = false,
 ): void {
+  const previousGit = entity === 'issue' ? ctx.cache.read('issueGitState', entityId) : undefined
   ctx.cache.put(entity, entityId, value)
   ctx.replica.onKernelEvent({
     type: 'upserted',
     record: { entity, entityId, value, provenance: { seq } },
     readmitted,
   } as never)
+  if (entity === 'issue') {
+    const issue = value as import('@podium/model').IssueWire
+    const state = fixtureMarkers([issue])[0]!
+    const markerId = issueUserStateRowId(state.userId, issue.id)
+    ctx.replica.onKernelEvent({ type: 'upserted', record: { entity: 'issueUserState', entityId: markerId, value: state, provenance: { seq } }, readmitted })
+    const git = ctx.cache.read('issueGitState', entityId)
+    if (git) ctx.replica.onKernelEvent({ type: 'upserted', record: git, readmitted })
+    else if (previousGit) ctx.replica.onKernelEvent({ type: 'removed', entity: 'issueGitState', entityId })
+  }
 }
 
 /** The authority's snapshot omitted the row: `evicted`, not `removed`. */

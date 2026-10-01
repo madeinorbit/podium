@@ -1,3 +1,4 @@
+import type { IssueNavigationModel } from '../issues'
 /**
  * POD-330/POD-1496 — worklist row CONSTRUCTION: which work earns a row, how
  * provenance nests it, and the WORKING move-out split.
@@ -8,7 +9,6 @@
  */
 import {
   type IssueId,
-  type IssueWire,
   isSystemOwnedIssueStage,
   type SessionMeta,
 } from '@podium/model'
@@ -21,7 +21,6 @@ import {
 import { isSessionWorking } from '../../session-status'
 import { elevateCoordinatorSession, sortSessionsForSidebar } from '../../session-urgency'
 import {
-  type IssueNavigationModel,
   isClosedTopLevelIssue,
   isDraftAgentVessel,
   issueAwaitingMerge,
@@ -158,7 +157,7 @@ function buildUnifiedRows(
   }
   // WHERE THE WORK WENT, STAMPED ONCE (POD-1193). Whether a row's work carried
   // on elsewhere needs the whole issue graph and every session in the replica,
-  // which neither a row nor `IssueWire` carries — so it is answered here, where
+  // which neither a row nor `IssueNavigationModel` carries — so it is answered here, where
   // both are in hand, and read from the row everywhere after. Stamped BEFORE
   // nesting so `attach`'s spread carries it onto descendant rows too: a parent
   // sums attention over its branch, and a vacated child must not contribute an
@@ -255,7 +254,7 @@ export function nestStartedByIssues(
   rows: UnifiedWorkRow[],
   sessions: readonly SessionMeta[],
   allWorktreePaths: string[],
-  allIssues: readonly IssueWire[] = rows
+  allIssues: readonly IssueNavigationModel[] = rows
     .filter((row): row is UnifiedIssueRow => row.kind === 'issue')
     .map((row) => row.issue),
   ownership?: SessionOwnershipIndex,

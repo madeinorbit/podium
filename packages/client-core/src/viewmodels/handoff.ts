@@ -1,3 +1,4 @@
+import { issueAsked } from './slices/issues'
 import type { IssueId, SessionId, SessionMeta, TranscriptItem } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { sessionPresentOnTask } from './fleet'
@@ -170,8 +171,8 @@ export function deriveHandoffNow(
     const asking = present.find(
       (session) => sessionAsksOnIssue(issue, session) || motionPhase(session) === 'waiting',
     )
-    const askedBy = issue.humanQuestionAskedBy
-      ? crew.find((session) => session.sessionId === issue.humanQuestionAskedBy)
+    const askedBy = issueAsked(issue)?.by
+      ? crew.find((session) => session.sessionId === issueAsked(issue)?.by)
       : undefined
     const explicitNeed = issue.needsHuman === true || asking !== undefined
     let entry: HandoffNowEntry | null = null
@@ -184,7 +185,7 @@ export function deriveHandoffNow(
         ...(session ? { sessionId: session.sessionId } : {}),
         text:
           session?.agentState?.need?.summary?.trim() ||
-          issue.humanQuestion?.trim() ||
+          issueAsked(issue)?.question?.trim() ||
           'Waiting on you.',
       }
     } else {

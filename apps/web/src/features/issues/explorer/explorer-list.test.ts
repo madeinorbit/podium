@@ -86,13 +86,13 @@ describe('explorer rows', () => {
   it('never lists the draft vessel a bare agent lives in', () => {
     // POD-1581: the explorer was the one surface that showed these, and it
     // showed them as a row titled `Draft` with nothing under it.
-    const withVessel = [issue('real', 'backlog'), issue('vessel', 'backlog', { draft: true })]
+    const withVessel = [issue('real', 'backlog'), issue('vessel', 'backlog', { isDraftVessel: true })]
     const rows = explorerRows(withVessel, [], { tab: 'backlog', query: '' })
     expect(rows.map((r) => r.id)).toEqual(['real'])
   })
 
   it('does not surface a vessel through ordinary search', () => {
-    const withVessel = [issue('vessel', 'backlog', { draft: true, title: 'Draft' })]
+    const withVessel = [issue('vessel', 'backlog', { isDraftVessel: true, title: 'Draft' })]
     expect(explorerRows(withVessel, [], { tab: 'backlog', query: 'Draft' })).toEqual([])
   })
 
@@ -103,7 +103,7 @@ describe('explorer rows', () => {
     // a broken search, not a narrow one.
     const hidden = [
       issue('internal', 'backlog', { audience: 'agent', displayRef: 'POD-1234' }),
-      issue('vessel', 'backlog', { draft: true, displayRef: 'POD-1443' }),
+      issue('vessel', 'backlog', { isDraftVessel: true, displayRef: 'POD-1443' }),
     ]
     expect(
       explorerRows(hidden, [], { tab: 'backlog', query: 'POD-1234' }).map((r) => r.id),
@@ -167,8 +167,8 @@ describe('explorer counts', () => {
     const counts = explorerCounts(
       [
         issue('real', 'backlog'),
-        issue('vessel', 'backlog', { draft: true }),
-        issue('needy', 'backlog', { draft: true }),
+        issue('vessel', 'backlog', { isDraftVessel: true }),
+        issue('needy', 'backlog', { isDraftVessel: true }),
       ],
       [{ ...waiting, issueId: 'needy' } as SessionMeta],
     )

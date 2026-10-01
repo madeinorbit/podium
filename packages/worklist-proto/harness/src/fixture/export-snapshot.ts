@@ -103,6 +103,8 @@ function clientApi(
 const EXPORTED_ENTITIES: Record<string, keyof LiveCollections> = {
   issue: 'issues',
   issueProjection: 'issueProjections',
+  issueUserState: 'issueUserStates',
+  issueGitState: 'issueGitStates',
   session: 'sessions',
   repo: 'repoProjections',
   issueDep: 'issueDeps',
@@ -143,6 +145,8 @@ export async function readLive(origin: string): Promise<{
     raw: {
       issues: rowsOf('issue'),
       issueProjections: rowsOf('issueProjection'),
+      issueUserStates: rowsOf('issueUserState'),
+      issueGitStates: rowsOf('issueGitState'),
       sessions: rowsOf('session'),
       repoProjections: rowsOf('repo'),
       issueDeps: rowsOf('issueDep'),

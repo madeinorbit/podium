@@ -59,13 +59,9 @@ describe('the declared schema', () => {
   it('declares four entities, with the issue projection as a component rather than a fifth', () => {
     expect(Object.keys(SCHEMA).sort()).toEqual(['issue', 'repo', 'session', 'worktree'])
     // The projection is composed into `issue` by id, not a separate entity.
-    expect(Object.keys(SCHEMA.issue.components).sort()).toEqual(['issue', 'issueProjection'])
+    expect(Object.keys(SCHEMA.issue.components).sort()).toEqual(['issueProjection'])
     expect(SCHEMA.issue.components.issueProjection?.joinKey).toBe('id')
     expect(SCHEMA.issue.components.issueProjection?.arrivesOn).toBe('replica:issueProjections')
-    // The normalized projection owns durable facts; the wire is one temporary input.
-    expect(SCHEMA.issue.components.issueProjection!.precedence).toBeLessThan(
-      SCHEMA.issue.components.issue!.precedence,
-    )
   })
 
   it('gives every field a type and a source', () => {
@@ -403,17 +399,17 @@ describe('validateSources', () => {
     )
   })
 
-  it('fires when a relation name shadows an undeclared property of the row (the `origin` trap)', () => {
+  it('fires when a relation name shadows an undeclared property of the row (the `intentOrigin` trap)', () => {
     const schema = clone()
     const relations = schema.issue.relations as Record<string, RelationSpec>
-    relations.origin = { ...relationsOf('issue').children!, inverse: 'parent' } as RelationSpec
-    // `IssueWire.origin` is a real field ('human' | 'agent'). The schema does
+    relations.intentOrigin = { ...relationsOf('issue').children!, inverse: 'parent' } as RelationSpec
+    // `IssueProjection.intentOrigin` is a real field ('human' | 'agent'). The schema does
     // not declare it, but the composed row still carries it, so the name is
-    // taken — which is why R4 is `discoveredFrom`, not `origin`.
-    expect(fieldsOf('IssueWire')).toContain('origin')
-    expect(Object.keys(SCHEMA.issue.fields)).not.toContain('origin')
+    // taken — which is why R4 is `discoveredFrom`, not `intentOrigin`.
+    expect(fieldsOf('IssueProjection')).toContain('intentOrigin')
+    expect(Object.keys(SCHEMA.issue.fields)).not.toContain('intentOrigin')
     expect(validateSources(schema).join('\n')).toMatch(
-      /issue\.origin: relation name shadows IssueWire\.origin/,
+      /issue\.intentOrigin: relation name shadows IssueProjection\.intentOrigin/,
     )
   })
 
@@ -446,7 +442,7 @@ describe('validateSources', () => {
     // and `issue.prefix` arrives by joining the repo — reached here as
     // `issue.repo.prefix`. Neither is a property of the issue's own rows.
     expect(fieldsOf('IssueProjection')).not.toContain('unread')
-    expect(fieldsOf('IssueWire')).not.toContain('unread')
+    expect(fieldsOf('IssueProjection')).not.toContain('unread')
     expect(Object.keys(SCHEMA.issue.fields)).not.toContain('unread')
     expect(Object.keys(SCHEMA.issue.fields)).not.toContain('prefix')
     expect(Object.keys(SCHEMA.repo.fields)).toContain('prefix')

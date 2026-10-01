@@ -6,11 +6,12 @@ import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { checkHeader, legacyHeaderSnapshot, poolHeaderSnapshot } from '@podium/client-graph/diagnostics/header-check'
 import { startHeaderCheck } from '@podium/client-graph/diagnostics/header-runtime-check'
 import { HEADER_RELATIONS, HEADER_SCHEMA } from '@podium/client-graph/header-schema'
-import type { HostMetricsWire, MachineId } from '@podium/model/browser'
+import { asIssueId, type HostMetricsWire, type MachineId } from '@podium/model/browser'
 import {
   startScenarioEngine, writeArchiveIssue, writeBurst50, writeClockTick, writeEvictIssue,
   writeHeartbeat, writeNewIssue, writeParentReassignment, writePhaseChange,
   writeRescopeBack, writeRescopeGrow, writeSelectionClick, writeStageMove, writeTitleRename,
+  evict, upsert,
 } from '../../shared/src/scenarios'
 
 afterEach(() => { vi.useRealTimers(); headerStats.disable(); headerStats.reset() })
@@ -49,6 +50,26 @@ function metric(machineId: MachineId, sampledAt: string, availableBytes = 60): H
 }
 
 describe('header pool values', () => {
+  it('hides a normalized unstarted draft vessel with no old issue rows', async () => {
+    const f = await fixture()
+    try {
+      f.ctx.replica.batch(() => {
+        for (const issue of f.ctx.corpus.issues) evict(f.ctx, 'issue', issue.id)
+      })
+      const id = asIssueId('iss_header_normalized_draft')
+      upsert(f.ctx, 'issueProjection', id, {
+        ...f.ctx.corpus.issueProjections[0], id, seq: 999999, parentId: undefined,
+        stage: 'backlog', closedAt: undefined, closedReason: undefined,
+        archived: false, deletedAt: undefined, isDraftVessel: true, worktreePath: undefined,
+      })
+      f.ctx.engine.getSnapshot().setSelectedIssueId(id)
+      await Promise.resolve()
+      f.parity('normalized draft')
+      expect(f.ctx.replica.rows('issues')).toEqual([])
+      expect(f.pool.headerViews.folded()).toMatchObject({ root: undefined, live: 0, loading: false })
+    } finally { f.dispose(); f.ctx.engine.destroy() }
+  }, 120_000)
+
   it.each([1, 4] as const)('matches corpus values and addressed changes at %ix', async (scale) => {
     const f = await fixture(scale)
     const stop = autorun(() => poolHeaderSnapshot(f.pool, f.inputs()))

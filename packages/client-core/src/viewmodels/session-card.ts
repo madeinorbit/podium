@@ -23,7 +23,7 @@ export function sessionTitle(session: SessionMeta): string {
 
 export function sessionCardModel(
   session: SessionMeta,
-  issue: IssueWire | undefined,
+  issue: Pick<IssueWire, 'seq' | 'title'> | undefined,
   now: number,
 ): SessionCardModel {
   return {

@@ -170,21 +170,21 @@ export function useSlice<T>(def: SliceDefinition<Store, T>): T {
 }
 
 function useReplicaIssueSources(): Pick<Store, 'replica' | 'issueProjections'> & {
-  legacyIssues: Store['issues']
+  issueUserStates: Store['issueUserStates']
 } {
   return useStoreSelector(
-    (s) => ({ replica: s.replica, issueProjections: s.issueProjections, legacyIssues: s.issues }),
+    (s) => ({ replica: s.replica, issueProjections: s.issueProjections, issueUserStates: s.issueUserStates }),
     (a, b) =>
       a.replica === b.replica &&
       a.issueProjections === b.issueProjections &&
-      a.legacyIssues === b.legacyIssues,
+      a.issueUserStates === b.issueUserStates,
   )
 }
 
 /** Issues rendered from normalized replica projections plus local D7.3 views. */
 export function useReplicaIssues(): IssueViewModel[] {
-  const { replica, issueProjections, legacyIssues } = useReplicaIssueSources()
-  return useAllIssueViewModels(replica, issueProjections, legacyIssues)
+  const { replica, issueProjections, issueUserStates } = useReplicaIssueSources()
+  return useAllIssueViewModels(replica, issueProjections, issueUserStates)
 }
 
 export { useHostMetrics } from '@podium/client-core/react'
