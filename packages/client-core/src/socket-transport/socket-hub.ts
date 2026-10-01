@@ -2338,6 +2338,11 @@ export class SocketHub {
             (x) => readPositionRowId(x.userId, x.streamId) === c.id,
           )
           break
+        case 'issueUserState':
+        case 'issueGitState':
+          // The Replica owns these additive rows. Compatibility observers keep
+          // reading their values from the old issue record until their cutover.
+          break
         default:
           c satisfies never
       }

@@ -23,7 +23,6 @@ import {
   issueOverlayOf,
   issueUserStateRowId,
   issueUserStateToWire,
-  type MachineId,
   type RepoProjection,
   requireInstant,
   type SessionId,
@@ -895,7 +894,7 @@ export class IssueStore {
     batch: IssueWireBatch,
     prefix: string,
   ): Promise<IssueWire> {
-    const key = `${this.issueInputsGen}\u0000${prefix}`
+    const key = `${this.issueInputsGen}\u0000${this.stagedViewerState.version}\u0000${prefix}`
     const cached = this.wireCache.get(row.id)
     if (cached && cached.key === key) return cached.wire
     const wire = await this.toWire(row, commentCounts, batch)

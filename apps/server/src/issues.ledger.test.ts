@@ -5,6 +5,7 @@ import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
+import { applyAfterCommit, spanOpen } from './store/executor/executor'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
 
@@ -23,10 +24,12 @@ async function harness() {
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
   await store.repos.addRepo('/r', store.hostMachineId)
+  const applyCommit = { spanOpen, onCommit: applyAfterCommit }
   const ledger = new Ledger({
     repo: store.sync,
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
+    applyCommit,
   })
   // WHAT REACHES CLIENTS, since POD-1203: the appended rows, and nothing else.
   // There was a second list here — the legacy snapshots `publishComputed` fanned
@@ -53,6 +56,7 @@ async function harness() {
       run: plumbing.funnel.run,
     },
     ledger,
+    applyCommit,
     publishSpecs: plumbing.publishSpecs,
     now: () => wallClock,
   }
@@ -290,6 +294,32 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       ).toBeUndefined()
       expect(svc.issueOverlay(issue.id).pinned).toBe(false)
       expect(await ledger.cursor()).toBe(before)
+    } finally {
+      await store.close()
+    }
+  })
+  it('rolls back staged markers and the old-record memo with an enclosing span', async () => {
+    const { svc, store, ledger } = await harness()
+    try {
+      const issue = await svc.create({ repoPath: '/r', title: 'Staged marker', startNow: false })
+      const before = await ledger.cursor()
+      await expect(
+        store.transact(async () => {
+          await svc.writeIssueUserState(issue.id, { pinnedAt: '2026-07-02' })
+          expect(svc.issueOverlay(issue.id).pinned).toBe(true)
+          expect((await svc.allWire()).find((row) => row.id === issue.id)?.pinned).toBe(true)
+          throw new Error('enclosing span failed')
+        }),
+      ).rejects.toThrow('enclosing span failed')
+      expect(await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id)).toBeUndefined()
+      expect(await ledger.cursor()).toBe(before)
+      expect(svc.issueOverlay(issue.id).pinned).toBe(false)
+      expect((await svc.allWire()).find((row) => row.id === issue.id)?.pinned).toBe(false)
+      await svc.writeIssueUserState(issue.id, { pinnedAt: '2026-07-03' })
+      expect((await svc.allWire()).find((row) => row.id === issue.id)?.pinned).toBe(true)
+      expect(((await ledger.changesSince(before)) ?? []).find((row) => row.entity === 'issueUserState')).toMatchObject({
+        value: { pinned: true },
+      })
     } finally {
       await store.close()
     }

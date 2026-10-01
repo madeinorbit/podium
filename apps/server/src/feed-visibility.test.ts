@@ -121,7 +121,7 @@ describe('feed visibility grant semantics', () => {
 
   it('git observations share the issue audience and ride its grant/revoke subjects', async () => {
     const { policy, grant } = await fixture()
-    const git = { entity: 'issueGitState', entityId: 'shared' }
+    const git: EntityRef = { entity: 'issueGitState', entityId: 'shared' }
     await grant('issue', reader, 'read')
     const state = await policy.state.forBootstrap!([git])
     expect(state.classOf(git.entity)).toBe('personal')

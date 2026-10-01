@@ -79,7 +79,7 @@ describe('kind mapping', () => {
     expect((await replica.hydrate()).issueUserStates).toEqual([markers])
     expect((await replica.hydrate()).issueGitStates).toEqual([git])
     const notices: string[][] = []
-    replica.subscribeRowBatch((kinds) => notices.push([...kinds]))
+    replica.subscribeRowBatch?.((kinds) => notices.push([...kinds]))
     cache.drop('issueUserState', key)
     replica.onKernelEvent({ type: 'evicted', entity: 'issueUserState', entityId: key })
     expect(replica.rows('issueUserStates')).toEqual([])
