@@ -424,15 +424,15 @@ function FoldedWorkRowInner({
 /** Project-local disclosure for actively deferred work. Disclosure changes
  * reuse the row-arrival one-shot: collapsing prunes the visible keys, so each
  * later expansion gets one fresh arrival without inventing another motion. */
-export function SnoozedIssueFold({
+export function SnoozedIssueFold<T extends RowTransitionItem<unknown>>({
   groupKey,
   rows,
   renderRow,
   settleTransition,
 }: {
   groupKey: string
-  rows: TransitionWorkRow[]
-  renderRow: (row: TransitionWorkRow, animate: boolean) => JSX.Element
+  rows: T[]
+  renderRow: (row: T, animate: boolean) => JSX.Element
   settleTransition: (key: string, placement: string) => void
 }): JSX.Element {
   const [collapsed, toggle] = useCollapsed(snoozedFoldKey(groupKey), true)

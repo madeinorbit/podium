@@ -26,13 +26,14 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from 'react'
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { lazy, memo, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
+import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
 import { type SidebarDerivation, useSidebarDerivation } from './derivation'
 import { FoldedRowMenu } from './FoldedRowMenu'
 import { PINNED_FOLD_KEY, projectFoldKey } from './fold-keys'
@@ -61,6 +62,9 @@ import {
   type WorkPlacement,
 } from './work-folds'
 import { useWorkFilter, WorkFilterEmpty, WorkFilterFootnote, WorkSearchField } from './work-search'
+
+const PoolSidebarUnified = lazy(() => import('./pool-sidebar').then((m) => ({ default: m.PoolSidebarUnified })))
+const PoolWorkSections = lazy(() => import('./pool-sidebar').then((m) => ({ default: m.PoolWorkSections })))
 
 /**
  * A PROJECT ANSWERS TO MORE THAN ONE KEY, AND THE BAND HAS TO TRY ALL OF THEM
@@ -133,6 +137,8 @@ function sameOriginTick(
  */
 
 export function SidebarUnified(): JSX.Element {
+  // The mode is latched at boot. Legacy mounts neither graph code nor pool hooks.
+  if (sidebarDataLayer() === 'pool') return <Suspense fallback={null}><PoolSidebarUnified /></Suspense>
   const derivation = useSidebarDerivation()
   // The filter's pool is every LIVE row the column holds — pinned first, then
   // each project group's open rows. The tail folds are out: a closed archive is
@@ -211,6 +217,7 @@ export function WorkSections({
   derivation?: SidebarDerivation
   query?: string
 } = {}): JSX.Element {
+  if (sidebarDataLayer() === 'pool') return <Suspense fallback={null}><PoolWorkSections query={query} /></Suspense>
   const {
     work,
     pinned,

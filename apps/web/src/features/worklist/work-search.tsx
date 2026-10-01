@@ -58,6 +58,23 @@ export type WorkFilter = {
  * already dropped; the settled number is the honest one.
  */
 export function useWorkFilter(rows: readonly UnifiedWorkRow[], now: number): WorkFilter {
+  const state = useWorkFilterState()
+  const { deferredQuery } = state
+  const normalizedDeferredQuery = useMemo(() => normalizeWorkQuery(deferredQuery), [deferredQuery])
+  const searchIndex = useMemo(() => indexWorkRows(rows, now), [rows, now])
+  const hits = useMemo(
+    () =>
+      normalizedDeferredQuery
+        ? rows.filter((row) => matchesIndexedWorkQuery(searchIndex, row, normalizedDeferredQuery))
+            .length
+        : rows.length,
+    [normalizedDeferredQuery, rows, searchIndex],
+  )
+  return { ...state, total: rows.length, hits }
+}
+
+/** The input and chord are shared by both data layers; row reads stay with the caller. */
+export function useWorkFilterState(): Omit<WorkFilter, 'total' | 'hits'> {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -77,17 +94,7 @@ export function useWorkFilter(rows: readonly UnifiedWorkRow[], now: number): Wor
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   const filtering = normalizeWorkQuery(query).length > 0
-  const normalizedDeferredQuery = useMemo(() => normalizeWorkQuery(deferredQuery), [deferredQuery])
-  const searchIndex = useMemo(() => indexWorkRows(rows, now), [rows, now])
-  const hits = useMemo(
-    () =>
-      normalizedDeferredQuery
-        ? rows.filter((row) => matchesIndexedWorkQuery(searchIndex, row, normalizedDeferredQuery))
-            .length
-        : rows.length,
-    [normalizedDeferredQuery, rows, searchIndex],
-  )
-  return { query, setQuery, deferredQuery, filtering, total: rows.length, hits, inputRef }
+  return { query, setQuery, deferredQuery, filtering, inputRef }
 }
 
 /** The field itself. `flex-none`, above the scroller: filtering the list must

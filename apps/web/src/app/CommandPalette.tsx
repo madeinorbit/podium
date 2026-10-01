@@ -8,7 +8,6 @@ import {
   reposToViews,
   resolveDefaultAgent,
   spawnTargetForRepo,
-  worklistSlice,
 } from '@podium/client-core/viewmodels'
 import type { AgentKind, IssueId, IssueWire, SessionId } from '@podium/model/browser'
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
@@ -56,6 +55,7 @@ import { paletteIssueMenuData } from '@/features/issues/issue-menu-palette'
 import { issueMenuPaletteCommands } from '@/features/issues/issue-menu-palette-commands'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { SETTINGS_TABS } from '@/features/settings/SettingsView'
+import { useSidebarProjectSections } from '@/features/worklist/use-sidebar-projects'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { AgentStatusGlyph, WorkingMark } from '@/lib/motion'
@@ -85,7 +85,6 @@ import {
   type IssueViewModel,
   type MainView,
   useReplicaIssues,
-  useSlice,
   useStoreSelector,
 } from './store'
 
@@ -351,7 +350,7 @@ function PaletteDialog({
   // below changed — so the palette and the sidebar derived the same worklist
   // twice, against two different clocks. It now reads the published slice: one
   // derivation per snapshot, shared, on the store's coarse clock.
-  const sections = useSlice(worklistSlice).sections
+  const sections = useSidebarProjectSections()
   const spawnTargets = useMemo((): SpawnTarget[] => {
     const worktrees = reposToViews(repos).flatMap((r) => r.worktrees)
     const current = worktrees.find((w) => w.path === selectedWorktree)

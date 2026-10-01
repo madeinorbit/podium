@@ -2,6 +2,11 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import { flushSync } from 'react-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
+import { StoreProvider } from '@podium/client-core/react'
+import { asClientPrincipal } from '@podium/client-core/principal'
+import { asUserId } from '@podium/model/browser'
+import { attachWorklistPool } from '@/app/store-worklist-pool'
+import { createSidebarFixture } from '../../test/sidebar-fixture'
 
 const ISSUE_COUNT = 674
 const NOW = Date.parse('2026-08-23T12:00:00.000Z')
@@ -69,17 +74,20 @@ function sessionAt(index: number) {
   }
 }
 
-const largeState = vi.hoisted(() => ({ store: {} as Record<string, unknown> }))
+const largeState = vi.hoisted(() => ({ store: {} as Record<string, unknown>, pool: false }))
 
-vi.mock('@/app/store', () => {
+vi.mock('@/app/store', async importOriginal => {
+  const original = await importOriginal<typeof import('@/app/store')>()
   const useStore = () => largeState.store
   return {
-    useStore,
-    useReplicaIssues: () => largeState.store.issues ?? [],
-    useStoreSelector: (selector: (store: Record<string, unknown>) => unknown) =>
-      selector(largeState.store),
-    useSlice: (definition: { derive: (store: Record<string, unknown>) => unknown }) =>
-      definition.derive(largeState.store),
+    useStore: () => largeState.pool ? original.useStore() : useStore(),
+    useReplicaIssues: () => largeState.pool ? original.useReplicaIssues() : largeState.store.issues ?? [],
+    useStoreSelector: (selector: (store: Record<string, unknown>) => unknown, equal?: (a: unknown, b: unknown) => boolean) =>
+      largeState.pool ? original.useStoreSelector(selector as Parameters<typeof original.useStoreSelector>[0], equal) : selector(largeState.store),
+    useSlice: (definition: { derive: (store: Record<string, unknown>) => unknown }) => {
+      if (largeState.pool) throw new Error('Responsive pool sidebar read a legacy slice')
+      return definition.derive(largeState.store)
+    },
   }
 })
 
@@ -148,5 +156,27 @@ describe('large-state responsive filtering', () => {
     expect(settled).toHaveLength(1)
     expect(settled[0]?.textContent).toContain('Only responsive target')
     expect(screen.getByTestId('work-search-count').textContent).toBe('1/674')
+  }, 20_000)
+
+  it('commits the urgent query before the deferred 674-row pool sidebar, then settles', async () => {
+    largeState.pool = true
+    history.replaceState(null, '', '/?mobxSidebar=1')
+    const fixture = createSidebarFixture(ISSUE_COUNT, Date.now(), true)
+    render(<StoreProvider principal={asClientPrincipal(asUserId('responsive-pool'))}
+      config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
+      createReplicaFn={() => fixture.replica} networkEnabled={false} onFatalError={message => { throw new Error(message) }}
+      attachRuntime={runtime => attachWorklistPool(runtime, error => { throw error })}><SidebarUnified /></StoreProvider>)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    const input = await screen.findByTestId('work-search-input') as HTMLInputElement
+    await screen.findAllByTestId('unified-issue-row')
+    expect(screen.getAllByTestId('unified-issue-row')).toHaveLength(ISSUE_COUNT)
+    flushSync(() => setNativeInputValue(input, 'only responsive target'))
+    expect(input.value).toBe('only responsive target')
+    expect(screen.getAllByTestId('unified-issue-row')).toHaveLength(ISSUE_COUNT)
+    expect(screen.getByTestId('work-search-count').textContent).toBe('674/674')
+    await act(async () => {})
+    expect(screen.getAllByTestId('unified-issue-row')).toHaveLength(1)
+    expect(screen.getByTestId('work-search-count').textContent).toBe('1/674')
+    largeState.pool = false
   }, 20_000)
 })

@@ -91,6 +91,7 @@
     "test:browser": "bun scripts/browser-lane.ts",
     "test:sidebar-panel": "bun scripts/validation-admission.ts heavy --label sidebar-panel-proof -- bun apps/web/harness/sidebar-panel-proof.ts",
     "test:sidebar-pool-panel": "bun scripts/validation-admission.ts heavy --label sidebar-pool-panel-proof -- bun apps/web/harness/sidebar-pool-panel-proof.ts",
+    "test:sidebar-renderer": "bun scripts/validation-admission.ts heavy --label sidebar-renderer-proof -- bun apps/web/harness/sidebar-renderer-proof.ts",
     "oracle": "bun scripts/oracle.ts",
     "test:bun": "bun scripts/test-heavy.ts -- bun test --conditions=@podium/source apps/daemon/test packages/runtime/test/sqlite.bun.test.ts scripts/lifecycle.integration.bun.test.ts scripts/server-owned-janitor.integration.bun.test.ts apps/server/src/sync-worker/worker.bun.test.ts apps/server/src/sync-worker/worker-compiled.bun.test.ts apps/server/src/sync/bootstrap-worker.bun.test.ts --test-name-pattern ''",
     "test:bun:unit": "bun scripts/validation-admission.ts focused --label test:bun:unit -- bun test --conditions=@podium/source packages/runtime/test/sqlite.bun.test.ts --test-name-pattern ''",

@@ -2,6 +2,24 @@ import { createWorklistPool, type WorklistPoolHandle } from './create'
 import { measureWorklistPoolDelivery, observeWorklistPoolPerf } from './sidebar-perf'
 import { createEngineLocals, type LocalsEngine } from './shared/engine-locals'
 import { createRowSource, type RowSourceReplica, type RowSourceRuntime } from './shared/row-source'
+import { computed, reaction, compareStructural } from 'mobx'
+import type { MobxPool } from './pool'
+
+/** React's scalar/layout readers share MobX tracking without eagerly loading
+ * the graph in legacy mode. Rows use observer directly; this seam is for the
+ * palette and project controls, which need only a small section projection. */
+export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) => T) {
+  const value = computed(() => read(pool), { equals: compareStructural })
+  let snapshot = value.get()
+  return {
+    getSnapshot: () => snapshot,
+    subscribe: (wake: () => void) => reaction(() => value.get(), next => {
+      if (compareStructural(snapshot, next)) return
+      snapshot = next
+      wake()
+    }, { fireImmediately: true }),
+  }
+}
 
 /** Structural seam satisfied by the app's StoreProvider runtime. */
 export type WorklistRuntime = RowSourceRuntime &

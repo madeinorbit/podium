@@ -244,6 +244,8 @@ export interface PhaseFlags {
  * (the same shape: a row alone is a subtree of one). Plain data.
  */
 export interface Aggregate {
+  /** Rail badge facts, composed with attention rather than walking descendants. */
+  readonly railWaiting?: { readonly open: number; readonly finished: number; readonly decisions: number }
   /** Some seat anywhere in it (`rowSessions(row).length > 0`). */
   readonly sessions?: readonly SliceSession[]
   readonly sidebarFacts?: SidebarSessionFacts
@@ -338,6 +340,7 @@ export function aggregate(input: {
   let sidebarFacts = input.own.sidebarFacts ?? NO_SIDEBAR_SESSIONS
   let updatedAt = input.own.updatedAt ?? ''
   let decidingAt = input.own.decidingAt
+  let railWaiting = input.own.railWaiting ?? { open: 0, finished: 0, decisions: 0 }
   for (const child of input.children) {
     sessions.push(...(child.sessions ?? []))
     sidebarFacts = combineSidebarSessions(sidebarFacts, child.sidebarFacts ?? NO_SIDEBAR_SESSIONS)
@@ -349,8 +352,10 @@ export function aggregate(input: {
     open = joinFlags(open, child.open)
     finished = joinFlags(finished, child.finished)
     pending += child.pending
+    if (child.railWaiting) railWaiting = { open: railWaiting.open + child.railWaiting.open,
+      finished: railWaiting.finished + child.railWaiting.finished, decisions: railWaiting.decisions + child.railWaiting.decisions }
   }
-  return { seated, working, deciding, open, finished, pending, sessions, sidebarFacts, updatedAt, decidingAt }
+  return { seated, working, deciding, open, finished, pending, sessions, sidebarFacts, updatedAt, decidingAt, railWaiting }
 }
 
 /**
@@ -721,9 +726,16 @@ export function ownAttentionPartOf(
   const sessions = sortedSidebarSessions(own.sessions ?? [], input.reached ?? (() => false), facts.coordinatorSessionId)
   const sidebarFacts = sessions.reduce((combined, session) =>
     combineSidebarSessions(combined, seats.get(session.sessionId)?.sidebarFacts ?? NO_SIDEBAR_SESSIONS), NO_SIDEBAR_SESSIONS)
+  const railWaiting = { open: 0, finished: 0, decisions: deciding ? 1 : 0 }
+  for (const session of sessions) {
+    const verdict = seats.get(session.sessionId)
+    if (deciding && session.offer && attentionGroup(session, false) !== 'needsYou') continue
+    if (verdict?.open === 'waiting') railWaiting.open += 1
+    if (verdict?.finished === 'waiting') railWaiting.finished += 1
+  }
   return {
     ...own, deciding, pending: own.pending + pending,
-    sessions, sidebarFacts,
+    sessions, sidebarFacts, railWaiting,
     updatedAt: facts.updatedAt,
     order: facts.order,
     decidingAt: deciding ? (Date.parse(facts.closedAt ?? facts.updatedAt ?? '') || undefined) : undefined,

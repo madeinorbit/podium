@@ -30,7 +30,7 @@
  * mark — icon, tint and tone are one question about one key.
  */
 import { deriveFleetPresence, FLEET_KIND_LIMIT } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model/browser'
+import type { AgentKind, SessionMeta } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
 import { cn } from '@/lib/utils'
@@ -40,6 +40,7 @@ export function IssueFleetSummary({
   size = 18,
   variant = 'tiles',
   className,
+  summary,
 }: {
   sessions: SessionMeta[]
   /** Tile edge in px — 18 in the sidebar, 16 on the denser board card, where an
@@ -53,16 +54,24 @@ export function IssueFleetSummary({
    *  the first thing the eye landed on, ahead of every title. */
   variant?: 'tiles' | 'glyphs'
   className?: string
+  summary?: { total: number; parkedCount: number; nativeCount: number; tiles: readonly { kind: string | null; parked: boolean }[] }
 }): JSX.Element | null {
-  const { present, tiles, nativeCount, label } = deriveFleetPresence(sessions)
-  if (present.length === 0) return null
+  const fleet = summary ?? deriveFleetPresence(sessions)
+  const total = 'total' in fleet ? fleet.total : fleet.present.length
+  const { tiles, nativeCount } = fleet
+  const label = 'label' in fleet ? fleet.label : [
+    `${total} agent${total === 1 ? '' : 's'}`,
+    fleet.parkedCount > 0 ? `${fleet.parkedCount} parked` : null,
+    nativeCount > 0 ? `${nativeCount} native children` : null,
+  ].filter((part) => part !== null).join(' · ')
+  if (total === 0) return null
   const shown = tiles.slice(0, FLEET_KIND_LIMIT)
   const glyphs = variant === 'glyphs'
   const glyph = glyphs ? size : Math.round(size * 0.66)
   // The head-count. In `glyphs` it appears only when the marks UNDER-count —
   // nine agents across three harnesses draw three glyphs, and leaving it there
   // would be a lie by omission — where the boxed stack always shows it past one.
-  const showTotal = present.length > (glyphs ? shown.length : 1)
+  const showTotal = total > (glyphs ? shown.length : 1)
   return (
     <span
       className={cn('flex flex-none items-center', glyphs ? 'gap-1' : 'gap-[5px]', className)}
@@ -74,10 +83,10 @@ export function IssueFleetSummary({
     >
       <span className={cn('flex items-center', glyphs ? 'gap-1' : 'pl-1')}>
         {shown.map(({ kind, parked }, index) => {
-          const AgentIcon = agentIconFor(kind)
+          const AgentIcon = agentIconFor(kind as AgentKind)
           return (
             <span
-              key={kind}
+              key={kind ?? 'unknown'}
               data-agent-kind={kind}
               data-parked={parked ? '' : undefined}
               className={cn(
@@ -91,7 +100,7 @@ export function IssueFleetSummary({
                   ? cn('flex-none text-text-dim', parked && 'opacity-45')
                   : cn(
                       'rounded-[5px] border',
-                      agentFleetTileTint(kind, parked),
+                      agentFleetTileTint(kind as AgentKind, parked),
                       index > 0 && '-ml-[5px]',
                     ),
               )}
@@ -111,7 +120,7 @@ export function IssueFleetSummary({
           className={cn('font-mono tabular-nums text-text-dim', !glyphs && 'shell-type-micro')}
           data-testid="issue-fleet-total"
         >
-          {present.length}
+          {total}
         </span>
       )}
       {nativeCount > 0 && (

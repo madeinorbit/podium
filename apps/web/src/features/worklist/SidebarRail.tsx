@@ -81,7 +81,7 @@ import {
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
 import { FolderPlus, GitBranch, Plus, Search } from 'lucide-react'
-import { Fragment, type JSX, useMemo, useState } from 'react'
+import { Fragment, lazy, Suspense, type JSX, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { openAddProject } from '@/app/desktop-menu'
 import { useStoreSelector } from '@/app/store'
@@ -89,6 +89,7 @@ import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSqua
 import { MENU_HOVER_CARD } from '@/lib/menu-surface'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
+import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
 import { useSidebarDerivation } from './derivation'
 import { useNewTask } from './new-task'
 import { RowShortcutBadge } from './RowShortcutBadge'
@@ -114,7 +115,9 @@ const TILE_WIDTH = 36
 const TILE_HEIGHT = 32
 const TILE_RADIUS = 9
 
-function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | null {
+const PoolSidebarRail = lazy(() => import('./pool-sidebar-rail').then(m => ({ default: m.PoolSidebarRail })))
+
+export function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | null {
   if (waitingCount > 0) return { kind: 'count', count: waitingCount }
   if (phase === 'working') return { kind: 'spinner' }
   if (phase === 'done') return { kind: 'check' }
@@ -140,7 +143,7 @@ function isIssueRow(row: UnifiedWorkRow): row is UnifiedIssueRow {
  * hued spine also lost the argument on contrast, since an issue colour at 3px
  * against a tinted tile is a whisper in either theme.
  */
-function RailSpine(): JSX.Element {
+export function RailSpine(): JSX.Element {
   return (
     <span
       data-testid="rail-spine"
@@ -161,7 +164,7 @@ function RailSpine(): JSX.Element {
  * `pointer-events-none`, so sweeping the mouse toward the card never lands the
  * cursor on the card itself and the tile underneath never loses its hover.
  */
-function RailHoverCard({
+export function RailHoverCard({
   anchor,
   title,
   meta,
@@ -207,6 +210,7 @@ function RailHoverCard({
 }
 
 export function SidebarRail(): JSX.Element {
+  if (sidebarDataLayer() === 'pool') return <Suspense fallback={null}><PoolSidebarRail /></Suspense>
   const derivation = useSidebarDerivation()
   const {
     pinned,

@@ -41,6 +41,7 @@ export function UnifiedWorktreeRow({
   now,
   onSelect,
   onSelectPanel,
+  partition,
 }: {
   row: Extract<UnifiedWorkRow, { kind: 'worktree' }>
   issues: IssueNavigationModel[]
@@ -49,9 +50,10 @@ export function UnifiedWorktreeRow({
   now: number
   onSelect: () => void
   onSelectPanel: (sessionId: SessionId) => void
+  partition?: { visible: SessionMeta[]; stale: SessionMeta[] }
 }): JSX.Element {
   const { worktree } = row
-  const { visible, stale } = partitionStaleSessions(worktree.sessions, now)
+  const { visible, stale } = partition ?? partitionStaleSessions(worktree.sessions, now)
   const branch = worktree.branch ?? worktree.path.split('/').pop() ?? worktree.path
   const renderRow = (session: SessionMeta) => {
     const orphan = orphanProvenance(session, issues)

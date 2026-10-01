@@ -3,13 +3,15 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { reportSidebarPool } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool, WorklistPoolHandle } from '@podium/client-graph'
-import { useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
+import type { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { initializeSidebarDataLayer, sidebarDataLayer, sidebarCheckRequested } from '@/lib/sidebar-data-layer'
 
 interface PoolSlot {
   handle: WorklistPoolHandle | null
   error: Error | null
   listeners: Set<() => void>
+  project: typeof createPoolProjection | null
 }
 
 // The store handle IS the runtime. Weak keys never retain a departed principal;
@@ -21,7 +23,7 @@ let generation = 0
 function slotFor(runtime: object): PoolSlot {
   let slot = slots.get(runtime)
   if (slot === undefined) {
-    slot = { handle: null, error: null, listeners: new Set() }
+    slot = { handle: null, error: null, listeners: new Set(), project: null }
     slots.set(runtime, slot)
   }
   return slot
@@ -71,9 +73,10 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
     Object.assign(window, { __sidebarPool: { survivors: worklistPoolSurvivors } })
   }
   void import('@podium/client-graph/runtime-pool')
-    .then(({ createRuntimeWorklistPool }) => {
+    .then(({ createRuntimeWorklistPool, createPoolProjection }) => {
       if (disposed) return
       slot.handle = createRuntimeWorklistPool(runtime)
+      slot.project = createPoolProjection
       notify(slot)
       if (sidebarCheckRequested()) {
         const pool = slot.handle.pool
@@ -104,6 +107,7 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
     stopCheck?.()
     const handle = slot.handle
     slot.handle = null
+    slot.project = null
     slot.error = null
     if (handle !== null) {
       retire(handle.pool)
@@ -113,7 +117,7 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   }
 }
 
-/** Available to the next pilot step; no sidebar consumer mounts it yet.
+/** The real sidebar's data hook.
  * null is the initial import/loading state. A rebuild wakes existing readers. */
 export function useWorklistPool(): MobxPool | null {
   const runtime = useStoreHandle()
@@ -128,4 +132,14 @@ export function useWorklistPool(): MobxPool | null {
       return slot.handle?.pool ?? null
     },
   )
+}
+
+/** Layout-only pool subscription for companions that remain on their current
+ * component tree. The MobX implementation arrives with the startup attachment. */
+export function useWorklistPoolProjection<T>(read: (pool: MobxPool) => T, empty: T): T {
+  const runtime = useStoreHandle()
+  const pool = useWorklistPool()
+  const project = slotFor(runtime).project
+  const view = useMemo(() => pool && project ? project(pool, read) : null, [pool, project, read])
+  return useSyncExternalStore(view?.subscribe ?? (() => () => {}), view?.getSnapshot ?? (() => empty))
 }
