@@ -55,13 +55,15 @@ try {
     const initial = await paint()
     await page.screenshot({ path: `${out}/${mode}.png`, fullPage: false })
     await page.evaluate(() => window.__issueChips.patch(0, { title: 'Changed chip title', stage: 'review' }))
-    await page.waitForFunction(() => document.querySelector('a[data-ref="SYN-1000"]')?.getAttribute('data-issue-stage') === 'review')
+    await page.waitForFunction(() => document.querySelector('a[data-ref="SYN-1000"]')?.getAttribute('data-issue-stage') === 'review' &&
+      document.querySelector('[data-issue-reference="SYN-1000"]')?.getAttribute('data-issue-stage') === 'review')
     const changed = await paint()
     const after = await page.evaluate(() => window.__issueChips.stats())
     const changedChips = changed.filter((row, i) => JSON.stringify(row) !== JSON.stringify(initial[i])).length
     if (changedChips < 2 || changedChips > 12) throw new Error(`Wrong chip fanout: ${changedChips}`)
     let check: unknown = null
     if (mode === 'pool') {
+      if (after.redraws - traffic.redraws !== changedChips || after.reads - traffic.reads > changedChips * 2) throw new Error('Chip census exceeded the changed-chip fanout')
       check = await page.evaluate(() => window.__issueChips.check())
       if ((check as { differences: number; pending: number }).differences !== 0 || (check as { pending: number }).pending !== 0) throw new Error(`Chip side-by-side differs: ${JSON.stringify(check)}`)
     } else if (before.legacyScans === 0 || before.legacyRows < 4887) throw new Error('Legacy scan positive control inactive')
