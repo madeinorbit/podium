@@ -2104,6 +2104,7 @@
         "src/relay.issue-session-delete.test.ts",
         "src/relay.lake-read.test.ts",
         "src/relay.machines.test.ts",
+        "src/relay.mail-eligibility-record.test.ts",
         "src/relay.metadata-delta.test.ts",
         "src/relay.model-catalog.test.ts",
         "src/relay.model-effort.test.ts",
