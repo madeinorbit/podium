@@ -162,7 +162,14 @@ try {
     const filter = await page.getByTestId('work-search-count').textContent()
     await page.getByTestId('work-search-clear').click()
     await page.waitForFunction(
-      () => document.querySelectorAll('[data-testid="unified-issue-row"]').length > 1,
+      (expected) => document.querySelectorAll('[data-testid="unified-issue-row"]').length === expected,
+      initial.rows.length,
+    )
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
     )
     await page.evaluate(() => window.__sidebarRenderer.update({ title: 'Changed synthetic title' }))
     await page.getByText('Changed synthetic title', { exact: true }).waitFor()
