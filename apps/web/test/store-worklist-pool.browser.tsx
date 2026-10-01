@@ -50,12 +50,9 @@ function Probe(): null {
     if (pool === null) return
     let gone = false
     let stop: (() => void) | undefined
-    void import('mobx').then(({ autorun }) => {
+    void import('../../../packages/worklist-proto/harness/browser/runtime-pool-observe').then(({ observePool }) => {
       if (gone) return
-      stop = autorun(() => {
-        void pool.sidebar.sections()
-        void pool.sidebar.row(id)
-      })
+      stop = observePool(pool, id)
       observed = pool
     })
     return () => { gone = true; stop?.(); if (observed === pool) observed = null }
