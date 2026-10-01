@@ -85,6 +85,23 @@ export function tracked<T>(read: () => T): T {
   return (result as { value: T }).value
 }
 
+/**
+ * Give the harness fence a reader over the pool's live graph. Probe sequences
+ * capture it even when counting is disabled. Their out-of-reaction reads,
+ * including collection iteration, run in transient reactions like snapshots.
+ * The fence's counted wrapper stays in the harness; product reads use the
+ * pool's existing graph.
+ */
+function captureRelations(pool: MobxPool, reads: ReadFence): void {
+  reads.wrapRelations({
+    one: (from, id, relation) => tracked(() => pool.relations.one(from, id, relation)),
+    many: (from, id, relation) => tracked(() => [...pool.relations.many(from, id, relation)]),
+    size: (from, id, relation) => tracked(() => pool.relations.size(from, id, relation)),
+    subset: (from, id, relation, subset) =>
+      tracked(() => [...pool.relations.subset(from, id, relation, subset)]),
+  })
+}
+
 /** The window's default timer (what the product pool uses without one). */
 const defaultSchedule: Schedule = (run, ms) => {
   const timer = setTimeout(run, ms)
@@ -272,13 +289,14 @@ export const harnessMobxPoolArm = {
   create(
     source: RowSource,
     locals: LocalsSource,
-    _reads: ReadFence = DISABLED_READ_FENCE,
+    reads: ReadFence = DISABLED_READ_FENCE,
     loader: Omit<PoolLazyOptions, 'load'> = {},
     writes?: WriteSeam,
   ): HarnessMobxPoolHandle {
     const watched = watchWindows(loader)
     const base = mobxPoolArm.create(source, locals, watched.loader, writes)
     const pool = base.pool
+    captureRelations(pool, reads)
     armedByPool.set(pool, watched.armed)
     let webMounts = 0
     const originalMountWeb = base.mountWeb.bind(base)
@@ -326,10 +344,15 @@ export function harnessWritableMobxPoolArm(
   loader: Omit<PoolLazyOptions, 'load'> = {},
 ): CheckableArm {
   return {
-    create(source: RowSource, locals: LocalsSource, _reads?: ReadFence): HarnessWritableMobxPoolHandle {
+    create(
+      source: RowSource,
+      locals: LocalsSource,
+      reads: ReadFence = DISABLED_READ_FENCE,
+    ): HarnessWritableMobxPoolHandle {
       const watched = watchWindows(loader)
       const product = writableMobxPoolArm(transport, watched.loader).create(source, locals)
       const pool = product.pool
+      captureRelations(pool, reads)
       const write = product.write
       armedByPool.set(pool, watched.armed)
       let webMounts = 0
