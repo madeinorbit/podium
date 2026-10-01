@@ -47,7 +47,7 @@ const procedure = (name: string) => ({
 Object.assign(synthetic.api, {
   issues: {
     update: procedure('issues.update'),
-    markRead: procedure('issues.markRead'),
+    markRead: { mutate: async () => ({}) },
     archive: procedure('issues.archive'),
   },
   pins: { set: { mutate: async () => ({ panels: [], worktrees: [], repos: [] }) } },
