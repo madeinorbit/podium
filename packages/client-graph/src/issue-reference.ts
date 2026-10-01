@@ -45,6 +45,7 @@ export interface IssueReferenceReader {
  * Unresolved keys use the pool's load window, not a list scan or a peek. */
 export class IssueReferences implements IssueReferenceReader {
   private readonly resident = observable.map<string, string>(undefined, { deep: false })
+  private readonly candidates = new Map<string, Set<string>>()
   // Demand responses exist only for keys asked for by readers. This is not an
   // index over cold rows or their summaries. A loaded key wins immediately.
   private readonly requests = observable.map<string, string | null | typeof LOADING>(undefined, {
@@ -122,11 +123,17 @@ export class IssueReferences implements IssueReferenceReader {
       },
       (key) =>
         runInAction(() => {
-          if (previous !== undefined && this.resident.get(previous) === id)
-            this.resident.delete(previous)
+          if (previous !== undefined) this.remove(previous, id)
           previous = key
           if (key !== undefined) {
-            this.resident.set(key, id)
+            let bucket = this.candidates.get(key)
+            if (!bucket) this.candidates.set(key, bucket = new Set())
+            bucket.add(id)
+            // Legacy anchor lookup keeps the last row in replica id order.
+            // Older prefix-less rows can share a #seq fallback. Loading order
+            // must not decide their winner; only resident candidates are held.
+            const current = this.resident.get(key)
+            if (current === undefined || id > current) this.resident.set(key, id)
             this.requests.delete(key)
           }
         }),
@@ -134,9 +141,22 @@ export class IssueReferences implements IssueReferenceReader {
     )
     this.stops.set(id, () => {
       stop()
-      if (previous !== undefined && this.resident.get(previous) === id)
-        this.resident.delete(previous)
+      if (previous !== undefined) this.remove(previous, id)
     })
+  }
+
+  private remove(key: string, id: string): void {
+    const bucket = this.candidates.get(key)
+    if (!bucket) return
+    bucket.delete(id)
+    if (!bucket.size) {
+      this.candidates.delete(key)
+      this.resident.delete(key)
+    } else if (this.resident.get(key) === id) {
+      let next = ''
+      for (const candidate of bucket) if (candidate > next) next = candidate
+      this.resident.set(key, next)
+    }
   }
 
   private untrack(id: string): void {
@@ -200,6 +220,7 @@ export class IssueReferences implements IssueReferenceReader {
       for (const stop of this.stops.values()) stop()
       this.stops.clear()
       this.resident.clear()
+      this.candidates.clear()
       this.requests.clear()
       this.values.clear()
     })
