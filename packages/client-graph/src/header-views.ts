@@ -125,7 +125,7 @@ export function createHeaderViews(pool: MobxPool) {
         for (const sid of ownIds) {
           const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
           if (member === LOADING) { loading = true; continue }
-          if (!member || member.archived || member.headless) continue
+          if (!member || member.archived || member.headless || member.agentKind === 'shell') continue
           sessions.set(sid, member)
           staffed ||= sessionPresentOnTask(member as SessionMeta)
           asking ||= member.agentState?.phase === 'needs_user' || member.agentState?.phase === 'errored' || !!member.offer
