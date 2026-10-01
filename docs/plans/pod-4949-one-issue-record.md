@@ -285,3 +285,29 @@ for the operator's approval before any code.
 - Should the comment count be carried at all? The proposal is no: load it on demand.
   The alternative is a server-maintained count entity.
 - The minimum client version for step 7a depends on step 6's adoption numbers.
+
+## 12. Amendments (2026-10-01, pre-start review)
+
+The code references above still match `integrate/4286-pilot` (checked line by line).
+The review found four gaps, now written into the step issues:
+
+1. **The MobX pool's one old-record join.** `packages/client-graph/src/shared/temporary-issue-input.ts`
+   (used by `shared/row-source.ts`) reads the six old-only fields. Step 2 (POD-4968) switches it to
+   the step-1 kinds and the normalized spellings, then deletes it. Step 4 does not start until no
+   web or client-graph module reads the `issue` kind (a lint rule from step 2 enforces this).
+2. **Planted-mistake proofs per risky reader.** Step 5 (POD-4971) proves mail eligibility,
+   auto-archive, feed visibility and change detection each work with only the normalized record,
+   and that each test fails when the normalized branch is removed. Step 3 (POD-4969) does the same
+   per overlay kind.
+3. **A measurable gate for step 7.** Step 6 (POD-4972) reports connected mobile client versions;
+   step 7 starts only when no client older than the release containing step 6 has connected for
+   7 consecutive days.
+4. **Leftover references.** Step 7 also sweeps `IssueWire` names in `packages/client-graph`
+   (schema metadata, diagnostics) and the prototype package.
+
+Step 1 also registers the new kinds in `packages/client-core/src/replica` (kinds, facade, contract,
+bootstrap); later steps read them there.
+
+**Landing and models.** Every step lands on the epic integration branch `integrate/4286-pilot`;
+the operator moves it to `dev/mw`. Steps 3, 5, 7 and 8 run on Opus 5.5 high; steps 1, 2, 4 and 6
+on gpt-6.1 sol max.
