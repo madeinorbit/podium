@@ -39,10 +39,21 @@ attributes are present and two animation frames. App bootstrap and the resident
 reference-index seed precede this window. Five cold opens are measured for each
 setting in the same foreground run under `bench:flatblock`.
 
-**Timing replacement pending.** The first paired run was voided after POD-4959
-reported possible collector startup overlap at 22:38:50–22:39:50 UTC on
-2026-10-01. None of those timing samples may be cited. The replacement requires
-both lease ownership and confirmation that the preceding collector stopped.
+The replacement run completed from 22:49:39 to 22:51:16 UTC on 2026-10-01,
+after an explicit lease renewal/status check and a process census that found
+zero processes rooted in the preceding lane's private test checkout. Its
+recorded Vite PID was 488176; the runner stopped it before releasing the lease.
+
+| Setting | Five sorted cold-open samples (ms) | Median (ms) |
+| --- | --- | ---: |
+| Legacy | 1660.6, 2272.0, 2873.8, 3117.0, 3286.3 | 2873.8 |
+| Pool | 2487.4, 2534.1, 2620.2, 3205.7, 3684.2 | 2620.2 |
+
+The observed median improvement is 253.6 ms, or 8.8%. Sample ranges overlap;
+these numbers describe this five-sample development-browser comparison on the
+shared host. The first paired run was voided after POD-4959 reported possible
+collector startup overlap at 22:38:50–22:39:50 UTC. None of those earlier timing
+samples are used here.
 
 Displayed chip values match exactly between settings, including the actual
 floating card's title, stage and accessible label. The six-field pool comparison
