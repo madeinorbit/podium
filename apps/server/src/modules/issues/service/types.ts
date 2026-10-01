@@ -61,7 +61,7 @@ export interface IssueLedger {
    *  `issue/dep.ts`, `repo/fields.ts`). All three reconcile the same way and are
    *  emitted only under the same flag. */
   reconcile(
-    entity: 'issue' | 'issueProjection' | 'issueDep' | 'repo',
+    entity: 'issue' | 'issueProjection' | 'issueUserState' | 'issueGitState' | 'issueDep' | 'repo',
     rows: { id: string; value: unknown }[],
   ): Promise<MetadataChange[]>
   /** Append partial truth without diffing unrelated baseline rows (POD-210). */

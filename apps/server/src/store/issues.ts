@@ -12,6 +12,7 @@ import { createLogger } from '@podium/logger'
 import {
   asIssueId,
   type IssueId,
+  IssueUserState,
   IssueStage,
   isIssueClosed,
   isIssueColorSlot,
@@ -1294,6 +1295,21 @@ export class IssuesRepository {
    * all three markers null are deleted rather than kept (see {@link setIssueUserState}),
    * so absence is the only spelling.
    */
+  /** Authority-only feed truth. A targeted publish reads one issue's users;
+   * boot/purge reconciles the full set. Delivery is filtered by the keyed user. */
+  async listIssueUserStateRows(issueId?: IssueId): Promise<IssueUserState[]> {
+    const rows = await this.db.select({
+      userId: issueUserState.userId,
+      entityId: issueUserState.issueId,
+      readAt: issueUserState.readAt,
+      tuckedAt: issueUserState.tuckedAt,
+      pinnedAt: issueUserState.pinnedAt,
+    }).from(issueUserState)
+      .where(issueId === undefined ? undefined : eq(issueUserState.issueId, issueId))
+      .all()
+    return rows.map(row => IssueUserState.parse(row))
+  }
+
   async listIssueUserState(userId: UserId): Promise<Map<string, StoredIssueUserState>> {
     requireUserId(userId)
     const rows = await this.db

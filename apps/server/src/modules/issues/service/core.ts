@@ -7,6 +7,7 @@ import {
   type Instant,
   type IssueDepProjection,
   type IssueGitState,
+  IssueGitStateProjection,
   type IssueId,
   type IssuePanel,
   type IssueProjection,
@@ -20,6 +21,8 @@ import {
   isReadyIssueStage,
   isSystemOwnedIssueStage,
   issueOverlayOf,
+  issueUserStateRowId,
+  issueUserStateToWire,
   type RepoProjection,
   requireInstant,
   type SessionId,
@@ -101,6 +104,7 @@ export class IssueStore {
    * it and reaches {@link hydrated} only through a commit application.
    */
   private readonly stagedRows: StagedOverlay<string, IssueRow>
+  private readonly stagedViewerState: StagedOverlay<string, StoredIssueUserState>
   /**
    * The composed view, rebuilt lazily and only while something is staged.
    *
@@ -112,6 +116,16 @@ export class IssueStore {
    */
   private composedRows: { version: number; rows: Map<string, IssueRow> } | undefined
   constructor(readonly deps: IssueDeps) {
+    this.stagedViewerState = new StagedOverlay(
+      deps.applyCommit,
+      (id, state) => {
+        const viewerState = this.requireHydrated().viewerState
+        if (state) viewerState.set(id, state)
+        else viewerState.delete(id)
+        this.bumpIssueInputs()
+      },
+      'issue-user-state-install',
+    )
     this.stagedRows = new StagedOverlay<string, IssueRow>(
       deps.applyCommit,
       (id, row) => this.applyRow(id, row ?? null),
@@ -174,12 +188,13 @@ export class IssueStore {
 
   /** One issue's markers for the broadcast viewer, as the wire wants them. */
   issueOverlay(issueId: IssueId): IssueUserOverlay {
-    return issueOverlayOf(this.requireHydrated().viewerState.get(issueId))
+    return issueOverlayOf(this.issueUserState(issueId))
   }
 
   /** The stored markers, for callers that need `pinnedAt` rather than `pinned`. */
   issueUserState(issueId: IssueId): StoredIssueUserState | undefined {
-    return this.requireHydrated().viewerState.get(issueId)
+    const staged = this.stagedViewerState.peek(issueId)
+    return staged ? staged.value : this.requireHydrated().viewerState.get(issueId)
   }
 
   /**
@@ -192,11 +207,20 @@ export class IssueStore {
    */
   async writeIssueUserState(issueId: IssueId, patch: Partial<StoredIssueUserState>): Promise<void> {
     const user = (await this.broadcastViewer())
-    await this.deps.store.issues.setIssueUserState(user, issueId, patch)
-    const viewerState = this.requireHydrated().viewerState
-    const next = await this.deps.store.issues.getIssueUserState(user, issueId)
-    if (next) viewerState.set(issueId, next)
-    else viewerState.delete(issueId)
+    const { result: next } = await this.deps.ledger.commit({
+      write: async () => {
+        await this.deps.store.issues.setIssueUserState(user, issueId, patch)
+        return await this.deps.store.issues.getIssueUserState(user, issueId)
+      },
+      changes: (state) => [{
+        entity: 'issueUserState',
+        id: issueUserStateRowId(user, issueId),
+        ...(state
+          ? { op: 'upsert' as const, value: issueUserStateToWire({ userId: user, entityId: issueId, ...state }) }
+          : { op: 'remove' as const }),
+      }],
+    })
+    this.stagedViewerState.set(issueId, next)
     this.bumpIssueInputs()
   }
 
@@ -1012,6 +1036,44 @@ export class IssueStore {
     ]
   }
 
+  /** One issue's additive companions, declared beside its old record. */
+  async companionChanges(row: IssueRow): Promise<EntityChangeSpec[]> {
+    const states = await this.deps.store.issues.listIssueUserStateRows(row.id)
+    return [
+      ...await this.projectionChanges(row),
+      this.gitStateChange(row),
+      ...states.map(state => ({
+        entity: 'issueUserState' as const,
+        id: issueUserStateRowId(state.userId, state.entityId),
+        op: 'upsert' as const,
+        value: issueUserStateToWire(state),
+      })),
+    ]
+  }
+
+  private gitStateChange(row: IssueRow): EntityChangeSpec {
+    const state = row.deletedAt ? undefined : this.gitStates.get(row.id)
+    return state
+      ? { entity: 'issueGitState', id: row.id, op: 'upsert', value: IssueGitStateProjection.parse({ id: row.id, ...state }) }
+      : { entity: 'issueGitState', id: row.id, op: 'remove' }
+  }
+
+  /** Ephemeral git observations and durable personal markers share the feed's
+   * recovery path. Boot removes prior-process git observations; purge removes
+   * personal rows whose issue was deleted. */
+  async reconcileCompanions(): Promise<void> {
+    const gitRows = [...this.rows.values()].flatMap(row => {
+      const change = this.gitStateChange(row)
+      return change.op === 'upsert' ? [{ id: change.id, value: change.value }] : []
+    })
+    await this.deps.ledger.reconcile('issueGitState', gitRows)
+    const states = await this.deps.store.issues.listIssueUserStateRows()
+    await this.deps.ledger.reconcile('issueUserState', states.map(state => ({
+      id: issueUserStateRowId(state.userId, state.entityId),
+      value: issueUserStateToWire(state),
+    })))
+  }
+
   /** Full LOCAL projection truth for a reconcile. `undefined` = do not reconcile
    *  this kind (a row that cannot be projected — see {@link issueProjectionRows}
    *  on why that is all-or-nothing). Flag off returns EMPTY, not undefined, and
@@ -1111,6 +1173,7 @@ export class IssueStore {
     await this.deps.ledger.reconcile('issue', spec.rows)
     const projections = await this.allProjections()
     if (projections) await this.deps.ledger.reconcile('issueProjection', projections)
+    await this.reconcileCompanions()
     // The edges reconcile on the same full-truth passes [POD-822], for the same
     // reason the projections do: this path exists to catch what no write
     // declared, and a CASCADE delete (an issue removed takes its edges with it)
@@ -1204,7 +1267,7 @@ export class IssueStore {
         // toWire never looks `row` itself up in the map (children/blocked scan
         // OTHER rows), so it is safe to serialize before the map install below.
         const committedWire = await this.toWire(row)
-        committedProjectionChanges = await this.projectionChanges(row)
+        committedProjectionChanges = await this.companionChanges(row)
         committedExtraChanges =
           typeof opts?.extraChanges === 'function'
             ? await opts.extraChanges()
@@ -1299,7 +1362,7 @@ export class IssueStore {
         // O(all issues) prefetch they would not amortize.
         const batch = rows.length > 8 ? await this.wireBatch() : undefined
         wires = await Promise.all(rows.map(async (row) => await this.toWire(row, undefined, batch)))
-        committedProjectionChanges = await Promise.all(rows.map(async (row) => await this.projectionChanges(row)))
+        committedProjectionChanges = await Promise.all(rows.map(async (row) => await this.companionChanges(row)))
         committedExtraChanges = await extraChanges(result)
         const committedEvents = await events(result)
         eventIds = await Promise.all(committedEvents.map(async (event) =>
@@ -1392,14 +1455,16 @@ export class IssueStore {
     // next full-list broadcast re-upserts (the POD-210 ledger flapping: ~185
     // remove+upsert pairs per targeted git-state publish). capture dedups the
     // one row against the baseline and never diffs the list.
-    await this.deps.ledger.capture(
-      spec.rows.map((r) => ({
+    const companions = await this.companionChanges(row)
+    await this.deps.ledger.capture([
+      ...spec.rows.map((r) => ({
         entity: 'issue' as const,
         id: r.id,
         op: 'upsert' as const,
         value: r.value,
       })),
-    )
+      ...companions,
+    ])
   }
 
   /** @internal */

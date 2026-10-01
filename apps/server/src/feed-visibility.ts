@@ -35,6 +35,7 @@ import {
   parseMessageRecordRowId,
   parseLayoutRowId,
   parseReadPositionRowId,
+  parseIssueUserStateRowId,
   type IssueId,
   type UserId,
   type SessionId,
@@ -269,10 +270,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // state" is not a verb — it is the privacy defect this member exists to
         // avoid.
         if (entity === 'userReadPosition') return 'per-user-state'
+        if (entity === 'issueUserState') return 'per-user-state'
         if (
           entity === 'session' ||
           entity === 'issue' ||
           entity === 'issueProjection' ||
+          entity === 'issueGitState' ||
           entity === 'issueDep' ||
           // A curated issue event (POD-1772). `personal` and NOT a class of its
           // own: it is readable by exactly the audience of the issue it is about,
@@ -300,7 +303,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // An unresolved root policy, or a ref outside this pass, denies. The
         // producer must prepare every ref before entering the synchronous loop.
         if (!prefetch) return false
-        if (ref.entity === 'issue' || ref.entity === 'issueProjection') {
+        if (ref.entity === 'issue' || ref.entity === 'issueProjection' || ref.entity === 'issueGitState') {
           return mayReadIssueFromSnapshot(userId, ref.entityId, prefetch)
         }
         if (ref.entity === 'issueDep') {
@@ -371,6 +374,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         return false
       },
       keyedUserOf: (ref) => {
+        if (ref.entity === 'issueUserState') {
+          try {
+            return parseIssueUserStateRowId(ref.entityId).userId
+          } catch {
+            return null
+          }
+        }
         if (ref.entity === 'userReadPosition') {
           try {
             return parseReadPositionRowId(ref.entityId).userId
@@ -423,7 +433,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const automationIds = new Set<string>()
     const automationRunIds = new Set<string>()
     for (const ref of refs) {
-      if (ref.entity === 'issue' || ref.entity === 'issueProjection') {
+      if (ref.entity === 'issue' || ref.entity === 'issueProjection' || ref.entity === 'issueGitState') {
         issueIds.add(ref.entityId)
       } else if (ref.entity === 'issueDep') {
         const dep = parseIssueDepId(ref.entityId)
@@ -650,6 +660,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       const subjects = [
         { entity: 'issue' as const, entityId: ref.entityId },
         { entity: 'issueProjection' as const, entityId: ref.entityId },
+        { entity: 'issueGitState' as const, entityId: ref.entityId },
         ...issueSessions.map((session) => ({
           entity: 'session' as const,
           entityId: session.id,

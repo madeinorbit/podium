@@ -1453,6 +1453,7 @@ export class IssueCrudModule {
     // Projected INSIDE write(), after upsertIssue has stamped row.revision —
     // see IssueLifecyclePlan.wire for why taking it here would be a bug.
     let committed: IssueWire | null = null
+    let companions: EntityChangeSpec[] = []
     const wire = (): IssueWire => {
       if (!committed) {
         throw new Error(`prepareSoftDelete(${row.id}): wire() read before write() committed it`)
@@ -1493,8 +1494,9 @@ export class IssueCrudModule {
           payload: { seq: row.seq, deletedAt },
         })
         committed = await this.store.toWire(row)
+        companions = await this.store.companionChanges(row)
       },
-      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
+      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }, ...companions],
       apply: () => {
         this.store.installRow(row.id, row)
       },
@@ -1589,6 +1591,7 @@ export class IssueCrudModule {
     const row: IssueRow = { ...current, deletedAt: null, updatedAt: restoredAt }
     // Projected INSIDE write() — see prepareSoftDelete / IssueLifecyclePlan.wire.
     let committed: IssueWire | null = null
+    let companions: EntityChangeSpec[] = []
     const wire = (): IssueWire => {
       if (!committed) {
         throw new Error(`prepareRestore(${row.id}): wire() read before write() committed it`)
@@ -1616,8 +1619,9 @@ export class IssueCrudModule {
           payload: { seq: row.seq, restoredAt },
         })
         committed = await this.store.toWire(row)
+        companions = await this.store.companionChanges(row)
       },
-      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
+      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }, ...companions],
       apply: () => {
         this.store.installRow(row.id, row)
       },

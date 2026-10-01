@@ -287,13 +287,18 @@ export function issueDepProjectionRows(
  * unchanged set appends nothing. This never runs per-issue.
  */
 export function repoProjectionRows(
-  repos: Iterable<{ repoId: RepoId | null; prefix: string | null }>,
+  repos: Iterable<{ repoId: RepoId | null; prefix: string | null; path?: string }>,
 ): { id: RepoId; value: RepoProjection }[] {
   const byId = new Map<string, RepoProjection>()
   for (const repo of repos) {
     if (!repo.repoId) continue
     // `.parse()` brands the RepoId — see issueDepToProjection.
-    byId.set(repo.repoId, repoToWire(Repo.parse({ id: repo.repoId, prefix: repo.prefix })))
+    // Several machine checkouts can share an id. Pick the same root regardless
+    // of registry iteration order, so a repeated reconcile cannot flap paths.
+    const current = byId.get(repo.repoId)
+    const repoPath = repo.path ?? null
+    if (current?.repoPath && (repoPath === null || current.repoPath <= repoPath)) continue
+    byId.set(repo.repoId, repoToWire(Repo.parse({ id: repo.repoId, prefix: repo.prefix, repoPath })))
   }
   return [...byId].map(([id, value]) => ({ id: id as RepoId, value }))
 }
