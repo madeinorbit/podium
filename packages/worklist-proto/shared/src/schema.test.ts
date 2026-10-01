@@ -750,7 +750,9 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
     expect(ruleAt(rows, seats).issue('i')).toBe(false)
     expect(ruleAt(rows, seats).session('s')).toBe(false)
     expect(ruleAt([agent, { ...parent, startedBySession: null }, rows[2]!], seats).issue('i')).toBe(true)
-    expect(SCHEMA.issue.cold.dependsOn).toContain('startedBySession')
+    const spec = SCHEMA.issue.cold
+    if (spec.kind !== 'unlessShown') throw new Error('unreachable')
+    expect(spec.dependsOn).toContain('startedBySession')
   })
 
   it('follows the raw reference: a headless session of a closed issue is cold', () => {
