@@ -3,15 +3,15 @@ import { bindSidebarPerf, createSidebarPerf, storeStats } from '@podium/client-c
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { asIssueId, asUserId } from '@podium/model/browser'
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
+import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import {
   attachWorklistPool,
   useWorklistPool,
   worklistPoolSurvivors,
 } from '../src/app/store-worklist-pool'
-import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { SidebarPerfPanel } from '../src/features/worklist/SidebarPerfPanel'
 import { SidebarRail } from '../src/features/worklist/SidebarRail'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
@@ -49,8 +49,9 @@ let proofPerf: ReturnType<typeof createSidebarPerf> | undefined
  * its instrumentation so an accidental legacy reader cannot hide behind that. */
 function WorklistProofMeasurements() {
   const owner = useStoreHandle()
-  const perf = useMemo(() => createSidebarPerf(), [owner])
+  const [perf] = useState(() => createSidebarPerf())
   useLayoutEffect(() => {
+    perf.reset()
     proofPerf = perf
     const paint = createPaintBoundary()
     const unbind = bindSidebarPerf(owner, perf, paint.afterPaint)

@@ -107,7 +107,9 @@ try {
       if (mode === 'pool' && worklist !== 0)
         throw new Error(`${mode} ${phase}: legacy worklist derived ${worklist} times (expected 0)`)
       if (mode === 'legacy' && (worklist === 0 || (mustAdvance && worklist <= previous)))
-        throw new Error(`${mode} ${phase}: expected the existing legacy derivation; got ${worklist}`)
+        throw new Error(
+          `${mode} ${phase}: expected the existing legacy derivation; got ${worklist}`,
+        )
       checkpoints.push({ phase, worklist, publishes })
       console.log(`${mode} ${phase}: worklist=${worklist}, publishes=${publishes}`)
     }
@@ -263,7 +265,10 @@ try {
       await checkpoint('rail selection')
       await page.evaluate(() => window.__sidebarRenderer.update({ title: 'Rail feed update' }))
       await page.getByTestId('sidebar-rail').getByText(targetSeq, { exact: true }).hover()
-      await page.getByTestId('rail-hover-card').getByText(/Rail feed update$/).waitFor()
+      await page
+        .getByTestId('rail-hover-card')
+        .getByText(/Rail feed update$/)
+        .waitFor()
       await checkpoint('rail incoming update', true)
     }
     await page.evaluate(() => window.__sidebarRenderer.rail(false))
@@ -278,7 +283,10 @@ try {
         { timeout: 75000 },
       )
       await page.evaluate(
-        () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
       )
       await checkpoint('idle clock tick', true)
     }
@@ -308,7 +316,9 @@ try {
       const survivors = await page.evaluate(() => window.__sidebarRenderer.survivors())
       if (survivors.length) throw new Error(`${mode} principal retained ${survivors.join(', ')}`)
       const heap = await cdp.send('Runtime.getHeapUsage')
-      await checkpoint(name === null ? 'sign out' : rebuild ? 'runtime rebuild' : 'principal switch')
+      await checkpoint(
+        name === null ? 'sign out' : rebuild ? 'runtime rebuild' : 'principal switch',
+      )
       builds.push({
         name,
         rebuild,
@@ -364,7 +374,8 @@ try {
     throw new Error('Pool row commits exceed legacy')
   await writeFile(`${out}/results.json`, JSON.stringify(results, null, 2))
   console.log(`Sidebar browser parity green; evidence ${out}`)
-  if (worklistProof) console.log('No legacy worklist derivation: pool 0 throughout; legacy control derived')
+  if (worklistProof)
+    console.log('No legacy worklist derivation: pool 0 throughout; legacy control derived')
 } finally {
   await browser?.close()
   server.kill()

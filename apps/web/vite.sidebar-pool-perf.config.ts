@@ -1,7 +1,8 @@
 /** The real pool attachment and panel, with synthetic data and no live backend. */
-import tailwindcss from '@tailwindcss/vite'
+
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
