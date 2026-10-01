@@ -329,8 +329,8 @@ interface DriverSession {
   observedStatePhase: AgentRuntimeState['phase'] | undefined
   transcriptVersions: Map<string, string>
   injection: TerminalInjectionMachine
-  /** Open waiters for Claude's hook, keyed by the prompt text they watch. The
-   *  hook lends its prompt id to a send; it never proves one (POD-4905). */
+  /** Open waiters for native submit hooks, keyed by the prompt text they watch.
+   *  A hook supplies a link to saved history; alone it never proves a send. */
   hookWaiters: Set<AcceptWaiter>
   /** Open waiters for the send's record in the history — the proof. See
    *  `creditEchoWaiters`. */
@@ -384,6 +384,8 @@ export interface TerminalHarnessProfile {
   sendProof: DriverCapabilities['send']['proof']
   /** Manifest-owned content matchers; absence means no proof on that channel. */
   acceptCorrelation?: TerminalAcceptCorrelations
+  /** Native permission/question hooks, independent of submit receipt hooks. */
+  interactionsFromHooks?: boolean
   /** Whether transcript entries say when they were written — the echo proof's
    *  floor across segments. Manifest-owned; see `TranscriptTimestampFidelity`. */
   transcriptTimestamps: TranscriptTimestampFidelity
@@ -762,7 +764,7 @@ export function createTerminalRuntime(
       sessionId: session.sessionId,
       ...kindAndPayload,
       askedAt: observation.providerAt ?? observation.receivedAt,
-      source: profile?.acceptCorrelation?.hook ? 'hook' : 'screen-classifier',
+      source: profile?.interactionsFromHooks ? 'hook' : 'screen-classifier',
       // Even a hook-SOURCED ask is answered by typing digits into a native menu,
       // and a keystroke cannot prove which menu it acted on.
       answerable: 'keystroke-emulated',
@@ -1569,16 +1571,11 @@ export function createTerminalRuntime(
     }
   }
 
-  // -- the causal accept signal --------------------------------------------
+  // -- the native submit link ----------------------------------------------
 
   /**
-   * A raw hook payload, tapped before the observers fold it.
-   *
-   * WHY THE RAW PAYLOAD AND NOT THE OBSERVATION. A `UserPromptSubmit` becomes a
-   * `turn_opened` observation, which is delivered, acked and fenced — a pipeline
-   * measured in hundreds of milliseconds on a busy daemon. A receipt that waited
-   * for it would report `unverified` for sends the harness had already accepted.
-   * The hook itself is the causal signal, so the accept is anchored to the hook.
+   * Bind a raw submit hook to our own Enter and text before the observers fold
+   * it. Only a later saved prompt carrying that id makes it receipt proof.
    */
   function onHookPayload(sessionId: SessionId, payload: unknown): void {
     const session = sessions.get(sessionId)
@@ -1669,7 +1666,10 @@ export function createTerminalRuntime(
         ? after.filter((waiter) => waiter.hookRefs?.some((hook) =>
           item.harnessRef!.some((ref) => ref.kind === hook.kind && ref.id === hook.id)))
         : []
-      const credited = linked.length === 1 ? linked[0] : creditOne(session, correlation, typed, after, queued)
+      // This entry spends every unwrapped watch's first-entry order, including
+      // when its native id supplies the proof for a different watch.
+      const ordered = creditOne(session, correlation, typed, after, queued)
+      const credited = linked.length === 1 ? linked[0] : ordered
       if (queued) {
         if (credited) credited.hold()
         continue
@@ -3258,7 +3258,7 @@ function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCap
     instrumentationRequired: resolved.instrumentationRequired,
     sendProof: resolved.sendProof,
     composerReadiness: resolved.composerReadiness,
-    interactionsFromHooks: resolved.acceptCorrelation?.hook !== undefined,
+    interactionsFromHooks: resolved.interactionsFromHooks === true,
     usesRawFirstTurn: resolved.usesRawFirstTurn,
     // Composer sync is a per-session flag, and the capability is a per-DRIVER
     // declaration, so the driver declares what it can do when the engine runs and

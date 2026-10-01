@@ -219,6 +219,7 @@ export const claudeCodeManifest: AgentManifest = {
     }),
     terminal: {
       driverId: 'generic-pty',
+      interactionsFromHooks: true,
       acceptCorrelation: {
         // Read for Claude's own prompt id only: never a receipt (POD-4905).
         hook: claudeHookAcceptCorrelation,

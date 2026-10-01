@@ -85,6 +85,7 @@ function testProfileFor(harness: AgentKind): TerminalHarnessProfile | undefined 
     sendProof: terminal.sendProof,
     composerReadiness: manifest.capabilities.composerReadiness,
     acceptCorrelation: terminal.acceptCorrelation,
+    interactionsFromHooks: terminal.interactionsFromHooks === true,
     transcriptTimestamps: terminal.transcriptTimestamps,
     exitLosesUnrecorded: terminal.exitLosesUnrecorded === true,
     lifecycleFromState: terminal.lifecycleFromState === true,
@@ -528,7 +529,7 @@ function makeWorld(options: WorldOptions): {
         askedAt: iso(),
         // Match the profile's declared source so hook-backed drivers actually
         // receive the injected ask (POD-3741 Finding 4).
-        source: profile.acceptCorrelation?.hook ? 'hook' : 'screen-classifier',
+        source: profile.interactionsFromHooks ? 'hook' : 'screen-classifier',
         answerable: 'keystroke-emulated',
       }
       runtime?.control.askInteraction(sessionId, interaction)
@@ -796,15 +797,14 @@ describe('adversarial-pty with a synthetic archive locator', () => {
 })
 
 describe('terminal conformance interaction sources', () => {
-  it.each([false, true])('injects the profile source (hookAnchoredAccept=%s)', async (hookAnchoredAccept) => {
-    const harness = hookAnchoredAccept ? 'claude-code' : 'grok'
+  it.each(['grok', 'codex', 'claude-code'] as const)('injects the %s interaction source independently of its submit hook', async (harness) => {
     const world = makeWorld({ harness, profile: shippedProfile(harness) })
     try {
       const { driver, control } = world.target.createDriver()
       const session = await driver.create(world.target.spec())
       const id = control.askInteraction(session.binding.sessionId, 'permission')
       expect(await session.interactions()).toEqual([expect.objectContaining({
-        id, source: hookAnchoredAccept ? 'hook' : 'screen-classifier',
+        id, source: harness === 'claude-code' ? 'hook' : 'screen-classifier',
       })])
     } finally {
       world.target.reset()

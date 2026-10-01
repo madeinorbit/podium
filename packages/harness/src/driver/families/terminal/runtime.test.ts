@@ -98,6 +98,7 @@ function testProfileFor(agentKind: AgentKind): TerminalHarnessProfile | undefine
     sendProof: terminal.sendProof,
     composerReadiness: manifest.capabilities.composerReadiness,
     acceptCorrelation: terminal.acceptCorrelation,
+    interactionsFromHooks: terminal.interactionsFromHooks === true,
     transcriptTimestamps: terminal.transcriptTimestamps,
     exitLosesUnrecorded: terminal.exitLosesUnrecorded === true,
     lifecycleFromState: terminal.lifecycleFromState === true,
@@ -1250,22 +1251,25 @@ describe('send receipts', () => {
     // that only understands `typeof prompt === 'string'` sees no prompt here at
     // all — and what follows is not a missed id but a MIS-attributed one,
     // because "no prompt to compare" degrades to "the next waiter wins".
-    world.hookOnSubmit(sessionId, {
-      payload: {
-        hook_event_name: 'UserPromptSubmit',
-        prompt_id: 'prompt-named',
-        prompt: [
-          { type: 'tool_result', tool_use_id: 'toolu_1', content: 'previous output' },
-          { type: 'text', text: 'ship it<system-reminder>be careful</system-reminder>' },
-        ],
-      },
-    })
+    const payload = {
+      hook_event_name: 'UserPromptSubmit',
+      prompt_id: 'prompt-named',
+      prompt: [
+        { type: 'tool_result', tool_use_id: 'toolu_1', content: 'previous output' },
+        { type: 'text', text: 'ship it<system-reminder>be careful</system-reminder>' },
+      ],
+    }
     // TWO SENDS IN FLIGHT — a queue drain overlapping a chat send, which is the
     // only arrangement that can tell "matched by content" apart from "credited
     // whoever was waiting". The hook names the second one, and only its record
     // is written.
     world.onSubmit(sessionId, (pasted) => {
-      if (pasted === 'ship it') world.host.setTimer(() => world.echo(sessionId, 'ship it'), 300)
+      if (pasted === 'ship it') {
+        // The measured submit hook arrives after Enter (+33..256 ms), including
+        // the named send's own Enter when these two sends overlap.
+        world.host.setTimer(() => world.runtime.onHookPayload(sessionId, payload), 150)
+        world.host.setTimer(() => world.echo(sessionId, 'ship it'), 300)
+      }
     })
     const other = session.send({ text: 'first' }, { origin: 'mail', delivery: 'when-ready' })
     const named = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
@@ -2210,7 +2214,7 @@ describe('the echo baseline', () => {
     const session = await driver.create(SPEC)
     world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
-    world.echo(sessionId, 'turn one', { at: { fileId: 'transcript', offset: 0 } })
+    world.echo(sessionId, 'turn one', { at: { fileId: 'transcript', offset: 0 }, writtenAgoMs: 6000 })
 
     const receipt = session.send(
       { text: 'a real turn' },
@@ -2218,10 +2222,9 @@ describe('the echo baseline', () => {
     )
     await Promise.resolve()
     // The reset re-delivers the history — the same record at the same place —
-    // and THEN the harness records this turn. The count follows the server
-    // buffer's semantics exactly, so the baseline moves with the reset and the
-    // new turn is still an increase.
-    world.echo(sessionId, 'turn one', { reset: true, at: { fileId: 'transcript', offset: 0 } })
+    // and THEN the harness records this turn. The re-read keeps the old record's
+    // timestamp; only the new prompt is at or after typing started.
+    world.echo(sessionId, 'turn one', { reset: true, at: { fileId: 'transcript', offset: 0 }, writtenAgoMs: 6000 })
     world.echo(sessionId, 'a real turn')
 
     const resolved = await receipt
@@ -5399,8 +5402,7 @@ describe('a stale busy tracker with no open turn never holds Grok follow-ups [PO
 /**
  * A terminal send is confirmed only by the agent program's own history (spec
  * §3.3, §5.1, §5.3): a wrapped message by the frame id of a prompt entry, a
- * person's own words by order plus text while the foreign-write counter says
- * nothing else was written. Every history below is a lane's own evidence
+ * person's own words by order plus text. Every history below is a lane's own evidence
  * (docs/measurements/pod-4834-receipt-proof, run on the real CLIs), read
  * through the program's real reader.
  */
@@ -5554,7 +5556,7 @@ describe('terminal receipts from the history (POD-4905)', () => {
         submitted += 1
         expect(text).toBe(row.input)
         expect(world.host.foreignWrites?.typingMark(sessionId, id)).toBe(0)
-        // Order credit is unavailable; only this entry's own frame can prove it.
+        // The frame proof stays exact even with another terminal writer.
         world.transportFor(sessionId).writeBase64(Buffer.from('x').toString('base64'))
         post(world, sessionId, row.items)
       })
@@ -6061,6 +6063,16 @@ describe('terminal receipts from the history (POD-4905)', () => {
     })
     const profile = testProfileFor(input.lane)
     if (!profile) throw new Error(`no terminal profile for ${input.lane}`)
+    // The measured records must share the daemon's clock. Position used to hide
+    // the fixture's August clock against September recordings; a time floor
+    // must exclude the prompts already recorded before this send.
+    const before = input.items.slice(0, input.upTo)
+      .flatMap((item) => item.ts && Number.isFinite(Date.parse(item.ts)) ? [Date.parse(item.ts)] : [])
+    if (before.length && profile.transcriptTimestamps !== 'absent') {
+      const typingAt = Math.max(...before) + profile.transcriptTimestamps.resolutionMs
+      const base = world.now()
+      world.host.now = () => typingAt + world.now() - base
+    }
     const handle = await world.runtime.driverFor(input.lane, profile).create(SPEC)
     const sessionId = handle.binding.sessionId
     world.ready(sessionId)

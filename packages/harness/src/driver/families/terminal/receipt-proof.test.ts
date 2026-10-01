@@ -97,6 +97,22 @@ describe('terminal receipt operator regressions', () => {
     w.runtime.dispose()
   })
 
+  it('a linked prompt still spends the first-entry order of another open send', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(START)
+    const w = world()
+    const linked = w.handle.send({ id: 'msg-linked', text: 'Yes' }, { origin: 'human', delivery: 'when-ready' })
+    const other = w.handle.send({ id: 'msg-other', text: 'Later' }, { origin: 'human', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(w.writes.filter((bytes) => bytes === '\r')).toHaveLength(2)
+    w.runtime.onHookPayload(SESSION, { hook_event_name: 'UserPromptSubmit', prompt: 'Yes', prompt_id: 'linked-id' })
+    w.post('expanded prompt', { harnessRef: [{ kind: 'claude-prompt', id: 'linked-id' }] })
+    w.post('Later')
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(await linked).toMatchObject({ outcome: 'accepted' })
+    expect(await other).toMatchObject({ outcome: 'unverified' })
+    w.runtime.dispose()
+  })
+
   it.each(['wrong-text', 'late-hook', 'before-enter', 'wrong-id'] as const)('does not infer proof from %s', async (fault) => {
     vi.useFakeTimers(); vi.setSystemTime(START)
     const w = world()

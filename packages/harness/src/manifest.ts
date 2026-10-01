@@ -1425,6 +1425,9 @@ export interface TerminalRuntimeSpec {
   sendProof: readonly 'transcript-echo'[]
   /** Omitted matchers cannot prove an accept; the driver never guesses one. */
   acceptCorrelation?: TerminalAcceptCorrelations
+  /** Permission and question observations come from native interaction hooks.
+   * A submit hook used for receipt correlation does not imply this. */
+  interactionsFromHooks?: boolean
   /** Whether the transcript the echo proof reads says when each entry was
    *  written. REQUIRED: every harness answers from its real files, not its
    *  reader, because a reader that accepts a `timestamp` field proves nothing

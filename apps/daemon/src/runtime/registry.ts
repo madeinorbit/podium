@@ -63,6 +63,7 @@ export function terminalProfileFor(agentKind: AgentKind): TerminalHarnessProfile
     sendProof: terminal.sendProof,
     composerReadiness: manifest.capabilities.composerReadiness,
     acceptCorrelation: terminal.acceptCorrelation,
+    interactionsFromHooks: terminal.interactionsFromHooks === true,
     transcriptTimestamps: terminal.transcriptTimestamps,
     exitLosesUnrecorded: terminal.exitLosesUnrecorded === true,
     lifecycleFromState: terminal.lifecycleFromState === true,
