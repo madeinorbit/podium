@@ -895,6 +895,42 @@ describe('mountSession eligibility-gated sizing', () => {
  * nothing, so every trigger sends, and no other event does.
  */
 describe('mountSession size triggers', () => {
+  it('settles the first attach box before stating a viewport or claiming it', () => {
+    const observer = withCapturingResizeObserver()
+    withFakeTimedRaf()
+    const proposal = withResizableAddon()
+    proposal.set(106, 31)
+    const { hub, calls, state, attached } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      initialGeometry: { cols: 106, rows: 33 },
+    })
+    try {
+      state(106, 33)
+      attached()
+      // The attach snapshot paints at W immediately; readiness can still change
+      // the box in the next layout commit. Mount and attach must not resize it.
+      expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+        cols: 106,
+        rows: 33,
+      })
+      expect(calls.asks, 'no transient 106x31 statement').toEqual([])
+      vi.advanceTimersByTime(35)
+      proposal.set(106, 33)
+      observer.fire()
+      vi.advanceTimersByTime(59)
+      expect(calls.asks).toEqual([])
+      vi.advanceTimersByTime(1)
+      expect(calls.asks).toEqual([
+        { geometry: { cols: 106, rows: 33 }, visible: true, mode: 'native', claimControl: true },
+      ])
+    } finally {
+      mounted.dispose()
+      vi.advanceTimersByTime(1)
+    }
+  })
+
   it('EVERY attach states the box — the first one too, which the server dedups', () => {
     // The first attach used to be skipped as a repeat of the mount's ask. On the
     // phone's native bridge the mount's ask can land before the native socket

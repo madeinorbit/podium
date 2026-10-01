@@ -2,6 +2,7 @@
 
 import type { ConnectionState, SessionCallbacks, SocketHub } from '@podium/client-core/socket-transport'
 import { asSessionId } from '@podium/model'
+import type { Terminal } from '@xterm/xterm'
 import { describe, expect, it, vi } from 'vitest'
 import { mountSession } from './session-mount'
 import { TerminalView } from './terminal-view'
@@ -46,6 +47,7 @@ function fakeHub() {
     hub,
     reset: () => cbs.onReset?.(),
     attached: () => cbs.onAttached?.(),
+    frame: (data: string) => cbs.onFrame?.(new TextEncoder().encode(data)),
     // Keep cols/rows at the mounted 80×24 so onState drives only the epoch/clear path,
     // never a view.resize.
     setState: (patch: Partial<ConnectionState>) => {
@@ -58,6 +60,43 @@ function fakeHub() {
 // Pictures reset the screen in their own bytes. Only an older server's explicit
 // reset callback clears outside that stream; a takeover must leave it readable.
 describe('session-mount clear semantics', () => {
+  it.each(['normal', 'alternate'] as const)(
+    'preserves an idle %s frame and cursor through a server regrid',
+    async (buffer) => {
+      withResizeObserver()
+      const { hub, setState, attached, frame } = fakeHub()
+      const mounted = mountSession(document.createElement('div'), {
+        hub,
+        sessionId: asSessionId('s1'),
+        active: false, // Hidden viewers must preserve the same authoritative picture.
+        initialGeometry: { cols: 106, rows: 33 },
+      })
+      try {
+        setState({ cols: 106, rows: 33 })
+        attached()
+        // A snapshot restores the program's cursor on the middle row. No output
+        // follows: geometry alone cannot assume a SIGWINCH repaint will arrive.
+        frame(
+          `${buffer === 'alternate' ? '\x1b[?1049h' : ''}\x1b[H` +
+            'top row\r\nmiddle row\r\nbottom row\x1b[2;5H',
+        )
+        const term = (mounted.view as unknown as { term: Terminal }).term
+        await new Promise<void>((resolve) => term.write('', resolve))
+        const rows = () => mounted.view.screenText().split('\n').slice(0, 3)
+        expect(rows()).toEqual(['top row', 'middle row', 'bottom row'])
+
+        setState({ rows: 31 })
+        setState({ rows: 33 })
+
+        expect(rows()).toEqual(['top row', 'middle row', 'bottom row'])
+        expect(term.buffer.active.cursorY).toBe(1)
+        expect(term.buffer.active.cursorX).toBe(4)
+      } finally {
+        mounted.dispose()
+      }
+    },
+  )
+
   it('keeps the view on an in-session epoch bump (controller takeover)', () => {
     withResizeObserver()
     const clear = vi.spyOn(TerminalView.prototype, 'clear')

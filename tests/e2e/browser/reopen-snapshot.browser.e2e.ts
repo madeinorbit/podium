@@ -40,16 +40,14 @@ async function colouredPixels(page: Page): Promise<number> {
   }, png.toString('base64'))
 }
 
-// \033[?1049h enters the alternate screen. ONE row, with the cursor left on
-// it: the viewer's settle-time regrid runs xterm `clear()`, which keeps only
-// the cursor's row, and a sleeping shell never repaints the rest (a separate
-// sizing race, not this snapshot). Every glyph class and colour kind is on it.
+// Three coloured rows, with the cursor restored to the middle row. The sleeping
+// program never repaints on SIGWINCH, so a viewer clear cannot hide behind output.
 const PAINT = [
   "printf '\\033[?1049h\\033[H",
-  '\\033[48;5;24m\\033[1;93m╭─ 漢字 ─╮\\033[0m ',
-  '\\033[48;5;52m\\033[38;5;214m 😀 coloured \\033[0m ',
+  '\\033[48;5;24m\\033[1;93m╭─ 漢字 ─╮\\033[0m\\r\\n',
+  '\\033[48;5;52m\\033[38;5;214m 😀 coloured \\033[0m\\r\\n',
   '\\033[48;5;22m\\033[38;2;200;120;255m⏵⏵ auto mode on (shift+tab)\\033[0m',
-  "'; sleep 900\r",
+  "\\033[2;5H'; sleep 900\r",
 ].join('')
 
 async function frameShown(page: Page): Promise<string> {
@@ -83,6 +81,7 @@ test('a cold return to an alternate screen keeps its colours and glyphs', async 
   const before = await frameShown(page)
   const colourBefore = await colouredPixels(page)
   await visibleSurface(page).screenshot({ path: info.outputPath('before.png') })
+  const beforeGrid = await podium.state(page)
   expect(line(before, 'auto mode on')).toContain('⏵⏵')
   expect(colourBefore, 'the frame is coloured to begin with').toBeGreaterThan(500)
 
@@ -100,8 +99,7 @@ test('a cold return to an alternate screen keeps its colours and glyphs', async 
   )
   console.log(`[POD-4848] coloured pixels before=${colourBefore} after-return=${colourAfter}`)
   console.log(`[POD-4848] rows after return: ${JSON.stringify(after.split('\n').slice(0, 3))}`)
-  // What the viewer did after the return: a regrid (`geometry:applied`) or an
-  // epoch clear keeps only the cursor's row, which a sleeping shell never repaints.
+  // Retain the ordered lifecycle evidence for both the viewport and buffer regressions.
   const events = await page.evaluate(
     (id) =>
       (
@@ -116,8 +114,11 @@ test('a cold return to an alternate screen keeps its colours and glyphs', async 
     sessionId,
   )
   console.log(`[POD-4848] viewer events:\n${(events ?? []).join('\n')}`)
-  for (const glyph of ['╭─', '漢字', '😀', '⏵⏵'])
-    expect(line(before, 'auto mode on')).toContain(glyph)
-  expect(line(after, 'auto mode on')).toBe(line(before, 'auto mode on'))
+  for (const needle of ['漢字', '😀', 'auto mode on']) {
+    expect(line(before, needle)).toBeTruthy()
+    expect(line(after, needle)).toBe(line(before, needle))
+  }
+  expect(after.split('\n').slice(0, 3)).toEqual(before.split('\n').slice(0, 3))
+  expect(await podium.state(page)).toMatchObject({ cols: beforeGrid.cols, rows: beforeGrid.rows })
   expect(colourAfter, 'the return kept the colours').toBeGreaterThan(colourBefore * 0.8)
 })
