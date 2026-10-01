@@ -19,9 +19,11 @@ import { corpusFromLive, type LiveCollections } from '../fixture/live-snapshot'
 import { ScenarioCache } from '../../../shared/src/scenarios'
 import { sidebarReplayStore } from './sidebar-replay'
 
+let phase = 0
 async function main() {
   if (hostname() !== 'ludovico') throw new Error('Replay is restricted to ludovico')
   const origin = process.argv.find((arg) => arg.startsWith('--origin='))?.slice(9) ?? 'http://127.0.0.1:18787'
+  phase = 1
   const { token } = JSON.parse(readFileSync(join(homedir(), '.podium/cli-session.json'), 'utf8')) as { token: string }
   const cookie = `podium_session=${token}`
   const call = async <T>(path: string, method = 'GET'): Promise<T> => {
@@ -33,6 +35,7 @@ async function main() {
     if (!response.ok || !body[0]?.result) throw new Error('Read failed')
     return body[0].result.data
   }
+  phase = 2
   const metrics = await new Promise<HostMetricsWire[]>((resolve, reject) => {
     // Bun's native client supports cookie headers. This connection sends no
     // command, subscription or write; it reads the host bootstrap frame once.
@@ -45,6 +48,7 @@ async function main() {
       if (frame.type === 'hostMetricsChanged' && frame.hosts) { clearTimeout(timer); socket.close(); resolve(frame.hosts) }
     }
   })
+  phase = 3
   const source = new HttpBootstrapSource({ origin, streamingFetch: { fetch: (input, init) => fetch(input, { ...init, headers: { ...(init.headers as object), cookie } }) } })
   const cache = new ScenarioCache(), byEntity = new Map<string, unknown[]>()
   for await (const chunk of source.bootstrap()) {
@@ -55,6 +59,7 @@ async function main() {
       rows.push(change.payload); byEntity.set(change.entity, rows)
     }
   }
+  phase = 4
   const [scan, pins, quotas, history, lifecycle] = await Promise.all([
     call<{ repositories: LiveCollections['repos']; machines: LiveCollections['machines'] }>('discovery.refreshRepos', 'POST'),
     call<LiveCollections['pins']>('pins.list'), call<HeaderRows['quota'][]>('quota.summary'),
@@ -63,6 +68,7 @@ async function main() {
   const raw = { issues: byEntity.get('issue') ?? [], issueProjections: byEntity.get('issueProjection') ?? [],
     sessions: byEntity.get('session') ?? [], repoProjections: byEntity.get('repo') ?? [], issueDeps: byEntity.get('issueDep') ?? [],
     repos: scan.repositories, machines: scan.machines, pins } as LiveCollections
+  phase = 5
   const corpus = corpusFromLive(raw, Date.now())
   const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   let store = { ...sidebarReplayStore(corpus, replica), view: 'workspace', paneA: null, fileTabs: [], outboxSize: 0,
@@ -72,10 +78,12 @@ async function main() {
   const runtime = { replica, getSnapshot: () => store, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
     pendingOverlaysByRow: () => new Map(), hostMetrics: { getSnapshot: () => metrics, subscribe: () => () => {} },
     hub: { connectionHealth: () => health, onConnectionHealth: () => () => {} } }
+  phase = 6
   const handle = createRuntimeWorklistPool(runtime as unknown as Parameters<typeof createRuntimeWorklistPool>[0], { header: true })
   try {
     await Promise.resolve(); await Promise.resolve()
     const inputs = { metrics, quotas, history, lifecycle, connection: health, afterDays: lifecycle.worktreeGc.afterDays }
+    phase = 7
     const selections = [null, ...replica.rows('issueProjections').slice(0, 32).map((row) => row.id)]
     let differences = 0, pending = 0, checks = 0
     let first: { check: number; sectionIndex: number; field: string } | null = null
@@ -95,4 +103,4 @@ async function main() {
     if (differences || pending) process.exitCode = 1
   } finally { handle.dispose() }
 }
-if (import.meta.main) main().catch(() => { console.error('Header replay failed; raw input and error text withheld'); process.exitCode = 1 })
+if (import.meta.main) main().catch(() => { console.error(JSON.stringify({ failed: 1, phase })); process.exitCode = 1 })
