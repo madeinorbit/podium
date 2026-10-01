@@ -62,7 +62,7 @@ try {
         if (!activity) {
           const unrelated = Object.entries(stats.header).filter(([key, value]) => value.calls > 0 && key !== 'pool.metricRow')
           if (unrelated.length) throw new Error(`Idle header recomputation: ${unrelated.map(([key]) => key).join(', ')}`)
-          if (stats.header['pool.metricRow']?.calls !== sample) throw new Error('Metric renders did not match changed rows')
+          if (stats.header['pool.metricRow']?.calls !== sample) throw new Error(`Metric renders did not match changed rows: ${JSON.stringify({ phase: name, samples: sample, header: stats.header, commits: stats.commits })}`)
         }
       }
     }
