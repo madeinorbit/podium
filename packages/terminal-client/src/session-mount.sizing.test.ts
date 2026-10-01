@@ -915,7 +915,8 @@ describe('mountSession eligibility-gated sizing', () => {
  *
  * The browser states its grid when the measured grid may have changed, on a
  * reveal and on an attach. It keeps no record of its asks and compares
- * nothing, so every trigger sends, and no other event does.
+ * nothing. Startup triggers coalesce through the first attached layout; after
+ * that, every trigger sends and no other event does.
  */
 describe('mountSession size triggers', () => {
   it('settles the first attach box before stating a viewport or claiming it', () => {
@@ -951,6 +952,122 @@ describe('mountSession size triggers', () => {
     } finally {
       mounted.dispose()
       vi.advanceTimersByTime(1)
+    }
+  })
+
+  it('keeps automatic startup measurements quiet until the attach arrives', () => {
+    const observer = withCapturingResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls, attached } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+    })
+    try {
+      observer.fire()
+      mounted.setAppearance({ fontSize: 18 })
+      window.dispatchEvent(new Event('focus'))
+      vi.advanceTimersByTime(500)
+      expect(calls.asks).toEqual([])
+      attached()
+      vi.advanceTimersByTime(60)
+      expect(calls.asks).toHaveLength(1)
+      expect(calls.asks[0]).toMatchObject({
+        geometry: { cols: 150, rows: 50 },
+        claimControl: true,
+      })
+    } finally {
+      mounted.dispose()
+    }
+  })
+
+  it('rechecks visibility when the first viewport statement is due', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls, attached } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+    })
+    try {
+      attached()
+      mounted.setActive(false)
+      vi.advanceTimersByTime(60)
+      expect(calls.asks, 'a queued startup claim cannot resize a hidden panel').toEqual([])
+      mounted.setActive(true)
+      expect(calls.asks).toHaveLength(1)
+      expect(calls.asks[0]?.claimControl).toBe(true)
+    } finally {
+      mounted.dispose()
+    }
+  })
+
+  it('cancels the first viewport statement on disposal', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls, attached } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+    })
+    attached()
+    mounted.dispose()
+    vi.advanceTimersByTime(100)
+    expect(calls.asks).toEqual([])
+  })
+
+  it('honours explicit takeover immediately during the startup quiet window', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    const proposal = withResizableAddon()
+    const { hub, calls, attached } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      crop: 'scroll',
+    })
+    try {
+      attached()
+      proposal.set(90, 70)
+      mounted.takeControl()
+      expect(calls.asks).toEqual([
+        { geometry: { cols: 90, rows: 70 }, visible: true, mode: 'native', claimControl: true },
+      ])
+      vi.advanceTimersByTime(100)
+      expect(calls.asks, 'no delayed automatic claim after the explicit takeover').toHaveLength(1)
+    } finally {
+      mounted.dispose()
+    }
+  })
+
+  it('does not let continuous output postpone a measurable startup viewport', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    let render: (() => void) | undefined
+    const onRender = vi.spyOn(TerminalView.prototype, 'onRender').mockImplementation((cb) => {
+      render = cb
+      return () => {}
+    })
+    protoPatchRestorers.push(() => onRender.mockRestore())
+    const { hub, calls, attached } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+    })
+    try {
+      attached()
+      render?.() // First measurable render starts the quiet window once.
+      for (let i = 0; i < 4; i += 1) {
+        vi.advanceTimersByTime(16)
+        render?.()
+      }
+      expect(calls.asks).toHaveLength(1)
+    } finally {
+      mounted.dispose()
     }
   })
 

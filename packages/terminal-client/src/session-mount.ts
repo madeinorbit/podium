@@ -478,7 +478,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       ask('attach', claimsOnReveal())
       // Start the quiet window even for a hidden pane: its later reveal uses
       // the ordinary policy once startup's layout window has elapsed.
-      if (firstViewportPending) settleFirstViewport()
+      if (firstViewportPending && !eligible()) settleFirstViewport()
     },
     onFrame: (bytes) => {
       view.write(bytes)
@@ -566,8 +566,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   // A mount that starts as the active tab of a visible page is revealed by
   // being mounted: it claims control (last-foregrounded-wins) and states this
   // client's box once the first attached layout settles. We never ask while
-  // ineligible, so a hidden tab cannot pin the
-  // shared PTY to its stale grid.
+  // ineligible, so a hidden tab cannot pin the shared PTY to its stale grid.
   syncRendererLease()
   if (active) ask('mount', claimsOnReveal())
   // A web font that has not loaded yet measures at fallback metrics, so ask
