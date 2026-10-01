@@ -14,7 +14,7 @@ import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { checkHeader, legacyHeaderSnapshot, poolHeaderSnapshot } from '@podium/client-graph/diagnostics/header-check'
 import type { HeaderRows } from '@podium/client-graph/header-schema'
 import type { HostMetricsWire } from '@podium/model/browser'
-import { comparer, runInAction } from 'mobx'
+import { compareStructural, runInAction } from 'mobx'
 import { corpusFromLive, type LiveCollections } from '../fixture/live-snapshot'
 import { ScenarioCache } from '../../../shared/src/scenarios'
 import { sidebarReplayStore } from './sidebar-replay'
@@ -108,9 +108,9 @@ async function main() {
         for (let index = 0; index < expected.sections.length; index++) {
           const a = actual.sections[index]?.fields.value as Record<string, unknown> | null
           const b = expected.sections[index]?.fields.value as Record<string, unknown> | null
-          if (comparer.structural(a, b)) continue
+          if (compareStructural(a, b)) continue
           for (const field of ['id', 'title', 'seq', 'stage', 'displayRef', 'color', 'root', 'progress', 'live', 'working', 'needs', 'unfinishedCount', 'decisionCount']) {
-            if (locations.length < 32 && !comparer.structural(a?.[field], b?.[field])) locations.push({ check: checks, sectionIndex: index, field })
+            if (locations.length < 32 && !compareStructural(a?.[field], b?.[field])) locations.push({ check: checks, sectionIndex: index, field })
           }
         }
       }
