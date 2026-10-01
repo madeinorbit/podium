@@ -820,7 +820,6 @@ export class ShippingService {
       await this.deps.repository.listOrders(),
       await this.deps.repository.listReceipts(),
       Date.parse(this.now()),
-      await this.turnSamples(),
     )
   }
 
@@ -856,7 +855,6 @@ export class ShippingService {
       orders,
       await this.deps.repository.listReceipts(),
       Date.parse(this.now()),
-      await this.turnSamples(),
     )
     const trains = [...schedule.trains].sort(
       (left, right) =>
@@ -3763,23 +3761,13 @@ export class ShippingService {
     else if (replacementHold) holdByOrder.set(replacementHold.orderId, replacementHold)
     const receiptByOrder = new Map(receipts.map((receipt) => [receipt.orderId, receipt] as const))
     if (replacementReceipt) receiptByOrder.set(replacementReceipt.orderId, replacementReceipt)
-    return shippingQueue(
-      orders,
-      [...receiptByOrder.values()],
-      Date.parse(this.now()),
-      await this.turnSamples(),
-    ).map(({ order, queueRank, waitEstimate, trainId, trainIndex, trainSize }) => {
-      const train =
-        trainId && trainIndex !== undefined && trainSize !== undefined
-          ? { id: trainId, index: trainIndex, size: trainSize }
-          : undefined
+    const queue = shippingQueue(orders, [...receiptByOrder.values()], Date.parse(this.now()))
+    return queue.map(({ order, queueRank }) => {
       const row = shipOrderProjectionRow(
         order,
         holdByOrder.get(order.id),
         receiptByOrder.get(order.id),
         queueRank,
-        waitEstimate,
-        train,
       )
       return row
         ? {
@@ -3793,16 +3781,6 @@ export class ShippingService {
             id: order.id,
             op: 'remove' as const,
           }
-    })
-  }
-
-  private async turnSamples(): Promise<import('./queue').ShippingTurnSample[]> {
-    return (await this.deps.repository.listAttempts()).flatMap((attempt) => {
-      if (!attempt.finishedAt || attempt.outcome !== 'succeeded') return []
-      const durationMs = Date.parse(attempt.finishedAt) - Date.parse(attempt.startedAt)
-      return Number.isFinite(durationMs) && durationMs >= 0
-        ? [{ orderId: attempt.orderId, durationMs, completedAt: attempt.finishedAt }]
-        : []
     })
   }
 

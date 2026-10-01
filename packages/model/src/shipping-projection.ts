@@ -66,7 +66,8 @@ export type ShipOrderActivity = z.infer<typeof ShipOrderActivity>
 /** Compact replicated order row. It is keyed by order id and joined locally by
  * issueId; it never nests into IssueAggregate/IssueProjection. Queue rank is a
  * lane-local scheduler turn, so compatible members of one train share a rank.
- * A wait estimate is a sampled duration range, never a promised completion. */
+ * Legacy train and waitEstimate fields remain optional for older wire rows and
+ * offline caches; current servers neither compute nor publish them (POD-4974 O1). */
 export const ShipOrderProjection = z.object({
   id: ShipOrderIdField,
   issueId: IssueIdField,
@@ -79,6 +80,7 @@ export const ShipOrderProjection = z.object({
   queuedAt: z.string(),
   stateChangedAt: z.string(),
   queueRank: z.number().int().positive().optional(),
+  /** Compatibility only: current projections omit this unused field. */
   train: z
     .object({
       id: z.string().min(1),
@@ -89,6 +91,7 @@ export const ShipOrderProjection = z.object({
       message: 'train member index must not exceed its size',
     })
     .optional(),
+  /** Compatibility only: current projections omit this unused field. */
   waitEstimate: z
     .object({
       lowerBoundMs: z.number().int().nonnegative(),

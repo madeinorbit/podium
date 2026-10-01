@@ -532,13 +532,6 @@ export class SessionRegistry {
         await this.store.shipping.listHolds(),
         await this.store.shipping.listReceipts(),
         this.now(),
-        (await this.store.shipping.listAttempts()).flatMap((attempt) => {
-          if (!attempt.finishedAt || attempt.outcome !== 'succeeded') return []
-          const durationMs = Date.parse(attempt.finishedAt) - Date.parse(attempt.startedAt)
-          return Number.isFinite(durationMs) && durationMs >= 0
-            ? [{ orderId: attempt.orderId, durationMs, completedAt: attempt.finishedAt }]
-            : []
-        }),
       ),
     )
     // The one boot WRITE, owned by the memory service rather than by the store.

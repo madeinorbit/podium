@@ -221,6 +221,18 @@ const provedShippingJob = async (
 })
 
 describe('ShippingService enqueue transaction', () => {
+  it('O1 scheduler tick does not scan attempt history', async () => {
+    const { store, service } = await harness()
+    const attempts = vi.spyOn(store.shipping, 'listAttempts')
+    try {
+      await service.tick()
+      expect(attempts).not.toHaveBeenCalled()
+    } finally {
+      attempts.mockRestore()
+      service.dispose()
+    }
+  })
+
   it('O1 commits and reads queue ranks without scanning attempt history', async () => {
     const { store, ledger, issues, service } = await harness()
     const issue = await issues.create({ repoPath: '/repo', title: 'compact order', startNow: false })
@@ -229,8 +241,10 @@ describe('ShippingService enqueue transaction', () => {
     try {
       const cursor = await ledger.cursor()
       const admitted = await service.enqueue({ issueId: issue.id, ...approval })
-      const changes = await ledger.changesSince(cursor) ?? []
-      expect(changes.some((change) => change.entity === 'shipOrder' && change.op === 'upsert')).toBe(true)
+      const changes = (await ledger.changesSince(cursor)) ?? []
+      expect(
+        changes.some((change) => change.entity === 'shipOrder' && change.op === 'upsert'),
+      ).toBe(true)
       expect(admitted.projection.queueRank).toBe(1)
       expect(attempts).not.toHaveBeenCalled()
 
@@ -240,7 +254,11 @@ describe('ShippingService enqueue transaction', () => {
       expect(attempts).not.toHaveBeenCalled()
 
       const cancelCursor = await ledger.cursor()
-      await service.cancel({ orderId: admitted.order.id, principal: approval.principal, overrideScope: false })
+      await service.cancel({
+        orderId: admitted.order.id,
+        principal: approval.principal,
+        overrideScope: false,
+      })
       expect(await ledger.changesSince(cancelCursor)).toContainEqual(
         expect.objectContaining({ entity: 'shipOrder', id: admitted.order.id, op: 'remove' }),
       )
@@ -258,12 +276,16 @@ describe('ShippingService enqueue transaction', () => {
     try {
       const cursor = await ledger.cursor()
       const admitted = await service.enqueue({ issueId: issue.id, ...approval })
-      const rows = (await ledger.changesSince(cursor) ?? []).filter(
+      const rows = ((await ledger.changesSince(cursor)) ?? []).filter(
         (change) => change.entity === 'shipOrder' && change.op === 'upsert',
       )
       expect(rows).toHaveLength(1)
       for (const value of [rows[0]!.value, admitted.projection]) {
-        expect(value).toMatchObject({ id: admitted.order.id, queueRank: 1, humanState: 'waiting' })
+        expect(value).toMatchObject({
+          id: admitted.order.id,
+          queueRank: 1,
+          humanState: 'waiting',
+        })
         expect(value).not.toHaveProperty('train')
         expect(value).not.toHaveProperty('waitEstimate')
       }
@@ -273,20 +295,37 @@ describe('ShippingService enqueue transaction', () => {
   })
 
   it('O1 scheduler claims the same compatible train and leader', async () => {
-    const { store, issues, service } = await harness(undefined, { isAncestor: async () => true })
+    const { store, issues, service, deps } = await harness(undefined, {
+      resolveBranchTip: async (issue) => (issue.title === 'upper' ? 'head-upper' : 'head-sha'),
+      isAncestor: async (_issue, ancestor, descendant) =>
+        ancestor === 'head-sha' && descendant === 'head-upper',
+    })
     try {
-      for (const repoPath of ['/repo', '/repo', '/other']) {
-        const issue = await issues.create({ repoPath, title: 'train member', startNow: false })
+      for (const [index, repoPath] of ['/repo', '/repo', '/other'].entries()) {
+        deps.now = () => `2026-08-13T10:00:0${index}.000Z`
+        const title = ['lower', 'upper', 'other'][index]!
+        const issue = await issues.create({ repoPath, title, startNow: false })
         await issues.update(issue.id, { stage: 'review' })
-        await service.enqueue({ issueId: issue.id, ...approval })
+        await service.enqueue({
+          issueId: issue.id,
+          ...approval,
+          approved: {
+            ...approval.approved,
+            sourceHeadSha: title === 'upper' ? 'head-upper' : 'head-sha',
+          },
+        })
       }
+      deps.now = () => '2026-08-13T10:00:00.000Z'
       const orders = await store.shipping.listOrders()
-      const members = orders.filter((order) => order.repoPath === '/repo').sort(
-        (left, right) => left.requestedAt.localeCompare(right.requestedAt) || left.id.localeCompare(right.id),
-      )
-      expect(shippingSchedule(orders).trains.map((train) => train.orders.map((order) => order.id))).toContainEqual(
-        members.map((order) => order.id),
-      )
+      const members = orders
+        .filter((order) => order.repoPath === '/repo')
+        .sort(
+          (left, right) =>
+            left.requestedAt.localeCompare(right.requestedAt) || left.id.localeCompare(right.id),
+        )
+      expect(
+        shippingSchedule(orders).trains.map((train) => train.orders.map((order) => order.id)),
+      ).toContainEqual(members.map((order) => order.id))
       const claims = vi.spyOn(store.shipping, 'claimTrain')
       const run = vi.spyOn(service, 'runOrder').mockResolvedValue()
       try {
@@ -299,10 +338,15 @@ describe('ShippingService enqueue transaction', () => {
         expect(run).toHaveBeenCalledExactlyOnceWith(members[1]!.id, [members[0]])
         const manifest = await store.shipping.activeTrainForOrder(members[0]!.id)
         expect(manifest?.leaderOrderId).toBe(members[1]!.id)
-        expect(manifest?.members.map((member) => member.orderId)).toEqual(members.map((order) => order.id))
-        expect((await store.shipping.listOrders()).filter((order) => order.state === 'preflight').map((order) => order.id).sort()).toEqual(
-          members.map((order) => order.id).sort(),
+        expect(manifest?.members.map((member) => member.orderId)).toEqual(
+          members.map((order) => order.id),
         )
+        expect(
+          (await store.shipping.listOrders())
+            .filter((order) => order.state === 'preflight')
+            .map((order) => order.id)
+            .sort(),
+        ).toEqual(members.map((order) => order.id).sort())
       } finally {
         claims.mockRestore()
         run.mockRestore()

@@ -6,6 +6,7 @@ import {
   integrationReceiptMatchesOrder,
   RootIntegrationReceipt,
   ShipOrder,
+  ShipOrderProjection,
   type DescendantTip,
   type RootIntegrationReceipt as RootIntegrationReceiptValue,
 } from './shipping'
@@ -51,6 +52,37 @@ const orderInput = (over: Record<string, unknown> = {}) => ({
   state: 'queued' as const,
   stateChangedAt: '2026-08-13T00:00:00.000Z',
   ...over,
+})
+
+describe('ShipOrderProjection compatibility', () => {
+  it('O1 accepts both compact current rows and legacy optional extras', () => {
+    const current = {
+      id: asShipOrderId('order-1'),
+      issueId: asIssueId('iss_1'),
+      repoId: asRepoId('repo-1'),
+      targetBranch: 'main',
+      destination: 'origin/main',
+      state: 'queued',
+      humanState: 'waiting',
+      activity: 'waiting',
+      queuedAt: '2026-08-13T00:00:00.000Z',
+      stateChangedAt: '2026-08-13T00:00:00.000Z',
+      queueRank: 1,
+    }
+    expect(ShipOrderProjection.parse(current)).toEqual(current)
+    const train = { id: 'legacy-train', index: 1, size: 2 }
+    const waitEstimate = {
+      lowerBoundMs: 60_000,
+      upperBoundMs: 90_000,
+      sampleSize: 3,
+      basis: 'lane-history',
+    }
+    expect(ShipOrderProjection.parse({ ...current, train, waitEstimate })).toEqual({
+      ...current,
+      train,
+      waitEstimate,
+    })
+  })
 })
 
 describe('descendantTipsMatch', () => {

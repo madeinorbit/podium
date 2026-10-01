@@ -8,27 +8,10 @@ import {
 
 export { canonicalShippingDestination } from '@podium/model'
 
-export interface ShippingWaitEstimate {
-  lowerBoundMs: number
-  upperBoundMs: number
-  sampleSize: number
-  basis: 'lane-history'
-}
-
-export interface ShippingTurnSample {
-  orderId: ShipOrderId
-  durationMs: number
-  completedAt: string
-}
-
 export interface ShippingQueueEntry {
   order: ShipOrder
   queueRank?: number
   blockedBy: ShipOrderId[]
-  trainId?: string
-  trainIndex?: number
-  trainSize?: number
-  waitEstimate?: ShippingWaitEstimate
 }
 
 export interface ImmutableShippingPrefix {
@@ -95,53 +78,6 @@ const prefixId = (orders: readonly ShipOrder[]): string =>
       ),
     )
     .digest('hex')}`
-
-const percentile = (sorted: readonly number[], fraction: number): number => {
-  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * fraction) - 1))
-  return sorted[index] ?? 0
-}
-
-const laneDurations = (
-  orders: readonly ShipOrder[],
-  turnSamples: readonly ShippingTurnSample[],
-): Map<string, number[]> => {
-  const byId = new Map(orders.map((order) => [order.id, order]))
-  const result = new Map<string, number[]>()
-  for (const sample of [...turnSamples].sort((a, b) =>
-    a.completedAt.localeCompare(b.completedAt),
-  )) {
-    const order = byId.get(sample.orderId)
-    if (!order) continue
-    if (!Number.isFinite(sample.durationMs) || sample.durationMs < 0) continue
-    const key = laneKey(order)
-    const samples = result.get(key) ?? []
-    samples.push(sample.durationMs)
-    result.set(key, samples)
-  }
-  for (const [key, samples] of result) {
-    result.set(
-      key,
-      samples.slice(-40).sort((a, b) => a - b),
-    )
-  }
-  return result
-}
-
-const estimateWait = (
-  rank: number,
-  samples: readonly number[],
-): ShippingWaitEstimate | undefined => {
-  // Fewer than three same-lane completions is not evidence for a useful range.
-  if (samples.length < 3) return undefined
-  const lowerBoundMs = percentile(samples, 0.25) * rank
-  const upperBoundMs = Math.max(lowerBoundMs, percentile(samples, 0.9) * rank)
-  return {
-    lowerBoundMs,
-    upperBoundMs,
-    sampleSize: samples.length,
-    basis: 'lane-history',
-  }
-}
 
 const directPredecessor = (candidate: ShipOrder, predecessor: ShipOrder): boolean =>
   candidate.deliveryDependsOn.includes(predecessor.id)
@@ -261,13 +197,12 @@ const buildTrains = (ordered: readonly ShipOrder[]): ShippingTrain[] => {
 }
 
 /** Authoritative scheduling snapshot. Dependency order wins, FIFO breaks ties,
- * blocked work is omitted from train ranks, and every rank/estimate is scoped
+ * blocked work is omitted from train ranks, and every rank is scoped
  * to exactly one repository/destination lane. */
 export function shippingSchedule(
   orders: readonly ShipOrder[],
   receipts: readonly DeliveryReceipt[] = [],
   now = Date.now(),
-  turnSamples: readonly ShippingTurnSample[] = [],
 ): ShippingSchedule {
   void receipts
   void now
@@ -286,7 +221,6 @@ export function shippingSchedule(
 
   const rank = new Map<ShipOrderId, number>()
   const blockers = new Map<ShipOrderId, ShipOrderId[]>()
-  const trainByOrder = new Map<ShipOrderId, { train: ShippingTrain; index: number }>()
   const trains: ShippingTrain[] = []
   for (const lane of lanes.values()) {
     const planned = topologicalLane(lane, byId, shipped)
@@ -295,19 +229,12 @@ export function shippingSchedule(
     for (const [trainIndex, train] of laneTrains.entries()) {
       for (const order of train.orders) rank.set(order.id, trainIndex + 1)
       trains.push(train)
-      train.orders.forEach((order, index) => trainByOrder.set(order.id, { train, index }))
     }
   }
 
-  const durations = laneDurations(orders, turnSamples)
   return {
     entries: orders.map((order) => {
       const queueRank = rank.get(order.id)
-      const train = trainByOrder.get(order.id)
-      const waitEstimate =
-        queueRank === undefined
-          ? undefined
-          : estimateWait(queueRank, durations.get(laneKey(order)) ?? [])
       return {
         order,
         ...(queueRank === undefined ? {} : { queueRank }),
@@ -315,14 +242,6 @@ export function shippingSchedule(
           queueRank === undefined
             ? (blockers.get(order.id) ?? order.deliveryDependsOn.filter((id) => !shipped.has(id)))
             : [],
-        ...(train
-          ? {
-              trainId: train.train.id,
-              trainIndex: train.index + 1,
-              trainSize: train.train.orders.length,
-            }
-          : {}),
-        ...(waitEstimate === undefined ? {} : { waitEstimate }),
       }
     }),
     trains,
@@ -333,9 +252,8 @@ export function shippingQueue(
   orders: readonly ShipOrder[],
   receipts: readonly DeliveryReceipt[] = [],
   now = Date.now(),
-  turnSamples: readonly ShippingTurnSample[] = [],
 ): ShippingQueueEntry[] {
-  return shippingSchedule(orders, receipts, now, turnSamples).entries
+  return shippingSchedule(orders, receipts, now).entries
 }
 
 export interface PrefixValidationResult {

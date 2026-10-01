@@ -7,8 +7,8 @@ import {
   type ShipOrder,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { GreenPrefixCache, isolateShippingTrain, shippingSchedule } from './queue'
 import { scheduledShipOrderProjectionRows } from './projection'
+import { GreenPrefixCache, isolateShippingTrain, shippingSchedule } from './queue'
 
 const order = (id: string, requestedAt: string, input: Partial<ShipOrder> = {}): ShipOrder => ({
   id: asShipOrderId(id),
@@ -82,12 +82,18 @@ const cacheScope = (orders: readonly ShipOrder[]) => ({
 describe('shippingSchedule', () => {
   it('O1 boot rows keep ranks and omit unused train and waitEstimate facts', () => {
     const first = order('first', '2026-08-14T10:00:00.000Z')
-    const second = order('second', '2026-08-14T10:01:00.000Z', { deliveryDependsOn: [first.id] })
-    const blocked = order('blocked', '2026-08-14T09:00:00.000Z', { deliveryDependsOn: [asShipOrderId('missing')] })
+    const second = order('second', '2026-08-14T10:01:00.000Z', {
+      deliveryDependsOn: [first.id],
+    })
+    const blocked = order('blocked', '2026-08-14T09:00:00.000Z', {
+      deliveryDependsOn: [asShipOrderId('missing')],
+    })
     const orders = [second, blocked, first]
     const rows = scheduledShipOrderProjectionRows(orders, [], [])
     expect(rows.map(({ id, value }) => [id, value.queueRank])).toEqual([
-      [second.id, 1], [blocked.id, undefined], [first.id, 1],
+      [second.id, 1],
+      [blocked.id, undefined],
+      [first.id, 1],
     ])
     for (const { value } of rows) {
       expect(value).not.toHaveProperty('train')
@@ -122,7 +128,7 @@ describe('shippingSchedule', () => {
     ])
   })
 
-  it('publishes a bounded estimate only from enough same-lane history', () => {
+  it('O1 queue entries omit unused train and waitEstimate facts', () => {
     const waiting = order('waiting', '2026-08-14T10:00:00.000Z')
     const history = [1, 2, 3].map((index) =>
       order(`done-${index}`, `2026-08-14T0${index}:00:00.000Z`, {
@@ -136,20 +142,13 @@ describe('shippingSchedule', () => {
       [waiting, ...history],
       receipts,
       Date.parse('2026-08-14T10:05:00.000Z'),
-      history.map((item) => ({
-        orderId: item.id,
-        durationMs: 10 * 60_000,
-        completedAt: new Date(Date.parse(item.requestedAt) + 10 * 60_000).toISOString(),
-      })),
     ).entries.find((candidate) => candidate.order.id === waiting.id)
 
-    expect(entry?.waitEstimate).toEqual({
-      lowerBoundMs: 10 * 60_000,
-      upperBoundMs: 10 * 60_000,
-      sampleSize: 3,
-      basis: 'lane-history',
-    })
-    expect(shippingSchedule([waiting]).entries[0]?.waitEstimate).toBeUndefined()
+    expect(entry?.queueRank).toBe(1)
+    expect(entry).not.toHaveProperty('trainId')
+    expect(entry).not.toHaveProperty('trainIndex')
+    expect(entry).not.toHaveProperty('trainSize')
+    expect(entry).not.toHaveProperty('waitEstimate')
   })
 
   it('canonicalizes equivalent local destination aliases into one lane', () => {
