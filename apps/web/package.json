@@ -26,6 +26,7 @@
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@lezer/highlight": "^1.2.3",
     "@podium/client-core": "workspace:*",
+    "@podium/client-graph": "workspace:*",
     "@podium/commands": "workspace:*",
     "@podium/harness": "workspace:*",
     "@podium/logger": "workspace:*",
