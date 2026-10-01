@@ -6,6 +6,8 @@ import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { checkHeader, legacyHeaderSnapshot, poolHeaderSnapshot } from '@podium/client-graph/diagnostics/header-check'
 import { startHeaderCheck } from '@podium/client-graph/diagnostics/header-runtime-check'
 import { HEADER_RELATIONS, HEADER_SCHEMA } from '@podium/client-graph/header-schema'
+import { legacyDerivationFromStore } from '@podium/client-graph/diagnostics/legacy'
+import { missionIssueIds, buildFlightDeckRows, selectedMissionRoot } from '@podium/client-core/viewmodels'
 import type { HostMetricsWire, MachineId } from '@podium/model/browser'
 import {
   startScenarioEngine, writeArchiveIssue, writeBurst50, writeClockTick, writeEvictIssue,
@@ -32,6 +34,29 @@ async function fixture(scale: 1 | 4 = 1) {
     settle()
     const value = runInAction(() => checkHeader(handle.pool, ctx.engine.getSnapshot(), inputs()))
     if (value.first) {
+      const legacy = legacyDerivationFromStore(ctx.engine.getSnapshot())
+      const sessions = ctx.engine.getSnapshot().sessions
+      const root = selectedMissionRoot(legacy.models, sessions, ctx.engine.getSnapshot().selectedIssueId)
+      if (root) {
+        const expectedIds = missionIssueIds(legacy.models, root.id, sessions)
+        const actualIds = new Set<string>()
+        const visit = (id: string) => {
+          if (actualIds.has(id)) return
+          actualIds.add(id)
+          for (const sid of handle.pool.graph.many('issue', id, 'sessions')) for (const child of handle.pool.graph.many('session', sid, 'startedIssues')) {
+            const row = handle.pool.row('issue', child) as { stage?: string; deps?: { type: string }[] } | undefined
+            if (row && !['backlog', 'proposed'].includes(row.stage ?? '') && row.deps?.some((dep) => dep.type === 'discovered-from')) continue
+            visit(child)
+          }
+          for (const child of handle.pool.graph.many('issue', id, 'children')) visit(child)
+        }
+        runInAction(() => visit(root.id))
+        console.log({ extraIssues: [...actualIds].filter((id) => !expectedIds.has(id)), missingIssues: [...expectedIds].filter((id) => !actualIds.has(id)),
+          extraCrew: [...actualIds].flatMap((id) => {
+            const expected = buildFlightDeckRows(legacy.models, sessions, root.id).find((row) => row.issue.id === id)?.sessions ?? []
+            return [...handle.pool.graph.many('issue', id, 'sessions')].filter((sid) => !expected.some((s) => s.sessionId === sid))
+          }) })
+      }
       const expected = legacyHeaderSnapshot(ctx.engine.getSnapshot(), inputs(), handle.pool.clock.current)
       const actual = runInAction(() => poolHeaderSnapshot(handle.pool, inputs()))
       expect(actual.sections[value.first.sectionIndex], label).toEqual(expected.sections[value.first.sectionIndex])

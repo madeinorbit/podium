@@ -125,7 +125,7 @@ export function createHeaderViews(pool: MobxPool) {
         const vacated = !ownIds.some((sid) => {
           const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
           return member && member !== LOADING && member.issueId === id && sessionPresentOnTask(member as SessionMeta)
-        }) && pool.graph.many('issue', id, 'spinOffs').size > 0
+        }) && [...pool.graph.many('issue', id, 'spinOffs')].length > 0
         if (value.stage !== 'done' && !value.closedReason && (asking || value.needsHuman || (value.stage === 'review' && !vacated))) needs++
         for (const child of pool.graph.many('issue', id, 'children')) visit(child)
       }
