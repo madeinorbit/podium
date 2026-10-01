@@ -4,7 +4,7 @@ Spec, 2026-10-01. Status: plan for the operator's approval; no code yet.
 Epic: POD-4286 (frontend state-store performance), under POD-4949 (one issue record on the wire).
 This is step 8 of `docs/plans/pod-4949-one-issue-record.md`. Read that plan first: the same
 rules apply here (§7 compatibility, §8 evidence, §12 landing and models).
-Code references are to `integrate/4286-pilot` at `2a156cd2c`, checked line by line. Reader counts
+Code references are to `integrate/4286-pilot` at `dd0d3a6a6` (after POD-4967 landed), checked line by line. Reader counts
 in §3.2 come from a search of that tree and exclude tests.
 
 ## 1. Summary
@@ -62,16 +62,17 @@ belong to the session itself and are recomputed only for that session. They stay
   (`apps/server/src/modules/sessions/facts.ts:49-58`) and a ratchet test that pins
   `SessionMeta.readAt` and `SessionMeta.snoozedUntil` as per-user singletons
   (`packages/model/src/representations/registry.test.ts:240-252`).
-- **POD-4967** (step 1 of POD-4949, in progress) adds the per-user `issueUserState`
-  kind and its shared key fragment. This plan's session per-user kind reuses that
-  fragment, so it starts after POD-4967 lands.
+- **POD-4967** (step 1 of POD-4949, landed on `integrate/4286-pilot` at `dd0d3a6a6`) added the
+  per-user `issueUserState` kind (`packages/protocol/src/messages/sync.ts:251`, visibility at
+  `apps/server/src/feed-visibility.ts:273, 381`). The session per-user kind copies it and uses the
+  same key function, `userEntityKey` (`packages/model/src/ids/keys.ts:205`).
 
 ## 3. The current state
 
 ### 3.1 Sessions: where each extra comes from
 
 There is one feed kind, `session`, whose value is the whole `SessionMeta`
-(`packages/protocol/src/messages/sync.ts:134`). There is no normalized session record
+(`packages/protocol/src/messages/sync.ts:138`). There is no normalized session record
 beside it.
 
 The server builds a session in two stages:
@@ -149,7 +150,7 @@ view models.
 `queuedMessageCount`, which stay.
 
 **Offline caches.** Stored rows are not re-parsed on load
-(`packages/client-core/src/replica/kernel/facade.ts:466-494`), so old cached rows keep
+(`packages/client-core/src/replica/kernel/facade.ts:470-504`), so old cached rows keep
 their old extras. Persisted outbox entries carry a fingerprint of the session row
 (`overlay.ts:135-192`) and are re-projected on reload
 (`packages/client-core/src/engine/optimism.ts:175-197`).
@@ -232,7 +233,7 @@ that did not change. What reaches the wire is:
 
 | Value | Home after the migration |
 |---|---|
-| `readAt`, `snoozedUntil` | a new per-user kind `sessionUserState`, keyed `(user, session)` and visible only to its user. It uses POD-4967's shared key fragment and the `per-user-state` visibility class, like `userLayout` (`apps/server/src/feed-visibility.ts:262-271`). |
+| `readAt`, `snoozedUntil` | a new per-user kind `sessionUserState`, keyed `(user, session)` and visible only to its user. It uses POD-4967's shared key fragment and the `per-user-state` visibility class, like `userLayout` (`apps/server/src/feed-visibility.ts:267-273`). |
 | `unread` | computed on the client: `readAt` is null, or `lastActiveAt > readAt`. There is an existing helper (`packages/client-core/src/viewmodels/unread.ts:36`), and POD-797 already did this for issues. |
 | `displayRef` | computed on the client from the repo row's prefix. The session row gains `refRepoId` (both kinds of ref) and `refSeq` (issue-born refs), the inputs the server already reads at `view.ts:230-238`. A prefix rename then re-sends one repo row. |
 | `machineName`, `condition` | computed on the client from a new replicated `machine` kind `{id, name, loggedOutHarnesses}`. It is re-sent once per machine change, never per session. |
@@ -268,7 +269,7 @@ The sessions track (S1–S6) and the ship-order track (O1–O4) are independent 
   sends one row, with no session fan-out.
 - S1c. Session rows gain `refRepoId`, `refSeq` and `handoffTargetMachineId`, all
   optional. Two rare events change a ref's repo or number: the seq-collision heal
-  (`apps/server/src/store/issues.ts:747-779`) and the repo-id upgrade
+  (`apps/server/src/store/issues.ts:748-780`) and the repo-id upgrade
   (`assignRepoIdToIssuesUnder`, same file). Both mark the affected sessions dirty in the
   same commit.
 - S1d. RPC `sessions.list` and the superagent list use the **caller's** principal. This
@@ -399,7 +400,7 @@ Done when the panel test fails if the panel groups by raw destination.
 ### Order
 
 1. Sessions:
-   1. S1 after POD-4967 lands.
+   1. S1 can start now: POD-4967 has landed.
    2. Then S2 and S4 in parallel.
    3. S3 after S2.
    4. S5 after S2 and S3.
