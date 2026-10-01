@@ -40,7 +40,7 @@ export class SidebarRosterIndex {
   readonly projects = observable.set<string>(undefined, { deep: false, name: 'pool.sidebar.projects' })
   private readonly projectCounts = observable.map<number | undefined, number>(undefined, { deep: false, name: 'pool.sidebar.projectCounts' })
   private readonly worktrees = new Map<string, { readonly group: string; readonly project?: number }>()
-  private readonly paths = new SortedLanes<string, string>((a, b) => a.localeCompare(b), 'pool.sidebar.rosterPaths')
+  private readonly paths = new SortedLanes<string, string>((a, b) => a < b ? -1 : a > b ? 1 : 0, 'pool.sidebar.rosterPaths')
   private readonly bands = new Map<string, IComputedValue<{ readonly ids: readonly string[]; readonly label: string; readonly repoPath: string }>>()
   private readonly expiries = new Map<string, number>()
   private readonly due = new Map<number, Set<string>>()
