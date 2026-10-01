@@ -130,11 +130,20 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
   }
 }
 
-/** Codex 0.155.0 terminal S7 trims only outer whitespace. Internal whitespace
- *  and Unicode remain exact; an empty prompt cannot prove a send. */
+/** Codex terminal measurements: 0.155.0 trims outer whitespace; 0.159.0
+ *  also records CRLF as LF or two LFs, or removes all tabs in key chunks
+ *  (POD-4984). These are separate alternatives applied to submitted text;
+ *  all other internal bytes remain exact. An empty prompt cannot prove a send. */
 export function codexPromptTextMatches(submitted: string, recorded: string): boolean {
   const text = submitted.trim()
-  return text.length > 0 && text === recorded.trim()
+  const stored = recorded.trim()
+  return (
+    text.length > 0 &&
+    (text === stored ||
+      text.replaceAll('\r\n', '\n') === stored ||
+      text.replaceAll('\r\n', '\n\n') === stored ||
+      text.replaceAll('\t', '') === stored)
+  )
 }
 
 function userMessageText(payload: Record<string, unknown>): string {
