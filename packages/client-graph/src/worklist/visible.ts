@@ -1060,6 +1060,8 @@ export interface VisibleHost {
   issue(id: string): HeldIssue
   /** File one row into the groups' lanes (`WorklistGroups.file`). */
   fileGroups(id: string, filing: Filing | undefined): void
+  /** Existing filing reaction also supplies fallback-roster ownership. */
+  fileSidebarOwner?(id: string, owner: { readonly represented: boolean; readonly excluded: boolean; readonly unownedIds: readonly string[] } | undefined): void
 }
 
 /** The order's one key. */
@@ -1069,7 +1071,7 @@ const VISIBLE = 'visible'
 function filingOf(issue: HeldIssue): Filing | undefined {
   if (!issue.visible) return undefined
   const { placement, rank } = issue
-  return placement === undefined || rank === undefined ? undefined : { placement, rank }
+  return placement === undefined || rank === undefined ? undefined : { placement, rank, root: issue.nestParent === null }
 }
 
 /**
@@ -1107,8 +1109,19 @@ export class VisibleCollection {
     this.stops.set(
       id,
       reaction(
-        () => filingOf(issue),
-        (filing) => this.file(id, filing),
+        () => {
+          const filing = filingOf(issue)
+          if (this.host.fileSidebarOwner === undefined) return { filing }
+          const represented = issue.placed
+          const lane = represented ? issue.laneMemberIds : NONE
+          const retained = lane.length ? new Set(issue.retainedSeatIds) : undefined
+          return { filing, owner: { represented, excluded: issue.standing?.excluded === true,
+            unownedIds: retained === undefined ? NONE : lane.filter(seat => retained.has(seat)) } }
+        },
+        ({ filing, owner }) => {
+          this.file(id, filing)
+          this.host.fileSidebarOwner?.(id, owner)
+        },
         { fireImmediately: true, equals: compareStructural, name: `pool.file.${id}` },
       ),
     )
@@ -1121,6 +1134,7 @@ export class VisibleCollection {
     stop()
     this.stops.delete(id)
     this.file(id, undefined)
+    this.host.fileSidebarOwner?.(id, undefined)
   }
 
   /** Move row `id` to where `filing` puts it (inside an action). */

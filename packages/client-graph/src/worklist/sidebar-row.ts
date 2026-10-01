@@ -48,7 +48,7 @@ export interface SidebarRowValues {
     readonly tiles: readonly { readonly kind: string | null; readonly parked: boolean }[]
   }
   /** Own immutable row facts, owned by the feed; never a model or store handle. */
-  readonly issue: SliceIssue
+  readonly issue: SliceIssue & { readonly displayRef: string }
   readonly sessions: readonly SliceSession[]
   readonly aggregateSessions: readonly SliceSession[]
   readonly awaitingFirstPrompt: boolean

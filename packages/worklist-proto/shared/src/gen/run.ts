@@ -510,14 +510,14 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         const now = ctx.engine.getSnapshot().coarseNow
         const stamp = new Date(now).toISOString()
         const patches: Record<string, unknown>[] = [
-          { pinned: true, readAt: stamp, commentCount: 3, color: 'violet' },
+          { pinned: true, readAt: stamp, commentCount: 3, color: 'violet', linearIdentifier: 'EXT-42' },
           { pinned: false, deferUntil: new Date(now + 60_000).toISOString() },
           { deferUntil: new Date(now - 60_000).toISOString(), readAt: null },
           { deferUntil: 'next-message', needsHuman: true, humanQuestion: 'Which path?', humanQuestionOptions: ['A', 'B'],
             asked: { question: 'Which path?', options: ['A', 'B'], at: stamp, by: 'sidebar-asker' } },
           { deferUntil: null, needsHuman: false, humanQuestion: null, humanQuestionOptions: null, asked: null, tuckedAt: stamp },
           { tuckedAt: null, branch: 'issue/sidebar-facts', gitState: { shared: false, merged: false, ahead: 4, dirtyFiles: 2, updatedAt: stamp } },
-          { gitState: { shared: true, merged: true, ahead: 0, dirtyFiles: 0, updatedAt: stamp }, commentCount: 5, color: 'blue' },
+          { gitState: { shared: true, merged: true, ahead: 0, dirtyFiles: 0, updatedAt: stamp }, commentCount: 5, color: 'blue', linearIdentifier: null },
           { audience: 'agent', draft: true, isDraftVessel: true, origin: 'agent', intentOrigin: 'agent', worktreePath: null },
         ]
         return patchIssue(c.id, patches[c.variant % patches.length]!)

@@ -45,6 +45,7 @@
  */
 
 import { SidebarIndex } from './worklist/sidebar'
+import { SidebarRosterIndex } from './worklist/sidebar-roster'
 import { overlayRow } from './shared/overlay-row'
 import {
   compareStructural,
@@ -191,6 +192,7 @@ export interface LazyMembers {
 export class MobxPool {
   /** The tables: every read and write in the pool goes here. */
   readonly sidebar: SidebarIndex
+  readonly sidebarRosters: SidebarRosterIndex
   readonly tables: PoolTables
   readonly relations: RelationReader
   /** The relation engine itself. */
@@ -306,6 +308,7 @@ export class MobxPool {
       // No per-session reactions; the schema declares the rule once.
       // Family-small (2-3 ids): splice shifting is trivial.
       onBucket: (collection, target, member, added) => {
+        if (collection === 'worktree.sessions') this.sidebarRosters.queueSession(member)
         if (collection !== 'issue.sessions') return
         if (added) {
           let list = seats.get(target)
@@ -372,6 +375,7 @@ export class MobxPool {
       },
       ...(residency === null ? {} : { residency }),
     }
+    this.sidebarRosters = new SidebarRosterIndex(this)
     this.sidebar = new SidebarIndex(this)
     this.selectedId = null
     // Every row below comes from the one reader (`row`); none of these
@@ -429,6 +433,7 @@ export class MobxPool {
     this.worklist = new VisibleCollection({
       issue: (id) => this.issueObject(id),
       fileGroups: (id, filing) => this.groups.file(id, filing),
+      fileSidebarOwner: (id, owner) => this.sidebarRosters.fileOwner(id, owner),
     })
     this.foldLatch = observable.box(locals.selectedIssueWasFolded === true, {
       name: 'pool.foldLatch',
@@ -451,6 +456,7 @@ export class MobxPool {
       | 'release'
     >(this, {
       sidebar: false,
+      sidebarRosters: false,
       tables: false,
       relations: false,
       graph: false,
@@ -470,6 +476,8 @@ export class MobxPool {
       release: false,
       edit: false,
       row: false,
+      rosterCandidates: false,
+      rosterColdPending: false,
       readCursor: false,
       models: false,
       target: false,
@@ -493,6 +501,7 @@ export class MobxPool {
     // enters the table, released when it leaves (inside the action that
     // moved it; the reaction first runs when that action ends).
     observe(this.tables.issue, (change) => this.followTable(change.type, change.name))
+    observe(this.tables.session, (change) => this.sidebarRosters.queueSession(change.name))
     runInAction(() => this.select(locals.selectedIssueId))
     residency?.onDue(() => this.hydrate())
   }
@@ -529,6 +538,9 @@ export class MobxPool {
     const pending = this.writes?.pending(entity, id)
     return pending === undefined ? server : overlayRow(server, pending)
   }
+
+  rosterCandidates(path: string): Iterable<string> { return this.sidebarRosters.candidates(path) }
+  rosterColdPending(path: string): boolean { return this.sidebarRosters.coldPending(path) }
 
   /**
    * TRACKED: an issue's read cursor, pending mark-read first (the overlay's
@@ -668,6 +680,7 @@ export class MobxPool {
     return runInAction(() => {
       const rows = residency.install(this.target, batch, out)
       this.graph.flush()
+      this.sidebarRosters.flush()
       return rows
     })
   }
@@ -688,6 +701,11 @@ export class MobxPool {
         this.residency?.settle(this.target, out)
       }
       this.graph.flush()
+      for (const record of event.rows) {
+        if (record.kind === 'session') this.sidebarRosters.queueSession(record.id)
+        if (record.kind === 'issue') this.sidebarRosters.queueIssue(record.id)
+      }
+      this.sidebarRosters.flush()
     })
     for (const [entity, id] of out.removed) this.release(entity, id)
   }
@@ -701,6 +719,10 @@ export class MobxPool {
     const row = type === 'delete' ? undefined : this.row('issue', id, 'mark') as Readonly<Record<string, unknown>> | undefined
     if (row === undefined || row['archived'] === true || row['deletedAt'] != null) {
       this.worklist.untrack(id)
+      const summary = row ?? this.hidden('issue', id)
+      if (summary && (summary['archived'] === true || summary['deletedAt'] != null)) {
+        this.sidebarRosters.fileOwner(id, { represented: false, excluded: true, unownedIds: [] })
+      }
     } else {
       this.worklist.track(id)
     }
@@ -732,6 +754,7 @@ export class MobxPool {
       this.clearSeats()
       this.selection.clear()
       this.readStates.clear()
+      this.sidebarRosters.clear()
     })
     for (const entity of ENTITIES) this.models[entity].clear()
     this.residency?.clear()

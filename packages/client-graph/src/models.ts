@@ -199,6 +199,9 @@ export interface ModelHost {
    * (POD-4753, `HIDDEN_ISSUE_FIELDS`); undefined for any other row.
    */
   hidden(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined
+  /** Resident fallback seats; cold rows are requested from a declared lane summary. */
+  rosterCandidates(path: string): Iterable<string>
+  rosterColdPending(path: string): boolean
 }
 
 export class EntityModel {
@@ -582,7 +585,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     if (own === LOADING) return LOADING
     if (own === undefined) return undefined
     const facts = this.loaded.facts
-    const issue = overlayRow(own, { readAt: this.host.visibleInputs.issueRead(this.id), unread: this.unread }, SIDEBAR_ISSUE_OMISSIONS)
+    const issue = overlayRow(own, { displayRef: this.displayRef, readAt: this.host.visibleInputs.issueRead(this.id), unread: this.unread }, SIDEBAR_ISSUE_OMISSIONS)
     const agg = this.aggregate
     const sessionFacts = agg.sidebarFacts ?? NO_SIDEBAR_SESSIONS
     const sessions = this.ownAttention.sessions ?? []

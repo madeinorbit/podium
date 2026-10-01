@@ -191,6 +191,8 @@ export interface GroupsHost {
 export interface Filing {
   readonly placement: Placement
   readonly rank: RowRank
+  /** Flat real-sidebar rows; nested rows retain the existing prototype lanes. */
+  readonly root?: boolean
 }
 
 /** A closed fold's order: newest `foldMs` first, ties in rank order (L1b `compareClosedFold`). */
@@ -266,12 +268,20 @@ export class GroupNode {
 
   /** Root rows only, cached per band rather than per issue or list render. */
   get sidebarRows(): { readonly rowIds: readonly string[]; readonly snoozedIds: readonly string[]; readonly closedIds: readonly string[] } {
-    const rowIds: string[] = [], snoozedIds: string[] = []
-    for (const id of this.rowIds) {
-      if (!this.groups.isRoot(id)) continue
-      ;(this.groups.rankOf(id)?.band === 2 ? snoozedIds : rowIds).push(id)
+    const rowIds = this.groups.rootOpen.lane(this.key).slice()
+    const snoozedIds = this.groups.rootSnoozed.lane(this.key).slice()
+    const closedIds = this.groups.rootClosed.lane(this.key).slice()
+    const latched = this.latchedHere()
+    if (latched !== null && this.groups.isRoot(latched)) {
+      const rank = this.groups.rankOf(latched)
+      if (rank !== undefined) {
+        const lane = rank.band === 2 ? snoozedIds : rowIds
+        lane.splice(rankInsertionPoint(lane, rank, id => this.groups.rankOf(id)), 0, latched)
+        const at = closedIds.indexOf(latched)
+        if (at >= 0) closedIds.splice(at, 1)
+      }
     }
-    return { rowIds, snoozedIds, closedIds: this.closedIds.filter(id => this.groups.isRoot(id)) }
+    return { rowIds, snoozedIds, closedIds }
   }
 
   /** The open lane in rank order, no selection (the snapshot's lane): a copy of the maintained list. */
@@ -334,6 +344,10 @@ export class WorklistGroups {
   readonly open = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.open')
   /** Each group's closed fold, newest first. */
   readonly closed = new SortedLanes<string, FoldSort>(compareFold, 'pool.groups.closed')
+  readonly rootPinned = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.rootPinned')
+  readonly rootOpen = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.rootOpen')
+  readonly rootSnoozed = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.rootSnoozed')
+  readonly rootClosed = new SortedLanes<string, FoldSort>(compareFold, 'pool.groups.rootClosed')
 
   constructor(private readonly host: GroupsHost) {
     makeObservable<WorklistGroups, 'nodes' | 'host'>(this, {
@@ -343,6 +357,10 @@ export class WorklistGroups {
       members: false,
       open: false,
       closed: false,
+      rootPinned: false,
+      rootOpen: false,
+      rootSnoozed: false,
+      rootClosed: false,
       pinnedIds: computed,
       pinnedRootIds: computed({ equals: compareShallow }),
       isRoot: false,
@@ -375,6 +393,12 @@ export class WorklistGroups {
       placement?.closed === true ? group : undefined,
       placement === undefined || rank === undefined ? undefined : { foldMs: placement.foldMs, rank },
     )
+    const root = filing !== undefined && filing.root !== false
+    this.rootPinned.file(id, root && placement?.pinned ? PINNED : undefined, rank)
+    this.rootOpen.file(id, root && placement?.closed === false && rank?.band !== 2 ? group : undefined, rank)
+    this.rootSnoozed.file(id, root && placement?.closed === false && rank?.band === 2 ? group : undefined, rank)
+    this.rootClosed.file(id, root && placement?.closed === true ? group : undefined,
+      placement === undefined || rank === undefined ? undefined : { foldMs: placement.foldMs, rank })
   }
 
   /** The pinned ids in rank order (the PINNED section): a copy of the maintained list. */
@@ -383,7 +407,7 @@ export class WorklistGroups {
   }
 
   get pinnedRootIds(): readonly string[] {
-    return this.pinnedIds.filter(id => this.isRoot(id))
+    return this.rootPinned.lane(PINNED).slice()
   }
 
   isRoot(id: string): boolean {
@@ -466,5 +490,9 @@ export class WorklistGroups {
     this.members.clear()
     this.open.clear()
     this.closed.clear()
+    this.rootPinned.clear()
+    this.rootOpen.clear()
+    this.rootSnoozed.clear()
+    this.rootClosed.clear()
   }
 }

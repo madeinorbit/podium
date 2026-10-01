@@ -58,6 +58,7 @@ export interface SliceIssue {
   readAt?: string | null
   unread?: boolean
   title: string
+  linearIdentifier?: string
   color?: string | null
   branch?: string | null
   parentBranch?: string | null

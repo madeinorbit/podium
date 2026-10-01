@@ -7,6 +7,7 @@ import type { ModelHost } from '../models'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
 import { issueExcluded } from '../shared/schema'
 import { overlayRow } from '../shared/overlay-row'
+import { compareStructural, computed, type IComputedValue } from 'mobx'
 import { LOADING, attentionGroup } from './rollup'
 import { retains, retentionOf, type HiddenIssue } from './visible'
 import { sortedSidebarSessions, type SidebarRowValues } from './sidebar-row'
@@ -66,8 +67,15 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
   const input = host.visibleInputs
   const ids: string[] = []
   let pending = 0
-  let represented: Set<string> | undefined
-  for (const id of host.relations.many('worktree', path, 'sessions')) {
+  const candidates = [...host.rosterCandidates(path)]
+  if (host.rosterColdPending(path)) {
+    // Only a positive cold-lane summary reaches the old relation. No cold
+    // id enters the resident roster index; pending seats queue one batch.
+    for (const id of host.relations.many('worktree', path, 'sessions')) {
+      if (host.hidden('session', id) !== undefined) candidates.push(id)
+    }
+  }
+  for (const id of candidates) {
     const session = host.model('session', id)
     if (session === undefined) {
       // Reason about a historical seat from declared summaries. Only a seat
@@ -86,17 +94,6 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
     if (retention === null || !retention.seat || retention.shell) continue
     const owner = session.issueLink === null ? undefined : input.issue(session.issueLink)
     if (owner?.standing?.excluded) continue
-    if (owner?.placed && owner.retainedSeatIds.includes(id)) continue
-    if (retention.issueId == null) {
-      if (represented === undefined) {
-        represented = new Set()
-        for (const issueId of host.relations.many('worktree', path, 'issues')) {
-          const issue = input.issue(issueId)
-          if (issue?.placed) for (const seatId of issue.retainedSeatIds) represented.add(seatId)
-        }
-      }
-      if (represented.has(id)) continue
-    }
     const finish = retention.finish.kind === 'idleDone' && owner?.standing?.finished
       ? owner.ownFacts : undefined
     if (retains(retention, finish, owner?.standing, input)) ids.push(id)
@@ -106,6 +103,7 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
 
 export class SidebarIndex {
   private seenSelected: string | null = null
+  private readonly sectionViews = new WeakMap<SidebarState, IComputedValue<SidebarSections>>()
   constructor(private readonly pool: MobxPool) {}
 
   row(id: string): SidebarRowValues | typeof LOADING | undefined {
@@ -164,7 +162,16 @@ export class SidebarIndex {
       issues: [...issues.values()], activityAt, pending, active: this.pool.selection.size === 0 && state.selectedWorktree === path }
   }
 
-  sections(state: SidebarState = {}): SidebarSections {
+  sections(state: SidebarState = EMPTY_STATE): SidebarSections {
+    let view = this.sectionViews.get(state)
+    if (!view) {
+      view = computed(() => this.sectionValues(state), { name: 'pool.sidebar.sections', equals: compareStructural })
+      this.sectionViews.set(state, view)
+    }
+    return view.get()
+  }
+
+  private sectionValues(state: SidebarState): SidebarSections {
     const pinnedIds = this.pool.groups.pinnedRootIds
     const bands = new Map<string, SidebarBand>()
     const lanes = [...this.pool.tables.worktree.keys()].map(id => this.pool.row('worktree', id)).filter((row): row is SliceWorktree => row !== undefined && row !== LOADING) as SliceWorktree[]
@@ -215,3 +222,5 @@ export class SidebarIndex {
     return { pinnedIds, bands: ordered, pinnedFoldKey: 'podium:sidebar:pinned-fold', pinnedCollapsed: state.collapsed?.['podium:sidebar:pinned-fold'] === true }
   }
 }
+
+const EMPTY_STATE: SidebarState = Object.freeze({})

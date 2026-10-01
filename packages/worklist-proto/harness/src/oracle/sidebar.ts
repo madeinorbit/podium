@@ -19,7 +19,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 /** All fields the existing row reads from its own issue. Presentation is kept
  * in that component, including refs, colours, labels and status formatting. */
 export const ISSUE_CONTENT_FIELDS = [
-  'id', 'seq', 'color', 'title', 'stage', 'closedReason', 'closedAt', 'updatedAt',
+  'id', 'seq', 'displayRef', 'linearIdentifier', 'color', 'title', 'stage', 'closedReason', 'closedAt', 'updatedAt',
   'audience', 'draft', 'pinned', 'tuckedAt', 'readAt', 'unread', 'gitState',
   'repoPath', 'worktreePath', 'branch', 'parentBranch', 'parentId', 'needsHuman', 'blocked',
   'humanQuestion', 'humanQuestionOptions', 'origin', 'commentCount',
