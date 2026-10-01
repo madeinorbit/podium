@@ -96,7 +96,7 @@ function sectionSnapshot(sections: SidebarSections, issue: (id: string) => Check
 
 export function legacySidebarSnapshot(derivation: LegacyDerivation, locals: SliceLocals, state: SidebarState = {}): SidebarSnapshot {
   const rows = visibleIssueRows(derivation, locals)
-  const byId = new Map(rows.map(row => [row.issue.id, row]))
+  const byId = new Map<string, (typeof rows)[number]>(rows.map(row => [row.issue.id, row]))
   const issues = new Map<string, CheckRow>()
   const issue = (id: string): CheckRow => {
     let value = issues.get(id)
