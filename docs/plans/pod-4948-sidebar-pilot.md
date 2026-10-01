@@ -82,7 +82,7 @@ The temporary and renamed issue inputs have the following individual homes. They
 
 All validation runs on flatblock in `~/podium-test-4953`, with Bun 1.4.2 and a WIP commit before each run. New checks are first exercised against a copied-aside planted mistake, then restored with `cp`. The prototype's package config is used. Browser evidence uses only the synthetic corpus and a private StoreProvider fixture; operator live data stays on ludovico.
 
-Field parity at `e57d1db425` is green for all ten sidebar checks: the full 1x/4x corpus, three observed seeds of 200 changes, adapter precedence, draft selection, cold/eviction recovery, roster provenance and forward/backward expiry. Each seed applies all eight issue-fact and all eight session-fact variants. All 28 row values, 28 compatibility-issue inputs, 21 session-content inputs, roster owners/partitions and section fields are compared with the actual legacy derivations. The two reader checks and the maintenance-probe check also pass at that revision. The rollup and group checks passed at `7097dc3ea` (10 tests). The expiry check was first red at `7c9146af8` after removing the fallback deadline publication: the expired last seat remained in its band. Restoring with `cp` passes the forward and backward clock assertions.
+Field parity at `1d7c83215` is green for all ten sidebar checks after the final immutable-constant lint fix: the full 1x/4x corpus, three observed seeds of 200 changes, adapter precedence, draft selection, cold/eviction recovery, roster provenance and forward/backward expiry. Each seed applies all eight issue-fact and all eight session-fact variants. All 28 row values, 28 compatibility-issue inputs, 21 session-content inputs, roster owners/partitions and section fields are compared with the actual legacy derivations. The two reader checks and the maintenance-probe check passed at `e57d1db425`; both overlay checks pass at `1d7c83215`. The rollup and group checks passed at `7097dc3ea` (10 tests). The expiry check was first red at `7c9146af8` after removing the fallback deadline publication: the expired last seat remained in its band. Restoring with `cp` passes the forward and backward clock assertions.
 
 The empty-branch borrowing check was red at `357c91ac2` with the identity fast paths removed, then passed with all five composition checks at `5a8a80d274`. The cold-observer guard was red at `1babb3cc6` when removed, then passed at `e57d1db425`: 100 repeated absent/cold maintenance probes create zero atoms, while an observed cold row still answers `LOADING`, batches its load and wakes on hydration. Census attribution found and removed 15,629 temporary startup atoms at 1x and 61,236 at 4x before accepting the final counts.
 
@@ -111,17 +111,35 @@ Other tracking kinds below are absolute created-object/held-entry counts for the
 | Held set members | 14,642→13,174 | 14,642→13,174 | 59,340→52,834 | 59,340→52,834 |
 | Held array elements | 5,823→6,107 | 5,823→6,107 | 23,292→24,396 | 23,292→24,396 |
 
-Both write variants have identical computed/reaction counts. Each adds one map and one atom; the pending variant holds three extra overlay entries. The census uses the existing list observer and existing 20 row observers to consume the complete section/row payload. Removing that payload read first failed the strict census at `70df37250` (36 missing computeds, 21 missing map-has atoms and 183 missing reads).
+Both write variants have identical computed/reaction counts. Each adds one map and one atom; the pending variant holds three extra overlay entries. The census uses the existing list observer and existing 20 row observers to consume the complete section/row payload. Removing that payload read first failed the strict census at `70df37250` (36 missing computeds, 21 missing map-has values and 183 missing reads).
 
-Work-per-change is green at `5a8a80d274` for all sixteen scenarios at both sizes, for the pool, its windowed list and both write-layer variants. The complete payload is consumed; optimistic paint and rollback count at each publication. Existing redraw, copy and 1x→4x work bounds are unchanged. A plain clock tick does zero row reads, zero derivations and one element of maintenance work at both sizes. Representative final cells are below; the acceptance artifact retains all before/after scenarios.
+Work-per-change is green at `93ee7f3f81` for all sixteen scenarios at both sizes, for the pool, its windowed list and both write-layer variants. The complete payload is consumed; optimistic paint and rollback count at each publication. Existing redraw, copy and 1x→4x work bounds are unchanged. A plain clock tick does zero row reads, zero derivations and one element of maintenance work at both sizes. Representative final cells are below; the acceptance artifact retains all before/after scenarios.
 
 | Scenario/arm | Row reads 1x→4x | Derivations 1x→4x | Elements 1x→4x |
 | --- | ---: | ---: | ---: |
 | Parent reassignment, pool | 40→41 | 50→50 | 467→522 |
 | Parent reassignment, write variants | 40→41 | 50→50 | 476→531 |
 | Parent reassignment, window | 1→2 | 6→6 | 92→90 |
-| Burst of 50, pool | 310→269 | 1,390→1,374 | 3,326→2,935 |
-| Burst of 50, write variants | 310→269 | 1,390→1,374 | 3,669→3,278 |
-| Burst of 50, window | 185→182 | 431→425 | 1,775→1,558 |
+| Burst of 50, pool | 310→269 | 1,390→1,374 | 3,321→2,930 |
+| Burst of 50, write variants | 310→269 | 1,390→1,374 | 3,664→3,273 |
+| Burst of 50, window | 185→182 | 431→425 | 1,770→1,553 |
 
-The default round-three L4b gate is green at `3cb72877eb`: three seeds of 200 changes, oracle/rebuild/relations/views/cold/full-residency checks and every built-in plant. All six strict census cells passed there too (9 checks passed, one baseline-update helper skipped). Uncached typecheck, lint and real Chromium acceptance remain pending below.
+The default round-three L4b gate is green at `3cb72877eb`: three seeds of 200 changes, oracle/rebuild/relations/views/cold/full-residency checks and every built-in plant. All six strict census cells passed there too (9 checks passed, one baseline-update helper skipped). The final immutable-constant code also passes all six strict census cells at `93ee7f3f81`, with exactly the counts above.
+
+
+## Closing validation and browser evidence
+
+The graph, prototype and web targets and their prerequisites were checked uncached. Web passed at `74b4ad630`; a prototype test fixture needed a narrower issue literal, then the prototype and its prerequisites passed (10/10) at `0c2e85312`. After the immutable-constant fix, affected graph/prototype targets passed uncached (2/2) at `93ee7f3f81` with `--only` so unchanged prerequisites were not repeated. Every typecheck uses the operator-required `--uncached-because` reason; none uses `--force`.
+
+Graph lint passes at `93ee7f3f81`. Prototype lint, `lint:shadowing` (5,419 files) and `lint:span-effects` (158 span bodies, zero unclassified effects) passed at `e424baf5bd`. The three flagged module containers became frozen values; no lint rule was disabled or weakened. Focused checks use the package's own `vitest.config.ts` through validation admission. The final work/census command ran 10 checks with five helpers/other-arm cases skipped; it is not a suite result. The existing lean and multi-instance lanes were not run: the changed data contract has focused acceptance, and the pilot's off switch cannot exercise the pool in the multi-instance lane (POD-4952 coordinator ruling).
+
+The real StoreProvider fixture observes the complete section and issue payload before declaring readiness. Removing that readiness publication first fails at `3e23c8da3` with the 30-second browser wait; restoring the copied-aside file with `cp` passes both Chromium checks at `d8aac4bfb`. Old pool and row-model weak references have zero survivors after principal switch, explicit rebuild and sign-out. Forced-GC used heaps are 5,843,676 / 6,082,460 / 6,027,680 bytes respectively. The off-switch page requests neither graph nor MobX. Flatblock's missing audio library was supplied only under `~/podium-test-4953/.toolchain/lib`; the initial launch failure is not counted as a sensitivity proof.
+
+Synthetic corpus Chromium measurements at `585e9f07bc` use the existing production-build driver, the bench lease, three measured samples plus one warm-up per scenario/size and `--check`. Both sizes pass redraw parity, snapshot parity, zero stray commits and old-principal forced-GC collection. Maximum observed host load is 1.87, below the unchanged ceiling of 8. Each table cell is an independent median; heaps are decimal MB.
+
+| Scale | Click action (ms) | Click → next frame (ms) | Principal dispose + build (ms) | Dispose (ms) | Build (ms) | Principal heap before→after (MB) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1x | 10.2 | 10.7 | 515.0 | 66.8 | 449.6 | 55.2→51.7 |
+| 4x | 71.5 | 72.1 | 1,477.0 | 218.9 | 1,259.9 | 187.6→170.9 |
+
+These are candidate measurements of the complete data payload in the pilot renderer, plus real-provider lifetime evidence. They establish neither a before/after speedup nor acceptance of the real sidebar's future consumer cutover. That wiring remains under POD-4948; POD-4949 owns the normalized homes that retire the single temporary adapter. The product worklist UI files are untouched and the startup switch remains off by default. The issue's acceptance artifact retains the full synthetic corpus, random-gate, before/after census, before/after work and browser records.
