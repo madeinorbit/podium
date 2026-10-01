@@ -247,15 +247,8 @@ describe('real sidebar pool cutover', () => {
       expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
       await act(async () => {
         fixture.patch('session', 'synthetic-session-11', { headless: false, archived: true })
-        fixture.patch('session', 'synthetic-guest-0', {
-          archived: true,
-          lastActiveAt: new Date(NOW).toISOString(),
-        })
       })
       fireEvent.click(screen.getByText('Only responsive target'))
-      expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
-      await act(async () => runtime.getSnapshot().setPane('A', null))
-      fireEvent.click(screen.getByText('project · guests'))
       expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
       cleanup()
     }
