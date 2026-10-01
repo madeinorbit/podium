@@ -38,20 +38,23 @@ function world(kind: 'claude-code' | 'codex' | 'grok' | 'opencode' = 'claude-cod
     stageAttachment: async () => { throw new Error('no attachments') },
     readHistory: async (_session, range) => pageHistory(history, SESSION, range),
     archiveTranscript: async () => { throw new Error('no archive') },
-    readArchiveBytes: async () => new Uint8Array(), resources: () => ({}),
+    readArchiveBytes: async () => new Uint8Array(), resources: () => ({ oomKills: 0 }),
   }
   const runtime = createTerminalRuntime(host, undefined, createMemoryDriverSlots())
   const manifest = manifestFor(kind)!
   const spec = manifest.runtime.terminal
   const profile: TerminalHarnessProfile = {
-    ...spec, composerReadiness: 'best-effort', instrumentationRequired: false,
+    ...spec, composerReadiness: 'on-bind', instrumentationRequired: false,
     needsSubmitVerification: false, usesRawFirstTurn: false,
     archivable: false, reportsContextPercent: false,
     interruptBytes: '\x1b', interruptQuitsWhenIdle: false,
   }
   const handle = runtime.register({ sessionId: SESSION, agentKind: kind, cwd: '/tmp/receipt',
     resume: { kind: manifest.resumeKind!, value: 'same-conversation' }, terminal, rebind: true }, profile)
+  const now = Date.now()
+  vi.setSystemTime(now - 6000)
   runtime.observe({ type: 'bind', sessionId: SESSION, cmd: kind, cwd: '/tmp/receipt', agentKind: kind })
+  vi.setSystemTime(now)
   const post = (text: string, extra: Partial<TranscriptItem> = {}) => {
     const item = { id: `entry-${history.length}`, role: 'user' as const, text,
       ts: new Date(Date.now()).toISOString(), ...extra }
