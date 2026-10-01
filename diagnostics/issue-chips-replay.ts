@@ -30,8 +30,16 @@ async function main(): Promise<void> {
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
   const store = sidebarReplayStore(corpus, replica)
-  const legacy = allIssueViewModels(replica, store.issueProjections, store.issues)
+  // ReplicaBinding seeds the app from replica order. Bootstrap transport order
+  // is not the legacy UI order, particularly for colliding display refs.
+  const legacy = allIssueViewModels(replica)
   const tokens = legacy.map(canonicalIssueRef)
+  const counts = new Map<string, number>()
+  for (const token of tokens) {
+    const key = issueRefKey(token)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  const collisions = [...counts].filter(([, count]) => count > 1)
   // The replay's authority resolves against the captured bootstrap in memory.
   // The running server is not restarted to install the additive endpoint.
   const authority = new Map(legacy.map((row) => [issueRefKey(canonicalIssueRef(row)), row.id]))
@@ -55,6 +63,13 @@ async function main(): Promise<void> {
             issues: corpus.issues.length,
             sessions: corpus.sessions.length,
             ...result,
+            ...(process.argv.includes('--explain-collisions') ? {
+              collisions: {
+                groups: collisions.length,
+                rows: collisions.reduce((sum, [, count]) => sum + count, 0),
+                prefixedGroups: collisions.filter(([ref]) => !ref.startsWith('#')).length,
+              },
+            } : {}),
             first: result.first
               ? {
                   ...result.first,
