@@ -520,12 +520,16 @@ export class Residency {
     if (spec.kind === 'unlessShown' && spec.canShow !== undefined) {
       const summary = this.summaries.get(`${entity}:${id}`)
       const bound = this.finish.get(`${entity}:${id}`)
-      const changed = value === undefined || (previous === undefined
+      const row = value as Readonly<Record<string, unknown>> | undefined
+      const before = previous as Readonly<Record<string, unknown>> | undefined
+      // A cursor or timestamp can change without changing any visibility bound.
+      const changed = row === undefined || (before === undefined
         ? summary === undefined || bound === undefined ||
-          spec.canShow.fields.some((field) => summary[field] !== (value as Readonly<Record<string, unknown>>)[field]) ||
-          bound.shownUntil !== spec.shownUntil(value) || bound.finish !== spec.finishOf(value)
-        : spec.dependsOn.some((field) => (previous as Readonly<Record<string, unknown>>)[field] !==
-          (value as Readonly<Record<string, unknown>>)[field]))
+          spec.canShow.fields.some((field) => summary[field] !== row[field]) ||
+          bound.shownUntil !== spec.shownUntil(row) || bound.finish !== spec.finishOf(row)
+        : spec.canShow.fields.some((field) => before[field] !== row[field]) ||
+          spec.predicate(before) !== spec.predicate(row) ||
+          spec.shownUntil(before) !== spec.shownUntil(row) || spec.finishOf(before) !== spec.finishOf(row))
       if (changed) this.ancestorDirty.get(entity)?.add(id)
     }
     if (this.keeperKinds.has(entity)) this.member(target, entity, id, value, out)

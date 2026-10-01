@@ -693,8 +693,8 @@ export class MobxPool {
    * through the one reader without an authoritative table publication.
    */
   private followTable(type: 'add' | 'update' | 'delete', id: string): void {
-    const row = type === 'delete' ? undefined : this.tables.issue.get(id)
-    if (row === undefined || row.archived === true || row.deletedAt != null) {
+    const row = type === 'delete' ? undefined : this.row('issue', id, 'mark') as Readonly<Record<string, unknown>> | undefined
+    if (row === undefined || row['archived'] === true || row['deletedAt'] != null) {
       this.worklist.untrack(id)
     } else {
       this.worklist.track(id)

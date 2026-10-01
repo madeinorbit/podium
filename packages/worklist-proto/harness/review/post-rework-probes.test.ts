@@ -322,7 +322,7 @@ describe('POD-4942 post-rework probes', () => {
           residentIssues: pool.tables.issue.size,
           residentSessions: pool.tables.session.size,
           readStates: pool.readStates.size,
-          // Count actual filing subscriptions: excluded resident rows have none.
+          // Count actual filings: archived/deleted residents have none; stages can change optimistically.
           // Model objects remain measured from the census owners outside the product.
           issueObjects: modelOwners(census, 'IssueModel'),
           sessionObjects: modelOwners(census, 'SessionModel'),
