@@ -32,7 +32,6 @@ for (let i = 674; i < count; i++) synthetic.records.delete(`session:synthetic-se
 // scanning rows. The production resolver is separately checked for permissions.
 synthetic.api.issues = {
   ...synthetic.api.issues,
-  comments: { query: async () => [] },
   resolveRefs: {
     query: async ({ refs }) =>
       refs.map((ref) => {
@@ -41,6 +40,7 @@ synthetic.api.issues = {
       }),
   },
 }
+Object.assign(synthetic.api.issues, { comments: { query: async () => [] } })
 const sessionId = asSessionId('synthetic-session-0')
 const items = Array.from(
   { length: 120 },

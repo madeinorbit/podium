@@ -155,7 +155,10 @@ try {
       label: el.getAttribute('aria-label'),
       text: el.textContent,
     }))
-    if (mode === 'pool' && (await page.evaluate(() => window.__issueChips.stats())).legacyScans !== 0)
+    if (
+      mode === 'pool' &&
+      (await page.evaluate(() => window.__issueChips.stats())).legacyScans !== 0
+    )
       throw new Error('The pool miniview called a legacy issue derivation')
     await page.screenshot({ path: `${out}/${mode}-miniview.png`, fullPage: false })
     times.sort((a, b) => a - b)
