@@ -4,6 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import type {} from '../test/sidebar-actions.browser'
 
 const out = '.artifacts/sidebar-actions'
+const correctnessOnly = process.argv.includes('--correctness-only')
 const phase = process.argv.find((arg) => arg.startsWith('--phase='))?.slice(8) ?? 'all'
 if (!['all', 'reorder', 'pin', 'rename', 'archive'].includes(phase))
   throw new Error(`Unknown interaction phase: ${phase}`)
@@ -72,13 +73,13 @@ try {
     const state = await page.evaluate(() => window.__sidebarActions.state())
     if (pageErrors.length) throw new Error(pageErrors.join('\n'))
     if (state.failures.length) throw new Error(state.failures.join('\n'))
-    const heap = await cdp.send('Runtime.getHeapUsage')
+    const heap = correctnessOnly ? null : await cdp.send('Runtime.getHeapUsage')
     observations.push({
       label,
       comparison,
       state,
-      actionToObservedPaintMs: started === undefined ? null : painted - started,
-      usedHeapBytes: heap.usedSize,
+      actionToObservedPaintMs: correctnessOnly || started === undefined ? null : painted - started,
+      usedHeapBytes: heap?.usedSize ?? null,
     })
     console.log(`S5 ${label}: differences=0, pending=0`)
   }
