@@ -108,6 +108,9 @@ try {
       )
       times.push(ms)
     }
+    // Drain mount-time observers before measuring unrelated session traffic.
+    // This wait is outside the conversation-open timing window above.
+    await page.waitForTimeout(200)
     const before = await page.evaluate(() => window.__issueChips.stats())
     const shape = await page.evaluate(() => window.__issueChips.status())
     await page.evaluate(() => window.__issueChips.traffic())
@@ -119,7 +122,7 @@ try {
         traffic.redraws !== before.redraws ||
         traffic.reads !== before.reads)
     )
-      throw new Error('Session traffic woke pool chips or scanned legacy issues')
+      throw new Error(`Session traffic woke pool chips or scanned legacy issues: ${JSON.stringify({before, traffic})}`)
     const paint = () =>
       page.evaluate(() =>
         [...document.querySelectorAll('a.ref-link--issue, [data-issue-reference]')].map((el) => ({
