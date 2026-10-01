@@ -136,7 +136,7 @@ const proof = {
     synthetic.patch('issueProjection', `synthetic-${index}`, patch)
   },
   traffic() {
-    synthetic.patch('session', 'synthetic-session-0', {
+    synthetic.patch('session', 'synthetic-session-673', {
       agentState: { phase: 'working', since: new Date().toISOString() },
     })
   },

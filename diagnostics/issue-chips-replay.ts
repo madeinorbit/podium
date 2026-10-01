@@ -9,6 +9,7 @@ import {
   createKernelReplica,
   createSideCache,
   memoryStorage,
+  type Replica,
 } from '../packages/client-core/src/replica/index'
 import { canonicalIssueRef } from '../packages/client-core/src/viewmodels/issue-reference'
 import { checkIssueChips } from '../packages/client-graph/diagnostics/chip-check'
@@ -20,6 +21,15 @@ import { readLive } from '../packages/worklist-proto/harness/src/fixture/export-
 import { corpusFromLive } from '../packages/worklist-proto/harness/src/fixture/live-snapshot'
 import { sidebarReplayStore } from '../packages/worklist-proto/harness/src/oracle/sidebar-replay'
 import { seedCacheFromCorpus } from '../packages/worklist-proto/shared/src/scenarios'
+
+/** Same ordering as the app's hydrate-first ReplicaBinding, not transport order. */
+export function chipReplayLegacy(replica: Replica) {
+  return allIssueViewModels(replica)
+}
+
+export function chipReplayTokens(legacy: Parameters<typeof checkIssueChips>[1]): string[] {
+  return legacy.map(canonicalIssueRef).filter(token => parseAnyRef(token)?.kind === 'issue')
+}
 
 async function main(): Promise<void> {
   if (hostname() !== 'ludovico') throw new Error('Live replay is restricted to ludovico')
@@ -33,11 +43,11 @@ async function main(): Promise<void> {
   const store = sidebarReplayStore(corpus, replica)
   // ReplicaBinding seeds the app from replica order. Bootstrap transport order
   // is not the legacy UI order, particularly for colliding display refs.
-  const legacy = allIssueViewModels(replica)
+  const legacy = chipReplayLegacy(replica)
   // A prefix-less #seq is a fallback label, not a parseable issue reference.
   // Those orphan rows can share sequence numbers across repositories; they
   // cannot be mentioned by the Markdown reference decorator or miniview.
-  const tokens = legacy.map(canonicalIssueRef).filter(token => parseAnyRef(token)?.kind === 'issue')
+  const tokens = chipReplayTokens(legacy)
   const counts = new Map<string, number>()
   for (const token of tokens) {
     const key = issueRefKey(token)
