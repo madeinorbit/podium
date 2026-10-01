@@ -235,15 +235,16 @@ describe('real sidebar pool cutover', () => {
       const fixture = await mount(layer)
       await act(async () => {
         fixture.patch('session', 'synthetic-session-11', { status: 'exited' })
-        runtime.getSnapshot().setPane('A', asSessionId('synthetic-session-11'))
+        runtime.getSnapshot().setPane('A', asSessionId('synthetic-guest-1'))
       })
       fireEvent.click(screen.getByText('Only responsive target'))
       expect(runtime.getSnapshot().paneA).toBe('synthetic-session-11')
       await act(async () => {
         fixture.patch('session', 'synthetic-session-11', { status: 'live', headless: true })
+        runtime.getSnapshot().setPane('A', asSessionId('synthetic-guest-1'))
       })
       fireEvent.click(screen.getByText('Only responsive target'))
-      expect(runtime.getSnapshot().paneA).toBeNull()
+      expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
       await act(async () => {
         fixture.patch('session', 'synthetic-session-11', { headless: false, archived: true })
         fixture.patch('session', 'synthetic-guest-0', {
@@ -252,7 +253,8 @@ describe('real sidebar pool cutover', () => {
         })
       })
       fireEvent.click(screen.getByText('Only responsive target'))
-      expect(runtime.getSnapshot().paneA).toBeNull()
+      expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
+      await act(async () => runtime.getSnapshot().setPane('A', null))
       fireEvent.click(screen.getByText('project · guests'))
       expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
       cleanup()
