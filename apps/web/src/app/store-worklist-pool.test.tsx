@@ -21,6 +21,7 @@ const choice = vi.hoisted(() => ({ mode: 'pool' }))
 vi.mock('@/lib/sidebar-data-layer', () => ({
   initializeSidebarDataLayer: () => {},
   sidebarDataLayer: () => choice.mode,
+  sidebarCheckRequested: () => false,
 }))
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true

@@ -10,6 +10,8 @@ export interface SidebarCheckReport {
   state: SidebarCheckState
   differences: number
   checkedAt: number | null
+  checks?: number
+  first?: { section: string; sectionIndex: number; rowIndex: number | null; expectedId: string | null; actualId: string | null; field: string } | null
 }
 interface WorkEntry {
   at: number

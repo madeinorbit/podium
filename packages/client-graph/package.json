@@ -41,11 +41,16 @@
       "@podium/source": "./src/*.ts",
       "types": "./src/*.ts",
       "import": "./src/*.ts"
+    },
+    "./diagnostics/*": {
+      "@podium/source": "./diagnostics/*.ts",
+      "types": "./diagnostics/*.ts",
+      "import": "./diagnostics/*.ts"
     }
   },
   "scripts": {
     "typecheck": "bun ../../scripts/typecheck-project.ts",
-    "lint": "bunx eslint --config eslint.config.mjs src"
+    "lint": "bunx eslint --config eslint.config.mjs src diagnostics"
   },
   "dependencies": {
     "@podium/client-core": "workspace:*",

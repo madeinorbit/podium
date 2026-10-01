@@ -1,7 +1,12 @@
 {
   "extends": "../../tooling/tsconfig/react.json",
-  "include": ["src"],
+  "include": [
+    "src",
+    "diagnostics"
+  ],
   "compilerOptions": {
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   }
 }

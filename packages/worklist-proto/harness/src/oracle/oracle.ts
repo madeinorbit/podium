@@ -41,15 +41,8 @@ import type {
 } from '@podium/client-graph/shared/slice-types'
 import type { FixtureCorpus } from '../fixture/index'
 
-/** The legacy derivation output plus the inputs the projection needs. */
-export interface LegacyDerivation {
-  slice: WorklistSlice
-  models: IssueNavigationModel[]
-  sessions: SessionMeta[]
-  allWorktreePaths: string[]
-  /** Temporary facts the normalized feed does not yet carry (POD-4953). */
-  temporaryIssues?: readonly IssueWire[]
-}
+import { legacyDerivationFromStore, visibleIssueRows, type LegacyDerivation } from '@podium/client-graph/diagnostics/legacy'
+export { legacyDerivationFromStore, visibleIssueRows, type LegacyDerivation } from '@podium/client-graph/diagnostics/legacy'
 
 function stubReplica(corpus: FixtureCorpus): Replica {
   const byKind = {
@@ -97,18 +90,6 @@ export function runLegacyDerivation(corpus: FixtureCorpus, locals: SliceLocals):
   // the progress fallback below reads the same objects, never a rebuild.
   const models = allIssueViewModels(replica, corpus.issueProjections, corpus.issues)
   return { slice, models, sessions, allWorktreePaths: slice.allWorktreePaths, temporaryIssues: corpus.issues }
-}
-
-/** Every nested descendant as its own row, pre-order (parent before child). */
-function flattenIssueRows(rows: UnifiedWorkRow[]): UnifiedIssueRow[] {
-  const out: UnifiedIssueRow[] = []
-  const visit = (row: UnifiedWorkRow): void => {
-    if (row.kind !== 'issue') return
-    out.push(row)
-    for (const child of row.startedByChildren ?? []) visit(child)
-  }
-  for (const row of rows) visit(row)
-  return out
 }
 
 function projectRow(
@@ -189,15 +170,6 @@ export function projectSnapshot(derivation: LegacyDerivation, locals: SliceLocal
  * Worktree rows have no slice rendering and are dropped before ordering. The
  * row-view oracle (`row-views.ts`) projects the same rows.
  */
-export function visibleIssueRows(
-  derivation: LegacyDerivation,
-  locals: SliceLocals,
-): UnifiedIssueRow[] {
-  return sortUnifiedWorkRows(flattenIssueRows(derivation.slice.work), locals.coarseNow).filter(
-    (row): row is UnifiedIssueRow => row.kind === 'issue',
-  )
-}
-
 function rowKeyOf(row: UnifiedWorkRow): string {
   return row.kind === 'issue' ? row.issue.id : row.worktree.path
 }
@@ -228,29 +200,6 @@ export function snapshotFromStore(
  * shared issue-view cache when a replica and projections are present, else the
  * store's own issue rows (the POD-1053 fallback inside the slice).
  */
-export function legacyDerivationFromStore(
-  store: Store<PodiumClientApi>,
-  coarseNow: number = store.coarseNow,
-): LegacyDerivation {
-  const replica = store.replica
-  const projections = store.issueProjections ?? []
-  const models =
-    replica !== undefined && replica !== null && projections.length > 0
-      ? allIssueViewModels(replica, projections, store.issues)
-      : store.issues
-  const slice = worklistSlice.derive(atClock(store, coarseNow))
-  return { slice, models, sessions: store.sessions, allWorktreePaths: slice.allWorktreePaths, temporaryIssues: store.issues }
-}
-
-/** The store as the derivation reads it, with its clock read as `coarseNow`. */
-function atClock(store: Store<PodiumClientApi>, coarseNow: number): Store<PodiumClientApi> {
-  if (store.coarseNow === coarseNow) return store
-  return new Proxy(store, {
-    get: (target, key, receiver) =>
-      key === 'coarseNow' ? coarseNow : Reflect.get(target, key, receiver),
-  })
-}
-
 /**
  * POD-4556 (L4b) — the parity oracle over a live store at the store's own
  * clock, unselected baseline (spec §7).

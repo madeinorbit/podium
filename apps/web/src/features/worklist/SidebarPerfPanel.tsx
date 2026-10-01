@@ -9,7 +9,7 @@ import {
 import { useStoreHandle } from '@podium/client-core/react'
 import type { JSX } from 'react'
 import { useLayoutEffect, useState } from 'react'
-import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
+import { sidebarDataLayer, sidebarCheckRequested } from '@/lib/sidebar-data-layer'
 import {
   bindSidebarRowMeasurements,
   createPaintBoundary,
@@ -109,6 +109,11 @@ export function SidebarPerfReadout({
           Side-by-side check (S5) · {checkWords[report.check.state]}
           {report.check.differences ? ` · ${report.check.differences} differences` : ''}
         </div>
+        {report.check.first && (
+          <div data-testid="sidebar-check-first">
+            First difference · {report.check.first.section} · row {report.check.first.rowIndex === null ? '—' : report.check.first.rowIndex + 1} · {report.check.first.field}
+          </div>
+        )}
         {report.checkWork.derivations + report.checkWork.rows + report.checkWork.mainThreadMs >
           0 && (
           <div className="text-muted-foreground">
@@ -153,7 +158,7 @@ export function SidebarPerfSession({
     const paint = createPaintBoundary()
     const unbind = bindSidebarPerf(owner, perf, paint.afterPaint)
     if (
-      new URLSearchParams(location.search).get('mobxSidebarCheck') === '1' &&
+      sidebarCheckRequested() &&
       perf.read().check.state === 'off'
     )
       perf.check({ state: 'waiting', differences: 0, checkedAt: null })

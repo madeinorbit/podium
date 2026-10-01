@@ -12,6 +12,18 @@ beforeEach(() => {
 afterEach(() => history.replaceState(null, '', '/'))
 
 describe('sidebar startup data layer', () => {
+  it.each([
+    ['', false], ['?mobxSidebarCheck=1', false], ['?mobxSidebar=0&mobxSidebarCheck=1', false],
+    ['?mobxSidebar=1', false], ['?mobxSidebar=1&mobxSidebarCheck=0', false], ['?mobxSidebar=1&mobxSidebarCheck=1', true],
+  ])('freezes both diagnostic opt-ins at startup: %s', async (query, expected) => {
+    const mode = await import('./sidebar-data-layer')
+    history.replaceState(null, '', `/${query}`)
+    mode.initializeSidebarDataLayer(stored(null))
+    expect(mode.sidebarCheckRequested()).toBe(expected)
+    history.replaceState(null, '', expected ? '/' : '/?mobxSidebar=1&mobxSidebarCheck=1')
+    mode.initializeSidebarDataLayer(stored('1'))
+    expect(mode.sidebarCheckRequested()).toBe(expected)
+  })
   it('defaults to legacy and reads the declared device-local key once', async () => {
     const mode = await import('./sidebar-data-layer')
     const ui = stored(null)
