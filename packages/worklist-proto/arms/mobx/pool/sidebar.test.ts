@@ -19,7 +19,7 @@ import { harnessMobxPoolArm, snapshotPool, tracked, visibleOrderOf } from '../..
 import type { MobxPool } from '@podium/client-graph/pool'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { writeResult } from '../../../harness/src/results'
-import { startScenarioEngine, freshIssue, upsert } from '../../../shared/src/scenarios'
+import { startScenarioEngine, upsert } from '../../../shared/src/scenarios'
 import { gen, genCorpus, countKinds } from '../../../shared/src/gen/changes'
 import { startGenRun } from '../../../shared/src/gen/run'
 import { DISABLED_READ_FENCE } from '../../../shared/src/instrument/reads'
@@ -163,11 +163,13 @@ describe('real sidebar oracle (POD-4953)', () => {
       const lane = ctx.corpus.sliceWorktrees[0]!
       const now = engineLocals(ctx).coarseNow
       ctx.replica.batch(() => {
-        const { wire, projection } = freshIssue(ctx, 'roster-owner', 50001, 'Roster owner')
-        const owner = { audience: 'agent', stage: 'in_progress', worktreePath: lane.path, repoPath: lane.repoPath }
-        upsert(ctx, 'issue', 'roster-owner', { ...wire, ...owner })
-        upsert(ctx, 'issueProjection', 'roster-owner', { ...projection, ...owner })
         const stamp = new Date(now - 60_000).toISOString()
+        const owner = { id: 'roster-owner', seq: 50001, title: 'Roster owner', audience: 'agent', stage: 'in_progress',
+          parentId: null, startedBySession: null, coordinatorSessionId: null, archived: false, deletedAt: null,
+          closedReason: null, closedAt: null, draft: false, isDraftVessel: false, pinned: false, needsHuman: false,
+          worktreePath: lane.path, repoPath: lane.repoPath, updatedAt: stamp }
+        upsert(ctx, 'issue', 'roster-owner', { ...ctx.corpus.issues[0]!, ...owner })
+        upsert(ctx, 'issueProjection', 'roster-owner', { ...ctx.corpus.issueProjections[0]!, ...owner })
         upsert(ctx, 'session', 'owned-roster-guest', {
           sessionId: 'owned-roster-guest', issueId: 'roster-owner', cwd: lane.path,
           title: 'Owned guest', agentKind: 'codex', status: 'hibernated', archived: false,

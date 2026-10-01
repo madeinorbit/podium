@@ -165,7 +165,7 @@ export function sidebarDiff(pool: MobxPool, derivation: LegacyDerivation, rows: 
           if (!isDeepStrictEqual(a, e)) differences.push(`${row.issue.id}.issue.${key}: ${JSON.stringify(a)} expected ${JSON.stringify(e)}`)
         }
       } else {
-        const short = (value: unknown) => JSON.stringify(value).slice(0, 500)
+        const short = (value: unknown) => (JSON.stringify(value) ?? String(value)).slice(0, 500)
         differences.push(`${row.issue.id}.${field}: ${short(actual[field])} expected ${short(expected[field])}`)
       }
     }
