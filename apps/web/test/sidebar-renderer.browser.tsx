@@ -155,7 +155,11 @@ const fixture = {
     projectOrder: runtime?.getSnapshot().sidebarSettings.repoOrder,
     coarseNow: runtime?.getSnapshot().coarseNow,
   }),
-  stats: () => storeStats.snapshot(),
+  stats: (): {
+    enabled: boolean
+    dropped: number
+    runtimes: Array<{ publishes: number; slices: Record<string, number> }>
+  } => storeStats.snapshot(),
   perf: () => proofPerf?.read() ?? globalThis.__podiumSidebarPerf?.read(),
   survivors: worklistPoolSurvivors,
 }
