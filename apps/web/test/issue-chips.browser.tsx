@@ -64,7 +64,6 @@ synthetic.api.sessions = Object.assign(
 )
 let runtime: ClientRuntime | undefined
 let pool: ReturnType<typeof useWorklistPool> = null
-let ready = false
 let open: ((value: boolean) => void) | undefined
 const failures: string[] = []
 
@@ -77,14 +76,8 @@ function Fixture() {
     runtime = owner
     pool = attached
     open = setShown
-    void owner
-      .getSnapshot()
-      .refreshRepos()
-      .then(() => {
-        ready = chipsDataLayer() === 'legacy' || attached !== null
-      })
+    void owner.getSnapshot().refreshRepos().catch(error => failures.push(String(error)))
     return () => {
-      ready = false
       runtime = undefined
       pool = null
       open = undefined
@@ -128,7 +121,9 @@ root.render(
 )
 
 const proof = {
-  ready: () => ready,
+  ready: () => !!runtime && runtime.getSnapshot().repos.length > 0 && (chipsDataLayer() === 'legacy' || pool !== null),
+  status: () => ({ runtime: !!runtime, pool: !!pool, repos: runtime?.getSnapshot().repos.length,
+    issues: runtime?.replica.rows('issueProjections').length, sessions: runtime?.replica.rows('sessions').length }),
   failures: () => failures,
   open(value = true) {
     flushSync(() => open?.(value))

@@ -53,11 +53,19 @@ try {
     })
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
+    const waitReady = async (phase: string) => {
+      try {
+        await page.waitForFunction(() => window.__issueChips?.ready(), null, { timeout: 30000 })
+      } catch (error) {
+        console.error(JSON.stringify({ phase, errors, status: await page.evaluate(() => window.__issueChips?.status()), failures: await page.evaluate(() => window.__issueChips?.failures()) }))
+        throw error
+      }
+    }
     await page.goto(
       `${origin}/test/issue-chips.browser.html?issues=4887&mobxSidebar=0&mobxChips=${mode === 'pool' ? 1 : 0}`,
       { waitUntil: 'networkidle', timeout: 60000 },
     )
-    await page.waitForFunction(() => window.__issueChips?.ready(), null, { timeout: 60000 })
+    await waitReady(`${mode}:boot`)
     // Warm development module delivery without warming a measured session's
     // transcript cache. Each measured page reload creates a fresh runtime.
     await page.evaluate(() => window.__issueChips.open())
@@ -65,9 +73,14 @@ try {
       () => document.querySelectorAll('a[data-issue-availability="present"]').length >= 361,
     )
     const times: number[] = []
-    for (let sample = 0; sample < (correctnessOnly ? 0 : 5); sample++) {
+    for (let sample = 0; sample < (correctnessOnly ? 1 : 5); sample++) {
       await page.reload({ waitUntil: 'networkidle', timeout: 60000 })
-      await page.waitForFunction(() => window.__issueChips?.ready(), null, { timeout: 60000 })
+      await waitReady(`${mode}:reload:${sample}`)
+      if (correctnessOnly) {
+        await page.evaluate(() => window.__issueChips.open())
+        await page.waitForFunction(() => document.querySelectorAll('a[data-issue-availability="present"]').length >= 361)
+        continue
+      }
       const ms = await page.evaluate(async () => {
         const start = performance.now()
         window.__issueChips.open()
@@ -88,6 +101,7 @@ try {
       times.push(ms)
     }
     const before = await page.evaluate(() => window.__issueChips.stats())
+    const shape = await page.evaluate(() => window.__issueChips.status())
     await page.evaluate(() => window.__issueChips.traffic())
     await page.waitForTimeout(200)
     const traffic = await page.evaluate(() => window.__issueChips.stats())
@@ -166,8 +180,8 @@ try {
     results.push({
       mode,
       cold: true,
-      issues: 4887,
-      sessions: 674,
+      issues: shape.issues,
+      sessions: shape.sessions,
       messages: 120,
       chips: initial.length,
       openMs: correctnessOnly ? undefined : times,
