@@ -1,4 +1,5 @@
 import type { IssueReferenceSource } from '@podium/client-core/viewmodels'
+import { recordChipWork } from '@podium/client-core/perf'
 import {
   type IssueReferenceLookup,
   issueReferenceLookup,
@@ -62,7 +63,7 @@ export interface IssueChipRefsStats {
  * anchor naming an issue outside the subset. Rebuilds now happen only on a
  * material issue change, so the full build is rare.
  */
-export function createIssueChipRefsSelector(): {
+export function createIssueChipRefsSelector(owner?: object): {
   select: (issues: readonly IssueReferenceSource[]) => IssueChipRefsSelection
   stats: IssueChipRefsStats
 } {
@@ -74,6 +75,10 @@ export function createIssueChipRefsSelector(): {
   const select = (issues: readonly IssueReferenceSource[]): IssueChipRefsSelection => {
     if (issues === source && cached !== undefined) return cached
     stats.materialScans += 1
+    if (owner) {
+      recordChipWork(owner, 'legacyScans')
+      recordChipWork(owner, 'legacyRows', issues.length)
+    }
     const next: IssueChipMaterial[] = []
     let changed = source === undefined || issues.length !== material.length
     for (const issue of issues) {

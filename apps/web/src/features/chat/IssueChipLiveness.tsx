@@ -1,7 +1,11 @@
 import type { JSX } from 'react'
 import { useLayoutEffect, useRef } from 'react'
+import { useStoreHandle } from '@podium/client-core/react'
+import { recordChipWork } from '@podium/client-core/perf'
 import { useReplicaIssues } from '@/app/store'
-import { decorateIssueRefAnchors } from '@/lib/issue-chip-liveness'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import { bindIssueRefAnchors, decorateIssueRefAnchors } from '@/lib/issue-chip-liveness'
+import { chipsDataLayer } from '@/lib/chips-data-layer'
 import { createIssueChipRefsSelector } from './issue-chip-refs'
 
 /**
@@ -12,7 +16,41 @@ import { createIssueChipRefsSelector } from './issue-chip-refs'
  * object, so attachment re-runs this effect regardless of JSX mount order.
  */
 export function IssueChipLiveness({ root }: { root: HTMLElement | null }): JSX.Element | null {
+  return chipsDataLayer() === 'pool' ? <PoolIssueChipLiveness root={root} /> : <LegacyIssueChipLiveness root={root} />
+}
+
+function PoolIssueChipLiveness({ root }: { root: HTMLElement | null }): null {
+  const pool = useWorklistPool()
+  const owner = useStoreHandle()
+  useLayoutEffect(() => {
+    if (!pool || !root) return
+    let disposed = false
+    let stop: (() => void) | undefined
+    // The legacy startup imports neither MobX nor the pool's tracking module.
+    void import('@podium/client-graph/runtime-pool').then(({ createPoolProjection }) => {
+      if (disposed) return
+      stop = bindIssueRefAnchors(root, {
+        watch(ref, paint) {
+          const view = createPoolProjection(pool, (pool) => {
+            recordChipWork(owner, 'reads')
+            return pool.references.read(ref)
+          })
+          paintValue(view.getSnapshot())
+          function paintValue(model: ReturnType<typeof view.getSnapshot>): void {
+            if (paint(typeof model === 'symbol' ? 'loading' : model ?? null)) recordChipWork(owner, 'redraws')
+          }
+          return view.subscribe(() => paintValue(view.getSnapshot()))
+        },
+      })
+    })
+    return () => { disposed = true; stop?.() }
+  }, [owner, pool, root])
+  return null
+}
+
+function LegacyIssueChipLiveness({ root }: { root: HTMLElement | null }): JSX.Element | null {
   const issues = useReplicaIssues()
+  const owner = useStoreHandle()
 
   // Keyed on what the chips READ, not on the array's identity. The replica
   // rebuilds that array on session traffic too, so keying on it would re-arm the
@@ -23,7 +61,7 @@ export function IssueChipLiveness({ root }: { root: HTMLElement | null }): JSX.E
   // material compare over the seven fields the signature can see, so an
   // immaterial publication costs a field scan with no string or model work.
   const selector = useRef<ReturnType<typeof createIssueChipRefsSelector> | null>(null)
-  if (selector.current === null) selector.current = createIssueChipRefsSelector()
+  if (selector.current === null) selector.current = createIssueChipRefsSelector(owner)
   const { refs } = selector.current.select(issues)
 
   useLayoutEffect(() => {

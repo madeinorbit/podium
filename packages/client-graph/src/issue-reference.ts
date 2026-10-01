@@ -1,0 +1,131 @@
+import { canonicalIssueRef, issueReferenceModel, type IssueReferenceModel, type IssueReferenceSource } from '@podium/client-core/viewmodels'
+import { parseAnyRef } from '@podium/protocol'
+import { compareStructural, computed, observable, observe, reaction, runInAction, type ObservableMap } from 'mobx'
+import type { RelationReader } from './shared/relation-reader'
+import type { StoredRow } from './tables'
+import { LOADING, type Loaded } from './worklist/rollup'
+
+export function issueRefKey(token: string): string {
+  const parsed = parseAnyRef(token.trim())
+  return parsed?.kind === 'issue' ? `${parsed.prefix}-${parsed.seq}` : token.trim()
+}
+
+/** Only the existing pool supplies rows and relations. No viewmodel list,
+ * replica, old-record read or mutation owner is accepted by this seam. */
+export interface IssueReferenceHost {
+  row(entity: 'issue' | 'repo', id: string): Loaded<object>
+  readonly tables: { readonly issue: ObservableMap<string, StoredRow> }
+  readonly relations: Pick<RelationReader, 'one'>
+}
+
+export interface IssueReferenceReader {
+  read(token: string): Loaded<IssueReferenceModel | null>
+  id(token: string): Loaded<string | null>
+}
+
+/** One resident-only key index per pool. Each resident row tracks only its
+ * own identity and declared repo relation. Cold rows never enter this index.
+ * Unresolved keys use the pool's load window, not a list scan or a peek. */
+export class IssueReferences implements IssueReferenceReader {
+  private readonly resident = observable.map<string, string>(undefined, { deep: false })
+  // Demand responses exist only for keys asked for by readers. This is not an
+  // index over cold rows or their summaries. A loaded key wins immediately.
+  private readonly requests = observable.map<string, string | null | typeof LOADING>(undefined, { deep: false })
+  private readonly stops = new Map<string, () => void>()
+  private readonly values = new Map<string, ReturnType<typeof computed<Loaded<IssueReferenceModel | null>>>>()
+  private readonly stopTable: () => void
+
+  constructor(private readonly host: IssueReferenceHost, private readonly queue: (ref: string) => void) {
+    this.stopTable = observe(host.tables.issue, (change) => {
+      if (change.type === 'add') this.track(change.name)
+      if (change.type === 'delete') this.untrack(change.name)
+    })
+    // The only enumeration, when attaching to an already seeded pool. All
+    // subsequent maintenance follows one changed resident table slot.
+    for (const id of host.tables.issue.keys()) this.track(id)
+  }
+
+  private source(id: string): Loaded<IssueReferenceSource> {
+    const row = this.host.row('issue', id)
+    if (row === LOADING || row === undefined) return row
+    const issue = row as IssueReferenceSource
+    const repoId = this.host.relations.one('issue', id, 'repo')
+    const repo = repoId === null ? undefined : this.host.row('repo', repoId)
+    if (repo === LOADING) return LOADING
+    const prefix = (repo as { prefix?: string | null } | undefined)?.prefix ?? issue.prefix
+    return { id: issue.id, seq: issue.seq, title: issue.title, stage: issue.stage,
+      archived: issue.archived, deletedAt: issue.deletedAt,
+      ...(prefix ? { prefix } : {}),
+      // The repo relation owns canonical identity after normalization. A
+      // temporary pre-projection input can still carry a real displayRef.
+      displayRef: repoId !== null ? (prefix ? `${prefix}-${issue.seq}` : `#${issue.seq}`) : issue.displayRef,
+    }
+  }
+
+  private track(id: string): void {
+    if (this.stops.has(id)) return
+    let previous: string | undefined
+    const stop = reaction(() => {
+      const row = this.source(id)
+      return row === LOADING || row === undefined ? undefined : issueRefKey(canonicalIssueRef(row))
+    }, (key) => runInAction(() => {
+      if (previous !== undefined && this.resident.get(previous) === id) this.resident.delete(previous)
+      previous = key
+      if (key !== undefined) this.resident.set(key, id)
+    }), { fireImmediately: true })
+    this.stops.set(id, () => {
+      stop()
+      if (previous !== undefined && this.resident.get(previous) === id) this.resident.delete(previous)
+    })
+  }
+
+  private untrack(id: string): void {
+    this.stops.get(id)?.()
+    this.stops.delete(id)
+    this.values.delete(id)
+  }
+
+  id(token: string): Loaded<string | null> {
+    if (parseAnyRef(token.trim())?.kind !== 'issue') return null
+    const key = issueRefKey(token)
+    const resident = this.resident.get(key)
+    if (resident !== undefined) return resident
+    const pending = this.requests.get(key)
+    if (pending !== undefined) return pending
+    // A read never blocks. Repeated chips of the same token enqueue it once.
+    runInAction(() => this.requests.set(key, LOADING))
+    this.queue(key)
+    return LOADING
+  }
+
+  read(token: string): Loaded<IssueReferenceModel | null> {
+    const id = this.id(token)
+    if (id === LOADING || id === null || id === undefined) return id
+    let value = this.values.get(id)
+    if (!value) {
+      value = computed(() => {
+        const row = this.source(id)
+        return row === LOADING ? LOADING : row === undefined ? null : issueReferenceModel(row)
+      }, { equals: compareStructural })
+      this.values.set(id, value)
+    }
+    return value.get()
+  }
+
+  /** A batch resolver supplies only opaque ids. The next read goes through
+   * the ONE row reader, which queues known cold rows in the same load window. */
+  resolved(ref: string, id: string | null): void {
+    runInAction(() => this.requests.set(issueRefKey(ref), id))
+  }
+
+  dispose(): void {
+    this.stopTable()
+    runInAction(() => {
+      for (const stop of this.stops.values()) stop()
+      this.stops.clear()
+      this.resident.clear()
+      this.requests.clear()
+      this.values.clear()
+    })
+  }
+}
