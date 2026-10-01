@@ -103,20 +103,41 @@ describe('the stream-json invocation', () => {
     expect(args).toContain('--replay-user-messages')
   })
 
-  it('defaults the permission mode to auto, default under structured permissions', () => {
-    const auto = buildClaudeStreamInvocation(base, 'claude')
-    expect(auto.args).toContain('--permission-mode')
-    expect(auto.args[auto.args.indexOf('--permission-mode') + 1]).toBe('auto')
-    const structured = buildClaudeStreamInvocation({ ...base, structuredPermissions: true }, 'claude')
-    expect(structured.args[structured.args.indexOf('--permission-mode') + 1]).toBe('default')
-    expect(structured.args).toContain('--permission-prompt-tool')
-  })
+  it.each([undefined, true] as const)(
+    'defaults the permission mode to auto with structuredPermissions=%s',
+    (structuredPermissions) => {
+      const { args } = buildClaudeStreamInvocation({ ...base, structuredPermissions }, 'claude')
+      expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
+      if (structuredPermissions) {
+        expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
+      } else {
+        expect(args).not.toContain('--permission-prompt-tool')
+      }
+    },
+  )
 
-  it('honours an explicit permission mode and the root bypass flag', () => {
-    const bypass = buildClaudeStreamInvocation({ ...base, permissionMode: 'bypassPermissions' }, 'claude')
-    expect(bypass.args).toContain('--allow-dangerously-skip-permissions')
-    const plan = buildClaudeStreamInvocation({ ...base, permissionMode: 'plan' }, 'claude')
-    expect(plan.args[plan.args.indexOf('--permission-mode') + 1]).toBe('plan')
+  it.each(['default', 'acceptEdits', 'auto', 'bypassPermissions', 'plan', 'dontAsk'])(
+    'honours explicit %s mode while routing permission asks through stdio',
+    (permissionMode) => {
+      const { args } = buildClaudeStreamInvocation(
+        { ...base, permissionMode, structuredPermissions: true },
+        'claude',
+      )
+      expect(args[args.indexOf('--permission-mode') + 1]).toBe(permissionMode)
+      expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
+      expect(args.includes('--allow-dangerously-skip-permissions')).toBe(
+        permissionMode === 'bypassPermissions',
+      )
+    },
+  )
+
+  it('falls back to auto for an invalid mode with structured permissions', () => {
+    const { args } = buildClaudeStreamInvocation(
+      { ...base, permissionMode: 'invalid', structuredPermissions: true },
+      'claude',
+    )
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
+    expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
   })
 
   it('passes model, effort, resume and session minting through', () => {

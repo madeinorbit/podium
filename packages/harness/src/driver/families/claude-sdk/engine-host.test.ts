@@ -205,6 +205,9 @@ describe('the claude stream engine host', () => {
     })
     expect(spawned[0]?.args).toContain('--input-format')
     expect(spawned[0]?.args).toContain('--session-id')
+    const args = spawned[0]!.args
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
+    expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
     expect(spawned[0]?.env).toMatchObject({
       HOME: '/state/agent-home',
       CLAUDE_CONFIG_DIR: '/state/agent-home/.claude',

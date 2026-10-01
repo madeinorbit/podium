@@ -85,7 +85,7 @@ export interface ClaudeStreamTurnSpec {
   resumeValue?: string
   /** Mint the first-turn session with this UUID. */
   sessionUuid?: string
-  /** Route tool authorization through structured driver interactions. */
+  /** Route permission asks through structured driver interactions, independently of the permission mode. */
   structuredPermissions?: true
   /** Instance-owned child environment (HOME + CLI/session routing). */
   env?: Record<string, string>
@@ -110,9 +110,7 @@ export function buildClaudeStreamInvocation(
   const mode: string =
     spec.permissionMode && PERMISSION_MODES.has(spec.permissionMode)
       ? spec.permissionMode
-      : spec.structuredPermissions
-        ? 'default'
-        : 'auto'
+      : 'auto'
   const args = [
     '--output-format',
     'stream-json',
