@@ -1,11 +1,13 @@
 import { LOADING, type MobxPool } from '@podium/client-graph'
-import { observer } from '@podium/client-graph/react'
+import { observer, computed, compareStructural } from '@podium/client-graph/react'
+import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
+import type { SidebarWorktree } from '@podium/client-graph/worklist/sidebar'
 import { motionPhase } from '@podium/client-graph/worklist/rollup'
 import { shallowEqual } from '@podium/client-core/store'
-import { agentBadge, type MotionPhase } from '@podium/client-core/viewmodels'
+import { agentBadge, mostUrgentSession, type MotionPhase } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model/browser'
 import { FolderPlus, GitBranch, Plus, Search } from 'lucide-react'
-import { Fragment, useState, type JSX } from 'react'
+import { Fragment, useMemo, useState, type JSX } from 'react'
 import { openAddProject } from '@/app/desktop-menu'
 import { useStoreSelector } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
@@ -65,8 +67,20 @@ const PoolRailTile = observer(function PoolRailTile({ pool, id, kind, actions, d
   hover: { key: string; anchor: DOMRect } | null; setHover: (value: { key: string; anchor: DOMRect } | null) => void
 }): JSX.Element | null {
   const local = useStoreSelector(s => ({ selected: kind === 'worktree' && s.selectedIssueId === null && s.selectedWorktree === id }), shallowEqual)
-  const value = kind === 'issue' ? pool.sidebar.row(id) : undefined
-  const tree = kind === 'worktree' ? pool.sidebar.worktree(id) : undefined
+  const draw = useMemo(() => computed<{ value: SidebarRowValues | typeof LOADING | undefined; tree: SidebarWorktree | undefined; count: number; paint: unknown }>(() => {
+    const value = kind === 'issue' ? pool.sidebar.row(id) : undefined
+    const tree = kind === 'worktree' ? pool.sidebar.worktree(id) : undefined
+    let count = 0
+    if (value !== undefined && value !== LOADING) {
+      const model = pool.issue(id)!
+      const waiting = model.aggregate.railWaiting
+      count = ((model.ownFacts.state === 'ready' && model.ownFacts.finished ? waiting?.finished : waiting?.open) ?? 0) + (waiting?.decisions ?? 0)
+    }
+    const paint = value !== undefined && value !== LOADING ? { count, phase: value.timing.phase, title: value.issue.title,
+      ref: value.issue.displayRef, seq: value.issue.seq, color: value.issue.color, status: poolIssueStatus(value), progress: value.progress } : tree ?? value
+    return { value, tree, count, paint }
+  }, { equals: (a, b) => compareStructural(a.paint, b.paint) }), [pool, id, kind]).get()
+  const { value, tree } = draw
   if ((kind === 'issue' && (value === undefined || value === LOADING)) || (kind === 'worktree' && !tree)) return null
   let phase: MotionPhase, count: number, title: string, status: string
   const selected = kind === 'issue' ? pool.selection.has(id) : local.selected
@@ -74,10 +88,7 @@ const PoolRailTile = observer(function PoolRailTile({ pool, id, kind, actions, d
   if (value !== undefined && value !== LOADING) {
     const issue = navigationIssue(value.issue)
     phase = value.timing.phase
-    const model = pool.issue(id)!
-    const waiting = model.aggregate.railWaiting
-    count = (model.ownFacts.state === 'ready' && model.ownFacts.finished ? waiting?.finished : waiting?.open) ?? 0
-    count += waiting?.decisions ?? 0
+    count = draw.count
     title = `${idSquareLabel(issue).full} ${issue.title}`
     status = poolIssueStatus(value)
     mark = <><IdSquare issue={issue} state={phase} selected={selected} badge={railBadge(phase, count)} ringColor="var(--sidebar)"
@@ -92,7 +103,7 @@ const PoolRailTile = observer(function PoolRailTile({ pool, id, kind, actions, d
     title = tree!.worktree.branch ?? id.split('/').pop() ?? id
     const head = sessions.length > 1 ? `${sessions.length} agents · ` : ''
     const working = phases.filter(p => p === 'working').length
-    const urgent = sessions.find((session, index) => phases[index] === 'waiting')
+    const urgent = mostUrgentSession(sessions.filter((_, index) => phases[index] === 'waiting') as SessionMeta[], pool.clock.current)
     status = phase === 'waiting' ? head + (urgent ? agentBadge(urgent as SessionMeta)?.label ?? 'needs you' : 'needs you')
       : phase === 'working' ? (working > 1 ? `${working} agents · ` : '') + 'working' : head + (phase === 'done' ? 'done' : 'idle')
     mark = <button data-pressable type="button" data-testid="rail-worktree-square" className="phase-surface relative flex flex-none cursor-pointer items-center justify-center bg-secondary"
@@ -103,6 +114,7 @@ const PoolRailTile = observer(function PoolRailTile({ pool, id, kind, actions, d
   const key = `${kind === 'issue' ? 'issue' : 'wt'}:${id}`
   const open = (event: { currentTarget: HTMLElement }) => setHover({ key, anchor: event.currentTarget.getBoundingClientRect() })
   const close = () => { if (hover?.key === key) setHover(null) }
+  // biome-ignore lint/a11y/noStaticElementInteractions: handlers reveal the descriptive card; the tile owns activation
   return <span className="relative flex flex-none" onMouseEnter={open} onMouseLeave={close} onFocus={open} onBlur={close}>
     {mark}{selected && <RailSpine />}
     {hover?.key === key && <RailHoverCard anchor={hover.anchor} title={title} meta={selected ? `selected · ${status}` : status} waiting={count > 0} />}

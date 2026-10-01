@@ -34,7 +34,10 @@ try {
     const failures: string[] = []
     page.on('pageerror', error => { failures.push(error.message); console.error(error.message) })
     await page.goto(`${origin}/test/sidebar-renderer.browser.html?mobxSidebar=${mode === 'pool' ? 1 : 0}&perfPanel=1${requireCheck && mode === 'pool' ? '&mobxSidebarCheck=1' : ''}`, { timeout: 60000, waitUntil: 'networkidle' })
-    await page.waitForFunction(() => window.__sidebarRenderer?.ready() && document.querySelector('[data-issue-row="synthetic-17"]'), null, { timeout: 30000 })
+    await page.waitForFunction(() => window.__sidebarRenderer?.ready() && document.querySelector('[data-issue-row="synthetic-17"]'), null, { timeout: 30000 }).catch(async error => {
+      console.error(mode, await page.evaluate(() => ({ ready: window.__sidebarRenderer?.ready(), state: window.__sidebarRenderer?.state(), errors: window.__sidebarRenderer?.failures(), text: document.body.innerText.slice(0, 4000) })))
+      throw error
+    })
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
     const initial = await readPaint(page)
     await page.screenshot({ path: `${out}/${mode}.png`, fullPage: true })
