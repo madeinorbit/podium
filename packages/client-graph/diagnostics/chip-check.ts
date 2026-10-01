@@ -1,7 +1,7 @@
 /** Optional differential, following sidebar-check's privacy contract. Only
  * counts, positions, field names and opaque ids leave the comparison. */
 import { canonicalIssueRef, issueReferenceModel, type IssueReferenceModel, type IssueReferenceSource } from '@podium/client-core/viewmodels'
-import { compareStructural } from 'mobx'
+import { compareStructural, runInAction } from 'mobx'
 import { issueRefKey, type IssueReferenceReader } from '../src/issue-reference'
 import { LOADING } from '../src/worklist/rollup'
 import { allIssueViewModels } from '@podium/client-core/replica'
@@ -28,6 +28,7 @@ export function checkIssueChips(
   legacy: readonly IssueReferenceSource[],
   tokens: readonly string[],
 ): ChipCheckResult {
+  return runInAction(() => {
   // This whole-list work exists ONLY in the explicit diagnostic. Neither the
   // production reader nor its counters invoke the legacy projection.
   const expected = new Map(legacy.map(row => [issueRefKey(canonicalIssueRef(row)), issueReferenceModel(row)]))
@@ -45,6 +46,7 @@ export function checkIssueChips(
     }
   }
   return { chips: tokens.length, pending, differences, first }
+  })
 }
 
 /** Startup opt-in only. Comparison runs outside mount/render and retains no

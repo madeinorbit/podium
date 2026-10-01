@@ -1,4 +1,4 @@
-/** The actual transcript renderer and chip components over a private runtime.
+/** The full ChatView and chip components over a private runtime.
  * Operator-sized synthetic data, no network or operator cache. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { chipPerf } from '@podium/client-core/perf'
@@ -68,7 +68,7 @@ function Fixture() {
 const root = createRoot(document.getElementById('root')!)
 root.render(<StoreProvider principal={asClientPrincipal(asUserId('chip-proof'))}
   config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={synthetic.api}
-  createReplicaFn={() => synthetic.newReplica()} networkEnabled={false} onFatalError={message => failures.push(message)}
+  createReplicaFn={() => synthetic.replica} networkEnabled={false} onFatalError={message => failures.push(message)}
   attachRuntime={owner => attachWorklistPool(owner, error => failures.push(error.message))}><Fixture /></StoreProvider>)
 
 const proof = {
