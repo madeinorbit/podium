@@ -24,9 +24,14 @@ try {
     page.on('pageerror', error => errors.push(error.message))
     await page.goto(`${origin}/test/issue-chips.browser.html?issues=4887&mobxSidebar=0&mobxChips=${mode === 'pool' ? 1 : 0}`, { waitUntil: 'networkidle', timeout: 60000 })
     await page.waitForFunction(() => window.__issueChips?.ready(), null, { timeout: 60000 })
+    // Warm development module delivery without warming a measured session's
+    // transcript cache. Each measured page reload creates a fresh runtime.
+    await page.evaluate(() => window.__issueChips.open())
+    await page.waitForFunction(() => document.querySelectorAll('a[data-issue-availability="present"]').length >= 361)
     const times: number[] = []
     for (let sample = 0; sample < 5; sample++) {
-      await page.evaluate(() => window.__issueChips.open(false))
+      await page.reload({ waitUntil: 'networkidle', timeout: 60000 })
+      await page.waitForFunction(() => window.__issueChips?.ready(), null, { timeout: 60000 })
       const ms = await page.evaluate(async () => {
         const start = performance.now()
         window.__issueChips.open()
@@ -62,7 +67,7 @@ try {
     } else if (before.legacyScans === 0 || before.legacyRows < 4887) throw new Error('Legacy scan positive control inactive')
     if (errors.length || (await page.evaluate(() => window.__issueChips.failures())).length) throw new Error(`Browser errors: ${errors.join('; ')}`)
     times.sort((a, b) => a - b)
-    results.push({ mode, issues: 4887, sessions: 674, messages: 120, chips: initial.length, openMs: times, medianOpenMs: times[2], before, traffic, after, changedChips, check })
+    results.push({ mode, cold: true, issues: 4887, sessions: 674, messages: 120, chips: initial.length, openMs: times, medianOpenMs: times[2], before, traffic, after, changedChips, check })
     snapshots.push({ initial, changed })
     await page.close()
   }
