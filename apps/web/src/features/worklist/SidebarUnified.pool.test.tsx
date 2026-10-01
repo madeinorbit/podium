@@ -1,4 +1,5 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
+import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { worklistSlice } from '@podium/client-core/viewmodels'
@@ -16,7 +17,33 @@ const mode = vi.hoisted(() => ({
   value: 'pool' as 'legacy' | 'pool',
   reads: 0,
   commits: new Map<string, number>(),
+  worktrees: new Map<
+    string,
+    { onSelect: () => void; onSelectPanel: (id: string) => void; commits: number }
+  >(),
 }))
+vi.mock('@podium/client-core/perf', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@podium/client-core/perf')>()),
+  beginSwitch: vi.fn(),
+}))
+vi.mock('./UnifiedWorktreeRow', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./UnifiedWorktreeRow')>()
+  const { useLayoutEffect } = await import('react')
+  return {
+    ...original,
+    UnifiedWorktreeRow: (props: Parameters<typeof original.UnifiedWorktreeRow>[0]) => {
+      useLayoutEffect(() => {
+        const path = props.row.worktree.path
+        mode.worktrees.set(path, {
+          onSelect: props.onSelect,
+          onSelectPanel: props.onSelectPanel as (id: string) => void,
+          commits: (mode.worktrees.get(path)?.commits ?? 0) + 1,
+        })
+      })
+      return original.UnifiedWorktreeRow(props)
+    },
+  }
+})
 vi.mock('@/lib/sidebar-data-layer', () => ({
   sidebarDataLayer: () => mode.value,
   initializeSidebarDataLayer: () => {},
@@ -70,6 +97,7 @@ async function mount(layer: 'legacy' | 'pool', rail = false, count = 12) {
   mode.value = layer
   mode.reads = 0
   mode.commits.clear()
+  mode.worktrees.clear()
   pool = null
   const fixture = createSidebarFixture(count, NOW)
   render(
@@ -131,6 +159,83 @@ afterEach(() => {
 })
 
 describe('real sidebar pool cutover', () => {
+  it.each(['legacy', 'pool'] as const)(
+    '%s worktree header ignores a session archived after mount',
+    async (layer) => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(NOW)
+      const fixture = await mount(layer)
+      const path = '/synthetic/project/guests'
+      const handlers = mode.worktrees.get(path)!
+      await act(async () => {
+        fixture.patch('session', 'synthetic-guest-0', {
+          archived: true,
+          lastActiveAt: new Date(NOW).toISOString(),
+        })
+        runtime.getSnapshot().setPane('A', null)
+      })
+      await waitFor(() =>
+        expect(document.querySelector('[data-session="synthetic-guest-0"]')).toBeNull(),
+      )
+      expect(mode.worktrees.get(path)!.onSelect).toBe(handlers.onSelect)
+      expect(mode.worktrees.get(path)!.onSelectPanel).toBe(handlers.onSelectPanel)
+      fireEvent.click(screen.getByTitle(path))
+      expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
+      expect(runtime.getSnapshot().selectedWorktree).toBe(path)
+    },
+  )
+
+  it.each(['legacy', 'pool'] as const)(
+    '%s worktree header preserves the current pane session',
+    async (layer) => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(NOW)
+      const fixture = await mount(layer)
+      const path = '/synthetic/project/guests'
+      const handlers = mode.worktrees.get(path)!
+      await act(async () => {
+        fixture.patch('session', 'synthetic-guest-0', {
+          lastActiveAt: new Date(NOW).toISOString(),
+        })
+        runtime.getSnapshot().setPane('A', asSessionId('synthetic-guest-1'))
+      })
+      expect(mode.worktrees.get(path)!.onSelect).toBe(handlers.onSelect)
+      expect(mode.worktrees.get(path)!.onSelectPanel).toBe(handlers.onSelectPanel)
+      fireEvent.click(screen.getByTitle(path))
+      expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
+    },
+  )
+
+  it('legacy worktree panel uses the current pane without restarting a switch', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    await mount('legacy')
+    const path = '/synthetic/project/guests'
+    const handlers = mode.worktrees.get(path)!
+    await act(async () => {
+      runtime.getSnapshot().setPane('A', asSessionId('synthetic-guest-1'))
+    })
+    expect(mode.worktrees.get(path)!.onSelectPanel).toBe(handlers.onSelectPanel)
+    vi.mocked(beginSwitch).mockClear()
+    fireEvent.click(screen.getByText('Synthetic guest 1'))
+    expect(runtime.getSnapshot().selectedWorktree).toBe(path)
+    expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
+    expect(beginSwitch).not.toHaveBeenCalled()
+  })
+
+  it('keeps the legacy worktree row cold when another issue changes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    const fixture = await mount('legacy')
+    const path = '/synthetic/project/guests'
+    const before = mode.worktrees.get(path)!
+    await act(async () => {
+      fixture.patch('issueProjection', 'synthetic-11', { title: 'Changed visible title' })
+    })
+    expect(screen.getByText('Changed visible title')).toBeTruthy()
+    expect(mode.worktrees.get(path)).toBe(before)
+  })
+
   it('draws the same rows, bands and folds as legacy, without a worklistSlice read', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
