@@ -26,7 +26,8 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import { Residency, type Schedule } from '@podium/client-graph/residency'
 import { ROW_DISPLAYED_FIELDS } from '@podium/client-graph/shared/row-view'
 import { applyHeartbeat, applyTitleRename, startEngineOnCorpus } from '../../shared/src/scenarios'
-import { coldByRule, SCHEMA, tableColdContext } from '@podium/client-graph/shared/schema'
+import { awaitingMergeOf, coldByRule, keepDeadline, keptByKey, SCHEMA, tableColdContext } from '@podium/client-graph/shared/schema'
+import { legacyDerivationFromStore, visibleIssueRows } from '../src/oracle/index'
 import { harnessMobxPoolArm, settlePoolLoads, tracked, visibleOrderOf } from '../src/adapters/mobx-pool'
 import { openFenceFeeds } from '../src/fence-scenarios'
 import { buildCorpusCell, type CorpusCell } from '../src/fixture/corpus'
@@ -141,6 +142,12 @@ describe('POD-4942 post-rework probes', () => {
           issues.map((r) => [r.id, r.value as unknown as Record<string, unknown>]),
         )
         const sessionRows = sessions.map((r) => r.value as unknown as Record<string, unknown>)
+        const oracleRows = visibleIssueRows(
+          legacyDerivationFromStore(ctx.engine.getSnapshot(), feeds.locals.source.get().coarseNow),
+          feeds.locals.source.get(),
+        )
+        const shownIssues = new Set(oracleRows.map((row) => row.issue.id))
+        const shownSessions = new Set(oracleRows.flatMap((row) => row.sessions.map((s) => s.sessionId)))
         const residentBy = tracked(() => {
           const by: Record<string, number> = {}
           for (const id of pool.tables.issue.keys()) {
@@ -201,8 +208,52 @@ describe('POD-4942 post-rework probes', () => {
           const rule = tableColdContext(
             SCHEMA,
             (entity) =>
-              entity === 'issue' ? issueTable : entity === 'session' ? sessionTable : undefined,
+              entity === 'issue' ? issueTable : entity === 'session' ? sessionTable :
+                new Map(feeds.rows.source.snapshot(entity).map((r) => [r.id, r.value])),
             feeds.locals.source.get().coarseNow,
+          )
+          // Attribute to the executable declaration, not a second approximation.
+          // Multiple clauses are named together when either would keep a row.
+          const spec = SCHEMA.issue.cold
+          if (spec.kind !== 'unlessShown') throw new Error('issue cold rule must have keepers')
+          const issueClauses = (row: Record<string, unknown>): string => {
+            if (!spec.predicate(row)) {
+              return `not-cold-by-predicate:${row['deletedAt'] != null ? 'deleted' : row['archived'] === true ? 'archived' : 'open'}`
+            }
+            const reasons: string[] = []
+            if (rule.now <= spec.shownUntil(row)) {
+              reasons.push(`issueShownUntil:${awaitingMergeOf(row) ? 'awaitingMerge' :
+                row['audience'] === 'human' && ['planning', 'in_progress', 'review'].includes(row['stage'] as string) ? 'activeHuman' :
+                  !row['parentId'] ? 'humanRootFold' : 'humanChildDecay'}`)
+            }
+            for (const source of spec.keptBy) {
+              const key = keptByKey(SCHEMA, 'issue', row, source)
+              if (key !== null && [...rule.keeps('issue', source, key)].some(
+                (keep) => rule.now <= keepDeadline(keep, spec.finishOf(row)),
+              )) reasons.push(`${source.kind}:${source.relation}`)
+            }
+            return reasons.sort().join('+') || 'unattributed'
+          }
+          const hiddenIssues: Record<string, number> = {}
+          const hiddenSessions: Record<string, number> = {}
+          const bump = (table: Record<string, number>, why: string) => { table[why] = (table[why] ?? 0) + 1 }
+          for (const id of pool.tables.issue.keys()) {
+            if (!shownIssues.has(id)) bump(hiddenIssues, issueClauses(issueRows.get(id)!))
+          }
+          for (const id of pool.tables.session.keys()) {
+            if (shownSessions.has(id)) continue
+            const row = sessionTable.get(id)!
+            const owner = typeof row['issueId'] === 'string' ? issueRows.get(row['issueId']) : undefined
+            bump(hiddenSessions, owner === undefined ? 'not-cold-by-predicate:unbound-or-unknown-owner' :
+              `via-issue:${issueClauses(owner)}`)
+          }
+          expect(hiddenIssues['unattributed'] ?? 0).toBe(0)
+          expect(hiddenSessions['via-issue:unattributed'] ?? 0).toBe(0)
+          expect(Object.values(hiddenIssues).reduce((a, b) => a + b, 0)).toBe(
+            [...pool.tables.issue.keys()].filter((id) => !shownIssues.has(id)).length,
+          )
+          expect(Object.values(hiddenSessions).reduce((a, b) => a + b, 0)).toBe(
+            [...pool.tables.session.keys()].filter((id) => !shownSessions.has(id)).length,
           )
           let closedColdByRule = 0
           let sessionsColdByRuleResident = 0
@@ -219,6 +270,8 @@ describe('POD-4942 post-rework probes', () => {
           return {
             ...by,
             closedWhy,
+            hiddenIssues,
+            hiddenSessions,
             closedColdByRule,
             sessionsColdByRuleResident,
             unboundSessions: unbound,
