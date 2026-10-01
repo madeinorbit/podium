@@ -5,7 +5,11 @@ import { useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool, WorklistPoolHandle } from '@podium/client-graph'
 import type { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { useMemo, useSyncExternalStore } from 'react'
-import { initializeSidebarDataLayer, sidebarDataLayer, sidebarCheckRequested } from '@/lib/sidebar-data-layer'
+import {
+  initializeSidebarDataLayer,
+  sidebarCheckRequested,
+  sidebarDataLayer,
+} from '@/lib/sidebar-data-layer'
 
 interface PoolSlot {
   handle: WorklistPoolHandle | null
@@ -80,20 +84,45 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
       notify(slot)
       if (sidebarCheckRequested()) {
         const pool = slot.handle.pool
-        void import('@podium/client-graph/diagnostics/runtime-check').then(({ startSidebarCheck }) => {
-          if (disposed) return
-          stopCheck = startSidebarCheck(runtime, pool, { state: store => {
-            const base = { pinnedRepos: store.pins.repos, pinnedWorktrees: store.pins.worktrees, projectOrder: store.sidebarSettings.repoOrder }
-            const keys = ['podium:sidebar:pinned-fold', ...pool.sidebar.sections(base).bands.flatMap(band => [band.foldKey, band.snoozedFoldKey, band.closedFoldKey])]
-            return { pinnedRepos: store.pins.repos, pinnedWorktrees: store.pins.worktrees, projectOrder: store.sidebarSettings.repoOrder,
-              paneA: store.paneA, selectedWorktree: store.selectedWorktree,
-              collapsed: Object.fromEntries(keys.flatMap(key => {
-                const raw = runtime.ui.get(key)
-                return raw === null ? [] : [[key, raw === 'true']]
-              })),
-            }
-          } })
-        }).catch(() => { /* Optional diagnostics must not take down the sidebar. */ })
+        void import('@podium/client-graph/diagnostics/runtime-check')
+          .then(({ startSidebarCheck }) => {
+            if (disposed) return
+            stopCheck = startSidebarCheck(runtime, pool, {
+              state: (store) => {
+                const base = {
+                  pinnedRepos: store.pins.repos,
+                  pinnedWorktrees: store.pins.worktrees,
+                  projectOrder: store.sidebarSettings.repoOrder,
+                }
+                const keys = [
+                  'podium:sidebar:pinned-fold',
+                  ...pool.sidebar
+                    .sections(base)
+                    .bands.flatMap((band) => [
+                      band.foldKey,
+                      band.snoozedFoldKey,
+                      band.closedFoldKey,
+                    ]),
+                ]
+                return {
+                  pinnedRepos: store.pins.repos,
+                  pinnedWorktrees: store.pins.worktrees,
+                  projectOrder: store.sidebarSettings.repoOrder,
+                  paneA: store.paneA,
+                  selectedWorktree: store.selectedWorktree,
+                  collapsed: Object.fromEntries(
+                    keys.flatMap((key) => {
+                      const raw = runtime.ui.get(key)
+                      return raw === null ? [] : [[key, raw === 'true']]
+                    }),
+                  ),
+                }
+              },
+            })
+          })
+          .catch(() => {
+            /* Optional diagnostics must not take down the sidebar. */
+          })
       }
     })
     .catch((cause: unknown) => {
