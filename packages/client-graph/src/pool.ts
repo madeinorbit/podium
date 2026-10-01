@@ -60,6 +60,10 @@ import {
 } from 'mobx'
 import type { RelationReader } from './shared/relation-reader'
 import { relationLinks } from './shared/links'
+import { createHeaderViews } from './header-views'
+import { HEADER_ISSUE_SUMMARY_FIELDS, HEADER_SESSION_SUMMARY_FIELDS } from './header-schema'
+import { createHeaderEntities } from './header-entities'
+import { isHeaderEntity, type HeaderEntity } from './header-schema'
 import { COLD_SESSION_FIELDS, type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
 import type {
   LocalsKey,
@@ -193,6 +197,8 @@ export class MobxPool {
   /** The tables: every read and write in the pool goes here. */
   readonly sidebar: SidebarIndex
   readonly sidebarRosters: SidebarRosterIndex
+  readonly header = createHeaderEntities()
+  readonly headerViews = createHeaderViews(this)
   readonly tables: PoolTables
   readonly relations: RelationReader
   /** The relation engine itself. */
@@ -258,7 +264,7 @@ export class MobxPool {
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
             // What visibility reads of a hidden issue (POD-4753), never the row.
-            summaries: { issue: HIDDEN_ISSUE_FIELDS, session: COLD_SESSION_FIELDS },
+            summaries: { issue: [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS], session: [...COLD_SESSION_FIELDS, ...HEADER_SESSION_SUMMARY_FIELDS] },
             // The rule's lane source (R3, POD-4745) reads the engine, built below.
             lanes: () => this.graph,
           })
@@ -458,6 +464,8 @@ export class MobxPool {
       sidebar: false,
       sidebarRosters: false,
       tables: false,
+      header: false,
+      headerViews: false,
       relations: false,
       graph: false,
       selection: false,
@@ -523,9 +531,11 @@ export class MobxPool {
    * residency's per-id atom, which reports every relink and the load.
    * Unknown rows answer undefined. Never blocks.
    */
+  row(entity: HeaderEntity, id: string): object | undefined
   row(entity: EntityName, id: string, absent: 'peek'): object | undefined
   row(entity: EntityName, id: string, absent?: 'load' | 'mark'): Loaded<object>
-  row(entity: EntityName, id: string, absent: AbsentRead = 'load'): Loaded<object> {
+  row(entity: EntityName | HeaderEntity, id: string, absent: AbsentRead = 'load'): Loaded<object> {
+    if (isHeaderEntity(entity)) return this.header.get(entity, id)
     let server = this.tables[entity].get(id) as object | undefined
     if (server === undefined) {
       const residency = this.residency
@@ -755,6 +765,8 @@ export class MobxPool {
       this.groups.clear()
       for (const entity of ENTITIES) this.tables[entity].clear()
       this.graph.clear()
+      this.header.clear()
+      this.headerViews.clear()
       this.clearSeats()
       this.selection.clear()
       this.readStates.clear()

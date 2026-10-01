@@ -1,3 +1,4 @@
+import { headerDataLayer, initializeHeaderDataLayer } from '@/lib/header-data-layer'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { reportSidebarPool } from '@podium/client-core/perf'
@@ -67,7 +68,8 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   onError: (error: Error) => void,
 ): () => void {
   initializeSidebarDataLayer(runtime.ui)
-  if (sidebarDataLayer() !== 'pool') return () => {}
+  initializeHeaderDataLayer()
+  if (sidebarDataLayer() !== 'pool' && headerDataLayer() !== 'pool') return () => {}
   reportSidebarPool(runtime, null, false)
   const slot = slotFor(runtime)
   slot.error = null
@@ -79,7 +81,7 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   void import('@podium/client-graph/runtime-pool')
     .then(({ createRuntimeWorklistPool, createPoolProjection }) => {
       if (disposed) return
-      slot.handle = createRuntimeWorklistPool(runtime)
+      slot.handle = createRuntimeWorklistPool(runtime, { header: headerDataLayer() === 'pool' })
       slot.project = createPoolProjection
       notify(slot)
       if (sidebarCheckRequested()) {

@@ -1,3 +1,4 @@
+import { attachHeaderSource } from './header-source'
 import { compareStructural, computed, reaction } from 'mobx'
 import { createWorklistPool, type WorklistPoolHandle } from './create'
 import type { MobxPool } from './pool'
@@ -31,10 +32,11 @@ export type WorklistRuntime = RowSourceRuntime &
   LocalsEngine & { readonly replica: RowSourceReplica }
 
 /** A read-only attachment: optimism and every write still belong to the runtime. */
-export function createRuntimeWorklistPool(runtime: WorklistRuntime): WorklistPoolHandle {
+export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { header?: boolean } = {}): WorklistPoolHandle {
   const rows = createRowSource(runtime, runtime.replica, { mode: 'overlaid' })
   let locals: ReturnType<typeof createEngineLocals> | undefined
   let handle: WorklistPoolHandle | undefined
+  let stopHeader: (() => void) | undefined
   let stopPerf: (() => void) | undefined
   try {
     locals = createEngineLocals(runtime)
@@ -48,8 +50,10 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime): WorklistPoo
       },
       locals.source,
     )
+    if (options.header) stopHeader = attachHeaderSource(handle.pool, runtime as Parameters<typeof attachHeaderSource>[1])
     stopPerf = observeWorklistPoolPerf(runtime, handle.pool)
   } catch (error) {
+    stopHeader?.()
     handle?.dispose()
     locals?.dispose()
     rows.dispose()
@@ -62,6 +66,7 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime): WorklistPoo
     dispose(): void {
       if (disposed) return
       disposed = true
+      stopHeader?.()
       stopPerf?.()
       try {
         attached.dispose()

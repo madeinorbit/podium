@@ -87,6 +87,8 @@ import {
   type RowView,
   type RowViewField,
 } from './shared/row-view'
+import { headerWorkingSession, headerHostSession } from './header-session'
+import type { SessionMeta } from '@podium/model/browser'
 import { type EntityName, SCHEMA } from './shared/schema'
 import type {
   SliceIssue,
@@ -957,6 +959,12 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel implements SessionVisibility {
+  private static readonly headerWorking = cachedGroup('headerWorking', (session: SessionModel) =>
+    headerWorkingSession(session.row as SessionMeta | undefined, session.host.inputs.passed))
+  private static readonly headerHost = cachedGroup('headerHost', (session: SessionModel) =>
+    headerHostSession(session.row as SessionMeta | undefined))
+  get headerWorking() { return SessionModel.headerWorking(this) }
+  get headerHost() { return SessionModel.headerHost(this) }
   private static readonly groups = {
     retention: cachedGroup('retention', (session: SessionModel) =>
       retentionOf(session.host.visibleInputs.sessionRow(session.id)),
