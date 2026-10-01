@@ -6,15 +6,26 @@
 import { hostname } from 'node:os'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { dedupeSessions, type Store } from '@podium/client-core/engine'
-import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { createKernelReplica, createSideCache, memoryStorage, type Replica } from '@podium/client-core/replica'
 import { createWorklistPool } from '@podium/client-graph/create'
 import { checkSidebar, poolSidebarSnapshot, type SidebarDifference } from '@podium/client-graph/diagnostics/sidebar-check'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { runInAction } from 'mobx'
+import type { FixtureCorpus } from '../fixture/index'
 import { readSnapshot } from '../fixture/export-snapshot'
 import { corpusFromLive } from '../fixture/live-snapshot'
 import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
+
+/** Export order is transport order. Keep this construction testable against
+ * the app runtime's replica-seeded store before accepting real-data parity. */
+export function sidebarReplayStore(corpus: FixtureCorpus, replica: Replica): Store<PodiumClientApi> {
+  // ClientRuntime seeds these lists from ReplicaBinding, not bootstrap order.
+  return { replica, issues: corpus.issues, issueProjections: corpus.issueProjections,
+    sessions: dedupeSessions([...replica.rows('sessions')]), repos: corpus.repos, machines: corpus.machines,
+    pins: corpus.pins, coarseNow: corpus.fixedNow, selectedIssueId: null,
+  } as unknown as Store<PodiumClientApi>
+}
 
 function main(): void {
   if (hostname() !== 'ludovico') throw new Error('Operator export replay is restricted to ludovico')
@@ -23,10 +34,7 @@ function main(): void {
   const snapshot = readSnapshot(path)
   const corpus = corpusFromLive(snapshot, Date.parse(snapshot.exportedAt))
   const replica = createKernelReplica({ cache: seedCacheFromCorpus(corpus), side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
-  const store = { replica, issues: corpus.issues, issueProjections: corpus.issueProjections,
-    sessions: dedupeSessions(corpus.sessions), repos: corpus.repos, machines: corpus.machines,
-    pins: corpus.pins, coarseNow: corpus.fixedNow, selectedIssueId: null,
-  } as unknown as Store<PodiumClientApi>
+  const store = sidebarReplayStore(corpus, replica)
   const runtime = { getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() }
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' })
   const locals = createEngineLocals(runtime)
