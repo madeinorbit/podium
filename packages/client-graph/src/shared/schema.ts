@@ -656,7 +656,7 @@ function issueCanShow(row: Readonly<Record<string, unknown>>, ctx: ColdContext):
   if (issueExcluded(row)) return false
   if (row['audience'] !== 'agent' || !row['parentId'] || ctx.summary === undefined) return true
   const seen = new Set<string>()
-  let parent = row['parentId']
+  let parent: unknown = row['parentId']
   while (typeof parent === 'string' && parent.length > 0 && !seen.has(parent)) {
     seen.add(parent)
     const ancestor = ctx.summary('issue', parent)

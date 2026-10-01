@@ -1164,7 +1164,7 @@ describe('excluded issue filings', () => {
   it('needs no reaction while archived or deleted, even if explicitly loaded; returning files the row', () => {
     const r = rig()
     const old = new Date(corpus.fixedNow - 30 * 24 * 60 * 60 * 1000).toISOString()
-    const base = { id: 'history-filing', seq: 99998, title: 'History filing', createdAt: old,
+    const base: SliceIssue = { id: 'history-filing', seq: 99998, title: 'History filing', createdAt: old,
       updatedAt: old, repoPath: '/history-filing', audience: 'human', stage: 'in_progress' }
     const push = (flags: object) => r.push({ type: 'update', rows: [
       { kind: 'issue', id: base.id, value: { ...base, ...flags } },

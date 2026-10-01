@@ -161,8 +161,8 @@ describe('POD-4942 post-rework probes', () => {
           legacyDerivationFromStore(ctx.engine.getSnapshot(), feeds.locals.source.get().coarseNow),
           feeds.locals.source.get(),
         )
-        const shownIssues = new Set(oracleRows.map((row) => row.issue.id))
-        const shownSessions = new Set(oracleRows.flatMap((row) => row.sessions.map((s) => s.sessionId)))
+        const shownIssues = new Set<string>(oracleRows.map((row) => row.issue.id))
+        const shownSessions = new Set<string>(oracleRows.flatMap((row) => row.sessions.map((s) => s.sessionId)))
         const residentBy = tracked(() => {
           const by: Record<string, number> = {}
           for (const id of pool.tables.issue.keys()) {
@@ -224,7 +224,7 @@ describe('POD-4942 post-rework probes', () => {
             SCHEMA,
             (entity) =>
               entity === 'issue' ? issueTable : entity === 'session' ? sessionTable :
-                new Map(feeds.rows.source.snapshot(entity).map((r) => [r.id, r.value])),
+                entity === 'worktree' ? new Map(feeds.rows.source.snapshot(entity).map((r) => [r.id, r.value])) : undefined,
             feeds.locals.source.get().coarseNow,
           )
           // Attribute to the executable declaration, not a second approximation.
