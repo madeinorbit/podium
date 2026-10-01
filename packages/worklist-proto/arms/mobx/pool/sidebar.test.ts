@@ -64,7 +64,13 @@ describe('real sidebar oracle (POD-4953)', () => {
       expect(Object.keys(legacySidebarRow(rows[0]!, derivation, locals.coarseNow)).sort()).toEqual([...SIDEBAR_ROW_FIELDS].sort())
       for (const variant of [0, 1]) {
         const state = stateFor(derivation.slice.groups.map(g => g.key), ctx.engine.getSnapshot().pins, variant)
-        expect(tracked(() => handle.pool.sidebar.sections(state))).toEqual(legacySidebarSections(derivation, state, null, false, locals.coarseNow))
+        const gotSections = tracked(() => handle.pool.sidebar.sections(state))
+        const expectedSections = legacySidebarSections(derivation, state, null, false, locals.coarseNow)
+        for (const path of gotSections.bands.flatMap(b => b.worktreeIds).filter(path => !expectedSections.bands.some(b => b.worktreeIds.includes(path)))) {
+          console.info('[extra roster]', path, tracked(() => handle.pool.sidebar.worktree(path)?.sessions.map(s => ({ id: s.sessionId, issueId: s.issueId,
+            owner: handle.pool.model('session', s.sessionId)?.issueLink, owned: handle.pool.knownIssue(s.issueId ?? '')?.placed, retained: handle.pool.knownIssue(s.issueId ?? '')?.retainedSeatIds }))))
+        }
+        expect(gotSections).toEqual(expectedSections)
         expect(tracked(() => worktreeDiff(handle.pool, derivation, state, locals.coarseNow))).toEqual([])
       }
       writeResult(`sidebar-values-${scale}x`, { issue: 'POD-4953', scale, rows: rows.length,
@@ -101,6 +107,10 @@ describe('real sidebar oracle (POD-4953)', () => {
       expect(tracked(() => cold.map(id => pool.sidebar.row(id)))).toEqual([LOADING, LOADING])
       expect(scheduled - before).toBeLessThanOrEqual(1)
       expect(pool.hydrate()).toBeGreaterThanOrEqual(2)
+      for (let window = 0; window < 64; window += 1) {
+        tracked(() => cold.map(id => pool.sidebar.row(id)))
+        if (pool.hydrate() === 0) break
+      }
       expect(tracked(() => cold.map(id => pool.sidebar.row(id)))).not.toContain(LOADING)
       locals.set({ selectedIssueId: 'never-seen', coarseNow: corpus.fixedNow })
       locals.flush()

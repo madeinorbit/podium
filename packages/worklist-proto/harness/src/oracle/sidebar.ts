@@ -24,7 +24,9 @@ export const ISSUE_CONTENT_FIELDS = [
   'repoPath', 'worktreePath', 'branch', 'parentBranch', 'needsHuman', 'blocked',
   'humanQuestion', 'humanQuestionOptions', 'origin', 'commentCount',
 ] as const
-const pick = (row: unknown, fields: readonly string[]): Record<string, unknown> => Object.fromEntries(fields.map(field => [field, (row as Record<string, unknown>)[field] ?? null]))
+const ISSUE_BOOLEAN_FIELDS = new Set(['draft', 'pinned', 'needsHuman', 'blocked'])
+const pick = (row: unknown, fields: readonly string[]): Record<string, unknown> => Object.fromEntries(fields.map(field => [field,
+  ISSUE_BOOLEAN_FIELDS.has(field) ? (row as Record<string, unknown>)[field] === true : (row as Record<string, unknown>)[field] ?? null]))
 const temporaryByDerivation = new WeakMap<LegacyDerivation, ReadonlyMap<string, unknown>>()
 function temporaryComments(derivation: LegacyDerivation, id: string): unknown {
   let indexed = temporaryByDerivation.get(derivation)
@@ -143,6 +145,9 @@ export function sidebarDiff(pool: MobxPool, derivation: LegacyDerivation, rows: 
         for (const key of ISSUE_CONTENT_FIELDS) {
           const a = (actual.issue as Record<string, unknown>)[key], e = (expected.issue as Record<string, unknown>)[key]
           if (!isDeepStrictEqual(a, e)) differences.push(`${row.issue.id}.issue.${key}: ${JSON.stringify(a)} expected ${JSON.stringify(e)}`)
+          if (key === 'unread' && !isDeepStrictEqual(a, e)) console.info('[sidebar unread]', row.issue.id, row.issue.readAt,
+            pool.issue(row.issue.id)?.seatIds.map(id => ({ id, raw: pool.row('session', id), retention: pool.model('session', id)?.retention })),
+            derivation.sessions.filter(s => s.issueId === row.issue.id))
         }
       } else {
         const short = (value: unknown) => JSON.stringify(value).slice(0, 500)
@@ -150,6 +155,10 @@ export function sidebarDiff(pool: MobxPool, derivation: LegacyDerivation, rows: 
       }
     }
     const line = row.continuation ?? rowStatusLine(row, now, 0)
+    if (!isDeepStrictEqual(actual.continuation, expected.continuation)) console.info('[sidebar continuation]', row.issue.id,
+      pool.issue(row.issue.id)?.tip, pool.issue(row.issue.id)?.openOwn,
+      derivation.models.filter(i => [String((actual.continuation as {ref?:string})?.ref), String((expected.continuation as {ref?:string})?.ref)].includes(i.displayRef ?? '')).map(i => ({ id: i.id, stage: i.stage, updatedAt: i.updatedAt,
+        sessions: derivation.sessions.filter(s => s.issueId === i.id).map(s => ({ id:s.sessionId, lastActiveAt:s.lastActiveAt,status:s.status,archived:s.archived })) })))
     if (poolStatusLine(value, pool.issue(row.issue.id)?.activityAt ?? 0, now) !== line) differences.push(`${row.issue.id}.statusLine: ${poolStatusLine(value, pool.issue(row.issue.id)?.activityAt ?? 0, now)} expected ${line}`)
   }
   return differences
