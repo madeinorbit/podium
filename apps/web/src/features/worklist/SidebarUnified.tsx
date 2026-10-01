@@ -1,18 +1,16 @@
 import {
-  groupUnifiedWorkRows,
   type IssueNavigationModel,
   isDraftAgentVessel,
   issueDisplayTitle,
   type MissionProgress,
   missionProgress,
-  orderProjectGroups,
   orderProjectItems,
+  placeWorklistSelection,
   planReorderKeys,
   type RepoNavView,
   reuseUnifiedWorkRows,
   rowAwaitsTuck,
   rowCanBringBack,
-  splitPinnedWork,
   type UnifiedIssueRow as UnifiedIssueRowView,
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
@@ -37,6 +35,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { useStoreSelector } from '@/app/store'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
@@ -160,12 +159,18 @@ export function SidebarUnified(): JSX.Element {
 
 function LegacySidebarUnified(): JSX.Element {
   const derivation = useSidebarDerivation()
+  const selectedIssueId = useStoreSelector((store) => store.selectedIssueId)
   // The filter's pool is every LIVE row the column holds — pinned first, then
   // each project group's open rows. The tail folds are out: a closed archive is
   // not what "12/40" is counting, and a fold cannot show a hit without opening.
   const filterPool = useMemo(
-    () => [...derivation.pinned, ...derivation.groups.flatMap((group) => group.rows)],
-    [derivation],
+    () => [
+      ...derivation.pinned,
+      ...placeWorklistSelection(derivation, { selectedIssueId }).groups.flatMap(
+        (group) => group.rows,
+      ),
+    ],
+    [derivation, selectedIssueId],
   )
   const filter = useWorkFilter(filterPool, derivation.now)
   return (
@@ -253,10 +258,11 @@ function LegacyWorkSections({
   derivation?: SidebarDerivation
   query?: string
 } = {}): JSX.Element {
+  const published = useSidebarDerivation()
+  const base = derivation ?? published
   const {
     work,
     pinned,
-    groups: publishedGroups,
     projects,
     sessions,
     issues,
@@ -275,7 +281,7 @@ function LegacyWorkSections({
     applySortPatches,
     setIssueTucked,
     sections,
-  } = useUnifiedWork(derivation)
+  } = useUnifiedWork(base)
   const shouldReduceMotion = useReducedMotion()
   const layoutGroupId = useId()
   const [selectedClosedPlacement, setSelectedClosedPlacement] = useState<{
@@ -415,26 +421,16 @@ function LegacyWorkSections({
     void archiveIssue(id).catch(() => forgetQuickArchive([id]))
   }
 
-  // The pinned split and the project-group tree come from the PUBLISHED slice
-  // (POD-407) — derived once per snapshot for every reader, rather than once per
-  // consumer here. See `WorklistSlice.groups`.
-  //
-  // The one exception is the lane-stickiness latch: while a settled CLOSED row is
-  // selected and was folded when clicked, it must stay folded, and that latch is
-  // a property of this interaction on this screen, not of the world. So the
-  // grouping is recomputed for exactly that window and read straight off the
-  // slice the rest of the time. The condition is the whole cost — when no closed
-  // row is latched (the ordinary case, and every other consumer, always) this is
-  // a read.
+  // S2 publishes UNSELECTED groups. Apply the selection post-pass with this
+  // screen's click latch: selected open closures stay open until focus moves,
+  // while a closure clicked in Closed keeps the baseline folded placement.
   const targetGroups = useMemo(
     () =>
-      selectedWasFolded
-        ? orderProjectGroups(
-            groupUnifiedWorkRows(splitPinnedWork(work).rest, selectedIssueId, true, now),
-            projects,
-          )
-        : publishedGroups,
-    [publishedGroups, projects, selectedWasFolded, work, selectedIssueId, now],
+      placeWorklistSelection(base, {
+        selectedIssueId,
+        selectedIssueWasFolded: selectedWasFolded,
+      }).groups,
+    [base, selectedIssueId, selectedWasFolded],
   )
   // NO PROPOSED FOLD (POD-516 round 2, left sidebar item 3). A previous round
   // derived an intake queue here from the raw issue list and rendered it as a

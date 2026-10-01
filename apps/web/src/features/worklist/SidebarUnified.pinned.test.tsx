@@ -1,7 +1,14 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SidebarUnified } from './SidebarUnified'
+import { SidebarUnified, WorkSections } from './SidebarUnified'
+
+vi.mock('@/lib/sidebar-data-layer', () => ({ sidebarDataLayer: () => 'legacy' }))
+
+const selection = vi.hoisted(() => ({
+  issueId: 'closed-selected' as string | null,
+  tuckedAt: null as string | null,
+}))
 
 // A live ui-state collection (POD-540): the worklist's group folds SUBSCRIBE to
 // their per-user replicated row rather than seeding local state, so a `set` that
@@ -129,6 +136,7 @@ vi.mock('@/app/store', () => {
         closedAt: '2026-06-08T00:00:00.000Z',
         readAt: '2026-06-11T00:00:00.000Z',
         unread: false,
+        tuckedAt: selection.tuckedAt,
       }),
     ],
     trpc: {
@@ -139,9 +147,14 @@ vi.mock('@/app/store', () => {
     },
     selectedWorktree: null,
     setSelectedWorktree: vi.fn(),
-    selectedIssueId: 'closed-selected',
-    setSelectedIssueId: vi.fn(),
-    navigateWorkspace: vi.fn(() => true),
+    selectedIssueId: selection.issueId,
+    setSelectedIssueId: vi.fn((id: string | null) => {
+      selection.issueId = id
+    }),
+    navigateWorkspace: vi.fn((plan: { selectedIssueId?: string | null }) => {
+      if (plan.selectedIssueId !== undefined) selection.issueId = plan.selectedIssueId
+      return true
+    }),
     setOpenIssueId: vi.fn(),
     paneA: null,
     setPane: vi.fn(),
@@ -185,6 +198,8 @@ function rowButton(label: string): HTMLElement {
 afterEach(() => {
   cleanup()
   ui.reset()
+  selection.issueId = 'closed-selected'
+  selection.tuckedAt = null
 })
 
 describe('SidebarUnified PINNED section (POD-166, R3)', () => {
@@ -283,6 +298,73 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     // thing this always asserted, at the end of the gesture rather than in the
     // frame the click landed in.
     await waitFor(() => expect(screen.queryByText('Closed alpha')).toBeNull())
+  })
+
+  it('keeps the selected open closure in standalone work sections too', () => {
+    render(<WorkSections />)
+
+    expect(screen.getByRole('button', { name: '3 closed' })).toBeTruthy()
+    expect(
+      rowButton('Closed result selected').closest('[data-testid="folded-work-row"]'),
+    ).toBeNull()
+  })
+
+  it('folds the selected open closure when focus moves away', async () => {
+    render(<SidebarUnified />)
+    expect(screen.getByRole('button', { name: '3 closed' })).toBeTruthy()
+
+    fireEvent.click(rowButton('Plain issue'))
+
+    expect(selection.issueId).toBe('plain')
+    await waitFor(() => expect(screen.getByRole('button', { name: '4 closed' })).toBeTruthy())
+    await waitFor(() => expect(screen.queryByText('Closed result selected')).toBeNull())
+  })
+
+  it('keeps a closure clicked in Closed folded, and forgets that latch after focus moves', async () => {
+    const { rerender } = render(<SidebarUnified />)
+    fireEvent.click(screen.getByRole('button', { name: '3 closed' }))
+    fireEvent.click(rowButton('Closed alpha'))
+
+    expect(selection.issueId).toBe('closed-a')
+    const toggle = await screen.findByRole('button', { name: '4 closed' })
+    expect(rowButton('Closed alpha').getAttribute('data-selected')).toBe('true')
+    expect(rowButton('Closed alpha').getAttribute('data-lane')).toBe('closed')
+
+    fireEvent.click(toggle)
+    await waitFor(() => expect(screen.queryByText('Closed alpha')).toBeNull())
+    fireEvent.click(toggle)
+    expect(rowButton('Closed alpha').getAttribute('data-lane')).toBe('closed')
+
+    fireEvent.click(rowButton('Plain issue'))
+    // Navigation from outside the sidebar has no folded-click latch. The
+    // previous click must not keep this new selection in the closed lane.
+    selection.issueId = 'closed-a'
+    rerender(<SidebarUnified />)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '3 closed' })).toBeTruthy())
+    await waitFor(() =>
+      expect(rowButton('Closed alpha').closest('[data-testid="folded-work-row"]')).toBeNull(),
+    )
+  })
+
+  it('honors an explicit tuck even while the finished row is selected', () => {
+    selection.tuckedAt = '2026-06-11T00:00:00.000Z'
+    render(<SidebarUnified />)
+
+    expect(screen.getByRole('button', { name: '4 closed' })).toBeTruthy()
+    expect(screen.queryByText('Closed result selected')).toBeNull()
+  })
+
+  it('counts the selected open closure in the live filter pool', async () => {
+    render(<SidebarUnified />)
+    fireEvent.change(screen.getByTestId('work-search-input'), {
+      target: { value: 'Closed result selected' },
+    })
+
+    await waitFor(() => expect(screen.getByTestId('work-search-count').textContent).toBe('1/3'))
+    expect(
+      rowButton('Closed result selected').closest('[data-testid="folded-work-row"]'),
+    ).toBeNull()
   })
 
   /**
