@@ -99,7 +99,7 @@ export class IssueReferences implements IssueReferenceReader {
       id: issue.id,
       seq: issue.seq,
       title: issue.title,
-      stage: 'backlog',
+      stage: issue.stage,
       archived: issue.archived,
       deletedAt: issue.deletedAt,
       ...(prefix ? { prefix } : {}),
