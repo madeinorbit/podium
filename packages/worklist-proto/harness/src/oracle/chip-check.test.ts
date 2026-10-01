@@ -47,14 +47,17 @@ describe('chip differential replay', () => {
       }
       try {
         await check('bootstrap')
-        for (const scenario of FENCE_SCENARIOS) {
-          await scenario.write(ctx)
-          await check(scenario.scenario)
-        }
+        // Rescope and newIssue deliberately reuse the fixture's next sequence
+        // number. Exercise rescope first so references remain unique, as the
+        // server guarantees, throughout this chip-value replay.
         await writeRescopeGrow(ctx)
         await check('rescopeGrowth')
         await writeRescopeBack(ctx)
         await check('rescopeBack')
+        for (const scenario of FENCE_SCENARIOS) {
+          await scenario.write(ctx)
+          await check(scenario.scenario)
+        }
       } finally {
         handle.dispose()
         feeds.dispose()
