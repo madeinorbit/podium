@@ -14,9 +14,9 @@ export function measureHeader<T>(name: string, read: () => T): T {
   const start = performance.now()
   try { return read() }
   finally {
-    const entry = counts[name] ?? (counts[name] = { calls: 0, ms: 0 })
-    entry.calls++
-    entry.ms += performance.now() - start
+    const key = name.slice(0, 80)
+    const entry = counts[key] ?? (Object.keys(counts).length < 64 ? counts[key] = { calls: 0, ms: 0 } : undefined)
+    if (entry) { entry.calls++; entry.ms += performance.now() - start }
   }
 }
 /** Count the real legacy derivation before it runs, as POD-4957 does. */

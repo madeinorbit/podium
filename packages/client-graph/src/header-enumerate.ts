@@ -23,3 +23,6 @@ export function knownIssueIds(pool: MobxPool): string[] {
 export function knownSessionIds(pool: MobxPool): string[] {
   return [...new Set([...pool.tables.session.keys(), ...(pool.residency?.ids('session', true) ?? [])])].sort()
 }
+export function coldSessionIds(pool: MobxPool): readonly string[] {
+  return pool.residency?.ids('session', true) ?? []
+}

@@ -18,6 +18,7 @@ async function fixture(scale: 1 | 4 = 1) {
   const ctx = await startScenarioEngine(scale)
   const health = { status: 'ok', rttMs: 12, since: 0 }
   Object.assign(ctx.engine.hub, { connectionHealth: () => health, onConnectionHealth: () => () => {} })
+  ctx.hub.emit('hostMetrics', ctx.corpus.machines.slice(0, 2).map((host) => metric(host.id, 'fixed')))
   const handle = createRuntimeWorklistPool(ctx.engine, { header: true })
   const inputs = () => ({ metrics: ctx.engine.hostMetrics.getSnapshot(), quotas: [], connection: health as never, afterDays: 14,
     lifecycle: handle.pool.header.received.lifecycle, history: handle.pool.header.received.history })

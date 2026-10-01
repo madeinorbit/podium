@@ -3,11 +3,12 @@ import type { MachineId, SessionMeta } from '@podium/model/browser'
 import { isMachineOfflineForLiveTerminal, normalizeOriginUrl } from '@podium/model/browser'
 import { _isComputingDerivation, compareStructural, computed, onBecomeUnobserved, type IComputedValue } from 'mobx'
 import type { MobxPool } from './pool'
-import { headerIds, knownIssueIds, knownSessionIds, residentSessionIds } from './header-enumerate'
+import { coldSessionIds, headerIds, knownIssueIds, knownSessionIds, residentSessionIds } from './header-enumerate'
 import type { HeaderEntity, HeaderRows } from './header-schema'
 import { LOADING } from './worklist/rollup'
 import type { SliceIssue, SliceSession } from './shared/slice-types'
 import { isSessionWorking } from './worklist/rollup'
+import { headerHostSession, headerWorkingSession } from './header-session'
 
 export const EMPTY_HOST_AGGREGATE = {
   count: 0, idleSplit: { idle: 0, parkable: 0, protected: 0 },
@@ -55,12 +56,27 @@ export function createHeaderViews(pool: MobxPool) {
       return { ...value, displayRef: model?.displayRef ?? `#${value.seq}` }
     })
   }
+  function workingRoster() {
+    return memo('workingRoster', () => memo('sessionKeys', () => knownSessionIds(pool)).flatMap((id) => {
+      const cold = pool.hidden('session', id)
+      const member = cold ? (cold.status === 'live' && cold.archived !== true
+        ? memo(`coldWorking:${id}`, () => headerWorkingSession(pool.hidden('session', id) as unknown as SessionMeta, (at) => pool.clock.passed(at))) : null)
+        : pool.model('session', id)?.headerWorking
+      return member ? [member] : []
+    }))
+  }
   function aggregate(machineId: MachineId | undefined): HeaderAggregate {
     return memo(`aggregate:${machineId ?? ''}`, () => {
       const result: HeaderAggregate = structuredClone(EMPTY_HOST_AGGREGATE)
       if (!machineId) return result
-      for (const id of pool.header.members('machine', machineId, 'sessions')) {
-        const member = pool.model('session', id)?.headerHost
+      const members = pool.header.members('machine', machineId, 'sessions').map((id) => pool.model('session', id)?.headerHost)
+      // Cold rows contribute through their declared summary, never a second
+      // machine index over unloaded payloads.
+      for (const id of coldSessionIds(pool)) {
+        const summary = pool.hidden('session', id)
+        if (summary?.machineId === machineId) members.push(memo(`coldHost:${id}`, () => headerHostSession(pool.hidden('session', id) as unknown as SessionMeta)))
+      }
+      for (const member of members) {
         if (!member || member.archived) continue
         result.count++
         const phase = member.phase
@@ -77,10 +93,15 @@ export function createHeaderViews(pool: MobxPool) {
     })
   }
   function occupancyKey(): string {
-    return memo('occupancy', () => residentSessionIds(pool).flatMap((id) => {
+    return memo('occupancy', () => [...residentSessionIds(pool).flatMap((id) => {
       const member = pool.model('session', id)?.headerHost
       return member ? [member.cwd] : []
-    }).sort().join('\n'))
+    }), ...coldSessionIds(pool).flatMap((id) => {
+      const summary = pool.hidden('session', id)
+      const member = summary && ['live', 'starting', 'reconnecting'].includes(summary.status as string)
+        ? memo(`coldHost:${id}`, () => headerHostSession(pool.hidden('session', id) as unknown as SessionMeta)) : null
+      return member ? [member.cwd] : []
+    })].sort().join('\n'))
   }
   function folded() {
     return memo('folded', () => {
@@ -261,15 +282,12 @@ export function createHeaderViews(pool: MobxPool) {
     history: () => memo('history', () => {
       const reading = row('history', 'fleet')
       if (!reading) return null
-      const working = residentSessionIds(pool).filter((id) => pool.model('session', id)?.headerWorking).length
+      const working = workingRoster().length
       const buckets = reading.buckets.map((bucket, index) => index === reading.buckets.length - 1 ? { ...bucket, count: Math.max(bucket.count, working) } : bucket)
       return { ...reading, peak: Math.max(reading.peak, working), buckets }
     }),
     connection: () => row('connection', 'server'),
-    working: () => memo('workingRoster', () => residentSessionIds(pool).flatMap((id) => {
-      const member = pool.model('session', id)?.headerWorking
-      return member ? [member] : []
-    })),
+    working: workingRoster,
     session: (id: string) => pool.row('session', id) as SessionMeta | typeof LOADING | undefined,
     clear: () => cache.clear(),
   }
