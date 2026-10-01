@@ -3,13 +3,14 @@ import { fileURLToPath } from 'node:url'
 import { chromium, type Browser, type Page } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createServer, type ViteDevServer } from 'vite'
+import type {} from '../../../../apps/web/test/store-worklist-pool.browser'
 
 let server: ViteDevServer
 let browser: Browser
 let origin: string
 
 beforeAll(async () => {
-  const appRoot = fileURLToPath(new URL('..', import.meta.url))
+  const appRoot = fileURLToPath(new URL('../../../../apps/web/', import.meta.url))
   server = await createServer({
     configFile: false, root: appRoot,
     resolve: {
