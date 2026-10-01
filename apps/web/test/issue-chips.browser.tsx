@@ -27,6 +27,9 @@ document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 const count = Number(new URLSearchParams(location.search).get('issues') ?? 4887)
 const synthetic = createSidebarFixture(count, Date.now(), true)
+// The current miniview's legacy resolver reads the wire prefix. Real rows
+// carry it; the sidebar fixture needs it added for a chip/card comparison.
+for (let i = 0; i < count; i++) synthetic.patch('issue', `synthetic-${i}`, { prefix: 'SYN' })
 for (let i = 674; i < count; i++) synthetic.records.delete(`session:synthetic-session-${i}`)
 // Test authority resolves requested keys by their synthetic identity, without
 // scanning rows. The production resolver is separately checked for permissions.
