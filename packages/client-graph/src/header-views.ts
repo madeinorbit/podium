@@ -95,41 +95,44 @@ export function createHeaderViews(pool: MobxPool) {
       if (!root || root.archived || root.deletedAt) return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading: false }
       const ids = new Set<string>(), sessions = new Map<string, SliceSession>()
       let loading = false, needs = 0
-      function visit(id: string): void {
+      // The formal closure is taken once. Provenance admits individual issues,
+      // not their formal children (mission.ts computeMissionIssueIds).
+      function formal(id: string): void {
         if (ids.has(id)) return
         ids.add(id)
+        for (const child of pool.graph.many('issue', id, 'children')) formal(child)
+      }
+      formal(root.id)
+      const queue = [...ids]
+      for (let index = 0; index < queue.length; index++) {
+        for (const sid of pool.graph.many('issue', queue[index]!, 'sessions')) {
+          for (const child of pool.graph.many('session', sid, 'startedIssues')) {
+            if (ids.has(child)) continue
+            const spawned = issue(child)
+            if (spawned === LOADING) { loading = true; continue }
+            if (!spawned || (!['backlog', 'proposed'].includes(spawned.stage) && spawned.deps?.some((dep) => dep.type === 'discovered-from'))) continue
+            ids.add(child)
+            queue.push(child)
+          }
+        }
+      }
+      for (const id of ids) {
         const value = issue(id)
-        if (value === LOADING) { loading = true; return }
-        if (!value || value.archived || value.deletedAt) return
-        // The deck consumes normalized IssueNavigationModel membership, which
-        // is explicit attachment (issue-views.ts), unlike sidebar cwd seating.
+        if (value === LOADING) { loading = true; continue }
+        if (!value || value.archived || value.deletedAt) continue
         const ownIds = [...pool.graph.many('issue', id, 'sessions')]
-        let asking = false
+        let asking = false, staffed = false
         for (const sid of ownIds) {
           const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
           if (member === LOADING) { loading = true; continue }
           if (!member || member.archived || member.headless) continue
           sessions.set(sid, member)
+          staffed ||= sessionPresentOnTask(member as SessionMeta)
           asking ||= member.agentState?.phase === 'needs_user' || member.agentState?.phase === 'errored' || !!member.offer
         }
-        // Provenance follows explicit attachment, including retired starters.
-        // A cwd-owned session cannot graft its started work into this mission.
-        for (const sid of pool.graph.many('issue', id, 'sessions')) {
-          for (const child of pool.graph.many('session', sid, 'startedIssues')) {
-            const spawned = issue(child)
-            if (spawned === LOADING) { loading = true; continue }
-            if (spawned && (!['backlog', 'proposed'].includes(spawned.stage) && spawned.deps?.some((dep) => dep.type === 'discovered-from'))) continue
-            visit(child)
-          }
-        }
-        const vacated = !ownIds.some((sid) => {
-          const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
-          return member && member !== LOADING && member.issueId === id && sessionPresentOnTask(member as SessionMeta)
-        }) && [...pool.graph.many('issue', id, 'spinOffs')].length > 0
+        const vacated = !staffed && pool.graph.size('issue', id, 'spinOffs') > 0
         if (value.stage !== 'done' && !value.closedReason && (asking || value.needsHuman || (value.stage === 'review' && !vacated))) needs++
-        for (const child of pool.graph.many('issue', id, 'children')) visit(child)
       }
-      visit(root.id)
       const crew = [...sessions.values()].filter((member) => sessionPresentOnTask(member as SessionMeta))
       if (root.draft && !root.worktreePath && ![...pool.graph.many('issue', root.id, 'sessions')].some((sid) => {
         const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
