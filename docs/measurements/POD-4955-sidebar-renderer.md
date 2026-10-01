@@ -41,7 +41,7 @@ The issue artifacts contain both synthetic screenshots and the complete JSON obs
 
 ## Displayed-row and filter checks
 
-The provider-backed web tests compare legacy and pool row paint and exercise folds, project management, palette opening, rail reads, issue selection and pane choice. A displayed issue title commits its one row once. Reordering, an unused attached-session name and guest geometry each commit zero row bodies. A displayed guest name commits that guest once. The additional navigation check compares exited, headless and archived candidates with legacy while retaining its sessionless-pane rule.
+The provider-backed web tests compare legacy and pool row paint and exercise folds, project management, palette opening, rail reads, issue selection and pane choice. A displayed issue title commits its one row once. Reordering, an unused attached-session name and guest geometry each commit zero row bodies. A displayed guest name commits that guest once. The additional navigation check compares exited, headless and archived candidates with legacy while retaining its sessionless-pane rule. A focused presenter comparison also preserves legacy's continuation-text precedence over child progress and pending decisions; search retains its existing status-line precedence.
 
 The responsive-filtering performance file passes for both legacy and the actual pool-backed sidebar at **674 rows**. The urgent input commit still contains all 674 rows and `674/674`; the deferred commit settles to one row and `1/674`. This checks event priority directly, without an elapsed-time threshold.
 
@@ -53,6 +53,7 @@ Each source plant used a `cp` backup and `cp` restore in this issue's flatblock 
 | --- | --- |
 | Mount legacy hooks from the pool sidebar/rail branch | Both selected checks throw `Pool path read worklistSlice` |
 | Replace pool row-shell IDs while keeping their text | Unit paint comparison rejects the mismatched IDs |
+| Remove continuation's presentation precedence | The real pool row loses the text that its legacy comparison renders |
 | Freeze row equality and clear the issue pane target | Displayed-title commit and navigation checks fail |
 | Include guest geometry in the displayed projection | Geometry update commits the unchanged guest and fails |
 | Exclude exited sessions instead of headless sessions | Pool pane differs from the legacy exited-session candidate |
@@ -70,12 +71,13 @@ All tests, typechecks and lint ran sequentially over SSH on flatblock in `~/podi
 | Check | Result |
 | --- | --- |
 | Real sidebar pool web checks | 5 green; displayed commits/filter/rail at `185eb029e`, revised navigation at `86eec70c6`, final row-shell paint/guard at `4695f6004` |
+| Continuation presentation versus the real legacy row | 1 green, existing memo case deselected, at `af7188813` |
 | App pool owner/attachment file | 10 green at `185eb029e`; final cleanup also covered by Chromium |
 | Focused pre-existing web files | Eight files green, including row memo, search, shortcuts, rename, bring-back, project management, rail and the pool attachment |
 | Rail badge test through the prototype package's own config | 2 green, 1x and 4x |
 | Responsive-filtering frontend performance lane | 2 green at `edf3fabb2` |
 | Chromium renderer with S5, 674 issues | Green at `38d3673b9` |
-| Uncached affected-project typecheck | Graph and prototype green at `9a85512a6`; final web green at `8ccf44e7a` |
+| Uncached affected-project typecheck | Graph and prototype green at `9a85512a6`; final web and span follow-up at `1d76e6d8a` |
 | Graph and prototype package lint, merge-shadowing | Green at `8ccf44e7a` |
 | Span effects | Green: 158 bodies, 0 unclassified effects |
 | Lean gate | **Green: 4 of 1,697 files (0.2%), 153 executed tests** |
