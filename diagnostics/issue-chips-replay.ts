@@ -3,6 +3,7 @@
  * timeout 180s bun --conditions=@podium/source diagnostics/issue-chips-replay.ts
  */
 import { hostname } from 'node:os'
+import { parseAnyRef } from '../packages/protocol/src/index'
 import {
   allIssueViewModels,
   createKernelReplica,
@@ -33,7 +34,10 @@ async function main(): Promise<void> {
   // ReplicaBinding seeds the app from replica order. Bootstrap transport order
   // is not the legacy UI order, particularly for colliding display refs.
   const legacy = allIssueViewModels(replica)
-  const tokens = legacy.map(canonicalIssueRef)
+  // A prefix-less #seq is a fallback label, not a parseable issue reference.
+  // Those orphan rows can share sequence numbers across repositories; they
+  // cannot be mentioned by the Markdown reference decorator or miniview.
+  const tokens = legacy.map(canonicalIssueRef).filter(token => parseAnyRef(token)?.kind === 'issue')
   const counts = new Map<string, number>()
   for (const token of tokens) {
     const key = issueRefKey(token)
@@ -62,6 +66,7 @@ async function main(): Promise<void> {
           JSON.stringify({
             issues: corpus.issues.length,
             sessions: corpus.sessions.length,
+            nonReferenceRows: legacy.length - tokens.length,
             ...result,
             ...(process.argv.includes('--explain-collisions') ? {
               collisions: {

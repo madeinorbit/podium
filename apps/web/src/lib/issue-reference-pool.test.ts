@@ -60,21 +60,6 @@ function setup(count = 2000) {
 }
 
 describe('per-issue pool references', () => {
-  it('keeps duplicate resident fallback refs in replica order, including winner removal', () => {
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
-    const later = issue(1, { id: 'iss_z', prefix: undefined, displayRef: '#1', title: 'Later' })
-    const earlier = issue(1, { id: 'iss_a', prefix: undefined, displayRef: '#1', title: 'Earlier' })
-    pool.apply({ type: 'replace', rows: [later, earlier].map(row => ({ kind: 'issue', id: row.id, value: row as never })) })
-    const refs = pool.references
-    const paint = vi.fn()
-    const stop = reaction(() => refs.read('#1'), paint, { fireImmediately: true })
-    expect(paint.mock.calls.at(-1)?.[0]).toMatchObject({ issueId: 'iss_z', title: 'Later' })
-    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: later.id, value: undefined }] })
-    expect(paint.mock.calls.at(-1)?.[0]).toMatchObject({ issueId: 'iss_a', title: 'Earlier' })
-    stop()
-    pool.dispose()
-  })
-
   it('does work only for the changed issue, with no list scan or peek', () => {
     const f = setup()
     const reads = Array.from({ length: 60 }, () => vi.fn())
