@@ -18,7 +18,7 @@ import { legacySidebarSections, sidebarDiff, worktreeDiff, legacySidebarRow } fr
 import { harnessMobxPoolArm, snapshotPool, tracked, visibleOrderOf } from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { writeResult } from '../../../harness/src/results'
-import { startScenarioEngine } from '../../../shared/src/scenarios'
+import { startScenarioEngine, upsert } from '../../../shared/src/scenarios'
 import { gen, genCorpus, countKinds } from '../../../shared/src/gen/changes'
 import { startGenRun } from '../../../shared/src/gen/run'
 import { DISABLED_READ_FENCE } from '../../../shared/src/instrument/reads'
@@ -89,15 +89,72 @@ describe('real sidebar oracle (POD-4953)', () => {
       expect(pool.hydrate()).toBeGreaterThanOrEqual(2)
       expect(tracked(() => cold.map(id => pool.sidebar.row(id)))).not.toContain(LOADING)
       locals.set({ selectedIssueId: 'never-seen', coarseNow: corpus.fixedNow })
+      locals.flush()
       expect(tracked(() => pool.sidebar.selectionEvicted())).toBe(false)
       const id = tracked(() => visibleOrderOf(pool)[0]!)
       locals.set({ selectedIssueId: id, coarseNow: corpus.fixedNow })
+      locals.flush()
       expect(tracked(() => pool.sidebar.selectionEvicted())).toBe(false)
-      pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
+      replay.push({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
       expect(tracked(() => pool.sidebar.selectionEvicted())).toBe(true)
       expect(tracked(() => pool.sidebar.selectionEvicted())).toBe(false)
     } finally { handle.dispose() }
   })
+
+  it('keeps the selection fold latch and draft-vessel pane selection', async () => {
+    const run = await startGenRun({ feedMode: 'overlaid' })
+    const locals = settableLocals(engineLocals(run.ctx))
+    const handle = harnessMobxPoolArm.create(run.feed().source, locals.source)
+    const id = 'sidebar-selection'
+    try {
+      await run.apply({ kind: 'newIssue', id, parentId: null, title: 'Selection' })
+      const select = (selectedIssueId: string | null) => {
+        locals.set({ selectedIssueId, coarseNow: engineLocals(run.ctx).coarseNow }); locals.flush()
+        snapshotPool(handle.pool)
+      }
+      select(id)
+      await run.apply({ kind: 'stageChange', id, stage: 'done' })
+      await run.apply({ kind: 'clockTick', ms: 25 * 60 * 60_000 })
+      select(id)
+      expect(tracked(() => handle.pool.sidebar.sections().bands.some(b => b.rowIds.includes(id)))).toBe(true)
+      select(null)
+      expect(tracked(() => handle.pool.sidebar.sections().bands.some(b => b.closedIds.includes(id)))).toBe(true)
+      select(id)
+      expect(tracked(() => handle.pool.sidebar.sections().bands.some(b => b.closedIds.includes(id)))).toBe(true)
+      await run.apply({ kind: 'newDraftIssue', id: 'sidebar-vessel', title: '' })
+      await run.apply({ kind: 'newSession', sessionId: 'vessel-seat', issueId: 'sidebar-vessel', phase: 'idle' })
+      select('sidebar-vessel')
+      expect(tracked(() => handle.pool.sidebar.active('sidebar-vessel', { paneA: 'other-pane' }))).toBe(false)
+      expect(tracked(() => handle.pool.sidebar.active('sidebar-vessel', { paneA: 'vessel-seat' }))).toBe(true)
+    } finally { handle.dispose(); locals.dispose(); run.dispose() }
+  }, 120_000)
+
+  it('keeps missing-owner guests in a worktree roster, including the stale partition', async () => {
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
+    try {
+      const lane = ctx.corpus.sliceWorktrees[0]!
+      const now = engineLocals(ctx).coarseNow
+      ctx.replica.batch(() => {
+        for (let index = 0; index < 8; index += 1) {
+          const stamp = new Date(now - (index + 20) * 60 * 60_000).toISOString()
+          upsert(ctx, 'session', `roster-guest-${index}`, {
+            sessionId: `roster-guest-${index}`, issueId: `missing-owner-${index}`, displayRef: `POD-${index}-A`,
+            cwd: lane.path, title: `Guest ${index}`, agentKind: 'codex', status: 'hibernated',
+            archived: false, lastActiveAt: stamp, createdAt: stamp, unread: false, readAt: new Date(now).toISOString(),
+            agentState: { phase: 'idle', since: stamp },
+          })
+        }
+      })
+      feeds.flush(); snapshotPool(handle.pool)
+      const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), now)
+      const value = tracked(() => handle.pool.sidebar.worktree(lane.path))
+      expect(value?.sessions.filter(s => s.sessionId.startsWith('roster-guest-'))).toHaveLength(8)
+      expect(value!.stale.length).toBeGreaterThan(0)
+      expect(tracked(() => worktreeDiff(handle.pool, derivation, {}, now))).toEqual([])
+    } finally { handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
+  }, 120_000)
 })
 
 describe('real sidebar random-change gate (POD-4953)', () => {

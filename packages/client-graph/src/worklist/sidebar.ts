@@ -115,7 +115,8 @@ export class SidebarIndex {
     const pinnedIds = this.pool.groups.pinnedIds.filter(id => this.pool.issue(id)?.nestParent === null)
     const bands = new Map<string, SidebarBand>()
     const lanes = [...this.pool.tables.worktree.keys()].map(id => this.pool.row('worktree', id)).filter((row): row is SliceWorktree => row !== undefined && row !== LOADING) as SliceWorktree[]
-    const repos = lanes.filter(lane => lane.path === lane.repoPath).sort((a, b) => {
+    const repos = lanes.filter(lane => lane.path === lane.repoPath && lane.projectRoot !== false &&
+      (state.pinnedRepos?.includes(lane.path) || lanes.some(member => member.projectIndex === lane.projectIndex && !state.pinnedWorktrees?.includes(member.path)))).sort((a, b) => {
       const ap = state.pinnedRepos?.indexOf(a.path) ?? -1, bp = state.pinnedRepos?.indexOf(b.path) ?? -1
       if (ap >= 0 || bp >= 0) return ap >= 0 && bp >= 0 ? ap - bp : ap >= 0 ? -1 : 1
       return (a.projectIndex ?? 0) - (b.projectIndex ?? 0)
@@ -133,7 +134,7 @@ export class SidebarIndex {
       bands.set(key, band)
       return band
     }
-    for (const repo of repos) add(repo.repoId ?? repo.repoPath, repo.repoName, repo.repoPath, [...new Set([repo.repoId ?? repo.repoPath, repo.path, ...(repo.projectAliases ?? [])])])
+    for (const repo of repos) add(repo.repoId ?? repo.repoPath, repo.repoName, repo.repoPath, repo.projectAliases ?? [repo.repoId ?? repo.repoPath, repo.path])
     for (const key of this.pool.groups.keys) {
       const group = this.pool.groups.group(key)
       const root = (id: string) => this.pool.issue(id)?.nestParent === null

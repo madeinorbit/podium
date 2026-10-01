@@ -25,6 +25,15 @@ export const ISSUE_CONTENT_FIELDS = [
   'humanQuestion', 'humanQuestionOptions', 'origin', 'commentCount',
 ] as const
 const pick = (row: unknown, fields: readonly string[]): Record<string, unknown> => Object.fromEntries(fields.map(field => [field, (row as Record<string, unknown>)[field] ?? null]))
+const temporaryByDerivation = new WeakMap<LegacyDerivation, ReadonlyMap<string, unknown>>()
+function temporaryComments(derivation: LegacyDerivation, id: string): unknown {
+  let indexed = temporaryByDerivation.get(derivation)
+  if (!indexed) {
+    indexed = new Map((derivation.temporaryIssues ?? []).map(issue => [issue.id, issue.commentCount]))
+    temporaryByDerivation.set(derivation, indexed)
+  }
+  return indexed.get(id)
+}
 
 /** Compare raw compatibility payloads by the fields presentation actually
  * reads. No old record's irrelevant server supplement enters the oracle. */
@@ -57,7 +66,9 @@ export function legacySidebarRow(row: UnifiedIssueRow, derivation: LegacyDerivat
     firstSessionId: row.sessions[0]?.sessionId ?? null,
     continuation: continuation ? { kind: continuation[0] === 'duplicate' ? 'duplicate' : 'continued', ref: continuation.slice(1).join(' · ') } : null,
     fleet: { total: fleet.present.length, parkedCount: fleet.parkedCount, nativeCount: fleet.nativeCount, tiles: fleet.tiles },
-    issue: issue as unknown as SidebarRowValues['issue'], sessions: row.sessions,
+    // The replica rich view deliberately removes commentCount; the old row
+    // still supplies it to the temporary feed contract until POD-4949.
+    issue: { ...issue, commentCount: temporaryComments(derivation, issue.id) } as unknown as SidebarRowValues['issue'], sessions: row.sessions,
     aggregateSessions: aggregate, awaitingFirstPrompt: issue.draft === true && rowMotionPhase(row) === 'queued' && aggregate.length > 0 && aggregate.every(isUnstartedSession),
   })
 }
@@ -126,7 +137,18 @@ export function sidebarDiff(pool: MobxPool, derivation: LegacyDerivation, rows: 
     const value = pool.sidebar.row(row.issue.id)
     if (value === undefined || value === LOADING) { differences.push(`${row.issue.id}: sidebar absent/loading`); continue }
     const expected = legacySidebarRow(row, derivation, now), actual = sidebarComparable(value)
-    for (const field of Object.keys(expected)) if (!isDeepStrictEqual(actual[field], expected[field])) differences.push(`${row.issue.id}.${field}: ${JSON.stringify(actual[field])} expected ${JSON.stringify(expected[field])}`)
+    for (const field of Object.keys(expected)) {
+      if (isDeepStrictEqual(actual[field], expected[field])) continue
+      if (field === 'issue') {
+        for (const key of ISSUE_CONTENT_FIELDS) {
+          const a = (actual.issue as Record<string, unknown>)[key], e = (expected.issue as Record<string, unknown>)[key]
+          if (!isDeepStrictEqual(a, e)) differences.push(`${row.issue.id}.issue.${key}: ${JSON.stringify(a)} expected ${JSON.stringify(e)}`)
+        }
+      } else {
+        const short = (value: unknown) => JSON.stringify(value).slice(0, 500)
+        differences.push(`${row.issue.id}.${field}: ${short(actual[field])} expected ${short(expected[field])}`)
+      }
+    }
     const line = row.continuation ?? rowStatusLine(row, now, 0)
     if (poolStatusLine(value, pool.issue(row.issue.id)?.activityAt ?? 0, now) !== line) differences.push(`${row.issue.id}.statusLine: ${poolStatusLine(value, pool.issue(row.issue.id)?.activityAt ?? 0, now)} expected ${line}`)
   }

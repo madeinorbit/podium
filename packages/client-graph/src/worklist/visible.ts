@@ -853,16 +853,16 @@ export function nestedPartOf(
   self: Pick<IssueVisibility, 'present' | 'memberIds' | 'nestBelow'>,
 ): readonly string[] {
   if (!self.present) return NONE
-  const nested: string[] = []
+  const nested = new Set<string>()
   for (const childId of self.nestBelow) {
-    if (input.issue(childId)?.nestParent === id) nested.push(childId)
+    if (input.issue(childId)?.nestParent === id) nested.add(childId)
   }
   for (const sessionId of self.memberIds) {
     for (const started of input.links.session.startedIssues.ids(sessionId)) {
-      if (input.issue(started)?.nestParent === id) nested.push(started)
+      if (input.issue(started)?.nestParent === id) nested.add(started)
     }
   }
-  return nested.length === 0 ? NONE : nested.sort()
+  return nested.size === 0 ? NONE : [...nested].sort()
 }
 
 /** L1b `rankOf` over the own row: the fields it reads, band from the clock (spec R-ORDER). */

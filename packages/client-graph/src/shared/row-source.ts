@@ -139,6 +139,7 @@ import {
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { temporaryIssueInput } from './temporary-issue-input'
 import { shallowEqual } from '@podium/client-core/store'
+import { normalizeOriginUrl, repoNameFromOrigin } from '@podium/model'
 import type { RowSource } from './source'
 import type { SliceIssue, SliceSession, SliceWorktree } from './slice-types'
 import type { RowRecord, RowSourceEvent } from './source'
@@ -150,6 +151,8 @@ interface RepoEntry {
   repoId?: string | null
   name?: string
   branch?: string
+  originUrl?: string
+  machineId?: string
   machines?: readonly { path: string }[]
   worktrees?: readonly { path: string; branch?: string; isMain?: boolean }[]
 }
@@ -448,17 +451,17 @@ export function createRowSource(
     return typeof row?.prefix === 'string' ? (row.prefix as string) : null
   }
 
-  function laneFor(path: string, repoId: string | null, repoPath: string, branch?: string, isMain?: boolean, projectIndex?: number, projectAliases?: readonly string[], name?: string): SliceWorktree {
+  function laneFor(path: string, repoId: string | null, repoPath: string, branch?: string, isMain?: boolean, projectIndex?: number, projectAliases?: readonly string[], name?: string, projectRoot?: boolean): SliceWorktree {
     const repoName = name ?? repoNameOf(repoPath)
     const prefix = repoId !== null ? prefixOf(repoId) : null
-    const sig = `${path}|${repoId ?? ''}|${repoPath}|${repoName}|${prefix ?? ''}|${branch ?? ''}|${isMain ?? ''}|${projectIndex ?? ''}|${projectAliases?.join(',') ?? ''}`
+    const sig = `${path}|${repoId ?? ''}|${repoPath}|${repoName}|${prefix ?? ''}|${branch ?? ''}|${isMain ?? ''}|${projectIndex ?? ''}|${projectAliases?.join(',') ?? ''}|${projectRoot ?? ''}`
     const cached = laneCache.get(path)
     if (cached !== undefined && cached.sig === sig) return cached.lane
     const lane: SliceWorktree = {
       path,
       ...(repoId !== null ? { repoId } : {}),
       repoPath,
-      repoName, branch, isMain, projectIndex, projectAliases,
+      repoName, branch, isMain, projectIndex, projectAliases, projectRoot,
       ...(prefix !== null ? { prefix } : {}),
     }
     laneCache.set(path, { sig, lane })
@@ -471,10 +474,9 @@ export function createRowSource(
 
   function lanesOf(repo: RepoEntry): SliceWorktree[] {
     const repoId = repoIdOf(repo)
-    const projectIndex = currentRepos().indexOf(repo)
-    const aliases = repo.machines?.map(m => m.path)
-    const lanes = [laneFor(repo.path, repoId, repo.path, repo.branch, true, projectIndex, aliases, repo.name)]
-    for (const wt of repo.worktrees ?? []) lanes.push(laneFor(wt.path, repoId, repo.path, wt.branch, wt.isMain, projectIndex, aliases, repo.name))
+    const project = indexFor(currentRepos()).projects.get(repo)!
+    const lanes = [laneFor(repo.path, repoId, repo.path, repo.branch, true, project.index, project.aliases, project.name, project.path === repo.path)]
+    for (const wt of repo.worktrees ?? []) lanes.push(laneFor(wt.path, repoId, repo.path, wt.branch, false, project.index, project.aliases, project.name, false))
     return lanes
   }
 
@@ -504,7 +506,24 @@ export function createRowSource(
       if (list) list.push(repo)
       else byId.set(id, [repo])
     }
-    repoIndex = { from: repos, roots, byId }
+    const groups = new Map<string, RepoEntry[]>()
+    for (const repo of roots) {
+      const origin = normalizeOriginUrl(repo.originUrl)
+      const key = repoIdOf(repo) ?? (origin || `__no_remote__:${repo.machineId ?? ''}:${repo.path}`)
+      const group = groups.get(key)
+      if (group) group.push(repo)
+      else groups.set(key, [repo])
+    }
+    const projects: RepoIndex['projects'] = new Map()
+    let index = 0
+    for (const group of groups.values()) {
+      const first = group[0]!
+      const origin = group.map(repo => normalizeOriginUrl(repo.originUrl)).find(Boolean)
+      const aliases = [repoIdOf(first), first.path, ...group.filter(repo => repo.machineId !== undefined).map(repo => repo.path)].filter((key): key is string => key !== null)
+      const project = { index: index++, path: first.path, aliases, name: repoNameFromOrigin(origin) ?? repoNameOf(first.path) }
+      for (const repo of group) projects.set(repo, project)
+    }
+    repoIndex = { from: repos, roots, byId, projects }
     return repoIndex
   }
 
@@ -847,4 +866,5 @@ interface RepoIndex {
   from: readonly RepoEntry[]
   roots: RepoEntry[]
   byId: Map<string, RepoEntry[]>
+  projects: Map<RepoEntry, { index: number; path: string; aliases: string[]; name: string }>
 }

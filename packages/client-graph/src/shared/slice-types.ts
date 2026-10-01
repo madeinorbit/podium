@@ -124,8 +124,7 @@ export interface SliceWorktree {
   branch?: string
   isMain?: boolean
   projectIndex?: number
-  projectPinned?: boolean
-  worktreePinned?: boolean
+  projectRoot?: boolean
   projectAliases?: readonly string[]
 }
 

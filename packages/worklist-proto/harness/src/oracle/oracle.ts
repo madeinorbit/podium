@@ -31,7 +31,7 @@ import {
   type WorklistSlice,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta, IssueWire } from '@podium/model'
 import type {
   SliceGroup,
   SliceLocals,
@@ -47,6 +47,8 @@ export interface LegacyDerivation {
   models: IssueNavigationModel[]
   sessions: SessionMeta[]
   allWorktreePaths: string[]
+  /** Temporary facts the normalized feed does not yet carry (POD-4953). */
+  temporaryIssues?: readonly IssueWire[]
 }
 
 function stubReplica(corpus: FixtureCorpus): Replica {
@@ -94,7 +96,7 @@ export function runLegacyDerivation(corpus: FixtureCorpus, locals: SliceLocals):
   // The same shared model cache the slice derived from: identical inputs, so
   // the progress fallback below reads the same objects, never a rebuild.
   const models = allIssueViewModels(replica, corpus.issueProjections, corpus.issues)
-  return { slice, models, sessions, allWorktreePaths: slice.allWorktreePaths }
+  return { slice, models, sessions, allWorktreePaths: slice.allWorktreePaths, temporaryIssues: corpus.issues }
 }
 
 /** Every nested descendant as its own row, pre-order (parent before child). */
@@ -237,7 +239,7 @@ export function legacyDerivationFromStore(
       ? allIssueViewModels(replica, projections, store.issues)
       : store.issues
   const slice = worklistSlice.derive(atClock(store, coarseNow))
-  return { slice, models, sessions: store.sessions, allWorktreePaths: slice.allWorktreePaths }
+  return { slice, models, sessions: store.sessions, allWorktreePaths: slice.allWorktreePaths, temporaryIssues: store.issues }
 }
 
 /** The store as the derivation reads it, with its clock read as `coarseNow`. */
