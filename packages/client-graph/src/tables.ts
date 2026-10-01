@@ -152,7 +152,12 @@ export function put(
   out: IngestOut,
 ): void {
   const previous = target.read[entity].get(id) as StoredRow | undefined
-  if (previous === row) return // unchanged: keep the borrowed object, notify nothing
+  if (previous === row) {
+    // A cursor-only overlay leaves this borrowed body in place. A receipt can
+    // rewind to the same body, while its separate read-state lane has moved.
+    if (entity === 'issue') target.volatile?.setIssueRead(id, row)
+    return
+  }
   if (
     entity === 'issue' &&
     previous !== undefined &&
