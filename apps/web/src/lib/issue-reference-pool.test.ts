@@ -311,6 +311,7 @@ describe('per-issue pool references', () => {
     due.shift()!()
     await Promise.resolve()
     expect(load).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(due).toHaveLength(1))
     due.shift()!()
     expect(load).toHaveBeenCalledTimes(1)
     expect(resolveReferences).toHaveBeenCalledTimes(3)
