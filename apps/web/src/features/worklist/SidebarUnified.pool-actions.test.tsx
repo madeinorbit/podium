@@ -637,8 +637,14 @@ describe('pool navigation uses the existing gesture semantics', () => {
       entity === 'issue' && id === 'synthetic-3' ? false : hidden(entity, id)
     try {
       act(() => {
-        owner.apply({ type: 'update', rows: [{ kind: 'issue', id: 'synthetic-3', value: undefined }] })
-        owner.apply({ type: 'update', rows: [{ kind: 'issue', id: 'synthetic-3', value: ancestor }] })
+        owner.apply({
+          type: 'update',
+          rows: [{ kind: 'issue', id: 'synthetic-3', value: undefined }],
+        })
+        owner.apply({
+          type: 'update',
+          rows: [{ kind: 'issue', id: 'synthetic-3', value: ancestor }],
+        })
         for (let click = 0; click < 3; click += 1) actions.selectIssue(TARGET)
         expect(owner.sidebar.row('synthetic-3')).toBe(LOADING)
         expect(requests).toHaveLength(0)
