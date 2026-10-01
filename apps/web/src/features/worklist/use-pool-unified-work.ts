@@ -18,7 +18,19 @@ import { navigationIssue } from './pool-row-data'
 /** Navigation includes the formal mission at every depth and tasks filed by
  * its explicitly attached sessions. Display nesting is narrower than this:
  * hidden descendants and unstarted spin-offs can still supply a pane. */
-function missionMembers(pool: MobxPool, rootId: string): Map<string, SliceIssue> {
+function sessionMembership(pool: MobxPool): Map<string, SessionMeta[]> {
+  const byIssue = new Map<string, SessionMeta[]>()
+  for (const id of pool.tables.session.keys()) {
+    const session = pool.row('session', id) as SessionMeta | typeof LOADING | undefined
+    if (session === undefined || session === LOADING || !session.issueId) continue
+    const members = byIssue.get(session.issueId)
+    if (members) members.push(session)
+    else byIssue.set(session.issueId, [session])
+  }
+  return byIssue
+}
+
+function missionMembers(pool: MobxPool, rootId: string, sessions: Map<string, SessionMeta[]>): Map<string, SliceIssue> {
   const members = new Map<string, SliceIssue>()
   const pending = [rootId]
   const seen = new Set<string>()
@@ -35,8 +47,10 @@ function missionMembers(pool: MobxPool, rootId: string): Map<string, SliceIssue>
   }
   const filed = [...members.keys()]
   for (let index = 0; index < filed.length; index += 1) {
-    for (const sessionId of pool.graph.many('issue', filed[index]!, 'sessions')) {
-      for (const id of pool.graph.many('session', sessionId, 'startedIssues')) {
+    // Provenance also follows archived/headless senders. The visible-seat
+    // relation excludes headless sessions, so use gesture-local membership.
+    for (const session of sessions.get(filed[index]!) ?? []) {
+      for (const id of pool.graph.many('session', session.sessionId, 'startedIssues')) {
         if (members.has(id)) continue
         const issue = pool.row('issue', id)
         if (issue === undefined || issue === LOADING) continue
@@ -88,31 +102,23 @@ export function createPoolWorkActions(
     }
     const store = runtime.getSnapshot()
     const members = new Map<string, SessionMeta>()
-    const mission = missionMembers(pool, root.issue.id)
+    const sessions = sessionMembership(pool)
+    const mission = missionMembers(pool, root.issue.id, sessions)
     // The legacy candidate order is the slice order, including tie-breaking
     // on lastActiveAt. Walk resident keys, reading only this mission's rows.
-    const sessionOrder = new Map(
-      [...pool.tables.session.keys()].map((sessionId, index) => [sessionId, index]),
-    )
     for (const member of pool.tables.issue.keys()) {
       const issue = mission.get(member)
       if (!issue) continue
       // The app's issue membership summary comes from session.issueId and
       // excludes dock shells. Cwd-only seats can draw a row but do not become
       // workspace pane candidates for an issue.
-      const ids = [...pool.graph.many('issue', member, 'sessions')].sort(
-        (a, b) => (sessionOrder.get(a) ?? Infinity) - (sessionOrder.get(b) ?? Infinity),
-      )
-      for (const sessionId of ids) {
-        const session = pool.row('session', sessionId) as SessionMeta | typeof LOADING | undefined
+      for (const session of sessions.get(member) ?? []) {
         if (
-          session !== undefined &&
-          session !== LOADING &&
           !session.archived &&
           session.headless !== true &&
           session.agentKind !== 'shell'
         )
-          members.set(sessionId, session as unknown as SessionMeta)
+          members.set(session.sessionId, session)
       }
     }
     const files = clicked.issue.worktreePath
@@ -191,16 +197,15 @@ export function createPoolWorkActions(
       runtime.getSnapshot().setIssueTucked(id, tucked),
     resolveMenuData: (id: string) => {
       // Only on menu open: enumerate resident issues, through the one reader.
+      const sessions = sessionMembership(pool)
       const all = [...pool.tables.issue.keys()].flatMap((key) => {
         const value = pool.sidebar.row(key)
         if (value === undefined || value === LOADING) return []
         // These compatibility summaries used to arrive on the legacy issue
         // view. The menu needs the same cascade counts, membership and read
         // state; build them on open from resident relations and the one reader.
-        const memberSessionIds = [...pool.graph.many('issue', key, 'sessions')].filter((id) => {
-          const session = pool.row('session', id)
-          return session !== undefined && session !== LOADING && session['agentKind'] !== 'shell'
-        })
+        const memberSessionIds = (sessions.get(key) ?? [])
+          .filter((session) => session.agentKind !== 'shell').map((session) => session.sessionId)
         const childIds = [...pool.graph.many('issue', key, 'treeChildren')]
         const childDoneCount = childIds.filter((id) => {
           const child = pool.row('issue', id)

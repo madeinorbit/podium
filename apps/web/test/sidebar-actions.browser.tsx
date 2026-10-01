@@ -8,25 +8,25 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { checkSidebar } from '@podium/client-graph/diagnostics/sidebar-check'
-import { asUserId } from '@podium/model/browser'
+import { asUserId, spreadSortKeys } from '@podium/model/browser'
 import { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import { initializeSidebarDataLayer } from '../src/lib/sidebar-data-layer'
-import { createSidebarFixture } from './sidebar-fixture'
+import { createSidebarActionsFixture } from './sidebar-actions-fixture'
 import '../src/index.css'
 import '../src/styles.css'
 
 initializeSidebarDataLayer({ get: () => null })
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
-const synthetic = createSidebarFixture(12, Date.now(), true)
+const synthetic = createSidebarActionsFixture(12, Date.now(), true)
+const sortKeys = spreadSortKeys(12)
 for (let index = 0; index < 12; index += 1) {
-  const patch = { sortKey: `a${'0123456789AB'[index]}`, pinned: index === 0 }
-  synthetic.patch('issue', `synthetic-${index}`, patch)
-  synthetic.patch('issueProjection', `synthetic-${index}`, patch)
+  const patch = { sortKey: sortKeys[index], pinned: index === 0 }
+  synthetic.patchIssue(`synthetic-${index}`, patch)
 }
 type Request = {
   procedure: string
@@ -119,8 +119,7 @@ const fixture = {
       closedAt: new Date().toISOString(),
       tuckedAt: new Date().toISOString(),
     }
-    synthetic.patch('issue', id, patch)
-    synthetic.patch('issueProjection', id, patch)
+    synthetic.patchIssue(id, patch)
   },
 }
 Object.assign(window, { __sidebarActions: fixture })
