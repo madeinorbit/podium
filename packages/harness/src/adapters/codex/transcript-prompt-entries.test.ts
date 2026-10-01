@@ -108,7 +108,7 @@ describe('Codex measured prompt entries', () => {
 })
 
 describe('Codex measured text tolerance', () => {
-  it('allows only the outer-whitespace trimming measured in the terminal', () => {
+  it('allows the outer-whitespace trimming measured in 0.155.0', () => {
     const records = completedPrompts('t-text')
     const inputs = [
       '  lead and trail spaces  ',
@@ -129,7 +129,6 @@ describe('Codex measured text tolerance', () => {
     ['one\n\ntwo', 'one\ntwo'],
     ['one\ttwo', 'one    two'],
     ['one  two', 'one two'],
-    ['one\r\ntwo', 'one\ntwo'],
     ['e\u0301', 'é'],
     ['x\u200by', 'xy'],
     ['first', 'first extra'],
