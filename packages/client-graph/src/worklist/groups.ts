@@ -234,6 +234,7 @@ export class GroupNode {
       latchedHere: false,
       headRank: computed({ equals: compareStructural }),
       metadata: computed({ equals: compareStructural }),
+      sidebarMetadata: computed({ equals: compareStructural }),
       label: false,
       repoPath: false,
       sidebarRows: computed({ equals: compareStructural }),
@@ -262,6 +263,14 @@ export class GroupNode {
   /** Label and path share the existing head cache; renames never read its row. */
   get metadata(): { readonly label: string; readonly repoPath: string } {
     const head = this.groups.members.lane(this.key)[0]
+    const placement = head === undefined ? undefined : this.groups.placementOf(head)
+    return { label: placement?.label ?? '', repoPath: placement?.repoPath ?? this.key }
+  }
+
+  /** The real sidebar groups root rows, including folded roots, before nesting.
+   * Use the existing rank lane and cached placement; retain no new cold-id index. */
+  get sidebarMetadata(): { readonly label: string; readonly repoPath: string } {
+    const head = this.groups.members.lane(this.key).find(id => this.groups.isRoot(id))
     const placement = head === undefined ? undefined : this.groups.placementOf(head)
     return { label: placement?.label ?? '', repoPath: placement?.repoPath ?? this.key }
   }

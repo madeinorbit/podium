@@ -4,11 +4,11 @@ import { createClientRuntime, dedupeSessions } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { SocketHub } from '@podium/client-core/socket-transport'
-import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { createKernelReplica, createSideCache, initializeIssueViewCache, memoryStorage } from '@podium/client-core/replica'
 import { createWorklistPool } from '@podium/client-graph/create'
 import { checkSidebar, poolSidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import { legacyDerivationFromStore, visibleIssueRows } from '@podium/client-graph/diagnostics/legacy'
-import { legacySidebarRow } from '@podium/client-graph/diagnostics/oracle'
+import { legacySidebarRow, legacySidebarSections } from '@podium/client-graph/diagnostics/oracle'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -51,8 +51,13 @@ function replay(data: LiveCollections) {
   const corpus = corpusFromLive(data, NOW)
   const cache = seedCacheFromCorpus(corpus)
   const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
-  const store = sidebarReplayStore(corpus, replica)
-  const runtime = { getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() }
+  initializeIssueViewCache(replica)
+  let store = sidebarReplayStore(corpus, replica)
+  const subscribers = new Set<() => void>()
+  const runtime = { getSnapshot: () => store,
+    subscribe: (listener: () => void) => { subscribers.add(listener); return () => { subscribers.delete(listener) } },
+    pendingOverlaysByRow: () => new Map() }
+  const publish = () => { for (const listener of subscribers) listener() }
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' })
   const locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source)
@@ -76,6 +81,19 @@ function replay(data: LiveCollections) {
       if (!legacy) throw new Error('Synthetic legacy row absent')
       return { actual, expected: legacySidebarRow(legacy, derivation, NOW) }
     }),
+    sections: () => runInAction(() => ({
+      actual: handle.pool.sidebar.sections(),
+      expected: legacySidebarSections(legacyDerivationFromStore(store, NOW), {}, null, false, NOW),
+    })),
+    updateIssue: (row: IssueWire) => {
+      const projection = collections([row]).issueProjections[0]!
+      for (const [entity, value] of [['issue', row], ['issueProjection', projection]] as const) {
+        cache.put(entity, row.id, value)
+        replica.onKernelEvent({ type: 'upserted', record: { entity, entityId: row.id, value, provenance: { seq: 1 } }, readmitted: false })
+      }
+      store = { ...store, issues: replica.rows('issues') as IssueWire[], issueProjections: replica.rows('issueProjections') as IssueProjection[] }
+      publish(); rows.flush(); settle()
+    },
     runtimeRow: (id: string) => {
       // Use the real hydrate-first legacy runtime, without starting any I/O.
       const app = createClientRuntime({
@@ -96,8 +114,8 @@ function replay(data: LiveCollections) {
     updateSession: (row: SessionMeta) => {
       cache.put('session', row.sessionId, row)
       replica.onKernelEvent({ type: 'upserted', record: { entity: 'session', entityId: row.sessionId, value: row, provenance: { seq: 1 } }, readmitted: false })
-      store.sessions = dedupeSessions(replica.rows('sessions') as SessionMeta[])
-      rows.flush(); settle()
+      store = { ...store, sessions: dedupeSessions(replica.rows('sessions') as SessionMeta[]) }
+      publish(); rows.flush(); settle()
     },
     dispose: () => { stop(); handle.dispose(); locals.dispose(); rows.dispose() },
   }
@@ -195,6 +213,33 @@ describe('POD-5058 staffed continuation preference', () => {
       const { actual, expected } = ctx.row(origin.id)
       expect(expected.continuation).toEqual({ kind: 'continued', ref })
       expect(actual.continuation).toEqual(expected.continuation)
+      expect(ctx.check().first).toBeNull()
+    } finally { ctx.dispose() }
+  })
+})
+
+
+describe('POD-5059 section label from root rows', () => {
+  it.each([false, true])('ignores a newer nested checkout when naming its section (root closed=%s)', closed => {
+    const old = new Date(NOW - 2 * 24 * 3_600_000).toISOString()
+    const root = issue('iss_synthetic_label_root', closed ? { stage: 'done', closedReason: 'done', closedAt: old, tuckedAt: old } : {})
+    const child = issue('iss_synthetic_label_child', { seq: 2, parentId: root.id, repoPath: '/synthetic/child-checkout' })
+    const ctx = replay(collections([root, child]))
+    try {
+      const band = () => {
+        const sections = ctx.sections()
+        return { actual: sections.actual.bands.find(b => b.key === 'synthetic-repo')!, expected: sections.expected.bands.find(b => b.key === 'synthetic-repo')! }
+      }
+      expect(band().expected.label).toBe('repo')
+      expect(band().actual.label).toBe(band().expected.label)
+      expect(ctx.check().first).toBeNull()
+      ctx.updateIssue({ ...child, repoPath: '/synthetic/renamed-child' })
+      expect(band().actual.label).toBe('repo')
+      expect(ctx.check().first).toBeNull()
+      // A root rename changes the header without moving the group or its rows.
+      ctx.updateIssue({ ...root, repoPath: '/synthetic/renamed-root' })
+      expect(band().expected.label).toBe('renamed-root')
+      expect(band().actual.label).toBe(band().expected.label)
       expect(ctx.check().first).toBeNull()
     } finally { ctx.dispose() }
   })

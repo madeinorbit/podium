@@ -200,8 +200,9 @@ export class SidebarIndex {
       const group = this.pool.groups.group(key)
       const { rowIds, snoozedIds, closedIds } = group.sidebarRows
       if (!rowIds.length && !snoozedIds.length && !closedIds.length) continue
-      const band = add(key, group.label, group.repoPath)
-      bands.set(key, { ...band, label: group.label, rowIds, snoozedIds, closedIds, startFirstTask: false })
+      const label = group.sidebarMetadata.label
+      const band = add(key, label, group.repoPath)
+      bands.set(key, { ...band, label, rowIds, snoozedIds, closedIds, startFirstTask: false })
     }
     for (const key of index.keys()) {
       const roster = index.band(key)
