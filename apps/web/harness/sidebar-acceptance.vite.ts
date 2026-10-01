@@ -8,7 +8,8 @@ const repo = process.cwd()
 const functions: Record<string, string[]> = {
   '/engine/state.ts': ['workspaceKeyForState'],
   '/viewmodels/mission.ts': ['missionRootFor', 'selectedMissionRoot', 'missionIssueIds', 'missionProgress', 'missionDepartures', 'buildFlightDeckRows'],
-  '/viewmodels/session-ownership.ts': ['archivedSessionsForIssue', 'issueSessions', 'reposToViews'],
+  '/viewmodels/session-ownership.ts': ['archivedSessionsForIssue', 'sessionsForIssueNav'],
+  '/viewmodels/slices/machines/facts.ts': ['reposToViews'],
   '/replica/issue-view-cache.ts': ['modelsFor'],
 }
 export default defineConfig({

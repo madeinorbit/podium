@@ -203,7 +203,10 @@ try {
       const rowIds = await pages.legacy.page.locator('[data-issue-row]').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute('data-issue-row')!))])
       const shapes = await pages.legacy.page.evaluate(ids => window.__acceptance.shape(ids), rowIds)
       const ranked = shapes.filter(shape => shape.rows > 0).sort((a, b) => b.rows - a.rows)
-      const targets = [ranked[0]!.id, ranked[1]!.id, ...ranked.slice(-4).map(shape => shape.id)]
+      const canonical = await pages.legacy.page.evaluate(() => window.__acceptance.targets)
+      const targets = [ranked[0]!.id, ranked[1]!.id, canonical.markReadId, canonical.stageMoveId, canonical.archiveId, canonical.evictId]
+      if (new Set(targets).size !== 6 || targets.some(id => !rowIds.includes(id)))
+        throw new Error('Warm switch needs six distinct mounted normal issues')
       await writeFile(resolve(out, `targets-${scale}-${surface}.json`), JSON.stringify(shapes.filter(shape => targets.includes(shape.id)), null, 2))
       const retained = phase === 'attribution' ? 6 : plan.samples
       for (let i = 0; i < retained + plan.warmups; i++) for (const mode of orders(i)) {
