@@ -1,7 +1,7 @@
 # Sidebar pilot browser acceptance
 
 **FAIL on product candidate `721dd693787c863eb9c6d8c6fe58ab3d0da8d4b0`.**
-Measured on flatblock on 2026-10-01 for POD-4959. Two fixed bars pass and eight
+Measured on flatblock on 2026-10-01 UTC for POD-4959. Two fixed bars pass and eight
 fail. The pool substantially reduces most state work, but selection and full
 switches remain slow, retained heap grows substantially, and draft changes do
 not achieve the required relative CPU reduction. **S9, the operator's own day
@@ -192,7 +192,8 @@ The seven nonzero results all have pending loads. The first difference is
 `LOADING` representation, and later comparisons settle without product changes.
 This establishes a cold diagnostic/readiness failure under the strict bar; it
 does **not** establish a persistent settled field mismatch or justify removing
-LOADING behavior. The raw differences and pending counts are not discarded.
+LOADING behavior. The 418 reports are not 418 unique defects. The raw differences
+and pending counts are not discarded.
 
 Principal changes and same-principal configuration rebuilds were also exercised
 through the real provider, followed by two forced collections. One observation
@@ -225,9 +226,70 @@ are separate. Timeline spans can nest; async request latency includes event-loop
 delay. Neither is added to the sampled CPU buckets. Source paths identify owners;
 wrapper transformations limit precise original line-number interpretation.
 
-Detailed per-switch ownership, raw traces/profiles and source maps are retained
-in the attribution evidence. The final attribution observations are recorded
-with the evidence manifest below.
+All **160 qualified profiles** match a qualified headline switch by scale, arm,
+target and iteration: 40 per arm/scale. One earlier 4× legacy profile at load
+8.7 is retained as void; only that missing key was replaced. There are 161 raw
+profile records. No profiled repetition changes a headline result.
+
+The following are **mean exclusive sampled milliseconds across 40 switches**,
+not p95s. Every individual switch has the same ownership split in
+`attribution-summary.json`. The explicit residual combines program/native
+unmapped work, other app/fixture code, legacy runtime/viewmodels and idle samples.
+
+| Sample ownership | 1× legacy | 1× pool | 4× legacy | 4× pool |
+| --- | ---: | ---: | ---: | ---: |
+| Sidebar / pool | 22.6 | 6.3 | 99.8 | 25.1 |
+| Shared engine / navigation | 78.3 | 10.2 | 982.6 | 50.2 |
+| Workspace / FlightDeck | 33.3 | 34.6 | 155.4 | 165.5 |
+| Issue page / dock | 19.6 | 22.9 | 105.3 | 131.6 |
+| Session panes | 15.6 | 14.1 | 40.0 | 43.4 |
+| Issue chips | 8.6 | 8.4 | 44.2 | 46.8 |
+| IndexedDB JavaScript | 0.2 | 0.1 | 0.3 | 0.2 |
+| Native rectangle / layout call | 39.0 | 37.9 | 66.7 | 102.3 |
+| React / framework / libraries | 134.7 | 98.4 | 287.1 | 173.4 |
+| Garbage collection | 10.1 | 9.5 | 71.7 | 40.7 |
+| Explicit residual | 56.9 | 54.7 | 116.8 | 103.9 |
+| Profiled input-to-paint window | 418.8 | 297.1 | 1,969.8 | 883.2 |
+
+This points to a substantial removal of shared navigation work, with costly
+main panes and layout remaining. `computeMissionIssueIds` is prominent in
+legacy profiles; pool profiles still show `issueSessions`,
+`archivedSessionsForIssue`, `indexMissionSessions` and transcript-scroll work.
+These are observations of this fixture's source ownership, not proof that one
+function alone causes the entire failed acceptance percentile.
+
+The two largest nominated missions illustrate why the full-switch tail remains
+large. Each target has **seven observations**; these are medians, never p95s.
+The headline column comes from the original unprofiled matrix. Source bucket
+medians come from separate profiled repetitions and cannot be summed into it.
+
+| Pool target / scale / deck rows | Headline paint median | Workspace / FlightDeck sample median | Issue page / dock sample median | Native rectangle / layout sample median |
+| --- | ---: | ---: | ---: | ---: |
+| `i1766` / 1× / 307 | 575.1 | 77.7 | 33.5 | 110.7 |
+| `i938` / 1× / 187 | 505.2 | 50.1 | 40.3 | 71.6 |
+| `i13916` / 4× / 325 | 1,385.0 | 300.4 | 157.1 | 341.2 |
+| `i19016` / 4× / 285 | 1,195.8 | 263.9 | 186.5 | 110.4 |
+
+Separate timeline means retain style, layout and painting explicitly. These
+spans may overlap sampled CPU and one another; **do not add them to the table
+above**.
+
+| Timeline mean, ms | 1× legacy | 1× pool | 4× legacy | 4× pool |
+| --- | ---: | ---: | ---: | ---: |
+| UpdateLayoutTree | 18.3 | 18.1 | 53.5 | 62.0 |
+| Layout | 39.7 | 38.0 | 87.1 | 91.9 |
+| PrePaint | 9.5 | 8.8 | 27.9 | 18.4 |
+| Paint | 16.4 | 14.8 | 47.5 | 33.0 |
+
+The request probe instruments `IDBObjectStore.getAll`, not every database
+operation. Each profiled switch records one real outbox read, for 40 requests
+per arm/scale. The fixture's `settled()` only awaits queued writes; it does not
+issue an extra read. Enqueue medians are 0.0 ms in all four cells, with maxima
+0.3 / 0.8 / 0.2 / 2.6 ms. Request-to-success-handler latency medians are
+25.9 / 29.4 / 51.9 / 59.9 ms, with separate maxima 82.9 / 109.2 / 172.5 / 170.7
+ms, in legacy-1× / pool-1× / legacy-4× / pool-4× order. This asynchronous latency
+includes event-loop delay, can continue after paint, and is neither disk-only
+latency nor an additive CPU bucket.
 
 ## Evidence, reproduction and controls
 
@@ -238,10 +300,71 @@ Collectors are [the browser driver](../../apps/web/harness/sidebar-acceptance.ts
 [source attribution](../../apps/web/harness/sidebar-acceptance-attribution.py).
 
 Raw JSONL, traces, profiles, build assets/source maps, collector sources,
-provenances, target nominations and negative-control evidence are issue
-artifacts. Their bytes are copied to permanent issue storage; they are not
-committed to the repository merely to attach them. The final artifact manifest
-and retrieval commands are recorded with the completed attribution evidence.
+provenances, target nominations and negative-control evidence are permanent
+**POD-4959 issue artifacts**. Their bytes were copied before the large working
+copies were removed from flatblock. Archives are not committed merely to attach
+them. Artifact paths below are storage selectors, not promises that scratch
+files remain in a checkout.
+
+| Artifact selector under `.artifacts/sidebar-acceptance-evidence/` | Bytes | Contents |
+| --- | ---: | --- |
+| `headline-evidence.tar.gz` | 47,429,692 | All 1,140 count/timing/memory raw records, including 64 voids; 320 headline click traces; summary, targets, provenances and original control proofs |
+| `attribution-evidence.tar.gz` | 45,825,428 | All 161 profile records and their traces/profiles; 160-record source summary; exact headline matching index; ordinary build/source maps; collector sources; nine control proofs; excluded attempts |
+| `summary.json` | 325,863 | Raw-derived fixed-bar verdict and distributions |
+| `attribution-summary.json` | 663,367 | Per-switch exclusive ownership, timeline, IDB events, top source frames and the single void |
+| `verdict-negative-controls.json` | — | Eighteen planted failures and restoration |
+| `attribution-negative-controls.json` | — | Nine planted failures and restoration |
+| `synthetic-4x.png` | — | Synthetic production-sidebar review image; no live data |
+
+SHA-256:
+
+```text
+headline-evidence.tar.gz
+9b73200a8c3213ac366579c2a46fc928c2575c980db076963b5c684be1b99aae
+attribution-evidence.tar.gz
+bf67a447b37cf91a49fb854e5634d6a24fa45ba00eb6ffb5fbaa8ebcfe8362d9
+summary.json
+99ec6582f358b4ec6c849a111bed1be6e05255d98ae19a88989a4f20bfdab950
+attribution-summary.json
+6a93520f4e3180f9c3e9487dfc072ef33920ab61d790e5ed647b294bd83d1ef3
+frozen protocol: apps/web/harness/sidebar-acceptance-plan.json
+35f54815e5ee4d706ecec666d31739492342dd2d5167a05a7d7f054a895ca814
+```
+
+List or retrieve evidence from any session:
+
+```bash
+timeout 20s podium issue artifact POD-4959
+timeout 20s podium issue artifact POD-4959 --get .artifacts/sidebar-acceptance-evidence/summary.json
+timeout 20s podium issue artifact POD-4959 --get .artifacts/sidebar-acceptance-evidence/attribution-summary.json --out /tmp/pod-4959-attribution.json
+timeout 20s podium issue artifact POD-4959 --get .artifacts/sidebar-acceptance-evidence/headline-evidence.tar.gz --out /tmp/pod-4959-headline.tar.gz
+```
+
+The CLI caps reads at 16 MiB; for either archive it returns the artifact's
+streaming `/files/artifact/…` URL. Download those bytes rather than treating the
+cap refusal as missing evidence. Extract both archives into a fresh directory
+to recreate `.artifacts/sidebar-acceptance`. The fixed-bar checker reads only
+count/timing/memory records; attribution reads profiles and `headline-index.json`.
+
+```bash
+timeout 300s python3 apps/web/harness/sidebar-acceptance-analyze.py --root .artifacts/sidebar-acceptance
+timeout 300s python3 apps/web/harness/sidebar-acceptance-attribution.py --root .artifacts/sidebar-acceptance
+```
+
+Adding `--require-all-bars` to the fixed-bar command exits 1 for this candidate.
+A successful analysis means the records were processed; it does not turn the
+reported acceptance failure into a pass.
+
+For a new capture, use the pinned product tree and archived measurement sources,
+the checkout-local setup, and the private flatblock toolchain described above.
+Build once with `timeout 180s bun apps/web/harness/sidebar-acceptance.ts
+--phase=build`; retain those same assets for both arms. Run `counts`, `timing`,
+`memory` and `attribution` sequentially with foreground timeouts. Timing, memory
+and attribution require a successfully acquired `bench:flatblock` lease and
+`--lease-confirmed`; a queued response is not a grant. Release after each
+completed timed phase. `--resume` fills missing qualified timing cells or matched
+profile keys without replacing eligible records. The raw records' uptime and
+load qualification remain authoritative.
 
 Verification ran on flatblock with foreground commands and timeouts. The web
 fixture passed uncached typecheck; its 15 unchanged dependency projects passed
@@ -255,9 +378,11 @@ benefit, startup, retained heap, selection frame, parity, missing cell, and high
 load. **Six source plants** prove nested intervals cannot be double-counted,
 max cannot be presented as p95, sparse data cannot get a p95, and streaming
 compaction cannot lose CPU, derivation or publication inputs. Every plant was
-red; `cp` restoration was green. Four separately proven attribution plants
-reject absent/duplicate input marks, an invalid paint window and overlapping
-sample accounting. Passed checks were not repeated on unchanged code.
+red; `cp` restoration was green. **Nine separately proven attribution plants**
+reject absent/duplicate input marks, an invalid paint window, overlapping sample
+accounting, void/high-load profiles, wrong targets, duplicate keys and missing
+keys. The final restored analyzer successfully processed all 160 matched
+profiles. Passed checks were not repeated on unchanged code.
 
 The default lean gate was not run: this adds isolated measurement files and a
 report, with no shipping product runtime change. The appropriate evidence is
@@ -271,18 +396,25 @@ pairs missing; the continuation filled only those pairs and eight load-void
 update pairs. It preserves the original 64 void records. A six-record attribution
 attempt started before a queued lease was granted; its recorded PID was stopped,
 the overlap was mailed to the lease holder, and the entire attempt is excluded.
-Completed headline and memory runs held their own leases. Every valid timed run
-releases the lease immediately on completion; no unrelated server/daemon was
-restarted and no pattern-based process kill was used.
+A later grant notification conflicted with CLI owner status; that startup was
+also stopped by recorded PID before emitting any records, and the possible
+overlap was mailed to the prior owner. Both attempts are archived separately.
+Bounded source-profile continuations filled only missing matched keys, preserving
+the single load-void profile. Completed headline, memory and retained-profile
+runs held confirmed leases. The final lease was released immediately after
+capture, and POD-4968 received its requested handoff notice. No unrelated
+server/daemon was restarted and no pattern-based process kill was used.
 
 ## Open work
 
-POD-5122 tracks clock-driven idle row work and POD-5123 tracks cold comparison
-readiness, both proposed discoveries rather than changes hidden in this report.
+POD-5122 tracks clock-driven idle row work, POD-5123 cold comparison readiness,
+POD-5126 the pool heap budget, and POD-5127 selection state cost. All four are
+unclaimed Proposed discoveries with `discovered-from` dependencies on POD-4959.
 POD-5100 remains open: title rename reads seven pool rows against a budget of
 three; this measurement issue does not fix or waive it. Main-pane migration
 under POD-5076 and the known FlightDeck layout issue POD-5104 remain relevant.
-Memory and selection findings are handed off with the completed evidence.
+These findings are handed off with the completed evidence; this issue changes
+the measurement tools and report only.
 
 **S9 stays pending until the operator supplies the date/window, panel results and
 observed problems from a day of use on ludovico.** Live data must stay there;
