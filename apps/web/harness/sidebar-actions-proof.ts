@@ -70,7 +70,11 @@ try {
     observations.push({ label, comparison, state })
   }
   async function rejectLatest() {
-    await page.waitForFunction(() => window.__sidebarActions.state().requests.length > window.__sidebarActions.state().outcomes.length)
+    await page.waitForFunction(
+      () =>
+        window.__sidebarActions.state().requests.length >
+        window.__sidebarActions.state().outcomes.length,
+    )
     const before = await page.evaluate(() => window.__sidebarActions.state().outcomes.length)
     await page.evaluate(() => {
       const state = window.__sidebarActions.state()

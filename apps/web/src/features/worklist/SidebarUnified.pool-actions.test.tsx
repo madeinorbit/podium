@@ -196,19 +196,24 @@ function value(id = TARGET) {
 }
 async function request(name: string, id = TARGET) {
   await waitFor(() =>
-    expect(requests.filter((r) => !r.settled).map(({ procedure, input }) => ({ procedure, input })))
-      .toContainEqual({ procedure: name, input: expect.objectContaining(
-        name.startsWith('sessions.') ? { sessionId: id } : { id },
-      ) }),
+    expect(
+      requests.filter((r) => !r.settled).map(({ procedure, input }) => ({ procedure, input })),
+    ).toContainEqual({
+      procedure: name,
+      input: expect.objectContaining(name.startsWith('sessions.') ? { sessionId: id } : { id }),
+    }),
   )
   return requests.find(
-    (r) => !r.settled && r.procedure === name && (r.input['id'] === id || r.input['sessionId'] === id),
+    (r) =>
+      !r.settled && r.procedure === name && (r.input['id'] === id || r.input['sessionId'] === id),
   )!
 }
 async function accept(write: Request) {
   const before = outcomes.length
   write.settled = true
-  await act(async () => { write.resolve({ ok: true }) })
+  await act(async () => {
+    write.resolve({ ok: true })
+  })
   await waitFor(() => expect(outcomes.slice(before).some((o) => o.type === 'applied')).toBe(true))
   await parity()
 }
@@ -389,7 +394,9 @@ describe('pool navigation uses the existing gesture semantics', () => {
     ]
     const expected = pickPaneSession(members, null)
     if (scenario === 'filed-chain') {
-      expect([...pool!.graph.many('session', 'synthetic-session-7', 'startedIssues')]).toContain('synthetic-8')
+      expect([...pool!.graph.many('session', 'synthetic-session-7', 'startedIssues')]).toContain(
+        'synthetic-8',
+      )
       expect(pool!.row('issue', 'synthetic-8')).not.toBe(LOADING)
     }
     await act(async () => {
@@ -518,12 +525,12 @@ describe('real pool row mutations and receipts', () => {
         order,
       })
     })
-    expect(runtime.outbox.pending().map((entry) => {
-      const input = entry.input as { id: string; patch: object }
-      return { id: input.id, ...input.patch }
-    })).toEqual(
-      patches,
-    )
+    expect(
+      runtime.outbox.pending().map((entry) => {
+        const input = entry.input as { id: string; patch: object }
+        return { id: input.id, ...input.patch }
+      }),
+    ).toEqual(patches)
     expect(pool!.sidebar.sections().bands[0]!.rowIds).toEqual(order)
     await parity()
     for (const patch of patches) await refuse(await request('issues.update', patch.id))
@@ -839,7 +846,10 @@ describe('real pool row mutations and receipts', () => {
     expect(value().issue.closedReason).toBeFalsy()
   })
 
-  it.each(['own', 'mission'] as const)('moves discovered work to %s through the existing placement action', async (placement) => {
+  it.each([
+    'own',
+    'mission',
+  ] as const)('moves discovered work to %s through the existing placement action', async (placement) => {
     const id = placement === 'own' ? 'synthetic-3' : TARGET
     await mount((fixture) => {
       if (placement === 'mission') discoveredFrom(fixture, id, 'synthetic-1')
@@ -857,19 +867,34 @@ describe('real pool row mutations and receipts', () => {
   it('hands the pool-resolved session to the same shared Handoff menu command', async () => {
     features.handoff = true
     await mount((fixture) => {
-      fixture.patch('session', 'synthetic-session-11', { machineId: 'source', harnessHandoff: true })
+      fixture.patch('session', 'synthetic-session-11', {
+        machineId: 'source',
+        harnessHandoff: true,
+      })
       const refresh = fixture.api.discovery.refreshRepos.mutate
       fixture.api.discovery.refreshRepos.mutate = async (...args) => {
         const result = await refresh(...args)
         return {
           ...result,
-          repositories: [{
-            path: ROOT, repoId: 'synthetic-repo', kind: 'repository', branch: 'main', worktrees: [],
-            machines: [{ machineId: 'source', path: ROOT }, { machineId: 'target', path: '/synthetic/target' }],
-          }],
+          repositories: [
+            {
+              path: ROOT,
+              repoId: 'synthetic-repo',
+              kind: 'repository',
+              branch: 'main',
+              worktrees: [],
+              machines: [
+                { machineId: 'source', path: ROOT },
+                { machineId: 'target', path: '/synthetic/target' },
+              ],
+            },
+          ],
           machines: ['source', 'target'].map((id) => ({
-            id, name: `Synthetic ${id}`, online: true,
-            serviceAssignment: { server: false, agentExecution: true }, availability: { daemon: true },
+            id,
+            name: `Synthetic ${id}`,
+            online: true,
+            serviceAssignment: { server: false, agentExecution: true },
+            availability: { daemon: true },
             inventory: { agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }] },
           })),
         } as typeof result
@@ -887,14 +912,22 @@ describe('real pool row mutations and receipts', () => {
   })
 
   it('archives every closed row from the fold footer through the same outbox', async () => {
-    await mount((fixture) => patchIssue(fixture, TARGET, {
-      stage: 'done', closedReason: 'done', closedAt: new Date(NOW - 1000).toISOString(),
-      tuckedAt: new Date(NOW - 500).toISOString(),
-    }))
+    await mount((fixture) =>
+      patchIssue(fixture, TARGET, {
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: new Date(NOW - 1000).toISOString(),
+        tuckedAt: new Date(NOW - 500).toISOString(),
+      }),
+    )
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
     fireEvent.click(screen.getByTestId('closed-issues-archive-all'))
-    expect(runtime.outbox.pending().map((entry) => (entry.input as { id: string }).id).sort())
-      .toEqual(['synthetic-5', TARGET].sort())
+    expect(
+      runtime.outbox
+        .pending()
+        .map((entry) => (entry.input as { id: string }).id)
+        .sort(),
+    ).toEqual(['synthetic-5', TARGET].sort())
     expect(pool!.sidebar.sections().bands[0]!.closedIds).toHaveLength(0)
     await parity()
     for (const entry of [...runtime.outbox.pending()])
@@ -931,7 +964,9 @@ describe('real pool row mutations and receipts', () => {
       runtime.getSnapshot().setSelectedIssueId(asIssueId(TARGET))
     })
     expect(runtime.getSnapshot().selectedIssueId).toBe(TARGET)
-    const records = ['issue', 'issueProjection'].map((entity) => fixture.records.get(`${entity}:${TARGET}`)!)
+    const records = ['issue', 'issueProjection'].map(
+      (entity) => fixture.records.get(`${entity}:${TARGET}`)!,
+    )
     await act(async () => {
       for (const entity of ['issue', 'issueProjection']) {
         fixture.records.delete(`${entity}:${TARGET}`)
