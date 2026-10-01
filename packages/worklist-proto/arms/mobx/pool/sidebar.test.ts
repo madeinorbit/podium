@@ -221,6 +221,34 @@ describe('real sidebar oracle (POD-4953)', () => {
       } finally { stop() }
     } finally { handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
   }, 120_000)
+
+  it('expires a last fallback seat without scanning lanes, and restores it on clock rewind', () => {
+    const corpus = buildCorpus(1)
+    const lane = { ...corpus.sliceWorktrees[0]!, path: '/roster-clock', repoPath: '/roster-clock', repoId: 'roster-clock', projectRoot: true }
+    const stamp = new Date(corpus.fixedNow).toISOString()
+    const session = { sessionId: 'clock-guest', issueId: 'absent-owner', cwd: lane.path,
+      title: 'Clock guest', agentKind: 'codex', status: 'exited', archived: false,
+      stoppedAt: stamp, lastActiveAt: stamp, createdAt: stamp, unread: false, readAt: stamp,
+      agentState: { phase: 'ended', since: stamp } }
+    const replay = createReplaySource({ issues: [],
+      sessions: [{ kind: 'session', id: session.sessionId, value: session }],
+      worktrees: [{ kind: 'worktree', id: lane.path, value: lane }] })
+    const locals = settableLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
+    const handle = harnessMobxPoolArm.create(replay.source, locals.source)
+    const values: unknown[] = []
+    const stop = reaction(() => handle.pool.sidebar.sections(), value => values.push(value), { fireImmediately: true })
+    try {
+      const band = () => tracked(() => handle.pool.sidebar.sections().bands.find(b => b.key === lane.repoId))!
+      expect(band().worktreeIds).toEqual([lane.path])
+      locals.set({ coarseNow: corpus.fixedNow + 25 * 60 * 60_000 }); locals.flush()
+      expect(band().worktreeIds).toEqual([])
+      expect(band().startFirstTask).toBe(true)
+      locals.set({ coarseNow: corpus.fixedNow }); locals.flush()
+      expect(band().worktreeIds).toEqual([lane.path])
+      expect(band().startFirstTask).toBe(false)
+      expect(values).toHaveLength(3)
+    } finally { stop(); handle.dispose(); locals.dispose() }
+  })
 })
 
 describe('real sidebar random-change gate (POD-4953)', () => {

@@ -21,6 +21,7 @@ const id = issue.id
 const api = {} as PodiumClientApi
 let config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
 let current: MobxPool | null = null
+let observed: MobxPool | null = null
 let replicas = 0
 let attachments = 0
 const failures: string[] = []
@@ -55,8 +56,9 @@ function Probe(): null {
         void pool.sidebar.sections()
         void pool.sidebar.row(id)
       })
+      observed = pool
     })
-    return () => { gone = true; stop?.() }
+    return () => { gone = true; stop?.(); if (observed === pool) observed = null }
   }, [pool])
   return null
 }
@@ -84,7 +86,7 @@ function show(name: string | null, rebuild = false): void {
 
 const fixture = {
   show,
-  ready: () => sidebarDataLayer() === 'legacy' ? attachments > 0 : current !== null,
+  ready: () => sidebarDataLayer() === 'legacy' ? attachments > 0 : current !== null && observed === current,
   state: () => ({ replicas, attachments, pool: current !== null, failures }),
   survivors: () => [
     ...worklistPoolSurvivors(),

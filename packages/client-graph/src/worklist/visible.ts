@@ -403,7 +403,7 @@ export function retentionOf(session: SliceSession | undefined): Retention | null
 export function retains(
   retention: Retention,
   issue: Pick<SliceIssue, 'closedAt' | 'updatedAt'> | undefined,
-  standing: Standing | undefined,
+  standing: Pick<Standing, 'finished'> | undefined,
   input: Pick<VisibleInputs, 'passed'>,
 ): boolean {
   let finishedMs: number
@@ -1061,7 +1061,7 @@ export interface VisibleHost {
   /** File one row into the groups' lanes (`WorklistGroups.file`). */
   fileGroups(id: string, filing: Filing | undefined): void
   /** Existing filing reaction also supplies fallback-roster ownership. */
-  fileSidebarOwner?(id: string, owner: { readonly represented: boolean; readonly excluded: boolean; readonly unownedIds: readonly string[] } | undefined): void
+  fileSidebarOwner?(id: string, owner: { readonly represented: boolean; readonly excluded: boolean; readonly unownedIds: readonly string[]; readonly finishAt?: number } | undefined): void
 }
 
 /** The order's one key. */
@@ -1115,7 +1115,9 @@ export class VisibleCollection {
           const represented = issue.placed
           const lane = represented ? issue.laneMemberIds : NONE
           const retained = lane.length ? new Set(issue.retainedSeatIds) : undefined
-          return { filing, owner: { represented, excluded: issue.standing?.excluded === true,
+          const standing = issue.standing
+          return { filing, owner: { represented, excluded: standing?.excluded === true,
+            finishAt: standing?.finished ? standing.finishedMs : undefined,
             unownedIds: retained === undefined ? NONE : lane.filter(seat => retained.has(seat)) } }
         },
         ({ filing, owner }) => {

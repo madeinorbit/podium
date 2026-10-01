@@ -174,9 +174,10 @@ export class SidebarIndex {
   private sectionValues(state: SidebarState): SidebarSections {
     const pinnedIds = this.pool.groups.pinnedRootIds
     const bands = new Map<string, SidebarBand>()
-    const lanes = [...this.pool.tables.worktree.keys()].map(id => this.pool.row('worktree', id)).filter((row): row is SliceWorktree => row !== undefined && row !== LOADING) as SliceWorktree[]
-    const repos = lanes.filter(lane => lane.path === lane.repoPath && lane.projectRoot !== false &&
-      (state.pinnedRepos?.includes(lane.path) || lanes.some(member => member.projectIndex === lane.projectIndex && !state.pinnedWorktrees?.includes(member.path)))).sort((a, b) => {
+    const index = this.pool.sidebarRosters
+    const repos = [...index.projects].map(path => this.pool.row('worktree', path))
+      .filter((row): row is SliceWorktree => row !== undefined && row !== LOADING)
+      .filter(lane => state.pinnedRepos?.includes(lane.path) || index.unpinnedProjectLanes(lane.projectIndex, state.pinnedWorktrees ?? []) > 0).sort((a, b) => {
       const ap = state.pinnedRepos?.indexOf(a.path) ?? -1, bp = state.pinnedRepos?.indexOf(b.path) ?? -1
       if (ap >= 0 || bp >= 0) return ap >= 0 && bp >= 0 ? ap - bp : ap >= 0 ? -1 : 1
       return (a.projectIndex ?? 0) - (b.projectIndex ?? 0)
@@ -202,12 +203,11 @@ export class SidebarIndex {
       const band = add(key, group.label, group.repoPath)
       bands.set(key, { ...band, label: group.label, rowIds, snoozedIds, closedIds, startFirstTask: false })
     }
-    for (const lane of lanes) {
-      const roster = this.pool.model('worktree', lane.path)?.roster
-      if (roster === undefined || (!roster.ids.length && roster.pending === 0)) continue
-      const key = lane.repoId ?? lane.repoPath
-      const band = add(key, lane.repoName, lane.repoPath)
-      bands.set(key, { ...band, worktreeIds: [...band.worktreeIds, lane.path].sort(), startFirstTask: false })
+    for (const key of index.keys()) {
+      const roster = index.band(key)
+      if (!roster.ids.length) continue
+      const band = add(key, roster.label, roster.repoPath)
+      bands.set(key, { ...band, worktreeIds: roster.ids, startFirstTask: false })
     }
     const base = [...bands.values()]
     const registered = new Set(repos.map(repo => repo.repoId ?? repo.repoPath))

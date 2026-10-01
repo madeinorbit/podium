@@ -502,6 +502,7 @@ export class MobxPool {
     // moved it; the reaction first runs when that action ends).
     observe(this.tables.issue, (change) => this.followTable(change.type, change.name))
     observe(this.tables.session, (change) => this.sidebarRosters.queueSession(change.name))
+    observe(this.tables.worktree, (change) => this.sidebarRosters.fileWorktree(change.name))
     runInAction(() => this.select(locals.selectedIssueId))
     residency?.onDue(() => this.hydrate())
   }
@@ -740,7 +741,10 @@ export class MobxPool {
       }
       if (selection) this.select(locals.selectedIssueId)
       if (latch) this.foldLatch.set(locals.selectedIssueWasFolded === true)
-      if (clock) this.clock.advance(locals.coarseNow)
+      if (clock) {
+        this.clock.advance(locals.coarseNow)
+        this.sidebarRosters.advanceClock(locals.coarseNow)
+      }
     })
   }
 
