@@ -871,5 +871,6 @@ export function progressOf(
   id: string,
   self: Pick<RollupSelf, 'openOwn' | 'unitsBelow'>,
 ): Progress {
-  return { unitOwn: unitOwnPartOf(input, id, self), unitsBelow: unitsBelowPartOf(input, id) }
+  const unitsBelow = unitsBelowPartOf(input, id)
+  return { unitOwn: unitOwnPartOf(input, id, { openOwn: self.openOwn, unitsBelow }), unitsBelow }
 }

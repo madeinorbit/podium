@@ -520,9 +520,8 @@ export function createRowSource(
     return typeof repo.repoId === 'string' && repo.repoId.length > 0 ? repo.repoId : null
   }
 
-  function lanesOf(repo: RepoEntry): SliceWorktree[] {
+  function lanesOf(repo: RepoEntry, project: RepoProject): SliceWorktree[] {
     const repoId = repoIdOf(repo)
-    const project = indexFor(currentRepos()).projects.get(repo)!
     const lanes = [laneFor(repo.path, repoId, repo.path, repo.branch, true, project.index, project.aliases, project.name, project.path === repo.path)]
     for (const wt of repo.worktrees ?? []) lanes.push(laneFor(wt.path, repoId, repo.path, wt.branch, false, project.index, project.aliases, project.name, false))
     return lanes
@@ -578,8 +577,9 @@ export function createRowSource(
   /** Every lane of `repos`, by path, each one resolved (and counted). */
   function lanesByPath(repos: readonly RepoEntry[]): Map<string, SliceWorktree> {
     const out = new Map<string, SliceWorktree>()
-    for (const repo of indexFor(repos).roots) {
-      for (const lane of lanesOf(repo)) {
+    const index = indexFor(repos)
+    for (const repo of index.roots) {
+      for (const lane of lanesOf(repo, index.projects.get(repo)!)) {
         stats.rowsVisited += 1
         out.set(lane.path, lane)
       }
@@ -595,7 +595,7 @@ export function createRowSource(
     if (fresh) stats.enumerations += 1
     const out: RowRecord[] = []
     for (const repo of index.byId.get(repoId) ?? EMPTY) {
-      for (const lane of lanesOf(repo)) {
+      for (const lane of lanesOf(repo, index.projects.get(repo)!)) {
         stats.rowsVisited += 1
         out.push({ kind: 'worktree', id: lane.path, value: lane })
         if (held !== null && repos === heldFrom) held.set(lane.path, lane)
@@ -878,6 +878,12 @@ export function createRowSource(
   heldFrom = currentRepos()
   offs.push(runtime.subscribe(mode === 'overlaid' ? onRuntimePublication : onTruthPublication))
 
+  // Bootstrap the declared small summaries here, before an addressed update
+  // can arrive. Neither the first heartbeat nor the first edge change may
+  // hide a whole-kind scan inside an ordinary publication.
+  ensureEdges()
+  ensureSessionFacts()
+
   // Seed the overlaid memo with the rows already painted at creation, so the
   // first flush compares against what `snapshot()` would have served. O(pending).
   try {
@@ -918,9 +924,16 @@ export function createRowSource(
 const EMPTY: readonly never[] = [] as const
 const NO_SESSION_FACTS = Object.freeze({})
 
+interface RepoProject {
+  index: number
+  path: string
+  aliases: string[]
+  name: string
+}
+
 interface RepoIndex {
   from: readonly RepoEntry[]
   roots: RepoEntry[]
   byId: Map<string, RepoEntry[]>
-  projects: Map<RepoEntry, { index: number; path: string; aliases: string[]; name: string }>
+  projects: Map<RepoEntry, RepoProject>
 }

@@ -167,8 +167,17 @@ describe('the roll-up combine', () => {
         aggregate({ own: EMPTY_OWN, children: [leaves[2] as Aggregate, leaves[1] as Aggregate] }),
       ],
     })
-    expect(nested).toEqual(flat)
-    expect(aggregate({ own: EMPTY_OWN, children: [...leaves].reverse() })).toEqual(flat)
+    // Attention and recency compose independently of order; the UI payload
+    // retains the caller's sibling order, as buildUnifiedRows does.
+    const { sessions: flatSeats, ...flatFacts } = flat
+    const { sessions: nestedSeats, ...nestedFacts } = nested
+    expect(nestedFacts).toEqual(flatFacts)
+    const reversed = aggregate({ own: EMPTY_OWN, children: [...leaves].reverse() })
+    const { sessions: reversedSeats, ...reversedFacts } = reversed
+    expect(reversedFacts).toEqual(flatFacts)
+    expect(flatSeats).toEqual([working, offerOnly, ended, question].map(seat => seat.sidebarSession))
+    expect(nestedSeats).toEqual([question, working, ended, offerOnly].map(seat => seat.sidebarSession))
+    expect(reversedSeats).toEqual([question, ended, offerOnly, working].map(seat => seat.sidebarSession))
   })
 
   it('waiting > working > done > queued, and only a finished row is done (spec §3.9)', () => {
@@ -203,6 +212,8 @@ describe('the roll-up combine', () => {
       units: 2,
       done: 2,
       pending: 0,
+      staffed: false,
+      progress: { done: 2, run: 0, review: 0, stall: 0, block: 0, wait: 0 },
     })
     // A cold child is only its marker: its counts and anything handed as its
     // closure stay out until it lands, and the markers below sum up.
@@ -212,6 +223,7 @@ describe('the roll-up combine', () => {
         { own: unit, below: { ...NO_UNITS, pending: 2 } },
       ],
     })
-    expect(partial).toEqual({ members: 1, units: 1, done: 1, pending: 3 })
+    expect(partial).toEqual({ members: 1, units: 1, done: 1, pending: 3,
+      staffed: false, progress: { done: 1, run: 0, review: 0, stall: 0, block: 0, wait: 0 } })
   })
 })

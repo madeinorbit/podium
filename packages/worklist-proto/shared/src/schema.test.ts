@@ -881,13 +881,14 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
       // An abandoned closure asks nothing, even with an unlanded branch.
       child('cancelled', 8, { audience: 'agent', closedReason: 'cancelled', ...delivery }),
       child('dupe', 8, { audience: 'agent', closedReason: 'dupe', ...delivery }),
-      // Blocked: the merge is not the question.
+      // Blocked suppresses a decision, but issueAwaitingMerge still keeps it.
       child('blocked', 8, { audience: 'agent', blocked: true, ...delivery }),
       // Excluded rows never show, merge verdict or not.
       child('archived', 8, { audience: 'agent', archived: true, ...delivery }),
     ])
     expect(rule.issue('merged')).toBe(false)
-    for (const id of ['nobranch', 'shared', 'landed', 'cancelled', 'dupe', 'blocked', 'archived']) {
+    expect(rule.issue('blocked')).toBe(false)
+    for (const id of ['nobranch', 'shared', 'landed', 'cancelled', 'dupe', 'archived']) {
       expect(rule.issue(id), id).toBe(true)
     }
   })
