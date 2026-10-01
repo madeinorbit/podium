@@ -631,6 +631,7 @@ function PanelRowInner({
   roster = false,
   stub = false,
   issueDisplayRef,
+  guardWorking,
 }: {
   session: SessionMeta
   active: boolean
@@ -660,10 +661,12 @@ function PanelRowInner({
   /** Human-facing ref for the session's attached issue. Legacy sessions may
    *  lack their own minted displayRef, but internal issue IDs must stay hidden. */
   issueDisplayRef?: string
+  /** Pool-supplied fact: the guard reads actions without the legacy roster. */
+  guardWorking?: boolean
 }): JSX.Element {
   const continueSession = useStoreSelector((s) => s.continueSession)
   const renameSession = useStoreSelector((s) => s.renameSession)
-  const { guardedEnd } = useSessionGuard()
+  const { guardedEnd } = useSessionGuard(guardWorking === undefined ? undefined : session.sessionId, guardWorking)
   const badge = agentBadge(session)
   const [editing, setEditing] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)

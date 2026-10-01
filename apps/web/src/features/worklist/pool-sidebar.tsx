@@ -3,6 +3,7 @@ import { observer, compareStructural, computed } from '@podium/client-graph/reac
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
+import { isSessionWorking } from '@podium/client-graph/worklist/rollup'
 import { shallowEqual, type Store } from '@podium/client-core/store'
 import { issueClosedFoldAt, planReorderKeys, type IssueNavigationModel } from '@podium/client-core/viewmodels'
 import { relativeTime } from '@podium/client-core/focus'
@@ -337,5 +338,5 @@ const PoolPanelRow = observer(function PoolPanelRow({ pool, id, path, actions, a
   ) }), [pool, id]).get()
   const select = useCallback(() => actions.selectPanel(path, id as SessionId), [actions, path, id])
   return value === LOADING ? <div aria-busy="true" data-testid="pool-row-loading" className="min-h-6" /> : value === undefined ? null
-    : <MemoPanelRow session={value} active={active} onSelect={select} dotRight roster issueDisplayRef={issueDisplayRef} trailingMeta={trailingMeta} />
+    : <MemoPanelRow session={value} active={active} onSelect={select} dotRight roster guardWorking={isSessionWorking(value)} issueDisplayRef={issueDisplayRef} trailingMeta={trailingMeta} />
 })
