@@ -384,6 +384,7 @@ const changesSinceSnapshotArm = () =>
     issueDeps: z.array(IssueDepProjection).optional(),
     repos: z.array(RepoProjection).optional(),
     shipOrders: z.array(ShipOrderProjection).optional(),
+    shipLanes: z.array(ShipLaneProjection).optional(),
     conversations: z.array(ConversationSummaryWire),
     diagnostics: z.array(ConversationDiagnosticWire),
     automations: z.array(AutomationWire).optional(),

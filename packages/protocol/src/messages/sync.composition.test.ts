@@ -27,10 +27,12 @@
  */
 
 import {
+  asRepoId,
   ChangeCursorSeqField,
   ChangeEntityIdField,
   ChangeSeqField,
   GlobalChangeOpField,
+  shipLaneId,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
@@ -129,6 +131,22 @@ describe('the changesSince result composes the cursor field', () => {
 })
 
 describe('the composition did not change what parses', () => {
+  it('preserves optional shipping lane rows in both snapshot parsers and accepts older snapshots', () => {
+    const repoId = asRepoId('repo-a')
+    const lane = {
+      id: shipLaneId(repoId, 'local:main'),
+      repoId,
+      destination: 'local:main',
+      trains: [{ orderIds: ['ship-a'] }],
+      blockedOrderIds: [],
+    }
+    const older = { kind: 'snapshot', cursor: 1, sessions: [], issues: [], conversations: [], diagnostics: [] }
+    for (const schema of [SyncChangesSinceResult, SyncChangesSinceResultLenientSchema]) {
+      expect(schema.parse(older)).toEqual(older)
+      expect(schema.parse({ ...older, shipLanes: [lane] })).toEqual({ ...older, shipLanes: [lane] })
+    }
+  })
+
   // Identity is necessary but not sufficient: a shared instance wired into the
   // wrong position would satisfy every `toBe` above. These are the behaviours the
   // arms are FOR, asserted independently of how they are built.

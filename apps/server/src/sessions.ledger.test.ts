@@ -1,14 +1,17 @@
 import {
   asMachineId,
+  asRepoId,
   asSessionId,
   asUserId,
   firstAdminMemberId,
   type SessionMeta,
+  shipLaneId,
 } from '@podium/model'
-import { type MetadataChange, type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { asCapabilityRef, asDeviceId, type Principal, type MetadataChange, type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
+import { SessionLifecycle } from './modules/sessions/lifecycle'
 import type { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
 import { attachHostDaemon } from './test-support/host-daemon'
@@ -19,6 +22,38 @@ type ProjectionEvent = {
   changes: MetadataChange[]
   ledgerCursor: number
 }
+
+describe('shipping lane compatibility snapshots', () => {
+  it('includes lane rows from the caller-scoped snapshot and omits lanes hidden from another principal', async () => {
+    const repoId = asRepoId('repo-a')
+    const lane = {
+      id: shipLaneId(repoId, 'local:main'), repoId, destination: 'local:main',
+      trains: [{ orderIds: ['shared-order', 'private-order'] }], blockedOrderIds: [],
+    }
+    const principal = (id: string): Principal => ({
+      kind: 'user', user: asUserId(id), device: asDeviceId(`device:${id}`), capability: asCapabilityRef(`cap:${id}`),
+    })
+    const reader = principal('reader')
+    const stranger = principal('stranger')
+    const snapshot = vi.fn(async (viewer: Principal) => viewer === reader
+      ? [{ seq: 1, entity: 'shipLane', id: lane.id, op: 'upsert', value: lane }]
+      : [])
+    const context = {
+      funnel: {
+        cursor: async () => 1,
+        feedIdentity: async () => ({ feedId: 'feed-a', epoch: 'epoch-a' }),
+        minAvailableSeq: async () => 0,
+        changesSince: async () => null,
+        snapshot,
+      },
+    } as unknown as SessionLifecycle
+    const forReader = await SessionLifecycle.prototype.syncChangesSince.call(context, null, reader)
+    expect(forReader).toMatchObject({ kind: 'snapshot', shipLanes: [lane] })
+    const forStranger = await SessionLifecycle.prototype.syncChangesSince.call(context, null, stranger)
+    expect(forStranger).toMatchObject({ kind: 'snapshot', shipLanes: [] })
+    expect(snapshot.mock.calls.map(([viewer]) => viewer)).toEqual([reader, stranger])
+  })
+})
 
 /**
  * Session writes on the write-seam Ledger ([spec:SP-3fe2] #256): persist()

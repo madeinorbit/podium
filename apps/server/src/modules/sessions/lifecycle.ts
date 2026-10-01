@@ -939,6 +939,7 @@ export class SessionLifecycle {
       issueDeps: values('issueDep'),
       repos: values('repo'),
       shipOrders: values('shipOrder'),
+      shipLanes: values('shipLane'),
       conversations: values('conversation'),
       automations: values('automation'),
       automationRuns: values('automationRun'),

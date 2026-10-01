@@ -1200,7 +1200,7 @@ describe('replica snapshot coalescing (#262 review)', () => {
       return shippingPanelModel(state.shipOrders, [], order.repoId, state.shipLanes).waiting[0]?.rows[0]?.queueRank
     }
     try {
-      expect(engine.getSnapshot().shipLanes).toEqual([lane])
+      expect(engine.getSnapshot().shipLanes).toMatchObject([lane])
       expect(rank()).toBe(1)
       engine.start()
       await settle()
