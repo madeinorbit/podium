@@ -36,7 +36,7 @@ export function poolHeaderSnapshot(pool: MobxPool, inputs: Pick<HeaderCheckInput
   const view = pool.headerViews, folded = view.folded(), metrics = view.metrics()
   return sections({
     view: view.row('window', 'window')?.view ?? 'workspace',
-    working: roster(view.working()), selected: selected(view.selectedIssue()),
+    working: roster(view.working()), selected: selected(typeof view.selectedIssue() === 'symbol' ? undefined : view.selectedIssue() as Exclude<ReturnType<typeof view.selectedIssue>, symbol>),
     machines: view.machines(), metrics, quotas: view.quotas(), connection: view.connection() ?? null,
     aggregates: metrics.map((metric) => view.aggregate(metric.machineId)),
     reclaim: view.reclaimCounts(inputs.afterDays),
@@ -44,7 +44,7 @@ export function poolHeaderSnapshot(pool: MobxPool, inputs: Pick<HeaderCheckInput
     shipping: view.shipping(),
     history: view.history(), lifecycle: view.row('lifecycle', 'hosts') ?? null,
     outboxSize: view.row('window', 'window')?.outboxSize ?? 0,
-  }, folded.loading ? 1 : 0)
+  }, (folded.loading ? 1 : 0) + (typeof view.selectedIssue() === 'symbol' ? 1 : 0))
 }
 
 export function legacyHeaderSnapshot(store: Store<PodiumClientApi>, inputs: HeaderCheckInputs, now = store.coarseNow): SidebarSnapshot {
@@ -60,13 +60,13 @@ export function legacyHeaderSnapshot(store: Store<PodiumClientApi>, inputs: Head
     if (id) reclaim[id] = (reclaim[id] ?? 0) + 1
   }
   const active = resolveActiveWorktree({ paneA: store.paneA, fileTabs: store.fileTabs, sessions })
-  let repoId: string | null = null
+  let repoId: string | null = null, scanned = false
   if (active) {
     for (const repo of reposToViews(store.repos)) {
       const lane = repo.worktrees.filter((lane) => (!active.machineId || !lane.machineId || lane.machineId === active.machineId) && cwdInWorktree(active.cwd, lane.path)).sort((a, b) => b.path.length - a.path.length)[0]
-      if (lane) { repoId = repo.repoId ?? lane.repoId ?? null; break }
+      if (lane) { repoId = repo.repoId ?? lane.repoId ?? null; scanned = true; break }
     }
-    if (!repoId) {
+    if (!scanned) {
       const id = active.issueId ?? sessions.find((session) => session.sessionId === active.sessionId)?.issueId
       repoId = (id ? issues.find((issue) => issue.id === id) : issueForCwd(issues, active.cwd))?.repoId ?? null
     }

@@ -53,7 +53,8 @@ export function StatusStrip(): JSX.Element {
       <AgentConcurrencyHistory workingSessions={workingSessions} trpc={trpc} />
       <span className="status-strip-seam" aria-hidden="true" />
       <StatusPerformanceStats trpc={trpc} />
-      {issue && (
+      {typeof issue === 'symbol' && <span className="status-strip-issue" role="status">Loading task…</span>}
+      {issue && typeof issue !== 'symbol' && (
         <>
           <span className="status-strip-seam" aria-hidden="true" />
           <span className="status-strip-issue" title={issue.title}>

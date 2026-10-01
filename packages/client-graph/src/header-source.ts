@@ -25,12 +25,17 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
     })
   }
   let previousMachines: Store<TApi>['machines'] | undefined
+  let previousRepos: Store<TApi>['repos'] | undefined
   let previousWindow: object | undefined
   function locals(): void {
     const state = runtime.getSnapshot()
     if (state.machines !== previousMachines) {
       previousMachines = state.machines
       replace('machine', state.machines.map((machine) => [machine.id, machine]))
+    }
+    if (state.repos !== previousRepos) {
+      previousRepos = state.repos
+      replace('repository', state.repos.map((repo) => [JSON.stringify([repo.machineId ?? '', repo.path]), repo]))
     }
     const window = { view: state.view, paneA: state.paneA, fileTabs: state.fileTabs,
       outboxSize: state.outboxSize }

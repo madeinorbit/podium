@@ -1,6 +1,6 @@
 import { measureHeader } from '@podium/client-core/perf'
 import type { MachineId, SessionMeta } from '@podium/model/browser'
-import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
+import { isMachineOfflineForLiveTerminal, normalizeOriginUrl } from '@podium/model/browser'
 import { _isComputingDerivation, compareStructural, computed, onBecomeUnobserved, type IComputedValue } from 'mobx'
 import type { MobxPool } from './pool'
 import { headerIds, knownIssueIds, knownSessionIds, residentSessionIds } from './header-enumerate'
@@ -42,14 +42,15 @@ export function createHeaderViews(pool: MobxPool) {
     return (pool.hidden('issue', id) ?? pool.row('issue', id)) as (Partial<SliceIssue> & { machineId?: MachineId }) | undefined
   }
   function sessionSummary(id: string): (Partial<SliceSession> & { machineId?: MachineId }) | undefined {
-    return (pool.hidden('session', id) ?? pool.row('session', id)) as (Partial<SliceSession> & { machineId?: MachineId }) | undefined
+    return (pool.hidden('session', id) ?? pool.model('session', id)?.headerDock) as (Partial<SliceSession> & { machineId?: MachineId }) | undefined
   }
   function selectedIssue() {
     return memo('selectedIssue', () => {
       const id = pool.selection.keys().next().value
       if (!id) return undefined
       const value = issue(id)
-      if (value === LOADING || !value || value.deletedAt) return undefined
+      if (value === LOADING) return LOADING
+      if (!value || value.deletedAt) return undefined
       const model = pool.model('issue', id)
       return { ...value, displayRef: model?.displayRef ?? `#${value.seq}` }
     })
@@ -84,6 +85,7 @@ export function createHeaderViews(pool: MobxPool) {
   function folded() {
     return memo('folded', () => {
       let root = selectedIssue()
+      if (root === LOADING) return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading: true }
       const seen = new Set<string>()
       while (root?.parentId && !seen.has(root.id)) {
         seen.add(root.id)
@@ -185,12 +187,15 @@ export function createHeaderViews(pool: MobxPool) {
         }
         if (latest?.cwd) active = { cwd: latest.cwd, machineId: latest.machineId, issueId: latest.issueId ?? undefined }
       }
-      let repoId: string | null = null
+      let repoId: string | null = null, scanned = false
       if (active) {
-        const lane = pool.graph.one('session', state?.paneA ?? '', 'worktree')
-        if (lane) repoId = (pool.row('worktree', lane) as { repoId?: string } | undefined)?.repoId ?? null
-        if (!repoId && active.issueId) repoId = issueSummary(active.issueId)?.repoId ?? null
-        if (!repoId) {
+        for (const repo of scannedRepos()) {
+          const lane = repo.lanes.filter((lane) => (!active!.machineId || !lane.machineId || lane.machineId === active!.machineId) && contains(active!.cwd, lane.path))
+            .sort((a, b) => b.path.length - a.path.length)[0]
+          if (lane) { repoId = repo.repoId ?? lane.repoId ?? null; scanned = true; break }
+        }
+        if (!scanned && active.issueId) repoId = issueSummary(active.issueId)?.repoId ?? null
+        if (!scanned && !active.issueId) {
           let best: Partial<SliceIssue> | undefined
           for (const id of knownIssueIds(pool)) {
             const candidate = issueSummary(id)
@@ -203,6 +208,20 @@ export function createHeaderViews(pool: MobxPool) {
       const orders = repoId ? pool.header.members('repo', repoId, 'shipOrders').flatMap((id) => { const order = row('shipOrder', id); return order ? [order] : [] }) : []
       return { unfinishedCount: orders.filter((order) => ['needs_you', 'in_progress', 'waiting'].includes(order.humanState)).length,
         decisionCount: orders.filter((order) => order.humanState === 'needs_you').length }
+    })
+  }
+  function scannedRepos() {
+    return memo('scannedRepos', () => {
+      const scans = headerIds(pool, 'repository').flatMap((id) => { const scan = row('repository', id); return scan ? [scan] : [] })
+      const linked = new Set(scans.flatMap((scan) => scan.worktrees.map((lane) => lane.path)))
+      const groups = new Map<string, HeaderRows['repository'][]>()
+      for (const scan of scans) {
+        if (linked.has(scan.path)) continue
+        const key = scan.repoId ?? (normalizeOriginUrl(scan.originUrl) || `local:${scan.machineId ?? ''}:${scan.path}`)
+        const group = groups.get(key) ?? []; group.push(scan); groups.set(key, group)
+      }
+      return [...groups.values()].map((group) => ({ repoId: group.find((scan) => scan.repoId !== undefined)?.repoId,
+        lanes: group.flatMap((scan) => [scan.path, ...scan.worktrees.map((lane) => lane.path)].map((path) => ({ path, machineId: scan.machineId, repoId: scan.repoId }))) }))
     })
   }
   function reclaimCounts(afterDays: number) {

@@ -23,3 +23,10 @@ export function headerHostSession(row: SessionMeta | undefined) {
       status: row.status, phase: row.agentState?.phase, resumable: !!row.resumable }
   })
 }
+
+/** Rail location ignores activity phase; changing phase cannot rescan repos. */
+export function headerDockSession(row: SessionMeta | undefined) {
+  if (!row) return undefined
+  return { sessionId: row.sessionId, issueId: row.issueId, cwd: row.cwd, machineId: row.machineId,
+    archived: row.archived, lastActiveAt: row.lastActiveAt }
+}

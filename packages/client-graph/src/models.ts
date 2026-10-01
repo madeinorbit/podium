@@ -87,7 +87,7 @@ import {
   type RowView,
   type RowViewField,
 } from './shared/row-view'
-import { headerWorkingSession, headerHostSession } from './header-session'
+import { headerWorkingSession, headerHostSession, headerDockSession } from './header-session'
 import type { SessionMeta } from '@podium/model/browser'
 import { type EntityName, SCHEMA } from './shared/schema'
 import type {
@@ -965,6 +965,9 @@ export class SessionModel extends EntityModel implements SessionVisibility {
     headerHostSession(session.row as SessionMeta | undefined))
   get headerWorking() { return SessionModel.headerWorking(this) }
   get headerHost() { return SessionModel.headerHost(this) }
+  private static readonly headerDock = cachedGroup('headerDock', (session: SessionModel) =>
+    headerDockSession(session.row as SessionMeta | undefined))
+  get headerDock() { return SessionModel.headerDock(this) }
   private static readonly groups = {
     retention: cachedGroup('retention', (session: SessionModel) =>
       retentionOf(session.host.visibleInputs.sessionRow(session.id)),

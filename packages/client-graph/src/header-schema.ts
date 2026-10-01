@@ -8,6 +8,7 @@ import type { ShipOrderProjection } from '@podium/model/shipping-projection'
  * sessions, quota, or window state. All extension relations are declared here. */
 export interface HeaderRows {
   machine: MachineWire
+  repository: Store['repos'][number]
   hostMetric: HostMetricsWire
   quota: MachineQuotaWire
   connection: ConnectionHealth
@@ -25,6 +26,7 @@ export interface HeaderRecord<E extends HeaderEntity = HeaderEntity> {
 
 export const HEADER_SCHEMA = {
   machine: { key: 'id', source: 'engine:machines', model: 'MachineWire', cold: 'never' },
+  repository: { key: 'machineId,path', source: 'engine:repos', model: 'GitRepositoryWire', cold: 'never' },
   hostMetric: { key: 'machineId ?? hostname', source: 'runtime:hostMetrics', model: 'HostMetricsWire', cold: 'never' },
   quota: { key: 'machineId', source: 'api:quota.summary', model: 'MachineQuotaWire', cold: 'never' },
   shipOrder: { key: 'id', source: 'replica:shipOrders', model: 'ShipOrderProjection', cold: 'never' },
@@ -41,6 +43,7 @@ export const HEADER_RELATIONS = [
   { from: 'hostMetric', name: 'machine', key: 'machineId', to: 'machine', inverse: 'metrics' },
   { from: 'shipOrder', name: 'repo', key: 'repoId', to: 'repo', inverse: 'shipOrders' },
   { from: 'quota', name: 'machine', key: 'machineId', to: 'machine', inverse: 'quotas' },
+  { from: 'repository', name: 'repo', key: 'repoId', to: 'repo', inverse: 'scans' },
 ] as const
 
 export function isHeaderEntity(entity: string): entity is HeaderEntity {
