@@ -142,18 +142,8 @@ export function rebuildResidentViews(
 ): Map<string, RowView> {
   const { tables, relations, issues } = replayTables(source, schema)
   const { coarseNow, selectedIssueId } = locals.get()
-  // Independent residency for the rule's inputs (never the pool's live set):
-  // cold by the shared rule over the replayed tables at the same clock.
-  // Scoping WHICH rows are compared by live residency below is fine and stays.
+  const { inputs } = directScope({ tables, relations, issues, coarseNow, selectedIssueId })
   const cold = tableColdRule(schema, (entity) => tables[entity], coarseNow)
-  const { inputs } = directScope({
-    tables,
-    relations,
-    issues,
-    coarseNow,
-    selectedIssueId,
-    isCold: cold,
-  })
   const views = new Map<string, RowView>()
   for (const { id } of issues) {
     if (!resident.has(id) && cold('issue', id)) continue
@@ -182,15 +172,8 @@ function directScope(args: {
   issues: readonly RowRecord[]
   coarseNow: number
   selectedIssueId: string | null
-  /**
-   * Independent cold rule for the H3 full-view reference (never the pool's
-   * live set): cold rows read as not resident (flat false, present false, no
-   * nesting contribution), matching the live pool's hidden rows. Without it
-   * (the visible rebuild, all rows held) every row reads resident.
-   */
-  isCold?: (entity: 'issue' | 'session', id: string) => boolean
 }): DirectScope {
-  const { tables, relations, issues, coarseNow, selectedIssueId, isCold } = args
+  const { tables, relations, issues, coarseNow, selectedIssueId } = args
   const inputs: ViewInputs = {
     relations,
     issue: (id) => tables.issue.get(id) as SliceIssue | undefined,
@@ -262,8 +245,7 @@ function directScope(args: {
   }
   const visible: VisibleInputs = {
     relations,
-    resident: (entity, id) =>
-      isCold !== undefined ? !isCold(entity, id) : tables[entity].has(id),
+    resident: (entity, id) => tables[entity].has(id),
     issueRow: inputs.issue,
     sessionRow: inputs.session,
     issue: (id) => (tables.issue.has(id) ? directVisibleParts(visible, id, memo) : undefined),
