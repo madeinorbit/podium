@@ -52,6 +52,7 @@ Each source plant used a `cp` backup and `cp` restore in this issue's flatblock 
 | Plant | Observed rejection |
 | --- | --- |
 | Mount legacy hooks from the pool sidebar/rail branch | Both selected checks throw `Pool path read worklistSlice` |
+| Replace pool row-shell IDs while keeping their text | Unit paint comparison rejects the mismatched IDs |
 | Freeze row equality and clear the issue pane target | Displayed-title commit and navigation checks fail |
 | Include guest geometry in the displayed projection | Geometry update commits the unchanged guest and fails |
 | Exclude exited sessions instead of headless sessions | Pool pane differs from the legacy exited-session candidate |
@@ -68,9 +69,9 @@ All tests, typechecks and lint ran sequentially over SSH on flatblock in `~/podi
 
 | Check | Result |
 | --- | --- |
-| Real sidebar pool web checks | 5 green; four at `185eb029e`, revised navigation at `86eec70c6` |
+| Real sidebar pool web checks | 5 green; displayed commits/filter/rail at `185eb029e`, revised navigation at `86eec70c6`, final row-shell paint/guard at `4695f6004` |
 | App pool owner/attachment file | 10 green at `185eb029e`; final cleanup also covered by Chromium |
-| Focused legacy UI files | Eight files green, including row memo, search, shortcuts, rename, bring-back, project management and rail |
+| Focused pre-existing web files | Eight files green, including row memo, search, shortcuts, rename, bring-back, project management, rail and the pool attachment |
 | Rail badge test through the prototype package's own config | 2 green, 1x and 4x |
 | Responsive-filtering frontend performance lane | 2 green at `edf3fabb2` |
 | Chromium renderer with S5, 674 issues | Green at `38d3673b9` |
