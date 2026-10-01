@@ -8,7 +8,7 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import { dedupeSessions, type Store } from '@podium/client-core/engine'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { createWorklistPool } from '@podium/client-graph/create'
-import { checkSidebar, poolSidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
+import { checkSidebar, poolSidebarSnapshot, type SidebarDifference } from '@podium/client-graph/diagnostics/sidebar-check'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { runInAction } from 'mobx'
@@ -38,13 +38,15 @@ function main(): void {
       if (handle.pool.hydrate() === 0) { settled = true; break }
     }
     if (!settled) throw new Error('Replay loading did not settle')
-    const result = runInAction(() => checkSidebar(handle.pool, store, { pinnedRepos: corpus.pins.repos, pinnedWorktrees: corpus.pins.worktrees }))
+    const locations: SidebarDifference[] = []
+    const result = runInAction(() => checkSidebar(handle.pool, store, { pinnedRepos: corpus.pins.repos, pinnedWorktrees: corpus.pins.worktrees }, difference => locations.push(difference)))
     // Section/worktree identifiers can be paths. Omit them from the export report.
     const opaqueId = (id: string | null): string | null => id && /^iss_[\w-]+$/.test(id) ? id : null
+    const safeLocation = (difference: SidebarDifference) => ({ sectionIndex: difference.sectionIndex, rowIndex: difference.rowIndex, field: difference.field,
+      expectedId: opaqueId(difference.expectedId), actualId: opaqueId(difference.actualId) })
     console.log(JSON.stringify({ issues: corpus.issues.length, sessions: corpus.sessions.length,
       sections: result.sections, rows: result.rows, differences: result.differences, pending: result.pending,
-      first: result.first ? { sectionIndex: result.first.sectionIndex, rowIndex: result.first.rowIndex, field: result.first.field,
-        expectedId: opaqueId(result.first.expectedId), actualId: opaqueId(result.first.actualId) } : null }))
+      first: result.first ? safeLocation(result.first) : null, locations: locations.map(safeLocation) }))
     if (result.differences || result.pending) process.exitCode = 1
   } finally { handle.dispose(); locals.dispose(); rows.dispose() }
 }

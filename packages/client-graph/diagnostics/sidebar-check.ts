@@ -59,9 +59,9 @@ function differingField(expected: unknown, actual: unknown, path = ''): string |
 }
 
 /** Compare in display order. An extra pool row is as much a failure as a missing row. */
-export function compareSidebarSnapshots(expected: SidebarSnapshot, actual: SidebarSnapshot): SidebarCheckResult {
+export function compareSidebarSnapshots(expected: SidebarSnapshot, actual: SidebarSnapshot, onDifference?: (difference: SidebarDifference) => void): SidebarCheckResult {
   let differences = 0, first: SidebarDifference | null = null
-  const flag = (difference: SidebarDifference): void => { differences += 1; first ??= difference }
+  const flag = (difference: SidebarDifference): void => { differences += 1; first ??= difference; onDifference?.(difference) }
   for (let sectionIndex = 0; sectionIndex < Math.max(expected.sections.length, actual.sections.length); sectionIndex += 1) {
     const e = expected.sections[sectionIndex], a = actual.sections[sectionIndex]
     const location = { section: e?.key ?? a?.key ?? '', sectionIndex, rowIndex: null, expectedId: e?.key ?? null, actualId: a?.key ?? null }
@@ -164,7 +164,7 @@ export function poolSidebarSnapshot(pool: MobxPool, state: SidebarState = {}): S
   return { sections, pending }
 }
 
-export function checkSidebar(pool: MobxPool, store: Store<PodiumClientApi>, state: SidebarState = {}): SidebarCheckResult {
+export function checkSidebar(pool: MobxPool, store: Store<PodiumClientApi>, state: SidebarState = {}, onDifference?: (difference: SidebarDifference) => void): SidebarCheckResult {
   const locals: SliceLocals = { selectedIssueId: store.selectedIssueId ?? null, coarseNow: pool.clock.current, selectedIssueWasFolded: pool.foldLatch.get() }
-  return compareSidebarSnapshots(legacySidebarSnapshot(legacyDerivationFromStore(store, locals.coarseNow), locals, state), poolSidebarSnapshot(pool, state))
+  return compareSidebarSnapshots(legacySidebarSnapshot(legacyDerivationFromStore(store, locals.coarseNow), locals, state), poolSidebarSnapshot(pool, state), onDifference)
 }

@@ -1,6 +1,6 @@
 import { reaction } from 'mobx'
 import { describe, expect, it } from 'vitest'
-import { checkSidebar, compareSidebarSnapshots, poolSidebarSnapshot, type SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
+import { checkSidebar, compareSidebarSnapshots, poolSidebarSnapshot, type SidebarDifference, type SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
 import { createWorklistPool } from '@podium/client-graph/create'
@@ -46,12 +46,16 @@ describe('ordered sidebar differential', () => {
       if (plant === 'reorder-row') sections[1]!.rows.reverse()
       if (plant === 'missing-section') sections.pop()
       if (plant === 'roster-field') sections[1]!.rows[0]!.fields.sessions = [{ sessionId: 'unexpected' }]
-      const result = compareSidebarSnapshots(sample(), actual)
+      const locations: SidebarDifference[] = []
+      const result = compareSidebarSnapshots(sample(), actual, difference => locations.push(difference))
       expect(result.differences).toBeGreaterThan(0)
+      expect(locations).toHaveLength(result.differences)
+      expect(locations[0]).toEqual(result.first)
       expect(result.first).toMatchObject(plant === 'missing-section' ? { sectionIndex: 2, field: 'section' }
         : plant === 'reorder-band' ? { sectionIndex: 1, field: 'section' }
         : { sectionIndex: 1, rowIndex: plant === 'keep-evicted-row' ? 2 : 0, field: plant === 'drop-field' ? 'color' : plant === 'roster-field' ? 'sessions' : 'id' })
       expect(JSON.stringify(result)).not.toMatch(/Sensitive title|Private question/)
+      expect(JSON.stringify(locations)).not.toMatch(/Sensitive title|Private question/)
     },
   )
   it('reports a nested session field and loading separately', () => {
