@@ -3,7 +3,7 @@
  * It is never read from worklistSlice, a selector, or browser storage here.
  */
 import type { MobxPool } from '../pool'
-import type { SliceSession, SliceWorktree } from '../shared/slice-types'
+import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
 import { LOADING, attentionGroup } from './rollup'
 import { retains } from './visible'
 import { sortedSidebarSessions, type SidebarRowValues } from './sidebar-row'
@@ -44,6 +44,9 @@ export interface SidebarWorktree {
   readonly sessions: readonly SliceSession[]
   readonly visible: readonly SliceSession[]
   readonly stale: readonly SliceSession[]
+  /** The existing row's provenance/ref lookup needs only these owners,
+   * never a copy of the issue world. Missing owners use session.displayRef. */
+  readonly issues: readonly (SliceIssue & { readonly displayRef: string })[]
   readonly activityAt: number
   readonly active: boolean
   readonly pending: number
@@ -82,6 +85,7 @@ export class SidebarIndex {
     const lane = this.pool.row('worktree', path)
     if (lane === undefined || lane === LOADING) return undefined
     const sessions: SliceSession[] = []
+    const issues = new Map<string, SliceIssue & { readonly displayRef: string }>()
     let activityAt = 0, pending = 0, retained = false
     for (const id of this.pool.relations.many('worktree', path, 'sessions')) {
       const sessionModel = this.pool.model('session', id)
@@ -103,6 +107,11 @@ export class SidebarIndex {
       const issue = owner?.ownFacts.issue
       if (!retains(retention, issue, owner?.standing, this.pool.visibleInputs)) continue
       retained = true
+      if (session.issueId && owner) {
+        const raw = this.pool.row('issue', session.issueId)
+        if (raw === LOADING) pending += 1
+        else if (raw !== undefined) issues.set(session.issueId, { ...raw as SliceIssue, displayRef: owner.displayRef })
+      }
       activityAt = Math.max(activityAt, Date.parse(session.lastActiveAt) || 0)
       if (session.status !== 'exited') sessions.push(session)
     }
@@ -112,7 +121,7 @@ export class SidebarIndex {
     const staleIds = new Set(sorted.length > 5 && candidates.length > 3 ? [...candidates].sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt)).slice(3).map(s => s.sessionId) : [])
     return { worktree: lane as SliceWorktree, sessions: sorted,
       visible: sorted.filter(s => !staleIds.has(s.sessionId)), stale: sorted.filter(s => staleIds.has(s.sessionId)),
-      activityAt, pending, active: this.pool.selection.size === 0 && state.selectedWorktree === path }
+      issues: [...issues.values()], activityAt, pending, active: this.pool.selection.size === 0 && state.selectedWorktree === path }
   }
 
   sections(state: SidebarState = {}): SidebarSections {
