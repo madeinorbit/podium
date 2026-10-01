@@ -60,10 +60,10 @@ try {
   await page.waitForFunction(() => window.__sidebarActions?.ready())
   await page.getByText('Only responsive target').waitFor()
   async function check(label: string, started?: number) {
-    await page.evaluate(
+    const painted = await page.evaluate(
       () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        new Promise<number>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now()))),
         ),
     )
     const comparison = await page.evaluate(() => window.__sidebarActions.compare())
@@ -72,7 +72,6 @@ try {
     const state = await page.evaluate(() => window.__sidebarActions.state())
     if (pageErrors.length) throw new Error(pageErrors.join('\n'))
     if (state.failures.length) throw new Error(state.failures.join('\n'))
-    const painted = await page.evaluate(() => performance.now())
     const heap = await cdp.send('Runtime.getHeapUsage')
     observations.push({
       label,
