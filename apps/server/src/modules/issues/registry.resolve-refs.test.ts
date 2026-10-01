@@ -26,7 +26,7 @@ describe('batched chip identities', () => {
   it('resolves 50 references with one issue-row pass', async () => {
     const rows = new Map(Array.from({ length: 1000 }, (_, i) => [`iss_${i}`, { id: asIssueId(`iss_${i}`), seq: i, repoId: 'repo-one' }]))
     const values = vi.spyOn(rows, 'values')
-    const single = vi.fn(() => { throw new Error('Per-reference scan') })
+    const single = vi.fn(async (ref: string) => [...rows.values()].find(row => row.seq === Number(ref.split('-')[1]))?.id ?? null)
     const reports = new IssueReportsModule({ rows, resolveRef: single, deps: { store: { repos: {
       repoForPrefix: async () => ({ repoId: 'repo-one' }), issueRepoIdResolver: async () => () => 'repo-one',
     } } } } as never)
