@@ -621,6 +621,40 @@ describe('pool navigation uses the existing gesture semantics', () => {
     }
     await parity()
   })
+
+  it('waits for a loading mission ancestor before navigating or mutating a loaded child', async () => {
+    await mount((fixture) => fixture.patchIssue(TARGET, { parentId: asIssueId('synthetic-3') }))
+    const owner = pool!
+    const residency = owner.residency!
+    const ancestor = owner.row('issue', 'synthetic-3') as SliceIssue
+    const coldRule = residency.coldRule.bind(residency)
+    const hidden = residency.hidden.bind(residency)
+    residency.coldRule = (entity, record) =>
+      entity === 'issue' && (record as { id: string }).id === 'synthetic-3'
+        ? true
+        : coldRule(entity, record)
+    residency.hidden = (entity, id) =>
+      entity === 'issue' && id === 'synthetic-3' ? false : hidden(entity, id)
+    try {
+      act(() => {
+        owner.apply({ type: 'update', rows: [{ kind: 'issue', id: 'synthetic-3', value: undefined }] })
+        owner.apply({ type: 'update', rows: [{ kind: 'issue', id: 'synthetic-3', value: ancestor }] })
+        for (let click = 0; click < 3; click += 1) actions.selectIssue(TARGET)
+        expect(owner.sidebar.row('synthetic-3')).toBe(LOADING)
+        expect(requests).toHaveLength(0)
+        expect(runtime.getSnapshot().selectedIssueId).toBeNull()
+        expect(focused).toBeNull()
+        expect(owner.hydrate()).toBe(1)
+      })
+      await act(async () => actions.selectIssue(TARGET))
+      expect(runtime.getSnapshot().selectedIssueId).toBe('synthetic-3')
+      expect(focused).toBe(TARGET)
+    } finally {
+      residency.coldRule = coldRule
+      residency.hidden = hidden
+    }
+    await parity()
+  })
 })
 
 describe('real pool row mutations and receipts', () => {

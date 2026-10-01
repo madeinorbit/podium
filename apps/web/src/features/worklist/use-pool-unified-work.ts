@@ -104,9 +104,9 @@ export function createPoolWorkActions(
     while (root.issue.parentId && !seen.has(root.issue.id)) {
       seen.add(root.issue.id)
       const parent = pool.sidebar.row(root.issue.parentId)
+      if (parent === LOADING) return
       if (
         parent === undefined ||
-        parent === LOADING ||
         parent.issue.archived ||
         parent.issue.deletedAt
       )
