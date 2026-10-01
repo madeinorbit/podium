@@ -19,6 +19,16 @@ interface PoolSlot {
   project: typeof createPoolProjection | null
 }
 
+// Each screen freezes its choice at startup. Later migrations add one entry
+// here; all enabled screens still share the provider's existing single pool.
+const poolBackedScreens: readonly {
+  initialize(ui: ClientRuntime['ui']): void
+  enabled(): boolean
+}[] = [
+  { initialize: initializeSidebarDataLayer, enabled: () => sidebarDataLayer() === 'pool' },
+  { initialize: initializeHeaderDataLayer, enabled: () => headerDataLayer() === 'pool' },
+]
+
 // The store handle IS the runtime. Weak keys never retain a departed principal;
 // clearing the slot also releases the pool from React's subscription closures.
 const slots = new WeakMap<object, PoolSlot>()
@@ -67,9 +77,10 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   runtime: ClientRuntime<TApi>,
   onError: (error: Error) => void,
 ): () => void {
-  initializeSidebarDataLayer(runtime.ui)
-  initializeHeaderDataLayer()
-  if (sidebarDataLayer() !== 'pool' && headerDataLayer() !== 'pool') return () => {}
+  // Structural legacy/test runtimes without UI state request no pool screen.
+  if (!runtime.ui) return () => {}
+  for (const screen of poolBackedScreens) screen.initialize(runtime.ui)
+  if (!poolBackedScreens.some((screen) => screen.enabled())) return () => {}
   reportSidebarPool(runtime, null, false)
   const slot = slotFor(runtime)
   slot.error = null
