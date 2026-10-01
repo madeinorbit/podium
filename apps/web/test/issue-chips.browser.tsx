@@ -76,7 +76,10 @@ function Fixture() {
     runtime = owner
     pool = attached
     open = setShown
-    void owner.getSnapshot().refreshRepos().catch(error => failures.push(String(error)))
+    void owner
+      .getSnapshot()
+      .refreshRepos()
+      .catch((error) => failures.push(String(error)))
     return () => {
       runtime = undefined
       pool = null
@@ -121,9 +124,17 @@ root.render(
 )
 
 const proof = {
-  ready: () => !!runtime && runtime.getSnapshot().repos.length > 0 && (chipsDataLayer() === 'legacy' || pool !== null),
-  status: () => ({ runtime: !!runtime, pool: !!pool, repos: runtime?.getSnapshot().repos.length,
-    issues: runtime?.replica.rows('issueProjections').length, sessions: runtime?.replica.rows('sessions').length }),
+  ready: () =>
+    !!runtime &&
+    runtime.getSnapshot().repos.length > 0 &&
+    (chipsDataLayer() === 'legacy' || pool !== null),
+  status: () => ({
+    runtime: !!runtime,
+    pool: !!pool,
+    repos: runtime?.getSnapshot().repos.length,
+    issues: runtime?.replica.rows('issueProjections').length,
+    sessions: runtime?.replica.rows('sessions').length,
+  }),
   failures: () => failures,
   open(value = true) {
     flushSync(() => open?.(value))

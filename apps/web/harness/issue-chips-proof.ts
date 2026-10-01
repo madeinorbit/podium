@@ -53,24 +53,30 @@ try {
     })
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
-    await page.route('**/*', route => {
+    await page.route('**/*', (route) => {
       const url = new URL(route.request().url())
       return url.origin === origin || ['data:', 'blob:'].includes(url.protocol)
-        ? route.continue() : route.abort()
+        ? route.continue()
+        : route.abort()
     })
     const fixtureUrl = `${origin}/test/issue-chips.browser.html?issues=4887&mobxSidebar=0&mobxChips=${mode === 'pool' ? 1 : 0}`
     const waitReady = async (phase: string) => {
       try {
         await page.waitForFunction(() => window.__issueChips?.ready(), null, { timeout: 30000 })
       } catch (error) {
-        console.error(JSON.stringify({ phase, url: page.url(), errors, status: await page.evaluate(() => window.__issueChips?.status()), failures: await page.evaluate(() => window.__issueChips?.failures()) }))
+        console.error(
+          JSON.stringify({
+            phase,
+            url: page.url(),
+            errors,
+            status: await page.evaluate(() => window.__issueChips?.status()),
+            failures: await page.evaluate(() => window.__issueChips?.failures()),
+          }),
+        )
         throw error
       }
     }
-    await page.goto(
-      fixtureUrl,
-      { waitUntil: 'networkidle', timeout: 60000 },
-    )
+    await page.goto(fixtureUrl, { waitUntil: 'networkidle', timeout: 60000 })
     await waitReady(`${mode}:boot`)
     // Warm development module delivery without warming a measured session's
     // transcript cache. Each measured page reload creates a fresh runtime.
@@ -86,7 +92,9 @@ try {
       await waitReady(`${mode}:reload:${sample}`)
       if (correctnessOnly) {
         await page.evaluate(() => window.__issueChips.open())
-        await page.waitForFunction(() => document.querySelectorAll('a[data-issue-availability="present"]').length >= 361)
+        await page.waitForFunction(
+          () => document.querySelectorAll('a[data-issue-availability="present"]').length >= 361,
+        )
         continue
       }
       const ms = await page.evaluate(async () => {
@@ -113,19 +121,40 @@ try {
     await page.waitForTimeout(200)
     const before = await page.evaluate(() => window.__issueChips.stats())
     const shape = await page.evaluate(() => window.__issueChips.status())
-    const captureChips = () => page.evaluateHandle(() => new Map(
-      [...document.querySelectorAll('a.ref-link--issue, [data-issue-reference]')]
-        .map(el => [el, [el.getAttribute('data-issue-stage'), el.getAttribute('data-issue-availability'), el.getAttribute('aria-label')].join('\0')]),
-    ))
-    const mountsSince = (previous: Awaited<ReturnType<typeof captureChips>>) => page.evaluate(previous => {
-      let added = 0, changed = 0
-      for (const el of document.querySelectorAll('a.ref-link--issue, [data-issue-reference]')) {
-        if (!previous.has(el)) { added++; continue }
-        const value = [el.getAttribute('data-issue-stage'), el.getAttribute('data-issue-availability'), el.getAttribute('aria-label')].join('\0')
-        if (previous.get(el) !== value) changed++
-      }
-      return { added, changed }
-    }, previous)
+    const captureChips = () =>
+      page.evaluateHandle(
+        () =>
+          new Map(
+            [...document.querySelectorAll('a.ref-link--issue, [data-issue-reference]')].map(
+              (el) => [
+                el,
+                [
+                  el.getAttribute('data-issue-stage'),
+                  el.getAttribute('data-issue-availability'),
+                  el.getAttribute('aria-label'),
+                ].join('\0'),
+              ],
+            ),
+          ),
+      )
+    const mountsSince = (previous: Awaited<ReturnType<typeof captureChips>>) =>
+      page.evaluate((previous) => {
+        let added = 0,
+          changed = 0
+        for (const el of document.querySelectorAll('a.ref-link--issue, [data-issue-reference]')) {
+          if (!previous.has(el)) {
+            added++
+            continue
+          }
+          const value = [
+            el.getAttribute('data-issue-stage'),
+            el.getAttribute('data-issue-availability'),
+            el.getAttribute('aria-label'),
+          ].join('\0')
+          if (previous.get(el) !== value) changed++
+        }
+        return { added, changed }
+      }, previous)
     const mounted = await captureChips()
     await page.evaluate(() => window.__issueChips.traffic())
     await page.waitForTimeout(200)
@@ -139,7 +168,9 @@ try {
         traffic.redraws - before.redraws !== trafficMounts.added ||
         traffic.reads - before.reads > trafficMounts.added * 4)
     )
-      throw new Error(`Session traffic woke pool chips or scanned legacy issues: ${JSON.stringify({before, traffic, trafficMounts})}`)
+      throw new Error(
+        `Session traffic woke pool chips or scanned legacy issues: ${JSON.stringify({ before, traffic, trafficMounts })}`,
+      )
     const paint = () =>
       page.evaluate(() =>
         [...document.querySelectorAll('a.ref-link--issue, [data-issue-reference]')].map((el) => ({
@@ -179,7 +210,9 @@ try {
         after.redraws - traffic.redraws !== issueMounts.added + issueMounts.changed ||
         after.reads - traffic.reads > issueMounts.added * 4 + issueMounts.changed * 2
       )
-        throw new Error(`Chip census exceeded the changed-chip fanout: ${JSON.stringify({ changedChips, issueMounts, traffic, after })}`)
+        throw new Error(
+          `Chip census exceeded the changed-chip fanout: ${JSON.stringify({ changedChips, issueMounts, traffic, after })}`,
+        )
       check = await page.evaluate(() => window.__issueChips.check())
       if (
         (check as { differences: number; pending: number }).differences !== 0 ||

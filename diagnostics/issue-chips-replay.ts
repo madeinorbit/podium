@@ -3,7 +3,6 @@
  * timeout 180s bun --conditions=@podium/source diagnostics/issue-chips-replay.ts
  */
 import { hostname } from 'node:os'
-import { parseAnyRef } from '../packages/protocol/src/index'
 import {
   allIssueViewModels,
   createKernelReplica,
@@ -17,6 +16,7 @@ import { createWorklistPool } from '../packages/client-graph/src/create'
 import { issueRefKey } from '../packages/client-graph/src/issue-reference'
 import { createEngineLocals } from '../packages/client-graph/src/shared/engine-locals'
 import { createRowSource } from '../packages/client-graph/src/shared/row-source'
+import { parseAnyRef } from '../packages/protocol/src/index'
 import { readLive } from '../packages/worklist-proto/harness/src/fixture/export-snapshot'
 import { corpusFromLive } from '../packages/worklist-proto/harness/src/fixture/live-snapshot'
 import { sidebarReplayStore } from '../packages/worklist-proto/harness/src/oracle/sidebar-replay'
@@ -28,7 +28,7 @@ export function chipReplayLegacy(replica: Replica) {
 }
 
 export function chipReplayTokens(legacy: Parameters<typeof checkIssueChips>[1]): string[] {
-  return legacy.map(canonicalIssueRef).filter(token => parseAnyRef(token)?.kind === 'issue')
+  return legacy.map(canonicalIssueRef).filter((token) => parseAnyRef(token)?.kind === 'issue')
 }
 
 async function main(): Promise<void> {
@@ -78,13 +78,15 @@ async function main(): Promise<void> {
             sessions: corpus.sessions.length,
             nonReferenceRows: legacy.length - tokens.length,
             ...result,
-            ...(process.argv.includes('--explain-collisions') ? {
-              collisions: {
-                groups: collisions.length,
-                rows: collisions.reduce((sum, [, count]) => sum + count, 0),
-                prefixedGroups: collisions.filter(([ref]) => !ref.startsWith('#')).length,
-              },
-            } : {}),
+            ...(process.argv.includes('--explain-collisions')
+              ? {
+                  collisions: {
+                    groups: collisions.length,
+                    rows: collisions.reduce((sum, [, count]) => sum + count, 0),
+                    prefixedGroups: collisions.filter(([ref]) => !ref.startsWith('#')).length,
+                  },
+                }
+              : {}),
             first: result.first
               ? {
                   ...result.first,
