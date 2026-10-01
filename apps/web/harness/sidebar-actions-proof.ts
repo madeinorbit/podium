@@ -49,9 +49,8 @@ try {
     viewport: { width: 1000, height: 900 },
     reducedMotion: 'reduce',
   })
-  page.on('pageerror', (error) => {
-    throw error
-  })
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
   await page.goto(`${origin}/test/sidebar-actions.browser.html?mobxSidebar=1`, { timeout: 60000 })
   await page.waitForFunction(() => window.__sidebarActions?.ready())
   await page.getByText('Only responsive target').waitFor()
@@ -66,10 +65,12 @@ try {
     if (comparison.differences !== 0 || comparison.pending !== 0)
       throw new Error(`${label}: ${JSON.stringify(comparison)}`)
     const state = await page.evaluate(() => window.__sidebarActions.state())
+    if (pageErrors.length) throw new Error(pageErrors.join('\n'))
     if (state.failures.length) throw new Error(state.failures.join('\n'))
     observations.push({ label, comparison, state })
   }
   async function rejectLatest() {
+    await page.waitForFunction(() => window.__sidebarActions.state().requests.length > window.__sidebarActions.state().outcomes.length)
     const before = await page.evaluate(() => window.__sidebarActions.state().outcomes.length)
     await page.evaluate(() => {
       const state = window.__sidebarActions.state()
