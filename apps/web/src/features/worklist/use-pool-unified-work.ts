@@ -99,13 +99,17 @@ export function createPoolWorkActions(
   const selectIssue = (id: string, paneSession?: SessionId): void => {
     const clicked = pool.sidebar.row(id)
     if (clicked === undefined || clicked === LOADING) return
-    let root = clicked
+    let root: SliceIssue = clicked.issue
     const seen = new Set<string>()
-    while (root.issue.parentId && !seen.has(root.issue.id)) {
-      seen.add(root.issue.id)
-      const parent = pool.sidebar.row(root.issue.parentId)
+    while (root.parentId && !seen.has(root.id)) {
+      seen.add(root.id)
+      // Archived/deleted ancestors can be cold by design. Their retained
+      // summary ends the legacy root walk without requesting a hidden row.
+      const hidden = pool.hidden('issue', root.parentId)
+      if (hidden?.archived || hidden?.deletedAt) break
+      const parent = pool.row('issue', root.parentId) as SliceIssue | typeof LOADING | undefined
       if (parent === LOADING) return
-      if (parent === undefined || parent.issue.archived || parent.issue.deletedAt) break
+      if (parent === undefined || parent.archived || parent.deletedAt) break
       root = parent
     }
     const store = runtime.getSnapshot()
@@ -113,7 +117,7 @@ export function createPoolWorkActions(
     // R2 already applies resume collapse. Headless provenance remains raw;
     // it never participates in collapse or supplies a workspace pane.
     const sessions = sessionMembership(pool, true)
-    const mission = missionMembers(pool, root.issue.id, sessions)
+    const mission = missionMembers(pool, root.id, sessions)
     // The legacy candidate order is the slice order, including tie-breaking
     // on lastActiveAt. Walk resident keys, reading only this mission's rows.
     for (const member of pool.tables.issue.keys()) {
@@ -134,7 +138,7 @@ export function createPoolWorkActions(
     trace(target, asIssueId(id))
     batch(() => {
       const changed = store.navigateWorkspace({
-        selectedIssueId: asIssueId(root.issue.id),
+        selectedIssueId: asIssueId(root.id),
         ...(clicked.issue.worktreePath ? { selectedWorktree: clicked.issue.worktreePath } : {}),
         tabId: target,
         firstPane: true,

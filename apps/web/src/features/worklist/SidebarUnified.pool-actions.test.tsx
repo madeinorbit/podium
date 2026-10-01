@@ -392,6 +392,8 @@ describe('pool navigation uses the existing gesture semantics', () => {
     'departed-spin',
     'shell-and-guest',
     'archived-parent',
+    'deleted-parent',
+    'archived-grandparent',
     'resume-collapsed-starter',
     'resume-collapsed-pane',
   ])('chooses the same mission pane as legacy for %s', async (scenario) => {
@@ -430,6 +432,12 @@ describe('pool navigation uses the existing gesture semantics', () => {
         })
       }
       if (scenario === 'archived-parent') patchIssue(fixture, 'synthetic-1', { archived: true })
+      if (scenario === 'deleted-parent')
+        patchIssue(fixture, 'synthetic-1', { deletedAt: new Date(NOW - 1000).toISOString() })
+      if (scenario === 'archived-grandparent') {
+        patchIssue(fixture, 'synthetic-1', { parentId: 'synthetic-0' })
+        patchIssue(fixture, 'synthetic-0', { archived: true })
+      }
       if (scenario.startsWith('resume-collapsed')) {
         const resume = { kind: 'codex-thread', value: 'synthetic-navigation-twin' }
         const loser = scenario === 'resume-collapsed-pane' ? '7' : '3'
@@ -466,6 +474,18 @@ describe('pool navigation uses the existing gesture semantics', () => {
       ).values(),
     ]
     const expected = pickPaneSession(members, null)
+    if (['archived-parent', 'deleted-parent', 'archived-grandparent'].includes(scenario)) {
+      const grandparent = scenario === 'archived-grandparent'
+      const ancestorId = grandparent ? 'synthetic-0' : 'synthetic-1'
+      expect(pool!.tables.issue.has(ancestorId)).toBe(false)
+      expect(pool!.hidden('issue', ancestorId)).toMatchObject(
+        scenario === 'deleted-parent'
+          ? { deletedAt: new Date(NOW - 1000).toISOString() }
+          : { archived: true },
+      )
+      expect(root.id).toBe(grandparent ? 'synthetic-1' : 'synthetic-3')
+      expect(expected).toBe('synthetic-session-7')
+    }
     if (scenario === 'filed-chain') {
       expect([...pool!.graph.many('session', 'synthetic-session-7', 'startedIssues')]).toContain(
         'synthetic-8',
