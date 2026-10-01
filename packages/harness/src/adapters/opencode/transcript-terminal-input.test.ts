@@ -218,8 +218,9 @@ describe('OpenCode measured terminal receipts', () => {
     expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'transcript-echo', transcriptItem: { id: item.id, cursor: item.cursor } })
   })
 
-  it.each(plain)('$native.label cannot confirm plain text after a foreign write', async (measured) => {
-    expect((await receiptFor(measured, { foreign: true })).receipt.outcome).toBe('unverified')
+  it.each(plain)('$native.label confirms plain text after a foreign write', async (measured) => {
+    const { receipt, item } = await receiptFor(measured, { foreign: true })
+    expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'transcript-echo', transcriptItem: { id: item.id, cursor: item.cursor } })
   })
 
   it.each(plain)('$native.label cannot confirm a replayed entry', async (measured) => {

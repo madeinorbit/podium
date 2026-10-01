@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { manifestFor } from '../../../registry.js'
 import { pageHistory } from '../../history.js'
+import { encodeCursor } from '../../../store/cursor-codec.js'
 import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
 import { createTerminalRuntime, type TerminalHarnessProfile } from './runtime.js'
 import type { TerminalHostPorts, TerminalProofWatch } from './host-ports.js'
@@ -12,7 +13,8 @@ const outcomes = (frames: import('@podium/protocol/daemon').DaemonMessage[]) => 
   frame.type === 'runtimeEvent' && frame.event.t === 'delivery' ? [frame.event] : [])
 
 function world(kind: 'claude-code' | 'codex' | 'grok' | 'opencode' = 'claude-code',
-  saved = new Map<string, TerminalProofWatch>(), history: TranscriptItem[] = []) {
+  saved = new Map<string, TerminalProofWatch>(), history: TranscriptItem[] = [],
+  profileOverrides: Partial<TerminalHarnessProfile> = {}) {
   const frames: import('@podium/protocol/daemon').DaemonMessage[] = []
   const writes: string[] = []
   let count = 0
@@ -48,6 +50,7 @@ function world(kind: 'claude-code' | 'codex' | 'grok' | 'opencode' = 'claude-cod
     needsSubmitVerification: false, usesRawFirstTurn: false,
     archivable: false, reportsContextPercent: false,
     interruptBytes: '\x1b', interruptQuitsWhenIdle: false,
+    ...profileOverrides,
   }
   const handle = runtime.register({ sessionId: SESSION, agentKind: kind, cwd: '/tmp/receipt',
     resume: { kind: manifest.resumeKind!, value: 'same-conversation' }, terminal, rebind: true }, profile)
@@ -96,6 +99,31 @@ describe('terminal receipt operator regressions', () => {
     expect(await pending).toMatchObject({ outcome: 'accepted', transcriptItem: { id: 'entry-0' }, harnessRef: [ref] })
     w.runtime.dispose()
   })
+
+  it.each(['same-cursor', 'coarse-timestamp', 'missing-timestamp', 'new-segment'] as const)(
+    'a known pre-typing prompt cannot credit a replay with %s, or spend the later-prompt budget', async (replay) => {
+      vi.useFakeTimers(); vi.setSystemTime(START)
+      const w = world('opencode', new Map(), [], { transcriptTimestamps: { resolutionMs: replay === 'coarse-timestamp' ? 1000 : 1 } })
+      const cursor = (fileId: string, offset: number) => encodeCursor({ fileId, offset, uuid: 'old-prompt', sub: 0 })
+      const old: Partial<TranscriptItem> = { id: 'old-prompt',
+        ts: replay === 'missing-timestamp' ? undefined : new Date(START).toISOString(), cursor: cursor('before', 100) }
+      w.post('Yes', old)
+      if (replay === 'coarse-timestamp') vi.setSystemTime(START + 500)
+      const pending = w.handle.send({ id: 'msg-replayed', text: 'Yes' }, { origin: 'human', delivery: 'when-ready' })
+      await vi.advanceTimersByTimeAsync(300)
+      expect(w.writes).toContain('\r')
+      // A rewrite may move the record or segment; native identity stays old.
+      for (let i = 0; i < 5; i++) w.post('Yes', { ...old,
+        cursor: cursor(replay === 'new-segment' ? 'after' : 'before', replay === 'same-cursor' ? 100 : 200 + i) })
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(await pending).toMatchObject({ outcome: 'unverified' })
+      expect(w.saved.has('msg-replayed')).toBe(true)
+      w.post('Yes', { id: 'genuine-new-prompt', cursor: cursor('after', 300) })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(outcomes(w.frames)).toContainEqual(expect.objectContaining({ rowId: 'msg-replayed', outcome: 'delivered', transcriptItem: { id: 'genuine-new-prompt' } }))
+      w.runtime.dispose()
+    },
+  )
 
   it('a linked prompt still spends the first-entry order of another open send', async () => {
     vi.useFakeTimers(); vi.setSystemTime(START)
@@ -230,10 +258,13 @@ describe('terminal receipt operator regressions', () => {
     vi.useFakeTimers(); vi.setSystemTime(START + 125_000)
     const saved = new Map([['msg-offline', { turnId: 'msg-offline', text: 'Yes', typingStartedAt: new Date(START).toISOString() }]])
     const history: TranscriptItem[] = [
-      { id: 'old-yes', role: 'user', text: 'Yes', ts: new Date(START - 1).toISOString() },
-      { id: 'offline-yes', role: 'user', text: 'Yes', ts: new Date(START + 120_000).toISOString() },
+      { id: 'old-yes', role: 'user', text: 'Yes', ts: new Date(START - 1).toISOString(), cursor: encodeCursor({ fileId: 'recovered', offset: 1, uuid: 'old-yes', sub: 0 }) },
+      { id: 'offline-yes', role: 'user', text: 'Yes', ts: new Date(START + 120_000).toISOString(), cursor: encodeCursor({ fileId: 'recovered', offset: 2, uuid: 'offline-yes', sub: 0 }) },
     ]
     const w = world('claude-code', saved, history)
+    // The observer's bootstrap may run while recovery reads its saved floor.
+    // Its current tail position must not replace that older typing-start time.
+    w.runtime.observe({ type: 'transcriptDelta', sessionId: SESSION, items: history, reset: true })
     await vi.advanceTimersByTimeAsync(0)
     expect(w.writes).toEqual([])
     expect(outcomes(w.frames)).toContainEqual(expect.objectContaining({ outcome: 'delivered', transcriptItem: { id: 'offline-yes' } }))
