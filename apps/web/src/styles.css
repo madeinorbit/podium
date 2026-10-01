@@ -4997,11 +4997,15 @@ html[data-density="compact"] .brief-shelf {
 }
 .work-line-deck {
   position: absolute;
+  /* Keep both tiers beneath the face and the far tier behind the near one,
+     including when their push animations create stacking contexts. */
+  z-index: 0;
   inset: 0;
   pointer-events: none;
 }
 .work-line-deck i {
   position: absolute;
+  z-index: 1;
   right: min(9px, 8%);
   bottom: -3px;
   left: min(9px, 8%);
@@ -5015,6 +5019,7 @@ html[data-density="compact"] .brief-shelf {
     transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .work-line-deck i:last-child {
+  z-index: 0;
   right: min(18px, 16%);
   bottom: -6px;
   left: min(18px, 16%);
