@@ -212,7 +212,11 @@ export class SidebarIndex {
       const roster = index.band(key)
       if (!roster.ids.length) continue
       const band = add(key, roster.label, roster.repoPath)
-      bands.set(key, { ...band, worktreeIds: roster.ids, startFirstTask: false })
+      // The unified head names the section before folds: worktrees (band 1)
+      // precede snoozed roots (band 2), even when a root is in the closed fold.
+      const label = (band.snoozedIds.length > 0 || band.closedIds.length > 0)
+        && this.pool.groups.group(key).sidebarMetadata.headBand === 2 ? roster.label : band.label
+      bands.set(key, { ...band, label, worktreeIds: roster.ids, startFirstTask: false })
     }
     const base = [...bands.values()]
     const registered = new Set(repos.map(repo => repo.repoId ?? repo.repoPath))

@@ -269,10 +269,11 @@ export class GroupNode {
 
   /** The real sidebar groups root rows, including folded roots, before nesting.
    * Use the existing rank lane and cached placement; retain no new cold-id index. */
-  get sidebarMetadata(): { readonly label: string; readonly repoPath: string } {
+  get sidebarMetadata(): { readonly label: string; readonly repoPath: string; readonly headBand: RowRank['band'] | undefined } {
     const head = this.groups.members.lane(this.key).find(id => this.groups.isRoot(id))
     const placement = head === undefined ? undefined : this.groups.placementOf(head)
-    return { label: placement?.label ?? '', repoPath: placement?.repoPath ?? this.key }
+    const headBand = head === undefined ? undefined : this.groups.rankOf(head)?.band
+    return { label: placement?.label ?? '', repoPath: placement?.repoPath ?? this.key, headBand }
   }
 
   /** Root rows only, cached per band rather than per issue or list render. */
