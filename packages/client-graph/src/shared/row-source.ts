@@ -98,8 +98,9 @@
  * DEP EDGES. An `issueDeps` address resolves through the dep row's `fromId`
  * to the owning issue and emits that issue's row. A plain edge index remembers
  * the owner through removal. A target's completion boolean is a declared small
- * summary: only a changed completion fans out to its incoming blocking edges,
- * including optimistic stage changes. No worklist selector is read.
+ * summary: only a changed server completion fans out to its incoming blocking
+ * edges. Pending target stages do not change replica blocking. No worklist
+ * selector is read.
  *
  * WORKTREE LANES. One `SliceWorktree` per repo root plus one per scanned
  * worktree, from `EngineState.repos` (`GitRepositoryWire`, engine-local, not a

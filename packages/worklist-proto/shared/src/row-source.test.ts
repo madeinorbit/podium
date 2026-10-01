@@ -297,7 +297,7 @@ describe('row-source over the real facade (fake runtime)', () => {
     const runtime = fakeRuntime()
     const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     try {
-      const wire = issueValue('i1', { title: 'wire' })
+      const wire = issueValue('i1', { title: 'wire', pinned: true, readAt: 'read', repoPath: '/repo', commentCount: 3 })
       replica.batch(() => {
         cache.put('issue', 'i1', wire)
         replica.onKernelEvent(upserted('issue', 'i1'))
@@ -305,8 +305,20 @@ describe('row-source over the real facade (fake runtime)', () => {
         replica.onKernelEvent(upserted('issueProjection', 'i1'))
       })
       const event = handle.flush()
-      expect(event?.rows).toEqual([{ kind: 'issue', id: 'i1', value: wire }])
+      expect(event?.rows.map(row => [row.kind, row.id])).toEqual([['issue', 'i1']])
+      expect(event?.rows[0]?.value).toMatchObject({ id: 'i1', title: 'projection',
+        pinned: true, readAt: 'read', repoPath: '/repo', commentCount: 3 })
       expect(handle.stats.rowsVisited).toBe(1)
+      expect(handle.source.row('issue', 'i1')?.value).toBe(event?.rows[0]?.value)
+      handle.stats.reset()
+      cache.put('issueProjection', 'i1', issueValue('i1', { title: 'Projection-only update' }))
+      replica.onKernelEvent(upserted('issueProjection', 'i1'))
+      const updated = handle.flush()
+      expect(updated?.rows).toHaveLength(1)
+      expect(updated?.rows[0]?.value).toMatchObject({ title: 'Projection-only update',
+        pinned: true, readAt: 'read', repoPath: '/repo', commentCount: 3 })
+      expect(handle.stats.rowsVisited).toBe(1)
+      expect(handle.stats.enumerations).toBe(0)
     } finally {
       handle.dispose()
     }
@@ -924,7 +936,8 @@ describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)'
             {
               kind: 'worktree',
               id: '/repo-a',
-              value: { path: '/repo-a', repoId: 'r1', repoPath: '/repo-a', repoName: 'repo-a', prefix: 'POD' },
+              value: { path: '/repo-a', repoId: 'r1', repoPath: '/repo-a', repoName: 'repo-a', prefix: 'POD',
+                branch: 'main', isMain: true, projectIndex: 0, projectAliases: ['r1', '/repo-a'], projectRoot: true },
             },
           ])
           expect(events, 'one discovery, one event').toHaveLength(1)
@@ -957,22 +970,25 @@ describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)'
           const rows4 = await discover(second)
           expect(heldLanes()).toEqual(legacyLanes(engine))
           expect(rows4).toEqual([
-            { kind: 'worktree', id: '/repo-b', value: { path: '/repo-b', repoPath: '/repo-b', repoName: 'repo-b' } },
+            { kind: 'worktree', id: '/repo-b', value: { path: '/repo-b', repoPath: '/repo-b', repoName: 'repo-b',
+              branch: 'main', isMain: true, projectIndex: 1, projectAliases: ['/repo-b'], projectRoot: true } },
           ])
 
-          // 5. The same answer as fresh objects (a routine refresh), and a
-          //    field no lane carries (branch): no event at all.
+          // 5. Fresh but equal discovery objects emit nothing. A displayed
+          //    branch change then updates only the affected root lanes.
+          expect(await discover(second.map(r => ({ ...r, worktrees: [...r.worktrees] })))).toEqual([])
           const rows5 = await discover(
             second.map((r) => ({ ...r, branch: 'other', worktrees: [...r.worktrees] })),
           )
-          expect(rows5, 'a discovery that changes nothing visible emits nothing').toEqual([])
-          expect(events).toHaveLength(0)
+          expect(rows5.map(row => row.id).sort()).toEqual(['/repo-a', '/repo-b'])
+          expect(rows5.map(row => (row.value as { branch: string }).branch)).toEqual(['other', 'other'])
+          expect(events).toHaveLength(1)
           expect(heldLanes()).toEqual(legacyLanes(engine))
 
           // 6. The worktree goes away: its lane is removed, by path.
           const removed = [
-            { path: '/repo-a', repoId: 'r1', branch: 'main', worktrees: [] },
-            { path: '/repo-b', branch: 'main', worktrees: [] },
+            { path: '/repo-a', repoId: 'r1', branch: 'other', worktrees: [] },
+            { path: '/repo-b', branch: 'other', worktrees: [] },
           ]
           const rows6 = await discover(removed)
           expect(rows6).toEqual([{ kind: 'worktree', id: '/wt/a1', value: undefined }])
