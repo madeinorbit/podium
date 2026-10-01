@@ -74,7 +74,7 @@
  * observes it: observability on first access, applied to residency itself.
  */
 
-import { createAtom, type IAtom } from 'mobx'
+import { _isComputingDerivation, createAtom, type IAtom } from 'mobx'
 import {
   type ColdContext,
   coldByRule,
@@ -934,6 +934,10 @@ export class Residency {
 
   /** Make "is `id` cold" a tracked read: an atom for this id, on first question. */
   private observe(entity: EntityName, id: string): void {
+    // Maintenance reads the same declared summaries through the same reader,
+    // but cannot acquire a subscription. Avoid creating an atom only to drop
+    // it immediately on every ingest/owner filing probe.
+    if (!_isComputingDerivation()) return
     const key = `${entity}:${id}`
     let atom = this.atoms.get(key)
     let fresh = false
