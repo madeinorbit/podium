@@ -5,9 +5,9 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { reportSidebarCheck } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import type { IssueModel } from '@podium/client-graph'
+import type { IssueModel, MobxPool } from '@podium/client-graph'
 import { observer } from '@podium/client-graph/react'
 import { asUserId } from '@podium/model'
 import { useEffect, useState } from 'react'
@@ -53,7 +53,6 @@ const replica = createKernelReplica({
 
 const SyntheticRow = observer(
   measureSidebarRow(function SyntheticRow({ model }: { model: IssueModel }) {
-    const owner = useStoreHandle()
     const [tick, setTick] = useState(0)
     useEffect(() => {
       redraw = () => setTick((value) => value + 1)
@@ -67,7 +66,7 @@ const SyntheticRow = observer(
         type="button"
         data-tick={tick}
         className="m-4 rounded border border-border p-3 text-left"
-        onClick={() => owner.apply({ selectedIssueId: model.id })}
+        onClick={() => runtime?.apply({ selectedIssueId: model.id })}
       >
         {model.title}
       </button>
@@ -76,14 +75,13 @@ const SyntheticRow = observer(
 )
 
 function Fixture() {
-  runtime = useStoreHandle()
   const pool = useWorklistPool()
   useEffect(() => {
     if (!pool) return
     const originalRead = pool.row
-    pool.row = function (...args) {
+    pool.row = function (this: MobxPool, ...args: unknown[]) {
       rowReads++
-      return originalRead.apply(this, args)
+      return Reflect.apply(originalRead, this, args)
     } as typeof pool.row
     return () => {
       pool.row = originalRead
@@ -148,7 +146,10 @@ createRoot(document.getElementById('root')!).render(
     createReplicaFn={() => replica}
     networkEnabled={false}
     onFatalError={(message) => failures.push(message)}
-    attachRuntime={(owner) => attachWorklistPool(owner, (error) => failures.push(error.message))}
+    attachRuntime={(owner) => {
+      runtime = owner
+      return attachWorklistPool(owner, (error) => failures.push(error.message))
+    }}
   >
     <Fixture />
   </StoreProvider>,
