@@ -713,10 +713,11 @@ export class MobxPool {
     if (residency === null) return 0
     const batch = residency.take()
     const refs = residency.takeReferences()
+    const referenceGeneration = this.referenceReader?.generation
     if (refs.length && this.resolveReferences) {
       try {
         void this.resolveReferences(refs).then(replies => {
-          if (this.disposed) return
+          if (this.disposed || referenceGeneration !== this.referenceReader?.generation) return
           runInAction(() => {
             for (const { ref, id } of replies) this.referenceReader?.resolved(ref, id)
           })
@@ -742,7 +743,10 @@ export class MobxPool {
     const out = ingestOut()
     this.graph.begin()
     runInAction(() => {
-      if (event.type === 'replace') reseed(this.target, event.rows, out)
+      if (event.type === 'replace') {
+        this.referenceReader?.resetUnresolved()
+        reseed(this.target, event.rows, out)
+      }
       else {
         // POD-4753: a row this update carries is installed from it; any
         // other row it warms is asked for (the load window).

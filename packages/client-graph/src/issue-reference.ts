@@ -53,6 +53,18 @@ export class IssueReferences implements IssueReferenceReader {
   private readonly stops = new Map<string, () => void>()
   private readonly values = new Map<string, IComputedValue<Loaded<IssueReferenceModel | null>>>()
   private readonly stopTable: () => void
+  private requestGeneration = 0
+
+  get generation(): number { return this.requestGeneration }
+
+  /** A replacement changes the visible scope. Only unresolved demand keys
+   * need a fresh authority answer; resident subscriptions stay untouched. */
+  resetUnresolved(): void {
+    runInAction(() => {
+      this.requestGeneration++
+      this.requests.clear()
+    })
+  }
 
   constructor(
     private readonly host: IssueReferenceHost,

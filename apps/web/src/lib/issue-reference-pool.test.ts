@@ -266,4 +266,41 @@ describe('per-issue pool references', () => {
     for (const stop of stops) stop()
     pool.dispose()
   })
+
+  it('refreshes missing refs across scopes and rejects replies from the previous scope', async () => {
+    const cold = issue(1, { archived: true })
+    const due: Array<() => void> = []
+    let finishOld: ((reply: { ref: string; id: null }[]) => void) | undefined
+    const resolveReferences = vi.fn<(refs: readonly string[]) => Promise<{ ref: string; id: string | null }[]>>()
+      .mockResolvedValueOnce([{ ref: 'POD-1', id: null }])
+      .mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve }))
+      .mockResolvedValueOnce([{ ref: 'POD-1', id: cold.id }])
+    const load = vi.fn(() => cold)
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
+      load, resolveReferences, schedule: run => { due.push(run); return () => {} },
+    })
+    const paint = vi.fn()
+    const stop = reaction(() => pool.references.read('POD-1'), paint, { fireImmediately: true })
+    due.shift()!()
+    await Promise.resolve()
+    expect(paint.mock.calls.at(-1)?.[0]).toBeNull()
+    const scope = { type: 'replace' as const, rows: [{ kind: 'issue' as const, id: cold.id, value: cold as never }] }
+    pool.apply(scope)
+    expect(paint.mock.calls.at(-1)?.[0]).toBe(LOADING)
+    expect(due).toHaveLength(1)
+    due.shift()!()
+    pool.apply(scope)
+    finishOld!([{ ref: 'POD-1', id: null }])
+    await Promise.resolve()
+    expect(pool.references.read('POD-1')).toBe(LOADING)
+    expect(due).toHaveLength(1)
+    due.shift()!()
+    await Promise.resolve()
+    expect(load).not.toHaveBeenCalled()
+    due.shift()!()
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(resolveReferences).toHaveBeenCalledTimes(3)
+    expect(paint.mock.calls.at(-1)?.[0]).toMatchObject({ availability: 'archived', title: 'Task 1' })
+    stop(); pool.dispose()
+  })
 })
