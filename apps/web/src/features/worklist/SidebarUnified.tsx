@@ -48,7 +48,7 @@ import { FoldedRowMenu } from './FoldedRowMenu'
 import { PINNED_FOLD_KEY, projectFoldKey } from './fold-keys'
 import { ManageProjectsButton } from './ManageProjectsDialog'
 import { AddRepositoryButton, NewTaskRow, StartFirstTaskRow } from './new-task-row'
-import { usePerIdThunk } from './row-callbacks'
+import { usePerIdThunk, useStableAction } from './row-callbacks'
 import { MAX_ROW_SHORTCUTS, type RowShortcutTarget, useRowShortcuts } from './row-shortcuts'
 import { useCollapsedKeys } from './sidebar-common'
 import { UnifiedIssueRow, type UnifiedIssueRowOrigin } from './UnifiedIssueRow'
@@ -741,18 +741,10 @@ function LegacyWorkSections({
     },
     [openFoldedMenu],
   )
-  const worktreeSelectCacheRef = useRef(new Map<string, () => void>())
-  const worktreeSelectFor = useCallback(
-    (path: string): (() => void) => {
-      let fn = worktreeSelectCacheRef.current.get(path)
-      if (!fn) {
-        fn = () => selectWorktree(path)
-        worktreeSelectCacheRef.current.set(path, fn)
-      }
-      return fn
-    },
-    [selectWorktree],
-  )
+  // Cached row handlers keep their identity while dispatching through the
+  // current actions, which close over the latest sessions and pane A.
+  const { forId: worktreeSelectFor } = usePerIdThunk(selectWorktree)
+  const selectPanelAction = useStableAction(selectPanel)
   const worktreePanelCacheRef = useRef(
     new Map<string, (sid: Parameters<typeof selectPanel>[1]) => void>(),
   )
@@ -760,12 +752,12 @@ function LegacyWorkSections({
     (path: string) => {
       let fn = worktreePanelCacheRef.current.get(path)
       if (!fn) {
-        fn = (sid: Parameters<typeof selectPanel>[1]) => selectPanel(path, sid)
+        fn = (sid: Parameters<typeof selectPanel>[1]) => selectPanelAction(path, sid)
         worktreePanelCacheRef.current.set(path, fn)
       }
       return fn
     },
-    [selectPanel],
+    [selectPanelAction],
   )
   // Keep the id-keyed lookups fresh for the stable handlers above, and prune
   // the per-id caches to what is on screen.
