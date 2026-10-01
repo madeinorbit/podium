@@ -60,6 +60,8 @@ export const ROW_KINDS = [
   'setWorktree',
   'setStartedBy',
   'setBranch',
+  'issueFacts',
+  'sessionFacts',
 ] as const
 
 /** The optimistic write path (L1c §5) and the client's own lifecycle. */
@@ -130,6 +132,9 @@ export type RowChange = Tagged &
     | { kind: 'setStartedBy'; id: string; sessionId: string }
     /** A private branch with unlanded work stamped onto an issue (the merge verdict). */
     | { kind: 'setBranch'; id: string; branch: string }
+    /** Sidebar inputs absent from the round-three vocabulary. */
+    | { kind: 'issueFacts'; id: string; variant: number }
+    | { kind: 'sessionFacts'; sessionId: string; variant: number }
   )
 
 /** What an edit sets. `readAt: true` is a mark-read press: the runtime stamps it. */
@@ -208,6 +213,8 @@ export const DEFAULT_WEIGHTS: Readonly<Record<ChangeKind | 'shapes', number>> = 
   setWorktree: 0,
   setStartedBy: 0,
   setBranch: 0,
+  issueFacts: 3,
+  sessionFacts: 3,
 }
 
 /** Clock steps, weighted toward the runtime's own minute tick. 25 h crosses
@@ -492,6 +499,8 @@ export interface GenOptions {
    * `forcePendingRemote`).
    */
   forceSessionHeartbeat?: boolean
+  /** Exercise every sidebar fact mutation on a fresh visible row in every seed. */
+  forceSidebarValues?: boolean
   /**
    * POD-4574 (Mc2) — which fields generated edits may set. Default all three.
    * The Mc2 gate uses title + mark-read only: a pending stage moves progress
@@ -666,6 +675,14 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
         if (id === undefined) return null
         model.evicted.delete(id)
         return { kind, id, ...tag }
+      }
+      case 'issueFacts': {
+        const issue = pickIssue()
+        return issue ? { kind, id: issue.id, variant: int(0, 7), ...tag } : null
+      }
+      case 'sessionFacts': {
+        const session = pickSession()
+        return session ? { kind, sessionId: session.id, variant: int(0, 7), ...tag } : null
       }
       case 'newOrphanSession':
       case 'newDraftIssue':
@@ -1139,6 +1156,21 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
       { kind: 'newSession', sessionId, issueId: issue.id, phase: 'working' },
       { kind: 'heartbeat', sessionId },
     )
+  }
+  if (opts.forceSidebarValues === true) {
+    if (steps - out.length < 18) throw new Error('[gen] sidebar facts need eighteen prefix steps')
+    const id = model.mint('i-g'), sessionId = model.mint('s-g')
+    const repoId = pick([...model.issues.values()])?.repoId ?? null
+    model.issues.set(id, { id, parentId: null, repoId, stage: 'in_progress', archived: false,
+      sortKey: null, sessions: new Set([sessionId]), audience: 'human', draft: false,
+      worktreePath: null, startedBySession: null })
+    model.hot.push(id); model.allIssues.push(id)
+    model.sessions.set(sessionId, { id: sessionId, issueId: id, phase: 'working', offer: false })
+    model.hotSessions.push(sessionId); model.allSessions.push(sessionId)
+    out.push({ kind: 'newIssue', id, parentId: null, title: 'Sidebar facts' },
+      { kind: 'newSession', sessionId, issueId: id, phase: 'working' })
+    for (let variant = 0; variant < 8; variant += 1) out.push(
+      { kind: 'issueFacts', id, variant }, { kind: 'sessionFacts', sessionId, variant })
   }
   if ((w['shapes'] ?? 0) > 0) {
     for (const forced of [

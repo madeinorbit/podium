@@ -58,12 +58,25 @@ export interface SliceIssue {
   readAt?: string | null
   unread?: boolean
   title: string
+  color?: string | null
+  branch?: string | null
+  parentBranch?: string | null
+  gitState?: { shared?: boolean; merged?: boolean; ahead?: number; [key: string]: unknown } | null
+  commentCount?: number
+  origin?: 'human' | 'agent'
+  humanQuestion?: string | null
+  humanQuestionOptions?: readonly string[]
+  supersededBy?: string | null
+  duplicateOf?: string | null
 }
 
 export interface SliceAgentState {
   phase?: string | null
   since?: string
   workingMsTotal?: number
+  nativeSubagentCount?: number
+  idle?: { kind?: string; summary?: string }
+  error?: { class?: string; retryable?: boolean }
 }
 
 /**
@@ -76,6 +89,12 @@ export interface SliceSession {
   issueId?: string | null
   cwd: string
   agentKind?: string | null
+  title?: string
+  createdAt?: string
+  name?: string | null
+  displayRef?: string
+  snoozedUntil?: string | null
+  draftUpdatedAt?: string
   headless?: boolean
   status?: string | null
   archived?: boolean
@@ -102,6 +121,12 @@ export interface SliceWorktree {
   repoName: string
   /** Repo prefix for `displayRef`; null/undefined renders `#seq`. */
   prefix?: string | null
+  branch?: string
+  isMain?: boolean
+  projectIndex?: number
+  projectPinned?: boolean
+  worktreePinned?: boolean
+  projectAliases?: readonly string[]
 }
 
 /**

@@ -50,7 +50,7 @@ import {
   type RowView,
   rankOf,
 } from './shared/row-view'
-import type { EntityName } from './shared/schema'
+import { awaitingMergeOf, type EntityName } from './shared/schema'
 import type { SliceIssue, SliceSession } from './shared/slice-types'
 import type { Rollup } from './worklist/rollup'
 
@@ -213,7 +213,7 @@ export function displayTitleOf(
   const kind = firstMember.agentKind ?? 'undefined'
   const panelLabel = Object.hasOwn(PANEL_LABELS, kind) ? PANEL_LABELS[kind] : undefined
   const label = kind === 'shell' ? 'Shell' : (panelLabel ?? kind)
-  return `New ${label} session`
+  return firstMember.name?.trim() || `New ${label} session`
 }
 
 const LEGACY_CLOSE_REASONS: Readonly<Record<string, string>> = {
@@ -268,7 +268,7 @@ export function closedOf(
   waiting: boolean,
   input: Pick<ViewInputs, 'passed'>,
 ): boolean {
-  if (!isClosedTopLevel(issue) || issue.needsHuman === true || waiting) return false
+  if (!isClosedTopLevel(issue) || issue.needsHuman === true || awaitingMergeOf(issue) || waiting) return false
   if (issueAbandoned(issue)) return true
   if (issue.tuckedAt != null) return true
   const finishedAt = parseMs(issue.closedAt ?? issue.updatedAt) ?? 0

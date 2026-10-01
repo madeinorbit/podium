@@ -137,6 +137,7 @@ import {
   type PendingOverlay,
 } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
+import { temporaryIssueInput } from './temporary-issue-input'
 import { shallowEqual } from '@podium/client-core/store'
 import type { RowSource } from './source'
 import type { SliceIssue, SliceSession, SliceWorktree } from './slice-types'
@@ -147,7 +148,10 @@ type AnyRow = { [k: string]: unknown }
 interface RepoEntry {
   path: string
   repoId?: string | null
-  worktrees?: readonly { path: string }[]
+  name?: string
+  branch?: string
+  machines?: readonly { path: string }[]
+  worktrees?: readonly { path: string; branch?: string; isMain?: boolean }[]
 }
 
 /** The runtime surface the row source reads. Structural so tests can drive it
@@ -349,7 +353,7 @@ export function createRowSource(
     }
   }
 
-  function authority(kind: OverlayEntity, id: string): AnyRow | undefined {
+  function authority(kind: ReplicaKind, id: string): AnyRow | undefined {
     try {
       return readRow(kind, id)
     } catch {
@@ -369,15 +373,64 @@ export function createRowSource(
 
   /** One slice row's current value. `pending: null` resolves server truth
    *  alone — the value the arms hold for a row that had no overlay. */
+  const edgeRows = new Map<string, { from: string; to: string; type: string }>()
+  const outgoing = new Map<string, SliceIssue['deps']>()
+  const incoming = new Map<string, Set<string>>()
+  const closure = new Map<string, boolean>()
+  let edgesReady = false
+
+  function installEdge(id: string, raw: AnyRow | undefined): string[] {
+    const before = edgeRows.get(id)
+    const after = raw === undefined ? undefined : {
+      from: String(raw.fromId ?? raw.from ?? ''),
+      to: String(raw.toId ?? raw.to ?? ''), type: String(raw.type ?? ''),
+    }
+    const owners = new Set<string>()
+    if (before !== undefined) {
+      owners.add(before.from)
+      outgoing.set(before.from, (outgoing.get(before.from) ?? []).filter(e => !(e.id === before.to && e.type === before.type)))
+      if (before.type === 'blocks') incoming.get(before.to)?.delete(before.from)
+    }
+    edgeRows.delete(id)
+    if (after !== undefined && after.from && after.to) {
+      edgeRows.set(id, after)
+      owners.add(after.from)
+      outgoing.set(after.from, [...(outgoing.get(after.from) ?? []), { id: after.to, type: after.type }])
+      if (after.type === 'blocks') {
+        let ownersOf = incoming.get(after.to)
+        if (ownersOf === undefined) { ownersOf = new Set(); incoming.set(after.to, ownersOf) }
+        ownersOf.add(after.from)
+      }
+    }
+    return [...owners]
+  }
+
+  function ensureEdges(): void {
+    if (edgesReady) return
+    edgesReady = true
+    for (const raw of replica.rows('issueDeps')) {
+      const id = idOf(raw)
+      if (id !== null) installEdge(id, raw)
+    }
+  }
+
+  function closedInput(id: string, pending: PendingByRow | null): boolean | undefined {
+    const projection = folded('issueProjections', id, pending) ?? folded('issues', id, pending)
+    return projection === undefined ? undefined : projection.stage === 'done'
+  }
+
   function resolve(
     kind: 'session' | 'issue',
     id: string,
     pending: PendingByRow | null,
   ): RowRecord['value'] {
     if (kind === 'session') return folded('sessions', id, pending) as SliceSession | undefined
-    const wire = folded('issues', id, pending)
-    if (wire !== undefined) return wire as unknown as SliceIssue
-    return folded('issueProjections', id, pending) as unknown as SliceIssue | undefined
+    ensureEdges()
+    const projection = folded('issueProjections', id, pending)
+    const temporary = folded('issues', id, pending)
+    const deps = outgoing.get(id) ?? EMPTY
+    const blocked = deps.some(edge => edge.type === 'blocks' && closedInput(edge.id, pending) === false)
+    return temporaryIssueInput(projection, temporary, deps, blocked)
   }
 
   function hasOverlays(kind: 'session' | 'issue', id: string, pending: PendingByRow): boolean {
@@ -395,17 +448,17 @@ export function createRowSource(
     return typeof row?.prefix === 'string' ? (row.prefix as string) : null
   }
 
-  function laneFor(path: string, repoId: string | null, repoPath: string): SliceWorktree {
-    const repoName = repoNameOf(repoPath)
+  function laneFor(path: string, repoId: string | null, repoPath: string, branch?: string, isMain?: boolean, projectIndex?: number, projectAliases?: readonly string[], name?: string): SliceWorktree {
+    const repoName = name ?? repoNameOf(repoPath)
     const prefix = repoId !== null ? prefixOf(repoId) : null
-    const sig = `${path}|${repoId ?? ''}|${repoPath}|${repoName}|${prefix ?? ''}`
+    const sig = `${path}|${repoId ?? ''}|${repoPath}|${repoName}|${prefix ?? ''}|${branch ?? ''}|${isMain ?? ''}|${projectIndex ?? ''}|${projectAliases?.join(',') ?? ''}`
     const cached = laneCache.get(path)
     if (cached !== undefined && cached.sig === sig) return cached.lane
     const lane: SliceWorktree = {
       path,
       ...(repoId !== null ? { repoId } : {}),
       repoPath,
-      repoName,
+      repoName, branch, isMain, projectIndex, projectAliases,
       ...(prefix !== null ? { prefix } : {}),
     }
     laneCache.set(path, { sig, lane })
@@ -418,8 +471,10 @@ export function createRowSource(
 
   function lanesOf(repo: RepoEntry): SliceWorktree[] {
     const repoId = repoIdOf(repo)
-    const lanes = [laneFor(repo.path, repoId, repo.path)]
-    for (const wt of repo.worktrees ?? []) lanes.push(laneFor(wt.path, repoId, repo.path))
+    const projectIndex = currentRepos().indexOf(repo)
+    const aliases = repo.machines?.map(m => m.path)
+    const lanes = [laneFor(repo.path, repoId, repo.path, repo.branch, true, projectIndex, aliases, repo.name)]
+    for (const wt of repo.worktrees ?? []) lanes.push(laneFor(wt.path, repoId, repo.path, wt.branch, wt.isMain, projectIndex, aliases, repo.name))
     return lanes
   }
 
@@ -515,17 +570,6 @@ export function createRowSource(
     held = after
   }
 
-  /** The issue a dep edge belongs to, read through the edge row by id. */
-  function depOwner(depId: string): string | null {
-    try {
-      const dep = readRow('issueDeps', depId) as { fromId?: unknown; from?: unknown } | undefined
-      const raw = dep?.fromId ?? dep?.from
-      return typeof raw === 'string' ? raw : null
-    } catch {
-      return null
-    }
-  }
-
   /** Keep the previously emitted object when the fold recomposed an equal one. */
   function retain(key: string, value: RowRecord['value']): RowRecord['value'] {
     if (!overlaid.has(key)) return value
@@ -562,6 +606,7 @@ export function createRowSource(
     for (const id of ids) {
       stats.rowsVisited += 1
       const value = resolve(kind, id, pending)
+      if (kind === 'issue') { const closed = closedInput(id, pending); if (closed !== undefined) closure.set(id, closed) }
       if (hasOverlays(kind, id, pending)) overlaid.set(`${kind}:${id}`, value)
       // An insert a server row already covers, or a patch on a row that is
       // gone, resolves to nothing: not a row.
@@ -612,6 +657,9 @@ export function createRowSource(
 
     stats.flushes += 1
     if (hadReplace) {
+      edgesReady = false
+      edgeRows.clear(); outgoing.clear(); incoming.clear(); closure.clear()
+      ensureEdges()
       stats.enumerations += 1
       const lanes = allLanes()
       // Every subscriber now holds these lanes.
@@ -642,8 +690,20 @@ export function createRowSource(
         addressed.set(`session:${address.id}`, { kind: 'session', id: address.id })
         continue
       }
-      const issueId = address.kind === 'issueDeps' ? depOwner(address.id) : address.id
-      if (issueId !== null) addressed.set(`issue:${issueId}`, { kind: 'issue', id: issueId })
+      if (address.kind === 'issueDeps') {
+        ensureEdges()
+        for (const owner of installEdge(address.id, authority('issueDeps', address.id))) {
+          addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
+        }
+      } else {
+        addressed.set(`issue:${address.id}`, { kind: 'issue', id: address.id })
+        const closed = closedInput(address.id, pending)
+        if (closure.get(address.id) !== closed) {
+          for (const owner of incoming.get(address.id) ?? EMPTY) addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
+        }
+        if (closed === undefined) closure.delete(address.id)
+        else closure.set(address.id, closed)
+      }
     }
     for (const [key, { kind, id }] of addressed) {
       stats.rowsVisited += 1

@@ -598,8 +598,13 @@ function abandonedCloseReason(closedReason: unknown): boolean {
  */
 export function awaitingMergeOf(row: MergeVerdictRow): boolean {
   const finished = row.stage === 'done' || row.closedReason != null
-  if (!finished || row.blocked === true) return false
+  if (!finished) return false
   if (abandonedCloseReason(row.closedReason)) return false
+  return unmergedDeliveryOf(row)
+}
+
+/** Private unlanded commits, including a review-stage deliverable. */
+export function unmergedDeliveryOf(row: MergeVerdictRow): boolean {
   const git = row.gitState as { shared?: unknown; merged?: unknown; ahead?: unknown } | null | undefined
   return (
     typeof row.branch === 'string' &&

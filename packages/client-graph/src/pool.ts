@@ -44,6 +44,7 @@
  * never configures MobX.
  */
 
+import { SidebarIndex } from './worklist/sidebar'
 import {
   compareStructural,
   type IObservableArray,
@@ -188,6 +189,7 @@ export interface LazyMembers {
 
 export class MobxPool {
   /** The tables: every read and write in the pool goes here. */
+  readonly sidebar: SidebarIndex
   readonly tables: PoolTables
   readonly relations: RelationReader
   /** The relation engine itself. */
@@ -369,6 +371,7 @@ export class MobxPool {
       },
       ...(residency === null ? {} : { residency }),
     }
+    this.sidebar = new SidebarIndex(this)
     this.selectedId = null
     // Every row below comes from the one reader (`row`); none of these
     // functions is replaced after construction (the write layer's pending
@@ -446,6 +449,7 @@ export class MobxPool {
       | 'object'
       | 'release'
     >(this, {
+      sidebar: false,
       tables: false,
       relations: false,
       graph: false,

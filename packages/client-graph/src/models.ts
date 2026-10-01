@@ -67,6 +67,7 @@
  * across), so no two groups wait on each other.
  */
 
+import { fleetOf, sidebarLifecycle, sidebarTiming, unstarted, type SidebarRowValues } from './worklist/sidebar-row'
 import type { RelationReader } from './shared/relation-reader'
 import type {
   CollectionName,
@@ -529,6 +530,51 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.host.edit('issue', this.id, patch)
   }
 
+  /** All facts needed by the real row; reuses the issue's existing caches. */
+  get sidebar(): SidebarRowValues | typeof LOADING | undefined {
+    const facts = this.loaded.facts
+    if (facts.state === 'cold') return LOADING
+    if (facts.issue === undefined) return undefined
+    const own = facts.issue
+    const issue = { ...own, readAt: this.host.visibleInputs.issueRead(this.id), unread: this.unread }
+    const agg = this.aggregate
+    const sessions = this.ownAttention.sessions ?? []
+    const aggregateSessions = agg.sessions ?? []
+    const fromChildren = this.unitsBelow.members > 0
+    const progress = fromChildren
+      ? { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, ...this.unitsBelow.progress, total: this.unitsBelow.units }
+      : { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, total: this.unitOwn.solo ? 1 : 0,
+          ...(this.unitOwn.solo ? { [this.unitOwn.state ?? 'wait']: 1 } : {}) }
+    const decision = this.ownAttention.deciding ? facts.decision : null
+    const errored = facts.finished ? undefined : aggregateSessions.find(s => !s.archived && s.status !== 'exited' && s.agentState?.phase === 'errored')
+    let continuation: SidebarRowValues['continuation'] = null
+    const targetId = own.supersededBy ?? own.duplicateOf
+    if (targetId) {
+      const target = this.host.inputs.parts(targetId)?.label
+      continuation = { kind: own.supersededBy ? 'continued' : 'duplicate', ref: target?.displayRef ?? 'another task' }
+    } else if (!this.openOwn) {
+      const tip = this.tip.target
+      if (tip) continuation = { kind: 'continued', ref: this.host.inputs.parts(tip.id)?.label.displayRef ?? `#${tip.seq}` }
+    }
+    const readMs = Date.parse(issue.readAt ?? '')
+    const descendantUnread = issue.readAt && Number.isFinite(readMs) && (
+      (Date.parse(agg.updatedAt ?? '') || 0) > readMs || aggregateSessions.some(s => Date.parse(s.lastActiveAt) > readMs))
+    return {
+      idNumber: this.seq, color: own.color ?? null, title: this.title,
+      timing: sidebarTiming(aggregateSessions, this.phase, facts.finished, this.activityAt, agg.decidingAt),
+      decision, mergeCommits: decision === 'merge' ? own.gitState?.ahead ?? 0 : 0,
+      progress, fromChildren, gitState: own.gitState,
+      unread: !this.working && (this.unread || Boolean(descendantUnread)),
+      errorClass: errored ? errored.agentState?.error?.class ?? 'unknown' : null,
+      internal: own.audience === 'agent',
+      ...sidebarLifecycle(issue, this.asking, this.host.inputs.passed, this.host.inputs.reached),
+      draftAgentOnly: own.draft === true && !own.worktreePath && sessions.length > 0,
+      firstSessionId: sessions[0]?.sessionId ?? null, continuation,
+      fleet: fleetOf(aggregateSessions), issue, sessions, aggregateSessions,
+      awaitingFirstPrompt: own.draft === true && this.phase === 'queued' && aggregateSessions.length > 0 && aggregateSessions.every(unstarted),
+    }
+  }
+
   // ------------------------------------------------------------- the groups
 
   get facts(): IssueFacts | undefined {
@@ -559,7 +605,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return IssueModel.groups.nested(this)
   }
 
-  get tip(): { readonly found: boolean; readonly pending: number } {
+  get tip(): import('./worklist/rollup').Tip {
     return IssueModel.groups.tip(this)
   }
 

@@ -525,6 +525,7 @@ export interface IssueVisibility extends RollupParts, Members {
 /** The roll-up parts' inputs over the visibility inputs: held issues for rows, sessions for seats. */
 export function rollupInputsOf(input: VisibleInputs): RollupInputs {
   return {
+    reached: input.reached,
     loadedIssue: (id) => input.loadedIssue(id),
     spinOffCount: (id) => input.links.issue.spinOffs.size(id),
     nested: (id) => input.nested(id),

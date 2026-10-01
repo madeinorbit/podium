@@ -20,6 +20,7 @@ function targetOf(c: RowChange): string {
     case 'phaseChange':
     case 'offerChange':
     case 'newOrphanSession':
+    case 'sessionFacts':
       return c.sessionId
     case 'newWorktree':
       return c.path

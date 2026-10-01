@@ -67,7 +67,8 @@
 
 import type { RowView } from '../shared/row-view'
 import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
-import { awaitingMergeOf } from '../shared/schema'
+import { sortedSidebarSessions } from './sidebar-row'
+import { unmergedDeliveryOf } from '../shared/schema'
 import { issueAbandoned } from '../views'
 
 // ------------------------------------------------------------ session rules
@@ -208,6 +209,8 @@ export interface SeatVerdict {
    * `workingSinceOf`): `agentState.since ?? lastActiveAt` while working.
    */
   readonly workingSinceMs: number | null
+  /** Borrowed resident seat; no second row read or per-seat cache. */
+  readonly sidebarSession?: SliceSession
 }
 
 export function seatVerdictOf(session: SliceSession): SeatVerdict {
@@ -218,6 +221,7 @@ export function seatVerdictOf(session: SliceSession): SeatVerdict {
     finished: motionPhase(session, true),
     working,
     workingSinceMs: Number.isFinite(at) ? at : null,
+    sidebarSession: session,
   }
 }
 
@@ -239,6 +243,10 @@ export interface PhaseFlags {
  */
 export interface Aggregate {
   /** Some seat anywhere in it (`rowSessions(row).length > 0`). */
+  readonly sessions?: readonly SliceSession[]
+  readonly updatedAt?: string
+  readonly order?: { sortKey?: string | null; createdAt: string; seq: number; id: string }
+  readonly decidingAt?: number
   readonly seated: boolean
   /** Some seat computing (`rowHasWorkingSession`, `row-attention.ts:95-97`). */
   readonly working: boolean
@@ -295,6 +303,7 @@ export function withSeat(own: OwnAttention, seat: SeatVerdict): OwnAttention {
   return {
     ...own,
     seated: true,
+    sessions: seat.sidebarSession === undefined ? own.sessions : [...(own.sessions ?? []), seat.sidebarSession],
     working: own.working || seat.working,
     open: flagsWith(own.open, seat.open),
     finished: flagsWith(own.finished, seat.finished),
@@ -321,7 +330,13 @@ export function aggregate(input: {
   readonly children: readonly Aggregate[]
 }): Aggregate {
   let { seated, working, deciding, open, finished, pending } = input.own
+  const sessions = [...(input.own.sessions ?? [])]
+  let updatedAt = input.own.updatedAt ?? ''
+  let decidingAt = input.own.decidingAt
   for (const child of input.children) {
+    sessions.push(...(child.sessions ?? []))
+    if ((child.updatedAt ?? '') > updatedAt) updatedAt = child.updatedAt ?? ''
+    if (child.decidingAt !== undefined && (decidingAt === undefined || child.decidingAt < decidingAt)) decidingAt = child.decidingAt
     seated ||= child.seated
     working ||= child.working
     deciding ||= child.deciding
@@ -329,7 +344,7 @@ export function aggregate(input: {
     finished = joinFlags(finished, child.finished)
     pending += child.pending
   }
-  return { seated, working, deciding, open, finished, pending }
+  return { seated, working, deciding, open, finished, pending, sessions, updatedAt, decidingAt }
 }
 
 /**
@@ -360,7 +375,7 @@ export function pendingDecisionOf(issue: SliceIssue): 'review' | 'merge' | null 
   if (!finished && issue.stage !== 'review') return null
   if (issue.blocked === true) return null
   if (issueAbandoned(issue)) return null
-  if (awaitingMergeOf(issue)) return 'merge'
+  if (unmergedDeliveryOf(issue)) return 'merge'
   return issue.stage === 'review' ? 'review' : null
 }
 
@@ -378,7 +393,11 @@ function continuedByField(issue: SliceIssue): boolean {
 // ------------------------------------------------------------ progress
 
 /** One issue's own contribution to an ancestor's progress (`computeMissionRollup`). */
+export type UnitState = 'done' | 'run' | 'review' | 'stall' | 'block' | 'wait'
+
 export interface UnitOwn {
+  readonly state?: UnitState
+  readonly staffed?: boolean
   /** Accepted formal member: not proposed, not abandoned (`mission.ts:1368-1370`). */
   readonly member: boolean
   /** A member that is not a vacated origin (`mission.ts:1375-1388`). */
@@ -411,6 +430,8 @@ export type ProgressFacts = Pick<SliceIssue, 'stage' | 'closedReason'>
 
 /** The progress counts of a formal closure (the root excluded). Plain data. */
 export interface Units {
+  readonly progress?: Readonly<Record<UnitState, number>>
+  readonly staffed?: boolean
   readonly members: number
   readonly units: number
   readonly done: number
@@ -430,17 +451,22 @@ export function unitsOf(input: {
   readonly children: readonly { readonly own: UnitOwn; readonly below: Units }[]
 }): Units {
   let { members, units, done, pending } = NO_UNITS
+  const progress: Record<UnitState, number> = { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
+  let staffed = false
   for (const { own, below } of input.children) {
     if (own.cold) {
       pending += 1
       continue
     }
+    staffed ||= own.staffed === true || below.staffed === true
+    if (own.unit) progress[own.state ?? (own.done ? 'done' : 'wait')] += 1
+    for (const state of Object.keys(progress) as UnitState[]) progress[state] += below.progress?.[state] ?? 0
     members += (own.member ? 1 : 0) + below.members
     units += (own.unit ? 1 : 0) + below.units
     done += (own.done ? 1 : 0) + below.done
     pending += below.pending
   }
-  return { members, units, done, pending }
+  return { members, units, done, pending, progress, staffed }
 }
 
 export function unitOwnOf(facts: ProgressFacts, vacated: boolean): UnitOwn {
@@ -515,6 +541,7 @@ export type Loaded<T> = T | typeof LOADING | undefined
 
 /** What the roll-up parts read. Tracked in the live pool; plain in the rebuild. */
 export interface RollupInputs {
+  reached?(at: number): boolean
   /** The row when resident; `LOADING` when cold (the read queues its load); undefined when unknown. */
   loadedIssue(id: string): Loaded<SliceIssue>
   /** The `spinOffs` bucket's size (free, like `Map.size`; tracked). */
@@ -539,6 +566,7 @@ export interface OwnFacts {
   readonly finished: boolean
   readonly decision: 'review' | 'merge' | null
   readonly continuedByField: boolean
+  readonly issue?: SliceIssue
 }
 
 /** The roll-up parts of one issue node. */
@@ -556,7 +584,7 @@ export interface RollupParts {
   /** Some explicit session of its own is on the task (`openIssues`, `mission.ts:582-590`). */
   readonly openOwn: boolean
   /** A live spin-off descendant that started or is staffed (`liveSpinOffTip`), and cold ones pending. */
-  readonly tip: { readonly found: boolean; readonly pending: number }
+  readonly tip: Tip
   /** The row's roll-up fields; undefined when the issue is unknown. */
   readonly rollup: Rollup | undefined
 }
@@ -591,6 +619,7 @@ export function ownFactsOf(issue: Loaded<SliceIssue>): OwnFacts {
     finished: issue.stage === 'done' || issue.closedReason != null,
     decision: pendingDecisionOf(issue),
     continuedByField: continuedByField(issue),
+    issue,
   }
 }
 
@@ -599,11 +628,22 @@ export function ownFactsOf(issue: Loaded<SliceIssue>): OwnFacts {
  * `liveSpinOffTip` would name exists, `mission.ts:740-791`), over the declared
  * `spinOffs` relation: each spin-off's own verdict, then its own `tip`.
  */
+export interface TipTarget {
+  readonly id: string
+  readonly seq: number
+  readonly repoId?: string | null
+  readonly staffed: boolean
+  readonly finished: boolean
+  readonly activeAt: string
+}
+export interface Tip { readonly found: boolean; readonly pending: number; readonly target?: TipTarget }
+
 export function tipPartOf(
   input: RollupInputs,
   id: string,
-): { readonly found: boolean; readonly pending: number } {
+): Tip {
   let pending = 0
+  let target: TipTarget | undefined
   for (const spinOffId of input.spinOffIds(id)) {
     const issue = input.loadedIssue(spinOffId)
     if (issue === LOADING) {
@@ -612,12 +652,21 @@ export function tipPartOf(
     }
     if (issue === undefined || issue.archived === true || issue.deletedAt != null) continue
     const node = input.rollupNode(spinOffId)
-    if (leftMission(issue) || node?.openOwn === true) return { found: true, pending: 0 }
+    const ownTarget: TipTarget | undefined = leftMission(issue) || node?.openOwn === true ? {
+      id: issue.id, seq: issue.seq, repoId: issue.repoId, staffed: node?.openOwn === true,
+      finished: issue.stage === 'done' || issue.closedReason != null,
+      activeAt: new Date(Math.max(Date.parse(issue.updatedAt) || 0, node?.seatActivity ?? 0)).toISOString(),
+    } : undefined
     const below = node?.tip
-    if (below?.found === true) return { found: true, pending: 0 }
+    for (const candidate of [ownTarget, below?.target]) {
+      if (candidate === undefined) continue
+      if (target === undefined || Number(candidate.staffed) > Number(target.staffed) ||
+        (candidate.staffed === target.staffed && Number(candidate.finished) < Number(target.finished)) ||
+        (candidate.staffed === target.staffed && candidate.finished === target.finished && candidate.activeAt > target.activeAt)) target = candidate
+    }
     pending += below?.pending ?? 0
   }
-  return { found: false, pending }
+  return target === undefined ? { found: false, pending } : { found: true, pending: 0, target }
 }
 
 /**
@@ -653,7 +702,13 @@ export function ownAttentionPartOf(
       }
     }
   }
-  return pending === 0 && !deciding ? own : { ...own, deciding, pending: own.pending + pending }
+  return {
+    ...own, deciding, pending: own.pending + pending,
+    sessions: sortedSidebarSessions(own.sessions ?? [], input.reached ?? (() => false), facts.issue?.coordinatorSessionId),
+    updatedAt: facts.issue?.updatedAt,
+    order: facts.issue,
+    decidingAt: deciding ? (Date.parse(facts.issue?.closedAt ?? facts.issue?.updatedAt ?? '') || undefined) : undefined,
+  }
 }
 
 /**
@@ -681,7 +736,16 @@ export function aggregatePartOf(
     const child = input.rollupNode(childId)
     if (child !== undefined) children.push(child.aggregate)
   }
-  return aggregate({ own, children })
+  children.sort((a, b) => {
+    const x = a.order, y = b.order
+    if (x === undefined || y === undefined) return 0
+    const keyed = Number(!x.sortKey) - Number(!y.sortKey)
+    if (keyed) return keyed
+    if (x.sortKey && y.sortKey && x.sortKey !== y.sortKey) return x.sortKey < y.sortKey ? -1 : 1
+    return (Date.parse(y.createdAt) || 0) - (Date.parse(x.createdAt) || 0) || y.seq - x.seq || x.id.localeCompare(y.id)
+  })
+  const combined = aggregate({ own, children })
+  return { ...combined, order: own.order }
 }
 
 /**
@@ -694,13 +758,17 @@ export function aggregatePartOf(
 export function unitOwnPartOf(
   input: RollupInputs,
   id: string,
-  self: Pick<RollupSelf, 'openOwn'>,
+  self: Pick<RollupSelf, 'openOwn' | 'unitsBelow'>,
 ): UnitOwn {
   const issue = input.loadedIssue(id)
   if (issue === LOADING) return PENDING_UNIT
   if (issue === undefined) return NO_UNIT
   const vacated = input.spinOffCount(id) > 0 && !self.openOwn
-  return unitOwnOf(issue, vacated)
+  const staffed = self.openOwn || self.unitsBelow.staffed === true
+  const unit = unitOwnOf(issue, vacated)
+  const state: UnitState = unit.done ? 'done' : issue.blocked ? 'block' : issue.stage === 'review' ? 'review' :
+    ['planning', 'in_progress', 'shipping'].includes(issue.stage) ? (issue.stage === 'shipping' || staffed ? 'run' : 'stall') : 'wait'
+  return { ...unit, staffed, state }
 }
 
 /**
@@ -798,7 +866,7 @@ export interface Progress {
 export function progressOf(
   input: RollupInputs,
   id: string,
-  self: Pick<RollupSelf, 'openOwn'>,
+  self: Pick<RollupSelf, 'openOwn' | 'unitsBelow'>,
 ): Progress {
   return { unitOwn: unitOwnPartOf(input, id, self), unitsBelow: unitsBelowPartOf(input, id) }
 }

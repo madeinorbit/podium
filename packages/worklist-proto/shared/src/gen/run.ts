@@ -506,6 +506,36 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
             dirtyFiles: 0,
           },
         })
+      case 'issueFacts': {
+        const now = ctx.engine.getSnapshot().coarseNow
+        const stamp = new Date(now).toISOString()
+        const patches: Record<string, unknown>[] = [
+          { pinned: true, readAt: stamp, commentCount: 3, color: 'violet' },
+          { pinned: false, deferUntil: new Date(now + 60_000).toISOString() },
+          { deferUntil: new Date(now - 60_000).toISOString(), readAt: null },
+          { deferUntil: 'next-message', needsHuman: true, humanQuestion: 'Which path?', humanQuestionOptions: ['A', 'B'] },
+          { deferUntil: null, needsHuman: false, humanQuestion: null, humanQuestionOptions: null, tuckedAt: stamp },
+          { tuckedAt: null, branch: 'issue/sidebar-facts', gitState: { shared: false, merged: false, ahead: 4, dirtyFiles: 2, updatedAt: stamp } },
+          { gitState: { shared: true, merged: true, ahead: 0, dirtyFiles: 0, updatedAt: stamp }, commentCount: 5, color: 'blue' },
+          { audience: 'agent', draft: true, origin: 'agent', worktreePath: null },
+        ]
+        return patchIssue(c.id, patches[c.variant % patches.length]!)
+      }
+      case 'sessionFacts': {
+        const now = ctx.engine.getSnapshot().coarseNow
+        const stamp = new Date(now).toISOString()
+        const patches: Record<string, unknown>[] = [
+          { name: 'Named seat', agentKind: 'claude', status: 'live', agentState: { phase: 'working', since: stamp, workingMsTotal: 1200, nativeSubagentCount: 3 } },
+          { name: null, title: 'New seat', snoozedUntil: null, draftUpdatedAt: stamp },
+          { snoozedUntil: new Date(now - 60_000).toISOString(), agentState: { phase: 'needs_user', since: stamp, workingMsTotal: 1800, nativeSubagentCount: 2 } },
+          { snoozedUntil: new Date(now + 60_000).toISOString(), agentState: { phase: 'errored', since: stamp, error: { class: 'auth', retryable: true }, nativeSubagentCount: 0 } },
+          { status: 'hibernated', agentState: { phase: 'idle', since: stamp, idle: { kind: 'done', summary: 'Turn finished' }, workingMsTotal: 2000, nativeSubagentCount: 4 } },
+          { status: 'exited', agentState: { phase: 'ended', since: stamp, workingMsTotal: 2300 } },
+          { status: 'live', snoozedUntil: undefined, agentKind: 'codex', name: null, title: 'Codex', agentState: { phase: 'idle', since: stamp, idle: { kind: 'open_todos', summary: '' } } },
+          { status: 'live', name: null, title: 'Codex', agentState: { phase: 'idle', since: stamp, idle: { kind: 'done', summary: '' }, workingMsTotal: 2500, nativeSubagentCount: 0 } },
+        ]
+        return patchSession(c.sessionId, s => ({ ...s, ...patches[c.variant % patches.length], lastActiveAt: stamp }))
+      }
     }
   }
 
