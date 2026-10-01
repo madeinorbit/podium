@@ -232,10 +232,11 @@ describe('POD-98 git-state service wiring', () => {
 
     await svc.refreshGitState(id, '/repo')
     expect(repoOp).toHaveBeenCalledTimes(4)
-    // ONE published row for the probed issue — `['issueUpdated']` before
-    // POD-1203, the same "exactly one targeted publish" claim read off the
-    // change log the client is served from.
-    expect(broadcast.mock.calls.map(([row]) => [row.id, row.op])).toEqual([[id, 'upsert']])
+    // One targeted update carries the old record and its additive observation.
+    expect(broadcast.mock.calls.map(([row]) => [row.entity, row.id, row.op])).toEqual([
+      ['issue', id, 'upsert'],
+      ['issueGitState', id, 'upsert'],
+    ])
   })
 
   it('a targeted git-state publish never journals removes for other issues [POD-210]', async () => {
@@ -258,7 +259,10 @@ describe('POD-98 git-state service wiring', () => {
     // pairs per probe wave).
     const appended = await ledger.changesSince(cursor) ?? []
     expect(appended.filter((c) => c.op === 'remove')).toEqual([])
-    expect(appended.map((c) => [c.id, c.op])).toEqual([[probed, 'upsert']])
+    expect(appended.map((c) => [c.entity, c.id, c.op])).toEqual([
+      ['issue', probed, 'upsert'],
+      ['issueGitState', probed, 'upsert'],
+    ])
   })
 
   it('runs one trailing probe for attribution recorded during an active refresh', async () => {
@@ -296,9 +300,11 @@ describe('POD-98 git-state service wiring', () => {
     expect(statusCalls).toBe(2)
     expect(repoOp).toHaveBeenCalledTimes(8)
     expect((await svc.get(id))?.gitState?.commits).toEqual(['late-sha'])
-    // One published row, carrying the TRAILING probe's result — read off the
-    // change log since POD-1203 deleted the `issueUpdated` snapshot.
-    expect(broadcast.mock.calls.map(([row]) => [row.id, row.op])).toEqual([[id, 'upsert']])
+    // Both rows carry the trailing probe's result in one targeted update.
+    expect(broadcast.mock.calls.map(([row]) => [row.entity, row.id, row.op])).toEqual([
+      ['issue', id, 'upsert'],
+      ['issueGitState', id, 'upsert'],
+    ])
   })
 
   it('drops archived sessions from file attribution but retains marked commits', async () => {

@@ -20,6 +20,8 @@ import {
   asMutationId,
   asSessionId,
   asUserId,
+  IssueGitStateProjection,
+  IssueUserStateWire,
   type IssueWire,
   issueUserStateRowId,
   type LayoutWire,
@@ -126,8 +128,9 @@ describe('issue companion replica collections', () => {
     await replica.flush()
     const reopened = createReplica({ storage, keyPrefix: 'companions.alice' })
     const offline = await reopened.hydrate()
-    expect(offline.issueUserStates).toEqual([markers])
-    expect(offline.issueGitStates).toEqual([git])
+    // TanStack also carries collection metadata; parse the public row shapes.
+    expect(offline.issueUserStates.map((row) => IssueUserStateWire.parse(row))).toEqual([markers])
+    expect(offline.issueGitStates.map((row) => IssueGitStateProjection.parse(row))).toEqual([git])
     const stranger = createReplica({ storage, keyPrefix: 'companions.bob' })
     expect((await stranger.hydrate()).issueUserStates).toEqual([])
     reopened.applyChanges('issueUserStates', [], [issueUserStateRowId(userId, entityId)])
@@ -139,7 +142,7 @@ describe('issue companion replica collections', () => {
     const oldCache = createReplica({ storage: memoryStorage() })
     oldCache.applySnapshot('issues', [issue('old')])
     const oldHydrate = await oldCache.hydrate()
-    expect(oldHydrate.issues).toEqual([issue('old')])
+    expect(oldHydrate.issues).toMatchObject([issue('old')])
     expect(oldHydrate.issueUserStates).toEqual([])
     expect(oldHydrate.issueGitStates).toEqual([])
   })
