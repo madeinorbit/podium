@@ -5,7 +5,7 @@ import {
   type SidebarSections,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import { LOADING, type MobxPool } from '@podium/client-graph'
+import type { LOADING, MobxPool } from '@podium/client-graph'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
 import type { SessionMeta } from '@podium/model/browser'
@@ -66,7 +66,7 @@ function usePoolSections(): SidebarSections {
     (pool: MobxPool): SidebarSections => {
       const lanes = [...pool.tables.worktree.keys()].flatMap((path) => {
         const row = pool.row('worktree', path) as SliceWorktree | typeof LOADING | undefined
-        return row !== undefined && row !== LOADING ? [row] : []
+        return row && typeof row === 'object' ? [row] : []
       })
       const worktrees = lanes.map((lane) => ({
         ...lane,
