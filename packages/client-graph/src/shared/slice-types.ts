@@ -71,7 +71,7 @@ export interface SliceIssue {
   duplicateOf?: string | null
   /** Declared small summary over the raw normalized session lane (resume
    * twins can disappear from the roster while still contributing unread). */
-  sessionFacts?: { replicaActivityAt?: string; tipActivityAt?: string }
+  sessionFacts?: { replicaActivityAt?: string; tipActivityAt?: string; staffed?: boolean }
 }
 
 export interface SliceAgentState {

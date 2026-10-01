@@ -384,10 +384,11 @@ export function createRowSource(
   const incoming = new Map<string, Set<string>>()
   const closure = new Map<string, boolean>()
   let edgesReady = false
-  // Two timestamps, not retained session records. Replica unread includes
-  // collapsed resume twins; continuation recency includes exited own seats.
-  const rawSessionFacts = new Map<string, { owner: string; replica?: string; tip?: string }>()
-  const sessionsByOwner = new Map<string, Map<string, { replica?: string; tip?: string }>>()
+  // Two timestamps and a staffing bit, never retained session records.
+  // Progress staffing includes headless/shell seats, like sessionPresentOnTask;
+  // visible rosters and pane membership keep their existing filters.
+  const rawSessionFacts = new Map<string, { owner: string; replica?: string; tip?: string; staffed: boolean }>()
+  const sessionsByOwner = new Map<string, Map<string, { replica?: string; tip?: string; staffed: boolean }>>()
   const issueSessionFacts = new Map<string, NonNullable<SliceIssue['sessionFacts']>>()
   let sessionFactsReady = false
 
@@ -399,7 +400,8 @@ export function createRowSource(
     if (row && typeof row.issueId === 'string') {
       const facts = { owner: row.issueId,
         replica: row.agentKind === 'shell' ? undefined : row.lastActiveAt as string | undefined,
-        tip: row.archived === true ? undefined : row.lastActiveAt as string | undefined }
+        tip: row.archived === true ? undefined : row.lastActiveAt as string | undefined,
+        staffed: row.archived !== true && row.status !== 'exited' }
       owners.add(facts.owner)
       rawSessionFacts.set(id, facts)
       let members = sessionsByOwner.get(facts.owner)
@@ -409,13 +411,15 @@ export function createRowSource(
     const moved: string[] = []
     for (const owner of owners) {
       let replicaActivityAt: string | undefined, tipActivityAt: string | undefined
+      let staffed = false
       for (const facts of sessionsByOwner.get(owner)?.values() ?? EMPTY) {
         if (facts.replica && (!replicaActivityAt || facts.replica > replicaActivityAt)) replicaActivityAt = facts.replica
         if (facts.tip && (!tipActivityAt || facts.tip > tipActivityAt)) tipActivityAt = facts.tip
+        staffed ||= facts.staffed
       }
       const previous = issueSessionFacts.get(owner)
-      if (!previous || previous.replicaActivityAt !== replicaActivityAt || previous.tipActivityAt !== tipActivityAt) {
-        issueSessionFacts.set(owner, { replicaActivityAt, tipActivityAt }); moved.push(owner)
+      if (!previous || previous.replicaActivityAt !== replicaActivityAt || previous.tipActivityAt !== tipActivityAt || previous.staffed !== staffed) {
+        issueSessionFacts.set(owner, { replicaActivityAt, tipActivityAt, staffed }); moved.push(owner)
       }
       if (sessionsByOwner.get(owner)?.size === 0) sessionsByOwner.delete(owner)
     }
