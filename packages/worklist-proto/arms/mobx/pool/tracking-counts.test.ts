@@ -214,6 +214,7 @@ function paintWindow(pool: MobxPool): () => void {
     autorun(
       () => {
         items.length = 0
+        void pool.sidebar.sections()
         const groups = pool.groups
         for (const id of groups.pinnedIds) items.push({ kind: 'row', id })
         for (const key of groups.keys) {

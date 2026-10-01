@@ -336,6 +336,8 @@ export class WindowPlan {
 }
 
 export const PoolList = observer(function PoolList({ pool }: { pool: MobxPool }): ReactElement {
+  // Measure the real section payload in this existing list observer.
+  void pool.sidebar.sections()
   const groups = pool.groups
   // Every layout reads the keys (the first, unmeasured render too).
   const keys = groups.keys

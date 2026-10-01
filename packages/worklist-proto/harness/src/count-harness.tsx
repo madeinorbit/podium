@@ -273,6 +273,9 @@ export interface CountInput {
    * `assertCommits` fails on it.
    */
   views?(): RowViews
+  /** Additional displayed data consumed by the measured row (POD-4953).
+   * Always from the oracle's input, outside the counted arm window. */
+  content?(): Readonly<Record<string, unknown>>
 }
 
 export interface CountStats {
@@ -379,6 +382,8 @@ function changedViews(
   before: RowViews,
   after: RowViews,
   log: CommitLog,
+  contentBefore: Readonly<Record<string, unknown>> | null = null,
+  contentAfter: Readonly<Record<string, unknown>> | null = null,
 ): { changed: string[]; drawn: string[]; remounted: string[]; entered: string[]; left: string[] } {
   const changed: string[] = []
   const drawn: string[] = []
@@ -387,7 +392,8 @@ function changedViews(
     if (!(id in after)) continue
     const was = before[id]
     const now = after[id]
-    if (was !== undefined && now !== undefined && displayChanged(was, now)) changed.push(id)
+    if (was !== undefined && now !== undefined && (displayChanged(was, now) ||
+      (contentBefore !== null && contentAfter !== null && !isDeepStrictEqual(contentBefore[id], contentAfter[id])))) changed.push(id)
     if ((log.mounts.get(id) ?? 0) > 0 && !log.counts.has(id)) remounted.push(id)
   }
   const both = new Set(Object.keys(before).filter((id) => id in after))
@@ -420,6 +426,7 @@ export async function runCountScenario(
   // The oracle BEFORE the change, from the oracle's own input (never the
   // arm), so the reads fence reset below still starts the change at zero.
   const viewsBefore = input.views?.() ?? null
+  const contentBefore = input.content?.() ?? null
   mounted.handle.stats.reset()
   mounted.log.reset()
   if (mounted.reads.enabled) mounted.reads.reset()
@@ -461,7 +468,7 @@ export async function runCountScenario(
   const exact =
     viewsBefore === null || input.views === undefined
       ? null
-      : changedViews(viewsBefore, input.views(), mounted.log)
+      : changedViews(viewsBefore, input.views(), mounted.log, contentBefore, input.content?.() ?? null)
   return {
     scenario: input.scenario,
     methodology: input.methodology,

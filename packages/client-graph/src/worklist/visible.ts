@@ -402,7 +402,7 @@ export function retentionOf(session: SliceSession | undefined): Retention | null
  */
 export function retains(
   retention: Retention,
-  issue: SliceIssue | undefined,
+  issue: Pick<SliceIssue, 'closedAt' | 'updatedAt'> | undefined,
   standing: Standing | undefined,
   input: Pick<VisibleInputs, 'passed'>,
 ): boolean {

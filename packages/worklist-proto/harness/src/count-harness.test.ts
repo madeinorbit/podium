@@ -13,6 +13,7 @@
  * green. A detector is only evidence if it can say both yes and no.
  */
 import { expect, it } from 'vitest'
+import { createElement } from 'react'
 import {
   ancestorCount,
   assertCommits,
@@ -26,7 +27,12 @@ import {
   phaseChangeReadBudget,
   READ_BUDGETS,
   removeOneReadBudget,
+  runCountScenario,
+  type MountedArm,
 } from './count-harness'
+import type { RowView } from '@podium/client-graph/shared/row-view'
+import { DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
+import { createCommitLog } from '../../shared/src/row-shell'
 
 const result = {
   scenario: 'assertIsolation-guard',
@@ -152,4 +158,35 @@ it('assertCommits throws on an under-commit (a changed row that did not redraw)'
 
 it('assertCommits throws on a missing commit cell instead of passing it', () => {
   expect(() => assertCommits(withCommits(null, null))).toThrow(/no commit cell/)
+})
+
+it('complete row content detects a redraw and a missed redraw beyond the prototype fields', async () => {
+  const snapshot = { rowsById: {}, order: { pinnedIds: [], groups: [] } }
+  const log = createCommitLog()
+  const mounted: MountedArm = {
+    handle: {
+      snapshot: () => snapshot,
+      stats: { rowsDerived: 0, rollupsDerived: 0, indexUpdates: 0, notifications: 0, reset() {} },
+      dispose() {}, mountWeb: () => () => {}, mountNative: () => createElement('div'),
+    },
+    log, reads: DISABLED_READ_FENCE, locals: null, work: false, unmount() {},
+  }
+  let color: string | null = null
+  const row = { id: 'a' } as RowView
+  const input = {
+    scenario: 'complete-content', methodology: 'unit', expected: () => snapshot,
+    views: () => ({ a: row }), content: () => ({ a: { color } }),
+  }
+  const changed = await runCountScenario(mounted, {
+    ...input, apply() { color = 'blue'; log.record('a') },
+  })
+  expect(changed.oracleChangedRows).toEqual(['a'])
+  expect(() => assertCommits(changed)).not.toThrow()
+  const missed = await runCountScenario(mounted, {
+    ...input, apply() { color = 'green' },
+  })
+  expect(() => assertCommits(missed)).toThrow(/over=\[\] under=\[a\]/)
+  const unchanged = await runCountScenario(mounted, { ...input, apply() {} })
+  expect(unchanged.oracleChangedRows).toEqual([])
+  expect(() => assertCommits(unchanged)).not.toThrow()
 })

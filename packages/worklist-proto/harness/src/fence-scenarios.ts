@@ -99,7 +99,9 @@ import {
 } from './count-harness'
 import { createEngineLocals, localsOfEngine } from './engine-locals'
 import { type Neighbourhood, type NeighbourhoodState, neighbourhoodOf } from './neighbourhood'
-import { rowViewsFromStore, snapshotFromStore } from './oracle/index'
+import { legacyDerivationFromStore, rowViewsFromStore, snapshotFromStore, visibleIssueRows } from './oracle/index'
+import { legacySidebarRow } from './oracle/sidebar'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { insideArm, outsideArm } from './work-meter'
 
 export interface FenceScenario {
@@ -476,6 +478,16 @@ export async function runFenceStep(
   }
   let settledAt = feeds.rowReads()
   const stateBefore = mounted.work === false ? null : neighbourhoodState(ctx)
+  // The MobX demo consumes the complete real-row payload in its existing
+  // observer. Its exact redraw set and work neighbourhood must therefore
+  // include the same complete oracle surface, never only the old RowView.
+  const pool = (mounted.handle as Partial<{ pool: MobxPool }>).pool
+  const content = pool?.sidebar === undefined ? undefined : () => {
+    const locals = engineLocals(ctx)
+    const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), locals.coarseNow)
+    return Object.fromEntries(visibleIssueRows(derivation, locals).map(row =>
+      [row.issue.id, legacySidebarRow(row, derivation, locals.coarseNow)]))
+  }
   feeds.takeNamed()
   const result = await runCountScenario(mounted, {
     scenario: entry.scenario,
@@ -496,6 +508,7 @@ export async function runFenceStep(
       return options.expected === undefined ? oracle : options.expected(oracle)
     },
     views: () => rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
+    content,
   })
   // LOAD ISOLATION (G2): a load pending now, or one that landed after the
   // step's settle (in the harness's own `snapshot()`, after the reads were

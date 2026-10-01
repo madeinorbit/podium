@@ -3,6 +3,7 @@
  * It is never read from worklistSlice, a selector, or browser storage here.
  */
 import type { MobxPool } from '../pool'
+import type { ModelHost } from '../models'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
 import { LOADING, attentionGroup } from './rollup'
 import { retains } from './visible'
@@ -52,6 +53,46 @@ export interface SidebarWorktree {
   readonly pending: number
 }
 
+export interface SidebarRoster {
+  readonly ids: readonly string[]
+  readonly pending: number
+}
+
+/** One worktree's retained, unrepresented seats. Its existing model caches
+ * this index from narrow session/owner facts; payload changes do not wake bands. */
+export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
+  const input = host.visibleInputs
+  const ids: string[] = []
+  let pending = 0
+  let represented: Set<string> | undefined
+  for (const id of host.relations.many('worktree', path, 'sessions')) {
+    const session = host.model('session', id)
+    if (session === undefined) {
+      if (host.resident('session', id) === 'loading') pending += 1
+      continue
+    }
+    const retention = session.retention
+    if (retention === null || !retention.seat || retention.shell) continue
+    const owner = session.issueLink === null ? undefined : input.issue(session.issueLink)
+    if (owner?.standing?.excluded) continue
+    if (owner?.placed && owner.retainedSeatIds.includes(id)) continue
+    if (retention.issueId == null) {
+      if (represented === undefined) {
+        represented = new Set()
+        for (const issueId of host.relations.many('worktree', path, 'issues')) {
+          const issue = input.issue(issueId)
+          if (issue?.placed) for (const seatId of issue.retainedSeatIds) represented.add(seatId)
+        }
+      }
+      if (represented.has(id)) continue
+    }
+    const finish = retention.finish.kind === 'idleDone' && owner?.standing?.finished
+      ? owner.ownFacts : undefined
+    if (retains(retention, finish, owner?.standing, input)) ids.push(id)
+  }
+  return { ids, pending }
+}
+
 export class SidebarIndex {
   private seenSelected: string | null = null
   constructor(private readonly pool: MobxPool) {}
@@ -86,28 +127,16 @@ export class SidebarIndex {
     if (lane === undefined || lane === LOADING) return undefined
     const sessions: SliceSession[] = []
     const issues = new Map<string, SliceIssue & { readonly displayRef: string }>()
-    let activityAt = 0, pending = 0, retained = false
-    for (const id of this.pool.relations.many('worktree', path, 'sessions')) {
+    const roster = this.pool.model('worktree', path)?.roster
+    if (roster === undefined || (!roster.ids.length && roster.pending === 0)) return undefined
+    let activityAt = 0, pending = roster.pending
+    for (const id of roster.ids) {
       const sessionModel = this.pool.model('session', id)
       const row = this.pool.row('session', id)
       if (row === LOADING) { pending += 1; continue }
       if (row === undefined || sessionModel === undefined) continue
       const session = row as SliceSession
-      const retention = sessionModel.retention
-      if (retention === null || !retention.seat || retention.shell) continue
       const owner = sessionModel.issueLink === null ? undefined : this.pool.knownIssue(sessionModel.issueLink)
-      if (owner?.standing?.excluded) continue
-      // A present mission already accounts for its retained seats, even when
-      // the member exited and therefore no longer draws in the roster.
-      if (owner?.placed && owner.retainedSeatIds.includes(id)) continue
-      if (session.issueId == null && [...this.pool.relations.many('worktree', path, 'issues')].some(issueId => {
-        const issue = this.pool.knownIssue(issueId)
-        return issue?.placed && issue.retainedSeatIds.includes(id)
-      })) continue
-      const loaded = owner === undefined ? undefined : this.pool.rollupInputs.loadedIssue(owner.id)
-      const issue = loaded === LOADING ? undefined : loaded
-      if (!retains(retention, issue, owner?.standing, this.pool.visibleInputs)) continue
-      retained = true
       if (session.issueId && owner) {
         const raw = this.pool.row('issue', session.issueId)
         if (raw === LOADING) pending += 1
@@ -116,7 +145,6 @@ export class SidebarIndex {
       activityAt = Math.max(activityAt, Date.parse(session.lastActiveAt) || 0)
       if (session.status !== 'exited') sessions.push(session)
     }
-    if (!retained && pending === 0) return undefined
     const sorted = sortedSidebarSessions(sessions, this.pool.inputs.reached)
     const candidates = sorted.filter(s => attentionGroup(s) !== 'working' && this.pool.inputs.passed((Date.parse(s.lastActiveAt) || 0) + 16 * 60 * 60 * 1000))
     const staleIds = new Set(sorted.length > 5 && candidates.length > 3 ? [...candidates].sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt)).slice(3).map(s => s.sessionId) : [])
@@ -126,7 +154,7 @@ export class SidebarIndex {
   }
 
   sections(state: SidebarState = {}): SidebarSections {
-    const pinnedIds = this.pool.groups.pinnedIds.filter(id => this.pool.issue(id)?.nestParent === null)
+    const pinnedIds = this.pool.groups.pinnedRootIds
     const bands = new Map<string, SidebarBand>()
     const lanes = [...this.pool.tables.worktree.keys()].map(id => this.pool.row('worktree', id)).filter((row): row is SliceWorktree => row !== undefined && row !== LOADING) as SliceWorktree[]
     const repos = lanes.filter(lane => lane.path === lane.repoPath && lane.projectRoot !== false &&
@@ -151,17 +179,14 @@ export class SidebarIndex {
     for (const repo of repos) add(repo.repoId ?? repo.repoPath, repo.repoName, repo.repoPath, repo.projectAliases ?? [repo.repoId ?? repo.repoPath, repo.path])
     for (const key of this.pool.groups.keys) {
       const group = this.pool.groups.group(key)
-      const root = (id: string) => this.pool.issue(id)?.nestParent === null
-      const ids = group.rowIds.filter(root), closedIds = group.closedIds.filter(root)
-      if (!ids.length && !closedIds.length) continue
-      const example = this.pool.issue(ids[0] ?? closedIds[0] ?? '')
-      const loaded = example === undefined ? undefined : this.pool.rollupInputs.loadedIssue(example.id)
-      const band = add(key, group.label, loaded === LOADING ? key : loaded?.repoPath ?? key)
-      const snoozedIds = ids.filter(id => this.pool.issue(id)?.band === 2)
-      bands.set(key, { ...band, label: group.label, rowIds: ids.filter(id => this.pool.issue(id)?.band !== 2), snoozedIds, closedIds, startFirstTask: false })
+      const { rowIds, snoozedIds, closedIds } = group.sidebarRows
+      if (!rowIds.length && !snoozedIds.length && !closedIds.length) continue
+      const band = add(key, group.label, group.repoPath)
+      bands.set(key, { ...band, label: group.label, rowIds, snoozedIds, closedIds, startFirstTask: false })
     }
     for (const lane of lanes) {
-      if (this.worktree(lane.path, state) === undefined) continue
+      const roster = this.pool.model('worktree', lane.path)?.roster
+      if (roster === undefined || (!roster.ids.length && roster.pending === 0)) continue
       const key = lane.repoId ?? lane.repoPath
       const band = add(key, lane.repoName, lane.repoPath)
       bands.set(key, { ...band, worktreeIds: [...band.worktreeIds, lane.path].sort(), startFirstTask: false })

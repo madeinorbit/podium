@@ -68,6 +68,7 @@
  */
 
 import { NO_SIDEBAR_SESSIONS, sidebarLifecycle, sidebarTimingFromFacts, type SidebarRowValues } from './worklist/sidebar-row'
+import { sidebarRosterOf, type SidebarRoster } from './worklist/sidebar'
 import type { RelationReader } from './shared/relation-reader'
 import type {
   CollectionName,
@@ -981,8 +982,16 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 }
 
 export class WorktreeModel extends EntityModel {
+  private static readonly roster = cachedGroup('roster', (worktree: WorktreeModel) =>
+    sidebarRosterOf(worktree.host, worktree.id),
+  )
+
   constructor(id: string, host: ModelHost) {
     super('worktree', id, host)
+  }
+
+  get roster(): SidebarRoster {
+    return WorktreeModel.roster(this)
   }
 }
 

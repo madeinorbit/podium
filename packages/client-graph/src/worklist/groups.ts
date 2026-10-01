@@ -57,6 +57,8 @@ export interface Placement {
   readonly pinned: boolean
   /** R-GROUP 2: `repoId ?? repoPath`. */
   readonly repoKey: string
+  /** The first member's path, retained with its existing placement facts. */
+  readonly repoPath?: string
   /** The group label this row would give its group as first member (`folds.ts:200-203`). */
   readonly label: string
   /** R-GROUP 3, no selection: the row's `closed` field (views.ts `closedOf`). */
@@ -83,6 +85,7 @@ export function placementOfPart(part: OwnPart, repoPath: string): Placement {
   return {
     pinned: part.pinned,
     repoKey: part.repoKey,
+    repoPath,
     label: repoLabelOf(repoPath),
     closed: part.closed,
     dismissed: part.dismissed,
@@ -175,6 +178,7 @@ export interface GroupsHost {
         readonly rank: RowRank | undefined
         readonly placement: Placement | undefined
         readonly visible: boolean
+        readonly nestParent?: string | null
       }
     | undefined
   /** TRACKED: the selected issue id, or null. */
@@ -227,7 +231,10 @@ export class GroupNode {
       groups: false,
       latchedHere: false,
       headRank: computed({ equals: compareStructural }),
-      label: computed,
+      metadata: computed({ equals: compareStructural }),
+      label: false,
+      repoPath: false,
+      sidebarRows: computed({ equals: compareStructural }),
       baseRowIds: computed,
       baseClosedIds: computed,
       rowIds: computed({ equals: compareShallow }),
@@ -243,8 +250,28 @@ export class GroupNode {
 
   /** The rank-first member's label (`folds.ts:200-203`), read from that member. */
   get label(): string {
+    return this.metadata.label
+  }
+
+  get repoPath(): string {
+    return this.metadata.repoPath
+  }
+
+  /** Label and path share the existing head cache; renames never read its row. */
+  get metadata(): { readonly label: string; readonly repoPath: string } {
     const head = this.groups.members.lane(this.key)[0]
-    return head === undefined ? '' : (this.groups.placementOf(head)?.label ?? '')
+    const placement = head === undefined ? undefined : this.groups.placementOf(head)
+    return { label: placement?.label ?? '', repoPath: placement?.repoPath ?? this.key }
+  }
+
+  /** Root rows only, cached per band rather than per issue or list render. */
+  get sidebarRows(): { readonly rowIds: readonly string[]; readonly snoozedIds: readonly string[]; readonly closedIds: readonly string[] } {
+    const rowIds: string[] = [], snoozedIds: string[] = []
+    for (const id of this.rowIds) {
+      if (!this.groups.isRoot(id)) continue
+      ;(this.groups.rankOf(id)?.band === 2 ? snoozedIds : rowIds).push(id)
+    }
+    return { rowIds, snoozedIds, closedIds: this.closedIds.filter(id => this.groups.isRoot(id)) }
   }
 
   /** The open lane in rank order, no selection (the snapshot's lane): a copy of the maintained list. */
@@ -317,6 +344,8 @@ export class WorklistGroups {
       open: false,
       closed: false,
       pinnedIds: computed,
+      pinnedRootIds: computed({ equals: compareShallow }),
+      isRoot: false,
       keys: computed({ equals: compareShallow }),
       latchedOpenId: computed,
       layout: false,
@@ -351,6 +380,15 @@ export class WorklistGroups {
   /** The pinned ids in rank order (the PINNED section): a copy of the maintained list. */
   get pinnedIds(): readonly string[] {
     return this.pinned.lane(PINNED).slice()
+  }
+
+  get pinnedRootIds(): readonly string[] {
+    return this.pinnedIds.filter(id => this.isRoot(id))
+  }
+
+  isRoot(id: string): boolean {
+    const node = this.host.node(id)
+    return node !== undefined && node.nestParent == null
   }
 
   /** The group keys in spec order: each group's head rank, sorted (ranks are total, L1b). */

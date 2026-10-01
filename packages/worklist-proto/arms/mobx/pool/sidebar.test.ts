@@ -198,6 +198,27 @@ describe('real sidebar oracle (POD-4953)', () => {
       expect(value!.stale.length).toBeGreaterThan(0)
       expect(tracked(() => worktreeDiff(handle.pool, derivation, {}, now))).toEqual([])
       expect(tracked(() => worktreeDiff(handle.pool, derivation, { selectedWorktree: lane.path }, now))).toEqual([])
+      settleSidebar(handle.pool)
+      let sectionReads = 0
+      const stop = reaction(() => {
+        sectionReads += 1
+        return handle.pool.sidebar.sections()
+      }, () => {}, { fireImmediately: true })
+      try {
+        const before = sectionReads
+        const stamp = new Date(now - 60_000).toISOString()
+        upsert(ctx, 'session', 'owned-roster-guest', {
+          sessionId: 'owned-roster-guest', issueId: 'roster-owner', cwd: lane.path,
+          title: 'Renamed guest', agentKind: 'codex', status: 'hibernated', archived: false,
+          lastActiveAt: new Date(now).toISOString(), createdAt: stamp,
+          unread: false, readAt: new Date(now).toISOString(), agentState: { phase: 'idle', since: stamp },
+        })
+        feeds.flush()
+        expect(sectionReads, 'roster payload and activity do not rebuild sections').toBe(before)
+        const roster = tracked(() => handle.pool.sidebar.worktree(lane.path))
+        expect(roster?.sessions.find(s => s.sessionId === 'owned-roster-guest')?.title).toBe('Renamed guest')
+        expect(roster?.activityAt).toBe(now)
+      } finally { stop() }
     } finally { handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
   }, 120_000)
 })
