@@ -71,7 +71,7 @@ describe('the pool over the app-owned runtime', () => {
     try {
       const id = ctx.targets.visibleRootId
       snapshotPool(pool)
-      expect(tracked(() => pool.row('issue', id))).toBe(ctx.replica.row('issues', id))
+      expect(tracked(() => pool.row('issue', id))).toBe(ctx.replica.row!('issues', id))
       expect(snapshotPool(pool)).toEqual(snapshotFromStore(ctx.engine.getSnapshot(), localsOfEngine(ctx.engine)))
       ctx.engine.start()
       ctx.replica.onKernelEvent({
