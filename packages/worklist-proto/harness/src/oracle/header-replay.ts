@@ -105,4 +105,10 @@ async function main() {
     if (differences || pending) process.exitCode = 1
   } finally { handle.dispose() }
 }
-if (import.meta.main) main().catch(() => { console.error(JSON.stringify({ failed: 1, phase })); process.exitCode = 1 })
+if (import.meta.main) main().catch((error: unknown) => {
+  const kinds = ['Error', 'TypeError', 'SyncFormatError', 'SyncCorruptContentError', 'SyncNetworkError', 'SyncAuthExpiredError']
+  const reasons = ['http-401', 'http-403', 'unsupported-version', 'unexpected-content-type', 'streaming-body-required', 'invalid-record', 'invalid-json', 'snapshot-meta-required', 'unsupported-sync-version']
+  const kind = error instanceof Error ? kinds.indexOf(error.name) : -1
+  const reason = reasons.indexOf((error as { reason?: string })?.reason ?? '')
+  console.error(JSON.stringify({ failed: 1, phase, kind, reason })); process.exitCode = 1
+})
