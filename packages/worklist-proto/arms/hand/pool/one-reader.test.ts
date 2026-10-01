@@ -27,7 +27,7 @@ import { createReplaySource, type ReplaySource } from '../../../harness/src/coun
 import { buildCorpus } from '../../../harness/src/fixture/index'
 import type { RowSource } from '../../../shared/src/arm'
 import { createReadFence } from '../../../shared/src/instrument/reads'
-import { settableLocals } from '../../../shared/src/locals-source'
+import { settableLocals } from '@podium/client-graph/shared/locals-source'
 import type { RowRecord } from '../../../shared/src/stats'
 import {
   harnessHandPoolArm,
