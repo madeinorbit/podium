@@ -4,7 +4,8 @@ import type { RowSource } from './arm'
 import { createReadFence } from './instrument/reads'
 
 it('borrows unchanged values, overlays an explicit null and enumerates a read-only record', () => {
-  const row = Object.freeze({ id: 'issue', title: 'Original', readAt: 'old', gitState: { ahead: 2 }, sessionFacts: { replicaActivityAt: 'internal' } })
+  const row: Readonly<{ id: string; title: string; readAt: string | null; gitState: { ahead: number }; sessionFacts: { replicaActivityAt: string } }> =
+    Object.freeze({ id: 'issue', title: 'Original', readAt: 'old', gitState: { ahead: 2 }, sessionFacts: { replicaActivityAt: 'internal' } })
   const value = overlayRow(row, { title: 'Pending', readAt: null }, new Set(['sessionFacts']))
   expect({ ...value }).toEqual({ id: 'issue', title: 'Pending', readAt: null, gitState: row.gitState })
   expect(JSON.parse(JSON.stringify(value))).toEqual({ id: 'issue', title: 'Pending', readAt: null, gitState: { ahead: 2 } })
