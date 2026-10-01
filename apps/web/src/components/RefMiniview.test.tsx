@@ -27,6 +27,11 @@ const hostStore = vi.hoisted(() => ({
   retarget: vi.fn(),
 }))
 
+vi.mock('@podium/client-core/react', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@podium/client-core/react')>(),
+  useStoreHandle: () => hostStore,
+}))
+
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => hostStore.replicaIssues,
   useStoreSelector: (select: (state: unknown) => unknown) =>
