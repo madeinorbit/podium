@@ -273,6 +273,9 @@ type AcceptWaiter = {
   turnId?: string
   submittedAtMs?: number
   hookRefs?: HarnessRef
+  /** Live-only witness: these native entries were seen before this typing.
+   * A rewrite or coarse timestamp cannot make them new. Never persisted. */
+  beforeTypingIds: ReadonlySet<string>
   /** At most four entries: also link history that arrives before its hook. */
   seenPrompts: Map<string, TranscriptItem>
   cancel: () => void
@@ -329,6 +332,8 @@ interface DriverSession {
   contextUsedPercent: number | undefined
   observedStatePhase: AgentRuntimeState['phase'] | undefined
   transcriptVersions: Map<string, string>
+  /** Identities observed in this process, retained across transcript rewrites. */
+  transcriptIds: Set<string>
   injection: TerminalInjectionMachine
   /** Open waiters for native submit hooks, keyed by the prompt text they watch.
    *  A hook supplies a link to saved history; alone it never proves a send. */
@@ -1108,6 +1113,7 @@ export function createTerminalRuntime(
         // Credit BEFORE the position moves: each watch compares against where
         // the transcript stood when it was armed, not where this delta leaves it.
         creditEchoWaiters(session, msg.items)
+        for (const item of msg.items) session.transcriptIds.add(item.id)
         session.restoringProofItems?.push(...msg.items.filter((item) => item.role === 'user'))
         // A re-read keeps the time floor and deduplicates entries; restarting
         // or rewriting the store does not itself exhaust a proof watch.
@@ -1665,6 +1671,7 @@ export function createTerminalRuntime(
       if (!queued && !correlation.accepts(item)) continue
       const after = [...session.echoWaiters].filter((waiter) =>
         host.now() < waiter.start.atMs + PROOF_WATCH_MS && echoIsAfterStart(item, waiter.start, timestamps) &&
+        !waiter.beforeTypingIds.has(item.id) &&
         !waiter.seenPrompts.has(item.id),
       )
       if (after.length === 0) continue
@@ -1722,7 +1729,8 @@ export function createTerminalRuntime(
     timestamps: TranscriptTimestampFidelity,
   ): void {
     const after = [...session.echoWaiters].filter((waiter) =>
-      host.now() < waiter.start.atMs + PROOF_WATCH_MS && echoIsAfterStart(item, waiter.start, timestamps),
+      host.now() < waiter.start.atMs + PROOF_WATCH_MS && echoIsAfterStart(item, waiter.start, timestamps) &&
+      !waiter.beforeTypingIds.has(item.id),
     )
     if (after.length === 0) return
     const frameId = podiumFrameId(item.text)
@@ -1895,7 +1903,9 @@ export function createTerminalRuntime(
       const waiter: AcceptWaiter = {
         text,
         resolve: (seen) => settle?.(seen),
-        start: { atMs: atMs ?? host.now(), position: session.transcriptPosition },
+        // Recovery starts at a saved time, not the observer's current tail.
+        start: { atMs: atMs ?? host.now(), position: atMs === undefined
+          ? session.transcriptPosition : { kind: 'unknown' } },
         pass: () => pass?.(),
         hold: () => {
           waiter.held = true
@@ -1911,6 +1921,8 @@ export function createTerminalRuntime(
         queueSpent: false,
         held: false,
         turnId,
+        beforeTypingIds: atMs === undefined && waiters === session.echoWaiters
+          ? new Set(session.transcriptIds) : new Set(),
         seenPrompts: new Map(),
         cancel: () => {
           waiters.delete(waiter)
@@ -2189,6 +2201,7 @@ export function createTerminalRuntime(
       metadata: new Map(),
       observedStatePhase: undefined,
       transcriptVersions: new Map(),
+      transcriptIds: new Set(),
       injection: undefined as unknown as TerminalInjectionMachine,
       hookWaiters: new Set(),
       echoWaiters: new Set(),
@@ -3213,8 +3226,9 @@ function advancePosition(
  *
  *   - A timestamp, where the harness writes a usable one, must be at or after
  *     the start, less the harness's own resolution. Same machine, same clock.
- *   - In the segment the send started in, the entry must lie AFTER the
- *     position the driver had seen.
+ *   - A comparable live position can REFUSE an already-observed entry even
+ *     when its timestamp equals the typing floor. This witness is transient;
+ *     restored watches start from time alone, never the current tail position.
  *   - When the transcript was empty at the start — a fresh launch, or a
  *     re-read that found nothing — every entry lies after it.
  *   - Anywhere else — another segment, or a start before any delta arrived —
@@ -3223,9 +3237,8 @@ function advancePosition(
  * FAIL CLOSED. No usable timestamp and no comparable position ⇒ no credit; the
  * send reports `unverified`, the honest outcome, instead of a guessed accept.
  *
- * THE HOOK CHANNEL NEEDS NO FLOOR. A hook payload is one live HTTP request,
- * handled in-process and never stored or re-sent by Podium, so it cannot reach
- * a waiter armed after it; and it carries no write time a floor could read.
+ * A hook does not bypass this floor. Its timely native id can prove only an
+ * eligible recorded prompt, including when hook and history arrive reversed.
  */
 function echoIsAfterStart(
   item: TranscriptItem,
@@ -3234,15 +3247,14 @@ function echoIsAfterStart(
 ): boolean {
   const writtenAtMs = timestamps !== 'absent' && item.ts ? Date.parse(item.ts) : Number.NaN
   const dated = Number.isFinite(writtenAtMs)
+  const parts = item.cursor ? decodeCursor(item.cursor) : null
+  const comparable = parts !== null && start.position.kind === 'at' && parts.fileId === start.position.fileId
+  if (comparable && start.position.kind === 'at' && parts.offset <= start.position.offset) return false
   if (dated && timestamps !== 'absent') {
     return writtenAtMs >= Math.floor(start.atMs / timestamps.resolutionMs) * timestamps.resolutionMs
   }
   if (start.position.kind === 'empty') return true
-  const parts = item.cursor ? decodeCursor(item.cursor) : null
-  if (parts && start.position.kind === 'at' && parts.fileId === start.position.fileId) {
-    return parts.offset > start.position.offset
-  }
-  return dated
+  return comparable
 }
 
 function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCapabilities {

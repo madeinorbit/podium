@@ -120,7 +120,7 @@ describe('terminal receipt operator regressions', () => {
       expect(w.saved.has('msg-replayed')).toBe(true)
       w.post('Yes', { id: 'genuine-new-prompt', cursor: cursor('after', 300) })
       await vi.advanceTimersByTimeAsync(0)
-      expect(outcomes(w.frames)).toContainEqual(expect.objectContaining({ rowId: 'msg-replayed', outcome: 'delivered', transcriptItem: { id: 'genuine-new-prompt' } }))
+      expect(outcomes(w.frames)).toContainEqual(expect.objectContaining({ rowId: 'msg-replayed', outcome: 'delivered', transcriptItem: expect.objectContaining({ id: 'genuine-new-prompt' }) }))
       w.runtime.dispose()
     },
   )
@@ -267,7 +267,7 @@ describe('terminal receipt operator regressions', () => {
     w.runtime.observe({ type: 'transcriptDelta', sessionId: SESSION, items: history, reset: true })
     await vi.advanceTimersByTimeAsync(0)
     expect(w.writes).toEqual([])
-    expect(outcomes(w.frames)).toContainEqual(expect.objectContaining({ outcome: 'delivered', transcriptItem: { id: 'offline-yes' } }))
+    expect(outcomes(w.frames)).toContainEqual(expect.objectContaining({ outcome: 'delivered', transcriptItem: expect.objectContaining({ id: 'offline-yes' }) }))
     w.runtime.dispose()
   })
 })
