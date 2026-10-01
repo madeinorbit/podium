@@ -22,10 +22,17 @@ import {
   ENTITIES,
   type IngestOut,
   type IngestTarget,
+  type PoolTables,
   ingestOut,
   ingestRecord,
   put,
 } from './tables'
+
+/** One startup seed for the reference reader. Only resident slots participate;
+ * subsequent upkeep follows individual table changes, never cold summaries. */
+export function seedIssueReferences(tables: Pick<PoolTables, 'issue'>, track: (id: string) => void): void {
+  for (const id of tables.issue.keys()) track(id)
+}
 
 /**
  * Replace the pool's contents with `rows`, atomically (call inside one

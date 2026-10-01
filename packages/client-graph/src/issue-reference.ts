@@ -2,6 +2,7 @@ import { canonicalIssueRef, issueReferenceModel, type IssueReferenceModel, type 
 import { parseAnyRef } from '@podium/protocol'
 import { compareStructural, computed, observable, observe, onBecomeUnobserved, reaction, runInAction, type IComputedValue, type ObservableMap } from 'mobx'
 import type { RelationReader } from './shared/relation-reader'
+import { seedIssueReferences } from './enumerate'
 import type { StoredRow } from './tables'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -43,7 +44,7 @@ export class IssueReferences implements IssueReferenceReader {
     })
     // The only enumeration, when attaching to an already seeded pool. All
     // subsequent maintenance follows one changed resident table slot.
-    for (const id of host.tables.issue.keys()) this.track(id)
+    seedIssueReferences(host.tables, (id) => this.track(id))
   }
 
   private source(id: string): Loaded<IssueReferenceSource> {
