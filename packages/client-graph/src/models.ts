@@ -542,7 +542,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     const aggregateSessions = agg.sessions ?? []
     const targetId = own.supersededBy ?? own.duplicateOf
     const tip = !targetId && !this.openOwn ? this.tip : undefined
-    if (agg.pending > 0 || this.unitsBelow.pending > 0 || this.unitOwn.pending > 0 || (tip?.pending ?? 0) > 0) return LOADING
+    if (agg.pending > 0 || this.unitsBelow.pending > 0 || this.unitOwn.cold || (tip?.pending ?? 0) > 0) return LOADING
     const fromChildren = this.unitsBelow.members > 0
     const progress = fromChildren
       ? { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, ...this.unitsBelow.progress, total: this.unitsBelow.units }
