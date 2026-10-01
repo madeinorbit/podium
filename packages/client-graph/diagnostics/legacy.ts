@@ -56,4 +56,3 @@ export function visibleIssueRows(
     (row): row is UnifiedIssueRow => row.kind === 'issue',
   )
 }
-
