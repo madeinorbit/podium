@@ -592,7 +592,8 @@
             "op": "evict",
             "value": {
               "id": "changes[0].value.id",
-              "prefix": "changes[0].value.prefix"
+              "prefix": "changes[0].value.prefix",
+              "repoPath": "changes[0].value.repoPath"
             }
           }
         ],
@@ -605,7 +606,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\"}}],\"last\":true,\"totalRows\":5,\"countsByEntity\":{\"countsByEntity.key\":5}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\",\"repoPath\":\"changes[0].value.repoPath\"}}],\"last\":true,\"totalRows\":5,\"countsByEntity\":{\"countsByEntity.key\":5}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -1719,13 +1720,14 @@
         "op": "evict",
         "value": {
           "id": "value.id",
-          "prefix": "value.prefix"
+          "prefix": "value.prefix",
+          "repoPath": "value.repoPath"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":5,\"entity\":\"repo\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"prefix\":\"value.prefix\"}}"
+      "encoded": "{\"seq\":5,\"entity\":\"repo\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"prefix\":\"value.prefix\",\"repoPath\":\"value.repoPath\"}}"
     },
     {
       "schema": "FeedChange",
@@ -2747,7 +2749,8 @@
             "op": "evict",
             "value": {
               "id": "changes[0].value.id",
-              "prefix": "changes[0].value.prefix"
+              "prefix": "changes[0].value.prefix",
+              "repoPath": "changes[0].value.repoPath"
             }
           }
         ]
@@ -2755,7 +2758,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\"}}]}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":5,\"seq\":5,\"minAvailableSeq\":5,\"changes\":[{\"seq\":5,\"entity\":\"repo\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"prefix\":\"changes[0].value.prefix\",\"repoPath\":\"changes[0].value.repoPath\"}}]}"
     },
     {
       "schema": "FeedDeltaMessage",
