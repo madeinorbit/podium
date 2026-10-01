@@ -49,13 +49,18 @@ describe('shippingPanelModel', () => {
       order('6', { destination: 'main', targetBranch: 'release', queueRank: 1 }),
       order('other-repo', { repoId: 'repo-b' as never, destination: 'main' }),
     ]
-    const lanes = [lane('local:main', [['2'], ['1'], ['3']]), lane('git:origin/main', [['5'], ['4']])]
+    const lanes = [
+      lane('local:main', [['2'], ['1'], ['3']]),
+      lane('git:origin/main', [['5'], ['4']]),
+    ]
     for (const records of [[], lanes]) {
       const model = shippingPanelModel(orders, [], 'repo-a', records)
-      expect(model.waiting.map((group) => ({
-        destination: group.destination,
-        ids: group.rows.map((row) => row.order.id),
-      }))).toEqual([
+      expect(
+        model.waiting.map((group) => ({
+          destination: group.destination,
+          ids: group.rows.map((row) => row.order.id),
+        })),
+      ).toEqual([
         { destination: 'git:origin/main', ids: ['5', '4'] },
         { destination: 'local:main', ids: ['2', '1', '3'] },
         { destination: 'main', ids: ['6'] },
@@ -74,7 +79,9 @@ describe('shippingPanelModel', () => {
       lane('git:origin/main', [['hidden-order'], ['first-a', 'first-b'], ['later']]),
     ])
     expect(model.waiting[0]?.rows.map((row) => [row.order.id, row.queueRank])).toEqual([
-      ['first-a', 2], ['first-b', 2], ['later', 3],
+      ['first-a', 2],
+      ['first-b', 2],
+      ['later', 3],
     ])
     // Join the view without changing the authority rows or rendering unseen ids.
     expect(orders.map((row) => row.queueRank)).toEqual([1, 8, 9])
@@ -90,17 +97,33 @@ describe('shippingPanelModel', () => {
     ]
     const local = lane('local:main', [['ranked']], { blockedOrderIds: [orders[0]!.id] })
     const ranks = (records: ShipLaneProjection[]) =>
-      shippingPanelModel(orders, [], 'repo-a', records).waiting[0]?.rows.map((row) => [row.order.id, row.queueRank])
-    const legacy = [['blocked', 1], ['not-in-lane', 2], ['ranked', 7], ['no-rank', undefined]]
+      shippingPanelModel(orders, [], 'repo-a', records).waiting[0]?.rows.map((row) => [
+        row.order.id,
+        row.queueRank,
+      ])
+    const legacy = [
+      ['blocked', 1],
+      ['not-in-lane', 2],
+      ['ranked', 7],
+      ['no-rank', undefined],
+    ]
     expect(ranks([])).toEqual(legacy)
     expect(ranks([local])).toEqual([
-      ['ranked', 1], ['blocked', undefined], ['no-rank', undefined], ['not-in-lane', undefined],
+      ['ranked', 1],
+      ['blocked', undefined],
+      ['no-rank', undefined],
+      ['not-in-lane', undefined],
     ])
     // A lane disappearing re-enables compatibility; a row from another repo cannot supply rank.
     expect(ranks([])).toEqual(legacy)
-    expect(ranks([lane('local:main', [['ranked']], {
-      id: shipLaneId('repo-b' as never, 'local:main'), repoId: 'repo-b' as never,
-    })])).toEqual(legacy)
+    expect(
+      ranks([
+        lane('local:main', [['ranked']], {
+          id: shipLaneId('repo-b' as never, 'local:main'),
+          repoId: 'repo-b' as never,
+        }),
+      ]),
+    ).toEqual(legacy)
   })
 
   it('scopes counts to one repository and excludes retained receipts', () => {

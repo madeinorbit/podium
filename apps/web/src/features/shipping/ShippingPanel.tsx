@@ -508,8 +508,8 @@ function ShipmentDetail({
           {order.humanState === 'waiting' ? null : shippingActivityLabel(order.activity)}
           {order.humanState === 'waiting' && (
             <>
-              {row.queueRank === 1 ? 'Next' : row.queueRank ? `#${row.queueRank}` : 'Waiting'}{' '}
-              · <ElapsedWait queuedAt={order.queuedAt} now={now} />
+              {row.queueRank === 1 ? 'Next' : row.queueRank ? `#${row.queueRank}` : 'Waiting'} ·{' '}
+              <ElapsedWait queuedAt={order.queuedAt} now={now} />
             </>
           )}
         </div>

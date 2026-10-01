@@ -164,8 +164,11 @@ describe('SocketHub metadata delta mode', () => {
   it('seeds shipping lanes offline, replaces them from snapshots and applies lane-only deltas through the replica', async () => {
     const repoId = asRepoId('repo-a')
     const lane: ShipLaneProjection = {
-      id: shipLaneId(repoId, 'local:main'), repoId, destination: 'local:main',
-      trains: [{ orderIds: ['ship-a' as never] }], blockedOrderIds: [],
+      id: shipLaneId(repoId, 'local:main'),
+      repoId,
+      destination: 'local:main',
+      trains: [{ orderIds: ['ship-a' as never] }],
+      blockedOrderIds: [],
     }
     const cached = { ...lane, trains: [] }
     const replica = createReplica({ storage: memoryStorage() })
@@ -182,10 +185,18 @@ describe('SocketHub metadata delta mode', () => {
       await vi.waitFor(() => expect(replica.rows('shipLanes')).toMatchObject([lane]))
       expect(seen.at(-1)).toMatchObject([lane])
       const changed = { ...lane, trains: [], blockedOrderIds: ['ship-a' as never] }
-      sock.recv({ type: 'metadataDelta', seq: 6, changes: [{ seq: 6, entity: 'shipLane', id: lane.id, op: 'upsert', value: changed }] })
+      sock.recv({
+        type: 'metadataDelta',
+        seq: 6,
+        changes: [{ seq: 6, entity: 'shipLane', id: lane.id, op: 'upsert', value: changed }],
+      })
       await vi.waitFor(() => expect(replica.rows('shipLanes')).toMatchObject([changed]))
       expect(seen.at(-1)).toMatchObject([changed])
-      sock.recv({ type: 'metadataDelta', seq: 7, changes: [{ seq: 7, entity: 'shipLane', id: lane.id, op: 'remove' }] })
+      sock.recv({
+        type: 'metadataDelta',
+        seq: 7,
+        changes: [{ seq: 7, entity: 'shipLane', id: lane.id, op: 'remove' }],
+      })
       await vi.waitFor(() => expect(replica.rows('shipLanes')).toEqual([]))
       expect(seen.at(-1)).toEqual([])
       expect(replica.getCursor()).toBe(7)

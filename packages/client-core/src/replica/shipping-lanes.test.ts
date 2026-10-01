@@ -5,19 +5,32 @@ import { createReplica, memoryStorage } from './replica'
 
 const repoId = asRepoId('repo-a')
 const lane: ShipLaneProjection = {
-  id: shipLaneId(repoId, 'local:main'), repoId, destination: 'local:main',
-  trains: [{ orderIds: ['ship-a' as never] }], blockedOrderIds: [],
+  id: shipLaneId(repoId, 'local:main'),
+  repoId,
+  destination: 'local:main',
+  trains: [{ orderIds: ['ship-a' as never] }],
+  blockedOrderIds: [],
 }
 
 describe('shipping lane replica compatibility', () => {
   it('loads an older cache without lanes, persists new lanes and isolates principals', async () => {
     const storage = memoryStorage()
     const old = createReplica({ storage, keyPrefix: 'shipping.alice' })
-    old.applySnapshot('shipOrders', [{
-      id: 'ship-a' as never, issueId: 'issue-a' as never, repoId, destination: 'main', targetBranch: 'main',
-      state: 'queued', humanState: 'waiting', activity: 'waiting', queueRank: 3,
-      queuedAt: '2026-10-01T12:00:00.000Z', stateChangedAt: '2026-10-01T12:00:00.000Z',
-    }])
+    old.applySnapshot('shipOrders', [
+      {
+        id: 'ship-a' as never,
+        issueId: 'issue-a' as never,
+        repoId,
+        destination: 'main',
+        targetBranch: 'main',
+        state: 'queued',
+        humanState: 'waiting',
+        activity: 'waiting',
+        queueRank: 3,
+        queuedAt: '2026-10-01T12:00:00.000Z',
+        stateChangedAt: '2026-10-01T12:00:00.000Z',
+      },
+    ])
     await old.flush()
     // Simulate the collection's absence in a cache written before O3.
     for (const key of storage.keys()) if (key.includes('shipLanes')) storage.removeItem(key)
@@ -43,14 +56,23 @@ describe('shipping lane replica compatibility', () => {
     const replica = createReplica({ storage: memoryStorage() })
     const prior = { ...lane, trains: [], blockedOrderIds: ['ship-a' as never] }
     replica.applySnapshot('shipLanes', [prior])
-    const pending = { mutationId: asMutationId('mut-a'), kind: 'issue.create', input: { title: 'Keep my work' }, queuedAt: 1 }
+    const pending = {
+      mutationId: asMutationId('mut-a'),
+      kind: 'issue.create',
+      input: { title: 'Keep my work' },
+      queuedAt: 1,
+    }
     replica.outboxStorage().save([pending])
     const cursor = { feedId: 'feed-a', epoch: 'epoch-a', seq: 5 }
     const staged = new BootstrapSession(replica, cursor, { yieldToLoop: () => Promise.resolve() })
     for (const chunk of snapshotToChunks({ shipLanes: [lane] })) await staged.install(chunk)
     expect(replica.rows('shipLanes')).toMatchObject([prior])
     const changed = { ...lane, trains: [{ orderIds: ['hidden' as never] }, ...lane.trains] }
-    expect(staged.bufferDelta(6, [{ seq: 6, entity: 'shipLane', id: lane.id, op: 'upsert', value: changed }])).toBe(true)
+    expect(
+      staged.bufferDelta(6, [
+        { seq: 6, entity: 'shipLane', id: lane.id, op: 'upsert', value: changed },
+      ]),
+    ).toBe(true)
     const seen: ShipLaneProjection[][] = []
     replica.subscribeRows('shipLanes', () => seen.push(replica.rows('shipLanes')))
     staged.commit()

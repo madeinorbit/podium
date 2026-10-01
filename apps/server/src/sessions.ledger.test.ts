@@ -7,7 +7,14 @@ import {
   type SessionMeta,
   shipLaneId,
 } from '@podium/model'
-import { asCapabilityRef, asDeviceId, type Principal, type MetadataChange, type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import {
+  asCapabilityRef,
+  asDeviceId,
+  type Principal,
+  type MetadataChange,
+  type ServerMessage,
+  CLIENT_WIRE_VERSION,
+} from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -27,17 +34,25 @@ describe('shipping lane compatibility snapshots', () => {
   it('includes lane rows from the caller-scoped snapshot and omits lanes hidden from another principal', async () => {
     const repoId = asRepoId('repo-a')
     const lane = {
-      id: shipLaneId(repoId, 'local:main'), repoId, destination: 'local:main',
-      trains: [{ orderIds: ['shared-order', 'private-order'] }], blockedOrderIds: [],
+      id: shipLaneId(repoId, 'local:main'),
+      repoId,
+      destination: 'local:main',
+      trains: [{ orderIds: ['shared-order', 'private-order'] }],
+      blockedOrderIds: [],
     }
     const principal = (id: string): Principal => ({
-      kind: 'user', user: asUserId(id), device: asDeviceId(`device:${id}`), capability: asCapabilityRef(`cap:${id}`),
+      kind: 'user',
+      user: asUserId(id),
+      device: asDeviceId(`device:${id}`),
+      capability: asCapabilityRef(`cap:${id}`),
     })
     const reader = principal('reader')
     const stranger = principal('stranger')
-    const snapshot = vi.fn(async (viewer: Principal) => viewer === reader
-      ? [{ seq: 1, entity: 'shipLane', id: lane.id, op: 'upsert', value: lane }]
-      : [])
+    const snapshot = vi.fn(async (viewer: Principal) =>
+      viewer === reader
+        ? [{ seq: 1, entity: 'shipLane', id: lane.id, op: 'upsert', value: lane }]
+        : [],
+    )
     const context = {
       funnel: {
         cursor: async () => 1,
@@ -49,7 +64,11 @@ describe('shipping lane compatibility snapshots', () => {
     } as unknown as SessionLifecycle
     const forReader = await SessionLifecycle.prototype.syncChangesSince.call(context, null, reader)
     expect(forReader).toMatchObject({ kind: 'snapshot', shipLanes: [lane] })
-    const forStranger = await SessionLifecycle.prototype.syncChangesSince.call(context, null, stranger)
+    const forStranger = await SessionLifecycle.prototype.syncChangesSince.call(
+      context,
+      null,
+      stranger,
+    )
     expect(forStranger).toMatchObject({ kind: 'snapshot', shipLanes: [] })
     expect(snapshot.mock.calls.map(([viewer]) => viewer)).toEqual([reader, stranger])
   })

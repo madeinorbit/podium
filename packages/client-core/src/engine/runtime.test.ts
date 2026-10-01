@@ -1184,20 +1184,32 @@ describe('replica snapshot coalescing (#262 review)', () => {
   it('paints shipping lanes before start and republishes lane-only rank changes without rewriting orders', async () => {
     const replica = createReplica({ storage: memoryStorage() })
     const order: ShipOrderProjection = {
-      id: 'ship-a' as never, issueId: 'issue-a' as never, repoId: 'repo-a' as never,
-      targetBranch: 'main', destination: 'main', state: 'queued', humanState: 'waiting',
-      activity: 'waiting', queuedAt: '2026-10-01T12:00:00.000Z', stateChangedAt: '2026-10-01T12:00:00.000Z', queueRank: 9,
+      id: 'ship-a' as never,
+      issueId: 'issue-a' as never,
+      repoId: 'repo-a' as never,
+      targetBranch: 'main',
+      destination: 'main',
+      state: 'queued',
+      humanState: 'waiting',
+      activity: 'waiting',
+      queuedAt: '2026-10-01T12:00:00.000Z',
+      stateChangedAt: '2026-10-01T12:00:00.000Z',
+      queueRank: 9,
     }
     const lane: ShipLaneProjection = {
-      id: shipLaneId(order.repoId, 'local:main'), repoId: order.repoId, destination: 'local:main',
-      trains: [{ orderIds: [order.id] }], blockedOrderIds: [],
+      id: shipLaneId(order.repoId, 'local:main'),
+      repoId: order.repoId,
+      destination: 'local:main',
+      trains: [{ orderIds: [order.id] }],
+      blockedOrderIds: [],
     }
     replica.applySnapshot('shipOrders', [order])
     replica.applySnapshot('shipLanes', [lane])
     const { engine } = makeEngine({ replica })
     const rank = () => {
       const state = engine.getSnapshot()
-      return shippingPanelModel(state.shipOrders, [], order.repoId, state.shipLanes).waiting[0]?.rows[0]?.queueRank
+      return shippingPanelModel(state.shipOrders, [], order.repoId, state.shipLanes).waiting[0]
+        ?.rows[0]?.queueRank
     }
     try {
       expect(engine.getSnapshot().shipLanes).toMatchObject([lane])
@@ -1205,7 +1217,11 @@ describe('replica snapshot coalescing (#262 review)', () => {
       engine.start()
       await settle()
       const before = engine.getSnapshot().shipOrders
-      replica.applyChanges('shipLanes', [{ ...lane, trains: [{ orderIds: ['hidden' as never] }, { orderIds: [order.id] }] }], [])
+      replica.applyChanges(
+        'shipLanes',
+        [{ ...lane, trains: [{ orderIds: ['hidden' as never] }, { orderIds: [order.id] }] }],
+        [],
+      )
       expect(rank()).toBe(2)
       expect(engine.getSnapshot().shipOrders).toBe(before)
       replica.applyChanges('shipLanes', [], [lane.id])

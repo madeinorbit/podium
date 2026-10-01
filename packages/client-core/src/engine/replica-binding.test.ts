@@ -32,7 +32,13 @@ describe('replica snapshot binding', () => {
   it('hydrates shipping lanes and publishes lane changes, eviction, readmission, removal and empty rescopes', async () => {
     const cache = new BindingCache()
     const repoId = asRepoId('repo-a')
-    const lane = { id: shipLaneId(repoId, 'local:main'), repoId, destination: 'local:main', trains: [{ orderIds: ['ship-a' as never] }], blockedOrderIds: [] }
+    const lane = {
+      id: shipLaneId(repoId, 'local:main'),
+      repoId,
+      destination: 'local:main',
+      trains: [{ orderIds: ['ship-a' as never] }],
+      blockedOrderIds: [],
+    }
     cache.put('shipLane', lane.id, lane)
     const exits = new Map<string, 'evicted' | 'removed'>()
     const replica = createKernelReplica({
@@ -49,7 +55,11 @@ describe('replica snapshot binding', () => {
     publications.length = 0
     const changed = { ...lane, trains: [], blockedOrderIds: ['ship-a'] }
     cache.put('shipLane', lane.id, changed)
-    replica.onKernelEvent({ type: 'upserted', record: cache.read('shipLane', lane.id)!, readmitted: false })
+    replica.onKernelEvent({
+      type: 'upserted',
+      record: cache.read('shipLane', lane.id)!,
+      readmitted: false,
+    })
     expect(publications).toHaveLength(1)
     expect([...publications[0]!.changed]).toEqual(['shipLanes'])
     expect(publications[0]!.snapshot.shipLanes).toEqual([changed])
@@ -61,12 +71,22 @@ describe('replica snapshot binding', () => {
       expect(replica.exitKind?.('shipLane', lane.id)).toBe(kind)
       cache.put('shipLane', lane.id, lane)
       exits.delete(lane.id)
-      replica.onKernelEvent({ type: 'upserted', record: cache.read('shipLane', lane.id)!, readmitted: kind === 'evicted' })
+      replica.onKernelEvent({
+        type: 'upserted',
+        record: cache.read('shipLane', lane.id)!,
+        readmitted: kind === 'evicted',
+      })
       expect(binding.snapshot().shipLanes).toEqual([lane])
       expect(replica.exitKind?.('shipLane', lane.id)).toBeUndefined()
     }
     cache.records = []
-    replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'rescope', snapshotSeq: 10, entityCount: 0, bufferedFramesApplied: 0 })
+    replica.onKernelEvent({
+      type: 'bootstrap-installed',
+      cause: 'rescope',
+      snapshotSeq: 10,
+      entityCount: 0,
+      bufferedFramesApplied: 0,
+    })
     expect(binding.snapshot().shipLanes).toEqual([])
     expect(publications.at(-1)?.changed.has('shipLanes')).toBe(true)
     stop()

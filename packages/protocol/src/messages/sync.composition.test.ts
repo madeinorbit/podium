@@ -140,7 +140,14 @@ describe('the composition did not change what parses', () => {
       trains: [{ orderIds: ['ship-a'] }],
       blockedOrderIds: [],
     }
-    const older = { kind: 'snapshot', cursor: 1, sessions: [], issues: [], conversations: [], diagnostics: [] }
+    const older = {
+      kind: 'snapshot',
+      cursor: 1,
+      sessions: [],
+      issues: [],
+      conversations: [],
+      diagnostics: [],
+    }
     for (const schema of [SyncChangesSinceResult, SyncChangesSinceResultLenientSchema]) {
       expect(schema.parse(older)).toEqual(older)
       expect(schema.parse({ ...older, shipLanes: [lane] })).toEqual({ ...older, shipLanes: [lane] })
