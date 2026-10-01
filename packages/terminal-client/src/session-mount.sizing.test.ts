@@ -323,7 +323,7 @@ describe('mountSession eligibility-gated sizing', () => {
     // attached has been told nothing, so nothing may move it — which is why
     // every state-driven case below has to attach first.
     attached()
-    vi.advanceTimersByTime(60)
+    vi.advanceTimersByTime(100) // Includes the first measurable render at 16ms.
 
     state(183, 55, 'spectator') // desktop-owned PTY geometry
 
@@ -425,7 +425,7 @@ describe('mountSession eligibility-gated sizing', () => {
     // attached has been told nothing, so nothing may move it — which is why
     // every state-driven case below has to attach first.
     attached()
-    vi.advanceTimersByTime(60)
+    vi.advanceTimersByTime(100) // Includes the first measurable render at 16ms.
 
     state(80, 24, 'controller') // first/only attached client receives control
 
@@ -637,7 +637,7 @@ describe('mountSession eligibility-gated sizing', () => {
     })
     attached()
     observer.fire()
-    vi.advanceTimersByTime(60)
+    vi.advanceTimersByTime(100) // Includes the first measurable render at 16ms.
 
     // The box wants 150×50 and the client ASKED for it…
     expect(calls.asks.at(-1)).toMatchObject({
@@ -743,7 +743,7 @@ describe('mountSession eligibility-gated sizing', () => {
       active: true,
     })
     attached() // first attach
-    vi.advanceTimersByTime(60)
+    vi.advanceTimersByTime(100) // Includes the first measurable render at 16ms.
     calls.resize.length = 0
     const rcBefore = calls.requestControl
     // Server reload: the rebuilt session resets to 80×24. On reconnect the 'attached'
@@ -825,6 +825,7 @@ describe('mountSession eligibility-gated sizing', () => {
       sessionId: asSessionId('s1'),
       active: true,
     })
+    attached()
     // REWRITTEN FOR POD-3239 B4. The three-tier rAF-then-timeout ladder is gone.
     // The case it covered is real and still covered, by the event that actually
     // marks the transition: the box has a size but xterm has not rendered, so
@@ -1089,7 +1090,7 @@ describe('mountSession size triggers', () => {
       calls.asks.length = 0
       attached()
       expect(calls.asks).toEqual([])
-      vi.advanceTimersByTime(60)
+      vi.advanceTimersByTime(100) // Includes the first measurable render at 16ms.
       expect(calls.asks).toEqual([
         { geometry: { cols: 150, rows: 50 }, visible: true, mode: 'native', claimControl: false },
       ])
