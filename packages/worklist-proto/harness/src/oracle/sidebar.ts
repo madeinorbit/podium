@@ -5,7 +5,7 @@ import {
   deriveFleetPresence, groupUnifiedWorkRows, splitPinnedWork, isDraftAgentVessel, isUnstartedSession, issueDisplayTitle,
   missionRollup, orderProjectItems, orderedSidebarProjects, partitionStaleSessions,
   rowAwaitsTuck, rowCanBringBack, rowErrorLine, rowMotionPhase, rowMotionTiming,
-  rowPendingDecision, rowUnreadEmphasized, rowStatusLine,
+  rowPendingDecision, rowUnreadEmphasized, rowStatusLine, rowHasWorkingSession, rowWaitingCount,
   type UnifiedIssueRow,
 } from '@podium/client-core/viewmodels'
 import { issueReturnedFromDefer, isIssueDeferred, asIssueId } from '@podium/model'
@@ -63,10 +63,14 @@ export function legacySidebarRow(row: UnifiedIssueRow, derivation: LegacyDerivat
   const continuation = row.continuation?.split(' · ')
   const error = rowErrorLine(row)
   const errorSession = error ? aggregate.find(s => !s.archived && s.status !== 'exited' && s.agentState?.phase === 'errored') : undefined
+  const originId = issue.deps?.find(dep => dep.type === 'discovered-from')?.id
+  const origin = originId ? derivation.models.find(model => model.id === originId) : undefined
   return sidebarComparable({
     idNumber: issue.seq, color: issue.color ?? null,
     title: issueDisplayTitle(issue, derivation.sessions, derivation.allWorktreePaths),
     timing: rowMotionTiming(row), decision,
+    working: rowHasWorkingSession(row), asking: rowWaitingCount(row) > 0,
+    originTick: origin ? { id: origin.id, seq: origin.seq, title: origin.title, ref: origin.displayRef ?? `#${origin.seq}` } : null,
     mergeCommits: decision === 'merge' ? issue.gitState?.ahead ?? 0 : 0,
     progress: rollup.progress, fromChildren: rollup.fromChildren, statusFromChildren: row.missionRollup?.fromChildren === true,
     gitState: issue.gitState, unread: rowUnreadEmphasized(row),

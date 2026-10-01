@@ -4,6 +4,7 @@
  */
 import { resolveDescriptors } from '@podium/harness/browser'
 import type { SliceIssue, SliceSession, SlicePhase } from '../shared/slice-types'
+import type { RowOriginTick } from '../shared/row-view'
 import { DEFER_NEXT_MESSAGE, FINISHED_GRACE_MS, isClosedTopLevel, issueAbandoned } from '../views'
 import { awaitingMergeOf } from '../shared/schema'
 import { attentionGroup, isSessionWorking, motionPhase, type UnitState } from './rollup'
@@ -20,6 +21,9 @@ export interface SidebarRowValues {
   readonly color: string | null
   readonly title: string
   readonly timing: SidebarTiming
+  readonly working: boolean
+  readonly asking: boolean
+  readonly originTick: RowOriginTick | null
   readonly decision: 'merge' | 'review' | null
   readonly mergeCommits: number
   readonly progress: SidebarProgress
@@ -52,7 +56,7 @@ export interface SidebarRowValues {
 
 /** Exhaustive comparison surface for the round-three sidebar oracle. */
 export const SIDEBAR_ROW_FIELDS = [
-  'idNumber', 'color', 'title', 'timing', 'decision', 'mergeCommits', 'progress',
+  'idNumber', 'color', 'title', 'timing', 'working', 'asking', 'originTick', 'decision', 'mergeCommits', 'progress',
   'fromChildren', 'statusFromChildren', 'gitState', 'unread', 'errorClass', 'internal', 'unsnoozed',
   'deferred', 'awaitsTuck', 'canBringBack', 'draftAgentOnly', 'firstSessionId',
   'continuation', 'fleet', 'issue', 'sessions', 'aggregateSessions', 'awaitingFirstPrompt',

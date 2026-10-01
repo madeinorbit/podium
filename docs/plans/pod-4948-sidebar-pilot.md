@@ -22,7 +22,7 @@ In the test column, **corpus** means `arms/mobx/pool/sidebar.test.ts` at 1x and 
 | ID square colour | `issue.color`; tokens in component | `sidebar.color` from projection | corpus, gate `issueFacts` |
 | Title and draft placeholder | `issueDisplayTitle`, `sessionsForIssueNav`, session name/kind | existing `IssueModel.title`/label group | corpus, gate `sessionFacts`, draft-title test |
 | PhaseTimer phase, anchor, accumulated time | `rowMotionPhase`, `rowMotionTiming` over own/nested sessions and decisions | existing attention aggregate; `sidebar.timing` | corpus, gate `sessionFacts`, R3 |
-| WorkingMark | `rowHasWorkingSession` | existing `IssueModel.working` | corpus, gate, R3 |
+| WorkingMark and asking verdict | `rowHasWorkingSession`, `rowWaitingCount` | existing `IssueModel.working/asking`; `sidebar.working/asking` | corpus, gate, R3 |
 | Merge/review decision | `rowPendingDecision`, `issuePendingDecision`; working/continuation suppression | existing own attention; `sidebar.decision` | corpus, gate, awaiting-merge tests |
 | Merge commit count | `issue.gitState.ahead` when merge decision | `sidebar.mergeCommits`, temporary git input | corpus, gate `issueFacts` |
 | Status line | `rowStatusLine`, continuation, issue workflow fields, root-only mission rollup, unstarted draft sessions | `sidebar.issue`, `continuation`, `progress`, `statusFromChildren`, `awaitingFirstPrompt`, own/aggregate sessions; formatting remains in row | corpus, gate (actual legacy formatter on payload) |
@@ -31,7 +31,7 @@ In the test column, **corpus** means `arms/mobx/pool/sidebar.test.ts` at 1x and 
 | GitStamp branch, parent branch, shared/merged/ahead/dirty state | `useReplicaIssues` projection branch plus retained `gitState` | `sidebar.issue.branch/parentBranch`, `sidebar.gitState` | corpus, gate `issueFacts` |
 | Unread emphasis | replica `unread` and `subtreeUnread` against root cursor, suppressed while working | existing cursor lane + aggregate timestamps; `sidebar.unread` | corpus, gate `issueFacts`/`sessionFacts`, reader tests |
 | Agent-error line | `rowErrorLine`, first errored present session, suppressed when finished | `sidebar.errorClass`, aggregate session payload; copy remains in row | corpus, gate `sessionFacts` |
-| Spin-off origin tick | `useUnifiedWork`/`legacyOriginTick`: discovered-from target ref/title/seq | existing `IssueModel.originTick`, normalized dep index | corpus, gate, R3 |
+| Spin-off origin tick | `SidebarUnified.originById`/`legacyOriginTick`: discovered-from target ref/raw title/seq | `sidebar.originTick` through existing normalized dep relation and one reader; prototype `IssueModel.originTick` retains its display-title contract | corpus, gate, R3 |
 | Fleet glyph kind/order and parked verdict | `IssueFleetSummary`: `deriveFleetPresence` over aggregate sessions | `sidebar.fleet.tiles` | corpus, gate `sessionFacts` |
 | Fleet totals, parked count, native subagents | `deriveFleetPresence`: present seats, awake native counts | `sidebar.fleet.total/parkedCount/nativeCount` | corpus, gate `sessionFacts` |
 | Internal badge | `issue.audience === 'agent'` | `sidebar.internal` | corpus, gate `issueFacts` |

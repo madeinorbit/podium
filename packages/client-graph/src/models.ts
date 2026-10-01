@@ -541,6 +541,10 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     const sessions = this.ownAttention.sessions ?? []
     const aggregateSessions = agg.sessions ?? []
     const targetId = own.supersededBy ?? own.duplicateOf
+    const origin = this.originRef === null ? undefined : this.host.rollupInputs.loadedIssue(this.originRef)
+    if (origin === LOADING) return LOADING
+    const originTick = origin === undefined ? null : { id: origin.id, seq: origin.seq,
+      title: origin.title, ref: this.host.inputs.parts(origin.id)?.label.displayRef ?? `#${origin.seq}` }
     const tip = !targetId && !this.openOwn ? this.tip : undefined
     if (agg.pending > 0 || this.unitsBelow.pending > 0 || this.unitOwn.cold || (tip?.pending ?? 0) > 0) return LOADING
     const fromChildren = this.unitsBelow.members > 0
@@ -565,6 +569,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return {
       idNumber: this.seq, color: own.color ?? null, title: this.title,
       timing: sidebarTiming(aggregateSessions, this.phase, facts.finished, this.activityAt, agg.decidingAt),
+      working: this.working, asking: this.asking, originTick,
       decision, mergeCommits: decision === 'merge' ? own.gitState?.ahead ?? 0 : 0,
       progress, fromChildren, statusFromChildren: this.nestParent === null && fromChildren, gitState: own.gitState,
       unread: !this.working && (this.unread || Boolean(descendantUnread)),
