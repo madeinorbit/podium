@@ -139,13 +139,17 @@ export function opencodeRowsToItems(rows: OpencodeMessagePartRow[]): TranscriptI
   return items
 }
 
-/** OpenCode 1.18.33 terminal S7 preserves typed text. A paste appends one space,
- *  replacing a final LF with it. Compare from submitted text to recorded text:
- *  trimming both sides would also accept unmeasured deletions of whitespace. */
+/** OpenCode 1.18.33 and opencode2 beta-18866 terminal (POD-4984): CRLF becomes
+ *  LF; a paste appends one space, replacing a final LF. Typed tabs disappear,
+ *  while pasted tabs and API input stay intact. Compare only these observed
+ *  one-way forms; never trim or normalize the native recorded text. */
 export function opencodePromptTextMatches(submitted: string, recorded: string): boolean {
   if (!submitted) return false
-  const pasted = submitted.endsWith('\n') ? submitted.slice(0, -1) : submitted
-  return recorded === submitted || recorded === `${pasted} `
+  if (recorded === submitted) return true
+  const lines = submitted.replace(/\r\n/g, '\n')
+  const pasted = lines.endsWith('\n') ? lines.slice(0, -1) : lines
+  const typed = submitted.replace(/\t/g, '')
+  return recorded === lines || recorded === `${pasted} ` || (typed.length > 0 && recorded === typed)
 }
 
 export function classifyOpencodeIdleText(text: string | undefined): {
