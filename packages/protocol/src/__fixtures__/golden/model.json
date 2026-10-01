@@ -4688,24 +4688,6 @@
       "encoded": "\"x\""
     },
     {
-      "schema": "IssueIdField",
-      "variant": "minimal",
-      "wire": "",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"\""
-    },
-    {
-      "schema": "IssueIdField",
-      "variant": "full",
-      "wire": "",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"\""
-    },
-    {
       "schema": "IssueIdentity",
       "variant": "minimal",
       "wire": {
@@ -4729,6 +4711,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":1}"
+    },
+    {
+      "schema": "IssueIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "IssueIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
     },
     {
       "schema": "IssueIntent",
@@ -7476,82 +7476,6 @@
       "encoded": "{\"owner\":\"owner\",\"visibility\":\"personal\"}"
     },
     {
-      "schema": "PerUserKey",
-      "variant": "minimal",
-      "wire": {
-        "userId": "userId",
-        "entityId": "entityId"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\"}"
-    },
-    {
-      "schema": "PerUserKey",
-      "variant": "full",
-      "wire": {
-        "userId": "userId",
-        "entityId": "entityId"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\"}"
-    },
-    {
-      "schema": "PerUserSingletonKey",
-      "variant": "minimal",
-      "wire": {
-        "userId": "userId"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\"}"
-    },
-    {
-      "schema": "PerUserSingletonKey",
-      "variant": "full",
-      "wire": {
-        "userId": "userId"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\"}"
-    },
-    {
-      "schema": "PersonalPreferenceState",
-      "variant": "minimal",
-      "wire": {
-        "userId": "userId",
-        "entityId": "entityId",
-        "value": {
-          "unknownFixture": "value"
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"value\":{\"unknownFixture\":\"value\"}}"
-    },
-    {
-      "schema": "PersonalPreferenceState",
-      "variant": "full",
-      "wire": {
-        "userId": "userId",
-        "entityId": "entityId",
-        "value": {
-          "unknownFixture": "value"
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"value\":{\"unknownFixture\":\"value\"}}"
-    },
-    {
       "schema": "PersonalPreferences",
       "variant": "minimal",
       "wire": {
@@ -7659,6 +7583,82 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"roles.coding.accountId\",\"model\":\"roles.coding.model\",\"effort\":\"roles.coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"roles.coding.subagentModel\",\"subagentStrategy\":\"builtin\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"roles.superagent.accountId\",\"model\":\"roles.superagent.model\",\"effort\":\"roles.superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"roles.background.accountId\",\"model\":\"roles.background.model\",\"effort\":\"roles.background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"roles.shipwright.accountId\",\"model\":\"roles.shipwright.model\",\"effort\":\"roles.shipwright.effort\",\"harness\":\"claude-code\"}},\"sidebar\":{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"sidebar.repoOrder[0]\"],\"groupByRepo\":true},\"autoContinue\":{\"enabled\":true,\"promptDismissed\":true},\"notifications\":{\"web\":true,\"ntfyTopic\":\"notifications.ntfyTopic\",\"telegramChatId\":\"notifications.telegramChatId\"}}"
+    },
+    {
+      "schema": "PersonalPreferenceState",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "value": {
+          "unknownFixture": "value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"value\":{\"unknownFixture\":\"value\"}}"
+    },
+    {
+      "schema": "PersonalPreferenceState",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId",
+        "value": {
+          "unknownFixture": "value"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"value\":{\"unknownFixture\":\"value\"}}"
+    },
+    {
+      "schema": "PerUserKey",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\"}"
+    },
+    {
+      "schema": "PerUserKey",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "entityId": "entityId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\"}"
+    },
+    {
+      "schema": "PerUserSingletonKey",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\"}"
+    },
+    {
+      "schema": "PerUserSingletonKey",
+      "variant": "full",
+      "wire": {
+        "userId": "userId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\"}"
     },
     {
       "schema": "PinKind",
@@ -8028,24 +8028,6 @@
       "encoded": "\"x\""
     },
     {
-      "schema": "RepoIdField",
-      "variant": "minimal",
-      "wire": "",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"\""
-    },
-    {
-      "schema": "RepoIdField",
-      "variant": "full",
-      "wire": "",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"\""
-    },
-    {
       "schema": "RepoIdentity",
       "variant": "minimal",
       "wire": {
@@ -8070,6 +8052,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"id\":\"id\",\"prefix\":\"prefix\",\"repoPath\":\"repoPath\"}"
+    },
+    {
+      "schema": "RepoIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "RepoIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
     },
     {
       "schema": "RepoProjection",
@@ -9709,24 +9709,6 @@
       "encoded": "\"x\""
     },
     {
-      "schema": "SessionIdField",
-      "variant": "minimal",
-      "wire": "",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"\""
-    },
-    {
-      "schema": "SessionIdField",
-      "variant": "full",
-      "wire": "",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"\""
-    },
-    {
       "schema": "SessionIdentity",
       "variant": "minimal",
       "wire": {
@@ -9776,6 +9758,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"headless\":false}"
+    },
+    {
+      "schema": "SessionIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "SessionIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
     },
     {
       "schema": "SessionLaunchConfig",
@@ -12191,26 +12191,6 @@
       "encoded": "{\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"deleted.by.actor.job\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"}}"
     },
     {
-      "schema": "SessionWorkState",
-      "variant": "minimal",
-      "wire": {},
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{}"
-    },
-    {
-      "schema": "SessionWorkState",
-      "variant": "full",
-      "wire": {
-        "workState": "planning"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"workState\":\"planning\"}"
-    },
-    {
       "schema": "SessionWorkflowLink",
       "variant": "minimal",
       "wire": {},
@@ -12231,6 +12211,26 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"executionProfileId\":\"executionProfileId\"}"
+    },
+    {
+      "schema": "SessionWorkState",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "SessionWorkState",
+      "variant": "full",
+      "wire": {
+        "workState": "planning"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"workState\":\"planning\"}"
     },
     {
       "schema": "ShipAttempt",
@@ -14928,24 +14928,6 @@
       "encoded": "\"x\""
     },
     {
-      "schema": "UserIdField",
-      "variant": "minimal",
-      "wire": "",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"\""
-    },
-    {
-      "schema": "UserIdField",
-      "variant": "full",
-      "wire": "",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"\""
-    },
-    {
       "schema": "UserIdentity",
       "variant": "minimal",
       "wire": {
@@ -14968,6 +14950,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"userId\":\"userId\",\"displayName\":\"displayName\"}"
+    },
+    {
+      "schema": "UserIdField",
+      "variant": "minimal",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
+      "schema": "UserIdField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
     },
     {
       "schema": "UserLifecycle",
