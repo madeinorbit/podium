@@ -4,6 +4,7 @@ import type {} from '../test/issue-chips.browser'
 
 const origin = 'http://127.0.0.1:41678'
 const out = '.artifacts/issue-chips'
+const correctnessOnly = process.argv.includes('--correctness-only')
 await mkdir(out, { recursive: true })
 const server = Bun.spawn(
   [
@@ -64,7 +65,7 @@ try {
       () => document.querySelectorAll('a[data-issue-availability="present"]').length >= 361,
     )
     const times: number[] = []
-    for (let sample = 0; sample < 5; sample++) {
+    for (let sample = 0; sample < (correctnessOnly ? 0 : 5); sample++) {
       await page.reload({ waitUntil: 'networkidle', timeout: 60000 })
       await page.waitForFunction(() => window.__issueChips?.ready(), null, { timeout: 60000 })
       const ms = await page.evaluate(async () => {
@@ -169,8 +170,8 @@ try {
       sessions: 674,
       messages: 120,
       chips: initial.length,
-      openMs: times,
-      medianOpenMs: times[2],
+      openMs: correctnessOnly ? undefined : times,
+      medianOpenMs: correctnessOnly ? undefined : times[2],
       before,
       traffic,
       after,
