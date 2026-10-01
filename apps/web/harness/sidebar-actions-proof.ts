@@ -158,6 +158,7 @@ try {
     await rename.press('Enter')
     await page.getByText('Optimistic browser rename').waitFor()
     await check('rename pending', started)
+    await page.screenshot({ path: `${out}/synthetic-optimistic-rename.png` })
     await rejectLatest()
     await page.getByText('Only responsive target').waitFor()
     await check('rename refused')
