@@ -9,7 +9,7 @@ import { LOADING, type MobxPool } from '@podium/client-graph'
 import { compareStructural, computed, observer } from '@podium/client-graph/react'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import { isSessionWorking } from '@podium/client-graph/worklist/rollup'
-import type { SidebarState, SidebarSections } from '@podium/client-graph/worklist/sidebar'
+import type { SidebarSections, SidebarState } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import { asIssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
 import * as m from 'motion/react-m'
@@ -153,7 +153,7 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
       computed(
         () => {
           if (!pool) return { total: 0, hits: 0 }
-      const live = slotsFor(pool.sidebar.sections(state)).filter(
+          const live = slotsFor(pool.sidebar.sections(state)).filter(
             (slot) => slot.value.lane === 'pinned' || slot.value.lane === 'open',
           )
           return {
