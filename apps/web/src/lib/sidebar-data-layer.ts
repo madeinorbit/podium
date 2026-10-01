@@ -30,8 +30,7 @@ export function sidebarCheckRequested(): boolean {
   return startupCheck
 }
 
-/** The only mode read for sidebar mounts and worklist readers. Until the pool
- * integration lands, 'pool' is a request; the app still renders its legacy UI. */
+/** The startup choice shared by the real sidebar and its companion readers. */
 export function sidebarDataLayer(): SidebarDataLayer {
   return startupDataLayer ?? 'legacy'
 }
