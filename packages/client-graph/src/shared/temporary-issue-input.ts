@@ -31,6 +31,9 @@ export function temporaryIssueInput(
   if (cached !== undefined && (deps === undefined || cached.deps === deps) && cached.blocked === blocked && cached.sessionFacts === sessionFacts) return cached
   const asked = projection.asked as { question?: string; options?: string[]; at?: string; by?: string } | null | undefined
   const hasAsked = Object.hasOwn(projection, 'asked')
+  // Canonical projections carry these defaulted intent fields. dropNullValues
+  // omits an empty ask entirely; that omission must also clear stale wire text.
+  const canonical = hasAsked || Object.hasOwn(projection, 'isDraftVessel') || Object.hasOwn(projection, 'intentOrigin')
   const row = {
     ...projection,
     readAt: old.readAt,
@@ -41,8 +44,8 @@ export function temporaryIssueInput(
     commentCount: old.commentCount,
     draft: projection.isDraftVessel ?? projection.draft ?? old.draft ?? false,
     origin: projection.intentOrigin ?? projection.origin ?? old.origin,
-    humanQuestion: hasAsked ? asked?.question : projection.humanQuestion ?? old.humanQuestion,
-    humanQuestionOptions: hasAsked ? asked?.options : projection.humanQuestionOptions ?? old.humanQuestionOptions,
+    humanQuestion: canonical ? asked?.question : projection.humanQuestion ?? old.humanQuestion,
+    humanQuestionOptions: canonical ? asked?.options : projection.humanQuestionOptions ?? old.humanQuestionOptions,
     humanQuestionAskedAt: asked?.at,
     humanQuestionAskedBy: asked?.by,
     // Edges are a normalized feed input. Legacy-shaped test projections can

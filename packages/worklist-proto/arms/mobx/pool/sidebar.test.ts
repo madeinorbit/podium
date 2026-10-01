@@ -89,6 +89,10 @@ describe('real sidebar oracle (POD-4953)', () => {
     expect(temporaryIssueInput({ ...projection, asked: null, isDraftVessel: false, intentOrigin: 'human' }, wire, [], false)).toMatchObject({
       draft: false, origin: 'human', humanQuestion: undefined, humanQuestionOptions: undefined,
     })
+    const { asked: _asked, ...withoutAsk } = projection
+    expect(temporaryIssueInput(withoutAsk, wire, [], false)).toMatchObject({
+      humanQuestion: undefined, humanQuestionOptions: undefined,
+    })
   })
 
   it('cold sidebar reads answer LOADING and batch loads; eviction only clears a previously seen selection', () => {

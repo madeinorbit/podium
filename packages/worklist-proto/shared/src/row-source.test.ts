@@ -309,7 +309,7 @@ describe('row-source over the real facade (fake runtime)', () => {
       expect(event?.rows[0]?.value).toMatchObject({ id: 'i1', title: 'projection',
         pinned: true, readAt: 'read', repoPath: '/repo', commentCount: 3 })
       expect(handle.stats.rowsVisited).toBe(1)
-      expect(handle.source.row('issue', 'i1')).toBe(event?.rows[0]?.value)
+      expect(handle.source.row?.('issue', 'i1')).toBe(event?.rows[0]?.value)
       handle.stats.reset()
       cache.put('issueProjection', 'i1', issueValue('i1', { title: 'Projection-only update' }))
       replica.onKernelEvent(upserted('issueProjection', 'i1'))
@@ -730,7 +730,7 @@ describe('row-source over the real runtime (optimism identity)', () => {
         )
         expect(echo?.rows[0]?.value).not.toBe(press?.rows[0]?.value)
         const covered = echo?.rows[0]?.value
-        expect(handle.source.row('issue', 'iss_1')).toBe(covered)
+        expect(handle.source.row?.('issue', 'iss_1')).toBe(covered)
 
         // Second press, then a definitive rejection restores the echo identity.
         // (Enqueue always succeeds — the refusal surfaces at drain as a dead
