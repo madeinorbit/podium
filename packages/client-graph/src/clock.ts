@@ -46,6 +46,12 @@
  * 6. the groups' node memo (`worklist/groups.ts` `WorklistGroups.nodes`,
  *    read by `keys`): an identity memo of each group's node, whose values are
  *    tracked.
+ * 7. the sidebar's per-state/per-project computed memos (`worklist/sidebar.ts`
+ *    `sectionViews`, `worklist/sidebar-roster.ts` `bands`): identity memos,
+ *    whose `get` tracks the resident lanes and row reader. Roster ownership,
+ *    locations, project membership and expiry registries are read only during
+ *    maintenance, inside the existing publication or clock action; derivations
+ *    read the observable candidate/path lanes and cold-lane summaries instead.
  * Nothing else: every table, bucket, forward, lane and overlay read is an
  * observable read. What a list filed each id under (`worklist/sorted-lanes.ts`
  * `SortedLanes.filed`) is read only by the filing itself, inside an action,
