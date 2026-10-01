@@ -1,8 +1,23 @@
-import { canonicalIssueRef, issueReferenceModel, type IssueReferenceModel, type IssueReferenceSource } from '@podium/client-core/viewmodels'
+import {
+  canonicalIssueRef,
+  type IssueReferenceModel,
+  type IssueReferenceSource,
+  issueReferenceModel,
+} from '@podium/client-core/viewmodels'
 import { parseAnyRef } from '@podium/protocol'
-import { compareStructural, computed, observable, observe, onBecomeUnobserved, reaction, runInAction, type IComputedValue, type ObservableMap } from 'mobx'
-import type { RelationReader } from './shared/relation-reader'
+import {
+  compareStructural,
+  computed,
+  type IComputedValue,
+  type ObservableMap,
+  observable,
+  observe,
+  onBecomeUnobserved,
+  reaction,
+  runInAction,
+} from 'mobx'
 import { seedIssueReferences } from './enumerate'
+import type { RelationReader } from './shared/relation-reader'
 import type { StoredRow } from './tables'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -32,12 +47,17 @@ export class IssueReferences implements IssueReferenceReader {
   private readonly resident = observable.map<string, string>(undefined, { deep: false })
   // Demand responses exist only for keys asked for by readers. This is not an
   // index over cold rows or their summaries. A loaded key wins immediately.
-  private readonly requests = observable.map<string, string | null | typeof LOADING>(undefined, { deep: false })
+  private readonly requests = observable.map<string, string | null | typeof LOADING>(undefined, {
+    deep: false,
+  })
   private readonly stops = new Map<string, () => void>()
   private readonly values = new Map<string, IComputedValue<Loaded<IssueReferenceModel | null>>>()
   private readonly stopTable: () => void
 
-  constructor(private readonly host: IssueReferenceHost, private readonly queue: (ref: string) => void) {
+  constructor(
+    private readonly host: IssueReferenceHost,
+    private readonly queue: (ref: string) => void,
+  ) {
     this.stopTable = observe(host.tables.issue, (change) => {
       if (change.type === 'add') this.track(change.name)
       if (change.type === 'delete') this.untrack(change.name)
@@ -55,32 +75,47 @@ export class IssueReferences implements IssueReferenceReader {
     const repo = repoId === null ? undefined : this.host.row('repo', repoId)
     if (repo === LOADING) return LOADING
     const prefix = (repo as { prefix?: string | null } | undefined)?.prefix ?? issue.prefix
-    return { id: issue.id, seq: issue.seq, title: issue.title, stage: issue.stage,
-      archived: issue.archived, deletedAt: issue.deletedAt,
+    return {
+      id: issue.id,
+      seq: issue.seq,
+      title: issue.title,
+      stage: issue.stage,
+      archived: issue.archived,
+      deletedAt: issue.deletedAt,
       ...(prefix ? { prefix } : {}),
       // The repo relation owns canonical identity after normalization. A
       // temporary pre-projection input can still carry a real displayRef.
-      displayRef: repoId !== null ? (prefix ? `${prefix}-${issue.seq}` : `#${issue.seq}`) : issue.displayRef,
+      displayRef:
+        repoId !== null ? (prefix ? `${prefix}-${issue.seq}` : `#${issue.seq}`) : issue.displayRef,
     }
   }
 
   private track(id: string): void {
     if (this.stops.has(id)) return
     let previous: string | undefined
-    const stop = reaction(() => {
-      const row = this.source(id)
-      return row === LOADING || row === undefined ? undefined : issueRefKey(canonicalIssueRef(row))
-    }, (key) => runInAction(() => {
-      if (previous !== undefined && this.resident.get(previous) === id) this.resident.delete(previous)
-      previous = key
-      if (key !== undefined) {
-        this.resident.set(key, id)
-        this.requests.delete(key)
-      }
-    }), { fireImmediately: true })
+    const stop = reaction(
+      () => {
+        const row = this.source(id)
+        return row === LOADING || row === undefined
+          ? undefined
+          : issueRefKey(canonicalIssueRef(row))
+      },
+      (key) =>
+        runInAction(() => {
+          if (previous !== undefined && this.resident.get(previous) === id)
+            this.resident.delete(previous)
+          previous = key
+          if (key !== undefined) {
+            this.resident.set(key, id)
+            this.requests.delete(key)
+          }
+        }),
+      { fireImmediately: true },
+    )
     this.stops.set(id, () => {
       stop()
-      if (previous !== undefined && this.resident.get(previous) === id) this.resident.delete(previous)
+      if (previous !== undefined && this.resident.get(previous) === id)
+        this.resident.delete(previous)
     })
   }
 
@@ -112,10 +147,13 @@ export class IssueReferences implements IssueReferenceReader {
   readById(id: string): Loaded<IssueReferenceModel | null> {
     let value = this.values.get(id)
     if (!value) {
-      value = computed(() => {
-        const row = this.source(id)
-        return row === LOADING ? LOADING : row === undefined ? null : issueReferenceModel(row)
-      }, { equals: compareStructural })
+      value = computed(
+        () => {
+          const row = this.source(id)
+          return row === LOADING ? LOADING : row === undefined ? null : issueReferenceModel(row)
+        },
+        { equals: compareStructural },
+      )
       this.values.set(id, value)
       onBecomeUnobserved(value, () => this.values.delete(id))
     }
