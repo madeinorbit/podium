@@ -735,13 +735,16 @@ export function tipPartOf(input: RollupInputs, id: string): Tip {
     const below = node?.tip
     for (const candidate of [ownTarget, below?.target]) {
       if (candidate === undefined) continue
+      // Staffed tips prefer recency regardless of closure. Only the unstaffed
+      // fallback prefers unfinished work (mission.ts preferredSpinOffTip).
       if (
         target === undefined ||
         Number(candidate.staffed) > Number(target.staffed) ||
         (candidate.staffed === target.staffed &&
+          !candidate.staffed &&
           Number(candidate.finished) < Number(target.finished)) ||
         (candidate.staffed === target.staffed &&
-          candidate.finished === target.finished &&
+          (candidate.staffed || candidate.finished === target.finished) &&
           candidate.activeAt > target.activeAt)
       )
         target = candidate

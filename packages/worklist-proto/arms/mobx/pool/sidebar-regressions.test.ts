@@ -39,7 +39,8 @@ function session(sessionId: string, owner: string, patch: Partial<SessionMeta> =
     readAt: STAMP, unread: false, agentState: { phase: 'idle', since: STAMP }, ...patch } as unknown as SessionMeta
 }
 function collections(issues: IssueWire[], sessions: SessionMeta[] = [], repos = [REPO]): LiveCollections {
-  return { issues, sessions, repos, machines: [], issueDeps: [],
+  return { issues, sessions, repos, machines: [],
+    issueDeps: issues.flatMap(row => (row.deps ?? []).map((edge, index) => ({ id: `synthetic-dep-${row.id}-${index}`, fromId: row.id, toId: edge.id, type: edge.type } as LiveCollections['issueDeps'][number]))),
     issueProjections: issues.map(row => ({ ...row, description: { value: '', revision: 0 }, isDraftVessel: row.draft ?? false, intentOrigin: 'human' }) as unknown as IssueProjection),
     repoProjections: [{ id: 'synthetic-repo', prefix: 'SYN' } as LiveCollections['repoProjections'][number]],
     pins: { repos: [], worktrees: [], panels: [] } }
@@ -166,6 +167,34 @@ describe('POD-5057 timing after cross-owner resume collapse', () => {
       const { actual, expected } = ctx.row(task.id)
       expect(expected.timing).toEqual({ phase: 'done', sinceMs: 0 })
       expect(actual.timing).toEqual(expected.timing)
+      expect(ctx.check().first).toBeNull()
+    } finally { ctx.dispose() }
+  })
+})
+
+
+describe('POD-5058 staffed continuation preference', () => {
+  it.each([
+    { nested: false, staffed: true, ref: 'SYN-2' }, { nested: true, staffed: true, ref: 'SYN-2' },
+    { nested: false, staffed: false, ref: 'SYN-3' }, { nested: true, staffed: false, ref: 'SYN-3' },
+  ])('preserves tip preference (nested=$nested, staffed=$staffed)', ({ nested, staffed, ref }) => {
+    const origin = issue('iss_synthetic_origin', { stage: 'review' })
+    const middle = issue('iss_synthetic_tip_middle', { seq: 4, stage: 'done', closedReason: 'done',
+      deps: [{ id: origin.id, type: 'discovered-from' }] as IssueWire['deps'] })
+    const newerAt = new Date(NOW - 120_000).toISOString()
+    const olderAt = new Date(NOW - 600_000).toISOString()
+    const newer = issue('iss_synthetic_tip_newer', { seq: 2, stage: 'done', closedReason: 'done', closedAt: newerAt, updatedAt: newerAt,
+      deps: [{ id: nested ? middle.id : origin.id, type: 'discovered-from' }] as IssueWire['deps'] })
+    const older = issue('iss_synthetic_tip_older', { seq: 3, updatedAt: olderAt,
+      deps: [{ id: origin.id, type: 'discovered-from' }] as IssueWire['deps'] })
+    const ctx = replay(collections([origin, older, newer, ...(nested ? [middle] : [])], staffed ? [
+      session('newer-tip-seat', newer.id, { lastActiveAt: newerAt }),
+      session('older-tip-seat', older.id, { lastActiveAt: olderAt }),
+    ] : []))
+    try {
+      const { actual, expected } = ctx.row(origin.id)
+      expect(expected.continuation).toEqual({ kind: 'continued', ref })
+      expect(actual.continuation).toEqual(expected.continuation)
       expect(ctx.check().first).toBeNull()
     } finally { ctx.dispose() }
   })
