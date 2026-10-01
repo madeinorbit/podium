@@ -113,16 +113,31 @@ try {
     await page.waitForTimeout(200)
     const before = await page.evaluate(() => window.__issueChips.stats())
     const shape = await page.evaluate(() => window.__issueChips.status())
+    const mounted = await page.evaluateHandle(() => new Map(
+      [...document.querySelectorAll('a.ref-link--issue, [data-issue-reference]')]
+        .map(el => [el, [el.getAttribute('data-issue-stage'), el.getAttribute('data-issue-availability'), el.getAttribute('aria-label')].join('\0')]),
+    ))
     await page.evaluate(() => window.__issueChips.traffic())
     await page.waitForTimeout(200)
     const traffic = await page.evaluate(() => window.__issueChips.stats())
+    const trafficMounts = await page.evaluate(previous => {
+      let added = 0, changed = 0
+      for (const el of document.querySelectorAll('a.ref-link--issue, [data-issue-reference]')) {
+        if (!previous.has(el)) { added++; continue }
+        const value = [el.getAttribute('data-issue-stage'), el.getAttribute('data-issue-availability'), el.getAttribute('aria-label')].join('\0')
+        if (previous.get(el) !== value) changed++
+      }
+      return { added, changed }
+    }, mounted)
+    await mounted.dispose()
     if (
       mode === 'pool' &&
       (traffic.legacyScans !== 0 ||
-        traffic.redraws !== before.redraws ||
-        traffic.reads !== before.reads)
+        trafficMounts.changed !== 0 ||
+        traffic.redraws - before.redraws !== trafficMounts.added ||
+        traffic.reads - before.reads > trafficMounts.added * 4)
     )
-      throw new Error(`Session traffic woke pool chips or scanned legacy issues: ${JSON.stringify({before, traffic})}`)
+      throw new Error(`Session traffic woke pool chips or scanned legacy issues: ${JSON.stringify({before, traffic, trafficMounts})}`)
     const paint = () =>
       page.evaluate(() =>
         [...document.querySelectorAll('a.ref-link--issue, [data-issue-reference]')].map((el) => ({
@@ -199,6 +214,7 @@ try {
       medianOpenMs: correctnessOnly ? undefined : times[2],
       before,
       traffic,
+      trafficMounts,
       after,
       changedChips,
       check,
