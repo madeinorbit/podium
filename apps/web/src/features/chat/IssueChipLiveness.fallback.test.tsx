@@ -54,7 +54,11 @@ describe('non-reference fallback labels', () => {
       return (
         <>
           <IssueChipLiveness root={host} />
-          <div ref={node => { if (node) node.innerHTML = html }} />
+          <div
+            ref={(node) => {
+              if (node) node.innerHTML = html
+            }}
+          />
         </>
       )
     }
