@@ -388,7 +388,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     'shell-and-guest',
     'archived-parent',
   ])('chooses the same mission pane as legacy for %s', async (scenario) => {
-    await mount((fixture) => {
+    const fixture = await mount((fixture) => {
       patchIssue(fixture, 'synthetic-7', { parentId: 'synthetic-3' })
       fixture.patch('session', 'synthetic-session-7', {
         lastActiveAt: new Date(NOW - 20).toISOString(),
@@ -474,6 +474,21 @@ describe('pool navigation uses the existing gesture semantics', () => {
     ).toBe(expected)
     expect(focused).toBe('synthetic-3')
     await parity()
+    if (scenario === 'headless-starter') {
+      expect(value('synthetic-7').continuation).toBeNull()
+      for (const [status, archived, continued] of [
+        ['exited', false, true],
+        ['live', false, false],
+        ['live', true, true],
+        ['live', false, false],
+      ] as const) {
+        await act(async () => {
+          fixture.patch('session', 'synthetic-session-7', { status, archived })
+        })
+        await parity()
+        expect(value('synthetic-7').continuation?.kind).toBe(continued ? 'continued' : undefined)
+      }
+    }
   })
 
   it('keeps a mission file pane, avoids redundant/file traces, and still focuses a sessionless child', async () => {

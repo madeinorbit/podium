@@ -193,6 +193,8 @@ export interface Standing {
   readonly finishedMs: number
   readonly updatedMs: number | null
   readonly replicaActivityMs?: number | null
+  /** Headless own presence supplements R2 without joining its roster. */
+  readonly headlessStaffed?: boolean
   readonly deleted: boolean
   readonly pinned: boolean
   /**
@@ -286,6 +288,7 @@ export function standingOf(issue: SliceIssue): Standing {
     finishedMs: parseMs(issue.closedAt ?? issue.updatedAt) ?? 0,
     updatedMs: parseMs(issue.updatedAt),
     replicaActivityMs: parseMs(issue.sessionFacts?.replicaActivityAt),
+    headlessStaffed: issue.sessionFacts?.headlessStaffed === true,
     deleted: issue.deletedAt != null,
     pinned: issue.pinned === true,
     formalParent: refs.issue.parent(issue),
@@ -597,7 +600,12 @@ export function retainedSeatIdsPartOf(
 }
 
 /** `openIssues.has(id)`: an explicit session with this `issueId` present on the task. */
-export function openOwnPartOf(input: VisibleInputs, id: string, seatIds: readonly string[]): boolean {
+export function openOwnPartOf(
+  input: VisibleInputs,
+  id: string,
+  seatIds: readonly string[],
+  standing: Standing | undefined,
+): boolean {
   for (const sessionId of seatIds) {
     const retention = input.session(sessionId).retention
     if (retention !== null && retention.issueId === id && !retention.archived && !retention.exited) {
@@ -605,9 +613,8 @@ export function openOwnPartOf(input: VisibleInputs, id: string, seatIds: readonl
     }
   }
   // Headless seats are absent from R2 and never collapse with resume twins.
-  // Their declared summary supplements own presence, without joining rosters.
-  const issue = input.loadedIssue(id)
-  return issue !== undefined && typeof issue !== 'symbol' && issue.sessionFacts?.headlessStaffed === true
+  // Reuse the own-row facts already read by members; no second read or load.
+  return standing?.headlessStaffed === true
 }
 
 /** The retained seats not exited, in member order (`sessionVisibleInLiveRoster`). */
@@ -642,7 +649,7 @@ export function membersOf(
     rosterIds,
     retained: standing !== undefined && !standing.excluded && retainedSeatIds.length > 0,
     liveRoster: rosterIds.length > 0,
-    openOwn: openOwnPartOf(input, id, seatIds),
+    openOwn: openOwnPartOf(input, id, seatIds, standing),
   }
 }
 
@@ -939,7 +946,7 @@ export function directVisibility(
       return parts.rosterIds.length > 0
     },
     get openOwn() {
-      return once('openOwn', () => openOwnPartOf(input, id, parts.seatIds))
+      return once('openOwn', () => openOwnPartOf(input, id, parts.seatIds, parts.standing))
     },
     get childIds() {
       return once('childIds', () => childIdsPartOf(input, id))
