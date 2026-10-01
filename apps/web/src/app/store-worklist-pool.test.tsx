@@ -1,5 +1,6 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { ClientRuntime } from '@podium/client-core/engine'
+import { bindSidebarPerf, createSidebarPerf } from '@podium/client-core/perf'
 import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
@@ -10,7 +11,10 @@ import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
-import { pickTargets, ScenarioCache } from '../../../../packages/worklist-proto/shared/src/scenarios'
+import {
+  pickTargets,
+  ScenarioCache,
+} from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 
 const choice = vi.hoisted(() => ({ mode: 'pool' }))
@@ -43,7 +47,10 @@ const replicaFactory = vi.fn(() => {
   const cache = new ScenarioCache()
   cache.put('issue', id, corpus.issues.find((row) => row.id === id)!)
   cache.put('issueProjection', id, corpus.issueProjections.find((row) => row.id === id)!)
-  return createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
+  return createKernelReplica({
+    cache,
+    side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+  })
 })
 
 function binding(next: ClientRuntime): () => void {
@@ -51,20 +58,31 @@ function binding(next: ClientRuntime): () => void {
   return attachWorklistPool(next, (error) => errors.push(error))
 }
 
-function render(who: ClientPrincipal | null = alice, options: { config?: typeof config; strict?: boolean } = {}): void {
+function render(
+  who: ClientPrincipal | null = alice,
+  options: { config?: typeof config; strict?: boolean } = {},
+): void {
   const provider = (
     <StoreProvider
-      principal={who} config={options.config ?? config} api={api}
-      createReplicaFn={replicaFactory} onFatalError={() => {}}
-      networkEnabled={false} attachRuntime={binding}
-    ><Probe /></StoreProvider>
+      principal={who}
+      config={options.config ?? config}
+      api={api}
+      createReplicaFn={replicaFactory}
+      onFatalError={() => {}}
+      networkEnabled={false}
+      attachRuntime={binding}
+    >
+      <Probe />
+    </StoreProvider>
   )
   act(() => root.render(options.strict ? <StrictMode>{provider}</StrictMode> : provider))
 }
 
 async function ready(): Promise<MobxPool> {
   await vi.waitFor(async () => {
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
     expect(shown).not.toBeNull()
   })
   return shown!
@@ -104,17 +122,25 @@ describe('StoreProvider owns the sidebar pool', () => {
     expect(errors).toEqual([])
   })
 
-  it.each(['principal', 'sign-out', 'rebuild'] as const)('disposes the old pool before runtime destruction on %s', async (change) => {
+  it.each([
+    'principal',
+    'sign-out',
+    'rebuild',
+  ] as const)('disposes the old pool before runtime destruction on %s', async (change) => {
     render()
     const old = await ready()
     const dispose = vi.spyOn(old, 'dispose')
-    const destroy = vi.spyOn(ClientRuntime.prototype, 'destroy').mockImplementation(function (this: ClientRuntime) {
+    const destroy = vi.spyOn(ClientRuntime.prototype, 'destroy').mockImplementation(function (
+      this: ClientRuntime,
+    ) {
       expect(dispose).toHaveBeenCalledTimes(1)
       return originalDestroy.call(this)
     })
     const oldRuntime = runtime!
-    render(change === 'sign-out' ? null : change === 'principal' ? bob : alice,
-      change === 'rebuild' ? { config: { ...config } } : {})
+    render(
+      change === 'sign-out' ? null : change === 'principal' ? bob : alice,
+      change === 'rebuild' ? { config: { ...config } } : {},
+    )
     expect(destroy).toHaveBeenCalledTimes(1)
     expect(oldRuntime.isDestroyed).toBe(true)
     if (change !== 'sign-out') expect(await ready()).not.toBe(old)
@@ -136,17 +162,40 @@ describe('StoreProvider owns the sidebar pool', () => {
     choice.mode = 'legacy'
     const create = vi.spyOn(runtimePool, 'createRuntimeWorklistPool')
     render()
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
     expect(shown).toBeNull()
     expect(create).not.toHaveBeenCalled()
     expect(replicaFactory).toHaveBeenCalledTimes(1)
+  })
+
+  it('publishes resident counts on late panel open and clears them on sign-out', async () => {
+    render()
+    const pool = await ready()
+    const perf = createSidebarPerf()
+    const close = bindSidebarPerf(runtime!, perf)
+    const row = vi.spyOn(pool, 'row')
+    const snapshots = vi.spyOn(runtime!, 'getSnapshot')
+    try {
+      expect(perf.read().pool).toEqual({ connected: true, rows: 1 })
+      for (let i = 0; i < 100; i++) perf.read()
+      expect(row).not.toHaveBeenCalled()
+      expect(snapshots).not.toHaveBeenCalled()
+      render(null)
+      expect(perf.read().pool).toEqual({ connected: false, rows: null })
+    } finally {
+      close()
+    }
   })
 
   it('cancels an attachment disposed before its import resolves', async () => {
     const create = vi.spyOn(runtimePool, 'createRuntimeWorklistPool')
     render()
     render(null)
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
     expect(create).not.toHaveBeenCalled()
     expect(errors).toEqual([])
   })

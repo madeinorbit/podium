@@ -201,19 +201,48 @@ export type SidebarPerfSnapshot = ReturnType<SidebarPerf['read']>
 let sink: { owner: object; perf: SidebarPerf; afterPaint: (done: () => void) => void } | null = null
 const poolReports = new WeakMap<object, { rows: number | null; connected: boolean }>()
 const checkReports = new WeakMap<object, SidebarCheckReport>()
+const bindingListeners = new WeakMap<object, Set<(perf: SidebarPerf | null) => void>>()
+
+/** An outside work meter lives only while this owner's panel is open. */
+export function observeSidebarPerfBinding(
+  owner: object,
+  listener: (perf: SidebarPerf | null) => void,
+): () => void {
+  let listeners = bindingListeners.get(owner)
+  if (!listeners) {
+    listeners = new Set()
+    bindingListeners.set(owner, listeners)
+  }
+  listener(sidebarPerfFor(owner))
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+    listener(null)
+  }
+}
+
+function notifyBinding(owner: object, perf: SidebarPerf | null): void {
+  for (const listener of bindingListeners.get(owner) ?? []) listener(perf)
+}
+
 export function bindSidebarPerf(
   owner: object,
   perf: SidebarPerf,
   afterPaint: (done: () => void) => void = queueMicrotask,
 ): () => void {
+  if (sink) notifyBinding(sink.owner, null)
   const binding = { owner, perf, afterPaint }
   sink = binding
   const pool = poolReports.get(owner)
   if (pool) perf.pool(pool.connected, pool.rows)
   const check = checkReports.get(owner)
   if (check) perf.check(check)
+  notifyBinding(owner, perf)
   return () => {
-    if (sink === binding) sink = null
+    if (sink === binding) {
+      sink = null
+      notifyBinding(owner, null)
+    }
   }
 }
 export function sidebarPerfFor(owner: object): SidebarPerf | null {

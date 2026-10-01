@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   bindSidebarPerf,
+  observeSidebarPerfBinding,
   createSidebarPerf,
   recordSidebarDerivation,
   reportSidebarCheck,
@@ -119,6 +120,25 @@ describe('passive sidebar report', () => {
       stop()
     }
     expect(sidebarPerfFor(owner)).toBeNull()
+  })
+
+  it('starts and stops outside meters on panel open, replacement, close and listener disposal', () => {
+    const owner = {},
+      other = {}
+    const perf = createSidebarPerf()
+    const next = createSidebarPerf()
+    const events: Array<typeof perf | null> = []
+    const stop = observeSidebarPerfBinding(owner, (binding) => events.push(binding))
+    const close = bindSidebarPerf(owner, perf)
+    const closeNext = bindSidebarPerf(other, next)
+    close() // an old cleanup must not stop the current binding
+    expect(sidebarPerfFor(other)).toBe(next)
+    expect(events).toEqual([null, perf, null])
+    closeNext()
+    const reopen = bindSidebarPerf(owner, perf)
+    stop()
+    reopen()
+    expect(events).toEqual([null, perf, null, perf, null])
   })
 
   it('accepts pool and S5 scalar reports without retaining or reading a pool', () => {

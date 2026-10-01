@@ -1,5 +1,6 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
+import { reportSidebarPool } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool, WorklistPoolHandle } from '@podium/client-graph'
 import { useSyncExternalStore } from 'react'
@@ -61,6 +62,7 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
 ): () => void {
   initializeSidebarDataLayer(runtime.ui)
   if (sidebarDataLayer() !== 'pool') return () => {}
+  reportSidebarPool(runtime, null, false)
   const slot = slotFor(runtime)
   slot.error = null
   let disposed = false
