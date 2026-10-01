@@ -57,7 +57,7 @@ import {
 } from 'mobx'
 import type { RelationReader } from './shared/relation-reader'
 import { relationLinks } from './shared/links'
-import { COLD_SESSION_FIELDS, type EntityName, issueExcluded, type ModelSchema, SCHEMA } from './shared/schema'
+import { COLD_SESSION_FIELDS, type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
 import type {
   LocalsKey,
   SliceIssue,
@@ -243,6 +243,10 @@ export class MobxPool {
         : new Residency({
             schema: schema ?? SCHEMA,
             hot: tables,
+            residentRow: (entity, id) => {
+              const row = this.row(entity, id, 'mark')
+              return row === LOADING ? undefined : row
+            },
             load: lazy.load,
             // Read at ingest, after the constructor has built the clock.
             now: () => this.clock.current,
@@ -684,12 +688,13 @@ export class MobxPool {
   }
 
   /**
-   * The issue table moved: eligible rows take a filing reaction. Excluded rows
-   * release it immediately; a row returning from exclusion takes it again.
+   * Archived/deleted rows release their filing reaction and take it again on
+   * return. Stage exclusions retain theirs: pending edits can change stage
+   * through the one reader without an authoritative table publication.
    */
   private followTable(type: 'add' | 'update' | 'delete', id: string): void {
     const row = type === 'delete' ? undefined : this.tables.issue.get(id)
-    if (row === undefined || issueExcluded(row as Readonly<Record<string, unknown>>)) {
+    if (row === undefined || row.archived === true || row.deletedAt != null) {
       this.worklist.untrack(id)
     } else {
       this.worklist.track(id)

@@ -430,6 +430,10 @@ export class HandPool {
         : new Residency({
             schema,
             hot: fenced,
+            residentRow: (entity, id) => {
+              const row = this.row(entity, id, 'mark')
+              return row === LOADING ? undefined : row
+            },
             load: lazy.load,
             now: () => this.clock.current,
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),

@@ -115,6 +115,8 @@ export interface ResidencyOptions {
   readonly schema: ModelSchema
   /** The pool's hot tables, read side. */
   readonly hot: { readonly [E in EntityName]: { get(id: string): unknown } }
+  /** The pool's one reader, in maintenance mode; cold rows use their summary instead. */
+  readonly residentRow?: (entity: EntityName, id: string) => object | undefined
   readonly load: LoadRow
   /** The slice clock (`coarseNow`): what an `unlessShown` rule's deadlines are read against. */
   readonly now: () => number
@@ -155,6 +157,7 @@ export class Residency {
   readonly windowMs: number
   private readonly schema: ModelSchema
   private readonly hot: ResidencyOptions['hot']
+  private readonly residentRow: NonNullable<ResidencyOptions['residentRow']>
   private readonly load: LoadRow
   private readonly clock: () => number
   private readonly schedule: Schedule
@@ -210,6 +213,7 @@ export class Residency {
   constructor(options: ResidencyOptions) {
     this.schema = options.schema
     this.hot = options.hot
+    this.residentRow = options.residentRow ?? ((entity, id) => this.hot[entity].get(id) as object | undefined)
     this.load = options.load
     this.clock = options.now
     this.keeperKinds = keeperEntities(this.schema)
@@ -305,9 +309,11 @@ export class Residency {
     }
   }
 
-  /** The declared placement summary; input at hand wins, then resident input, then the cold summary. */
+  /** The declared placement summary; cold rows never require a row read. */
   private ruleSummary(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined {
-    const row = this.inHand?.(entity, id) ?? this.hot[entity].get(id)
+    const input = this.inHand?.(entity, id)
+    if (input === undefined && this.isCold(entity, id)) return this.summaries.get(`${entity}:${id}`)
+    const row = input ?? this.residentRow(entity, id)
     if (row === undefined) return this.summaries.get(`${entity}:${id}`)
     const spec = this.schema[entity].cold
     if (spec.kind !== 'unlessShown' || spec.canShow === undefined) return undefined
@@ -354,6 +360,8 @@ export class Residency {
           if (kept) this.warm(target, entity, child, out)
         }
       }
+      // Warming a descendant marks it too; this traversal already visited its children.
+      dirty.clear()
     }
   }
 
@@ -379,7 +387,7 @@ export class Residency {
   /** Whether the row `to:id` is cold by rule: registered cold, or hot and cold by rule. */
   private coldTarget(to: EntityName, id: string): boolean {
     if (this.isCold(to, id)) return true
-    const row = this.hot[to].get(id) as object | undefined
+    const row = this.residentRow(to, id)
     return row !== undefined && this.coldRule(to, row)
   }
 
@@ -464,9 +472,21 @@ export class Residency {
     value: StoredRow | undefined,
     out: IngestOut,
   ): void {
-    this.ancestorDirty.get(entity)?.add(id)
+    const previous = target.read[entity].get(id) as StoredRow | undefined
+    const spec = this.schema[entity].cold
+    if (spec.kind === 'unlessShown' && spec.canShow !== undefined) {
+      const summary = this.summaries.get(`${entity}:${id}`)
+      const bound = this.finish.get(`${entity}:${id}`)
+      const changed = value === undefined || (previous === undefined
+        ? summary === undefined || bound === undefined ||
+          spec.canShow.fields.some((field) => summary[field] !== (value as Readonly<Record<string, unknown>>)[field]) ||
+          bound.shownUntil !== spec.shownUntil(value) || bound.finish !== spec.finishOf(value)
+        : spec.dependsOn.some((field) => (previous as Readonly<Record<string, unknown>>)[field] !==
+          (value as Readonly<Record<string, unknown>>)[field]))
+      if (changed) this.ancestorDirty.get(entity)?.add(id)
+    }
     if (this.keeperKinds.has(entity)) this.member(target, entity, id, value, out)
-    const hot = target.read[entity].get(id) !== undefined
+    const hot = previous !== undefined
     if (value === undefined) {
       if (hot) drop(target, entity, id, out)
       else if (this.isCold(entity, id)) this.forget(target, entity, id, out)
@@ -541,6 +561,7 @@ export class Residency {
       if (value === undefined) continue
       this.unregister(entity, id)
       put(target, entity, id, value, out)
+      this.ancestorDirty.get(entity)?.add(id)
       installed.push([entity, id])
     }
     // After the whole batch: a dependent that landed with its target is no
@@ -706,6 +727,7 @@ export class Residency {
       }
       if (!counted) continue
       for (const owner of reader.members(lane.lane, at, lane.owners)) {
+        this.ancestorDirty.get(lane.owner)?.add(owner)
         if (!this.isCold(lane.owner, owner)) continue
         const finish = this.finish.get(`${lane.owner}:${owner}`)?.finish ?? null
         if (this.now() > keepDeadline(keep, finish)) continue
@@ -728,9 +750,13 @@ export class Residency {
     value: StoredRow | undefined,
     out: IngestOut,
   ): void {
+    const priorKey = this.keeperKey.get(`${entity}:${id}`)
+    const priorKeep = priorKey === undefined ? undefined : this.keeps.get(priorKey.source)?.get(priorKey.owner)?.get(id)
     this.unindexMember(entity, id)
     const keeper = value === undefined ? null : this.indexMember(entity, id, value)
-    if (keeper !== null) this.ancestorDirty.get(keeper.to)?.add(keeper.id)
+    if (keeper !== null && (priorKey?.owner !== keeper.id || priorKeep !== keeper.keep)) {
+      this.ancestorDirty.get(keeper.to)?.add(keeper.id)
+    }
     // A lane member's deadline (a row with an explicit owner is none), and a
     // re-check of its lane once the publication is in when it can keep: its
     // own update can extend how long.
@@ -757,6 +783,7 @@ export class Residency {
     if (row !== undefined) {
       this.unregister(entity, id)
       put(target, entity, id, row, out)
+      this.ancestorDirty.get(entity)?.add(id)
     } else {
       this.request(entity as LoadableEntity, id)
     }
@@ -806,10 +833,11 @@ export class Residency {
       if (lane.member !== entity) continue
       const deadlines = this.laneKeeps.get(lane.source) as Map<string, MemberKeep>
       const keep = row === undefined ? null : laneKeepOf(lane, row)
+      const previous = deadlines.get(id)
       if (keep === null) deadlines.delete(id)
       else {
         deadlines.set(id, keep)
-        if (typeof keep === 'function' || this.now() <= keep) live = true
+        if (previous !== keep && (typeof keep === 'function' || this.now() <= keep)) live = true
       }
     }
     return live
@@ -833,7 +861,6 @@ export class Residency {
    * rule (it reopened, left, or landed while kept): each is warmed.
    */
   private warmDependents(target: IngestTarget, to: EntityName, id: string, out: IngestOut): void {
-    this.ancestorDirty.get(to)?.add(id)
     const entities = this.inheritors.get(to)
     if (entities === undefined || this.coldTarget(to, id)) return
     for (const entity of entities) {
