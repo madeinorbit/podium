@@ -171,7 +171,8 @@ describe('BindingStore records', () => {
     const two = { turnId: 'msg-two', text: 'Proceed', typingStartedAt: '2026-10-01T08:20:35.000Z' }
     await Promise.all([store.saveTerminalProofWatch(sessionId, one), store.saveTerminalProofWatch(sessionId, two)])
     await store.observe({ sessionId, channel: 'resume-ref', nativeKind: 'claude-session',
-      value: 'native-session', confidence: 'exact', source: 'native-hook' })
+      value: 'native-session', confidence: 'exact', source: 'native-hook',
+      observedAt: '2026-10-01T08:20:36.000Z' })
     const reopened = await BindingStore.open({ dir })
     expect(await reopened.terminalProofWatches(sessionId)).toEqual([one, two])
     await reopened.removeTerminalProofWatch(sessionId, one.turnId)

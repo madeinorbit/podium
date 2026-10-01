@@ -113,6 +113,21 @@ describe('terminal receipt operator regressions', () => {
     w.runtime.dispose()
   })
 
+  it('links a saved prompt even when the history tail arrives before its timely hook', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(START)
+    const w = world()
+    const pending = w.handle.send({ id: 'msg-history-first', text: 'Yes' }, { origin: 'human', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(w.writes).toContain('\r')
+    const harnessRef = [{ kind: 'claude-prompt', id: 'history-first' }]
+    w.post('expanded recorded text', { harnessRef })
+    await vi.advanceTimersByTimeAsync(100)
+    w.runtime.onHookPayload(SESSION, { hook_event_name: 'UserPromptSubmit', prompt: 'Yes', prompt_id: 'history-first' })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(await pending).toMatchObject({ outcome: 'accepted', harnessRef })
+    w.runtime.dispose()
+  })
+
   it.each(['wrong-text', 'late-hook', 'before-enter', 'wrong-id'] as const)('does not infer proof from %s', async (fault) => {
     vi.useFakeTimers(); vi.setSystemTime(START)
     const w = world()
@@ -142,7 +157,8 @@ describe('terminal receipt operator regressions', () => {
   it('re-arms after a daemon restart and confirms an entry recorded two minutes after typing', async () => {
     vi.useFakeTimers(); vi.setSystemTime(START)
     const w = world()
-    const pending = w.handle.send({ rowId: 'msg-restart', text: 'Yes' }, { origin: 'human', delivery: 'when-ready' })
+    // The daemon forwards the durable message id as both turn id and row id.
+    const pending = w.handle.send({ id: 'msg-restart', rowId: 'msg-restart', text: 'Yes' }, { origin: 'human', delivery: 'when-ready' })
     await vi.advanceTimersByTimeAsync(10_000)
     expect(await pending).toMatchObject({ outcome: 'queued' })
     expect(w.writes).toContain('\r')

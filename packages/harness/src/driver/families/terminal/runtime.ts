@@ -273,7 +273,8 @@ type AcceptWaiter = {
   turnId?: string
   submittedAtMs?: number
   hookRefs?: HarnessRef
-  seenPrompts: Set<string>
+  /** At most four entries: also link history that arrives before its hook. */
+  seenPrompts: Map<string, TranscriptItem>
   cancel: () => void
 }
 
@@ -1595,7 +1596,13 @@ export function createTerminalRuntime(
     const echoes = [...session.echoWaiters].filter((echo) =>
       echo.turnId === waiter.turnId && echo.text === waiter.text,
     )
-    if (echoes.length === 1) echoes[0]!.hookRefs = harnessRef
+    if (echoes.length !== 1) return
+    const echo = echoes[0]!
+    echo.hookRefs = harnessRef
+    if (host.now() >= echo.start.atMs + PROOF_WATCH_MS) return
+    const recorded = [...echo.seenPrompts.values()].find((item) =>
+      item.harnessRef?.some((ref) => harnessRef.some((hook) => ref.kind === hook.kind && ref.id === hook.id)))
+    if (recorded) confirmRecorded(session, echo, recorded)
   }
 
   /**
@@ -1675,17 +1682,13 @@ export function createTerminalRuntime(
         continue
       }
       if (credited) {
-        credited.cancel()
-        const transcriptItem = transcriptItemRefOf(item)
-        credited.resolve({ ...(transcriptItem ? { transcriptItem } : {}),
-          ...(item.harnessRef?.length ? { harnessRef: item.harnessRef } : {}) })
-        if (credited.turnId) removeProofWatch(session, credited.turnId)
+        confirmRecorded(session, credited, item)
       }
       // Every other watch this prompt came after has been passed by it
       // (POD-4840). Under the same floor as the credit: an older record a
       // re-read carries passes nothing.
       for (const waiter of after) {
-        waiter.seenPrompts.add(item.id)
+        waiter.seenPrompts.set(item.id, item)
         if (waiter !== credited && waiter.seenPrompts.size >= LATER_PROMPT_LIMIT) {
           waiter.pass()
           waiter.cancel()
@@ -1693,6 +1696,14 @@ export function createTerminalRuntime(
         }
       }
     }
+  }
+
+  function confirmRecorded(session: DriverSession, waiter: AcceptWaiter, item: TranscriptItem): void {
+    waiter.cancel()
+    const transcriptItem = transcriptItemRefOf(item)
+    waiter.resolve({ ...(transcriptItem ? { transcriptItem } : {}),
+      ...(item.harnessRef?.length ? { harnessRef: item.harnessRef } : {}) })
+    if (waiter.turnId) removeProofWatch(session, waiter.turnId)
   }
 
   /**
@@ -1900,7 +1911,7 @@ export function createTerminalRuntime(
         queueSpent: false,
         held: false,
         turnId,
-        seenPrompts: new Set(),
+        seenPrompts: new Map(),
         cancel: () => {
           waiters.delete(waiter)
           if (deadline !== undefined) host.clearTimer(deadline)

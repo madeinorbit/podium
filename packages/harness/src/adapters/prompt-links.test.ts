@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -6,6 +6,7 @@ import { claudeRecordToItems } from './claude-code/transcript.js'
 import { codexRecordToItems } from './codex/transcript.js'
 import { grokRecordToItems } from './grok/transcript.js'
 import { readFileItems } from '../store/slice.js'
+import { tailTranscript } from '../store/tailer.js'
 
 describe('submit hook ids on recorded prompts (POD-4834)', () => {
   it('Claude keeps promptId on the recorded human prompt', () => {
@@ -36,5 +37,40 @@ describe('submit hook ids on recorded prompts (POD-4834)', () => {
       // Reading a chunk alone has no preceding record, and cannot borrow an id from another reader.
       expect(grokRecordToItems(chunk)[0]?.harnessRef).toBeUndefined()
     } finally { await rm(dir, { recursive: true, force: true }) }
+  })
+
+  it('Grok retains its preceding submit id across tail polls and clears it on truncation', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'grok-tail-link-'))
+    const path = join(dir, 'updates.jsonl')
+    const hook = { params: { update: { sessionUpdate: 'hook_execution',
+      event_name: 'user_prompt_submit', prompt_id: 'tailed-id' } } }
+    const chunk = { params: { _meta: { agentTimestampMs: 1790839175000 }, update: {
+      sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'Yes' } } } }
+    const line = (record: unknown) => JSON.stringify(record) + '\n'
+    const items: import('@podium/model').TranscriptItem[] = []
+    let seeded!: () => void
+    const seed = new Promise<void>((resolve) => { seeded = resolve })
+    await writeFile(path, line(hook))
+    const tailer = tailTranscript(path, (batch) => items.push(...batch), {
+      resumeValue: 'grok-tail', pollMs: 10, recordToItems: grokRecordToItems,
+      seedGate: async (read) => { await read(); seeded() },
+    })
+    const until = async (count: number) => {
+      const deadline = Date.now() + 2000
+      while (items.length < count && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 2))
+      expect(items).toHaveLength(count)
+    }
+    try {
+      await seed
+      await appendFile(path, line(chunk))
+      await until(1)
+      expect(items[0]?.harnessRef).toEqual([{ kind: 'grok-prompt', id: 'tailed-id' }])
+      await writeFile(path, line(chunk))
+      await until(2)
+      expect(items[1]?.harnessRef).toBeUndefined()
+    } finally {
+      tailer.stop()
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })
