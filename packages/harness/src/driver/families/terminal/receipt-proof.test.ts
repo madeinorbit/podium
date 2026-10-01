@@ -141,6 +141,25 @@ describe('terminal receipt operator regressions', () => {
     w.runtime.dispose()
   })
 
+  it('keeps empty-id queue/drop records distinct and ordered within one native record', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(START)
+    const w = world()
+    const cursor = (offset: number, sub: number) => encodeCursor({ fileId: 'proof-only', offset, uuid: null, sub })
+    w.post('older queued prompt', { id: '', role: 'system', queued: true, promptEntry: false, cursor: cursor(0, 0) })
+    w.post('informational display item', { id: 'display', role: 'assistant', cursor: cursor(10, 0) })
+    const pending = w.handle.send({ id: 'msg-queue-drop', text: 'Yes' }, { origin: 'human', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(w.writes).toContain('\r')
+    w.post('Yes', { id: '', role: 'system', queued: true, promptEntry: false, cursor: cursor(10, 1) })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(await pending).toMatchObject({ outcome: 'accepted', held: 'memory' })
+    w.post('Yes', { id: '', role: 'system', dropped: true, promptEntry: false, cursor: cursor(10, 2) })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(outcomes(w.frames)).toContainEqual(expect.objectContaining({ rowId: 'msg-queue-drop', outcome: 'failed', cause: 'dropped-by-agent' }))
+    expect(w.saved.has('msg-queue-drop')).toBe(false)
+    w.runtime.dispose()
+  })
+
   it('links a saved prompt even when the history tail arrives before its timely hook', async () => {
     vi.useFakeTimers(); vi.setSystemTime(START)
     const w = world()

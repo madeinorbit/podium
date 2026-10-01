@@ -230,14 +230,14 @@ interface LoggedEvent {
  *
  * `unknown` until a delta says anything; `empty` when the store's last re-read
  * held no items at all, so everything after it is new; otherwise the segment
- * (the cursor's `fileId`) and the furthest offset seen in it. Offsets are the
+ * (the cursor's `fileId`) and the furthest offset/sub-item seen in it. Offsets are the
  * producer's own order key — a byte offset for JSONL, `time_created` for
  * OpenCode — and compare only within one segment.
  */
 type TranscriptPosition =
   | { kind: 'unknown' }
   | { kind: 'empty' }
-  | { kind: 'at'; fileId: string; offset: number }
+  | { kind: 'at'; fileId: string; offset: number; sub: number }
 
 /**
  * One open accept watch: the prompt text it credits, how to tell it, and where
@@ -1113,7 +1113,12 @@ export function createTerminalRuntime(
         // Credit BEFORE the position moves: each watch compares against where
         // the transcript stood when it was armed, not where this delta leaves it.
         creditEchoWaiters(session, msg.items)
-        for (const item of msg.items) session.transcriptIds.add(item.id)
+        for (const item of msg.items) {
+          // Proof-only records may have no native item id. Their exact cursor
+          // still identifies a replay; an empty id cannot identify every receipt.
+          const identity = item.id || item.cursor
+          if (identity) session.transcriptIds.add(identity)
+        }
         session.restoringProofItems?.push(...msg.items.filter((item) => item.role === 'user'))
         // A re-read keeps the time floor and deduplicates entries; restarting
         // or rewriting the store does not itself exhaust a proof watch.
@@ -1671,7 +1676,7 @@ export function createTerminalRuntime(
       if (!queued && !correlation.accepts(item)) continue
       const after = [...session.echoWaiters].filter((waiter) =>
         host.now() < waiter.start.atMs + PROOF_WATCH_MS && echoIsAfterStart(item, waiter.start, timestamps) &&
-        !waiter.beforeTypingIds.has(item.id) &&
+        !waiter.beforeTypingIds.has(item.id || item.cursor || '') &&
         !waiter.seenPrompts.has(item.id),
       )
       if (after.length === 0) continue
@@ -1730,7 +1735,7 @@ export function createTerminalRuntime(
   ): void {
     const after = [...session.echoWaiters].filter((waiter) =>
       host.now() < waiter.start.atMs + PROOF_WATCH_MS && echoIsAfterStart(item, waiter.start, timestamps) &&
-      !waiter.beforeTypingIds.has(item.id),
+      !waiter.beforeTypingIds.has(item.id || item.cursor || ''),
     )
     if (after.length === 0) return
     const frameId = podiumFrameId(item.text)
@@ -3207,10 +3212,9 @@ function advancePosition(
       if (position.kind === 'empty') position = { kind: 'unknown' }
       continue
     }
-    position =
-      position.kind === 'at' && position.fileId === parts.fileId
-        ? { ...position, offset: Math.max(position.offset, parts.offset) }
-        : { kind: 'at', fileId: parts.fileId, offset: parts.offset }
+    if (position.kind === 'at' && position.fileId === parts.fileId &&
+      (parts.offset < position.offset || parts.offset === position.offset && parts.sub <= position.sub)) continue
+    position = { kind: 'at', fileId: parts.fileId, offset: parts.offset, sub: parts.sub }
   }
   return position
 }
@@ -3249,7 +3253,8 @@ function echoIsAfterStart(
   const dated = Number.isFinite(writtenAtMs)
   const parts = item.cursor ? decodeCursor(item.cursor) : null
   const comparable = parts !== null && start.position.kind === 'at' && parts.fileId === start.position.fileId
-  if (comparable && start.position.kind === 'at' && parts.offset <= start.position.offset) return false
+  if (comparable && start.position.kind === 'at' &&
+    (parts.offset < start.position.offset || parts.offset === start.position.offset && parts.sub <= start.position.sub)) return false
   if (dated && timestamps !== 'absent') {
     return writtenAtMs >= Math.floor(start.atMs / timestamps.resolutionMs) * timestamps.resolutionMs
   }
