@@ -2,9 +2,12 @@ import { z } from 'zod'
 import {
   DeliveryReceiptIdField,
   IssueIdField,
+  joinKeyParts,
+  type RepoId,
   RepoIdField,
   ShipHoldIdField,
   ShipOrderIdField,
+  splitKeyParts,
 } from './ids'
 
 /** Hold vocabulary shared by the durable shipping records and their compact
@@ -115,3 +118,38 @@ export const ShipOrderProjection = z.object({
   receiptId: DeliveryReceiptIdField.optional(),
 })
 export type ShipOrderProjection = z.infer<typeof ShipOrderProjection>
+
+const SHIP_LANE_SEP = ':'
+
+/** The id of one delivery lane's row: its repository and CANONICAL destination,
+ * the same pair the scheduler groups by. Stable for the lane's whole life, unlike
+ * a train id, which hashes the current members. */
+export const shipLaneId = (repoId: RepoId, destination: string): string => {
+  if (repoId === '' || destination === '') throw new Error('ship lane id parts must not be empty')
+  return joinKeyParts(SHIP_LANE_SEP, [repoId, destination])
+}
+
+/** Inverse of {@link shipLaneId}; throws on a malformed id. */
+export const parseShipLaneId = (id: string): { repoId: RepoId; destination: string } => {
+  const [repoId, destination] = splitKeyParts(SHIP_LANE_SEP, id, 2) as [string, string]
+  if (repoId === '' || destination === '')
+    throw new Error(`malformed ship lane id: ${JSON.stringify(id)}`)
+  return { repoId: repoId as RepoId, destination }
+}
+
+/** One delivery lane's queue in the scheduler's order (POD-4974 O2, ADR 4 D7.4).
+ *
+ * A server-maintained entity because the client cannot compute rank: it lacks
+ * the dependency and native-stack edges and the train-compatibility facts. The
+ * server recomputes a lane only when a commit touches it, from the scheduler's
+ * own input. An order's rank is its train's position here, starting at 1; a
+ * blocked queued order has no rank. Visible to anyone who may read at least one
+ * order in the lane. */
+export const ShipLaneProjection = z.object({
+  id: z.string().min(1),
+  repoId: RepoIdField,
+  destination: z.string().min(1),
+  trains: z.array(z.object({ orderIds: z.array(ShipOrderIdField).min(1) })),
+  blockedOrderIds: z.array(ShipOrderIdField),
+})
+export type ShipLaneProjection = z.infer<typeof ShipLaneProjection>

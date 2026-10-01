@@ -1,11 +1,18 @@
 import {
   type DeliveryReceipt,
   type ShipHold,
+  type ShipLaneProjection,
   type ShipOrder,
   ShipOrderProjection,
   type ShipOrderProjection as ShipOrderProjectionValue,
 } from '@podium/model'
-import { shippingQueue } from './queue'
+import {
+  queuedShippingLanes,
+  type ShipLaneInput,
+  type ShippingStackEdge,
+  shipLaneSchedule,
+  withNativeStackEdges,
+} from './queue'
 
 const humanState = (
   state: Exclude<ShipOrder['state'], 'cancelled'>,
@@ -105,27 +112,70 @@ export function shipOrderProjectionRow(
   }
 }
 
-/** Boot/reconnect summary uses the same scheduler snapshot as live mutations,
- * so a restart cannot briefly publish FIFO-looking client ranks. */
-export function scheduledShipOrderProjectionRows(
+/** One lane's scheduler input from rows already in hand: its queued orders
+ * with their recorded native-stack edges merged in, and every order they name
+ * that is not itself queued in the lane. */
+export function shipLaneInput(
+  lane: { repoId: ShipOrder['repoId']; destination: string; queued: readonly ShipOrder[] },
+  stackEdges: readonly ShippingStackEdge[],
+  orderById: ReadonlyMap<ShipOrder['id'], ShipOrder>,
+): ShipLaneInput {
+  const queued = withNativeStackEdges(lane.queued, stackEdges)
+  return {
+    repoId: lane.repoId,
+    destination: lane.destination,
+    queued,
+    dependencies: laneDependencyIds(queued).flatMap((id) => {
+      const order = orderById.get(id)
+      return order ? [order] : []
+    }),
+  }
+}
+
+/** The ids a lane's queued orders depend on that are not queued members. */
+export function laneDependencyIds(queued: readonly ShipOrder[]): ShipOrder['id'][] {
+  const members = new Set(queued.map((order) => order.id))
+  return [
+    ...new Set(queued.flatMap((order) => order.deliveryDependsOn.filter((id) => !members.has(id)))),
+  ]
+}
+
+/** Boot/reconnect FULL TRUTH for both shipping kinds, from the same per-lane
+ * plan a commit publishes and with the recorded native-stack edges the tick
+ * schedules over, so a restart cannot publish a rank the scheduler would not
+ * run. */
+export function scheduledShippingProjection(
   orders: Iterable<ShipOrder>,
   holds: Iterable<ShipHold>,
   receipts: Iterable<DeliveryReceipt>,
-  now = Date.now(),
-): { id: string; value: ShipOrderProjectionValue }[] {
+  stackEdges: readonly ShippingStackEdge[] = [],
+): {
+  orders: { id: string; value: ShipOrderProjectionValue }[]
+  lanes: { id: string; value: ShipLaneProjection }[]
+} {
   const orderList = [...orders]
+  const orderById = new Map(orderList.map((order) => [order.id, order]))
+  const ranks = new Map<ShipOrder['id'], number>()
+  const lanes: { id: string; value: ShipLaneProjection }[] = []
+  for (const lane of queuedShippingLanes(orderList)) {
+    const scheduled = shipLaneSchedule(shipLaneInput(lane, stackEdges, orderById))
+    for (const [id, rank] of scheduled.ranks) ranks.set(id, rank)
+    lanes.push({ id: scheduled.lane.id, value: scheduled.lane })
+  }
   const holdByOrder = new Map(
     [...holds].filter((hold) => !hold.resolvedAt).map((hold) => [hold.orderId, hold]),
   )
-  const receiptList = [...receipts]
-  const receiptByOrder = new Map(receiptList.map((receipt) => [receipt.orderId, receipt]))
-  return shippingQueue(orderList, receiptList, now).flatMap(({ order, queueRank }) => {
-    const row = shipOrderProjectionRow(
-      order,
-      holdByOrder.get(order.id),
-      receiptByOrder.get(order.id),
-      queueRank,
-    )
-    return row ? [row] : []
-  })
+  const receiptByOrder = new Map([...receipts].map((receipt) => [receipt.orderId, receipt]))
+  return {
+    orders: orderList.flatMap((order) => {
+      const row = shipOrderProjectionRow(
+        order,
+        holdByOrder.get(order.id),
+        receiptByOrder.get(order.id),
+        ranks.get(order.id),
+      )
+      return row ? [row] : []
+    }),
+    lanes,
+  }
 }

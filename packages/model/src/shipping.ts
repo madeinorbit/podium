@@ -15,12 +15,15 @@ import {
 import { ShipHoldAction, ShipHoldCode } from './shipping-projection'
 
 export {
+  parseShipLaneId,
   ReplicatedShipOrderState,
   ShipHoldAction,
   ShipHoldCode,
+  ShipLaneProjection,
   ShipOrderActivity,
   ShipOrderHumanState,
   ShipOrderProjection,
+  shipLaneId,
 } from './shipping-projection'
 
 export const ShipOrderState = z.enum([
@@ -86,6 +89,22 @@ export const canonicalShippingDestination = (destination: string, targetBranch: 
   }
   const remote = /^(?:remote|git):([A-Za-z0-9][A-Za-z0-9._-]*)\/(.+)$/.exec(destination)
   return remote ? `git:${remote[1]}/${remote[2]}` : destination
+}
+
+/** The inverse image of {@link canonicalShippingDestination}: every raw
+ * destination spelling that can canonicalize to `canonical` under some target
+ * branch. A lane-scoped read asks for all of them and then keeps the rows whose
+ * own canonical form matches, so no spelling of the lane is missed. */
+export const rawShippingDestinations = (canonical: string): string[] => {
+  const raw = new Set([canonical])
+  if (canonical.startsWith('local:')) {
+    const branch = canonical.slice('local:'.length)
+    raw.add(branch)
+    raw.add(`refs/heads/${branch}`)
+  }
+  const remote = /^git:([A-Za-z0-9][A-Za-z0-9._-]*)\/(.+)$/.exec(canonical)
+  if (remote) raw.add(`remote:${remote[1]}/${remote[2]}`)
+  return [...raw]
 }
 
 export const ShipTrainLane = z

@@ -175,7 +175,7 @@ import {
   ShippingService,
   shippingResourceHolderId,
 } from './modules/shipping'
-import { scheduledShipOrderProjectionRows } from './modules/shipping/projection'
+import { scheduledShippingProjection } from './modules/shipping/projection'
 import {
   ShippingEvidenceRegistry,
   ShipwrightService,
@@ -525,15 +525,14 @@ export class SessionRegistry {
     await this.superagentDefaults.seed()
     // Full boot truth for the order plane, closing changes made while the server
     // was down.
-    await this.ledger.reconcile(
-      'shipOrder',
-      scheduledShipOrderProjectionRows(
-        await this.store.shipping.listOrders(),
-        await this.store.shipping.listHolds(),
-        await this.store.shipping.listReceipts(),
-        this.now(),
-      ),
+    const orderPlane = scheduledShippingProjection(
+      await this.store.shipping.listOrders(),
+      await this.store.shipping.listHolds(),
+      await this.store.shipping.listReceipts(),
+      await this.store.shipping.listNativeStackEdges(),
     )
+    await this.ledger.reconcile('shipOrder', orderPlane.orders)
+    await this.ledger.reconcile('shipLane', orderPlane.lanes)
     // The one boot WRITE, owned by the memory service rather than by the store.
     await this.modules.memory.repairSubagentEvidence()
     // Full boot truth for both automation kinds.

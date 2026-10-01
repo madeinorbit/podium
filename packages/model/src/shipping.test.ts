@@ -2,11 +2,16 @@ import { describe, expect, it } from 'vitest'
 import { asIssueId, asRepoId, asShipOrderId } from './ids'
 import { asUserId } from './ids/brands'
 import {
+  canonicalShippingDestination,
   descendantTipsMatch,
   integrationReceiptMatchesOrder,
+  parseShipLaneId,
   RootIntegrationReceipt,
+  rawShippingDestinations,
+  ShipLaneProjection,
   ShipOrder,
   ShipOrderProjection,
+  shipLaneId,
   type DescendantTip,
   type RootIntegrationReceipt as RootIntegrationReceiptValue,
 } from './shipping'
@@ -82,6 +87,52 @@ describe('ShipOrderProjection compatibility', () => {
       train,
       waitEstimate,
     })
+  })
+})
+
+describe('POD-4974 O2 lane identity', () => {
+  it('asks for every raw spelling that canonicalizes to a lane', () => {
+    const branches = ['main', 'release/1.2', 'local:main']
+    const destinations = (branch: string) => [
+      branch,
+      `local:${branch}`,
+      `refs/heads/${branch}`,
+      'local:main',
+      'git:origin/main',
+      'remote:origin/main',
+      'remote:up-stream/release/1.2',
+      'origin/main',
+      'refs/heads/main',
+      'main',
+    ]
+    let checked = 0
+    for (const targetBranch of branches) {
+      for (const destination of destinations(targetBranch)) {
+        const canonical = canonicalShippingDestination(destination, targetBranch)
+        expect(rawShippingDestinations(canonical)).toContain(destination)
+        checked += 1
+      }
+    }
+    expect(checked).toBe(30)
+  })
+
+  it('round-trips a lane id whose parts contain the separator', () => {
+    const id = shipLaneId(asRepoId('repo:1'), 'git:origin/main')
+    expect(parseShipLaneId(id)).toEqual({ repoId: 'repo:1', destination: 'git:origin/main' })
+    expect(() => parseShipLaneId('only-one-part')).toThrow()
+    expect(() => shipLaneId(asRepoId('repo-1'), '')).toThrow()
+  })
+
+  it('parses a lane row and refuses an empty train', () => {
+    const lane = {
+      id: shipLaneId(asRepoId('repo-1'), 'local:main'),
+      repoId: asRepoId('repo-1'),
+      destination: 'local:main',
+      trains: [{ orderIds: [asShipOrderId('order-1'), asShipOrderId('order-2')] }],
+      blockedOrderIds: [asShipOrderId('order-3')],
+    }
+    expect(ShipLaneProjection.parse(lane)).toEqual(lane)
+    expect(ShipLaneProjection.safeParse({ ...lane, trains: [{ orderIds: [] }] }).success).toBe(false)
   })
 })
 

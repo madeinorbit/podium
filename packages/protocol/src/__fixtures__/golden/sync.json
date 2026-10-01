@@ -1316,6 +1316,31 @@
       "variant": "full/arm6",
       "wire": {
         "seq": 7,
+        "entity": "shipLane",
+        "id": "id",
+        "op": "remove",
+        "value": {
+          "id": "value.id",
+          "repoId": "value.repoId",
+          "destination": "value.destination",
+          "trains": [
+            {
+              "orderIds": ["value.trains[0].orderIds[0]"]
+            }
+          ],
+          "blockedOrderIds": ["value.blockedOrderIds[0]"]
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"seq\":7,\"entity\":\"shipLane\",\"id\":\"id\",\"op\":\"remove\",\"value\":{\"id\":\"value.id\",\"repoId\":\"value.repoId\",\"destination\":\"value.destination\",\"trains\":[{\"orderIds\":[\"value.trains[0].orderIds[0]\"]}],\"blockedOrderIds\":[\"value.blockedOrderIds[0]\"]}}"
+    },
+    {
+      "schema": "MetadataChange",
+      "variant": "full/arm7",
+      "wire": {
+        "seq": 8,
         "entity": "conversation",
         "id": "id",
         "op": "remove",
@@ -1332,8 +1357,8 @@
           "statusHint": "value.statusHint",
           "createdAt": "value.createdAt",
           "updatedAt": "value.updatedAt",
-          "messageCount": 7,
-          "sizeBytes": 7,
+          "messageCount": 8,
+          "sizeBytes": 8,
           "git": {
             "branch": "value.git.branch",
             "sha": "value.git.sha",
@@ -1349,39 +1374,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":7,\"entity\":\"conversation\",\"id\":\"id\",\"op\":\"remove\",\"value\":{\"id\":\"value.id\",\"path\":\"value.path\",\"podiumId\":\"value.podiumId\",\"agentKind\":\"shell\",\"title\":\"value.title\",\"name\":\"value.name\",\"summary\":\"value.summary\",\"projectPath\":\"value.projectPath\",\"parentConversationId\":\"value.parentConversationId\",\"statusHint\":\"value.statusHint\",\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\",\"messageCount\":7,\"sizeBytes\":7,\"git\":{\"branch\":\"value.git.branch\",\"sha\":\"value.git.sha\",\"originUrl\":\"value.git.originUrl\"},\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"providerId\":\"value.providerId\"}}"
-    },
-    {
-      "schema": "MetadataChange",
-      "variant": "full/arm7",
-      "wire": {
-        "seq": 8,
-        "entity": "automation",
-        "id": "id",
-        "op": "remove",
-        "value": {
-          "id": "value.id",
-          "name": "value.name",
-          "enabled": false,
-          "repoPath": "value.repoPath",
-          "scheduleKind": "once",
-          "cron": "value.cron",
-          "runAt": "value.runAt",
-          "targetSessionId": "value.targetSessionId",
-          "agentKind": "value.agentKind",
-          "model": "value.model",
-          "effort": "value.effort",
-          "prompt": "value.prompt",
-          "sessionMode": "resume",
-          "nextRunAt": "value.nextRunAt",
-          "lastRunAt": "value.lastRunAt",
-          "createdAt": "value.createdAt"
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"seq\":8,\"entity\":\"automation\",\"id\":\"id\",\"op\":\"remove\",\"value\":{\"id\":\"value.id\",\"name\":\"value.name\",\"enabled\":false,\"repoPath\":\"value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"value.cron\",\"runAt\":\"value.runAt\",\"targetSessionId\":\"value.targetSessionId\",\"agentKind\":\"value.agentKind\",\"model\":\"value.model\",\"effort\":\"value.effort\",\"prompt\":\"value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"value.nextRunAt\",\"lastRunAt\":\"value.lastRunAt\",\"createdAt\":\"value.createdAt\"}}"
+      "encoded": "{\"seq\":8,\"entity\":\"conversation\",\"id\":\"id\",\"op\":\"remove\",\"value\":{\"id\":\"value.id\",\"path\":\"value.path\",\"podiumId\":\"value.podiumId\",\"agentKind\":\"shell\",\"title\":\"value.title\",\"name\":\"value.name\",\"summary\":\"value.summary\",\"projectPath\":\"value.projectPath\",\"parentConversationId\":\"value.parentConversationId\",\"statusHint\":\"value.statusHint\",\"createdAt\":\"value.createdAt\",\"updatedAt\":\"value.updatedAt\",\"messageCount\":8,\"sizeBytes\":8,\"git\":{\"branch\":\"value.git.branch\",\"sha\":\"value.git.sha\",\"originUrl\":\"value.git.originUrl\"},\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"providerId\":\"value.providerId\"}}"
     },
     {
       "schema": "MetadataChangeLenient",
@@ -2350,6 +2343,41 @@
         "changes": [
           {
             "seq": 7,
+            "entity": "shipLane",
+            "id": "changes[0].id",
+            "op": "remove",
+            "value": {
+              "id": "changes[0].value.id",
+              "repoId": "changes[0].value.repoId",
+              "destination": "changes[0].value.destination",
+              "trains": [
+                {
+                  "orderIds": ["changes[0].value.trains[0].orderIds[0]"]
+                }
+              ],
+              "blockedOrderIds": ["changes[0].value.blockedOrderIds[0]"]
+            }
+          }
+        ],
+        "feedId": "feedId",
+        "epoch": "epoch",
+        "minAvailableSeq": 7
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"metadataDelta\",\"seq\":7,\"fromExclusive\":7,\"changes\":[{\"seq\":7,\"entity\":\"shipLane\",\"id\":\"changes[0].id\",\"op\":\"remove\",\"value\":{\"id\":\"changes[0].value.id\",\"repoId\":\"changes[0].value.repoId\",\"destination\":\"changes[0].value.destination\",\"trains\":[{\"orderIds\":[\"changes[0].value.trains[0].orderIds[0]\"]}],\"blockedOrderIds\":[\"changes[0].value.blockedOrderIds[0]\"]}}],\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"minAvailableSeq\":7}"
+    },
+    {
+      "schema": "MetadataDeltaMessage",
+      "variant": "full/arm7",
+      "wire": {
+        "type": "metadataDelta",
+        "seq": 8,
+        "fromExclusive": 8,
+        "changes": [
+          {
+            "seq": 8,
             "entity": "conversation",
             "id": "changes[0].id",
             "op": "remove",
@@ -2366,8 +2394,8 @@
               "statusHint": "changes[0].value.statusHint",
               "createdAt": "changes[0].value.createdAt",
               "updatedAt": "changes[0].value.updatedAt",
-              "messageCount": 7,
-              "sizeBytes": 7,
+              "messageCount": 8,
+              "sizeBytes": 8,
               "git": {
                 "branch": "changes[0].value.git.branch",
                 "sha": "changes[0].value.git.sha",
@@ -2383,54 +2411,12 @@
         ],
         "feedId": "feedId",
         "epoch": "epoch",
-        "minAvailableSeq": 7
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"metadataDelta\",\"seq\":7,\"fromExclusive\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"id\":\"changes[0].id\",\"op\":\"remove\",\"value\":{\"id\":\"changes[0].value.id\",\"path\":\"changes[0].value.path\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"statusHint\":\"changes[0].value.statusHint\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":7,\"sizeBytes\":7,\"git\":{\"branch\":\"changes[0].value.git.branch\",\"sha\":\"changes[0].value.git.sha\",\"originUrl\":\"changes[0].value.git.originUrl\"},\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"}}],\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"minAvailableSeq\":7}"
-    },
-    {
-      "schema": "MetadataDeltaMessage",
-      "variant": "full/arm7",
-      "wire": {
-        "type": "metadataDelta",
-        "seq": 8,
-        "fromExclusive": 8,
-        "changes": [
-          {
-            "seq": 8,
-            "entity": "automation",
-            "id": "changes[0].id",
-            "op": "remove",
-            "value": {
-              "id": "changes[0].value.id",
-              "name": "changes[0].value.name",
-              "enabled": false,
-              "repoPath": "changes[0].value.repoPath",
-              "scheduleKind": "once",
-              "cron": "changes[0].value.cron",
-              "runAt": "changes[0].value.runAt",
-              "targetSessionId": "changes[0].value.targetSessionId",
-              "agentKind": "changes[0].value.agentKind",
-              "model": "changes[0].value.model",
-              "effort": "changes[0].value.effort",
-              "prompt": "changes[0].value.prompt",
-              "sessionMode": "resume",
-              "nextRunAt": "changes[0].value.nextRunAt",
-              "lastRunAt": "changes[0].value.lastRunAt",
-              "createdAt": "changes[0].value.createdAt"
-            }
-          }
-        ],
-        "feedId": "feedId",
-        "epoch": "epoch",
         "minAvailableSeq": 8
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"metadataDelta\",\"seq\":8,\"fromExclusive\":8,\"changes\":[{\"seq\":8,\"entity\":\"automation\",\"id\":\"changes[0].id\",\"op\":\"remove\",\"value\":{\"id\":\"changes[0].value.id\",\"name\":\"changes[0].value.name\",\"enabled\":false,\"repoPath\":\"changes[0].value.repoPath\",\"scheduleKind\":\"once\",\"cron\":\"changes[0].value.cron\",\"runAt\":\"changes[0].value.runAt\",\"targetSessionId\":\"changes[0].value.targetSessionId\",\"agentKind\":\"changes[0].value.agentKind\",\"model\":\"changes[0].value.model\",\"effort\":\"changes[0].value.effort\",\"prompt\":\"changes[0].value.prompt\",\"sessionMode\":\"resume\",\"nextRunAt\":\"changes[0].value.nextRunAt\",\"lastRunAt\":\"changes[0].value.lastRunAt\",\"createdAt\":\"changes[0].value.createdAt\"}}],\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"minAvailableSeq\":8}"
+      "encoded": "{\"type\":\"metadataDelta\",\"seq\":8,\"fromExclusive\":8,\"changes\":[{\"seq\":8,\"entity\":\"conversation\",\"id\":\"changes[0].id\",\"op\":\"remove\",\"value\":{\"id\":\"changes[0].value.id\",\"path\":\"changes[0].value.path\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"statusHint\":\"changes[0].value.statusHint\",\"createdAt\":\"changes[0].value.createdAt\",\"updatedAt\":\"changes[0].value.updatedAt\",\"messageCount\":8,\"sizeBytes\":8,\"git\":{\"branch\":\"changes[0].value.git.branch\",\"sha\":\"changes[0].value.git.sha\",\"originUrl\":\"changes[0].value.git.originUrl\"},\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"}}],\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"minAvailableSeq\":8}"
     },
     {
       "schema": "MetadataDeltaMessageLenient",
@@ -2859,6 +2845,40 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"id\":\"id\",\"prefix\":\"prefix\",\"repoPath\":\"repoPath\"}"
+    },
+    {
+      "schema": "ShipLaneProjection",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "repoId": "repoId",
+        "destination": "destination",
+        "trains": [],
+        "blockedOrderIds": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"destination\":\"destination\",\"trains\":[],\"blockedOrderIds\":[]}"
+    },
+    {
+      "schema": "ShipLaneProjection",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "repoId": "repoId",
+        "destination": "destination",
+        "trains": [
+          {
+            "orderIds": ["trains[0].orderIds[0]"]
+          }
+        ],
+        "blockedOrderIds": ["blockedOrderIds[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"destination\":\"destination\",\"trains\":[{\"orderIds\":[\"trains[0].orderIds[0]\"]}],\"blockedOrderIds\":[\"blockedOrderIds[0]\"]}"
     },
     {
       "schema": "ShipOrderProjection",

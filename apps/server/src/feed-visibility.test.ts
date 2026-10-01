@@ -46,7 +46,11 @@ async function fixture() {
       findSessionsByResumeValues: async () => new Map([['conversation', session]]),
       findSessionsByIssueIds: async () => [],
     },
-    shipping: { issueIdsForOrders: async () => new Map() },
+    shipping: {
+      issueIdsForOrders: async () => new Map(),
+      laneMemberIssueIds: async () => [],
+      getOrder: async () => null,
+    },
     automations: { ownerOf: async () => undefined, runOwnerOf: async () => undefined },
     sync: store.sync,
   }

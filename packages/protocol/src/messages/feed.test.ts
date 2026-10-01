@@ -31,6 +31,7 @@ import {
   IssueWire,
   RepoProjection,
   SessionMeta,
+  ShipLaneProjection,
   ShipOrderProjection,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -69,6 +70,7 @@ const PAYLOAD_OF_KIND: Record<string, z.ZodTypeAny> = {
   automation: AutomationWire,
   automationRun: AutomationRunWire,
   shipOrder: ShipOrderProjection,
+  shipLane: ShipLaneProjection,
 }
 
 const kindOf = (arm: Arm): string =>
@@ -89,10 +91,10 @@ const delta = (over: Partial<z.input<typeof FeedDeltaMessage>> = {}) => ({
 })
 
 describe('the v2 change row composes the shared vocabulary', () => {
-  it('has all eleven entity arms, so the per-arm loops below are not vacuous', () => {
+  it('has all twelve entity arms, so the per-arm loops below are not vacuous', () => {
     // The counterfactual guard POD-305 named: if `.options` stopped resolving,
     // every loop here would iterate nothing and pass silently.
-    expect(arms).toHaveLength(11)
+    expect(arms).toHaveLength(12)
     expect(arms.map(kindOf).sort()).toEqual(Object.keys(PAYLOAD_OF_KIND).sort())
   })
 

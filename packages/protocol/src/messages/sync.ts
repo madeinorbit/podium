@@ -19,7 +19,7 @@ import {
   type SessionId,
   SessionMeta,
 } from '@podium/model'
-import { ShipOrderProjection } from '@podium/model/shipping-projection'
+import { ShipLaneProjection, ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
 import { changeRowArm } from './change-row'
 import { PendingInteractionWire } from './runtime-interactions'
@@ -42,6 +42,7 @@ export {
   IssueProjection,
   IssueUserStateWire,
   RepoProjection,
+  ShipLaneProjection,
   ShipOrderProjection,
 }
 
@@ -178,6 +179,14 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  contract as the two kinds above. */
   metadataChangeArm(z.literal('repo'), RepoProjection),
   metadataChangeArm(z.literal('shipOrder'), ShipOrderProjection),
+  /** One delivery lane's queue in the scheduler's order (POD-4974 O2, ADR 4
+   *  D7.4), keyed by `shipLaneId(repoId, canonical destination)`. The server
+   *  recomputes it only for the lanes a shipping commit touches, so a ship order
+   *  no longer needs every order ever stored to know its rank. Same additive
+   *  contract as the kinds above: an older build parses these rows as
+   *  {@link UnknownMetadataChange}, ignores them and advances its cursor.
+   *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
+  metadataChangeArm(z.literal('shipLane'), ShipLaneProjection),
   metadataChangeArm(z.literal('conversation'), ConversationSummaryWire),
   metadataChangeArm(z.literal('automation'), AutomationWire),
   metadataChangeArm(z.literal('automationRun'), AutomationRunWire),
@@ -259,6 +268,7 @@ export const MetadataEntityKind = z.enum([
   'issueDep',
   'repo',
   'shipOrder',
+  'shipLane',
   'conversation',
   'automation',
   'automationRun',

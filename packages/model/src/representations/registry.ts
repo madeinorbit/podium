@@ -723,13 +723,13 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     purpose:
       'The compact replicated shipping row keyed by order id and joined locally through issueId.',
     distinctSemantics:
-      'It omits execution journals, immutable proof bodies, train and waitEstimate; derives humanState/activity; retains queueRank until POD-4974 O2–O4 move rank to a lane; and tombstones cancelled orders from the routine feed. Legacy optional train/waitEstimate schemas accept older rows only.',
+      'It omits execution journals, immutable proof bodies, train and waitEstimate; derives humanState/activity; retains queueRank, which since POD-4974 O2 comes from the same per-lane plan as the server-maintained shipLane row (recomputed only for the lanes a commit touches, native-stack edges included) until O3–O4 move rank readers to that row; and tombstones cancelled orders from the routine feed. Legacy optional train/waitEstimate schemas accept older rows only.',
     composition: {
       state: 'declared-legitimate-restatement',
       reason:
         'The projection deliberately derives operator-facing macro state from several normalized shipping records and therefore cannot be a structural pick of ShipOrder.',
       enforcedBy:
-        'apps/server/src/store-issues.test.ts exercises cancelled omission and normalized shipping joins; modules/shipping/service.test.ts and queue.test.ts prove live and boot rows omit train/waitEstimate while scheduler claims keep their members and leader.',
+        'apps/server/src/store-issues.test.ts exercises cancelled omission and normalized shipping joins; modules/shipping/service.test.ts and queue.test.ts prove live and boot rows omit train/waitEstimate while scheduler claims keep their members and leader, that the published rank equals the scheduler order with native-stack edges, and (through the harness cross-check) that every commit leaves the rows equal to a full recompute; lane-commit-cost.test.ts pins the rows a commit reads as flat in the orders outside its lane.',
     },
     matrixRow: ROW.shippingAggregate,
     visibility: 'personal',

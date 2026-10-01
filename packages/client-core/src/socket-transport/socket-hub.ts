@@ -2343,6 +2343,10 @@ export class SocketHub {
           // The Replica owns these additive rows. Compatibility observers keep
           // reading their values from the old issue record until their cutover.
           break
+        case 'shipLane':
+          // POD-4974 O2: additive lane rows. The shipping panel keeps reading
+          // queueRank off the order row until O3 moves it to the lane.
+          break
         default:
           c satisfies never
       }

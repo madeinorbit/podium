@@ -5,6 +5,7 @@ import {
   asShipStepId,
   firstAdminMemberId,
   type IssueWire,
+  type ShipOrder,
   shipRepairRef,
 } from '@podium/model'
 import { type ShippingJobResult, shippingEvidenceFingerprint } from '@podium/protocol/daemon'
@@ -16,7 +17,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { IssueService } from '../issues/service'
 import type { ShippingPolicyResolver } from './policy'
 import { CompatibilityShippingPolicyResolver } from './policy'
-import { shippingSchedule } from './queue'
+import { shipLaneIdOf, shippingSchedule } from './queue'
 import type { ShippingRepairContext, ShippingRepairPort } from './repair-contract'
 import {
   type AcceptedReviewEvidence,
@@ -64,6 +65,10 @@ async function harness(
     beforeRepairAcknowledge?: (resultToken: string) => void
     audit?: ConstructorParameters<typeof ShippingService>[0]['audit']
     now?: ConstructorParameters<typeof ShippingService>[0]['now']
+    /** POD-4974 O2: after every top-level shipping commit, the published order
+     * plane must equal a full recompute. Off only for tests that seed orders
+     * straight into the store, which no commit has published yet. */
+    checkOrderPlane?: boolean
   } = {},
 ) {
   const store = await openTestStore(':memory:')
@@ -105,6 +110,38 @@ async function harness(
       ...input,
       machineId: input.machineId ?? asMachineId('machine-1'),
     })) as typeof issues.create
+  // THE ORDER-PLANE CROSS-CHECK (POD-4974 O2). A commit now recomputes only the
+  // lanes of the orders it names, so a commit that forgets one leaves a stale
+  // row that nothing else would ever fix. Every scenario in this file therefore
+  // compares, after each top-level commit, what the ledger holds against the
+  // full truth the boot path computes.
+  let commitDepth = 0
+  let orderPlaneService: ShippingService | undefined
+  const assertOrderPlaneCurrent = async (): Promise<void> => {
+    if (options.checkOrderPlane === false || !orderPlaneService) return
+    const truth = await orderPlaneService['fullProjection']()
+    const byId = (rows: readonly unknown[]) =>
+      new Map(rows.map((row) => [(row as { id: string }).id, row]))
+    expect(byId(await ledger.authority.snapshot('shipOrder'))).toEqual(
+      byId(truth.orders.map((row) => row.value)),
+    )
+    expect(byId(await ledger.authority.snapshot('shipLane'))).toEqual(
+      byId(truth.lanes.map((row) => row.value)),
+    )
+  }
+  const checked =
+    <A extends unknown[], R>(commit: (...args: A) => Promise<R>) =>
+    async (...args: A): Promise<R> => {
+      commitDepth += 1
+      let result: R
+      try {
+        result = await commit(...args)
+      } finally {
+        commitDepth -= 1
+      }
+      if (commitDepth === 0) await assertOrderPlaneCurrent()
+      return result
+    }
   const issuePort = {
     async get(id: string): Promise<IssueWire> {
       const issue = await issues.get(id)
@@ -119,14 +156,19 @@ async function harness(
         ...issue,
         branch: issue.branch ?? `issue/${issue.seq}-shipping-test`,
       })),
-    shippingCommit: issues.shippingCommit.bind(issues),
-    shippingCommitMany: issues.shippingCommitMany.bind(issues),
+    shippingCommit: checked(issues.shippingCommit.bind(issues)) as typeof issues.shippingCommit,
+    shippingCommitMany: checked(
+      issues.shippingCommitMany.bind(issues),
+    ) as typeof issues.shippingCommitMany,
     ...(options.takeBranchCustody ? { takeBranchCustody: options.takeBranchCustody } : {}),
   }
   const deps: ConstructorParameters<typeof ShippingService>[0] = {
     repository: store.shipping,
     issues: issuePort,
-    ledger,
+    ledger: {
+      commit: checked(async (op) => await ledger.commit(op)) as typeof ledger.commit,
+      reconcile: async (entity, rows) => await ledger.reconcile(entity, rows),
+    },
     daemon: { shippingJob },
     authorization: {
       attribution: () => approval.requestedBy,
@@ -167,6 +209,7 @@ async function harness(
     background: false,
   }
   const service = new ShippingService(deps)
+  orderPlaneService = service
   return { store, ledger, issues, service, deps }
 }
 
@@ -2033,7 +2076,9 @@ describe('ShippingService enqueue transaction', () => {
       }
       return await provedShippingJob(input, machineId)
     }
-    const { store, issues, service, deps } = await harness(daemon, { repair })
+    // The train is claimed straight through the store below, which no commit
+    // publishes, so the order-plane cross-check would only report that shortcut.
+    const { store, issues, service, deps } = await harness(daemon, { repair, checkOrderPlane: false })
     evidenceRegistry = new ShippingEvidenceRegistry(store.shipping)
     const issueA = await issues.create({ repoPath: '/repo', title: 'repair train a', startNow: false })
     const issueB = await issues.create({ repoPath: '/repo', title: 'repair train b', startNow: false })
@@ -2762,5 +2807,232 @@ describe('ShippingService under the async store (POD-3820)', () => {
     expect(audited).toEqual([])
     expect((await store.issues.getIssue(issue.id))?.stage).toBe('review')
     service.dispose()
+  })
+})
+
+describe('POD-4974 O2 ship lanes', () => {
+  const PROFILE = {
+    id: 'default',
+    argv: ['bun', 'run', 'test'],
+    cwd: 'integration-root' as const,
+    timeoutMs: 60_000,
+    resourceLocks: [] as string[],
+  }
+  /** One queued order written straight into the store, as admission would
+   * freeze it; nothing is published until a commit names it. */
+  const seedOrder = async (
+    issues: IssueService,
+    store: SessionStore,
+    input: {
+      title: string
+      minute: number
+      repoPath?: string
+      headSha?: string
+      baseSha?: string
+      deliveryDependsOn?: ShipOrder['deliveryDependsOn']
+    },
+  ): Promise<ShipOrder> => {
+    const repoPath = input.repoPath ?? '/repo'
+    const created = await issues.create({ repoPath, title: input.title, startNow: false })
+    await issues.update(created.id, { stage: 'review', branch: `issue/${input.title}` })
+    const issue = (await issues.get(created.id))!
+    const at = `2026-08-13T10:${String(input.minute).padStart(2, '0')}:00.000Z`
+    return await store.shipping.createOrder({
+      id: asShipOrderId(`order-${input.title}`),
+      issueId: issue.id,
+      descendantManifest: [],
+      repoId: issue.repoId!,
+      repoPath,
+      machineId: asMachineId('machine-1'),
+      targetBranch: 'main',
+      destination: 'local:main',
+      approvedBaseSha: input.baseSha ?? 'base-sha',
+      approvedHeadSha: input.headSha ?? `head-${input.title}`,
+      deliveryDependsOn: input.deliveryDependsOn ?? [],
+      requestedBy: approval.requestedBy,
+      requestedAt: at,
+      policyId: 'compatibility-local:main',
+      validationProfile: PROFILE,
+      validationProfileDigest: createHash('sha256').update(JSON.stringify(PROFILE)).digest('hex'),
+      closeMode: 'after-destination',
+      state: 'queued',
+      stateChangedAt: at,
+    })
+  }
+  /** Publish the boot truth for what was seeded, as the server's hydrate does,
+   * without `reconcile()`, whose tick would start running the seeded orders. */
+  const publishSeeded = async (service: ShippingService, ledger: Ledger) => {
+    const truth = await service['fullProjection']()
+    await ledger.reconcile('shipOrder', truth.orders)
+    await ledger.reconcile('shipLane', truth.lanes)
+  }
+  const published = async (ledger: Ledger) => ({
+    ranks: new Map(
+      ((await ledger.authority.snapshot('shipOrder')) as { id: string; queueRank?: number }[]).map(
+        (row) => [row.id, row.queueRank],
+      ),
+    ),
+    lanes: (await ledger.authority.snapshot('shipLane')) as {
+      id: string
+      trains: { orderIds: string[] }[]
+      blockedOrderIds: string[]
+    }[],
+  })
+
+  it('O2 publishes the order the scheduler runs, native-stack edges included', async () => {
+    const { store, ledger, issues, service } = await harness(undefined, {
+      checkOrderPlane: false,
+      isAncestor: async (_issue, ancestor, descendant) =>
+        ancestor === 'lower-head' && descendant === 'upper-head',
+    })
+    try {
+      // The upper half of a stack is admitted FIRST; an unrelated order sits
+      // between them. FIFO alone would run upper before lower.
+      const upper = await seedOrder(issues, store, { title: 'upper', minute: 1, headSha: 'upper-head' })
+      const unrelated = await seedOrder(issues, store, {
+        title: 'unrelated',
+        minute: 2,
+        baseSha: 'other-base',
+      })
+      const lower = await seedOrder(issues, store, { title: 'lower', minute: 3, headSha: 'lower-head' })
+      await publishSeeded(service, ledger)
+
+      // The scheduler's own pass: it records the native-stack edge it infers
+      // and schedules over it, exactly as `runTick` does.
+      const orders = await service['ordersWithNativeStackEdges']()
+      const schedule = shippingSchedule(orders)
+      const rank = (id: string) => schedule.entries.find((entry) => entry.order.id === id)?.queueRank
+      expect([rank(upper.id), rank(unrelated.id), rank(lower.id)]).toEqual([2, 1, 2])
+
+      const after = await published(ledger)
+      expect(after.ranks).toEqual(
+        new Map([
+          [upper.id, 2],
+          [unrelated.id, 1],
+          [lower.id, 2],
+        ]),
+      )
+      expect(after.lanes).toEqual([
+        {
+          id: shipLaneIdOf(upper),
+          repoId: upper.repoId,
+          destination: 'local:main',
+          trains: schedule.trains.map((train) => ({ orderIds: train.orders.map((order) => order.id) })),
+          blockedOrderIds: [],
+        },
+      ])
+      expect(after.lanes[0]!.trains).toEqual([
+        { orderIds: [unrelated.id] },
+        { orderIds: [lower.id, upper.id] },
+      ])
+    } finally {
+      service.dispose()
+    }
+  })
+
+  it('O2 a commit reads and publishes only the lane it touched', async () => {
+    const { store, ledger, issues, service } = await harness(undefined, { checkOrderPlane: false })
+    try {
+      const first = await seedOrder(issues, store, { title: 'first', minute: 1 })
+      const second = await seedOrder(issues, store, {
+        title: 'second',
+        minute: 2,
+        deliveryDependsOn: [asShipOrderId('order-first')],
+      })
+      const elsewhere = await seedOrder(issues, store, { title: 'elsewhere', minute: 3, repoPath: '/other' })
+      await publishSeeded(service, ledger)
+      const scans = [
+        vi.spyOn(store.shipping, 'listOrders'),
+        vi.spyOn(store.shipping, 'listHolds'),
+        vi.spyOn(store.shipping, 'listReceipts'),
+        vi.spyOn(store.shipping, 'listNativeStackEdges'),
+      ]
+      const projection = vi.spyOn(service as never as { projectionFor: () => unknown }, 'projectionFor')
+      await service['transition'](first, 'preflight')
+      for (const scan of scans) expect(scan).not.toHaveBeenCalled()
+      expect(projection).toHaveBeenCalledTimes(1)
+      const specs = (await projection.mock.results[0]!.value) as {
+        entity: string
+        id: string
+        op: string
+        value?: { trains: unknown[]; blockedOrderIds: string[] }
+      }[]
+      expect(specs.map((spec) => `${spec.entity}:${spec.id}`).sort()).toEqual(
+        [`shipLane:${shipLaneIdOf(first)}`, `shipOrder:${first.id}`, `shipOrder:${second.id}`].sort(),
+      )
+      expect(specs.find((spec) => spec.entity === 'shipLane')?.value).toMatchObject({
+        trains: [],
+        blockedOrderIds: [second.id],
+      })
+      expect(specs.some((spec) => spec.id === elsewhere.id)).toBe(false)
+    } finally {
+      service.dispose()
+    }
+  })
+
+  it('O2 a dependency that ships unblocks its dependent in another lane', async () => {
+    const { store, ledger, issues, service } = await harness(provedShippingJob)
+    try {
+      const issue = await issues.create({ repoPath: '/repo', title: 'dependency', startNow: false })
+      await issues.update(issue.id, { stage: 'review' })
+      const dependency = (await service.enqueue({ issueId: issue.id, ...approval })).order
+      const dependent = await seedOrder(issues, store, {
+        title: 'dependent',
+        minute: 30,
+        repoPath: '/other',
+        // Based on what the dependency lands, so landing it does not send the
+        // dependent back to review as a stale descendant.
+        baseSha: dependency.approvedHeadSha,
+        deliveryDependsOn: [dependency.id],
+      })
+      await publishSeeded(service, ledger)
+      expect((await published(ledger)).lanes.find((lane) => lane.id === shipLaneIdOf(dependent))).toMatchObject({
+        trains: [],
+        blockedOrderIds: [dependent.id],
+      })
+
+      await service.runOrder(dependency.id)
+      expect((await store.shipping.getOrder(dependency.id))?.state).toBe('shipped')
+      const after = await published(ledger)
+      expect(after.lanes.find((lane) => lane.id === shipLaneIdOf(dependent))).toMatchObject({
+        trains: [{ orderIds: [dependent.id] }],
+        blockedOrderIds: [],
+      })
+      expect(after.ranks.get(dependent.id)).toBe(1)
+      // The dependency's own lane emptied, so its row is removed.
+      expect(after.lanes.some((lane) => lane.id === shipLaneIdOf(dependency))).toBe(false)
+    } finally {
+      service.dispose()
+    }
+  })
+
+  it('O2 a shipping batch computes its order-plane changes once, over every entry', async () => {
+    const { store, issues, service, deps } = await harness(undefined, { checkOrderPlane: false })
+    try {
+      const orders = [
+        await seedOrder(issues, store, { title: 'one', minute: 1 }),
+        await seedOrder(issues, store, { title: 'two', minute: 2 }),
+        await seedOrder(issues, store, { title: 'three', minute: 3, repoPath: '/other' }),
+      ]
+      const projection = vi.spyOn(service as never as { projectionFor: () => unknown }, 'projectionFor')
+      const many = vi.spyOn(deps.issues, 'shippingCommitMany')
+      await service['commitMany'](
+        orders.map((order) => ({
+          order,
+          mutation: { expectedStage: ['review', 'shipping'] as const },
+        })),
+        async () => undefined,
+      )
+      expect(projection).toHaveBeenCalledTimes(1)
+      expect(projection).toHaveBeenCalledWith(orders.map((order) => order.id))
+      const entries = many.mock.calls[0]![0]
+      expect(entries.map((entry) => typeof entry.mutation.shipOrderChanges)).toEqual([
+        'function',
+        'object',
+        'object',
+      ])
+    } finally {
+      service.dispose()
+    }
   })
 })

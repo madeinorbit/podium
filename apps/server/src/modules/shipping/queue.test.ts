@@ -7,8 +7,16 @@ import {
   type ShipOrder,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { scheduledShipOrderProjectionRows } from './projection'
-import { GreenPrefixCache, isolateShippingTrain, shippingSchedule } from './queue'
+import { scheduledShippingProjection, shipLaneInput } from './projection'
+import {
+  GreenPrefixCache,
+  isolateShippingTrain,
+  queuedShippingLanes,
+  shipLaneIdOf,
+  shipLaneSchedule,
+  shippingSchedule,
+  withNativeStackEdges,
+} from './queue'
 
 const order = (id: string, requestedAt: string, input: Partial<ShipOrder> = {}): ShipOrder => ({
   id: asShipOrderId(id),
@@ -89,7 +97,7 @@ describe('shippingSchedule', () => {
       deliveryDependsOn: [asShipOrderId('missing')],
     })
     const orders = [second, blocked, first]
-    const rows = scheduledShipOrderProjectionRows(orders, [], [])
+    const rows = scheduledShippingProjection(orders, [], []).orders
     expect(rows.map(({ id, value }) => [id, value.queueRank])).toEqual([
       [second.id, 1],
       [blocked.id, undefined],
@@ -244,5 +252,138 @@ describe('isolateShippingTrain', () => {
     await isolateShippingTrain([a, b], validate, cache, scope)
 
     expect(validations).toBe(2)
+  })
+})
+
+describe('POD-4974 O2 lane-scoped scheduling', () => {
+  const t = (minute: number) => `2026-08-14T10:${String(minute).padStart(2, '0')}:00.000Z`
+  const world = (): ShipOrder[] => {
+    const shippedDependency = order('shipped-dep', t(0), {
+      repoId: asRepoId('repo-2'),
+      state: 'shipped',
+    })
+    const pendingDependency = order('pending-dep', t(1), { repoId: asRepoId('repo-2') })
+    return [
+      shippedDependency,
+      pendingDependency,
+      // One lane under three raw spellings of local:main.
+      order('a', t(2), { destination: 'main' }),
+      order('b', t(3), { destination: 'refs/heads/main', deliveryDependsOn: [asShipOrderId('a')] }),
+      order('c', t(4), { approvedBaseSha: 'other-base' }),
+      order('d', t(5), { deliveryDependsOn: [shippedDependency.id] }),
+      order('e', t(6), { deliveryDependsOn: [pendingDependency.id] }),
+      order('f', t(7), { deliveryDependsOn: [asShipOrderId('missing')] }),
+      order('g', t(8), { state: 'preflight' }),
+      order('h', t(9), { deliveryDependsOn: [asShipOrderId('g')] }),
+      // A second lane in the same repository.
+      order('x', t(10), { destination: 'git:origin/main' }),
+      order('y', t(11), {
+        destination: 'remote:origin/main',
+        deliveryDependsOn: [asShipOrderId('x')],
+      }),
+    ]
+  }
+
+  it('O2 a lane read through its own input schedules exactly as the world schedule does', () => {
+    const orders = world()
+    const byId = new Map(orders.map((item) => [item.id, item]))
+    const schedule = shippingSchedule(orders)
+    const lanes = queuedShippingLanes(orders)
+    expect(lanes.map((lane) => lane.destination).sort()).toEqual([
+      'git:origin/main',
+      'local:main',
+      'local:main',
+    ])
+    for (const lane of lanes) {
+      const scheduled = shipLaneSchedule(shipLaneInput(lane, [], byId))
+      const laneId = shipLaneIdOf(lane.queued[0]!)
+      expect(scheduled.lane.id).toBe(laneId)
+      expect(scheduled.lane.trains.map((train) => train.orderIds)).toEqual(
+        schedule.trains
+          .filter((train) => shipLaneIdOf(train.orders[0]!) === laneId)
+          .map((train) => train.orders.map((item) => item.id)),
+      )
+      for (const item of lane.queued) {
+        const entry = schedule.entries.find((candidate) => candidate.order.id === item.id)!
+        expect(scheduled.ranks.get(item.id)).toBe(entry.queueRank)
+        expect(scheduled.lane.blockedOrderIds.includes(item.id)).toBe(entry.queueRank === undefined)
+      }
+    }
+    // Non-vacuity: the fixture exercises a shipped cross-lane dependency (ranked),
+    // a pending one, a missing one and an in-flight one (all blocked).
+    const main = shipLaneSchedule(
+      shipLaneInput(lanes.find((lane) => lane.queued.some((item) => item.id === 'd'))!, [], byId),
+    )
+    expect(main.ranks.get(asShipOrderId('d'))).toBeDefined()
+    expect(main.lane.blockedOrderIds).toEqual(['e', 'f', 'h'])
+  })
+
+  it('O2 recorded native-stack edges rebuild the nearest set the tick infers', () => {
+    const lower = order('lower', t(3))
+    const middle = order('middle', t(2))
+    const upper = order('upper', t(1))
+    const started = order('started', t(0), { state: 'preflight' })
+    const incompatible = order('incompatible', t(4), { approvedBaseSha: 'other-base' })
+    const recorded = [
+      // History: upper was recorded above lower before middle arrived.
+      { upperOrderId: upper.id, lowerOrderId: lower.id },
+      { upperOrderId: upper.id, lowerOrderId: middle.id },
+      { upperOrderId: middle.id, lowerOrderId: lower.id },
+      // An edge to an order that left the queue, and one across compatibility.
+      { upperOrderId: upper.id, lowerOrderId: started.id },
+      { upperOrderId: incompatible.id, lowerOrderId: lower.id },
+    ]
+    const merged = withNativeStackEdges([upper, middle, lower, incompatible], recorded)
+    expect(Object.fromEntries(merged.map((item) => [item.id, item.deliveryDependsOn]))).toEqual({
+      upper: [middle.id],
+      middle: [lower.id],
+      lower: [],
+      incompatible: [],
+    })
+    // The tick merges exactly these nearest edges, so both plans agree.
+    const tick = shippingSchedule([
+      { ...upper, deliveryDependsOn: [middle.id] },
+      { ...middle, deliveryDependsOn: [lower.id] },
+      lower,
+      incompatible,
+    ])
+    const lane = shipLaneSchedule({
+      repoId: upper.repoId,
+      destination: 'local:main',
+      queued: merged,
+      dependencies: [],
+    })
+    expect(lane.lane.trains.map((train) => train.orderIds)).toEqual(
+      tick.trains.map((train) => train.orders.map((item) => item.id)),
+    )
+    expect(lane.lane.trains[0]!.orderIds).toEqual([lower.id, middle.id, upper.id])
+  })
+
+  it('O2 boot truth ranks over recorded edges and publishes one row per queued lane', () => {
+    const lower = order('lower', t(2), { approvedHeadSha: 'lower-head' })
+    const blocker = order('blocker', t(1), { approvedBaseSha: 'other-base' })
+    const upper = order('upper', t(0), { approvedHeadSha: 'upper-head' })
+    const done = order('done', t(3), { state: 'shipped', destination: 'git:origin/release' })
+    const truth = scheduledShippingProjection(
+      [upper, blocker, lower, done],
+      [],
+      [],
+      [{ upperOrderId: upper.id, lowerOrderId: lower.id }],
+    )
+    expect(truth.lanes.map((row) => row.value)).toEqual([
+      {
+        id: shipLaneIdOf(upper),
+        repoId: upper.repoId,
+        destination: 'local:main',
+        trains: [{ orderIds: [blocker.id] }, { orderIds: [lower.id, upper.id] }],
+        blockedOrderIds: [],
+      },
+    ])
+    expect(Object.fromEntries(truth.orders.map((row) => [row.id, row.value.queueRank]))).toEqual({
+      upper: 2,
+      blocker: 1,
+      lower: 2,
+      done: undefined,
+    })
   })
 })
