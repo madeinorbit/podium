@@ -19,7 +19,7 @@ import { harnessMobxPoolArm, snapshotPool, tracked, visibleOrderOf } from '../..
 import type { MobxPool } from '@podium/client-graph/pool'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { writeResult } from '../../../harness/src/results'
-import { startScenarioEngine, upsert } from '../../../shared/src/scenarios'
+import { startScenarioEngine, freshIssue, upsert } from '../../../shared/src/scenarios'
 import { gen, genCorpus, countKinds } from '../../../shared/src/gen/changes'
 import { startGenRun } from '../../../shared/src/gen/run'
 import { DISABLED_READ_FENCE } from '../../../shared/src/instrument/reads'
@@ -163,6 +163,17 @@ describe('real sidebar oracle (POD-4953)', () => {
       const lane = ctx.corpus.sliceWorktrees[0]!
       const now = engineLocals(ctx).coarseNow
       ctx.replica.batch(() => {
+        const { wire, projection } = freshIssue(ctx, 'roster-owner', 50001, 'Roster owner')
+        const owner = { audience: 'agent', stage: 'in_progress', worktreePath: lane.path, repoPath: lane.repoPath }
+        upsert(ctx, 'issue', 'roster-owner', { ...wire, ...owner })
+        upsert(ctx, 'issueProjection', 'roster-owner', { ...projection, ...owner })
+        const stamp = new Date(now - 60_000).toISOString()
+        upsert(ctx, 'session', 'owned-roster-guest', {
+          sessionId: 'owned-roster-guest', issueId: 'roster-owner', cwd: lane.path,
+          title: 'Owned guest', agentKind: 'codex', status: 'hibernated', archived: false,
+          lastActiveAt: stamp, createdAt: stamp, unread: false, readAt: new Date(now).toISOString(),
+          agentState: { phase: 'idle', since: stamp },
+        })
         for (let index = 0; index < 8; index += 1) {
           const stamp = new Date(now - (index + 20) * 60 * 60_000).toISOString()
           upsert(ctx, 'session', `roster-guest-${index}`, {
@@ -177,8 +188,10 @@ describe('real sidebar oracle (POD-4953)', () => {
       const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), now)
       const value = tracked(() => handle.pool.sidebar.worktree(lane.path))
       expect(value?.sessions.filter(s => s.sessionId.startsWith('roster-guest-'))).toHaveLength(8)
+      expect(value?.issues.map(issue => issue.id)).toContain('roster-owner')
       expect(value!.stale.length).toBeGreaterThan(0)
       expect(tracked(() => worktreeDiff(handle.pool, derivation, {}, now))).toEqual([])
+      expect(tracked(() => worktreeDiff(handle.pool, derivation, { selectedWorktree: lane.path }, now))).toEqual([])
     } finally { handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
   }, 120_000)
 })
