@@ -18,7 +18,8 @@ import '../src/index.css'
 import '../src/styles.css'
 
 const count = Number(new URLSearchParams(location.search).get('rows') ?? 5600)
-const fixture = createHeaderFixture(count)
+const sessionCount = Math.min(count, Number(new URLSearchParams(location.search).get('sessions') ?? count))
+const fixture = createHeaderFixture(count, sessionCount)
 const failures: string[] = []
 let runtime: ClientRuntime | undefined
 let pool: ReturnType<typeof useWorklistPool> = null

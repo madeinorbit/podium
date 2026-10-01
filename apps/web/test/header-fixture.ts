@@ -3,7 +3,7 @@ import type { HostMetricsWire, MachineId } from '@podium/model/browser'
 import { createSidebarFixture } from './sidebar-fixture'
 
 /** Operator-sized synthetic data. No operator cache, backend or daemon. */
-export function createHeaderFixture(count: number) {
+export function createHeaderFixture(count: number, sessionCount = count) {
   const now = Date.now(), base = createSidebarFixture(count, now)
   const machineIds = ['host-one', 'host-two', 'host-three'] as MachineId[]
   const machines = machineIds.map((id, index) => ({ id, name: `Host ${index + 1}`, hostname: `host-${index}`,
@@ -12,6 +12,7 @@ export function createHeaderFixture(count: number) {
     if (record.entity !== 'session') continue
     const value = record.value as Record<string, unknown>
     const index = Number(String(value.sessionId).split('-').at(-1)) || 0
+    if (index >= sessionCount) { base.records.delete(key); continue }
     base.records.set(key, { ...record, value: { ...value, machineId: machineIds[index % 3] } })
   }
   const quota = [{ machineId: machineIds[0]!, machineName: 'Host 1', hostname: 'host-0', agents: [{
@@ -63,12 +64,12 @@ export function createHeaderFixture(count: number) {
     publishMetrics, publishMachines: () => deliver('machines', machines),
     inputs: () => ({ metrics, quotas: quota, connection: health, afterDays: 14, history, lifecycle }),
     activity(step: number) {
-      const index = step % Math.min(12, count)
+      const index = step % Math.min(12, sessionCount)
       base.patch('session', `synthetic-session-${index}`, { lastActiveAt: new Date().toISOString(),
         agentState: { phase: step % 2 ? 'working' : 'idle', since: new Date().toISOString() } })
     },
     idle() {
-      for (let index = 0; index < Math.min(12, count); index++) base.patch('session', `synthetic-session-${index}`, {
+      for (let index = 0; index < Math.min(12, sessionCount); index++) base.patch('session', `synthetic-session-${index}`, {
         agentState: { phase: 'idle', since: new Date().toISOString() },
       })
     },

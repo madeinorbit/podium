@@ -7,6 +7,7 @@ import {
   buildFlightDeckRows, createHostSessionAggregatesSelector, cwdInWorktree, issueForCwd,
   listReclaimableWorktreesClient, missionProgress, occupiedRootsFromKey, placeReclaimable,
   reposToViews, resolveActiveWorktree, selectedMissionRoot, shippingPanelModel,
+  headerOfflineMachines,
 } from '@podium/client-core/viewmodels'
 import { isAgentConfirmedComputing, type HostMetricsWire, type MachineQuotaWire } from '@podium/model/browser'
 import type { MobxPool } from '../src/pool'
@@ -44,6 +45,7 @@ export function poolHeaderSnapshot(pool: MobxPool, inputs: Pick<HeaderCheckInput
     shipping: view.shipping(),
     history: view.history(), lifecycle: view.row('lifecycle', 'hosts') ?? null,
     outboxSize: view.row('window', 'window')?.outboxSize ?? 0,
+    offline: view.offlineMachines(),
   }, (folded.loading ? 1 : 0) + (typeof view.selectedIssue() === 'symbol' ? 1 : 0))
 }
 
@@ -82,6 +84,7 @@ export function legacyHeaderSnapshot(store: Store<PodiumClientApi>, inputs: Head
     folded: { root: selected(root), progress: missionProgress(issues, sessions, root?.id), live: first?.liveAgentCount ?? 0, working: first?.workingAgentCount ?? 0, needs: first?.actionableCount ?? 0 },
     shipping: { unfinishedCount: shipping.unfinishedCount, decisionCount: shipping.decisionCount },
     history, lifecycle: inputs.lifecycle ?? null, outboxSize: store.outboxSize ?? 0,
+    offline: headerOfflineMachines(store.machines, new Set(inputs.metrics.flatMap((metric) => metric.machineId ? [metric.machineId] : [])), now),
   })
 }
 export function checkHeader(pool: MobxPool, store: Store<PodiumClientApi>, inputs: HeaderCheckInputs) {

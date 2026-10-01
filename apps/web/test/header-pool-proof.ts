@@ -8,6 +8,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import type {} from './header-pool.browser'
 
 const rows = Number(process.argv.find((arg) => arg.startsWith('--rows='))?.slice(7) ?? 5600)
+const sessions = Number(process.argv.find((arg) => arg.startsWith('--sessions='))?.slice(11) ?? rows)
 const idleMs = Number(process.argv.find((arg) => arg.startsWith('--idle-ms='))?.slice(10) ?? 300000)
 const activityMs = Number(process.argv.find((arg) => arg.startsWith('--activity-ms='))?.slice(14) ?? 60000)
 const compareMs = Number(process.argv.find((arg) => arg.startsWith('--compare-ms='))?.slice(13) ?? 60000)
@@ -31,7 +32,7 @@ try {
     const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, reducedMotion: 'reduce' })
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
-    await page.goto(`${origin}/test/header-pool.browser.html?rows=${rows}&mobxHeader=${mode === 'pool' ? 1 : 0}`)
+    await page.goto(`${origin}/test/header-pool.browser.html?rows=${rows}&sessions=${sessions}&mobxHeader=${mode === 'pool' ? 1 : 0}`)
     await page.waitForFunction(() => window.__headerFixture?.ready(), null, { timeout: 60000 })
     await page.waitForTimeout(2000)
     const parity = mode === 'pool' ? await page.evaluate(() => window.__headerFixture.check()) : null
@@ -88,6 +89,6 @@ try {
     await page.evaluate(() => window.__headerFixture.close())
     await page.close()
   }
-  await writeFile(`${output}/results.json`, JSON.stringify({ rows, ...results }, null, 2))
-  console.log(JSON.stringify({ rows, ...results }))
+  await writeFile(`${output}/results.json`, JSON.stringify({ rows, sessions, ...results }, null, 2))
+  console.log(JSON.stringify({ rows, sessions, ...results }))
 } finally { await browser?.close(); server.kill(); await exited }
