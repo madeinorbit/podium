@@ -220,8 +220,8 @@ export function createPoolWorkActions(
           .map((session) => session.sessionId)
         const childIds = [...pool.graph.many('issue', key, 'treeChildren')]
         const childDoneCount = childIds.filter((id) => {
-          const child = pool.row('issue', id)
-          return child !== undefined && child !== LOADING && child['stage'] === 'done'
+          const child = pool.row('issue', id) as SliceIssue | typeof LOADING | undefined
+          return child !== undefined && child !== LOADING && child.stage === 'done'
         }).length
         return [
           {

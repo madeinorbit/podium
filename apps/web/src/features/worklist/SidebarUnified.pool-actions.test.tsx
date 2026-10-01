@@ -17,6 +17,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { checkSidebar } from '@podium/client-graph/diagnostics/sidebar-check'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { spreadSortKeys } from '@podium/model'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -512,7 +513,9 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const store = {
       ...runtime.getSnapshot(),
       paneA: file,
-      fileTabs: [{ id: file, worktreePath: ROOT }],
+      fileTabs: [
+        { id: file, worktreePath: ROOT, scope: { kind: 'worktree' as const, root: ROOT }, path: 'notes.md' },
+      ],
       navigateWorkspace: vi.fn(() => false),
       batchGesture: (fn: () => void) => fn(),
       markIssueRead: vi.fn(async () => {}),
@@ -568,7 +571,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const owner = pool!
     const residency = owner.residency!
     const ids = ['synthetic-9', TARGET]
-    const rows = ids.map((id) => owner.row('issue', id))
+    const rows = ids.map((id) => owner.row('issue', id) as SliceIssue)
     const coldRule = residency.coldRule.bind(residency)
     const hidden = residency.hidden.bind(residency)
     residency.coldRule = (entity, record) =>
@@ -583,7 +586,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
           owner.apply({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
           owner.apply({
             type: 'update',
-            rows: [{ kind: 'issue', id, value: rows[index] as Record<string, unknown> }],
+            rows: [{ kind: 'issue', id, value: rows[index] }],
           })
         })
       })
