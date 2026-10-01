@@ -6,6 +6,7 @@ import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import * as runtimePool from '@podium/client-graph/runtime-pool'
+import { startSidebarCheck } from '@podium/client-graph/diagnostics/runtime-check'
 import { asUserId } from '@podium/model'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -17,11 +18,12 @@ import {
 } from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 
-const choice = vi.hoisted(() => ({ mode: 'pool' }))
+const choice = vi.hoisted(() => ({ mode: 'pool', check: false }))
+vi.mock('@podium/client-graph/diagnostics/runtime-check', () => ({ startSidebarCheck: vi.fn(() => vi.fn()) }))
 vi.mock('@/lib/sidebar-data-layer', () => ({
   initializeSidebarDataLayer: () => {},
   sidebarDataLayer: () => choice.mode,
-  sidebarCheckRequested: () => false,
+  sidebarCheckRequested: () => choice.check,
 }))
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -91,6 +93,8 @@ async function ready(): Promise<MobxPool> {
 
 beforeEach(() => {
   choice.mode = 'pool'
+  choice.check = false
+  vi.mocked(startSidebarCheck).mockClear()
   shown = null
   runtime = null
   errors.length = 0
@@ -109,6 +113,18 @@ afterEach(() => {
 })
 
 describe('StoreProvider owns the sidebar pool', () => {
+  it('attaches the requested timer to the same runtime and disposes it before the pool', async () => {
+    choice.check = true
+    render()
+    const pool = await ready()
+    await vi.waitFor(() => expect(startSidebarCheck).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(startSidebarCheck).mock.calls[0]!.slice(0, 2)).toEqual([runtime, pool])
+    const stop = vi.mocked(startSidebarCheck).mock.results[0]!.value
+    const original = pool.dispose.bind(pool)
+    vi.spyOn(pool, 'dispose').mockImplementation(() => { expect(stop).toHaveBeenCalledTimes(1); original() })
+    render(null)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
   it('builds exactly one pool from its own runtime and replica and reuses it on rerender', async () => {
     const create = vi.spyOn(runtimePool, 'createRuntimeWorklistPool')
     render()
@@ -121,6 +137,7 @@ describe('StoreProvider owns the sidebar pool', () => {
     expect(await ready()).toBe(pool)
     expect(create).toHaveBeenCalledTimes(1)
     expect(errors).toEqual([])
+    expect(startSidebarCheck).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -161,6 +178,7 @@ describe('StoreProvider owns the sidebar pool', () => {
 
   it('builds no pool and takes no pool subscriptions when the switch is off', async () => {
     choice.mode = 'legacy'
+    choice.check = true
     const create = vi.spyOn(runtimePool, 'createRuntimeWorklistPool')
     render()
     await act(async () => {
@@ -169,6 +187,7 @@ describe('StoreProvider owns the sidebar pool', () => {
     expect(shown).toBeNull()
     expect(create).not.toHaveBeenCalled()
     expect(replicaFactory).toHaveBeenCalledTimes(1)
+    expect(startSidebarCheck).not.toHaveBeenCalled()
   })
 
   it('publishes resident counts on late panel open and clears them on sign-out', async () => {

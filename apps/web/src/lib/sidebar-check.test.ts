@@ -29,6 +29,7 @@ describe('periodic sidebar diagnostic', () => {
       vi.advanceTimersByTime(1000)
       expect(checkSidebar).toHaveBeenCalledTimes(2)
       stop(); stop()
+      expect(vi.getTimerCount()).toBe(0)
       vi.advanceTimersByTime(10_000)
       expect(checkSidebar).toHaveBeenCalledTimes(2)
       expect(perf.read().check.state).toBe('off')
