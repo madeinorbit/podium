@@ -107,11 +107,23 @@ function CaptureActions({ pool: owner }: { pool: MobxPool }) {
 }
 function PoolMenuProbe({ id }: { id: string }) {
   const [data, setData] = useState<ReturnType<PoolWorkActions['resolveMenuData']> | null>(null)
-  return <>
-    <button data-testid="pool-menu-probe" onClick={() => setData(actions.resolveMenuData(id))}>Open nested task menu</button>
-    {data && <IssueContextMenu issues={data.single} allIssues={data.all} surface="sidebar"
-      anchor={{ x: 40, y: 60 }} onClose={() => setData(null)} onOpen={actions.openIssuePage} />}
-  </>
+  return (
+    <>
+      <button data-testid="pool-menu-probe" onClick={() => setData(actions.resolveMenuData(id))}>
+        Open nested task menu
+      </button>
+      {data && (
+        <IssueContextMenu
+          issues={data.single}
+          allIssues={data.all}
+          surface="sidebar"
+          anchor={{ x: 40, y: 60 }}
+          onClose={() => setData(null)}
+          onOpen={actions.openIssuePage}
+        />
+      )}
+    </>
+  )
 }
 
 async function mount(prepare?: (fixture: Fixture) => void, count = 12, probeId?: string) {
@@ -196,10 +208,15 @@ async function parity() {
     selectedWorktree: store.selectedWorktree,
   })
   expect(result.pending).toBe(0)
-  expect(result.first, JSON.stringify({
-    target: pool!.sidebar.row(TARGET),
-    legacy: allIssueViewModels(runtime.replica, store.issueProjections, store.issues).find((i) => i.id === TARGET),
-  })).toBeNull()
+  expect(
+    result.first,
+    JSON.stringify({
+      target: pool!.sidebar.row(TARGET),
+      legacy: allIssueViewModels(runtime.replica, store.issueProjections, store.issues).find(
+        (i) => i.id === TARGET,
+      ),
+    }),
+  ).toBeNull()
   expect(result.differences).toBe(0)
 }
 function row(id = TARGET) {
@@ -438,12 +455,19 @@ describe('pool navigation uses the existing gesture semantics', () => {
     })
     expect(beginSwitch).toHaveBeenLastCalledWith({ sessionId: expected, issueId: 'synthetic-3' })
     expect(runtime.getSnapshot().selectedIssueId).toBe(root.id)
-    expect(runtime.getSnapshot().paneA, JSON.stringify({
-      mission: [...mission], issueKeys: [...pool!.tables.issue.keys()],
-      members: [...members.keys()],
-      issueSessions: [...mission].map((id) => [id, actions.resolveMenuData(id).single[0]?.memberSessionIds]),
-      reads: [...pool!.tables.session.keys()].map((id) => pool!.row('session', id)),
-    })).toBe(expected)
+    expect(
+      runtime.getSnapshot().paneA,
+      JSON.stringify({
+        mission: [...mission],
+        issueKeys: [...pool!.tables.issue.keys()],
+        members: [...members.keys()],
+        issueSessions: [...mission].map((id) => [
+          id,
+          actions.resolveMenuData(id).single[0]?.memberSessionIds,
+        ]),
+        reads: [...pool!.tables.session.keys()].map((id) => pool!.row('session', id)),
+      }),
+    ).toBe(expected)
     expect(focused).toBe('synthetic-3')
     await parity()
   })
@@ -751,9 +775,14 @@ describe('real pool row mutations and receipts', () => {
     await mount()
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
     fireEvent.click(screen.getByTestId('closed-issue-archive'))
-    expect(pool!.sidebar.sections().bands[0]!.closedIds, JSON.stringify({
-      pending: runtime.outbox.pending(), row: pool!.sidebar.row('synthetic-5'), requests,
-    })).not.toContain('synthetic-5')
+    expect(
+      pool!.sidebar.sections().bands[0]!.closedIds,
+      JSON.stringify({
+        pending: runtime.outbox.pending(),
+        row: pool!.sidebar.row('synthetic-5'),
+        requests,
+      }),
+    ).not.toContain('synthetic-5')
     const write = await request('issues.archive', 'synthetic-5')
     expect(write.input).toMatchObject({ id: 'synthetic-5' })
     expect(pool!.sidebar.sections().bands[0]!.closedIds).not.toContain('synthetic-5')
@@ -898,10 +927,14 @@ describe('real pool row mutations and receipts', () => {
     'mission',
   ] as const)('moves discovered work to %s through the existing placement action', async (placement) => {
     const id = placement === 'own' ? 'synthetic-3' : TARGET
-    await mount((fixture) => {
-      if (placement === 'own') patchIssue(fixture, TARGET, { parentId: 'synthetic-1' })
-      if (placement === 'mission') discoveredFrom(fixture, id, 'synthetic-1')
-    }, 12, placement === 'own' ? TARGET : undefined)
+    await mount(
+      (fixture) => {
+        if (placement === 'own') patchIssue(fixture, TARGET, { parentId: 'synthetic-1' })
+        if (placement === 'mission') discoveredFrom(fixture, id, 'synthetic-1')
+      },
+      12,
+      placement === 'own' ? TARGET : undefined,
+    )
     const targetId = placement === 'own' ? TARGET : id
     await menu(targetId)
     fireEvent.click(await item(placement === 'own' ? /^Move to top level/ : /^Move into/))
@@ -935,7 +968,8 @@ describe('real pool row mutations and receipts', () => {
             repoId: 'synthetic-repo',
             kind: 'repository',
             branch: 'main',
-            worktrees: machineId === 'source' ? [{ path: `${ROOT}/guests`, branch: 'synthetic' }] : [],
+            worktrees:
+              machineId === 'source' ? [{ path: `${ROOT}/guests`, branch: 'synthetic' }] : [],
           })),
           machines: ['source', 'target'].map((id) => ({
             id,
