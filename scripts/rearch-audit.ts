@@ -604,23 +604,14 @@ export interface RegisteredResidue {
 
 export const REGISTERED_RESIDUE: readonly RegisteredResidue[] = [
   {
-    id: 'issues-forwarder-transition',
-    owner: 'POD-827',
-    expiry: 'deleted when the hub speaks projections (POD-827)',
-    note: 'POD-827 blocks normalized-as-sole-feed on hub-node installs; local clients receive only the session-free transitional issue payload.',
-    // RE-POINTED at this tree, not copied from main (POD-1246). Main's register
-    // names its own file layout, and three of its four sites are somewhere else
-    // here — a needle carried over verbatim would have failed the pin, which is
-    // the register working, not the register being wrong.
-    //
-    // The FOURTH is a deletion, not a move: main lists
-    // `packages/sync/src/upstream.ts` (`private readonly issues = new Map<string,
-    // IssueWire>()`) as the upstream hub-mirror consumer. POD-309 already landed
-    // on this branch — `upstream-sync-forwarder` records both classes and both
-    // construction sites as VANISHED, 0 MOVED — so that half of main's residue is
-    // retired here and is dropped from the register rather than re-pointed at a
-    // file that does not exist. The expiry above narrows to match: only the
-    // POD-827 condition is still outstanding.
+    // Was `issues-forwarder-transition` (POD-797, owner POD-827). POD-827 closed
+    // with its premise gone and the residue stayed; POD-4949 now retires it in
+    // steps, and step 5 (POD-4971) re-scoped this entry to what step 7 deletes.
+    id: 'issue-old-record',
+    owner: 'POD-4973',
+    expiry:
+      'deleted at step 7 of POD-4949 (POD-4973), once the minimum client version excludes every client that reads only the old record',
+    note: "The server still SENDS the old issue record (`issue`, IssueWire) beside the normalized one (`issueProjection`), because released web and mobile builds read only the old one. Since POD-4971 no server behaviour reads it back: mail eligibility, session auto-archive, the visibility anchor edge and change detection all key on the normalized record. What is left is exactly this list: the type, its emitters, the two answers that serve it to old clients (`syncChangesSince` and the v1 wire adapter), the visibility arms that decide who receives it, the anchor subject that re-admits it on a share, and the old record's own change-detection exemption. Every RPC typed to return `IssueWire` follows the type: deleting it makes the typecheck name each one. Client-side readers are tracked by POD-4968, POD-4970 and POD-4972.",
     sites: [
       {
         // The wire type moved to model at the POD-361 flip; protocol's
@@ -629,15 +620,73 @@ export const REGISTERED_RESIDUE: readonly RegisteredResidue[] = [
         needle:
           'export const IssueWire = IssueWireCore.extend(ISSUE_FLAT_PROVENANCE_SHAPE).extend(',
       },
+      // EMITTERS. Each declares the normalized record beside it (POD-4967).
       {
-        // The session-free legacy emit — a named method here rather than main's
-        // inline `snapshot:` literal.
+        // The full-list legacy emit and its reconcile.
         file: 'apps/server/src/modules/issues/publish.ts',
         needle: 'issuesChanged(localIssues: IssueWire[]): PublishSpec {',
       },
       {
+        file: 'apps/server/src/modules/issues/service/core.ts',
+        needle: "await this.deps.ledger.reconcile('issue', spec.rows)",
+      },
+      {
+        // persistWith
+        file: 'apps/server/src/modules/issues/service/core.ts',
+        needle: "{ entity: 'issue', id: row.id, op: 'upsert', value: w },",
+      },
+      {
+        // persistManyWith and the write-less git-state publish (broadcastIssue)
+        file: 'apps/server/src/modules/issues/service/core.ts',
+        needle: "entity: 'issue' as const,",
+      },
+      {
+        // soft delete and restore
+        file: 'apps/server/src/modules/issues/service/crud.ts',
+        needle:
+          "changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }, ...companions],",
+      },
+      {
+        // the draft purge; its normalized remove rides the reconcile tail
+        file: 'apps/server/src/modules/issues/service/crud.ts',
+        needle: "changes: () => [{ entity: 'issue', id, op: 'remove' }],",
+      },
+      {
         file: 'apps/server/src/modules/issues/instrumentation.ts',
         needle: 'export function countIssueMembershipScan(): void {',
+      },
+      // WHAT SERVES IT TO OLD CLIENTS.
+      {
+        file: 'apps/server/src/modules/sessions/lifecycle.ts',
+        needle: "issues: values('issue'),",
+      },
+      // WHO RECEIVES IT. These decide visibility for the old kind; they read no
+      // payload and trigger nothing.
+      {
+        // classOf
+        file: 'apps/server/src/feed-visibility.ts',
+        needle: "entity === 'issue' ||",
+      },
+      {
+        // mayRead and the prefetch
+        file: 'apps/server/src/feed-visibility.ts',
+        needle: "ref.entity === 'issue' ||",
+      },
+      {
+        // the anchor subject a share re-admits; the edge itself is keyed on
+        // `issueProjection`
+        file: 'apps/server/src/feed-visibility.ts',
+        needle: "{ entity: 'issue' as const, entityId: ref.entityId },",
+      },
+      {
+        // the v1 wire adapter's old-record frame; it retires with v1 itself
+        file: 'apps/server/src/gateway/legacy-wire-v1-adapter.ts',
+        needle: "return { type: 'issuesChanged', issues: values as IssueWire[] }",
+      },
+      // ITS OWN CHANGE-DETECTION EXEMPTION.
+      {
+        file: 'packages/sync/src/change-log.ts',
+        needle: 'export function legacyIssueDetectionKey(value: unknown): string {',
       },
     ],
   },

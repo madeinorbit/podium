@@ -217,8 +217,12 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     const dependencyId = issueDepId('i1', 'i-target', 'blocks')
     await store.sync.appendChanges(
       [
+        // Both issue kinds, as every issue write declares them: the anchor is
+        // keyed on the normalized record (POD-4971) and re-admits the old one.
         { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
         { entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issueProjection', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
         { entity: 'issueDep', entityId: dependencyId, op: 'upsert', payload: '{"dep":true}' },
       ],
       1000,
@@ -257,7 +261,10 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
 
     const cursor = await store.sync.maxChangeSeq()
     await store.sync.appendChanges(
-      [{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":2}' }],
+      [
+        { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
+        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
+      ],
       2000,
     )
     const second = await ledger.authority.changesSince(cursor, feedPrincipal)

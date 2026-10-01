@@ -129,7 +129,7 @@ describe('feed visibility grant semantics', () => {
     expect(state.mayRead(reader, git)).toBe(true)
     expect(state.mayRead(stranger, git)).toBe(false)
     expect(
-      (await policy.anchors.visibilityEdge({ entity: 'issue', entityId: 'shared' }))?.subjects,
+      (await policy.anchors.visibilityEdge({ entity: 'issueProjection', entityId: 'shared' }))?.subjects,
     ).toContainEqual(git)
   })
   it('cannot access grant persistence through its store port', () => {
@@ -173,7 +173,9 @@ describe('feed visibility grant semantics', () => {
     expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(true)
     expect(await policy.mayReadIssue(revoked, asIssueId('shared'))).toBe(false)
     // Revoked readers remain in the historical audience so they receive removals.
-    expect((await policy.anchors.visibilityEdge(refs[0]!))?.audience).toEqual([reader, revoked])
+    expect(
+      (await policy.anchors.visibilityEdge({ entity: 'issueProjection', entityId: 'shared' }))?.audience,
+    ).toEqual([reader, revoked])
   })
 
   it('does not treat an issue or conversation grant as a session grant', async () => {
@@ -225,5 +227,75 @@ describe('rows scoped by the session named in their id', () => {
     const broken: EntityRef = { entity: 'message', entityId: 'not-a-row-id' }
     const state = await policy.state.forBatch!([broken])
     expect(state.mayRead(owner, broken)).toBe(false)
+  })
+})
+
+/**
+ * THE ANCHOR EDGE IS KEYED ON THE NORMALIZED RECORD (POD-4971, step 5c of
+ * POD-4949). A share commits through the issue's own write, and that write's
+ * change re-admits the issue's subjects to its audience. Until this step the
+ * edge listened for the old record (`issue`), which stops being sent at step 7;
+ * keyed there, a share would then re-admit nothing. Each arm captures ONE issue
+ * kind into a real Authority and reads the grantee's delta.
+ */
+describe('the issue anchor edge reads the normalized record (POD-4971)', () => {
+  const principal = (user: typeof owner): Principal => ({
+    kind: 'user',
+    user,
+    device: asDeviceId(`device:${user}`),
+    capability: asCapabilityRef(`cap:${user}`),
+  })
+  /** A grantee's delta after a write that published only `entity`. */
+  const deltaAfterOnly = async (entity: 'issue' | 'issueProjection') => {
+    const { store, policy, grant } = await fixture()
+    const authority = new Authority({
+      store: store.sync,
+      now: () => 1_000,
+      transact: async (fn) => await store.transact(fn),
+      visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
+      anchors: policy.anchors,
+    })
+    // The world before the share: both records, as every issue write declares.
+    await authority.capture([
+      { entity: 'issue', entityId: 'shared', op: 'upsert', value: { id: 'shared', title: 'old' } },
+      { entity: 'issueProjection', entityId: 'shared', op: 'upsert', value: { id: 'shared', revision: 1 } },
+    ])
+    const cursor = await authority.cursor()
+    await grant('issue', reader, 'read')
+    await authority.capture([
+      { entity, entityId: 'shared', op: 'upsert', value: { id: 'shared', revision: 2 } },
+    ])
+    const delta = await authority.changesSince(cursor, principal(reader))
+    if (delta?.kind !== 'batch') throw new Error('expected a delta batch')
+    return delta.changes.map((change) => `${change.entity}:${change.op}`)
+  }
+
+  it('a share published as the normalized record re-admits the old record too', async () => {
+    // The grantee gets the normalized row itself, then the anchored subjects:
+    // the OLD record a released client reads, re-admitted at its current value,
+    // and the normalized one again. With the edge on `issue` only the first
+    // entry is here.
+    const delta = await deltaAfterOnly('issueProjection')
+    expect(delta).toContain('issue:upsert')
+    expect(delta.filter((row) => row === 'issueProjection:upsert')).toHaveLength(2)
+  })
+
+  it('a change to the old record alone moves no audience', async () => {
+    // The proof that nothing here still depends on the old record: it is
+    // delivered as an ordinary row and anchors nothing.
+    expect(await deltaAfterOnly('issue')).toEqual(['issue:upsert'])
+  })
+
+  it('names no edge for the old record, and the same subjects for the normalized one', async () => {
+    const { policy, grant } = await fixture()
+    await grant('issue', reader, 'read')
+    expect(await policy.anchors.visibilityEdge({ entity: 'issue', entityId: 'shared' })).toBeNull()
+    const edge = await policy.anchors.visibilityEdge({ entity: 'issueProjection', entityId: 'shared' })
+    expect(edge?.audience).toEqual([reader])
+    expect(edge?.subjects.slice(0, 3)).toEqual([
+      { entity: 'issue', entityId: 'shared' },
+      { entity: 'issueProjection', entityId: 'shared' },
+      { entity: 'issueGitState', entityId: 'shared' },
+    ])
   })
 })

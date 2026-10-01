@@ -89,8 +89,10 @@ export interface SessionTeardownPorts {
   killSession(input: { sessionId: SessionId }): Promise<void>
   /** Issue meta / cwd ownership for stop/stopIssue. */
   issueAccess: DurableIssueAccessIndex
-  /** Snapshot tail for auto-archive parent-issue check. */
-  snapshotTail(): Promise<{ issues: { id: string; parentId?: string | null }[] }>
+  /** Snapshot tail for auto-archive parent-issue check. The NORMALIZED record
+   *  only (POD-4971): the old `issues` half stops being sent at step 7 of
+   *  POD-4949, and narrowing the port here keeps this check from reaching it. */
+  snapshotTail(): Promise<{ issueProjections: { id: string; parentId?: string | null }[] }>
 }
 
 export class SessionTeardown {
@@ -244,7 +246,7 @@ export class SessionTeardown {
     }
     if (Math.max(stoppedMs, readMs) > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
     if (session.issueId) {
-      const issue = (await this.ports.snapshotTail()).issues.find(
+      const issue = (await this.ports.snapshotTail()).issueProjections.find(
         (candidate) => candidate.id === session.issueId,
       )
       if (!issue || issue.parentId) return 'precondition'

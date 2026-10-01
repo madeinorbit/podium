@@ -59,10 +59,13 @@ export interface SessionLedger {
   ): Promise<MetadataChange[]>
 }
 
-/** Non-session fields retained by the expiring wire-v1 catch-up snapshot. */
+/** Non-session fields retained by the expiring wire-v1 catch-up snapshot.
+ *  Without the old issue record (POD-4971): this tail answers no client, its
+ *  only issue reader (session auto-archive) reads `issueProjections`, and a
+ *  field nobody reads would keep a full read of the old record on every call. */
 export type SnapshotTail = Omit<
   Extract<SyncChangesSinceResult, { kind: 'snapshot' }>,
-  'kind' | 'sessions' | 'cursor' | 'feedId' | 'epoch' | 'minAvailableSeq'
+  'kind' | 'sessions' | 'issues' | 'cursor' | 'feedId' | 'epoch' | 'minAvailableSeq'
 >
 
 /** Prepared half of a cross-aggregate issue/session deletion transaction. */

@@ -125,8 +125,9 @@ export function conversationProjection(value: unknown): string {
   return JSON.stringify(stable)
 }
 
-/** Issue fields derived from live-session state — EXCLUDED from change
- *  detection (POD-210, same shape as {@link conversationProjection}): the wire
+/** OLD RECORD ONLY (`issue`, IssueWire). Issue fields derived from live-session
+ *  state — EXCLUDED from change detection (POD-210, same shape as
+ *  {@link conversationProjection}): the wire
  *  embeds the full member SessionMeta[] plus roll-ups, so every session
  *  heartbeat (working↔idle flip, read receipt, activity stamp) re-serializes
  *  the issue row and was re-recorded to the ledger ~each second per active
@@ -135,7 +136,7 @@ export function conversationProjection(value: unknown): string {
  *  KEY ignores them. Staleness tradeoff: a delta client's embedded session
  *  snapshot inside an issue row refreshes when a stable field changes or on
  *  its next reconnect snapshot — acceptable for advisory live-state hints. */
-export function issueProjection(value: unknown): string {
+export function legacyIssueDetectionKey(value: unknown): string {
   const {
     sessions: _sessions,
     sessionSummary: _sessionSummary,
@@ -150,6 +151,10 @@ export function issueProjection(value: unknown): string {
  *  JSON (`json` must be `JSON.stringify(value)`). */
 export function detectionKey(entity: MetadataEntityKind, value: unknown, json: string): string {
   if (entity === 'conversation') return conversationProjection(value)
+  // The NORMALIZED record (`issueProjection`) has no exemption and must not get
+  // one (POD-4971): it carries no derived field, so every byte of it is a real
+  // change. This arm serves only the old record and goes with it at step 7 of
+  // POD-4949.
   if (entity === 'issue') {
     const issue = value as Record<string, unknown>
     // The normalized pilot's transitional IssueWire is already session-free.
@@ -162,7 +167,7 @@ export function detectionKey(entity: MetadataEntityKind, value: unknown, json: s
     ) {
       return json
     }
-    return issueProjection(value)
+    return legacyIssueDetectionKey(value)
   }
   return json
 }

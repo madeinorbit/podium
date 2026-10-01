@@ -658,7 +658,14 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
 
   const anchors: VisibilityAnchorPort = {
     visibilityEdge: async (ref) => {
-      if (ref.entity !== 'issue') return null
+      // KEYED ON THE NORMALIZED RECORD (POD-4971). A share or unshare commits
+      // through the issue's own write, which declares its `issueProjection`
+      // beside the old `issue` record, so this kind sees every audience move.
+      // Keying on both would anchor every subject twice per write; keying on the
+      // old record alone would stop re-admission when step 7 of POD-4949 stops
+      // sending it. The subjects below still name `issue`: a released client
+      // reads only that record, and is re-admitted to it until step 7.
+      if (ref.entity !== 'issueProjection') return null
       const audience = await deps.audienceFor('issue', ref.entityId)
       if (audience.length === 0) return null
       const cache = await currentBootstrapReadCache()

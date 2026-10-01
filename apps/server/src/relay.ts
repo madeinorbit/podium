@@ -1098,7 +1098,6 @@ export class SessionRegistry {
       onPublished: (seq) => this.bus.emit('feed.published', { seq }),
     })
     const snapshotTail = async (): Promise<SnapshotTail> => ({
-      issues: await ledger.authority.snapshot('issue') as SnapshotTail['issues'],
       issueProjections: await ledger.authority.snapshot(
         'issueProjection',
       ) as SnapshotTail['issueProjections'],
@@ -2329,7 +2328,15 @@ export class SessionRegistry {
             asSessionId(change.id),
             change.op === 'upsert' ? (change.value as SessionMeta) : undefined,
           )
-        } else if (change.entity === 'issue') {
+        } else if (change.entity === 'issueProjection') {
+          // THE NORMALIZED RECORD, NOT THE OLD ONE (POD-4971). Every issue
+          // write declares its `issueProjection` beside the old `issue` record
+          // in the same commit, and the full-list reconcile carries its removes,
+          // so this kind sees every row change eligibility reads (worktree,
+          // archive, close, machine). The old record also changes on derived
+          // ripples (`blocked`, child counts, git state) that move none of those,
+          // and it stops being sent at step 7 of POD-4949: a trigger left on it
+          // would stop mail without an error anywhere.
           changedIssueIds.push(change.id)
         }
       }

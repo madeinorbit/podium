@@ -16,8 +16,9 @@
  * refusal is removed.
  */
 
-import { asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
-import { afterEach, describe, expect, it } from 'vitest'
+import { asUserId, firstAdminMemberId, type IssueId, type SessionId } from '@podium/model'
+import type { Authority } from '@podium/sync'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 
@@ -29,10 +30,13 @@ afterEach(async () => {
 })
 
 /** A stopped session the broadcast viewer has read — the archivable fixture. */
-async function stoppedAndRead(): Promise<{
+async function stoppedAndRead(
+  bindTo?: (reg: SessionRegistry) => Promise<IssueId>,
+): Promise<{
   reg: SessionRegistry
   sessionId: SessionId
   stoppedMs: number
+  issueId: IssueId | null
 }> {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(reg)
@@ -48,14 +52,19 @@ async function stoppedAndRead(): Promise<{
         output: '',
       }),
     )
+  }, bindTo ? { repos: ['/r'] } : {})
+  const issueId = bindTo ? await bindTo(reg) : null
+  const { sessionId } = await reg.modules.sessions.createSession({
+    agentKind: 'shell',
+    cwd: '/r',
+    ...(issueId ? { issueId } : {}),
   })
-  const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r' })
   await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
   // Read AFTER the stop: `readAt >= stoppedAt` is one of the preconditions, so a
   // fixture read before stopping would fail for a reason these tests do not name.
   await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
   const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
-  return { reg, sessionId, stoppedMs: Date.parse(meta?.stoppedAt ?? '') }
+  return { reg, sessionId, stoppedMs: Date.parse(meta?.stoppedAt ?? ''), issueId }
 }
 
 const observation = (sessionId: SessionId, readerUserId: string) => ({
@@ -166,5 +175,70 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     expect(
       (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.archived,
     ).toBe(false)
+  })
+})
+
+/**
+ * THE PARENT CHECK READS THE NORMALIZED RECORD (POD-4971, step 5b of POD-4949).
+ *
+ * A session of a CHILD issue is never auto-archived; the check reads the issue's
+ * `parentId` from the feed. Until this step it read the old record (`issue`,
+ * IssueWire), which stops being sent at step 7. Each arm below empties ONE
+ * issue kind from the feed the check reads, the way a server sending only the
+ * other kind would.
+ */
+describe('SessionService.tryAutoArchiveStoppedObserved — the issue record it reads (POD-4971)', () => {
+  const topLevel = async (reg: SessionRegistry) =>
+    (await reg.modules.issues.create({ repoPath: '/r', title: 'Top level', startNow: false })).id
+  const child = async (reg: SessionRegistry) => {
+    const parent = await reg.modules.issues.create({ repoPath: '/r', title: 'Parent', startNow: false })
+    return (await reg.modules.issues.create({
+      repoPath: '/r',
+      title: 'Child',
+      parentId: parent.id,
+      startNow: false,
+    })).id
+  }
+  /** Empty one kind in the snapshot the check reads; every other kind passes. */
+  const withoutKind = (reg: SessionRegistry, entity: 'issue' | 'issueProjection') => {
+    // The registry exposes its Authority through a narrowed port; the object is
+    // the Authority the snapshot tail reads.
+    const authority = reg.syncDelta.authority as unknown as Authority
+    const snapshot = authority.snapshot.bind(authority)
+    vi.spyOn(authority, 'snapshot').mockImplementation(async (kind) =>
+      kind === entity ? [] : await snapshot(kind),
+    )
+  }
+  const attempt = async (fixture: Awaited<ReturnType<typeof stoppedAndRead>>) => {
+    const { reg, sessionId, stoppedMs, issueId } = fixture
+    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const result = await reg.modules.sessions.tryAutoArchiveStoppedObserved(
+      { ...observation(sessionId, firstAdminMemberId()), issueId, stoppedAt: meta?.stoppedAt ?? '' },
+      stoppedMs + 8 * DAY_MS,
+    )
+    const archived = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )?.archived
+    return { result, archived }
+  }
+
+  it('APPLIES for a top-level issue when the feed carries only the normalized record', async () => {
+    const fixture = await stoppedAndRead(topLevel)
+    withoutKind(fixture.reg, 'issue')
+    expect(await attempt(fixture)).toEqual({ result: 'applied', archived: true })
+  })
+
+  it('REFUSES for a child issue when the feed carries only the normalized record', async () => {
+    const fixture = await stoppedAndRead(child)
+    withoutKind(fixture.reg, 'issue')
+    expect(await attempt(fixture)).toEqual({ result: 'precondition', archived: false })
+  })
+
+  it('no longer finds the issue in the old record: without the normalized one it refuses', async () => {
+    // The proof that nothing here still depends on the old record: the old
+    // record is intact, and a top-level issue is refused as if it did not exist.
+    const fixture = await stoppedAndRead(topLevel)
+    withoutKind(fixture.reg, 'issueProjection')
+    expect(await attempt(fixture)).toEqual({ result: 'precondition', archived: false })
   })
 })

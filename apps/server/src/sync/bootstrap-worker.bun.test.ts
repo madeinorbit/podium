@@ -386,9 +386,17 @@ describe('snapshot delta producer', () => {
       const from = await store.sync.maxChangeSeq()
       await store.grants.remove('issue', 'shared', 'reader', 'read')
       await store.grants.remove('issue', 'shared', 'revoked', 'read')
-      await store.sync.appendChanges([{ entity: 'issue', entityId: 'shared', op: 'upsert', payload: JSON.stringify({ id: 'shared', title: 'revoked' }) }], 2)
+      await store.sync.appendChanges([
+        { entity: 'issue', entityId: 'shared', op: 'upsert', payload: JSON.stringify({ id: 'shared', title: 'revoked' }) },
+        // The anchor is keyed on the normalized record (POD-4971), which every
+        // issue write declares beside the old one.
+        { entity: 'issueProjection', entityId: 'shared', op: 'upsert', payload: JSON.stringify({ id: 'shared', title: 'revoked' }) },
+      ], 2)
       await store.grants.upsert(grant('reader'))
-      await store.sync.appendChanges([{ entity: 'issue', entityId: 'shared', op: 'upsert', payload: JSON.stringify({ id: 'shared', title: 'regranted' }) }], 3)
+      await store.sync.appendChanges([
+        { entity: 'issue', entityId: 'shared', op: 'upsert', payload: JSON.stringify({ id: 'shared', title: 'regranted' }) },
+        { entity: 'issueProjection', entityId: 'shared', op: 'upsert', payload: JSON.stringify({ id: 'shared', title: 'regranted' }) },
+      ], 3)
       const through = await store.sync.maxChangeSeq()
       const world = await WorldIndex.load(store)
       const feed = makeFeedVisibility({ store, worldIndex: world.reader,

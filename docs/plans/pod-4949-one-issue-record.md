@@ -110,7 +110,8 @@ The old record is **load-bearing**. What depends on it:
 
 **Guards that pin it**
 
-- the residue register `issues-forwarder-transition` (`scripts/rearch-audit.ts:605-643`);
+- the residue register `issues-forwarder-transition` (`scripts/rearch-audit.ts:605-643`), renamed
+  `issue-old-record` by step 5 and re-scoped to what step 7 deletes;
 - the golden fixtures (`wire-golden.fixtures.ts:676-678`, `__fixtures__/golden/issues.json`);
 - the representation registry (`representations/registry.ts:833`);
 - about 150 test files.
