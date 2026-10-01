@@ -236,9 +236,17 @@ describe('POD-4942 post-rework probes', () => {
           }
           const hiddenIssues: Record<string, number> = {}
           const hiddenSessions: Record<string, number> = {}
+          const memberKeptHidden: Record<string, number> = {}
           const bump = (table: Record<string, number>, why: string) => { table[why] = (table[why] ?? 0) + 1 }
           for (const id of pool.tables.issue.keys()) {
-            if (!shownIssues.has(id)) bump(hiddenIssues, issueClauses(issueRows.get(id)!))
+            if (shownIssues.has(id)) continue
+            const row = issueRows.get(id)!
+            const clauses = issueClauses(row)
+            bump(hiddenIssues, clauses)
+            if (clauses.includes('members:')) bump(memberKeptHidden,
+              row['archived'] === true ? 'archived' : row['deletedAt'] != null ? 'deleted' :
+                row['stage'] === 'proposed' || row['stage'] === 'shipping' ? `excluded-stage:${row['stage']}` :
+                  row['audience'] === 'agent' && !row['parentId'] ? 'agent-root' : 'other')
           }
           for (const id of pool.tables.session.keys()) {
             if (shownSessions.has(id)) continue
@@ -272,6 +280,7 @@ describe('POD-4942 post-rework probes', () => {
             closedWhy,
             hiddenIssues,
             hiddenSessions,
+            memberKeptHidden,
             closedColdByRule,
             sessionsColdByRuleResident,
             unboundSessions: unbound,
