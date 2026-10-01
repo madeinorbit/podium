@@ -11,9 +11,9 @@ Menu input is resolved on open from resident keys and the pool's one reader. It 
 Two shared-reader defects surfaced in the interaction acceptance:
 
 - A cursor-only optimistic update kept its borrowed issue body. Refusal re-emitted that same body, and the identity fast return failed to restore the separate cursor lane. `tables.ts` now restores that lane on the unchanged-body path; equality still suppresses redundant notifications.
-- Legacy mission progress counts nonarchived, nonexited headless and shell sessions as staffed. The existing declared raw-session summary now carries that staffing bit, consumed by `unitOwnPartOf`. Visible rosters, session ownership and pane filters retain their current rules.
+- Legacy mission presence counts nonarchived, nonexited headless and shell sessions as staffed. Normal and shell presence already comes from retained R2, preserving resume-twin collapse. The existing declared raw-session summary now carries only the missing headless staffing bit. `standingOf` consumes it during the existing own-row read, and `openOwnPartOf` reuses that standing for progress, vacancy and continuation. Visible rosters, session ownership and pane filters retain their current rules.
 
-Both fixes have separate commits and exact pool-path negative controls. The summary retains two timestamps and one boolean, without retaining session records. Gesture/menu membership covers resident sessions only. No new peek reader or cold-row index was introduced.
+Both fixes have separate commits and exact pool-path negative controls. The summary retains two timestamps and one boolean, without retaining session records. Headless exit, archive and return transitions also stay clean. Gesture/menu membership covers resident sessions only. No new peek reader, row read, cold load or cold-row index was introduced by the presence supplement.
 
 ## Interaction coverage
 
@@ -40,7 +40,7 @@ All 36 new interaction checks rejected planted mistakes before their green resul
 | --- | --- |
 | Focused pool-path interactions, web config | 36 passed |
 | Exact shared-reader negative controls | 3 failed on plant; all 3 passed restored |
-| Required shared-arm checks, package config | Pending |
+| Required shared-arm checks, package config | 67 passed; census closing separately |
 | Chromium pointer/keyboard proof and four phase controls | Pending |
 | Uncached affected-project typecheck | Pending |
 | Scoped lint, span-effects and lean gate | Pending |
@@ -51,3 +51,21 @@ Tests, typecheck and lint run sequentially in `~/podium-test-4956` on flatblock 
 The browser fixture contains synthetic rows only. Its driver uses the real mouse grip/drop boundary and rename keyboard input, waits for paint before diagnostic comparison, and records action-to-observed-paint delay and heap use. Those values include automation scheduling; heap includes the fixture and diagnostic oracle. They are interaction evidence, not a performance comparison. The principal/rebuild and no-legacy-derivation browser proof already landed under POD-4957 remains the pilot's separate performance evidence.
 
 Landing target: `integrate/4286-pilot`. The operator owns promotion to `dev/mw`.
+
+## Census attribution
+
+The last baseline writer was POD-4953 commit `3cb72877e`. Historical package-config runs measured all six census cases at each landing; the baseline and POD-4954 checkpoints were green. The following table accounts for every later delta. Other landings stayed red against the stale baseline without introducing another change.
+
+| Landing | Delta from preceding checkpoint |
+| --- | --- |
+| POD-4954 `ec3882425` | None |
+| POD-4955 `9577ef4f6` | Retained rail offer reads: first paint +73/+144 and first reactive run +73/+179 at 1x/4x; pending 4x bootstrap +1 read |
+| POD-5056 `9064d418a`, POD-5057 `25528807a`, POD-5058 `7277a2f53` | None |
+| POD-5059 `13a4095a0` | Eight cached `GroupNode.sidebarMetadata` computeds at both scales; corresponding declaration, construction, change and run counters +8 |
+| POD-5060 `452c9a155` | Removes the temporary +8 computation runs, reusing the original metadata fallback |
+| POD-5072 `fe4269e50`, POD-4957 `366244a62`, POD-5062 `de32891c4` | None |
+| POD-5033 `3a827e0dd`, POD-5071 `2a156cd2c`, POD-4967 `dd0d3a6a6` | None |
+
+The separate baseline commit changes 43 counters, each with a `perKeyChanges` explanation. Section owners stay at eight while visible rows grow from 732 to 2,928: the extra computed is per visible section. Rail summaries consume retained visible-session offers and cached verdicts; they retain counts, not another history index. The fixed 20-row observer window and list-root roster composition differ at 1x/4x, so the read delta is not four identical windows. Earlier history and sidebar attribution remains in the file.
+
+An initial presence supplement incurred 725/2,899 extra first-reactive reads and a pending 1x bootstrap re-evaluation. Reusing existing standing removes that avoidable work. Final census verification is pending.
