@@ -294,6 +294,7 @@ function discoveredFrom(fixture: Fixture, fromId: string, toId: string) {
 
 beforeEach(() => {
   localStorage.clear()
+  window.history.replaceState(null, '', '/')
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
   vi.mocked(beginSwitch).mockReset()
@@ -648,7 +649,7 @@ describe('real pool row mutations and receipts', () => {
     await parity()
     await refuse(write)
     expect(value().title).toBe('Only responsive target')
-    expect(row().textContent).toContain('Only responsive target')
+    await waitFor(() => expect(row()?.textContent).toContain('Only responsive target'))
     expect(runtime.getSnapshot().outboxDeadLetters).toHaveLength(1)
   })
 
@@ -748,7 +749,7 @@ describe('real pool row mutations and receipts', () => {
     const bringBack = await request('issues.setTucked')
     expect(bringBack.input).toMatchObject({ id: TARGET, tucked: false })
     await waitFor(() => expect(pool!.sidebar.sections().bands[0]!.rowIds).toContain(TARGET))
-    expect(row().textContent).toContain('Only responsive target')
+    await waitFor(() => expect(row()?.textContent).toContain('Only responsive target'))
     await parity()
     await refuse(bringBack)
     expect(pool!.sidebar.sections().bands[0]!.closedIds).toContain(TARGET)
@@ -775,6 +776,7 @@ describe('real pool row mutations and receipts', () => {
     await mount()
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
     fireEvent.click(screen.getByTestId('closed-issue-archive'))
+    await parity()
     expect(
       pool!.sidebar.sections().bands[0]!.closedIds,
       JSON.stringify({
@@ -1004,6 +1006,7 @@ describe('real pool row mutations and receipts', () => {
     )
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
     fireEvent.click(screen.getByTestId('closed-issues-archive-all'))
+    await parity()
     expect(
       runtime.outbox
         .pending()

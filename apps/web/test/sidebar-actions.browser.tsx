@@ -33,6 +33,7 @@ type Request = {
   procedure: string
   input: Record<string, unknown>
   reject: (error: unknown) => void
+  settled: boolean
 }
 const requests: Request[] = []
 const outcomes: OutboxOutcome[] = []
@@ -40,7 +41,7 @@ const failures: string[] = []
 const procedure = (name: string) => ({
   mutate: (input: Record<string, unknown>) =>
     new Promise((_resolve, reject) => {
-      requests.push({ procedure: name, input, reject })
+      requests.push({ procedure: name, input, reject, settled: false })
     }),
 })
 Object.assign(synthetic.api, {
@@ -91,7 +92,7 @@ const fixture = {
       pinned: [...sections.pinnedIds],
       open: sections.bands.flatMap((band) => band.rowIds),
       closed: sections.bands.flatMap((band) => band.closedIds),
-      requests: requests.map(({ procedure, input }) => ({ procedure, input })),
+      requests: requests.map(({ procedure, input, settled }) => ({ procedure, input, settled })),
       outcomes: outcomes.map((outcome) => ({ type: outcome.type, mutationId: outcome.mutationId })),
       failures,
     }
@@ -106,12 +107,15 @@ const fixture = {
       selectedWorktree: store.selectedWorktree,
     })
   },
-  refuse: (index: number) =>
-    requests[index]!.reject(
+  refuse: (index: number) => {
+    const request = requests[index]!
+    request.settled = true
+    request.reject(
       Object.assign(new Error('Synthetic refusal'), {
         data: { code: 'BAD_REQUEST', httpStatus: 400 },
       }),
-    ),
+    )
+  },
   title: (id: string) => {
     const row = pool!.sidebar.row(id)
     return row === undefined || row === LOADING ? null : row.title

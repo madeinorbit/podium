@@ -4,6 +4,9 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import type {} from '../test/sidebar-actions.browser'
 
 const out = '.artifacts/sidebar-actions'
+const phase = process.argv.find((arg) => arg.startsWith('--phase='))?.slice(8) ?? 'all'
+if (!['all', 'reorder', 'pin', 'rename', 'archive'].includes(phase))
+  throw new Error(`Unknown interaction phase: ${phase}`)
 await mkdir(out, { recursive: true })
 const origin = 'http://127.0.0.1:41656'
 const server = Bun.spawn(
@@ -50,11 +53,13 @@ try {
     reducedMotion: 'reduce',
   })
   const pageErrors: string[] = []
+  page.setDefaultTimeout(15000)
+  const cdp = await page.context().newCDPSession(page)
   page.on('pageerror', (error) => pageErrors.push(error.message))
   await page.goto(`${origin}/test/sidebar-actions.browser.html?mobxSidebar=1`, { timeout: 60000 })
   await page.waitForFunction(() => window.__sidebarActions?.ready())
   await page.getByText('Only responsive target').waitFor()
-  async function check(label: string) {
+  async function check(label: string, started?: number) {
     await page.evaluate(
       () =>
         new Promise<void>((resolve) =>
@@ -67,22 +72,32 @@ try {
     const state = await page.evaluate(() => window.__sidebarActions.state())
     if (pageErrors.length) throw new Error(pageErrors.join('\n'))
     if (state.failures.length) throw new Error(state.failures.join('\n'))
-    observations.push({ label, comparison, state })
+    const painted = await page.evaluate(() => performance.now())
+    const heap = await cdp.send('Runtime.getHeapUsage')
+    observations.push({
+      label,
+      comparison,
+      state,
+      actionToObservedPaintMs: started === undefined ? null : painted - started,
+      usedHeapBytes: heap.usedSize,
+    })
   }
   async function rejectLatest() {
-    await page.waitForFunction(
-      () =>
-        window.__sidebarActions.state().requests.length >
-        window.__sidebarActions.state().outcomes.length,
+    await page.waitForFunction(() =>
+      window.__sidebarActions.state().requests.some((request) => !request.settled),
     )
-    const before = await page.evaluate(() => window.__sidebarActions.state().outcomes.length)
-    await page.evaluate(() => {
+    const mutationId = await page.evaluate(() => {
       const state = window.__sidebarActions.state()
-      window.__sidebarActions.refuse(state.requests.length - 1)
+      const index = state.requests.findLastIndex((request) => !request.settled)
+      window.__sidebarActions.refuse(index)
+      return state.requests[index]!.input['mutationId'] as string
     })
     await page.waitForFunction(
-      (count) => window.__sidebarActions.state().outcomes.length > count,
-      before,
+      (id) =>
+        window.__sidebarActions
+          .state()
+          .outcomes.some((outcome) => outcome.mutationId === id && outcome.type === 'rejected'),
+      mutationId,
     )
   }
   const scope = page.locator('[data-drag-scope="group:synthetic-repo"]')
@@ -101,50 +116,68 @@ try {
     await page.mouse.move(target.x, target.y, { steps: 12 })
     await page.mouse.up()
   }
-  const second = await page.locator(`[data-drag-key="${initial[1]}"]`).boundingBox()
-  if (!second) throw new Error('Missing reorder target')
-  await drag(page, initial[0]!, { x: second.x + 20, y: second.y + second.height - 2 })
-  await page.waitForFunction(
-    (id) =>
-      window.__sidebarActions
-        .state()
-        .requests.some((r) => r.procedure === 'issues.update' && r.input['id'] === id),
-    initial[0],
-  )
-  if ((await keys())[1] !== initial[0]) throw new Error('Drop did not optimistically reorder')
-  await check('reorder pending')
-  await rejectLatest()
-  if (JSON.stringify(await keys()) !== JSON.stringify(initial))
-    throw new Error('Refused reorder did not rewind')
-  await check('reorder refused')
-  const pinned = await page.locator('[data-drag-scope="pinned"]').boundingBox()
-  if (!pinned) throw new Error('Missing pinned target')
-  await drag(page, 'synthetic-11', { x: pinned.x + 20, y: pinned.y + pinned.height / 2 })
-  await page.waitForFunction(() => window.__sidebarActions.state().pinned.includes('synthetic-11'))
-  await check('drag pin pending')
-  await rejectLatest()
-  await page.waitForFunction(() => !window.__sidebarActions.state().pinned.includes('synthetic-11'))
-  await check('drag pin refused')
-  await page.getByText('Only responsive target').dblclick()
-  const rename = page.locator('input[value="Only responsive target"]')
-  await rename.fill('Optimistic browser rename')
-  await rename.press('Enter')
-  await page.getByText('Optimistic browser rename').waitFor()
-  await check('rename pending')
-  await rejectLatest()
-  await page.getByText('Only responsive target').waitFor()
-  await check('rename refused')
-  await page.evaluate(() => window.__sidebarActions.close('synthetic-10'))
-  await page.getByTestId('closed-fold-toggle').click()
-  await page.getByTestId('closed-issue-archive').click()
-  await page.waitForFunction(() => !window.__sidebarActions.state().closed.includes('synthetic-10'))
-  await check('archive pending')
-  await page
-    .getByText('Synthetic task 10', { exact: true })
-    .waitFor({ state: 'hidden', timeout: 3000 })
-  await rejectLatest()
-  await page.getByText('Synthetic task 10', { exact: true }).waitFor()
-  await check('archive refused and readmitted')
+  if (phase === 'all' || phase === 'reorder') {
+    const second = await page.locator(`[data-drag-key="${initial[1]}"]`).boundingBox()
+    if (!second) throw new Error('Missing reorder target')
+    const started = await page.evaluate(() => performance.now())
+    await drag(page, initial[0]!, { x: second.x + 20, y: second.y + second.height - 2 })
+    await page.waitForFunction(
+      (id) =>
+        window.__sidebarActions
+          .state()
+          .requests.some((r) => r.procedure === 'issues.update' && r.input['id'] === id),
+      initial[0],
+    )
+    if ((await keys())[1] !== initial[0]) throw new Error('Drop did not optimistically reorder')
+    await check('reorder pending', started)
+    await rejectLatest()
+    if (JSON.stringify(await keys()) !== JSON.stringify(initial))
+      throw new Error('Refused reorder did not rewind')
+    await check('reorder refused')
+  }
+  if (phase === 'all' || phase === 'pin') {
+    const pinned = await page.locator('[data-drag-scope="pinned"]').boundingBox()
+    if (!pinned) throw new Error('Missing pinned target')
+    const started = await page.evaluate(() => performance.now())
+    await drag(page, 'synthetic-11', { x: pinned.x + 20, y: pinned.y + pinned.height / 2 })
+    await page.waitForFunction(() =>
+      window.__sidebarActions.state().pinned.includes('synthetic-11'),
+    )
+    await check('drag pin pending', started)
+    await rejectLatest()
+    await page.waitForFunction(
+      () => !window.__sidebarActions.state().pinned.includes('synthetic-11'),
+    )
+    await check('drag pin refused')
+  }
+  if (phase === 'all' || phase === 'rename') {
+    await page.getByText('Only responsive target').dblclick()
+    const rename = page.locator('input[value="Only responsive target"]')
+    await rename.fill('Optimistic browser rename')
+    const started = await page.evaluate(() => performance.now())
+    await rename.press('Enter')
+    await page.getByText('Optimistic browser rename').waitFor()
+    await check('rename pending', started)
+    await rejectLatest()
+    await page.getByText('Only responsive target').waitFor()
+    await check('rename refused')
+  }
+  if (phase === 'all' || phase === 'archive') {
+    await page.evaluate(() => window.__sidebarActions.close('synthetic-10'))
+    await page.getByTestId('closed-fold-toggle').click()
+    const started = await page.evaluate(() => performance.now())
+    await page.getByTestId('closed-issue-archive').click()
+    await page.waitForFunction(
+      () => !window.__sidebarActions.state().closed.includes('synthetic-10'),
+    )
+    await check('archive pending', started)
+    await page
+      .getByText('Synthetic task 10', { exact: true })
+      .waitFor({ state: 'hidden', timeout: 3000 })
+    await rejectLatest()
+    await page.getByText('Synthetic task 10', { exact: true }).waitFor()
+    await check('archive refused and readmitted')
+  }
   await page.screenshot({ path: `${out}/synthetic-interactions.png` })
   await writeFile(`${out}/observations.json`, JSON.stringify(observations, null, 2))
   console.log(
