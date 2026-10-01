@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
 import { overlayRow } from '@podium/client-graph/shared/overlay-row'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type { RowSource } from './arm'
 import { createReadFence } from './instrument/reads'
 
@@ -19,7 +20,7 @@ it('borrows unchanged values, overlays an explicit null and enumerates a read-on
 
 it('the unchanged copy fence accepts borrowed overlays and rejects full-record copies', () => {
   const row = { id: 'issue', seq: 42, title: 'Title', stage: 'planning', audience: 'human', repoPath: '/repo',
-    branch: 'private', readAt: 'old', createdAt: '2026-09-30', updatedAt: '2026-09-30' }
+    branch: 'private', readAt: 'old', createdAt: '2026-09-30', updatedAt: '2026-09-30' } satisfies SliceIssue
   const source: RowSource = {
     snapshot: kind => kind === 'issue' ? [{ kind, id: row.id, value: row }] : [],
     subscribe: () => () => {},
