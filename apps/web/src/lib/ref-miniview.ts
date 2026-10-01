@@ -10,7 +10,13 @@
  * without React or the store.
  */
 
-import type { IssuePanelArtifact, IssuePanelTodo, IssueWire, SessionId, IssueId } from '@podium/model/browser'
+import type {
+  IssuePanelArtifact,
+  IssuePanelTodo,
+  IssueWire,
+  SessionId,
+  IssueId,
+} from '@podium/model/browser'
 import { type AnyRef, parseAnyRef } from '@podium/protocol'
 
 /**
@@ -51,6 +57,10 @@ export type RefIssueLike = Pick<IssueWire, 'id' | 'seq' | 'title'> &
       // structural subset `isIssueStartable` reads off IssueWire.
       | 'worktreePath'
       | 'defaultAgent'
+      | 'defaultModel'
+      | 'defaultEffort'
+      | 'machineId'
+      | 'repoPath'
       | 'closedReason'
       | 'archived'
       | 'deletedAt'

@@ -31,6 +31,7 @@
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { CheckIcon, ChevronRightIcon } from 'lucide-react'
 import type * as React from 'react'
+import { createContext, useContext } from 'react'
 import { MENU_HINT, MENU_ITEM, MENU_PANEL, MENU_RULE, MENU_SECTION_LABEL } from '@/lib/menu-surface'
 import { cn } from '@/lib/utils'
 
@@ -42,6 +43,9 @@ const ROW = `${MENU_ITEM} select-none focus:bg-hairline-soft focus:text-text-str
 /** A submenu trigger's held state — open, pointer gone, still the live row. */
 const ROW_HELD =
   'data-popup-open:bg-hairline-soft data-popup-open:text-text-strong data-open:bg-hairline-soft data-open:text-text-strong'
+
+// Portaled menus keep the ownership of the transient surface that opened them.
+export const DropdownMenuOwner = createContext<string | undefined>(undefined)
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
   return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
@@ -68,6 +72,7 @@ function DropdownMenuContent({
     MenuPrimitive.Positioner.Props,
     'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'
   >) {
+  const owner = useContext(DropdownMenuOwner)
   return (
     <MenuPrimitive.Portal>
       <MenuPrimitive.Positioner
@@ -80,6 +85,7 @@ function DropdownMenuContent({
       >
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
+          data-overlay-owner={owner}
           className={cn(
             `z-50 max-h-(--available-height) w-(--anchor-width) min-w-32 origin-(--transform-origin) overflow-x-hidden overflow-y-auto duration-100 outline-none ${MENU_PANEL}`,
             'data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:overflow-hidden data-closed:fade-out-0 data-closed:zoom-out-95',

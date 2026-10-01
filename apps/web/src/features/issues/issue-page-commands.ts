@@ -14,7 +14,7 @@
 
 import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/viewmodels'
 import type { IssueUpdatePatch } from '@podium/commands'
-import { type IssueId, type MachineId, parseIssueStatusValue } from '@podium/model/browser'
+import { type IssueId, parseIssueStatusValue } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { IssueAgentKind } from '@/lib/issue-agents'
@@ -194,25 +194,6 @@ export function issuePageCommands({
     setParent: (parentId: string | null): void => {
       void run(() => trpc.issues.reparent.mutate({ id, parentId }))
     },
-    setMachine: (machineId: MachineId | null): void => {
-      update({ machineId })
-    },
-    /** The harness this issue's sessions launch with. Models are per-agent, so
-     *  the server resets model + effort on a change ([spec:SP-7ff1]); the client
-     *  writes the same reset so the optimistic row does not show the previous
-     *  agent's model for a beat. */
-    setDefaultAgent: (defaultAgent: string): void => {
-      if (defaultAgent === issue.defaultAgent) return
-      update({ defaultAgent, defaultModel: 'auto', defaultEffort: 'auto' })
-    },
-    /** Effort is per-model — changing the model resets effort to auto. */
-    setDefaultModel: (defaultModel: string): void => {
-      update({ defaultModel, defaultEffort: 'auto' })
-    },
-    setDefaultEffort: (defaultEffort: string): void => {
-      update({ defaultEffort })
-    },
-
     // ---- relations ----
     addRelation: (type: string, toId: string): void => {
       void run(() => trpc.issues.depAdd.mutate({ fromId: id, toId, type }))

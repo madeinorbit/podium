@@ -6,7 +6,6 @@ import {
   type ProposalPlacement,
   sessionNeedsHuman,
 } from '@podium/client-core/viewmodels'
-import type { IssueUpdatePatch } from '@podium/commands'
 import {
   type IssueId,
   type IssueStage,
@@ -15,7 +14,6 @@ import {
   issueStatusMenuEntries,
   issueStatusOf,
   issueStatusValueOf,
-  type MachineId,
   parseIssueStatusValue,
   type SessionMeta,
 } from '@podium/model/browser'
@@ -601,10 +599,6 @@ export function IssueCompactControls({
     toast.error(error instanceof Error ? error.message : String(error))
   }
 
-  const patchIssue = (patch: IssueUpdatePatch): void => {
-    updateIssue(issue.id, patch).catch(reportError)
-  }
-
   /** The chip is only ever Mark done (POD-1585): starting is the launch box's
    *  button, and the two never coexist. */
   const runAction = (): void => {
@@ -639,28 +633,7 @@ export function IssueCompactControls({
       .finally(() => setStarting(false))
   }
 
-  /**
-   * THE DOCK'S LAUNCH WRITES (POD-1457) — the seven verbs {@link LaunchBox}
-   * needs, over the same store actions the rest of this strip already uses.
-   *
-   * The full issue page hands the box `issuePageCommands`, which is built from
-   * the page's whole dependency set (loaders, curation callbacks, its busy
-   * gate). The panel needs none of that, and `LaunchCommands` is deliberately
-   * narrow enough that this satisfies it: same `issues.update` call, same
-   * per-agent reset ([spec:SP-7ff1] — models are per-agent, so a harness change
-   * resets model + effort rather than showing the previous agent's model for a
-   * beat), same `issues.start`.
-   */
-  const launchCommands: LaunchCommands = {
-    setDefaultAgent: (defaultAgent) => {
-      if (defaultAgent === issue.defaultAgent) return
-      patchIssue({ defaultAgent, defaultModel: 'auto', defaultEffort: 'auto' })
-    },
-    setDefaultModel: (defaultModel) => patchIssue({ defaultModel, defaultEffort: 'auto' }),
-    setDefaultEffort: (defaultEffort) => patchIssue({ defaultEffort }),
-    setMachine: (machineId: MachineId | null) => patchIssue({ machineId }),
-    startWork: () => startWork(),
-  }
+  const launchCommands: LaunchCommands = { startWork: () => startWork() }
 
   /**
    * WHETHER THE BOX APPEARS AT ALL.
@@ -830,7 +803,9 @@ export function IssueCompactControls({
                 // "POD-516 can close without it" is what the operator is
                 // actually choosing between, and `parentId` versus
                 // `discovered-from` is not.
-                fork: <PlacementMenu placement={placement} busy={starting} onStart={startWork} />,
+                fork: (busy: boolean) => (
+                  <PlacementMenu placement={placement} busy={busy} onStart={startWork} />
+                ),
               }
             : {})}
         />

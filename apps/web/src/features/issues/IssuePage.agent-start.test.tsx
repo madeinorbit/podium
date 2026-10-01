@@ -37,12 +37,21 @@ vi.mock('@/app/store', () => {
         },
       },
       hub: { onIssues: () => () => {} },
-      machines: [],
+      machines: [
+        {
+          id: 'machine-1',
+          name: 'Workstation',
+          online: true,
+          serviceAssignment: { server: false, agentExecution: true },
+          availability: { daemon: true },
+        },
+      ],
       // The launch box reads the fleet to grey harnesses this repo's hosts
       // cannot run; an absent slice crashes `reposToViews` rather than
       // resolving to "no hosts".
       repos: [],
       issues: [],
+      sessions: [],
       setSelectedWorktree: vi.fn(),
       setPane: vi.fn(),
       setView: vi.fn(),
@@ -111,6 +120,7 @@ describe('IssuePage agent start controls', () => {
 
     const startButton = screen.getAllByRole('button', { name: 'Start work' }).at(0)
     if (!startButton) throw new Error('missing start-work button')
+    await waitFor(() => expect(startButton.hasAttribute('disabled')).toBe(false))
     fireEvent.click(startButton)
     await waitFor(() => expect(start).toHaveBeenCalledWith({ id: 'i-1' }))
   })
@@ -153,6 +163,27 @@ describe('IssuePage agent start controls', () => {
         id: 'i-1',
         patch: { defaultModel: 'sonnet', defaultEffort: 'auto' },
       }),
+    )
+  })
+
+  it.each([
+    ['Effort', 'High', { defaultEffort: 'high' }],
+    ['Machine', 'Workstation', { machineId: 'machine-1' }],
+    ['Machine', 'auto machine', { machineId: null }],
+  ])('saves %s through the shared issue settings', async (name, option, patch) => {
+    const issue = unstarted({ machineId: 'machine-1' })
+    // Selecting a different machine uses an initially automatic issue.
+    if (option === 'Workstation') delete issue.machineId
+    render(
+      <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
+    )
+    fireEvent.click(screen.getAllByRole('button', { name })[0]!)
+    fireEvent.click(await screen.findByRole('menuitem', { name: option }))
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ id: 'i-1', patch }))
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('status').some((status) => status.textContent?.includes('Saved')),
+      ).toBe(true),
     )
   })
 

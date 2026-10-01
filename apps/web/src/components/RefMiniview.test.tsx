@@ -1,3 +1,5 @@
+import { fireEvent, screen, waitFor } from '@testing-library/react'
+import '@/test-support/model-catalog-mock'
 import { asIssueId, asSessionId, asUserId } from '@podium/model'
 import { parseAnyRef } from '@podium/protocol'
 import { act } from 'react'
@@ -8,6 +10,15 @@ import type { RefIssueLike, RefSessionLike, ResolvedRef } from '@/lib/ref-minivi
 import { RefCard, RefMiniviewHost, seedCardPosition } from './RefMiniview'
 
 const hostStore = vi.hoisted(() => ({
+  machines: [
+    {
+      id: 'machine-1',
+      name: 'Workstation',
+      online: true,
+      serviceAssignment: { server: false, agentExecution: true },
+      availability: { daemon: true },
+    },
+  ],
   replicaIssues: [] as RefIssueLike[],
   legacyIssues: [] as RefIssueLike[],
   updateIssue: vi.fn(async () => {}),
@@ -29,6 +40,8 @@ vi.mock('@/app/store', () => ({
       },
       issues: hostStore.legacyIssues,
       sessions: [],
+      repos: [],
+      machines: hostStore.machines,
       setOpenIssueId: vi.fn(),
       setView: vi.fn(),
       setSelectedIssueId: hostStore.setSelectedIssueId,
@@ -329,7 +342,6 @@ describe('RefCard proposal decisions', () => {
   function renderProposal(
     onStart: (issueId: string) => Promise<unknown>,
     onPromote: (issueId: string) => Promise<unknown>,
-    onAgentChange?: (issueId: string, defaultAgent: string) => Promise<unknown>,
   ): void {
     act(() => {
       root.render(
@@ -341,7 +353,6 @@ describe('RefCard proposal decisions', () => {
           onOpenFull={() => {}}
           onStart={onStart}
           onPromote={onPromote}
-          onAgentChange={onAgentChange}
         />,
       )
     })
@@ -385,7 +396,6 @@ describe('RefCard proposal decisions', () => {
     renderProposal(
       vi.fn(async () => ({})),
       vi.fn(async () => ({})),
-      vi.fn(async () => ({})),
     )
     expect(container.textContent).toContain('Planned agent')
     expect(container.textContent).toContain('Claude Code')
@@ -405,13 +415,115 @@ describe('RefCard proposal decisions', () => {
           issues={issues}
           onClose={() => {}}
           onOpenFull={() => {}}
-          onAgentChange={vi.fn(async () => ({}))}
         />,
       )
     })
 
     expect(container.textContent).not.toContain('Planned agent')
     expect(container.querySelector('[aria-label="Planned agent harness"]')).toBeNull()
+  })
+})
+
+describe('RefCard planned agent settings', () => {
+  let container: HTMLDivElement
+  let root: Root
+  beforeEach(() => {
+    hostStore.updateIssue.mockReset()
+    hostStore.updateIssue.mockResolvedValue(undefined)
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  function show(
+    issue: RefIssueLike = { ...rich, stage: 'backlog' },
+    onClose = vi.fn(),
+    onStart = vi.fn(async () => ({})),
+  ): void {
+    act(() =>
+      root.render(
+        <RefCard
+          refToken="POD-517"
+          target={issueTarget(issue)}
+          issues={issues}
+          machines={hostStore.machines}
+          onClose={onClose}
+          onOpenFull={vi.fn()}
+          onStart={onStart}
+        />,
+      ),
+    )
+  }
+
+  it.each([
+    [
+      'Planned agent harness',
+      'Codex',
+      { defaultAgent: 'codex', defaultModel: 'auto', defaultEffort: 'auto' },
+    ],
+    ['Model', 'Sonnet', { defaultModel: 'sonnet', defaultEffort: 'auto' }],
+    ['Effort', 'High', { defaultEffort: 'high' }],
+    ['Machine', 'Workstation', { machineId: 'machine-1' }],
+  ])('saves %s on the issue and reads it back when reopened', async (name, option, patch) => {
+    show()
+    fireEvent.click(screen.getByRole('button', { name }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: option }))
+    await waitFor(() => expect(hostStore.updateIssue).toHaveBeenCalledWith('iss_1', patch))
+    await waitFor(() => expect(container.textContent).toContain('Saved'))
+    act(() => root.render(null))
+    show({ ...rich, stage: 'backlog', ...patch } as RefIssueLike)
+    expect(screen.getByRole('button', { name }).textContent).toContain(option)
+  })
+
+  it('keeps the card open while selecting a portaled model option', async () => {
+    const onClose = vi.fn()
+    show(undefined, onClose)
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    const option = await screen.findByRole('menuitem', { name: 'Sonnet' })
+    fireEvent.pointerDown(option)
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.click(option)
+    await waitFor(() =>
+      expect(hostStore.updateIssue).toHaveBeenCalledWith('iss_1', {
+        defaultModel: 'sonnet',
+        defaultEffort: 'auto',
+      }),
+    )
+  })
+
+  it('waits for a settings write before allowing Run now', async () => {
+    let resolve!: () => void
+    hostStore.updateIssue.mockImplementationOnce(
+      () =>
+        new Promise<void>((done) => {
+          resolve = done
+        }),
+    )
+    const onStart = vi.fn(async () => ({}))
+    show(undefined, undefined, onStart)
+    fireEvent.click(screen.getByRole('button', { name: 'Effort' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'High' }))
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Run now' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Model' }).disabled).toBe(true)
+    expect(container.textContent).toContain('Saving…')
+    await act(async () => resolve())
+    fireEvent.click(screen.getByRole('button', { name: 'Run now' }))
+    await waitFor(() => expect(onStart).toHaveBeenCalledWith('iss_1'))
+  })
+
+  it('restores the saved selection and shows a refused write inline', async () => {
+    hostStore.updateIssue.mockRejectedValueOnce(new Error('machine unavailable'))
+    show()
+    fireEvent.click(screen.getByRole('button', { name: 'Machine' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Workstation' }))
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toContain('machine unavailable'),
+    )
+    expect(screen.getByRole('button', { name: 'Machine' }).textContent).toContain('auto')
   })
 })
 
@@ -466,7 +578,7 @@ describe('RefCard outside-click dismissal', () => {
     const onClose = vi.fn()
     renderWithClose(onClose)
     const portal = document.createElement('div')
-    portal.setAttribute('data-ref-miniview-owned', 'true')
+    portal.setAttribute('data-overlay-owner', 'ref-miniview')
     document.body.appendChild(portal)
     act(() => {
       portal.dispatchEvent(new Event('pointerdown', { bubbles: true }))

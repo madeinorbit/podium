@@ -106,6 +106,7 @@ export function ModelPicker({
   variant = 'pill',
   className,
   machineId,
+  disabled = false,
 }: {
   agentKind: IssueAgentKind
   value: string
@@ -115,6 +116,7 @@ export function ModelPicker({
   className?: string
   /** Machine whose installed harness answers the catalog. */
   machineId?: MachineId
+  disabled?: boolean
 }): JSX.Element {
   // Live models from the agent's own CLI (grok/cursor/opencode), fetched + cached by
   // the server; falls back to the static catalog for claude/codex or before it loads.
@@ -130,6 +132,7 @@ export function ModelPicker({
           icon={cpuIcon}
           label={modelLabel(agentKind, value, live, served)}
           aria-label="Model"
+          disabled={disabled}
           {...(className ? { className } : {})}
         />
       }
@@ -204,6 +207,7 @@ export function EffortPicker({
   variant = 'pill',
   className,
   machineId,
+  disabled = false,
 }: {
   agentKind: IssueAgentKind
   /** The currently-selected model — effort is scoped to it. */
@@ -214,6 +218,7 @@ export function EffortPicker({
   /** Trigger classes — how a caller sizes the segment inside its own row. */
   className?: string
   machineId?: MachineId
+  disabled?: boolean
 }): JSX.Element | null {
   const live = useModelCatalog(machineId)[agentKind]
   const { served } = useHarnessDescriptors(machineId)
@@ -229,6 +234,7 @@ export function EffortPicker({
           icon={gaugeIcon}
           label={effortLabel(agentKind, value)}
           aria-label="Effort"
+          disabled={disabled}
           {...(className ? { className } : {})}
         />
       }

@@ -47,7 +47,9 @@ export interface AgentFleetOption {
  * fleet is not evidence that a harness is missing, and greying the whole list
  * on a cold replica would be a refusal the shell cannot support.
  */
-export function useAgentFleetOptions(issue: Pick<IssueViewModel, 'repoPath'>): AgentFleetOption[] {
+export function useAgentFleetOptions(
+  issue: Partial<Pick<IssueViewModel, 'repoPath'>>,
+): AgentFleetOption[] {
   const { repos, machines } = useStoreSelector(
     (s) => ({ repos: s.repos, machines: s.machines }),
     shallowEqual,

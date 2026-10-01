@@ -2,7 +2,6 @@ import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import { type IssueReferenceModel, issueReferenceModel } from '@podium/client-core/viewmodels'
 import type { IssueId, SessionId } from '@podium/model/browser'
-import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { formatLong, truncateTitle } from '@podium/protocol'
 import {
   ArchiveRestore,
@@ -22,12 +21,8 @@ import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
 import { PriorityGlyph } from '@/features/issues/issue-glyphs'
 import { isIssueStartable } from '@/features/issues/issue-startable'
-import {
-  ISSUE_AGENT_KINDS,
-  issueAgentIcon,
-  issueAgentKind,
-  issueAgentLabel,
-} from '@/lib/issue-agents'
+import { IssueAgentSettings } from '@/features/issues/IssueAgentSettings'
+import type { LaunchMachine } from '@/features/issues/LaunchBox'
 import { setKnownRefPrefixes } from '@/lib/markdown-references'
 import {
   closeMiniview,
@@ -49,7 +44,6 @@ import {
 } from '@/lib/ref-miniview'
 import { cn } from '@/lib/utils'
 import { IssueReference } from './IssueReference'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 
 /**
  * Root-mounted host for the single floating ref miniview (#474, area 7). Owns:
@@ -59,18 +53,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
  */
 export function RefMiniviewHost(): JSX.Element | null {
   const issues = useReplicaIssues()
-  const { trpc, sessions, setOpenIssueId, setView, navigateToSession, updateIssue } =
-    useStoreSelector(
-      (s) => ({
-        trpc: s.trpc,
-        sessions: s.sessions,
-        setOpenIssueId: s.setOpenIssueId,
-        setView: s.setView,
-        navigateToSession: s.navigateToSession,
-        updateIssue: s.updateIssue,
-      }),
-      shallowEqual,
-    )
+  const { trpc, sessions, setOpenIssueId, setView, navigateToSession, machines } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      sessions: s.sessions,
+      setOpenIssueId: s.setOpenIssueId,
+      setView: s.setView,
+      navigateToSession: s.navigateToSession,
+      machines: s.machines,
+    }),
+    shallowEqual,
+  )
   const { retarget } = useIssueExplorer()
 
   const openIssueFull = (issueId: IssueId): void => {
@@ -128,6 +121,7 @@ export function RefMiniviewHost(): JSX.Element | null {
       target={target}
       issues={issues}
       sessions={sessions}
+      machines={machines}
       onClose={closeMiniview}
       onOpenFull={() => {
         if (!target) return
@@ -145,7 +139,6 @@ export function RefMiniviewHost(): JSX.Element | null {
       }}
       onStart={(issueId) => trpc.issues.start.mutate({ id: issueId })}
       onPromote={(issueId) => trpc.issues.promote.mutate({ id: issueId })}
-      onAgentChange={(issueId, defaultAgent) => updateIssue(issueId, { defaultAgent })}
     />,
     document.body,
   )
@@ -179,12 +172,12 @@ export function RefCard({
   target,
   issues,
   sessions = [],
+  machines = [],
   onClose,
   onOpenFull,
   onGoToSession,
   onStart,
   onPromote,
-  onAgentChange,
 }: {
   refToken: string
   anchor?: { x: number; y: number }
@@ -192,6 +185,7 @@ export function RefCard({
   issues: readonly RefIssueLike[]
   /** Live sessions, for the "Go to session" action. Absent = no such action. */
   sessions?: readonly RefSessionLike[]
+  machines?: LaunchMachine[]
   onClose: () => void
   onOpenFull: () => void
   /** Jump to the session running this task (or the ancestor's that covers it). */
@@ -200,8 +194,6 @@ export function RefCard({
   onStart?: (issueId: IssueId) => Promise<unknown>
   /** Approve an agent proposal into backlog without starting it. */
   onPromote?: (issueId: IssueId) => Promise<unknown>
-  /** Persist the harness planned for the next session on this issue. */
-  onAgentChange?: (issueId: IssueId, defaultAgent: string) => Promise<unknown>
 }): JSX.Element {
   // Fixed position, placed once next to the activating click (falling back to
   // top-right when there is none) and left there. The card is not draggable: it
@@ -211,6 +203,7 @@ export function RefCard({
   const [pos, setPos] = useState<{ x: number; y: number }>(() =>
     seedCardPosition(anchor, { width: window.innerWidth, height: window.innerHeight }),
   )
+  const [savingSettings, setSavingSettings] = useState(false)
   const cardEl = useRef<HTMLDivElement | null>(null)
   const anchorY = anchor?.y
 
@@ -277,6 +270,7 @@ export function RefCard({
       if (t?.closest('.xterm')) return // terminal owns its Escape
       const dialog = t?.closest('[role=dialog],[role=alertdialog]')
       if (dialog && dialog !== cardEl.current) return // an open dialog is on top
+      if (t?.closest('[data-overlay-owner="ref-miniview"]')) return
       onClose()
     }
     window.addEventListener('keydown', onKey, true)
@@ -292,9 +286,8 @@ export function RefCard({
       const el = cardEl.current
       if (!el) return
       if (e.target instanceof Node && el.contains(e.target)) return
-      // Base UI portals SelectContent to document.body. It is still owned by
-      // this popup, so choosing a harness must not trip light-dismiss.
-      if (e.target instanceof Element && e.target.closest('[data-ref-miniview-owned="true"]'))
+      // Portaled settings menus belong to this card for light-dismiss.
+      if (e.target instanceof Element && e.target.closest('[data-overlay-owner="ref-miniview"]'))
         return
       onClose()
     }
@@ -378,12 +371,26 @@ export function RefCard({
               </div>
             </div>
           )}
-          {onAgentChange && isIssueStartable(target.issue) && (
-            <IssueHarnessPicker issue={target.issue} onAgentChange={onAgentChange} />
+          {isIssueStartable(target.issue) && (
+            <div className="mx-3 mb-3 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5">
+              <IssueAgentSettings
+                key={target.issue.id}
+                issue={target.issue}
+                machines={machines}
+                compact
+                menuOwner="ref-miniview"
+                onSavingChange={setSavingSettings}
+              />
+            </div>
           )}
           <IssueDetailsStrip issue={target.issue} />
           {onStart && isIssueStartable(target.issue) && (
-            <IssueActions issue={target.issue} onStart={onStart} onPromote={onPromote} />
+            <IssueActions
+              issue={target.issue}
+              onStart={onStart}
+              onPromote={onPromote}
+              disabled={savingSettings}
+            />
           )}
           <IssueEscalations
             issue={target.issue}
@@ -482,100 +489,10 @@ export function RefPrefixSync(): null {
   return null
 }
 
-/** The issue's persisted defaultAgent is the plan for its next session. Keep
- *  that choice close to the proposal decision and make persistence visible. */
-function IssueHarnessPicker({
-  issue,
-  onAgentChange,
-}: {
-  issue: RefIssueLike
-  onAgentChange: (issueId: IssueId, defaultAgent: string) => Promise<unknown>
-}): JSX.Element {
-  const persisted = issueAgentKind(issue.defaultAgent) ?? DEFAULT_HARNESS_AGENT
-  const [selected, setSelected] = useState(persisted)
-  const [state, setState] = useState<'idle' | 'saving' | 'saved'>('idle')
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    setSelected(persisted)
-  }, [persisted])
-  useEffect(() => {
-    if (state !== 'saved') return
-    const timeout = window.setTimeout(() => setState('idle'), 1200)
-    return () => window.clearTimeout(timeout)
-  }, [state])
-
-  const change = (next: string | null): void => {
-    const agent = issueAgentKind(next)
-    if (!agent || agent === selected || state === 'saving') return
-    const previous = selected
-    setSelected(agent)
-    setState('saving')
-    setError('')
-    onAgentChange(issue.id, agent).then(
-      () => {
-        setState('saved')
-      },
-      (cause: unknown) => {
-        setSelected(previous)
-        setState('idle')
-        setError(cause instanceof Error ? cause.message : String(cause))
-      },
-    )
-  }
-
-  return (
-    <div className="mx-3 mb-3 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold tracking-[0.08em] text-muted-foreground/70 uppercase">
-            Planned agent
-          </div>
-          <div className="mt-0.5 text-[11px] text-muted-foreground">
-            Used when this issue starts
-          </div>
-        </div>
-        <div className="flex flex-none items-center gap-2">
-          <span className="flex size-5 items-center justify-center" aria-hidden="true">
-            {state === 'saving' ? (
-              <LoaderCircle size={14} className="animate-spin text-muted-foreground" />
-            ) : state === 'saved' ? (
-              <Check size={14} className="animate-in zoom-in-50 text-success duration-150" />
-            ) : (
-              issueAgentIcon(selected, 14)
-            )}
-          </span>
-          <Select value={selected} onValueChange={change} disabled={state === 'saving'}>
-            <SelectTrigger
-              size="sm"
-              className="w-[148px] border-border/70 bg-background/40 text-[11.5px]"
-              aria-label="Planned agent harness"
-            >
-              <SelectValue>{issueAgentLabel(selected)}</SelectValue>
-            </SelectTrigger>
-            <SelectContent align="end" data-ref-miniview-owned="true">
-              {ISSUE_AGENT_KINDS.map((agent) => (
-                <SelectItem key={agent} value={agent}>
-                  {issueAgentIcon(agent, 13)}
-                  {issueAgentLabel(agent)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      {error && (
-        <p role="alert" className="mt-2 text-[10.5px] leading-snug text-destructive">
-          {error}
-        </p>
-      )}
-    </div>
-  )
-}
-
 /** Start immediately or, for a human-curated proposal, approve it into backlog.
  *  Each async path owns visible progress and inline failure feedback. */
 function IssueActions({
+  disabled = false,
   issue,
   onStart,
   onPromote,
@@ -583,6 +500,7 @@ function IssueActions({
   issue: RefIssueLike
   onStart: (issueId: IssueId) => Promise<unknown>
   onPromote?: (issueId: IssueId) => Promise<unknown>
+  disabled?: boolean
 }): JSX.Element {
   const [starting, setStarting] = useState<'idle' | 'busy' | 'done'>('idle')
   const [promoting, setPromoting] = useState<'idle' | 'busy' | 'done'>('idle')
@@ -628,7 +546,7 @@ function IssueActions({
           <button
             data-pressable
             type="button"
-            disabled={promoting !== 'idle' || starting !== 'idle'}
+            disabled={disabled || promoting !== 'idle' || starting !== 'idle'}
             className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border bg-background/40 px-3 text-[11.5px] font-semibold text-foreground/85 transition-all hover:-translate-y-px hover:bg-accent hover:text-foreground active:translate-y-0 disabled:pointer-events-none disabled:opacity-60 motion-reduce:transform-none"
             onClick={promote}
           >
@@ -649,7 +567,7 @@ function IssueActions({
         <button
           data-pressable
           type="button"
-          disabled={starting !== 'idle' || promoting === 'busy'}
+          disabled={disabled || starting !== 'idle' || promoting === 'busy'}
           className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-[11.5px] font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:bg-primary/90 active:translate-y-0 disabled:pointer-events-none disabled:opacity-60 motion-reduce:transform-none"
           onClick={start}
         >
