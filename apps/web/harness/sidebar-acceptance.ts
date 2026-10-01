@@ -248,7 +248,7 @@ try {
       if (new Set(targets).size !== 6 || targets.some(id => !rowIds.includes(id)))
         throw new Error('Warm switch needs six distinct mounted normal issues')
       await writeFile(resolve(out, `targets-${scale}-${surface}.json`), JSON.stringify(shapes.filter(shape => targets.includes(shape.id)), null, 2))
-      const retained = phase === 'attribution' ? 6 : Math.max(...['legacy', 'pool'].map(mode => needed(scale, surface, 'click', mode)))
+      const retained = phase === 'attribution' ? plan.samples : Math.max(...['legacy', 'pool'].map(mode => needed(scale, surface, 'click', mode)))
       const clickOffset = nextIteration(scale, surface, 'click')
       for (let i = 0; i < retained + plan.warmups; i++) for (const mode of orders(i)) {
         if (resume && i >= plan.warmups && needed(scale, surface, 'click', mode) === 0) continue
