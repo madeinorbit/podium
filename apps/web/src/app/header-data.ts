@@ -66,6 +66,13 @@ export function usePoolMetric(id: string) {
   const read = useMemo(() => (pool: MobxPool) => pool.headerViews.row('hostMetric', id), [id])
   return useWorklistPoolProjection(read, undefined)
 }
+export function usePoolPanelMetric(machineId: MachineId | undefined) {
+  const read = useMemo(() => (pool: MobxPool) => {
+    const id = machineId ?? pool.headerViews.ids('hostMetric')[0]
+    return id ? pool.headerViews.row('hostMetric', id) : undefined
+  }, [machineId])
+  return useWorklistPoolProjection(read, undefined)
+}
 const readMachines = (pool: MobxPool) => pool.headerViews.machines()
 const EMPTY_MACHINES: ReturnType<typeof readMachines> = []
 export function usePoolMachines() { return useWorklistPoolProjection(readMachines, EMPTY_MACHINES) }

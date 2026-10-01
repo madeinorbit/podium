@@ -10,6 +10,7 @@ import type {} from './header-pool.browser'
 const rows = Number(process.argv.find((arg) => arg.startsWith('--rows='))?.slice(7) ?? 5600)
 const idleMs = Number(process.argv.find((arg) => arg.startsWith('--idle-ms='))?.slice(10) ?? 300000)
 const activityMs = Number(process.argv.find((arg) => arg.startsWith('--activity-ms='))?.slice(14) ?? 60000)
+const compareMs = Number(process.argv.find((arg) => arg.startsWith('--compare-ms='))?.slice(13) ?? 60000)
 const output = resolve('.artifacts/header-pool')
 await mkdir(output, { recursive: true })
 const origin = 'http://127.0.0.1:45079'
@@ -63,7 +64,7 @@ try {
       }
     }
     // Equal-length before/after idle and activity windows, then the long proof.
-    await phase('idle', 60000, false)
+    await phase('idle', compareMs, false)
     await phase('activity', activityMs, true)
     if (mode === 'pool') {
       // Put every touched session back into idle before the metric-only proof.

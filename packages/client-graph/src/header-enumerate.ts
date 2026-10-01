@@ -7,7 +7,7 @@ export function headerIds(pool: MobxPool, entity: HeaderEntity): string[] {
   return [...new Set([...(pool.header.orders.get(entity) ?? []), ...pool.header.tables[entity].keys()])]
 }
 export function residentSessionIds(pool: MobxPool): string[] {
-  return [...pool.header.sessionIds.keys()]
+  return pool.header.sessionOrder.get()
 }
 
 export function allResidentSessions(pool: MobxPool): [string, object][] {
@@ -21,5 +21,5 @@ export function knownIssueIds(pool: MobxPool): string[] {
   return [...new Set([...pool.tables.issue.keys(), ...(pool.residency?.ids('issue', true) ?? [])])]
 }
 export function knownSessionIds(pool: MobxPool): string[] {
-  return [...new Set([...pool.tables.session.keys(), ...(pool.residency?.ids('session', true) ?? [])])]
+  return [...new Set([...pool.tables.session.keys(), ...(pool.residency?.ids('session', true) ?? [])])].sort()
 }

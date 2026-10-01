@@ -1,4 +1,4 @@
-import { compareStructural, observable, runInAction } from 'mobx'
+import { compareStructural, computed, observable, runInAction } from 'mobx'
 import { HEADER_RELATIONS, HEADER_SCHEMA, type HeaderEntity, type HeaderRecord, type HeaderRows } from './header-schema'
 
 /** Storage and metadata-driven edges owned by MobxPool, never a second runtime
@@ -11,6 +11,9 @@ export function createHeaderEntities() {
   const members = observable.map<string, readonly string[]>(undefined, { deep: false })
   const refs = observable.map<string, string>(undefined, { deep: false })
   const sessionIds = observable.map<string, true>(undefined, { deep: false })
+  // Kernel facade rows use ascending canonical IDs. Membership changes alone
+  // invalidate this order; per-session activity never sorts the whole fleet.
+  const sessionOrder = computed(() => [...sessionIds.keys()].sort(), { equals: compareStructural })
   // Borrow the last successful API response for opt-in differential checks.
   // Same objects as the rows, no second fetch, replica or mutation owner.
   const received: { quotas: HeaderRows['quota'][]; history?: HeaderRows['history']; lifecycle?: HeaderRows['lifecycle'] } = { quotas: [] }
@@ -49,6 +52,7 @@ export function createHeaderEntities() {
       if (!compareStructural(orders.get(entity), ids)) orders.set(entity, ids)
     },
     sessionIds,
+    sessionOrder,
     get: (entity: HeaderEntity, id: string) => tables[entity].get(id),
     one: (entity: string, id: string, relation: string) => refs.get(`${entity}:${id}:${relation}`),
     members: (entity: string, id: string, relation: string) => members.get(`${entity}:${id}:${relation}`) ?? [],

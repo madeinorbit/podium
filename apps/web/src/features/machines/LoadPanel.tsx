@@ -1,5 +1,5 @@
 import { headerDataLayer } from '@/lib/header-data-layer'
-import { useHeaderActions, usePoolHeaderMetrics, usePoolHostAggregate, usePoolSessionLabels } from '@/app/header-data'
+import { useHeaderActions, usePoolPanelMetric, usePoolHostAggregate, usePoolSessionLabels } from '@/app/header-data'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   DEFAULT_LOAD_PER_CORE,
@@ -82,8 +82,8 @@ export function LoadPanel({
   onOpenConnection: () => void
   onOpenReclaim?: () => void
 }): JSX.Element {
-  const useMetrics = headerDataLayer() === 'pool' ? usePoolHeaderMetrics : useHostMetrics
-  const hostMetrics = useMetrics()
+  const useMetric = headerDataLayer() === 'pool' ? usePoolPanelMetric : useLegacyPanelMetric
+  const metric = useMetric(machineId)
   const { trpc, setView, setSettingsTab } = useHeaderActions()
   const useSessions = headerDataLayer() === 'pool' ? useEmptySessions : useLegacyLoadSessions
   const sessions = useSessions()
@@ -106,8 +106,6 @@ export function LoadPanel({
   // fallback then showed SOMEBODY ELSE'S memory and load under this machine's
   // name. An empty panel is a smaller lie than a confident wrong number. The
   // first-host fallback survives only where no machine was asked for.
-  const metric =
-    machineId === undefined ? hostMetrics[0] : hostMetrics.find((h) => h.machineId === machineId)
   const mem = data
     ? hostMemoryView({ hostname: data.hostname, sampledAt: data.sampledAt, memory: data.memory })
     : metric
@@ -415,6 +413,11 @@ export function LoadPanel({
       />
     </>
   )
+}
+
+function useLegacyPanelMetric(machineId: MachineId | undefined) {
+  const metrics = useHostMetrics()
+  return machineId === undefined ? metrics[0] : metrics.find((metric) => metric.machineId === machineId)
 }
 
 /**
