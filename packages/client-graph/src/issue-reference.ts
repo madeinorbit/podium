@@ -1,11 +1,12 @@
 import { canonicalIssueRef, issueReferenceModel, type IssueReferenceModel, type IssueReferenceSource } from '@podium/client-core/viewmodels'
 import { parseAnyRef } from '@podium/protocol'
-import { compareStructural, computed, observable, observe, reaction, runInAction, type ObservableMap } from 'mobx'
+import { compareStructural, computed, observable, observe, onBecomeUnobserved, reaction, runInAction, type IComputedValue, type ObservableMap } from 'mobx'
 import type { RelationReader } from './shared/relation-reader'
 import type { StoredRow } from './tables'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export function issueRefKey(token: string): string {
+  if (/^#\d+$/.test(token.trim())) return `#${Number(token.trim().slice(1))}`
   const parsed = parseAnyRef(token.trim())
   return parsed?.kind === 'issue' ? `${parsed.prefix}-${parsed.seq}` : token.trim()
 }
@@ -32,7 +33,7 @@ export class IssueReferences implements IssueReferenceReader {
   // index over cold rows or their summaries. A loaded key wins immediately.
   private readonly requests = observable.map<string, string | null | typeof LOADING>(undefined, { deep: false })
   private readonly stops = new Map<string, () => void>()
-  private readonly values = new Map<string, ReturnType<typeof computed<Loaded<IssueReferenceModel | null>>>>()
+  private readonly values = new Map<string, IComputedValue<Loaded<IssueReferenceModel | null>>>()
   private readonly stopTable: () => void
 
   constructor(private readonly host: IssueReferenceHost, private readonly queue: (ref: string) => void) {
@@ -71,7 +72,10 @@ export class IssueReferences implements IssueReferenceReader {
     }, (key) => runInAction(() => {
       if (previous !== undefined && this.resident.get(previous) === id) this.resident.delete(previous)
       previous = key
-      if (key !== undefined) this.resident.set(key, id)
+      if (key !== undefined) {
+        this.resident.set(key, id)
+        this.requests.delete(key)
+      }
     }), { fireImmediately: true })
     this.stops.set(id, () => {
       stop()
@@ -86,7 +90,7 @@ export class IssueReferences implements IssueReferenceReader {
   }
 
   id(token: string): Loaded<string | null> {
-    if (parseAnyRef(token.trim())?.kind !== 'issue') return null
+    if (parseAnyRef(token.trim())?.kind !== 'issue' && !/^#\d+$/.test(token.trim())) return null
     const key = issueRefKey(token)
     const resident = this.resident.get(key)
     if (resident !== undefined) return resident
@@ -112,6 +116,7 @@ export class IssueReferences implements IssueReferenceReader {
         return row === LOADING ? LOADING : row === undefined ? null : issueReferenceModel(row)
       }, { equals: compareStructural })
       this.values.set(id, value)
+      onBecomeUnobserved(value, () => this.values.delete(id))
     }
     return value.get()
   }

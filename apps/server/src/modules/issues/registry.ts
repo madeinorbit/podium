@@ -396,11 +396,10 @@ const defs = {
   }),
   resolveRefs: def('resolveRefs', {
     kind: 'query',
-    handler: async (ctx, input) => await Promise.all([...new Set(input.refs)].map(async (ref) => {
+    handler: async (ctx, input) => await Promise.all((await ctx.reports.resolveRefs(input.refs)).map(async ({ ref, id }) => {
       try {
-        const id = await ctx.reports.resolveRef(ref)
         // Missing and unreadable references have exactly the same answer.
-        return { ref, id: await ctx.mayReadIssue(id) ? id : null }
+        return { ref, id: id !== null && await ctx.mayReadIssue(id) ? id : null }
       } catch {
         return { ref, id: null }
       }

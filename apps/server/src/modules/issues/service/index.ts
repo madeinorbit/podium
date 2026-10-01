@@ -139,6 +139,7 @@ export type IssueReportsCapability = Pick<
   | 'prime'
   | 'list'
   | 'resolveRef'
+  | 'resolveRefs'
   | 'worktreePaths'
   | 'unreadFor'
   | 'visibilityPolicy'

@@ -2,8 +2,14 @@ import { canonicalIssueRef, issueReferenceModel, type IssueReferenceSource } fro
 import { MobxPool, LOADING } from '@podium/client-graph'
 import { IssueReferences } from '@podium/client-graph/issue-reference'
 import { checkIssueChips } from '@podium/client-graph/diagnostics/chip-check'
-import { reaction, runInAction } from 'mobx'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { describe, expect, it, vi } from 'vitest'
+
+function reaction<T>(read: () => T, paint: (value: T) => void, _options: { fireImmediately: boolean }): () => void {
+  const view = createPoolProjection(null as unknown as MobxPool, read)
+  paint(view.getSnapshot())
+  return view.subscribe(() => paint(view.getSnapshot()))
+}
 
 function issue(i: number, patch: Record<string, unknown> = {}) {
   return { id: `iss_${i}`, seq: i, title: `Task ${i}`, prefix: 'POD', displayRef: `POD-${i}`,

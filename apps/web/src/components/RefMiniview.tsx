@@ -94,7 +94,9 @@ function PoolRefMiniviewHost(): JSX.Element {
       if (!row) break
       const model = pool.references.readById(next)
       const issue = row as RefIssueLike
-      issues.push({ ...issue, ...(model && typeof model !== 'symbol' ? { displayRef: model.ref, prefix: parseAnyRef(model.ref)?.prefix } : {}) })
+      const description = (row as { description?: string | { value?: string } }).description
+      issues.push({ ...issue, description: typeof description === 'string' ? description : description?.value ?? '',
+        ...(model && typeof model !== 'symbol' ? { displayRef: model.ref, prefix: parseAnyRef(model.ref)?.prefix } : {}) })
       next = pool.relations.one('issue', next, 'treeParent')
     }
     return { issues, loading }
@@ -316,7 +318,7 @@ export function RefCard({
         ? target.session.name || target.session.title || ''
         : ''
   const issueRefModel: IssueReferenceModel | null =
-    target?.kind === 'issue'
+    chipsDataLayer() === 'legacy' && target?.kind === 'issue'
       ? target.issue.stage
         ? issueReferenceModel({
             id: target.issue.id,

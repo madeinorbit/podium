@@ -22,6 +22,7 @@ import {
   DELEGATION_RULE,
   FALLBACK_ISSUE_PREFIX,
   formatIssueRef,
+  parseIssueRef,
   ISSUE_TREE_DEFAULT_MAX_DEPTH,
   ISSUE_TREE_DEFAULT_MAX_NODES,
   LOCK_RULE,
@@ -96,6 +97,45 @@ export class IssueReportsModule {
 
   async resolveRef(...args: Parameters<IssueStore['resolveRef']>): Promise<Awaited<ReturnType<IssueStore['resolveRef']>>> {
     return await this.store.resolveRef(...args)
+  }
+
+  /** One issue-row pass for the entire cold-reference batch. The transient
+   * keys contain only the requested identities; authorization stays at the
+   * command boundary and missing references never carry row contents. */
+  async resolveRefs(refs: readonly string[]): Promise<Array<{ ref: string; id: IssueId | null }>> {
+    const unique = [...new Set(refs)]
+    const parsed = unique.map(ref => ({ ref, nice: parseIssueRef(ref.trim().toUpperCase()) }))
+    const prefixes = new Map<string, string>()
+    await Promise.all([...new Set(parsed.flatMap(({ nice }) => nice ? [nice.prefix] : []))].map(async prefix => {
+      const repo = await this.store.deps.store.repos.repoForPrefix(prefix)
+      if (repo) prefixes.set(prefix, repo.repoId)
+    }))
+    const repoIdOf = await this.store.deps.store.repos.issueRepoIdResolver()
+    const wanted = new Map<string, string[]>()
+    const numbers = new Map<number, string[]>()
+    for (const { ref, nice } of parsed) {
+      const repoId = nice ? prefixes.get(nice.prefix) : undefined
+      if (nice && repoId) {
+        const key = `${repoId}:${nice.seq}`
+        wanted.set(key, [...(wanted.get(key) ?? []), ref])
+      }
+      if (/^#\d+$/.test(ref.trim())) {
+        const seq = Number(ref.trim().slice(1))
+        numbers.set(seq, [...(numbers.get(seq) ?? []), ref])
+      }
+    }
+    const found = new Map<string, IssueId>()
+    const ambiguous = new Set<string>()
+    for (const row of this.store.rows.values()) {
+      const key = `${row.repoId ?? repoIdOf(row.repoPath, row.machineId)}:${row.seq}`
+      for (const ref of wanted.get(key) ?? []) if (!found.has(ref)) found.set(ref, row.id)
+      for (const ref of numbers.get(row.seq) ?? []) {
+        if (ambiguous.has(ref)) continue
+        if (found.has(ref)) { found.delete(ref); ambiguous.add(ref) }
+        else found.set(ref, row.id)
+      }
+    }
+    return unique.map(ref => ({ ref, id: found.get(ref) ?? null }))
   }
 
   worktreePaths(): ReturnType<IssueStore['worktreePaths']> {
