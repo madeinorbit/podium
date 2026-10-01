@@ -64,6 +64,7 @@ async function mount(layer: 'legacy' | 'pool', rail = false, count = 12) {
   await waitFor(() => expect(screen.getByTestId(rail ? 'sidebar-rail' : 'work-scroll')).toBeTruthy())
   if (layer === 'pool') await waitFor(() => expect(pool).not.toBeNull())
   await waitFor(() => expect(screen.getByText('Only responsive target')).toBeTruthy(), { timeout: 10000 })
+  await waitFor(() => expect(document.querySelectorAll('[data-session^="synthetic-guest-"]')).toHaveLength(2), { timeout: 10000 })
   return fixture
 }
 
