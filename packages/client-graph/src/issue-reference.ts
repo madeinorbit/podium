@@ -55,7 +55,9 @@ export class IssueReferences implements IssueReferenceReader {
   private readonly stopTable: () => void
   private requestGeneration = 0
 
-  get generation(): number { return this.requestGeneration }
+  get generation(): number {
+    return this.requestGeneration
+  }
 
   /** A replacement changes the visible scope. Only unresolved demand keys
    * need a fresh authority answer; resident subscriptions stay untouched. */
