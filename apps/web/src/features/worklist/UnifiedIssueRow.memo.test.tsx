@@ -20,15 +20,15 @@
  * byte-identical text after the publish, so the win cannot come from doing
  * less work.
  */
-import { issueDisplayRef } from '@podium/protocol'
+
 import type { UnifiedIssueRow as UnifiedIssueRowView } from '@podium/client-core/viewmodels'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
+import { issueDisplayRef } from '@podium/protocol'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { UnifiedIssueRow, UnifiedIssueRowInner } from './UnifiedIssueRow'
 import { poolIssueDisplay } from './pool-row-data'
-
+import { UnifiedIssueRow, UnifiedIssueRowInner } from './UnifiedIssueRow'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const shellCounts = vi.hoisted(() => new Map<string, number>())
@@ -215,9 +215,7 @@ function FixedList({
             key={id}
             row={row as never}
             displayTitle={titles.get(id) ?? row.issue.title}
-            progress={
-              (id === 'a' ? PROG_A : id === 'b' ? PROG_B : PROG_C) as never
-            }
+            progress={(id === 'a' ? PROG_A : id === 'b' ? PROG_B : PROG_C) as never}
             origin={origin}
             active={false}
             resolveMenuData={resolve as never}
