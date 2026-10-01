@@ -188,6 +188,26 @@ describe('terminal receipt operator regressions', () => {
     w.runtime.dispose()
   })
 
+  it('keeps a program-proven failure final through a daemon restart', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(START)
+    const w = world()
+    const pending = w.handle.send({ id: 'msg-failed', rowId: 'msg-failed', text: 'Yes' }, { origin: 'human', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(w.writes).toContain('\r')
+    w.post('Yes', { dropped: true, promptEntry: false })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(await pending).toMatchObject({ outcome: 'queued' })
+    expect(outcomes(w.frames)).toContainEqual(expect.objectContaining({ rowId: 'msg-failed', outcome: 'failed', cause: 'dropped-by-agent' }))
+    expect(w.saved.has('msg-failed')).toBe(false)
+    w.runtime.dispose()
+    const restarted = world('claude-code', w.saved, w.history)
+    await vi.advanceTimersByTimeAsync(0)
+    restarted.post('Yes')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(outcomes(restarted.frames)).toEqual([])
+    restarted.runtime.dispose()
+  })
+
   it('a fourth entry still proves a restarted watch, and re-reading one entry does not consume its budget', async () => {
     vi.useFakeTimers(); vi.setSystemTime(START + 120_000)
     const text = '[podium message msg_a · from agent · to you]\nYes\n[end podium message msg_a]'
