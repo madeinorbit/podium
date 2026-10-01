@@ -169,15 +169,20 @@ describe('the roll-up combine', () => {
     })
     // Attention and recency compose independently of order; the UI payload
     // retains the caller's sibling order, as buildUnifiedRows does.
-    const { sessions: flatSeats, ...flatFacts } = flat
-    const { sessions: nestedSeats, ...nestedFacts } = nested
+    const { sessions: flatSeats, sidebarFacts: flatSidebar, ...flatFacts } = flat
+    const { sessions: nestedSeats, sidebarFacts: _nestedSidebar, ...nestedFacts } = nested
     expect(nestedFacts).toEqual(flatFacts)
     const reversed = aggregate({ own: EMPTY_OWN, children: [...leaves].reverse() })
-    const { sessions: reversedSeats, ...reversedFacts } = reversed
+    const { sessions: reversedSeats, sidebarFacts: _reversedSidebar, ...reversedFacts } = reversed
     expect(reversedFacts).toEqual(flatFacts)
     expect(flatSeats).toEqual([working, offerOnly, ended, question].map(seat => seat.sidebarSession))
     expect(nestedSeats).toEqual([question, working, ended, offerOnly].map(seat => seat.sidebarSession))
     expect(reversedSeats).toEqual([question, ended, offerOnly, working].map(seat => seat.sidebarSession))
+    const ordered = aggregate({ own: EMPTY_OWN, children: [
+      aggregate({ own: EMPTY_OWN, children: leaves.slice(0, 2) }),
+      aggregate({ own: EMPTY_OWN, children: leaves.slice(2) }),
+    ] })
+    expect(ordered.sidebarFacts).toEqual(flatSidebar)
   })
 
   it('waiting > working > done > queued, and only a finished row is done (spec §3.9)', () => {

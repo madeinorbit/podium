@@ -123,6 +123,87 @@ export function fleetOf(sessions: readonly SliceSession[]): SidebarRowValues['fl
     nativeCount: present.reduce((count, s) => count + (s.status === 'hibernated' ? 0 : s.agentState?.nativeSubagentCount ?? 0), 0) }
 }
 
+/** The session facts a clock-only row redraw needs, composed in the existing
+ * attention cache. No redraw walks the borrowed subtree records again. */
+interface TimerAnchor {
+  readonly stateSince: number
+  readonly sinceMs: number
+  readonly baseMs?: number
+}
+export interface SidebarSessionFacts {
+  readonly fleet: SidebarRowValues['fleet']
+  readonly working?: TimerAnchor
+  readonly waitingOpen?: TimerAnchor
+  readonly waitingFinished?: TimerAnchor
+  readonly doneSince: number
+  readonly totalMs?: number
+  readonly lastActiveMs: number
+  readonly errorClass: string | null
+  readonly allUnstarted: boolean
+}
+export const NO_SIDEBAR_SESSIONS: SidebarSessionFacts = {
+  fleet: { total: 0, parkedCount: 0, nativeCount: 0, tiles: [] },
+  doneSince: 0, lastActiveMs: 0, errorClass: null, allUnstarted: true,
+}
+
+export function sidebarSessionFacts(session: SliceSession): SidebarSessionFacts {
+  const stateSince = Date.parse(session.agentState?.since ?? session.lastActiveAt)
+  const working = isSessionWorking(session)
+  const waiting: TimerAnchor = { stateSince,
+    sinceMs: Date.parse(session.offer?.createdAt ?? '') || stateSince }
+  return {
+    fleet: fleetOf([session]),
+    ...(working ? { working: { stateSince, sinceMs: stateSince,
+      ...(session.agentState?.workingMsTotal !== undefined ? { baseMs: session.agentState.workingMsTotal } : {}) } } : {}),
+    ...(motionPhase(session, false) === 'waiting' ? { waitingOpen: waiting } : {}),
+    ...(motionPhase(session, true) === 'waiting' ? { waitingFinished: waiting } : {}),
+    doneSince: stateSince || 0,
+    ...(session.agentState?.workingMsTotal !== undefined ? { totalMs: session.agentState.workingMsTotal } : {}),
+    lastActiveMs: Date.parse(session.lastActiveAt) || 0,
+    errorClass: !session.archived && session.status !== 'exited' && session.agentState?.phase === 'errored'
+      ? session.agentState.error?.class ?? 'unknown' : null,
+    allUnstarted: unstarted(session),
+  }
+}
+
+/** Ordered and associative: ties keep the first roster member, as the row's
+ * earliest-session choice and fleet glyph order do. */
+export function combineSidebarSessions(a: SidebarSessionFacts, b: SidebarSessionFacts): SidebarSessionFacts {
+  const earliest = (left: TimerAnchor | undefined, right: TimerAnchor | undefined) =>
+    left === undefined ? right : right !== undefined && right.stateSince < left.stateSince ? right : left
+  const tiles = a.fleet.tiles.map(tile => ({ ...tile }))
+  for (const tile of b.fleet.tiles) {
+    const previous = tiles.find(candidate => candidate.kind === tile.kind)
+    if (previous) previous.parked &&= tile.parked
+    else tiles.push({ ...tile })
+  }
+  return {
+    fleet: { total: a.fleet.total + b.fleet.total, parkedCount: a.fleet.parkedCount + b.fleet.parkedCount,
+      nativeCount: a.fleet.nativeCount + b.fleet.nativeCount, tiles },
+    working: earliest(a.working, b.working), waitingOpen: earliest(a.waitingOpen, b.waitingOpen),
+    waitingFinished: earliest(a.waitingFinished, b.waitingFinished),
+    doneSince: Math.max(a.doneSince, b.doneSince),
+    ...(a.totalMs !== undefined || b.totalMs !== undefined ? { totalMs: (a.totalMs ?? 0) + (b.totalMs ?? 0) } : {}),
+    lastActiveMs: Math.max(a.lastActiveMs, b.lastActiveMs),
+    errorClass: a.errorClass ?? b.errorClass, allUnstarted: a.allUnstarted && b.allUnstarted,
+  }
+}
+
+export function sidebarTimingFromFacts(
+  facts: SidebarSessionFacts, phase: SlicePhase, finished: boolean, activityAt: number, decidingAt?: number,
+): SidebarTiming {
+  if (phase === 'working' && facts.working) return { phase, sinceMs: facts.working.sinceMs,
+    ...(facts.working.baseMs !== undefined ? { baseMs: facts.working.baseMs } : {}) }
+  if (phase === 'waiting') {
+    const anchor = finished ? facts.waitingFinished : facts.waitingOpen
+    if (anchor) return { phase, sinceMs: anchor.sinceMs }
+    if (decidingAt !== undefined) return { phase, sinceMs: decidingAt }
+  }
+  if (phase === 'done') return { phase, sinceMs: facts.doneSince,
+    ...(facts.totalMs !== undefined ? { totalMs: facts.totalMs } : {}) }
+  return { phase, sinceMs: activityAt }
+}
+
 const labels = new Map(resolveDescriptors([]).map(d => [d.kind, d.shortLabel]))
 export function unstarted(s: SliceSession): boolean {
   if (s.name?.trim()) return false
@@ -132,8 +213,8 @@ export function unstarted(s: SliceSession): boolean {
 
 export function sidebarLifecycle(issue: SliceIssue, asking: boolean, passed: (at: number) => boolean, reached: (at: number) => boolean) {
   const settled = isClosedTopLevel(issue) && !issue.needsHuman && !awaitingMergeOf(issue) && !asking
-  const withinGrace = !passed((Date.parse(issue.closedAt ?? issue.updatedAt) || 0) + FINISHED_GRACE_MS)
-  const eligible = settled && !issueAbandoned(issue) && withinGrace
+  const eligible = settled && !issueAbandoned(issue) &&
+    !passed((Date.parse(issue.closedAt ?? issue.updatedAt) || 0) + FINISHED_GRACE_MS)
   const deadline = Date.parse(issue.deferUntil ?? '')
   const timed = issue.deferUntil !== DEFER_NEXT_MESSAGE && Number.isFinite(deadline)
   return { awaitsTuck: eligible && issue.tuckedAt == null, canBringBack: eligible && issue.tuckedAt != null,

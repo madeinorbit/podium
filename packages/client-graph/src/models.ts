@@ -67,7 +67,7 @@
  * across), so no two groups wait on each other.
  */
 
-import { fleetOf, sidebarLifecycle, sidebarTiming, unstarted, type SidebarRowValues } from './worklist/sidebar-row'
+import { NO_SIDEBAR_SESSIONS, sidebarLifecycle, sidebarTimingFromFacts, type SidebarRowValues } from './worklist/sidebar-row'
 import type { RelationReader } from './shared/relation-reader'
 import type {
   CollectionName,
@@ -562,6 +562,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     const facts = this.loaded.facts
     const issue = { ...own, readAt: this.host.visibleInputs.issueRead(this.id), unread: this.unread }
     const agg = this.aggregate
+    const sessionFacts = agg.sidebarFacts ?? NO_SIDEBAR_SESSIONS
     const sessions = this.ownAttention.sessions ?? []
     const aggregateSessions = agg.sessions ?? []
     const targetId = own.supersededBy ?? own.duplicateOf
@@ -577,7 +578,6 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       : { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, total: this.unitOwn.solo ? 1 : 0,
           ...(this.unitOwn.solo ? { [this.unitOwn.state ?? 'wait']: 1 } : {}) }
     const decision = this.ownAttention.deciding ? facts.decision : null
-    const errored = facts.finished ? undefined : aggregateSessions.find(s => !s.archived && s.status !== 'exited' && s.agentState?.phase === 'errored')
     let continuation: SidebarRowValues['continuation'] = null
     if (targetId) {
       if (this.host.rollupInputs.loadedIssue(targetId) === LOADING) return LOADING
@@ -589,21 +589,21 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     }
     const readMs = Date.parse(issue.readAt ?? '')
     const descendantUnread = this.nested.length > 0 && issue.readAt && Number.isFinite(readMs) && (
-      (Date.parse(agg.updatedAt ?? '') || 0) > readMs || aggregateSessions.some(s => Date.parse(s.lastActiveAt) > readMs))
+      (Date.parse(agg.updatedAt ?? '') || 0) > readMs || sessionFacts.lastActiveMs > readMs)
     return {
       idNumber: this.seq, color: own.color ?? null, title: this.title,
-      timing: sidebarTiming(aggregateSessions, this.phase, facts.finished, this.activityAt, agg.decidingAt),
+      timing: sidebarTimingFromFacts(sessionFacts, this.phase, facts.finished, this.activityAt, agg.decidingAt),
       working: this.working, asking: this.asking, originTick,
       decision, mergeCommits: decision === 'merge' ? own.gitState?.ahead ?? 0 : 0,
       progress, fromChildren, statusFromChildren: this.nestParent === null && fromChildren, gitState: own.gitState,
       unread: !this.working && (this.unread || Boolean(descendantUnread)),
-      errorClass: errored ? errored.agentState?.error?.class ?? 'unknown' : null,
+      errorClass: facts.finished ? null : sessionFacts.errorClass,
       internal: own.audience === 'agent',
       ...sidebarLifecycle(issue, this.asking, this.host.inputs.passed, this.host.inputs.reached),
       draftAgentOnly: own.draft === true && !own.worktreePath && sessions.length > 0,
       firstSessionId: sessions[0]?.sessionId ?? null, continuation,
-      fleet: fleetOf(aggregateSessions), issue, sessions, aggregateSessions,
-      awaitingFirstPrompt: own.draft === true && this.phase === 'queued' && aggregateSessions.length > 0 && aggregateSessions.every(unstarted),
+      fleet: sessionFacts.fleet, issue, sessions, aggregateSessions,
+      awaitingFirstPrompt: own.draft === true && this.phase === 'queued' && aggregateSessions.length > 0 && sessionFacts.allUnstarted,
     }
   }
 

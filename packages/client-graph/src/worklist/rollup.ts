@@ -67,7 +67,7 @@
 
 import type { RowView } from '../shared/row-view'
 import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
-import { sortedSidebarSessions } from './sidebar-row'
+import { combineSidebarSessions, NO_SIDEBAR_SESSIONS, sidebarSessionFacts, sortedSidebarSessions, type SidebarSessionFacts } from './sidebar-row'
 import { unmergedDeliveryOf } from '../shared/schema'
 import { issueAbandoned } from '../views'
 
@@ -211,6 +211,7 @@ export interface SeatVerdict {
   readonly workingSinceMs: number | null
   /** Borrowed resident seat; no second row read or per-seat cache. */
   readonly sidebarSession?: SliceSession
+  readonly sidebarFacts?: SidebarSessionFacts
 }
 
 export function seatVerdictOf(session: SliceSession): SeatVerdict {
@@ -222,6 +223,7 @@ export function seatVerdictOf(session: SliceSession): SeatVerdict {
     working,
     workingSinceMs: Number.isFinite(at) ? at : null,
     sidebarSession: session,
+    sidebarFacts: sidebarSessionFacts(session),
   }
 }
 
@@ -244,6 +246,7 @@ export interface PhaseFlags {
 export interface Aggregate {
   /** Some seat anywhere in it (`rowSessions(row).length > 0`). */
   readonly sessions?: readonly SliceSession[]
+  readonly sidebarFacts?: SidebarSessionFacts
   readonly updatedAt?: string
   readonly order?: { sortKey?: string | null; createdAt: string; seq: number; id: string }
   readonly decidingAt?: number
@@ -304,6 +307,7 @@ export function withSeat(own: OwnAttention, seat: SeatVerdict): OwnAttention {
     ...own,
     seated: true,
     sessions: seat.sidebarSession === undefined ? own.sessions : [...(own.sessions ?? []), seat.sidebarSession],
+    sidebarFacts: combineSidebarSessions(own.sidebarFacts ?? NO_SIDEBAR_SESSIONS, seat.sidebarFacts ?? NO_SIDEBAR_SESSIONS),
     working: own.working || seat.working,
     open: flagsWith(own.open, seat.open),
     finished: flagsWith(own.finished, seat.finished),
@@ -331,10 +335,12 @@ export function aggregate(input: {
 }): Aggregate {
   let { seated, working, deciding, open, finished, pending } = input.own
   const sessions = [...(input.own.sessions ?? [])]
+  let sidebarFacts = input.own.sidebarFacts ?? NO_SIDEBAR_SESSIONS
   let updatedAt = input.own.updatedAt ?? ''
   let decidingAt = input.own.decidingAt
   for (const child of input.children) {
     sessions.push(...(child.sessions ?? []))
+    sidebarFacts = combineSidebarSessions(sidebarFacts, child.sidebarFacts ?? NO_SIDEBAR_SESSIONS)
     if ((child.updatedAt ?? '') > updatedAt) updatedAt = child.updatedAt ?? ''
     if (child.decidingAt !== undefined && (decidingAt === undefined || child.decidingAt < decidingAt)) decidingAt = child.decidingAt
     seated ||= child.seated
@@ -344,7 +350,7 @@ export function aggregate(input: {
     finished = joinFlags(finished, child.finished)
     pending += child.pending
   }
-  return { seated, working, deciding, open, finished, pending, sessions, updatedAt, decidingAt }
+  return { seated, working, deciding, open, finished, pending, sessions, sidebarFacts, updatedAt, decidingAt }
 }
 
 /**
@@ -693,10 +699,11 @@ export function ownAttentionPartOf(
   if (facts.state === 'unknown') return EMPTY_OWN
   let own = EMPTY_OWN
   let pending = 0
+  const seats = new Map<string, SeatVerdict>()
   for (const sessionId of self.rosterIds) {
     const seat = input.seat(sessionId)
     if (seat === LOADING) pending += 1
-    else if (seat !== undefined) own = withSeat(own, seat)
+    else if (seat !== undefined) { own = withSeat(own, seat); seats.set(sessionId, seat) }
   }
   let deciding = false
   if (facts.decision !== null && (facts.finished || !own.working)) {
@@ -711,9 +718,12 @@ export function ownAttentionPartOf(
       }
     }
   }
+  const sessions = sortedSidebarSessions(own.sessions ?? [], input.reached ?? (() => false), facts.coordinatorSessionId)
+  const sidebarFacts = sessions.reduce((combined, session) =>
+    combineSidebarSessions(combined, seats.get(session.sessionId)?.sidebarFacts ?? NO_SIDEBAR_SESSIONS), NO_SIDEBAR_SESSIONS)
   return {
     ...own, deciding, pending: own.pending + pending,
-    sessions: sortedSidebarSessions(own.sessions ?? [], input.reached ?? (() => false), facts.coordinatorSessionId),
+    sessions, sidebarFacts,
     updatedAt: facts.updatedAt,
     order: facts.order,
     decidingAt: deciding ? (Date.parse(facts.closedAt ?? facts.updatedAt ?? '') || undefined) : undefined,
