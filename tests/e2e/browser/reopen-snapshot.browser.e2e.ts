@@ -10,7 +10,8 @@ import { newSession, openApp, podium } from './_harness'
  *
  * A shell paints one coloured alternate frame and then sleeps, so what the
  * page shows after the reload IS the snapshot. Colour is counted from a
- * screenshot (the WebGL renderer has no DOM cells).
+ * screenshot (the WebGL renderer has no DOM cells). POD-4852 also requires all
+ * three rows and the original grid to survive without a transient viewport ask.
  */
 test.skip(({ isMobile }) => isMobile, 'desktop only')
 
@@ -64,7 +65,7 @@ const line = (screen: string, needle: string) =>
     .find((l) => l.includes(needle))
     ?.trim()
 
-test('a cold return to an alternate screen keeps its colours and glyphs', async ({
+test('a cold return preserves an idle multi-row alternate screen and its settled grid', async ({
   page,
 }, info) => {
   test.setTimeout(300_000)

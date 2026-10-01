@@ -1118,7 +1118,7 @@ describe('mountSession size triggers', () => {
     })
     try {
       attached()
-      vi.advanceTimersByTime(60)
+      vi.advanceTimersByTime(100)
       state(80, 24, 'spectator')
       calls.asks.length = 0
       // A box that measures differently now, with no box event to say so — the
