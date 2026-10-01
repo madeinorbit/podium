@@ -9,7 +9,7 @@ import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import type { IssueModel, MobxPool } from '@podium/client-graph'
 import { observer } from '@podium/client-graph/react'
-import { asUserId } from '@podium/model'
+import { asIssueId, asUserId } from '@podium/model'
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { buildCorpus } from '../../../packages/worklist-proto/harness/src/fixture'
@@ -66,7 +66,7 @@ const SyntheticRow = observer(
         type="button"
         data-tick={tick}
         className="m-4 rounded border border-border p-3 text-left"
-        onClick={() => runtime?.apply({ selectedIssueId: model.id })}
+        onClick={() => runtime?.getSnapshot().setSelectedIssueId(asIssueId(model.id))}
       >
         {model.title}
       </button>
