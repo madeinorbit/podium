@@ -70,12 +70,16 @@ try {
       const began = performance.now()
       await page.evaluate(({ name, rebuild }) => window.__sidebarRenderer.show(name, rebuild), { name, rebuild })
       if (name !== null) await page.waitForFunction(() => window.__sidebarRenderer.ready())
+      const readyMs = performance.now() - began
+      // The retained exit/motion callbacks have their existing finite lifetime.
+      // Measure readiness separately, then check ownership after that tail.
+      await page.evaluate(() => new Promise<void>(resolve => setTimeout(resolve, 1000)))
       await cdp.send('HeapProfiler.collectGarbage')
       await cdp.send('HeapProfiler.collectGarbage')
       const survivors = await page.evaluate(() => window.__sidebarRenderer.survivors())
       if (survivors.length) throw new Error(`${mode} principal retained ${survivors.join(', ')}`)
       const heap = await cdp.send('Runtime.getHeapUsage')
-      builds.push({ name, rebuild, elapsedMs: performance.now() - began, heap: heap.usedSize, survivors })
+      builds.push({ name, rebuild, readyMs, elapsedMs: performance.now() - began, heap: heap.usedSize, survivors })
     }
     if (failures.length) throw new Error(`${mode} browser errors: ${failures.join('; ')}`)
     const fixtureFailures = await page.evaluate(() => window.__sidebarRenderer.failures())
