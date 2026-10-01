@@ -70,7 +70,8 @@ const apiAt = (path: string[] = []): unknown => new Proxy(() => {}, {
 })
 const api = apiAt() as PodiumClientApi
 const seedRecords = seedCacheFromCorpus(corpus).readEntities()
-const database = await IndexedDbSyncStore.open({ factory: indexedDB as unknown as Parameters<typeof IndexedDbSyncStore.open>[0]['factory'], databaseName: 'sidebar-acceptance-synthetic' })
+const database = await IndexedDbSyncStore.open({ factory: indexedDB as unknown as Parameters<typeof IndexedDbSyncStore.open>[0]['factory'], databaseName: 'sidebar-acceptance-synthetic',
+  onDegraded: reason => errors.push(`Synthetic IndexedDB degraded: ${String(reason)}`) })
 let owner: ClientRuntime | undefined
 let graph: MobxPool | null = null
 let ready = false
