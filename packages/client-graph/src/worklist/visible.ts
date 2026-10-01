@@ -192,6 +192,7 @@ export interface Standing {
   /** `issueFinishedAt` (`issues.ts:310`): `closedAt ?? updatedAt`, epoch ms. */
   readonly finishedMs: number
   readonly updatedMs: number | null
+  readonly replicaActivityMs?: number | null
   readonly deleted: boolean
   readonly pinned: boolean
   /**
@@ -284,6 +285,7 @@ export function standingOf(issue: SliceIssue): Standing {
     draftVessel: issue.draft === true && !issue.worktreePath,
     finishedMs: parseMs(issue.closedAt ?? issue.updatedAt) ?? 0,
     updatedMs: parseMs(issue.updatedAt),
+    replicaActivityMs: parseMs(issue.sessionFacts?.replicaActivityAt),
     deleted: issue.deletedAt != null,
     pinned: issue.pinned === true,
     formalParent: refs.issue.parent(issue),
@@ -656,6 +658,7 @@ export function unreadPartOf(
   const { readMs } = readCursorOf(input.issueRead(id))
   if (readMs === null) return true
   if (standing.updatedMs !== null && standing.updatedMs > readMs) return true
+  if (standing.replicaActivityMs != null && standing.replicaActivityMs > readMs) return true
   for (const sessionId of seatIds) {
     const session = input.session(sessionId)
     if (session.retention === null || session.retention.shell) continue

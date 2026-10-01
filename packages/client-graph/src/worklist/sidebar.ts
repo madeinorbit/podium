@@ -96,6 +96,10 @@ export class SidebarIndex {
       // A present mission already accounts for its retained seats, even when
       // the member exited and therefore no longer draws in the roster.
       if (owner?.placed && owner.retainedSeatIds.includes(id)) continue
+      if (session.issueId == null && [...this.pool.relations.many('worktree', path, 'issues')].some(issueId => {
+        const issue = this.pool.knownIssue(issueId)
+        return issue?.placed && issue.retainedSeatIds.includes(id)
+      })) continue
       const issue = owner?.ownFacts.issue
       if (!retains(retention, issue, owner?.standing, this.pool.visibleInputs)) continue
       retained = true

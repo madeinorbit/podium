@@ -16,6 +16,7 @@ export function temporaryIssueInput(
   temporary: Input | undefined,
   deps?: readonly SliceDepEdge[],
   blocked?: boolean,
+  sessionFacts?: SliceIssue['sessionFacts'],
 ): SliceIssue | undefined {
   // Older fixtures and pending inserts may arrive before their projection.
   // Once the normalized row exists, no durable legacy field wins over it.
@@ -27,7 +28,7 @@ export function temporaryIssueInput(
     composed.set(projection, joined)
   }
   const cached = joined.get(old)
-  if (cached !== undefined && (deps === undefined || cached.deps === deps) && cached.blocked === blocked) return cached
+  if (cached !== undefined && (deps === undefined || cached.deps === deps) && cached.blocked === blocked && cached.sessionFacts === sessionFacts) return cached
   const asked = projection.asked as { question?: string; options?: string[]; at?: string; by?: string } | undefined
   const row = {
     ...projection,
@@ -47,6 +48,7 @@ export function temporaryIssueInput(
     // spell them inline; the production source supplies the issueDeps lane.
     deps: deps ?? projection.deps ?? [],
     blocked,
+    sessionFacts,
   } as unknown as SliceIssue
   joined.set(old, row)
   return row

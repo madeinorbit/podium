@@ -379,6 +379,52 @@ export function createRowSource(
   const incoming = new Map<string, Set<string>>()
   const closure = new Map<string, boolean>()
   let edgesReady = false
+  // Two timestamps, not retained session records. Replica unread includes
+  // collapsed resume twins; continuation recency includes exited own seats.
+  const rawSessionFacts = new Map<string, { owner: string; replica?: string; tip?: string }>()
+  const sessionsByOwner = new Map<string, Map<string, { replica?: string; tip?: string }>>()
+  const issueSessionFacts = new Map<string, NonNullable<SliceIssue['sessionFacts']>>()
+  let sessionFactsReady = false
+
+  function installSessionFacts(id: string, row: AnyRow | undefined): string[] {
+    const owners = new Set<string>()
+    const before = rawSessionFacts.get(id)
+    if (before) { owners.add(before.owner); sessionsByOwner.get(before.owner)?.delete(id) }
+    rawSessionFacts.delete(id)
+    if (row && typeof row.issueId === 'string') {
+      const facts = { owner: row.issueId,
+        replica: row.agentKind === 'shell' ? undefined : row.lastActiveAt as string | undefined,
+        tip: row.archived === true ? undefined : row.lastActiveAt as string | undefined }
+      owners.add(facts.owner)
+      rawSessionFacts.set(id, facts)
+      let members = sessionsByOwner.get(facts.owner)
+      if (!members) { members = new Map(); sessionsByOwner.set(facts.owner, members) }
+      members.set(id, facts)
+    }
+    const moved: string[] = []
+    for (const owner of owners) {
+      let replicaActivityAt: string | undefined, tipActivityAt: string | undefined
+      for (const facts of sessionsByOwner.get(owner)?.values() ?? EMPTY) {
+        if (facts.replica && (!replicaActivityAt || facts.replica > replicaActivityAt)) replicaActivityAt = facts.replica
+        if (facts.tip && (!tipActivityAt || facts.tip > tipActivityAt)) tipActivityAt = facts.tip
+      }
+      const previous = issueSessionFacts.get(owner)
+      if (!previous || previous.replicaActivityAt !== replicaActivityAt || previous.tipActivityAt !== tipActivityAt) {
+        issueSessionFacts.set(owner, { replicaActivityAt, tipActivityAt }); moved.push(owner)
+      }
+      if (sessionsByOwner.get(owner)?.size === 0) sessionsByOwner.delete(owner)
+    }
+    return moved
+  }
+
+  function ensureSessionFacts(): void {
+    if (sessionFactsReady) return
+    sessionFactsReady = true
+    for (const row of replica.rows('sessions')) {
+      const id = sessionIdOf(row)
+      if (id !== null) installSessionFacts(id, row)
+    }
+  }
 
   function installEdge(id: string, raw: AnyRow | undefined): string[] {
     const before = edgeRows.get(id)
@@ -427,11 +473,12 @@ export function createRowSource(
   ): RowRecord['value'] {
     if (kind === 'session') return folded('sessions', id, pending) as SliceSession | undefined
     ensureEdges()
+    ensureSessionFacts()
     const projection = folded('issueProjections', id, pending)
     const temporary = folded('issues', id, pending)
     const deps = outgoing.get(id) ?? EMPTY
     const blocked = deps.some(edge => edge.type === 'blocks' && closedInput(edge.id, pending) === false)
-    return temporaryIssueInput(projection, temporary, deps, blocked)
+    return temporaryIssueInput(projection, temporary, deps, blocked, issueSessionFacts.get(id) ?? NO_SESSION_FACTS)
   }
 
   function hasOverlays(kind: 'session' | 'issue', id: string, pending: PendingByRow): boolean {
@@ -677,6 +724,9 @@ export function createRowSource(
       edgesReady = false
       edgeRows.clear(); outgoing.clear(); incoming.clear(); closure.clear()
       ensureEdges()
+      sessionFactsReady = false
+      rawSessionFacts.clear(); sessionsByOwner.clear(); issueSessionFacts.clear()
+      ensureSessionFacts()
       stats.enumerations += 1
       const lanes = allLanes()
       // Every subscriber now holds these lanes.
@@ -704,6 +754,10 @@ export function createRowSource(
         continue
       }
       if (address.kind === 'sessions') {
+        ensureSessionFacts()
+        for (const owner of installSessionFacts(address.id, authority('sessions', address.id))) {
+          addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
+        }
         addressed.set(`session:${address.id}`, { kind: 'session', id: address.id })
         continue
       }
@@ -872,6 +926,7 @@ export function createRowSource(
 }
 
 const EMPTY: readonly never[] = [] as const
+const NO_SESSION_FACTS = Object.freeze({})
 
 interface RepoIndex {
   from: readonly RepoEntry[]

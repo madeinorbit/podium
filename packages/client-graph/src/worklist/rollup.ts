@@ -655,7 +655,10 @@ export function tipPartOf(
     const ownTarget: TipTarget | undefined = leftMission(issue) || node?.openOwn === true ? {
       id: issue.id, seq: issue.seq, repoId: issue.repoId, staffed: node?.openOwn === true,
       finished: issue.stage === 'done' || issue.closedReason != null,
-      activeAt: new Date(Math.max(Date.parse(issue.updatedAt) || 0, node?.seatActivity ?? 0)).toISOString(),
+      activeAt: new Date(Math.max(Date.parse(issue.updatedAt) || 0,
+        issue.sessionFacts === undefined
+          ? node?.seatActivity ?? 0
+          : Date.parse(issue.sessionFacts.tipActivityAt ?? '') || 0)).toISOString(),
     } : undefined
     const below = node?.tip
     for (const candidate of [ownTarget, below?.target]) {

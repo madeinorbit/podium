@@ -68,6 +68,9 @@ export interface SliceIssue {
   humanQuestionOptions?: readonly string[]
   supersededBy?: string | null
   duplicateOf?: string | null
+  /** Declared small summary over the raw normalized session lane (resume
+   * twins can disappear from the roster while still contributing unread). */
+  sessionFacts?: { replicaActivityAt?: string; tipActivityAt?: string }
 }
 
 export interface SliceAgentState {
