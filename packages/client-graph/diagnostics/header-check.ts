@@ -7,9 +7,8 @@ import {
   buildFlightDeckRows, createHostSessionAggregatesSelector, cwdInWorktree, issueForCwd,
   listReclaimableWorktreesClient, missionProgress, occupiedRootsFromKey, placeReclaimable,
   reposToViews, resolveActiveWorktree, selectedMissionRoot, shippingPanelModel,
-  headerOfflineMachines,
 } from '@podium/client-core/viewmodels'
-import { isAgentConfirmedComputing, type HostMetricsWire, type MachineQuotaWire } from '@podium/model/browser'
+import { isAgentConfirmedComputing, isMachineOfflineForLiveTerminal, type HostMetricsWire, type MachineQuotaWire } from '@podium/model/browser'
 import type { MobxPool } from '../src/pool'
 import type { HeaderRows } from '../src/header-schema'
 import { legacyDerivationFromStore } from './legacy'
@@ -84,7 +83,12 @@ export function legacyHeaderSnapshot(store: Store<PodiumClientApi>, inputs: Head
     folded: { root: selected(root), progress: missionProgress(issues, sessions, root?.id), live: first?.liveAgentCount ?? 0, working: first?.workingAgentCount ?? 0, needs: first?.actionableCount ?? 0 },
     shipping: { unfinishedCount: shipping.unfinishedCount, decisionCount: shipping.decisionCount },
     history, lifecycle: inputs.lifecycle ?? null, outboxSize: store.outboxSize ?? 0,
-    offline: headerOfflineMachines(store.machines, new Set(inputs.metrics.flatMap((metric) => metric.machineId ? [metric.machineId] : [])), now),
+    offline: store.machines.filter((machine) => {
+      if (!isMachineOfflineForLiveTerminal(machine) || inputs.metrics.some((metric) => metric.machineId === machine.id)) return false
+      if (machine.serviceAssignment?.agentExecution === false || machine.revokedAt || machine.supersededBy) return false
+      const seen = Date.parse(machine.lastSeenAt)
+      return Number.isFinite(seen) && now - seen <= 7 * 86_400_000
+    }),
   })
 }
 export function checkHeader(pool: MobxPool, store: Store<PodiumClientApi>, inputs: HeaderCheckInputs) {
