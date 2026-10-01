@@ -57,6 +57,7 @@ export function SidebarPerfReadout({
         </strong>
         <button
           type="button"
+          data-pressable
           onClick={onClose}
           aria-label="Close performance panel"
           className="px-1 text-muted-foreground"

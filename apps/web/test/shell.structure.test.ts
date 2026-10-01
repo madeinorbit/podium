@@ -5,6 +5,11 @@ import { describe, expect, it } from 'vitest'
 
 const read = (rel: string) =>
   readFileSync(fileURLToPath(new URL(`../src/${rel}`, import.meta.url)), 'utf8')
+const readClientCore = (rel: string) =>
+  readFileSync(
+    fileURLToPath(new URL(`../../../packages/client-core/src/${rel}`, import.meta.url)),
+    'utf8',
+  )
 
 // The store provider implementation moved to @podium/client-core (arch-v2 P3,
 // issue #192) and then dissolved into the non-React engine + a thin React
@@ -12,12 +17,7 @@ const read = (rel: string) =>
 // implementation read the engine sources (plus the binding).
 const readStore = () =>
   ['engine/runtime.ts', 'engine/boot.ts', 'engine/wiring.ts', 'react/provider.tsx']
-    .map((rel) =>
-      readFileSync(
-        fileURLToPath(new URL(`../../../packages/client-core/src/${rel}`, import.meta.url)),
-        'utf8',
-      ),
-    )
+    .map(readClientCore)
     .join('\n')
 
 // This file is deliberately narrow: source-grep assertions that only check a
@@ -43,15 +43,19 @@ describe('web shell structure', () => {
   // behaviour and kept the word. A source-scan whose subject is one file
   // measures where code lives; what these assert is that the FEATURE still
   // composes these pieces, so they read the feature.
+  // POD-5062 removed local regrouping; pin placement is published by the shared
+  // worklist slice and read by useUnifiedWork, so that owner belongs here too.
   const readWorklist = () =>
     [
-      'features/worklist/SidebarUnified.tsx',
-      'features/worklist/new-task-row.tsx',
-      'features/worklist/work-folds.tsx',
-      'features/worklist/use-unified-work.ts',
-      'app/DesktopMenuHost.tsx',
+      ...[
+        'features/worklist/SidebarUnified.tsx',
+        'features/worklist/new-task-row.tsx',
+        'features/worklist/work-folds.tsx',
+        'features/worklist/use-unified-work.ts',
+        'app/DesktopMenuHost.tsx',
+      ].map(read),
+      readClientCore('viewmodels/slices/worklist/published.ts'),
     ]
-      .map(read)
       .join('\n')
 
   it('sidebar renders always-on project groups and the pinned issue section (#41, POD-166/169)', () => {
@@ -61,6 +65,14 @@ describe('web shell structure', () => {
     expect(src).toContain('ProjectGroupLabel')
     // Panel-pinning is retired (POD-169) — issue pinning renders its own section.
     expect(src).toContain('splitPinnedWork')
+    // Check the call and its route to the rendered section, not an unused import.
+    expect(readClientCore('viewmodels/slices/worklist/published.ts')).toContain(
+      'const { pinned, rest } = splitPinnedWork(work)',
+    )
+    expect(read('features/worklist/use-unified-work.ts')).toContain(
+      'derivationOverride?.pinned ?? published.pinned',
+    )
+    expect(read('features/worklist/SidebarUnified.tsx')).toContain('data-testid="pinned-section"')
     // The negative invariant stays scoped to the component that must not regain
     // it: widening a "must NOT contain" over more files only makes it stricter,
     // but naming the file is what makes the failure legible.
