@@ -8,6 +8,7 @@ import {
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { GreenPrefixCache, isolateShippingTrain, shippingSchedule } from './queue'
+import { scheduledShipOrderProjectionRows } from './projection'
 
 const order = (id: string, requestedAt: string, input: Partial<ShipOrder> = {}): ShipOrder => ({
   id: asShipOrderId(id),
@@ -79,6 +80,21 @@ const cacheScope = (orders: readonly ShipOrder[]) => ({
 })
 
 describe('shippingSchedule', () => {
+  it('O1 boot rows keep ranks and omit unused train and waitEstimate facts', () => {
+    const first = order('first', '2026-08-14T10:00:00.000Z')
+    const second = order('second', '2026-08-14T10:01:00.000Z', { deliveryDependsOn: [first.id] })
+    const blocked = order('blocked', '2026-08-14T09:00:00.000Z', { deliveryDependsOn: [asShipOrderId('missing')] })
+    const orders = [second, blocked, first]
+    const rows = scheduledShipOrderProjectionRows(orders, [], [])
+    expect(rows.map(({ id, value }) => [id, value.queueRank])).toEqual([
+      [second.id, 1], [blocked.id, undefined], [first.id, 1],
+    ])
+    for (const { value } of rows) {
+      expect(value).not.toHaveProperty('train')
+      expect(value).not.toHaveProperty('waitEstimate')
+    }
+  })
+
   it('groups dependency prefixes before FIFO peers without creating a global lane rank', () => {
     const a = order('a', '2026-08-14T10:00:00.000Z')
     const c = order('c', '2026-08-14T10:01:00.000Z')

@@ -16,6 +16,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { IssueService } from '../issues/service'
 import type { ShippingPolicyResolver } from './policy'
 import { CompatibilityShippingPolicyResolver } from './policy'
+import { shippingSchedule } from './queue'
 import type { ShippingRepairContext, ShippingRepairPort } from './repair-contract'
 import {
   type AcceptedReviewEvidence,
@@ -220,6 +221,97 @@ const provedShippingJob = async (
 })
 
 describe('ShippingService enqueue transaction', () => {
+  it('O1 commits and reads queue ranks without scanning attempt history', async () => {
+    const { store, ledger, issues, service } = await harness()
+    const issue = await issues.create({ repoPath: '/repo', title: 'compact order', startNow: false })
+    await issues.update(issue.id, { stage: 'review' })
+    const attempts = vi.spyOn(store.shipping, 'listAttempts')
+    try {
+      const cursor = await ledger.cursor()
+      const admitted = await service.enqueue({ issueId: issue.id, ...approval })
+      const changes = await ledger.changesSince(cursor) ?? []
+      expect(changes.some((change) => change.entity === 'shipOrder' && change.op === 'upsert')).toBe(true)
+      expect(admitted.projection.queueRank).toBe(1)
+      expect(attempts).not.toHaveBeenCalled()
+
+      expect((await service.queue()).map(({ order, queueRank }) => [order.id, queueRank])).toEqual([
+        [admitted.order.id, 1],
+      ])
+      expect(attempts).not.toHaveBeenCalled()
+
+      const cancelCursor = await ledger.cursor()
+      await service.cancel({ orderId: admitted.order.id, principal: approval.principal, overrideScope: false })
+      expect(await ledger.changesSince(cancelCursor)).toContainEqual(
+        expect.objectContaining({ entity: 'shipOrder', id: admitted.order.id, op: 'remove' }),
+      )
+      expect(attempts).not.toHaveBeenCalled()
+    } finally {
+      attempts.mockRestore()
+      service.dispose()
+    }
+  })
+
+  it('O1 publishes live order rows without train or waitEstimate', async () => {
+    const { store, ledger, issues, service } = await harness()
+    const issue = await issues.create({ repoPath: '/repo', title: 'compact wire', startNow: false })
+    await issues.update(issue.id, { stage: 'review' })
+    try {
+      const cursor = await ledger.cursor()
+      const admitted = await service.enqueue({ issueId: issue.id, ...approval })
+      const rows = (await ledger.changesSince(cursor) ?? []).filter(
+        (change) => change.entity === 'shipOrder' && change.op === 'upsert',
+      )
+      expect(rows).toHaveLength(1)
+      for (const value of [rows[0]!.value, admitted.projection]) {
+        expect(value).toMatchObject({ id: admitted.order.id, queueRank: 1, humanState: 'waiting' })
+        expect(value).not.toHaveProperty('train')
+        expect(value).not.toHaveProperty('waitEstimate')
+      }
+    } finally {
+      service.dispose()
+    }
+  })
+
+  it('O1 scheduler claims the same compatible train and leader', async () => {
+    const { store, issues, service } = await harness(undefined, { isAncestor: async () => true })
+    try {
+      for (const repoPath of ['/repo', '/repo', '/other']) {
+        const issue = await issues.create({ repoPath, title: 'train member', startNow: false })
+        await issues.update(issue.id, { stage: 'review' })
+        await service.enqueue({ issueId: issue.id, ...approval })
+      }
+      const orders = await store.shipping.listOrders()
+      const members = orders.filter((order) => order.repoPath === '/repo').sort(
+        (left, right) => left.requestedAt.localeCompare(right.requestedAt) || left.id.localeCompare(right.id),
+      )
+      expect(shippingSchedule(orders).trains.map((train) => train.orders.map((order) => order.id))).toContainEqual(
+        members.map((order) => order.id),
+      )
+      const claims = vi.spyOn(store.shipping, 'claimTrain')
+      const run = vi.spyOn(service, 'runOrder').mockResolvedValue()
+      try {
+        await service.tick()
+        expect(claims).toHaveBeenCalledExactlyOnceWith({
+          leaderOrderId: members[1]!.id,
+          startedAt: '2026-08-13T10:00:00.000Z',
+          members: members.map((order) => ({ orderId: order.id })),
+        })
+        expect(run).toHaveBeenCalledExactlyOnceWith(members[1]!.id, [members[0]])
+        const manifest = await store.shipping.activeTrainForOrder(members[0]!.id)
+        expect(manifest?.leaderOrderId).toBe(members[1]!.id)
+        expect(manifest?.members.map((member) => member.orderId)).toEqual(members.map((order) => order.id))
+        expect((await store.shipping.listOrders()).filter((order) => order.state === 'preflight').map((order) => order.id).sort()).toEqual(
+          members.map((order) => order.id).sort(),
+        )
+      } finally {
+        claims.mockRestore()
+        run.mockRestore()
+      }
+    } finally {
+      service.dispose()
+    }
+  })
+
   it('atomically freezes the order, moves review to shipping, and publishes compact rows', async () => {
     const { store, ledger, issues, service } = await harness()
     const issue = await issues.create({

@@ -16,6 +16,20 @@ describe('SessionRegistry metadata deltas', () => {
     for (const r of registries.splice(0)) await r.dispose()
   })
 
+  it('O1 boot reconciliation does not scan shipping attempts', async () => {
+    const store = await openTestStore(':memory:')
+    const attempts = vi.spyOn(store.shipping, 'listAttempts')
+    try {
+      const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+      registries.push(registry)
+      const snapshot = await registry.modules.sessions.syncChangesSince(null)
+      expect(snapshot.kind).toBe('snapshot')
+      expect(attempts).not.toHaveBeenCalled()
+    } finally {
+      attempts.mockRestore()
+    }
+  })
+
   async function makeRegistry(): Promise<SessionRegistry> {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
