@@ -38,6 +38,7 @@ function debugNameOf(target: { readonly id: string }): string {
 export function cachedGroup<T extends { readonly id: string }, V>(
   group: string,
   compute: (target: T) => V,
+  equals: (previous: V, next: V) => boolean = compareStructural,
 ): (target: T) => V {
   const live = new Map<T, IComputedValue<V>>()
   return (target) => {
@@ -56,7 +57,7 @@ export function cachedGroup<T extends { readonly id: string }, V>(
     }
     const value = computed(() => compute(target), {
       name: `${debugNameOf(target)}.${group}`,
-      equals: compareStructural,
+      equals,
       context: target,
     })
     live.set(target, value)

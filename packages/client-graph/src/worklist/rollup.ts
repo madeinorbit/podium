@@ -566,7 +566,10 @@ export interface OwnFacts {
   readonly finished: boolean
   readonly decision: 'review' | 'merge' | null
   readonly continuedByField: boolean
-  readonly issue?: SliceIssue
+  readonly updatedAt?: string
+  readonly closedAt?: string | null
+  readonly coordinatorSessionId?: string | null
+  readonly order?: Aggregate['order']
 }
 
 /** The roll-up parts of one issue node. */
@@ -619,7 +622,10 @@ export function ownFactsOf(issue: Loaded<SliceIssue>): OwnFacts {
     finished: issue.stage === 'done' || issue.closedReason != null,
     decision: pendingDecisionOf(issue),
     continuedByField: continuedByField(issue),
-    issue,
+    updatedAt: issue.updatedAt,
+    closedAt: issue.closedAt,
+    coordinatorSessionId: issue.coordinatorSessionId,
+    order: { id: issue.id, seq: issue.seq, createdAt: issue.createdAt, sortKey: issue.sortKey },
   }
 }
 
@@ -707,10 +713,10 @@ export function ownAttentionPartOf(
   }
   return {
     ...own, deciding, pending: own.pending + pending,
-    sessions: sortedSidebarSessions(own.sessions ?? [], input.reached ?? (() => false), facts.issue?.coordinatorSessionId),
-    updatedAt: facts.issue?.updatedAt,
-    order: facts.issue,
-    decidingAt: deciding ? (Date.parse(facts.issue?.closedAt ?? facts.issue?.updatedAt ?? '') || undefined) : undefined,
+    sessions: sortedSidebarSessions(own.sessions ?? [], input.reached ?? (() => false), facts.coordinatorSessionId),
+    updatedAt: facts.updatedAt,
+    order: facts.order,
+    decidingAt: deciding ? (Date.parse(facts.closedAt ?? facts.updatedAt ?? '') || undefined) : undefined,
   }
 }
 

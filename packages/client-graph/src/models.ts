@@ -100,6 +100,7 @@ import {
   type WritableKind,
 } from './shared/write-contract'
 import { cachedGroup } from './cached'
+import { compareStructural } from 'mobx'
 import type { Residence } from './pool'
 import type { StoredRow } from './tables'
 import {
@@ -410,6 +411,28 @@ function rowField<V>(field: RowViewField, compute: (issue: IssueModel) => V): (i
  * one per field of the row (`fields`); each is a cached group
  * (`cachedGroup`), built on first reactive read.
  */
+/** Borrowed immutable records compare by identity. Walking their fields in a
+ * structural comparator would charge an unrelated rename for its whole family. */
+function sameAggregate(a: Aggregate, b: Aggregate): boolean {
+  const { sessions: left = [], ...leftFacts } = a
+  const { sessions: right = [], ...rightFacts } = b
+  return left.length === right.length && left.every((row, index) => row === right[index]) &&
+    compareStructural(leftFacts, rightFacts)
+}
+
+function sameAttention(a: Attention, b: Attention): boolean {
+  return a.seatActivity === b.seatActivity && sameAggregate(a.ownAttention, b.ownAttention) &&
+    sameAggregate(a.aggregate, b.aggregate)
+}
+
+function sameVerdict(a: LoadedRow<SeatVerdict>, b: LoadedRow<SeatVerdict>): boolean {
+  if (a === b) return true
+  if (a === LOADING || b === LOADING || a === undefined || b === undefined) return false
+  const { sidebarSession: left, ...leftFacts } = a
+  const { sidebarSession: right, ...rightFacts } = b
+  return left === right && compareStructural(leftFacts, rightFacts)
+}
+
 export class IssueModel extends EntityModel implements HeldIssue, RowView {
   /** The schema fields the row answers (`installFields`): the row's value of them, not the fed row's. */
   static override readonly answers: ReadonlySet<string> = new Set<string>(ROW_VIEW_FIELDS)
@@ -449,6 +472,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     tip: cachedGroup('tip', (issue: IssueModel) => tipPartOf(issue.host.rollupInputs, issue.id)),
     attention: cachedGroup('attention', (issue: IssueModel) =>
       attentionOf(issue.host.rollupInputs, issue.id, issue),
+      sameAttention,
     ),
     /** Its own contribution to its formal ancestors' progress (its own row, and whether it is vacated). */
     unitOwn: cachedGroup('unitOwn', (issue: IssueModel) =>
@@ -532,10 +556,10 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   /** All facts needed by the real row; reuses the issue's existing caches. */
   get sidebar(): SidebarRowValues | typeof LOADING | undefined {
+    const own = this.host.rollupInputs.loadedIssue(this.id)
+    if (own === LOADING) return LOADING
+    if (own === undefined) return undefined
     const facts = this.loaded.facts
-    if (facts.state === 'cold') return LOADING
-    if (facts.issue === undefined) return undefined
-    const own = facts.issue
     const issue = { ...own, readAt: this.host.visibleInputs.issueRead(this.id), unread: this.unread }
     const agg = this.aggregate
     const sessions = this.ownAttention.sessions ?? []
@@ -920,6 +944,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
     ),
     verdict: cachedGroup('verdict', (session: SessionModel) =>
       verdictPartOf(session.host.visibleInputs, session.id),
+      sameVerdict,
     ),
   }
 

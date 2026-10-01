@@ -104,7 +104,8 @@ export class SidebarIndex {
         const issue = this.pool.knownIssue(issueId)
         return issue?.placed && issue.retainedSeatIds.includes(id)
       })) continue
-      const issue = owner?.ownFacts.issue
+      const loaded = owner === undefined ? undefined : this.pool.rollupInputs.loadedIssue(owner.id)
+      const issue = loaded === LOADING ? undefined : loaded
       if (!retains(retention, issue, owner?.standing, this.pool.visibleInputs)) continue
       retained = true
       if (session.issueId && owner) {
@@ -154,7 +155,8 @@ export class SidebarIndex {
       const ids = group.rowIds.filter(root), closedIds = group.closedIds.filter(root)
       if (!ids.length && !closedIds.length) continue
       const example = this.pool.issue(ids[0] ?? closedIds[0] ?? '')
-      const band = add(key, group.label, example?.ownFacts.issue?.repoPath ?? key)
+      const loaded = example === undefined ? undefined : this.pool.rollupInputs.loadedIssue(example.id)
+      const band = add(key, group.label, loaded === LOADING ? key : loaded?.repoPath ?? key)
       const snoozedIds = ids.filter(id => this.pool.issue(id)?.band === 2)
       bands.set(key, { ...band, label: group.label, rowIds: ids.filter(id => this.pool.issue(id)?.band !== 2), snoozedIds, closedIds, startFirstTask: false })
     }
