@@ -142,7 +142,14 @@ export function rebuildResidentViews(
 ): Map<string, RowView> {
   const { tables, relations, issues } = replayTables(source, schema)
   const { coarseNow, selectedIssueId } = locals.get()
-  const { inputs } = directScope({ tables, relations, issues, coarseNow, selectedIssueId })
+  const { inputs } = directScope({
+    tables,
+    relations,
+    issues,
+    coarseNow,
+    selectedIssueId,
+    residentIssues: resident,
+  })
   const cold = tableColdRule(schema, (entity) => tables[entity], coarseNow)
   const views = new Map<string, RowView>()
   for (const { id } of issues) {
@@ -172,8 +179,15 @@ function directScope(args: {
   issues: readonly RowRecord[]
   coarseNow: number
   selectedIssueId: string | null
+  /**
+   * Live resident issue ids (H3 full-view only): cold non-resident rows read
+   * as not resident (flat false, present false, no nesting contribution),
+   * matching the live pool's tables (which never hold them). Without it (the
+   * visible rebuild, all rows held) every row reads resident.
+   */
+  residentIssues?: ReadonlySet<string>
 }): DirectScope {
-  const { tables, relations, issues, coarseNow, selectedIssueId } = args
+  const { tables, relations, issues, coarseNow, selectedIssueId, residentIssues } = args
   const inputs: ViewInputs = {
     relations,
     issue: (id) => tables.issue.get(id) as SliceIssue | undefined,
@@ -245,7 +259,8 @@ function directScope(args: {
   }
   const visible: VisibleInputs = {
     relations,
-    resident: (entity, id) => tables[entity].has(id),
+    resident: (entity, id) =>
+      entity === 'issue' && residentIssues !== undefined ? residentIssues.has(id) : tables[entity].has(id),
     issueRow: inputs.issue,
     sessionRow: inputs.session,
     issue: (id) => (tables.issue.has(id) ? directVisibleParts(visible, id, memo) : undefined),
