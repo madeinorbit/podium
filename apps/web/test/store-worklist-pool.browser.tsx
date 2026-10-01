@@ -53,7 +53,7 @@ function Probe(): null {
     void import('../../../packages/worklist-proto/harness/browser/runtime-pool-observe').then(({ observePool }) => {
       if (gone) return
       stop = observePool(pool, id)
-      // POD-4953 planted mistake: payload observation never reaches readiness
+      observed = pool
     })
     return () => { gone = true; stop?.(); if (observed === pool) observed = null }
   }, [pool])
