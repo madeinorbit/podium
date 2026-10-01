@@ -235,7 +235,9 @@ async function menu(id = TARGET) {
   return screen.findByRole('menu', { name: 'Task actions' })
 }
 async function item(name: string | RegExp) {
-  return screen.findByRole('menuitem', { name: typeof name === 'string' ? new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : name })
+  return screen.findByRole('menuitem', {
+    name: typeof name === 'string' ? new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : name,
+  })
 }
 function patchIssue(fixture: Fixture, id: string, patch: Record<string, unknown>) {
   fixture.patchIssue(id, patch)
@@ -367,8 +369,10 @@ describe('pool navigation uses the existing gesture semantics', () => {
         fixture.patch('session', 'synthetic-session-8', {
           lastActiveAt: new Date(NOW - 10).toISOString(),
         })
-        if (scenario === 'headless-starter') fixture.patch('session', 'synthetic-session-7', { headless: true })
-        if (scenario === 'archived-starter') fixture.patch('session', 'synthetic-session-7', { archived: true })
+        if (scenario === 'headless-starter')
+          fixture.patch('session', 'synthetic-session-7', { headless: true })
+        if (scenario === 'archived-starter')
+          fixture.patch('session', 'synthetic-session-7', { archived: true })
       }
       if (scenario === 'shell-and-guest') {
         fixture.patch('session', 'synthetic-session-7', { agentKind: 'shell' })
@@ -402,8 +406,12 @@ describe('pool navigation uses the existing gesture semantics', () => {
         'synthetic-8',
       )
       expect(pool!.row('issue', 'synthetic-8')).not.toBe(LOADING)
-      expect(actions.resolveMenuData('synthetic-8').single[0]?.memberSessionIds).toEqual(['synthetic-session-8'])
-      expect(pool!.row('session', 'synthetic-session-8')).toMatchObject({ lastActiveAt: new Date(NOW - 10).toISOString() })
+      expect(actions.resolveMenuData('synthetic-8').single[0]?.memberSessionIds).toEqual([
+        'synthetic-session-8',
+      ])
+      expect(pool!.row('session', 'synthetic-session-8')).toMatchObject({
+        lastActiveAt: new Date(NOW - 10).toISOString(),
+      })
     }
     await act(async () => {
       actions.selectIssue('synthetic-3')
@@ -876,7 +884,9 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(await item(placement === 'own' ? /^Move to top level/ : /^Move into/))
     const write = await request('issues.setPlacement', targetId)
     expect(write.input).toMatchObject({ id: targetId, placement, originId: 'synthetic-1' })
-    expect(value(targetId).issue.parentId ?? null).toBe(placement === 'mission' ? 'synthetic-1' : null)
+    expect(value(targetId).issue.parentId ?? null).toBe(
+      placement === 'mission' ? 'synthetic-1' : null,
+    )
     await parity()
     await refuse(write)
     expect(value(targetId).issue.parentId ?? null).toBe(placement === 'own' ? 'synthetic-1' : null)
@@ -895,8 +905,12 @@ describe('real pool row mutations and receipts', () => {
         return {
           ...result,
           repositories: ['source', 'target'].map((machineId) => ({
-            path: machineId === 'source' ? ROOT : '/synthetic/target', machineId,
-            repoId: 'synthetic-repo', kind: 'repository', branch: 'main', worktrees: [],
+            path: machineId === 'source' ? ROOT : '/synthetic/target',
+            machineId,
+            repoId: 'synthetic-repo',
+            kind: 'repository',
+            branch: 'main',
+            worktrees: [],
           })),
           machines: ['source', 'target'].map((id) => ({
             id,

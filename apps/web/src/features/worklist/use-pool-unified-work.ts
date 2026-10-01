@@ -30,7 +30,11 @@ function sessionMembership(pool: MobxPool): Map<string, SessionMeta[]> {
   return byIssue
 }
 
-function missionMembers(pool: MobxPool, rootId: string, sessions: Map<string, SessionMeta[]>): Map<string, SliceIssue> {
+function missionMembers(
+  pool: MobxPool,
+  rootId: string,
+  sessions: Map<string, SessionMeta[]>,
+): Map<string, SliceIssue> {
   const members = new Map<string, SliceIssue>()
   const pending = [rootId]
   const seen = new Set<string>()
@@ -113,11 +117,7 @@ export function createPoolWorkActions(
       // excludes dock shells. Cwd-only seats can draw a row but do not become
       // workspace pane candidates for an issue.
       for (const session of sessions.get(member) ?? []) {
-        if (
-          !session.archived &&
-          session.headless !== true &&
-          session.agentKind !== 'shell'
-        )
+        if (!session.archived && session.headless !== true && session.agentKind !== 'shell')
           members.set(session.sessionId, session)
       }
     }
@@ -205,7 +205,8 @@ export function createPoolWorkActions(
         // view. The menu needs the same cascade counts, membership and read
         // state; build them on open from resident relations and the one reader.
         const memberSessionIds = (sessions.get(key) ?? [])
-          .filter((session) => session.agentKind !== 'shell').map((session) => session.sessionId)
+          .filter((session) => session.agentKind !== 'shell')
+          .map((session) => session.sessionId)
         const childIds = [...pool.graph.many('issue', key, 'treeChildren')]
         const childDoneCount = childIds.filter((id) => {
           const child = pool.row('issue', id)
