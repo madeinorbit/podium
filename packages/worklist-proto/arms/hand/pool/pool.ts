@@ -507,6 +507,7 @@ export class HandPool {
       issueRow: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
       sessionRow: (id) => this.row('session', id, 'peek') as SliceSession | undefined,
       hidden: (id) => this.hidden('issue', id) as Record<string, unknown> | undefined,
+      loadIssue: (id) => { void this.row('issue', id) },
       // Held parts first (no table touch at all): the hot paths (rosters over
       // bucket members) re-check membership on every recompute, and a fenced
       // presence check there counts every member on the fence (#2's budget).

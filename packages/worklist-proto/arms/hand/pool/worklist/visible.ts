@@ -115,6 +115,7 @@ export const RESORT_FRACTION = 1 / 8
  */
 export const HIDDEN_ISSUE_FIELDS = [
   'parentId',
+  'audience',
   'archived',
   'deletedAt',
   'stage',
@@ -161,6 +162,8 @@ export interface VisibleInputs {
    * for a row in memory, one held out beside the rule, or unknown.
    */
   hidden?(id: string): HiddenIssue | undefined
+  /** Queue a cold ancestor needed for a live descendant's nesting, without blocking. */
+  loadIssue?(id: string): void
   /** Another issue's parts when it is KNOWN (resident or cold); undefined otherwise. */
   issue(id: string): VisibleParts | undefined
   /** A known session's parts; undefined otherwise. */
@@ -634,7 +637,11 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
    * (`rows.ts:121-158`). A hidden issue is never present (POD-4753).
    */
   present(input, id, self) {
-    if (input.hidden?.(id) !== undefined) return false
+    const hidden = input.hidden?.(id)
+    if (hidden !== undefined) {
+      if (hidden.audience === 'agent' && !hiddenExcludedOf(hidden) && self.keptBelow) input.loadIssue?.(id)
+      return false
+    }
     if (self.flat) return true
     if (!self.keptBelow) return false
     const standing = self.standing

@@ -661,7 +661,11 @@ function issueCanShow(row: Readonly<Record<string, unknown>>, ctx: ColdContext):
     seen.add(parent)
     const ancestor = ctx.summary('issue', parent)
     if (ancestor === undefined) return true
-    if (ancestor['audience'] !== 'agent' && !issueExcluded(ancestor) && !ctx.coldTarget('issue', parent)) return true
+    // A parentless agent ancestor can itself be placed through its starter's
+    // owner. Do not dismiss that fallback by looking only at the raw tree.
+    if (!issueExcluded(ancestor) &&
+      (ancestor['audience'] !== 'agent' || (!ancestor['parentId'] && ancestor['startedBySession'])) &&
+      !ctx.coldTarget('issue', parent)) return true
     parent = ancestor['parentId']
   }
   return false
@@ -877,6 +881,7 @@ const DECLARED = defineSchema({
         'blocked',
         'audience',
         'parentId',
+        'startedBySession',
         'worktreePath',
         'readAt',
         'updatedAt',
@@ -885,7 +890,7 @@ const DECLARED = defineSchema({
       ],
       predicate: (row) => row['closedAt'] != null || row['archived'] === true || row['deletedAt'] != null,
       canShow: {
-        fields: ['parentId', 'audience', 'archived', 'deletedAt', 'stage', 'worktreePath'],
+        fields: ['parentId', 'audience', 'archived', 'deletedAt', 'stage', 'startedBySession', 'worktreePath'],
         through: 'treeParent',
         test: issueCanShow,
       },

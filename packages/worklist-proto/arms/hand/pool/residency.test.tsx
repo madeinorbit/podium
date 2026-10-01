@@ -912,4 +912,21 @@ describe('history rule warming', () => {
     expect(r.pool.residency?.isCold('session', 'history-child-seat')).toBe(false)
     expect(diffResidency(r.pool, r.replay.source)).toEqual([])
   })
+
+  it('warms a retained agent child when its parent gains a started-by nesting path', () => {
+    const r = rig()
+    const parent = { audience: 'agent' as const }
+    r.push({ type: 'update', rows: [issue('history-root'), issue('history-parent', parent),
+      issue('history-child', { parentId: 'history-parent', audience: 'agent',
+        stage: 'done', closedAt: old, closedReason: 'done' }),
+      seat('history-parent-seat', { issueId: 'history-parent' }),
+      seat('history-child-seat', { issueId: 'history-child' }),
+      seat('history-starter', { issueId: 'history-root' })] })
+    expect(r.pool.residency?.isCold('issue', 'history-child')).toBe(true)
+    r.push({ type: 'update', rows: [issue('history-parent', { ...parent, startedBySession: 'history-starter' })] })
+    drain(r)
+    expect(r.pool.residency?.isCold('issue', 'history-child')).toBe(false)
+    expect(r.pool.residency?.isCold('session', 'history-child-seat')).toBe(false)
+    expect(r.handle.snapshot().rows['history-child']).toBeDefined()
+  })
 })

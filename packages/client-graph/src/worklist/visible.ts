@@ -226,7 +226,7 @@ function excludedOf(issue: Partial<Pick<SliceIssue, 'archived' | 'deletedAt' | '
  * keeps exactly these fields of each such row (`Residency` summaries), never
  * the row, and reads none of its sessions.
  */
-export const HIDDEN_ISSUE_FIELDS = ['parentId', 'archived', 'deletedAt', 'stage'] as const
+export const HIDDEN_ISSUE_FIELDS = ['parentId', 'audience', 'archived', 'deletedAt', 'stage'] as const
 
 /** A hidden issue's declared summary (`HIDDEN_ISSUE_FIELDS`). */
 export type HiddenIssue = Partial<Pick<SliceIssue, (typeof HIDDEN_ISSUE_FIELDS)[number]>>
@@ -234,6 +234,11 @@ export type HiddenIssue = Partial<Pick<SliceIssue, (typeof HIDDEN_ISSUE_FIELDS)[
 /** The presence of a hidden issue, from its summary and the rows below it: never flat or present. */
 export function hiddenPresenceOf(input: VisibleInputs, id: string, hidden: HiddenIssue): Presence {
   const keeps = !excludedOf(hidden) && keptBelowPartOf(input, childIdsPartOf(input, id))
+  // An unplaced agent row may still have pre-nesting presence from a seat.
+  // A live descendant needs that verdict: it might nest under this row and
+  // disappear with it. Load through the normal window only when needed,
+  // rather than observing all the historical row's member sessions.
+  if (keeps && hidden.audience === 'agent') void input.loadedIssue(id)
   return { flat: false, keeps, present: false }
 }
 

@@ -742,6 +742,17 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
     expect(ruleAt([], rows, NOW, [], schema).session('old')).toBe(false)
   })
 
+  it('keeps a closed agent child when its parentless agent ancestor has a started-by fallback', () => {
+    const agent = child('i', 30, { audience: 'agent' })
+    const parent = child('p', 30, { parentId: null, audience: 'agent', startedBySession: 'starter' })
+    const rows = [agent, parent, { id: 'root', audience: 'human', stage: 'in_progress' }]
+    const seats = [session('s', 'i'), session('ps', 'p'), session('starter', 'root')]
+    expect(ruleAt(rows, seats).issue('i')).toBe(false)
+    expect(ruleAt(rows, seats).session('s')).toBe(false)
+    expect(ruleAt([agent, { ...parent, startedBySession: null }, rows[2]!], seats).issue('i')).toBe(true)
+    expect(SCHEMA.issue.cold.dependsOn).toContain('startedBySession')
+  })
+
   it('follows the raw reference: a headless session of a closed issue is cold', () => {
     const headless = session('s', 'i1', { headless: true })
     const rule = ruleAt([child('i1', 30)], [headless])

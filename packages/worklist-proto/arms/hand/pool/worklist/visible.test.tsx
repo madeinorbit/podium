@@ -311,6 +311,15 @@ describe('visible collection and order (Hb1)', () => {
     }
   }, 300_000)
 
+  it('a new human child still nests beneath an unplaced cold agent parent (gate seed 3, step 100)', async () => {
+    const result = await checkArm(
+      arm,
+      [{ kind: 'newIssue', id: 'i-g37', parentId: 'i1385', title: 'Generated i-g37' }],
+      { shrink: false },
+    )
+    expect(result.ok ? null : `${result.against}: ${result.diff}`).toBeNull()
+  }, 300_000)
+
   it('an evicted parent re-added places its descendants again (the MobX gate seed 1, step 112)', async () => {
     // The sequence that caught the MobX arm's untracked node registry: here a
     // part's lookup of another issue goes through the tracked presence and

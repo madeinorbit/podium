@@ -284,17 +284,7 @@ describe('visible collection and order (Mb1)', () => {
     const result = await checkArm(
       arm,
       [{ kind: 'newIssue', id: 'i-g37', parentId: 'i1385', title: 'Generated i-g37' }],
-      {
-        shrink: false,
-        onStep: (_step, run, handle) => {
-          const pool = (handle as HarnessMobxPoolHandle).pool
-          console.log('[cold-parent]', JSON.stringify({
-            parent: run.ctx.engine.getSnapshot().issues.find((issue) => issue.id === 'i1385'),
-            resident: tracked(() => pool.resident('issue', 'i1385')),
-            presence: tracked(() => ({ present: pool.issue('i1385')?.present, placed: pool.issue('i1385')?.placed })),
-          }))
-        },
-      },
+      { shrink: false },
     )
     expect(result.ok ? null : `${result.against}: ${result.diff}`).toBeNull()
   }, 300_000)
