@@ -3,10 +3,12 @@
  * Timing, memory and attribution require the caller's bench:flatblock lease.
  * All records are appended before assertions; a failed bar remains evidence. */
 import { execFileSync } from 'node:child_process'
+import { createReadStream } from 'node:fs'
 import { mkdir, writeFile, appendFile, readFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { hostname, loadavg, uptime } from 'node:os'
 import { extname, join, resolve } from 'node:path'
+import { createInterface } from 'node:readline'
 import { chromium, type Browser, type Page, type CDPSession } from '@playwright/test'
 import plan from './sidebar-acceptance-plan.json'
 import type {} from '../test/sidebar-acceptance.browser'
@@ -20,6 +22,26 @@ const out = resolve(base, phase)
 const build = resolve(base, 'build')
 const url = 'http://127.0.0.1:41659/test/sidebar-acceptance.browser.html'
 const raw = resolve(out, 'records.jsonl')
+const resume = phase === 'timing' && process.argv.includes('--resume')
+const eligible = new Map<string, number>()
+const lastIteration = new Map<string, number>()
+const cellKey = (scale: string, surface: string, kind: string, mode: string) => [scale, surface, kind, mode].join('/')
+if (resume) {
+  for await (const line of createInterface({ input: createReadStream(raw), crlfDelay: Infinity })) {
+    const record = JSON.parse(line)
+    const key = cellKey(record.scale, record.surface, record.kind, record.mode)
+    lastIteration.set(key, Math.max(lastIteration.get(key) ?? -1, record.iteration))
+    if (record.valid && record.runner.loadavg[0] <= plan.maxLoad) eligible.set(key, (eligible.get(key) ?? 0) + 1)
+  }
+}
+const needed = (scale: string, surface: string, kind: string, mode: string) => resume
+  ? Math.max(0, plan.samples - (eligible.get(cellKey(scale, surface, kind, mode)) ?? 0)) : plan.samples
+const nextIteration = (scale: string, surface: string, kind: string) => resume
+  ? 1 + Math.max(...['legacy', 'pool'].map(mode => lastIteration.get(cellKey(scale, surface, kind, mode)) ?? -1)) : 0
+async function cool() {
+  // Admission pacing is outside all event windows and does not rescue a void record.
+  while (loadavg()[0]! > 7) await new Promise<void>(done => setTimeout(done, 5000))
+}
 await mkdir(out, { recursive: true })
 const runtimeSha = execFileSync('git', ['rev-parse', 'HEAD'], { timeout: 10_000 }).toString().trim()
 const runner = () => ({ host: hostname(), loadavg: loadavg(), uptimeSeconds: uptime(),
@@ -55,6 +77,7 @@ const browser = await chromium.launch({ headless: true,
   env: { ...process.env, LD_LIBRARY_PATH: resolve('.toolchain/lib') },
   args: ['--no-sandbox', '--disable-dev-shm-usage', '--enable-precise-memory-info'] })
 await writeFile(resolve(out, 'provenance.json'), JSON.stringify({ phase, plan, runtimeSha,
+  arguments: process.argv.slice(2), pid: process.pid,
   candidate: plan.candidate, browser: browser.version(), runner: runner(), viewport: { width: 1800, height: 1000 },
   synthetic: true, ordinaryRenderer: true, instrumentation: 'passive shipped measurement hooks plus runtime batch wrapper; checker off in timing' }, null, 2))
 
@@ -204,6 +227,9 @@ try {
     }
   } else if (phase === 'timing' || phase === 'attribution') {
     for (const scale of requestedScales) for (const surface of (phase === 'attribution' ? ['full'] : ['sidebar', 'full'])) {
+      const kinds = surface === 'full' ? ['click'] : ['click', 'unrelated', 'title', 'phase', 'draft']
+      if (resume && kinds.every(kind => ['legacy', 'pool'].every(mode => needed(scale, surface, kind, mode) === 0))) continue
+      await cool()
       const pages = { legacy: await open('legacy', scale, surface), pool: await open('pool', scale, surface) }
       const rowIds = await pages.legacy.page.locator('[data-issue-row]').evaluateAll(nodes => [...new Set(nodes.map(node => node.getAttribute('data-issue-row')!))])
       const shapes = await pages.legacy.page.evaluate(ids => window.__acceptance.shape(ids), rowIds)
@@ -222,12 +248,15 @@ try {
       if (new Set(targets).size !== 6 || targets.some(id => !rowIds.includes(id)))
         throw new Error('Warm switch needs six distinct mounted normal issues')
       await writeFile(resolve(out, `targets-${scale}-${surface}.json`), JSON.stringify(shapes.filter(shape => targets.includes(shape.id)), null, 2))
-      const retained = phase === 'attribution' ? 6 : plan.samples
+      const retained = phase === 'attribution' ? 6 : Math.max(...['legacy', 'pool'].map(mode => needed(scale, surface, 'click', mode)))
+      const clickOffset = nextIteration(scale, surface, 'click')
       for (let i = 0; i < retained + plan.warmups; i++) for (const mode of orders(i)) {
+        if (resume && i >= plan.warmups && needed(scale, surface, 'click', mode) === 0) continue
         const opened = pages[mode]
         const { page, cdp } = opened
+        await cool()
         await page.bringToFront()
-        const target = targets[i % targets.length]!
+        const target = targets[(i + clickOffset) % targets.length]!
         const row = page.locator(`[data-issue-row="${target}"]`).first()
         await row.scrollIntoViewIfNeeded(); await row.hover(); await page.waitForTimeout(40)
         await page.evaluate(target => {
@@ -253,24 +282,33 @@ try {
         const paint = traceSummary(trace)
         if (result.state.selected !== target) throw new Error(`Trusted click selected ${result.state.selected}, expected ${target}`)
         if (i >= plan.warmups) {
-          const index = i - plan.warmups
+          const index = i - plan.warmups + clickOffset
           const traceFile = `click-${scale}-${surface}-${mode}-${index}.trace.json`
           await writeFile(resolve(out, traceFile), JSON.stringify({ traceEvents: trace }))
           if (profile) await writeFile(resolve(out, traceFile.replace('.trace.json', '.cpuprofile')), JSON.stringify(profile))
-          await save({ kind: 'click', scale, surface, mode, iteration: index, target, paint, result, traceFile })
+          const record = await save({ kind: 'click', scale, surface, mode, iteration: index, target, paint, result, traceFile, continuation: resume })
+          if (record.valid) eligible.set(cellKey(scale, surface, 'click', mode), (eligible.get(cellKey(scale, surface, 'click', mode)) ?? 0) + 1)
           if (index % 10 === 0) console.log(`${scale} ${surface} ${mode} click ${index}: ${paint.inputToPaintMs.toFixed(1)} ms; twoRAF ${paint.twoRafMs.toFixed(1)} ms`)
         }
       }
       if (phase === 'timing' && surface === 'sidebar') {
-        for (let i = 0; i < plan.samples + plan.warmups; i++) for (const mode of orders(i)) for (const kind of ['unrelated', 'title', 'phase', 'draft']) {
+        const eventKinds = ['unrelated', 'title', 'phase', 'draft']
+        const eventRetained = Math.max(...eventKinds.flatMap(kind => ['legacy', 'pool'].map(mode => needed(scale, surface, kind, mode))))
+        const offsets = Object.fromEntries(eventKinds.map(kind => [kind, nextIteration(scale, surface, kind)]))
+        for (let i = 0; i < eventRetained + plan.warmups; i++) for (const mode of orders(i)) for (const kind of eventKinds) {
+          if (resume && i >= plan.warmups && needed(scale, surface, kind, mode) === 0) continue
           const page = pages[mode].page
+          await cool()
           await page.bringToFront()
           await page.evaluate(() => window.__acceptance.begin())
-          await page.evaluate(({ kind, i }) => window.__acceptance.event(kind, i + 100), { kind, i })
+          await page.evaluate(({ kind, i }) => window.__acceptance.event(kind, i + 100), { kind, i: i + offsets[kind]! })
           await page.waitForTimeout(80)
           await page.evaluate(() => window.__acceptance.settled())
           const result = await page.evaluate(() => window.__acceptance.stop())
-          if (i >= plan.warmups) await save({ kind, scale, surface, mode, iteration: i - plan.warmups, result })
+          if (i >= plan.warmups) {
+            const record = await save({ kind, scale, surface, mode, iteration: i - plan.warmups + offsets[kind]!, result, continuation: resume })
+            if (record.valid) eligible.set(cellKey(scale, surface, kind, mode), (eligible.get(cellKey(scale, surface, kind, mode)) ?? 0) + 1)
+          }
         }
         console.log(`Hot events retained ${scale}`)
       }
@@ -278,6 +316,7 @@ try {
     }
   } else if (phase === 'memory') {
     for (const scale of plan.memoryCells) for (let i = 0; i < plan.startupAndMemorySamples; i++) for (const mode of orders(i)) {
+      await cool()
       const before = runner()
       const began = performance.now()
       const opened = await open(mode, scale, 'sidebar', false)
