@@ -103,7 +103,7 @@ export function createHeaderViews(pool: MobxPool) {
         if (!value || value.archived || value.deletedAt) return
         // The deck consumes normalized IssueNavigationModel membership, which
         // is explicit attachment (issue-views.ts), unlike sidebar cwd seating.
-        const ownIds = pool.graph.many('issue', id, 'sessions')
+        const ownIds = [...pool.graph.many('issue', id, 'sessions')]
         let asking = false
         for (const sid of ownIds) {
           const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
@@ -125,13 +125,13 @@ export function createHeaderViews(pool: MobxPool) {
         const vacated = !ownIds.some((sid) => {
           const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
           return member && member !== LOADING && member.issueId === id && sessionPresentOnTask(member as SessionMeta)
-        }) && pool.graph.many('issue', id, 'spinOffs').length > 0
+        }) && pool.graph.many('issue', id, 'spinOffs').size > 0
         if (value.stage !== 'done' && !value.closedReason && (asking || value.needsHuman || (value.stage === 'review' && !vacated))) needs++
         for (const child of pool.graph.many('issue', id, 'children')) visit(child)
       }
       visit(root.id)
       const crew = [...sessions.values()].filter((member) => sessionPresentOnTask(member as SessionMeta))
-      if (root.draft && !root.worktreePath && !pool.graph.many('issue', root.id, 'sessions').some((sid) => {
+      if (root.draft && !root.worktreePath && ![...pool.graph.many('issue', root.id, 'sessions')].some((sid) => {
         const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
         return member && member !== LOADING && !member.archived
       })) return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading }
