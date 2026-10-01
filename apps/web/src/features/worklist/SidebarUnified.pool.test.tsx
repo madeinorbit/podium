@@ -113,13 +113,16 @@ async function mount(layer: 'legacy' | 'pool', rail = false, count = 12) {
 }
 
 function rowPaint() {
-  return [...document.querySelectorAll('[data-testid="unified-issue-row"]')].map((row) => ({
-    id: row.getAttribute('data-issue-row'),
-    text: row.textContent,
-    selected: row.getAttribute('data-selected'),
-    unread: row.getAttribute('data-unread'),
-    class: row.className,
-  }))
+  return [...document.querySelectorAll('[data-testid="unified-issue-row"]')].map((row) => {
+    const body = row.querySelector('[data-issue-row]') ?? row
+    return {
+      id: body.getAttribute('data-issue-row'),
+      text: row.textContent,
+      selected: body.getAttribute('data-selected'),
+      unread: body.getAttribute('data-unread'),
+      class: body.className,
+    }
+  })
 }
 
 afterEach(() => {
