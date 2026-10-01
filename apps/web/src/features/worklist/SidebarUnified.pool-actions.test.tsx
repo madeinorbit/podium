@@ -433,10 +433,14 @@ describe('pool navigation uses the existing gesture semantics', () => {
         if (scenario === 'resume-collapsed-pane')
           patchIssue(fixture, 'synthetic-7', { parentId: 'synthetic-3', startedBySession: null })
         fixture.patch('session', `synthetic-session-${loser}`, {
-          resume, status: 'hibernated', lastActiveAt: new Date(NOW - 20).toISOString(),
+          resume,
+          status: 'hibernated',
+          lastActiveAt: new Date(NOW - 20).toISOString(),
         })
         fixture.patch('session', 'synthetic-session-6', {
-          resume, status: 'hibernated', lastActiveAt: new Date(NOW - 10).toISOString(),
+          resume,
+          status: 'hibernated',
+          lastActiveAt: new Date(NOW - 10).toISOString(),
         })
       }
     })
@@ -514,7 +518,12 @@ describe('pool navigation uses the existing gesture semantics', () => {
       ...runtime.getSnapshot(),
       paneA: file,
       fileTabs: [
-        { id: file, worktreePath: ROOT, scope: { kind: 'worktree' as const, root: ROOT }, path: 'notes.md' },
+        {
+          id: file,
+          worktreePath: ROOT,
+          scope: { kind: 'worktree' as const, root: ROOT },
+          path: 'notes.md',
+        },
       ],
       navigateWorkspace: vi.fn(() => false),
       batchGesture: (fn: () => void) => fn(),
