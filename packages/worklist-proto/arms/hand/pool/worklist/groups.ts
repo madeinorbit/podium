@@ -97,10 +97,15 @@ export function withWaiting(placement: Placement): Placement {
   return { ...placement, closed: false, dismissed: false }
 }
 
-/** One row's placement through the visibility inputs (hot or cold, never loaded). */
+/** One row's placement through the visibility inputs (resident only, never loaded). */
 export function placementRuleOf(input: PlacementInputs, id: string): Placement | undefined {
   const issue = input.issueRow(id)
   if (issue === undefined) return undefined
+  // Hidden (cold) rows are never placed: no visible row is cold, and the
+  // one-reader summary lacks the placement fields (repoPath). Return
+  // undefined after the read, so a whole-list walk still touches the row
+  // without crashing on its summary.
+  if (input.hidden?.(id) !== undefined) return undefined
   const settled = placementOf(issue, input)
   // R-GROUP 3's "nothing waiting": a fold candidate whose subtree waits on
   // the human stays open. Read only for a row this places in the fold, so a
