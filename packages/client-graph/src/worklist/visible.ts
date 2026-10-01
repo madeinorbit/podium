@@ -271,6 +271,7 @@ export function standingOf(issue: SliceIssue): Standing {
           ? 'drop'
           : 'decay'
   const spinOff = issue.deps?.some((dep) => dep.type === 'discovered-from') === true
+  const sessionFacts = issue.sessionFacts
   // No `readAt`: the cursor lives in the read-state lane
   // (`VisibleInputs.issueRead`), so a mark-read never re-runs this.
   return {
@@ -287,8 +288,8 @@ export function standingOf(issue: SliceIssue): Standing {
     draftVessel: issue.draft === true && !issue.worktreePath,
     finishedMs: parseMs(issue.closedAt ?? issue.updatedAt) ?? 0,
     updatedMs: parseMs(issue.updatedAt),
-    replicaActivityMs: parseMs(issue.sessionFacts?.replicaActivityAt),
-    headlessStaffed: issue.sessionFacts?.headlessStaffed === true,
+    replicaActivityMs: parseMs(sessionFacts?.replicaActivityAt),
+    headlessStaffed: sessionFacts?.headlessStaffed === true,
     deleted: issue.deletedAt != null,
     pinned: issue.pinned === true,
     formalParent: refs.issue.parent(issue),
