@@ -5,9 +5,12 @@
  * row fields directly, each a cached value of the issue (`models.ts`), so it
  * redraws exactly when a field it reads changes, and no row view object is
  * built. It reads the fields a row DRAWS (`ROW_DISPLAYED_FIELDS`,
- * `shared/src/row-view.ts`) and no other: its text, and its looks as data
+ * `shared/src/row-view.ts`): its text, and its looks as data
  * attributes (what a stylesheet keys the selected, pinned, snoozed and
- * folded looks and the recency and working stamps on). The fields that only
+ * folded looks and the recency and working stamps on).
+ * POD-4953 also reads the complete sidebar payload in this same observer,
+ * so the work-per-change meter includes every fact the real row will use.
+ * The facts do not change the demo's presentation. The fields that only
  * place the row (its group, order keys and fold time) move it in the list and
  * are never read here (POD-4825). Declared once at module scope.
  */
@@ -17,6 +20,7 @@ import type { ReactElement } from 'react'
 import type { RowProps } from '../../../../shared/src/row-shell'
 
 export const PoolRow = observer(function PoolRow({ row }: RowProps): ReactElement {
+  if ('sidebar' in row) void row.sidebar
   return (
     <div
       data-issue-row={row.id}
