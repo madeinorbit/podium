@@ -22,8 +22,9 @@ const out = resolve(base, phase)
 const build = resolve(base, 'build')
 const url = 'http://127.0.0.1:41659/test/sidebar-acceptance.browser.html'
 const raw = resolve(out, 'records.jsonl')
-const resume = phase === 'timing' && process.argv.includes('--resume')
+const resume = ['timing', 'attribution'].includes(phase) && process.argv.includes('--resume')
 const eligible = new Map<string, number>()
+const eligibleIterations = new Map<string, Set<number>>()
 const lastIteration = new Map<string, number>()
 const cellKey = (scale: string, surface: string, kind: string, mode: string) => [scale, surface, kind, mode].join('/')
 if (resume) {
@@ -31,7 +32,11 @@ if (resume) {
     const record = JSON.parse(line)
     const key = cellKey(record.scale, record.surface, record.kind, record.mode)
     lastIteration.set(key, Math.max(lastIteration.get(key) ?? -1, record.iteration))
-    if (record.valid && record.runner.loadavg[0] <= plan.maxLoad) eligible.set(key, (eligible.get(key) ?? 0) + 1)
+    if (record.valid && record.runner.loadavg[0] <= plan.maxLoad) {
+      eligible.set(key, (eligible.get(key) ?? 0) + 1)
+      const seen = eligibleIterations.get(key) ?? new Set<number>()
+      seen.add(record.iteration); eligibleIterations.set(key, seen)
+    }
   }
 }
 const needed = (scale: string, surface: string, kind: string, mode: string) => resume
@@ -248,15 +253,21 @@ try {
       if (new Set(targets).size !== 6 || targets.some(id => !rowIds.includes(id)))
         throw new Error('Warm switch needs six distinct mounted normal issues')
       await writeFile(resolve(out, `targets-${scale}-${surface}.json`), JSON.stringify(shapes.filter(shape => targets.includes(shape.id)), null, 2))
-      const retained = phase === 'attribution' ? plan.samples : Math.max(...['legacy', 'pool'].map(mode => needed(scale, surface, 'click', mode)))
-      const clickOffset = nextIteration(scale, surface, 'click')
+      const missingProfiles = phase === 'attribution' && resume
+        ? Array.from({ length: plan.samples }, (_, index) => index).filter(index =>
+          ['legacy', 'pool'].some(mode => !eligibleIterations.get(cellKey(scale, surface, 'click', mode))?.has(index)))
+          .slice(0, Number(arg('profile-limit', String(plan.samples)))) : null
+      const retained = missingProfiles?.length ?? Math.max(...['legacy', 'pool'].map(mode => needed(scale, surface, 'click', mode)))
+      const clickOffset = missingProfiles?.[0] ?? nextIteration(scale, surface, 'click')
       for (let i = 0; i < retained + plan.warmups; i++) for (const mode of orders(i)) {
+        const index = missingProfiles && i >= plan.warmups ? missingProfiles[i - plan.warmups]! : i - plan.warmups + clickOffset
+        if (missingProfiles && i >= plan.warmups && eligibleIterations.get(cellKey(scale, surface, 'click', mode))?.has(index)) continue
         if (resume && i >= plan.warmups && needed(scale, surface, 'click', mode) === 0) continue
         const opened = pages[mode]
         const { page, cdp } = opened
         await cool()
         await page.bringToFront()
-        const target = targets[(i + clickOffset) % targets.length]!
+        const target = targets[(missingProfiles && i >= plan.warmups ? index + plan.warmups : i + clickOffset) % targets.length]!
         const row = page.locator(`[data-issue-row="${target}"]`).first()
         await row.scrollIntoViewIfNeeded(); await row.hover(); await page.waitForTimeout(40)
         await page.evaluate(target => {
@@ -282,8 +293,7 @@ try {
         const paint = traceSummary(trace)
         if (result.state.selected !== target) throw new Error(`Trusted click selected ${result.state.selected}, expected ${target}`)
         if (i >= plan.warmups) {
-          const index = i - plan.warmups + clickOffset
-          const traceFile = `click-${scale}-${surface}-${mode}-${index}.trace.json`
+          const traceFile = `click-${scale}-${surface}-${mode}-${index}${resume && phase === 'attribution' ? `-replacement-${Date.now()}` : ''}.trace.json`
           await writeFile(resolve(out, traceFile), JSON.stringify({ traceEvents: trace }))
           if (profile) await writeFile(resolve(out, traceFile.replace('.trace.json', '.cpuprofile')), JSON.stringify(profile))
           const record = await save({ kind: 'click', scale, surface, mode, iteration: index, target, paint, result, traceFile, continuation: resume })
