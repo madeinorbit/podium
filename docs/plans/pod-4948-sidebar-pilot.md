@@ -10,6 +10,8 @@ The feed also declares a small raw-session summary: owner ID and two activity ti
 
 Every row read still goes through `MobxPool.row`. Cold facts answer `LOADING` and schedule a batched load. The pool does not call legacy worklist selectors. `IssueModel.sidebar` is a cached group on the one existing issue object. It borrows the feed issue/session records and overlays the cursor, unread verdict and display ref; it creates no second record or row object. Timer anchors, fleet totals and error facts compose through the existing attention aggregate, so a clock redraw does not re-walk the subtree sessions. `pool.sidebar` exposes section, worktree roster and selection facts; `SidebarState` carries caller-owned project order, pins, persisted collapse and pane selection without reading storage.
 
+Sessionless composition borrows the other branch's immutable facts and fleet instead of copying glyphs along every empty ancestor. `Residency.observe` creates a cold-row atom only inside a tracked derivation. Maintenance reads still go through the reader, but avoid immediately discarded atoms; observed cold reads retain their load and wake-up behavior.
+
 Root pinned/open/snoozed/closed lanes are maintained by the existing issue filing reaction. The same reaction supplies represented/excluded/finished ownership and retained unowned-seat claims to `worklist/sidebar-roster.ts`. Existing ingest/relation deltas maintain resident fallback-seat IDs, project-root IDs, project lane counts and sorted roster paths. There is no new per-issue or per-session reaction. A two-field cold-lane summary (`path`, `possible`) requests the existing batched reader only while unresolved; cold IDs do not enter the resident roster indexes. Forward clock ticks update only due fallback seats; clock rewind recomputes their retention. Per-project caches keep unrelated roster paths out of a changed band's work.
 
 ## Field inventory
@@ -65,7 +67,9 @@ In the test column, **corpus** means `arms/mobx/pool/sidebar.test.ts` at 1x and 
 
 All validation runs on flatblock in `~/podium-test-4953`, with Bun 1.4.2 and a WIP commit before each run. New checks are first exercised against a copied-aside planted mistake, then restored with `cp`. The prototype's package config is used. Browser evidence uses only the synthetic corpus and a private StoreProvider fixture; operator live data stays on ludovico.
 
-Field parity at `472dbd2e3` is green for the full 1x/4x corpus and three observed seeds of 200 changes. Each seed applies all eight issue-fact and all eight session-fact variants. All 28 row values, 28 compatibility-issue inputs, 21 session-content inputs, roster owners/partitions and section fields are compared with the actual legacy derivations. The rollup and group checks are green at `7097dc3ea` (10 tests); the remaining five sidebar adapter/cold/selection/roster/expiry tests also passed there. The expiry check was first red at `7c9146af8` after removing the fallback deadline publication: the expired last seat remained in its band. Restoring with `cp` passes the forward and backward clock assertions.
+Field parity at `e57d1db425` is green for all ten sidebar checks: the full 1x/4x corpus, three observed seeds of 200 changes, adapter precedence, draft selection, cold/eviction recovery, roster provenance and forward/backward expiry. Each seed applies all eight issue-fact and all eight session-fact variants. All 28 row values, 28 compatibility-issue inputs, 21 session-content inputs, roster owners/partitions and section fields are compared with the actual legacy derivations. The two reader checks and the maintenance-probe check also pass at that revision. The rollup and group checks passed at `7097dc3ea` (10 tests). The expiry check was first red at `7c9146af8` after removing the fallback deadline publication: the expired last seat remained in its band. Restoring with `cp` passes the forward and backward clock assertions.
+
+The empty-branch borrowing check was red at `357c91ac2` with the identity fast paths removed, then passed with all five composition checks at `5a8a80d274`. The cold-observer guard was red at `1babb3cc6` when removed, then passed at `e57d1db425`: 100 repeated absent/cold maintenance probes create zero atoms, while an observed cold row still answers `LOADING`, batches its load and wakes on hydration. Census attribution found and removed 15,629 temporary startup atoms at 1x and 61,236 at 4x before accepting the final counts.
 
 Planted defects also made the new checks fail for incorrect row facts, sections, motion, normalized input precedence, progress, attention invalidation, composed fleet totals, ref/external identifier, parent/menu facts and represented-roster membership. In particular, `d1959e7df` caught 1,464 ref/identifier field differences, `c36c0926e` caught missing root lanes and `de37ea73a` caught extra represented-owner worktree rows. The exact redraw fence now compares the complete payload at every feed publication, including optimistic paint and rollback; its new transient-publication check was red with that collection disabled (`b050568ac`) and green after restoration (`32665cf4d`). No redraw or scaling allowance was relaxed.
 
@@ -73,9 +77,36 @@ The pre-change census at `30180e6a0` is green at 1x and 4x, including both write
 
 | Checkpoint | Scale | Computeds before | Reactions before | Computeds after | Reactions after |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Startup | 1x | 18.23 | 3.74 | pending | pending |
-| First paint | 1x | 19.61 | 3.82 | pending | pending |
-| Startup | 4x | 18.18 | 3.75 | pending | pending |
-| First paint | 4x | 18.64 | 3.77 | pending | pending |
+| Startup | 1x | 18.23 | 3.74 | 15.99 | 3.26 |
+| First paint | 1x | 19.61 | 3.82 | 17.46 | 3.35 |
+| Startup | 4x | 18.18 | 3.75 | 15.97 | 3.28 |
+| First paint | 4x | 18.64 | 3.77 | 16.45 | 3.30 |
 
-The pre-change work-per-change gate is green for all sixteen scenarios at both sizes, for the pool, its windowed list and both write-layer variants. Final parity, sensitivity and after counts are recorded here when validation completes.
+POD-4947 landed while this work was in progress. Against the immediate integration parent `0a44022fb`, startup computeds change 11,730→11,707 at 1x and 46,837→46,746 at 4x. First-paint computeds change 12,749→12,783 and 48,187→48,173. Reactions are exactly unchanged at all four checkpoints (2,389/2,450 and 9,616/9,677). The larger before/after reductions above include POD-4947's cold-rule work; they are not attributed entirely to this issue.
+
+Other tracking kinds below are absolute created-object/held-entry counts for the bare pool, before→after. The maintained indexes add eight maps. First-paint atoms increase by 188/788 versus the original baseline (0.26/0.27 per visible row); these are included rather than hidden behind the lower computed/reaction counts. The strict baseline retains every count key and POD-4947's history-census metadata, with a separate per-key sidebar comparison against `0a44022fb`.
+
+| Kind | Startup 1x | Paint 1x | Startup 4x | Paint 4x |
+| --- | ---: | ---: | ---: | ---: |
+| Atoms | 6,561→5,961 | 6,684→6,872 | 26,290→23,711 | 26,435→27,223 |
+| Maps | 31→39 | 31→39 | 31→39 | 31→39 |
+| Sets | 3,756→3,197 | 3,756→3,197 | 15,243→12,928 | 15,243→12,928 |
+| Arrays | 2,154→2,178 | 2,154→2,178 | 8,574→8,604 | 8,574→8,604 |
+| Held map entries | 28,577→24,682 | 28,577→24,682 | 115,143→99,462 | 115,143→99,462 |
+| Held set members | 14,642→13,174 | 14,642→13,174 | 59,340→52,834 | 59,340→52,834 |
+| Held array elements | 5,823→6,107 | 5,823→6,107 | 23,292→24,396 | 23,292→24,396 |
+
+Both write variants have identical computed/reaction counts. Each adds one map and one atom; the pending variant holds three extra overlay entries. The census uses the existing list observer and existing 20 row observers to consume the complete section/row payload. Removing that payload read first failed the strict census at `70df37250` (36 missing computeds, 21 missing map-has atoms and 183 missing reads).
+
+Work-per-change is green at `5a8a80d274` for all sixteen scenarios at both sizes, for the pool, its windowed list and both write-layer variants. The complete payload is consumed; optimistic paint and rollback count at each publication. Existing redraw, copy and 1x→4x work bounds are unchanged. A plain clock tick does zero row reads, zero derivations and one element of maintenance work at both sizes. Representative final cells are below; the acceptance artifact retains all before/after scenarios.
+
+| Scenario/arm | Row reads 1x→4x | Derivations 1x→4x | Elements 1x→4x |
+| --- | ---: | ---: | ---: |
+| Parent reassignment, pool | 40→41 | 50→50 | 467→522 |
+| Parent reassignment, write variants | 40→41 | 50→50 | 476→531 |
+| Parent reassignment, window | 1→2 | 6→6 | 92→90 |
+| Burst of 50, pool | 310→269 | 1,390→1,374 | 3,326→2,935 |
+| Burst of 50, write variants | 310→269 | 1,390→1,374 | 3,669→3,278 |
+| Burst of 50, window | 185→182 | 431→425 | 1,775→1,558 |
+
+The default round-three L4b gate, final strict census, uncached typecheck, lint and real Chromium acceptance are pending below.
