@@ -1,4 +1,3 @@
-import { useStoreHandle } from '@podium/client-core/react'
 import { measureLegacyHeader } from '@podium/client-core/perf'
 import { headerDataLayer } from '@/lib/header-data-layer'
 import { usePoolFolded } from './header-data'
@@ -294,9 +293,8 @@ export function FoldedFlightDeckBar({ onExpand }: { onExpand: () => void }): JSX
 }
 
 function useLegacyFolded() {
-  const owner = useStoreHandle()
-  const { sessions, selectedIssueId } = useStoreSelector(
-    (store) => ({ sessions: store.sessions, selectedIssueId: store.selectedIssueId }),
+  const { sessions, selectedIssueId, trpc: owner } = useStoreSelector(
+    (store) => ({ sessions: store.sessions, selectedIssueId: store.selectedIssueId, trpc: store.trpc }),
     shallowEqual,
   )
   const issues = useReplicaIssues()

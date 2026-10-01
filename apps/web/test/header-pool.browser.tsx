@@ -59,7 +59,7 @@ const driver = {
   ready: () => ready, failures: () => [...failures],
   reset: () => { headerStats.reset(); storeStats.reset(); commits = {} },
   stats: () => ({ header: headerStats.read(), store: storeStats.snapshot(), commits }),
-  metrics: fixture.publishMetrics, activity: fixture.activity,
+  metrics: fixture.publishMetrics, activity: fixture.activity, idle: fixture.idle,
   async check() {
     if (!pool || !runtime) return null
     const { checkHeader, poolHeaderSnapshot } = await import('@podium/client-graph/diagnostics/header-check')

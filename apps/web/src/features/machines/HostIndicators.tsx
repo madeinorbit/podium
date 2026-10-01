@@ -3,7 +3,6 @@ import { useHeaderActions, usePoolHeaderMetrics, usePoolMetricIds, usePoolMetric
 import type { HeaderAggregate } from '@podium/client-graph/header-views'
 import type { HostMetricsWire, MachineWire } from '@podium/model/browser'
 import { memo } from 'react'
-import { useStoreHandle } from '@podium/client-core/react'
 import { measureLegacyHeader } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -198,7 +197,6 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
  * instrument, not a third group in the well.
  */
 function LegacyHeaderHostIndicators(): JSX.Element {
-  const owner = useStoreHandle()
   const hostMetrics = useHostMetrics()
   const { machines, sessions, trpc } = useStoreSelector(
     (s) => ({
@@ -246,7 +244,7 @@ function LegacyHeaderHostIndicators(): JSX.Element {
   // (`occupancyKey`) instead of on the array. `issues` stays a plain dep: its
   // identity already changes only when an issue row does.
   const selectAggregates = useMemo(() => createHostSessionAggregatesSelector(), [])
-  const aggregates = measureLegacyHeader(owner, 'hostAggregates', () => selectAggregates(sessions))
+  const aggregates = measureLegacyHeader(trpc, 'hostAggregates', () => selectAggregates(sessions))
   const occupancyKey = aggregates.occupancyKey
   const soleMachine = hostMetrics.length === 1
   const soleMachineId = hostMetrics[0]?.machineId

@@ -63,7 +63,7 @@ try {
     await phase('activity', activityMs, true)
     if (mode === 'pool') {
       // Put every touched session back into idle before the metric-only proof.
-      for (let step = 0; step < 12; step++) await page.evaluate((index) => window.__headerFixture.activity(index * 2), step)
+      await page.evaluate(() => window.__headerFixture.idle())
       await page.waitForTimeout(1000)
       await phase('idle-five-minute', idleMs, false)
     }

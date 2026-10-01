@@ -1,4 +1,3 @@
-import { useStoreHandle } from '@podium/client-core/react'
 import { measureLegacyHeader } from '@podium/client-core/perf'
 import { headerDataLayer } from '@/lib/header-data-layer'
 import { usePoolShipping } from './header-data'
@@ -115,14 +114,14 @@ export function RightRail({
 }
 
 function useLegacyShipping() {
-  const owner = useStoreHandle()
-  const { paneA, fileTabs, sessions, repos, shipOrders } = useStoreSelector(
+  const { paneA, fileTabs, sessions, repos, shipOrders, trpc: owner } = useStoreSelector(
     (state) => ({
       paneA: state.paneA,
       fileTabs: state.fileTabs,
       sessions: state.sessions,
       repos: state.repos,
       shipOrders: state.shipOrders,
+      trpc: state.trpc,
     }),
     shallowEqual,
   )

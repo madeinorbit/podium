@@ -30,8 +30,7 @@ const readStatus = (pool: MobxPool) => ({ workingSessions: pool.headerViews.work
 const EMPTY_STATUS = { workingSessions: [], issue: undefined }
 function usePoolStatus() { return useWorklistPoolProjection(readStatus, EMPTY_STATUS) }
 function useLegacyStatus() {
-  const owner = useStoreHandle()
-  const { sessions, selectedIssueId } = useStoreSelector((state) => ({ sessions: state.sessions, selectedIssueId: state.selectedIssueId }), shallowEqual)
+  const { sessions, selectedIssueId, trpc: owner } = useStoreSelector((state) => ({ sessions: state.sessions, selectedIssueId: state.selectedIssueId, trpc: state.trpc }), shallowEqual)
   const issues = useReplicaIssues()
   const now = useNow(60_000)
   return {

@@ -49,6 +49,7 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { h
           }),
       },
       locals.source,
+      { header: options.header },
     )
     if (options.header) stopHeader = attachHeaderSource(handle.pool, runtime as Parameters<typeof attachHeaderSource>[1])
     stopPerf = observeWorklistPoolPerf(runtime, handle.pool)

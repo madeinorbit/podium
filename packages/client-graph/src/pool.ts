@@ -150,6 +150,8 @@ function cursorOnlyChange(previous: object, next: object): boolean {
 /** Residency options: the per-row read, and (tests) the window and timer. */
 export interface PoolLazyOptions {
   readonly load: LoadRow
+  /** Add the header's declared cold summaries only for its startup switch. */
+  readonly header?: boolean
   readonly windowMs?: number
   readonly schedule?: Schedule
 }
@@ -264,7 +266,7 @@ export class MobxPool {
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
             // What visibility reads of a hidden issue (POD-4753), never the row.
-            summaries: { issue: [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS], session: [...COLD_SESSION_FIELDS, ...HEADER_SESSION_SUMMARY_FIELDS] },
+            summaries: { issue: lazy.header ? [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS] : HIDDEN_ISSUE_FIELDS, session: lazy.header ? [...COLD_SESSION_FIELDS, ...HEADER_SESSION_SUMMARY_FIELDS] : COLD_SESSION_FIELDS },
             // The rule's lane source (R3, POD-4745) reads the engine, built below.
             lanes: () => this.graph,
           })

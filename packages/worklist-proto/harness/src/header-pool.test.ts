@@ -65,7 +65,7 @@ describe('header pool values', () => {
     expect(HEADER_RELATIONS).toContainEqual({ from: 'hostMetric', name: 'machine', key: 'machineId', to: 'machine', inverse: 'metrics' })
   })
 
-  it('five minutes of metric-only inputs wake only the changed metric row', async () => {
+  it('sixty metric-only inputs wake only the changed metric row', async () => {
     const f = await fixture()
     const first = f.ctx.engine.getSnapshot().machines[0]?.id ?? 'machine-one' as MachineId
     const second = 'machine-two' as MachineId
@@ -80,7 +80,6 @@ describe('header pool values', () => {
     try {
       for (let step = 1; step <= 60; step++) {
         publish(step)
-        await writeClockTick(f.ctx, 5000)
         await Promise.resolve()
       }
       expect(a - initial.a).toBe(60)

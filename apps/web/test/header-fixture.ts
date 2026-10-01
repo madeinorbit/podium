@@ -41,7 +41,7 @@ export function createHeaderFixture(count: number) {
     emit(kind: string, ...args: unknown[]) { for (const listener of listeners.get(kind) ?? []) listener(...args) },
     connectionHealth: () => health,
     onConnectionHealth: () => () => {},
-    connect() {}, connectNow() {}, dispose() {}, setVisible() {}, setViewState() {}, sendSessionDraft() {}, sendDraftEdit: () => true,
+    connect() {}, connectNow() {}, dispose() {}, seedMetadata() {}, setVisible() {}, setViewState() {}, sendSessionDraft() {}, sendDraftEdit: () => true,
   }
   let metrics: HostMetricsWire[] = []
   function publishMetrics(step: number) {
@@ -58,6 +58,11 @@ export function createHeaderFixture(count: number) {
       const index = step % Math.min(12, count)
       base.patch('session', `synthetic-session-${index}`, { lastActiveAt: new Date().toISOString(),
         agentState: { phase: step % 2 ? 'working' : 'idle', since: new Date().toISOString() } })
+    },
+    idle() {
+      for (let index = 0; index < Math.min(12, count); index++) base.patch('session', `synthetic-session-${index}`, {
+        agentState: { phase: 'idle', since: new Date().toISOString() },
+      })
     },
   }
 }
