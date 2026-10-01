@@ -5,15 +5,14 @@ import { chipPerf } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { allIssueViewModels } from '@podium/client-core/replica'
-import { computeTranscript, transcriptAttributionTable } from '@podium/client-core/viewmodels'
 import { asIssueId, asSessionId, asUserId, type TranscriptItem } from '@podium/model/browser'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { LiveIssueReference } from '../src/components/IssueReference'
 import { IssueChipLiveness } from '../src/features/chat/IssueChipLiveness'
-import { TranscriptFeed } from '../src/features/chat/TranscriptFeed'
+import { ChatView } from '../src/features/chat/ChatView'
 import { chipsDataLayer, initializeChipsDataLayer } from '../src/lib/chips-data-layer'
 import { setKnownRefPrefixes } from '../src/lib/markdown-references'
 import { createSidebarFixture } from './sidebar-fixture'
@@ -36,10 +35,9 @@ synthetic.api.issues = { ...synthetic.api.issues, resolveRefs: { query: async ({
 }) } }
 const sessionId = asSessionId('synthetic-session-0')
 const items = Array.from({ length: 120 }, (_, i): TranscriptItem => ({
-  id: `message-${i}`, role: i % 2 ? 'assistant' : 'user', text: `Conversation message ${i}. Review SYN-${1000 + i % 40}, SYN-${1000 + (i + 1) % 40}, and SYN-${1000 + (i + 2) % 40}.`,
+  id: `message-${i}`, cursor: `cursor-${i}`, role: i % 2 ? 'assistant' : 'user', text: `Conversation message ${i}. Review SYN-${1000 + i % 40}, SYN-${1000 + (i + 1) % 40}, and SYN-${1000 + (i + 2) % 40}.`,
 }))
-const transcript = computeTranscript({ items, verbosity: 'normal', query: '', cursor: 0 })
-const attribution = transcriptAttributionTable(undefined)
+synthetic.api.sessions = { ...synthetic.api.sessions, transcriptRead: { query: async () => ({ items, head: 'cursor-0', tail: 'cursor-119', hasMore: false }) } }
 let runtime: ClientRuntime | undefined
 let pool: ReturnType<typeof useWorklistPool> = null
 let ready = false
@@ -51,27 +49,19 @@ function Fixture() {
   const attached = useWorklistPool()
   const [shown, setShown] = useState(false)
   const [root, setRoot] = useState<HTMLDivElement | null>(null)
-  const noop = useCallback(() => {}, [])
   useEffect(() => {
     runtime = owner; pool = attached; open = setShown
     void owner.getSnapshot().refreshRepos().then(() => { ready = chipsDataLayer() === 'legacy' || attached !== null })
     return () => { ready = false; runtime = undefined; pool = null; open = undefined }
   }, [attached, owner])
-  return <main ref={setRoot} className="flex h-screen flex-col bg-background text-foreground">
-    {shown && <>
+  return <main className="flex h-screen flex-col bg-background text-foreground">
+    <div ref={setRoot}>
       <IssueChipLiveness root={root} />
       <div className="p-3" data-surface="issue-page"><LiveIssueReference token="SYN-1000" /></div>
       <div className="p-3" data-surface="miniview"><LiveIssueReference token="SYN-1001" showTitle={false} /></div>
       <div className="chat-md p-3" data-surface="mail"><a className="ref-link ref-link--issue" data-ref="SYN-1000">SYN-1000</a></div>
-      <TranscriptFeed setScrollerRef={noop} setContentRef={noop} onScroll={noop} onPointerUp={noop}
-        compact={false} superagent={false} phase="ready"
-        rows={transcript.rows.map((row, index) => ({ row, index }))} blocks={transcript.blocks}
-        markdownHtml={new Map()} search={transcript.search} moreAbove={false} loadingOlder={false} loadOlder={noop}
-        sessionId={sessionId} cwd="/synthetic/project" session={undefined} httpOrigin="http://offline.invalid"
-        openFile={noop} onOpenImage={noop} onAnswerAsk={async () => {}} livePendingAskIndex={-1} pendingAskBlock={null}
-        lastAnswerBlockIndex={-1} ctxSeq={null} collapseContext={false} stickyEnabled={false} isOperatorPromptRow={() => false}
-        pending={[]} onRetractQueued={async () => {}} overlay={null} turnPreview={null} activity={null} attribution={attribution} />
-    </>}
+    </div>
+    {shown && <ChatView sessionId={sessionId} />}
   </main>
 }
 
@@ -93,7 +83,7 @@ const proof = {
     const { checkIssueChips } = await import('@podium/client-graph/diagnostics/chip-check')
     const state = runtime.getSnapshot()
     const legacy = allIssueViewModels(runtime.replica, state.issueProjections, state.issues)
-    return checkIssueChips(pool.references, legacy, [...document.querySelectorAll<HTMLAnchorElement>('a.ref-link--issue[data-ref]')].map(a => a.dataset.ref!))
+    return checkIssueChips(pool.references, legacy, [...document.querySelectorAll('a.ref-link--issue[data-ref], [data-issue-reference]')].map(a => a.getAttribute('data-ref') ?? a.getAttribute('data-issue-reference')!))
   },
 }
 Object.assign(window, { __issueChips: proof })
