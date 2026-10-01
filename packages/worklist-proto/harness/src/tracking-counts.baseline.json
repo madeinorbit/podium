@@ -1,604 +1,634 @@
 {
-  "updatedBy": "POD-4947",
-  "reason": "history predicate, placement bound and stopped-session decay remove history filings and resident observables",
+  "updatedBy": "POD-4953",
+  "reason": "Complete sidebar row/section consumption; existing issue reaction maintains root and resident roster indexes. Narrow facts avoid unrelated record invalidation; no new per-row reactions.",
   "counts": {
-    "1x.firstPaint.byOwner.GroupNode.computeds": 48,
+    "1x.firstPaint.byOwner.GroupNode.computeds": 56,
     "1x.firstPaint.byOwner.GroupNode.owners": 8,
-    "1x.firstPaint.byOwner.IssueModel.computeds": 11038,
-    "1x.firstPaint.byOwner.IssueModel.owners": 2828,
+    "1x.firstPaint.byOwner.IssueModel.computeds": 11051,
+    "1x.firstPaint.byOwner.IssueModel.owners": 2827,
     "1x.firstPaint.byOwner.IssueModel.reactions": 2429,
-    "1x.firstPaint.byOwner.SessionModel.computeds": 1660,
+    "1x.firstPaint.byOwner.SessionModel.computeds": 1659,
     "1x.firstPaint.byOwner.SessionModel.owners": 1412,
-    "1x.firstPaint.byOwner.WorklistGroups.computeds": 3,
+    "1x.firstPaint.byOwner.WorklistGroups.computeds": 4,
     "1x.firstPaint.byOwner.WorklistGroups.owners": 1,
-    "1x.firstPaint.closedIssues.computeds": 3362,
-    "1x.firstPaint.closedIssues.owners": 859,
+    "1x.firstPaint.byOwner.WorktreeModel.computeds": 8,
+    "1x.firstPaint.byOwner.WorktreeModel.owners": 8,
+    "1x.firstPaint.closedIssues.computeds": 3348,
+    "1x.firstPaint.closedIssues.owners": 858,
     "1x.firstPaint.closedIssues.reactions": 432,
-    "1x.firstPaint.coldIssues.computeds": 653,
-    "1x.firstPaint.coldIssues.owners": 439,
+    "1x.firstPaint.coldIssues.computeds": 651,
+    "1x.firstPaint.coldIssues.owners": 438,
     "1x.firstPaint.coldSessions.computeds": 11,
     "1x.firstPaint.coldSessions.owners": 11,
-    "1x.firstPaint.computeds.declared": 12749,
-    "1x.firstPaint.computeds.total": 12749,
-    "1x.firstPaint.held.arrayElements": 5823,
-    "1x.firstPaint.held.mapEntries": 24638,
-    "1x.firstPaint.held.setMembers": 13159,
-    "1x.firstPaint.observables.array": 2154,
-    "1x.firstPaint.observables.atom": 5868,
-    "1x.firstPaint.observables.map": 31,
+    "1x.firstPaint.computeds.declared": 12778,
+    "1x.firstPaint.computeds.standalone": 5,
+    "1x.firstPaint.computeds.total": 12783,
+    "1x.firstPaint.held.arrayElements": 6107,
+    "1x.firstPaint.held.mapEntries": 24682,
+    "1x.firstPaint.held.setMembers": 13174,
+    "1x.firstPaint.observables.array": 2178,
+    "1x.firstPaint.observables.atom": 22501,
+    "1x.firstPaint.observables.map": 39,
     "1x.firstPaint.observables.object": 11,
-    "1x.firstPaint.observables.set": 3004,
-    "1x.firstPaint.observables.value.mapEntry": 24638,
-    "1x.firstPaint.observables.value.mapHas": 9464,
-    "1x.firstPaint.observables.value.standalone": 2,
+    "1x.firstPaint.observables.set": 3197,
+    "1x.firstPaint.observables.value.mapEntry": 24682,
+    "1x.firstPaint.observables.value.mapHas": 10123,
+    "1x.firstPaint.observables.value.standalone": 193,
     "1x.firstPaint.reactions.built": 2450,
     "1x.firstPaint.reactions.live": 2450,
     "1x.firstPaint.visibleRows": 732,
-    "1x.phases.create.built.atom": 35,
-    "1x.phases.create.built.computed": 3,
-    "1x.phases.create.built.map": 31,
+    "1x.phases.create.built.atom": 44,
+    "1x.phases.create.built.computed": 4,
+    "1x.phases.create.built.map": 39,
     "1x.phases.create.built.object": 3,
     "1x.phases.create.built.observableValue": 1,
-    "1x.phases.create.changes": 3,
-    "1x.phases.firstPaint.built.atom": 129,
-    "1x.phases.firstPaint.built.computed": 1019,
+    "1x.phases.create.built.set": 1,
+    "1x.phases.create.changes": 4,
+    "1x.phases.firstPaint.built.atom": 911,
+    "1x.phases.firstPaint.built.computed": 1076,
     "1x.phases.firstPaint.built.object": 8,
-    "1x.phases.firstPaint.built.observableValue": 594,
+    "1x.phases.firstPaint.built.observableValue": 1281,
     "1x.phases.firstPaint.built.reaction": 61,
-    "1x.phases.firstPaint.changes": 48,
-    "1x.phases.firstPaint.computedRuns": 1014,
-    "1x.phases.firstPaint.distinctRows": 114,
+    "1x.phases.firstPaint.changes": 56,
+    "1x.phases.firstPaint.computedRuns": 1080,
+    "1x.phases.firstPaint.distinctRows": 128,
     "1x.phases.firstPaint.reactionRuns": 61,
-    "1x.phases.firstPaint.rowReads": 2235,
-    "1x.phases.firstReactiveRun.built.array": 21,
-    "1x.phases.firstReactiveRun.built.atom": 567,
-    "1x.phases.firstReactiveRun.built.computed": 11727,
-    "1x.phases.firstReactiveRun.built.observableValue": 8891,
-    "1x.phases.firstReactiveRun.changes": 2196,
-    "1x.phases.firstReactiveRun.computedRuns": 11727,
-    "1x.phases.firstReactiveRun.distinctRows": 3793,
+    "1x.phases.firstPaint.rowReads": 5058,
+    "1x.phases.firstReactiveRun.built.array": 45,
+    "1x.phases.firstReactiveRun.built.atom": 16409,
+    "1x.phases.firstReactiveRun.built.computed": 11703,
+    "1x.phases.firstReactiveRun.built.observableValue": 9087,
+    "1x.phases.firstReactiveRun.built.set": 192,
+    "1x.phases.firstReactiveRun.changes": 4222,
+    "1x.phases.firstReactiveRun.computedRuns": 11703,
+    "1x.phases.firstReactiveRun.distinctRows": 3807,
     "1x.phases.firstReactiveRun.reactionRuns": 2389,
-    "1x.phases.firstReactiveRun.rowReads": 109301,
+    "1x.phases.firstReactiveRun.rowReads": 125774,
     "1x.phases.ingest.built.atom": 56,
-    "1x.phases.ingest.built.observableValue": 19537,
+    "1x.phases.ingest.built.observableValue": 19548,
     "1x.phases.ingest.built.set": 56,
-    "1x.phases.ingest.changes": 19742,
+    "1x.phases.ingest.changes": 20238,
     "1x.phases.ingest.distinctRows": 21219,
-    "1x.phases.ingest.rowReads": 349359,
+    "1x.phases.ingest.rowReads": 348313,
     "1x.phases.nodeConstruction.built.reaction": 2389,
     "1x.phases.relationUpkeep.built.array": 2133,
     "1x.phases.relationUpkeep.built.atom": 5081,
     "1x.phases.relationUpkeep.built.observableValue": 5081,
     "1x.phases.relationUpkeep.built.set": 2948,
     "1x.phases.relationUpkeep.changes": 21707,
-    "1x.startup.byOwner.IssueModel.computeds": 10164,
-    "1x.startup.byOwner.IssueModel.owners": 2742,
+    "1x.startup.byOwner.IssueModel.computeds": 10142,
+    "1x.startup.byOwner.IssueModel.owners": 2741,
     "1x.startup.byOwner.IssueModel.reactions": 2389,
-    "1x.startup.byOwner.SessionModel.computeds": 1563,
+    "1x.startup.byOwner.SessionModel.computeds": 1561,
     "1x.startup.byOwner.SessionModel.owners": 1412,
-    "1x.startup.byOwner.WorklistGroups.computeds": 3,
+    "1x.startup.byOwner.WorklistGroups.computeds": 4,
     "1x.startup.byOwner.WorklistGroups.owners": 1,
-    "1x.startup.closedIssues.computeds": 2944,
-    "1x.startup.closedIssues.owners": 775,
+    "1x.startup.closedIssues.computeds": 2922,
+    "1x.startup.closedIssues.owners": 774,
     "1x.startup.closedIssues.reactions": 424,
-    "1x.startup.coldIssues.computeds": 432,
-    "1x.startup.coldIssues.owners": 353,
+    "1x.startup.coldIssues.computeds": 430,
+    "1x.startup.coldIssues.owners": 352,
     "1x.startup.coldSessions.computeds": 11,
     "1x.startup.coldSessions.owners": 11,
-    "1x.startup.computeds.declared": 11730,
-    "1x.startup.computeds.total": 11730,
-    "1x.startup.held.arrayElements": 5823,
-    "1x.startup.held.mapEntries": 24638,
-    "1x.startup.held.setMembers": 13159,
-    "1x.startup.observables.array": 2154,
-    "1x.startup.observables.atom": 5739,
-    "1x.startup.observables.map": 31,
+    "1x.startup.computeds.declared": 11707,
+    "1x.startup.computeds.total": 11707,
+    "1x.startup.held.arrayElements": 6107,
+    "1x.startup.held.mapEntries": 24682,
+    "1x.startup.held.setMembers": 13174,
+    "1x.startup.observables.array": 2178,
+    "1x.startup.observables.atom": 21590,
+    "1x.startup.observables.map": 39,
     "1x.startup.observables.object": 3,
-    "1x.startup.observables.set": 3004,
-    "1x.startup.observables.value.mapEntry": 24638,
-    "1x.startup.observables.value.mapHas": 8870,
-    "1x.startup.observables.value.standalone": 2,
+    "1x.startup.observables.set": 3197,
+    "1x.startup.observables.value.mapEntry": 24682,
+    "1x.startup.observables.value.mapHas": 8842,
+    "1x.startup.observables.value.standalone": 193,
     "1x.startup.reactions.built": 2389,
     "1x.startup.reactions.live": 2389,
     "1x.startup.visibleRows": 732,
-    "4x.firstPaint.byOwner.GroupNode.computeds": 48,
+    "4x.firstPaint.byOwner.GroupNode.computeds": 56,
     "4x.firstPaint.byOwner.GroupNode.owners": 8,
-    "4x.firstPaint.byOwner.IssueModel.computeds": 41651,
-    "4x.firstPaint.byOwner.IssueModel.owners": 11044,
+    "4x.firstPaint.byOwner.IssueModel.computeds": 41603,
+    "4x.firstPaint.byOwner.IssueModel.owners": 11042,
     "4x.firstPaint.byOwner.IssueModel.reactions": 9656,
-    "4x.firstPaint.byOwner.SessionModel.computeds": 6485,
-    "4x.firstPaint.byOwner.SessionModel.owners": 5899,
-    "4x.firstPaint.byOwner.WorklistGroups.computeds": 3,
+    "4x.firstPaint.byOwner.SessionModel.computeds": 6490,
+    "4x.firstPaint.byOwner.SessionModel.owners": 5904,
+    "4x.firstPaint.byOwner.WorklistGroups.computeds": 4,
     "4x.firstPaint.byOwner.WorklistGroups.owners": 1,
-    "4x.firstPaint.closedIssues.computeds": 12148,
-    "4x.firstPaint.closedIssues.owners": 3176,
+    "4x.firstPaint.byOwner.WorktreeModel.computeds": 8,
+    "4x.firstPaint.byOwner.WorktreeModel.owners": 8,
+    "4x.firstPaint.closedIssues.computeds": 12066,
+    "4x.firstPaint.closedIssues.owners": 3174,
     "4x.firstPaint.closedIssues.reactions": 1758,
-    "4x.firstPaint.coldIssues.computeds": 1933,
-    "4x.firstPaint.coldIssues.owners": 1428,
+    "4x.firstPaint.coldIssues.computeds": 1929,
+    "4x.firstPaint.coldIssues.owners": 1426,
     "4x.firstPaint.coldSessions.computeds": 51,
     "4x.firstPaint.coldSessions.owners": 51,
-    "4x.firstPaint.computeds.declared": 48187,
-    "4x.firstPaint.computeds.total": 48187,
-    "4x.firstPaint.held.arrayElements": 23292,
-    "4x.firstPaint.held.mapEntries": 99397,
-    "4x.firstPaint.held.setMembers": 52807,
-    "4x.firstPaint.observables.array": 8574,
-    "4x.firstPaint.observables.atom": 23040,
-    "4x.firstPaint.observables.map": 31,
+    "4x.firstPaint.computeds.declared": 48161,
+    "4x.firstPaint.computeds.standalone": 12,
+    "4x.firstPaint.computeds.total": 48173,
+    "4x.firstPaint.held.arrayElements": 24396,
+    "4x.firstPaint.held.mapEntries": 99462,
+    "4x.firstPaint.held.setMembers": 52834,
+    "4x.firstPaint.observables.array": 8604,
+    "4x.firstPaint.observables.atom": 88459,
+    "4x.firstPaint.observables.map": 39,
     "4x.firstPaint.observables.object": 11,
-    "4x.firstPaint.observables.set": 12136,
-    "4x.firstPaint.observables.value.mapEntry": 99397,
-    "4x.firstPaint.observables.value.mapHas": 36306,
-    "4x.firstPaint.observables.value.standalone": 5,
+    "4x.firstPaint.observables.set": 12928,
+    "4x.firstPaint.observables.value.mapEntry": 99462,
+    "4x.firstPaint.observables.value.mapHas": 38824,
+    "4x.firstPaint.observables.value.standalone": 780,
     "4x.firstPaint.reactions.built": 9677,
     "4x.firstPaint.reactions.live": 9677,
     "4x.firstPaint.visibleRows": 2928,
-    "4x.phases.create.built.atom": 35,
-    "4x.phases.create.built.computed": 3,
-    "4x.phases.create.built.map": 31,
+    "4x.phases.create.built.atom": 44,
+    "4x.phases.create.built.computed": 4,
+    "4x.phases.create.built.map": 39,
     "4x.phases.create.built.object": 3,
     "4x.phases.create.built.observableValue": 1,
-    "4x.phases.create.changes": 3,
-    "4x.phases.firstPaint.built.atom": 153,
-    "4x.phases.firstPaint.built.computed": 1350,
+    "4x.phases.create.built.set": 1,
+    "4x.phases.create.changes": 4,
+    "4x.phases.firstPaint.built.atom": 3512,
+    "4x.phases.firstPaint.built.computed": 1427,
     "4x.phases.firstPaint.built.object": 8,
-    "4x.phases.firstPaint.built.observableValue": 864,
+    "4x.phases.firstPaint.built.observableValue": 3477,
     "4x.phases.firstPaint.built.reaction": 61,
-    "4x.phases.firstPaint.changes": 48,
-    "4x.phases.firstPaint.computedRuns": 1345,
-    "4x.phases.firstPaint.distinctRows": 189,
+    "4x.phases.firstPaint.changes": 56,
+    "4x.phases.firstPaint.computedRuns": 1431,
+    "4x.phases.firstPaint.distinctRows": 210,
     "4x.phases.firstPaint.reactionRuns": 61,
-    "4x.phases.firstPaint.rowReads": 3738,
-    "4x.phases.firstReactiveRun.built.array": 24,
-    "4x.phases.firstReactiveRun.built.atom": 2166,
-    "4x.phases.firstReactiveRun.built.computed": 46834,
-    "4x.phases.firstReactiveRun.built.observableValue": 35466,
-    "4x.phases.firstReactiveRun.changes": 8724,
-    "4x.phases.firstReactiveRun.computedRuns": 46834,
-    "4x.phases.firstReactiveRun.distinctRows": 15470,
+    "4x.phases.firstPaint.rowReads": 8271,
+    "4x.phases.firstReactiveRun.built.array": 54,
+    "4x.phases.firstReactiveRun.built.atom": 64217,
+    "4x.phases.firstReactiveRun.built.computed": 46742,
+    "4x.phases.firstReactiveRun.built.observableValue": 36200,
+    "4x.phases.firstReactiveRun.built.set": 791,
+    "4x.phases.firstReactiveRun.changes": 16852,
+    "4x.phases.firstReactiveRun.computedRuns": 46742,
+    "4x.phases.firstReactiveRun.distinctRows": 15526,
     "4x.phases.firstReactiveRun.reactionRuns": 9616,
-    "4x.phases.firstReactiveRun.rowReads": 438539,
+    "4x.phases.firstReactiveRun.rowReads": 502885,
     "4x.phases.ingest.built.atom": 169,
-    "4x.phases.ingest.built.observableValue": 78860,
+    "4x.phases.ingest.built.observableValue": 78871,
     "4x.phases.ingest.built.set": 169,
-    "4x.phases.ingest.changes": 79650,
+    "4x.phases.ingest.changes": 81550,
     "4x.phases.ingest.distinctRows": 84914,
-    "4x.phases.ingest.rowReads": 1362047,
+    "4x.phases.ingest.rowReads": 1358195,
     "4x.phases.nodeConstruction.built.reaction": 9616,
     "4x.phases.relationUpkeep.built.array": 8550,
     "4x.phases.relationUpkeep.built.atom": 20517,
     "4x.phases.relationUpkeep.built.observableValue": 20517,
     "4x.phases.relationUpkeep.built.set": 11967,
     "4x.phases.relationUpkeep.changes": 87192,
-    "4x.startup.byOwner.IssueModel.computeds": 40511,
-    "4x.startup.byOwner.IssueModel.owners": 10953,
+    "4x.startup.byOwner.IssueModel.computeds": 40427,
+    "4x.startup.byOwner.IssueModel.owners": 10951,
     "4x.startup.byOwner.IssueModel.reactions": 9616,
-    "4x.startup.byOwner.SessionModel.computeds": 6323,
+    "4x.startup.byOwner.SessionModel.computeds": 6315,
     "4x.startup.byOwner.SessionModel.owners": 5899,
-    "4x.startup.byOwner.WorklistGroups.computeds": 3,
+    "4x.startup.byOwner.WorklistGroups.computeds": 4,
     "4x.startup.byOwner.WorklistGroups.owners": 1,
-    "4x.startup.closedIssues.computeds": 11681,
-    "4x.startup.closedIssues.owners": 3087,
+    "4x.startup.closedIssues.computeds": 11597,
+    "4x.startup.closedIssues.owners": 3085,
     "4x.startup.closedIssues.reactions": 1756,
-    "4x.startup.coldIssues.computeds": 1662,
-    "4x.startup.coldIssues.owners": 1337,
+    "4x.startup.coldIssues.computeds": 1658,
+    "4x.startup.coldIssues.owners": 1335,
     "4x.startup.coldSessions.computeds": 51,
     "4x.startup.coldSessions.owners": 51,
-    "4x.startup.computeds.declared": 46837,
-    "4x.startup.computeds.total": 46837,
-    "4x.startup.held.arrayElements": 23292,
-    "4x.startup.held.mapEntries": 99397,
-    "4x.startup.held.setMembers": 52807,
-    "4x.startup.observables.array": 8574,
-    "4x.startup.observables.atom": 22887,
-    "4x.startup.observables.map": 31,
+    "4x.startup.computeds.declared": 46746,
+    "4x.startup.computeds.total": 46746,
+    "4x.startup.held.arrayElements": 24396,
+    "4x.startup.held.mapEntries": 99462,
+    "4x.startup.held.setMembers": 52834,
+    "4x.startup.observables.array": 8604,
+    "4x.startup.observables.atom": 84947,
+    "4x.startup.observables.map": 39,
     "4x.startup.observables.object": 3,
-    "4x.startup.observables.set": 12136,
-    "4x.startup.observables.value.mapEntry": 99397,
-    "4x.startup.observables.value.mapHas": 35442,
-    "4x.startup.observables.value.standalone": 5,
+    "4x.startup.observables.set": 12928,
+    "4x.startup.observables.value.mapEntry": 99462,
+    "4x.startup.observables.value.mapHas": 35347,
+    "4x.startup.observables.value.standalone": 780,
     "4x.startup.reactions.built": 9616,
     "4x.startup.reactions.live": 9616,
     "4x.startup.visibleRows": 2928,
-    "write-idle.1x.firstPaint.byOwner.GroupNode.computeds": 48,
+    "write-idle.1x.firstPaint.byOwner.GroupNode.computeds": 56,
     "write-idle.1x.firstPaint.byOwner.GroupNode.owners": 8,
-    "write-idle.1x.firstPaint.byOwner.IssueModel.computeds": 11038,
-    "write-idle.1x.firstPaint.byOwner.IssueModel.owners": 2828,
+    "write-idle.1x.firstPaint.byOwner.IssueModel.computeds": 11051,
+    "write-idle.1x.firstPaint.byOwner.IssueModel.owners": 2827,
     "write-idle.1x.firstPaint.byOwner.IssueModel.reactions": 2429,
-    "write-idle.1x.firstPaint.byOwner.SessionModel.computeds": 1660,
+    "write-idle.1x.firstPaint.byOwner.SessionModel.computeds": 1659,
     "write-idle.1x.firstPaint.byOwner.SessionModel.owners": 1412,
-    "write-idle.1x.firstPaint.byOwner.WorklistGroups.computeds": 3,
+    "write-idle.1x.firstPaint.byOwner.WorklistGroups.computeds": 4,
     "write-idle.1x.firstPaint.byOwner.WorklistGroups.owners": 1,
-    "write-idle.1x.firstPaint.closedIssues.computeds": 3362,
-    "write-idle.1x.firstPaint.closedIssues.owners": 859,
+    "write-idle.1x.firstPaint.byOwner.WorktreeModel.computeds": 8,
+    "write-idle.1x.firstPaint.byOwner.WorktreeModel.owners": 8,
+    "write-idle.1x.firstPaint.closedIssues.computeds": 3348,
+    "write-idle.1x.firstPaint.closedIssues.owners": 858,
     "write-idle.1x.firstPaint.closedIssues.reactions": 432,
-    "write-idle.1x.firstPaint.coldIssues.computeds": 653,
-    "write-idle.1x.firstPaint.coldIssues.owners": 439,
+    "write-idle.1x.firstPaint.coldIssues.computeds": 651,
+    "write-idle.1x.firstPaint.coldIssues.owners": 438,
     "write-idle.1x.firstPaint.coldSessions.computeds": 11,
     "write-idle.1x.firstPaint.coldSessions.owners": 11,
-    "write-idle.1x.firstPaint.computeds.declared": 12749,
-    "write-idle.1x.firstPaint.computeds.total": 12749,
-    "write-idle.1x.firstPaint.held.arrayElements": 5823,
-    "write-idle.1x.firstPaint.held.mapEntries": 24638,
-    "write-idle.1x.firstPaint.held.setMembers": 13159,
-    "write-idle.1x.firstPaint.observables.array": 2154,
-    "write-idle.1x.firstPaint.observables.atom": 5869,
-    "write-idle.1x.firstPaint.observables.map": 32,
+    "write-idle.1x.firstPaint.computeds.declared": 12778,
+    "write-idle.1x.firstPaint.computeds.standalone": 5,
+    "write-idle.1x.firstPaint.computeds.total": 12783,
+    "write-idle.1x.firstPaint.held.arrayElements": 6107,
+    "write-idle.1x.firstPaint.held.mapEntries": 24682,
+    "write-idle.1x.firstPaint.held.setMembers": 13174,
+    "write-idle.1x.firstPaint.observables.array": 2178,
+    "write-idle.1x.firstPaint.observables.atom": 22502,
+    "write-idle.1x.firstPaint.observables.map": 40,
     "write-idle.1x.firstPaint.observables.object": 11,
-    "write-idle.1x.firstPaint.observables.set": 3004,
-    "write-idle.1x.firstPaint.observables.value.mapEntry": 24638,
-    "write-idle.1x.firstPaint.observables.value.mapHas": 11853,
-    "write-idle.1x.firstPaint.observables.value.standalone": 2,
+    "write-idle.1x.firstPaint.observables.set": 3197,
+    "write-idle.1x.firstPaint.observables.value.mapEntry": 24682,
+    "write-idle.1x.firstPaint.observables.value.mapHas": 12512,
+    "write-idle.1x.firstPaint.observables.value.standalone": 193,
     "write-idle.1x.firstPaint.reactions.built": 2450,
     "write-idle.1x.firstPaint.reactions.live": 2450,
     "write-idle.1x.firstPaint.visibleRows": 732,
-    "write-idle.1x.phases.create.built.atom": 36,
-    "write-idle.1x.phases.create.built.computed": 3,
-    "write-idle.1x.phases.create.built.map": 32,
+    "write-idle.1x.phases.create.built.atom": 45,
+    "write-idle.1x.phases.create.built.computed": 4,
+    "write-idle.1x.phases.create.built.map": 40,
     "write-idle.1x.phases.create.built.object": 3,
     "write-idle.1x.phases.create.built.observableValue": 1,
-    "write-idle.1x.phases.create.changes": 3,
-    "write-idle.1x.phases.firstPaint.built.atom": 129,
-    "write-idle.1x.phases.firstPaint.built.computed": 1019,
+    "write-idle.1x.phases.create.built.set": 1,
+    "write-idle.1x.phases.create.changes": 4,
+    "write-idle.1x.phases.firstPaint.built.atom": 911,
+    "write-idle.1x.phases.firstPaint.built.computed": 1076,
     "write-idle.1x.phases.firstPaint.built.object": 8,
-    "write-idle.1x.phases.firstPaint.built.observableValue": 594,
+    "write-idle.1x.phases.firstPaint.built.observableValue": 1281,
     "write-idle.1x.phases.firstPaint.built.reaction": 61,
-    "write-idle.1x.phases.firstPaint.changes": 48,
-    "write-idle.1x.phases.firstPaint.computedRuns": 1014,
-    "write-idle.1x.phases.firstPaint.distinctRows": 114,
+    "write-idle.1x.phases.firstPaint.changes": 56,
+    "write-idle.1x.phases.firstPaint.computedRuns": 1080,
+    "write-idle.1x.phases.firstPaint.distinctRows": 128,
     "write-idle.1x.phases.firstPaint.reactionRuns": 61,
-    "write-idle.1x.phases.firstPaint.rowReads": 2235,
-    "write-idle.1x.phases.firstReactiveRun.built.array": 21,
-    "write-idle.1x.phases.firstReactiveRun.built.atom": 567,
-    "write-idle.1x.phases.firstReactiveRun.built.computed": 11727,
-    "write-idle.1x.phases.firstReactiveRun.built.observableValue": 11280,
-    "write-idle.1x.phases.firstReactiveRun.changes": 2196,
-    "write-idle.1x.phases.firstReactiveRun.computedRuns": 11727,
-    "write-idle.1x.phases.firstReactiveRun.distinctRows": 3793,
+    "write-idle.1x.phases.firstPaint.rowReads": 5058,
+    "write-idle.1x.phases.firstReactiveRun.built.array": 45,
+    "write-idle.1x.phases.firstReactiveRun.built.atom": 16409,
+    "write-idle.1x.phases.firstReactiveRun.built.computed": 11703,
+    "write-idle.1x.phases.firstReactiveRun.built.observableValue": 11476,
+    "write-idle.1x.phases.firstReactiveRun.built.set": 192,
+    "write-idle.1x.phases.firstReactiveRun.changes": 4222,
+    "write-idle.1x.phases.firstReactiveRun.computedRuns": 11703,
+    "write-idle.1x.phases.firstReactiveRun.distinctRows": 3807,
     "write-idle.1x.phases.firstReactiveRun.reactionRuns": 2389,
-    "write-idle.1x.phases.firstReactiveRun.rowReads": 109301,
+    "write-idle.1x.phases.firstReactiveRun.rowReads": 125774,
     "write-idle.1x.phases.ingest.built.atom": 56,
-    "write-idle.1x.phases.ingest.built.observableValue": 19537,
+    "write-idle.1x.phases.ingest.built.observableValue": 19548,
     "write-idle.1x.phases.ingest.built.set": 56,
-    "write-idle.1x.phases.ingest.changes": 19742,
+    "write-idle.1x.phases.ingest.changes": 20238,
     "write-idle.1x.phases.ingest.distinctRows": 21219,
-    "write-idle.1x.phases.ingest.rowReads": 349359,
+    "write-idle.1x.phases.ingest.rowReads": 348313,
     "write-idle.1x.phases.nodeConstruction.built.reaction": 2389,
     "write-idle.1x.phases.relationUpkeep.built.array": 2133,
     "write-idle.1x.phases.relationUpkeep.built.atom": 5081,
     "write-idle.1x.phases.relationUpkeep.built.observableValue": 5081,
     "write-idle.1x.phases.relationUpkeep.built.set": 2948,
     "write-idle.1x.phases.relationUpkeep.changes": 21707,
-    "write-idle.1x.startup.byOwner.IssueModel.computeds": 10164,
-    "write-idle.1x.startup.byOwner.IssueModel.owners": 2742,
+    "write-idle.1x.startup.byOwner.IssueModel.computeds": 10142,
+    "write-idle.1x.startup.byOwner.IssueModel.owners": 2741,
     "write-idle.1x.startup.byOwner.IssueModel.reactions": 2389,
-    "write-idle.1x.startup.byOwner.SessionModel.computeds": 1563,
+    "write-idle.1x.startup.byOwner.SessionModel.computeds": 1561,
     "write-idle.1x.startup.byOwner.SessionModel.owners": 1412,
-    "write-idle.1x.startup.byOwner.WorklistGroups.computeds": 3,
+    "write-idle.1x.startup.byOwner.WorklistGroups.computeds": 4,
     "write-idle.1x.startup.byOwner.WorklistGroups.owners": 1,
-    "write-idle.1x.startup.closedIssues.computeds": 2944,
-    "write-idle.1x.startup.closedIssues.owners": 775,
+    "write-idle.1x.startup.closedIssues.computeds": 2922,
+    "write-idle.1x.startup.closedIssues.owners": 774,
     "write-idle.1x.startup.closedIssues.reactions": 424,
-    "write-idle.1x.startup.coldIssues.computeds": 432,
-    "write-idle.1x.startup.coldIssues.owners": 353,
+    "write-idle.1x.startup.coldIssues.computeds": 430,
+    "write-idle.1x.startup.coldIssues.owners": 352,
     "write-idle.1x.startup.coldSessions.computeds": 11,
     "write-idle.1x.startup.coldSessions.owners": 11,
-    "write-idle.1x.startup.computeds.declared": 11730,
-    "write-idle.1x.startup.computeds.total": 11730,
-    "write-idle.1x.startup.held.arrayElements": 5823,
-    "write-idle.1x.startup.held.mapEntries": 24638,
-    "write-idle.1x.startup.held.setMembers": 13159,
-    "write-idle.1x.startup.observables.array": 2154,
-    "write-idle.1x.startup.observables.atom": 5740,
-    "write-idle.1x.startup.observables.map": 32,
+    "write-idle.1x.startup.computeds.declared": 11707,
+    "write-idle.1x.startup.computeds.total": 11707,
+    "write-idle.1x.startup.held.arrayElements": 6107,
+    "write-idle.1x.startup.held.mapEntries": 24682,
+    "write-idle.1x.startup.held.setMembers": 13174,
+    "write-idle.1x.startup.observables.array": 2178,
+    "write-idle.1x.startup.observables.atom": 21591,
+    "write-idle.1x.startup.observables.map": 40,
     "write-idle.1x.startup.observables.object": 3,
-    "write-idle.1x.startup.observables.set": 3004,
-    "write-idle.1x.startup.observables.value.mapEntry": 24638,
-    "write-idle.1x.startup.observables.value.mapHas": 11259,
-    "write-idle.1x.startup.observables.value.standalone": 2,
+    "write-idle.1x.startup.observables.set": 3197,
+    "write-idle.1x.startup.observables.value.mapEntry": 24682,
+    "write-idle.1x.startup.observables.value.mapHas": 11231,
+    "write-idle.1x.startup.observables.value.standalone": 193,
     "write-idle.1x.startup.reactions.built": 2389,
     "write-idle.1x.startup.reactions.live": 2389,
     "write-idle.1x.startup.visibleRows": 732,
-    "write-idle.4x.firstPaint.byOwner.GroupNode.computeds": 48,
+    "write-idle.4x.firstPaint.byOwner.GroupNode.computeds": 56,
     "write-idle.4x.firstPaint.byOwner.GroupNode.owners": 8,
-    "write-idle.4x.firstPaint.byOwner.IssueModel.computeds": 41651,
-    "write-idle.4x.firstPaint.byOwner.IssueModel.owners": 11044,
+    "write-idle.4x.firstPaint.byOwner.IssueModel.computeds": 41603,
+    "write-idle.4x.firstPaint.byOwner.IssueModel.owners": 11042,
     "write-idle.4x.firstPaint.byOwner.IssueModel.reactions": 9656,
-    "write-idle.4x.firstPaint.byOwner.SessionModel.computeds": 6485,
-    "write-idle.4x.firstPaint.byOwner.SessionModel.owners": 5899,
-    "write-idle.4x.firstPaint.byOwner.WorklistGroups.computeds": 3,
+    "write-idle.4x.firstPaint.byOwner.SessionModel.computeds": 6490,
+    "write-idle.4x.firstPaint.byOwner.SessionModel.owners": 5904,
+    "write-idle.4x.firstPaint.byOwner.WorklistGroups.computeds": 4,
     "write-idle.4x.firstPaint.byOwner.WorklistGroups.owners": 1,
-    "write-idle.4x.firstPaint.closedIssues.computeds": 12148,
-    "write-idle.4x.firstPaint.closedIssues.owners": 3176,
+    "write-idle.4x.firstPaint.byOwner.WorktreeModel.computeds": 8,
+    "write-idle.4x.firstPaint.byOwner.WorktreeModel.owners": 8,
+    "write-idle.4x.firstPaint.closedIssues.computeds": 12066,
+    "write-idle.4x.firstPaint.closedIssues.owners": 3174,
     "write-idle.4x.firstPaint.closedIssues.reactions": 1758,
-    "write-idle.4x.firstPaint.coldIssues.computeds": 1933,
-    "write-idle.4x.firstPaint.coldIssues.owners": 1428,
+    "write-idle.4x.firstPaint.coldIssues.computeds": 1929,
+    "write-idle.4x.firstPaint.coldIssues.owners": 1426,
     "write-idle.4x.firstPaint.coldSessions.computeds": 51,
     "write-idle.4x.firstPaint.coldSessions.owners": 51,
-    "write-idle.4x.firstPaint.computeds.declared": 48187,
-    "write-idle.4x.firstPaint.computeds.total": 48187,
-    "write-idle.4x.firstPaint.held.arrayElements": 23292,
-    "write-idle.4x.firstPaint.held.mapEntries": 99397,
-    "write-idle.4x.firstPaint.held.setMembers": 52807,
-    "write-idle.4x.firstPaint.observables.array": 8574,
-    "write-idle.4x.firstPaint.observables.atom": 23041,
-    "write-idle.4x.firstPaint.observables.map": 32,
+    "write-idle.4x.firstPaint.computeds.declared": 48161,
+    "write-idle.4x.firstPaint.computeds.standalone": 12,
+    "write-idle.4x.firstPaint.computeds.total": 48173,
+    "write-idle.4x.firstPaint.held.arrayElements": 24396,
+    "write-idle.4x.firstPaint.held.mapEntries": 99462,
+    "write-idle.4x.firstPaint.held.setMembers": 52834,
+    "write-idle.4x.firstPaint.observables.array": 8604,
+    "write-idle.4x.firstPaint.observables.atom": 88460,
+    "write-idle.4x.firstPaint.observables.map": 40,
     "write-idle.4x.firstPaint.observables.object": 11,
-    "write-idle.4x.firstPaint.observables.set": 12136,
-    "write-idle.4x.firstPaint.observables.value.mapEntry": 99397,
-    "write-idle.4x.firstPaint.observables.value.mapHas": 45922,
-    "write-idle.4x.firstPaint.observables.value.standalone": 5,
+    "write-idle.4x.firstPaint.observables.set": 12928,
+    "write-idle.4x.firstPaint.observables.value.mapEntry": 99462,
+    "write-idle.4x.firstPaint.observables.value.mapHas": 48440,
+    "write-idle.4x.firstPaint.observables.value.standalone": 780,
     "write-idle.4x.firstPaint.reactions.built": 9677,
     "write-idle.4x.firstPaint.reactions.live": 9677,
     "write-idle.4x.firstPaint.visibleRows": 2928,
-    "write-idle.4x.phases.create.built.atom": 36,
-    "write-idle.4x.phases.create.built.computed": 3,
-    "write-idle.4x.phases.create.built.map": 32,
+    "write-idle.4x.phases.create.built.atom": 45,
+    "write-idle.4x.phases.create.built.computed": 4,
+    "write-idle.4x.phases.create.built.map": 40,
     "write-idle.4x.phases.create.built.object": 3,
     "write-idle.4x.phases.create.built.observableValue": 1,
-    "write-idle.4x.phases.create.changes": 3,
-    "write-idle.4x.phases.firstPaint.built.atom": 153,
-    "write-idle.4x.phases.firstPaint.built.computed": 1350,
+    "write-idle.4x.phases.create.built.set": 1,
+    "write-idle.4x.phases.create.changes": 4,
+    "write-idle.4x.phases.firstPaint.built.atom": 3512,
+    "write-idle.4x.phases.firstPaint.built.computed": 1427,
     "write-idle.4x.phases.firstPaint.built.object": 8,
-    "write-idle.4x.phases.firstPaint.built.observableValue": 864,
+    "write-idle.4x.phases.firstPaint.built.observableValue": 3477,
     "write-idle.4x.phases.firstPaint.built.reaction": 61,
-    "write-idle.4x.phases.firstPaint.changes": 48,
-    "write-idle.4x.phases.firstPaint.computedRuns": 1345,
-    "write-idle.4x.phases.firstPaint.distinctRows": 189,
+    "write-idle.4x.phases.firstPaint.changes": 56,
+    "write-idle.4x.phases.firstPaint.computedRuns": 1431,
+    "write-idle.4x.phases.firstPaint.distinctRows": 210,
     "write-idle.4x.phases.firstPaint.reactionRuns": 61,
-    "write-idle.4x.phases.firstPaint.rowReads": 3738,
-    "write-idle.4x.phases.firstReactiveRun.built.array": 24,
-    "write-idle.4x.phases.firstReactiveRun.built.atom": 2166,
-    "write-idle.4x.phases.firstReactiveRun.built.computed": 46834,
-    "write-idle.4x.phases.firstReactiveRun.built.observableValue": 45082,
-    "write-idle.4x.phases.firstReactiveRun.changes": 8724,
-    "write-idle.4x.phases.firstReactiveRun.computedRuns": 46834,
-    "write-idle.4x.phases.firstReactiveRun.distinctRows": 15470,
+    "write-idle.4x.phases.firstPaint.rowReads": 8271,
+    "write-idle.4x.phases.firstReactiveRun.built.array": 54,
+    "write-idle.4x.phases.firstReactiveRun.built.atom": 64217,
+    "write-idle.4x.phases.firstReactiveRun.built.computed": 46742,
+    "write-idle.4x.phases.firstReactiveRun.built.observableValue": 45816,
+    "write-idle.4x.phases.firstReactiveRun.built.set": 791,
+    "write-idle.4x.phases.firstReactiveRun.changes": 16852,
+    "write-idle.4x.phases.firstReactiveRun.computedRuns": 46742,
+    "write-idle.4x.phases.firstReactiveRun.distinctRows": 15526,
     "write-idle.4x.phases.firstReactiveRun.reactionRuns": 9616,
-    "write-idle.4x.phases.firstReactiveRun.rowReads": 438539,
+    "write-idle.4x.phases.firstReactiveRun.rowReads": 502885,
     "write-idle.4x.phases.ingest.built.atom": 169,
-    "write-idle.4x.phases.ingest.built.observableValue": 78860,
+    "write-idle.4x.phases.ingest.built.observableValue": 78871,
     "write-idle.4x.phases.ingest.built.set": 169,
-    "write-idle.4x.phases.ingest.changes": 79650,
+    "write-idle.4x.phases.ingest.changes": 81550,
     "write-idle.4x.phases.ingest.distinctRows": 84914,
-    "write-idle.4x.phases.ingest.rowReads": 1362047,
+    "write-idle.4x.phases.ingest.rowReads": 1358195,
     "write-idle.4x.phases.nodeConstruction.built.reaction": 9616,
     "write-idle.4x.phases.relationUpkeep.built.array": 8550,
     "write-idle.4x.phases.relationUpkeep.built.atom": 20517,
     "write-idle.4x.phases.relationUpkeep.built.observableValue": 20517,
     "write-idle.4x.phases.relationUpkeep.built.set": 11967,
     "write-idle.4x.phases.relationUpkeep.changes": 87192,
-    "write-idle.4x.startup.byOwner.IssueModel.computeds": 40511,
-    "write-idle.4x.startup.byOwner.IssueModel.owners": 10953,
+    "write-idle.4x.startup.byOwner.IssueModel.computeds": 40427,
+    "write-idle.4x.startup.byOwner.IssueModel.owners": 10951,
     "write-idle.4x.startup.byOwner.IssueModel.reactions": 9616,
-    "write-idle.4x.startup.byOwner.SessionModel.computeds": 6323,
+    "write-idle.4x.startup.byOwner.SessionModel.computeds": 6315,
     "write-idle.4x.startup.byOwner.SessionModel.owners": 5899,
-    "write-idle.4x.startup.byOwner.WorklistGroups.computeds": 3,
+    "write-idle.4x.startup.byOwner.WorklistGroups.computeds": 4,
     "write-idle.4x.startup.byOwner.WorklistGroups.owners": 1,
-    "write-idle.4x.startup.closedIssues.computeds": 11681,
-    "write-idle.4x.startup.closedIssues.owners": 3087,
+    "write-idle.4x.startup.closedIssues.computeds": 11597,
+    "write-idle.4x.startup.closedIssues.owners": 3085,
     "write-idle.4x.startup.closedIssues.reactions": 1756,
-    "write-idle.4x.startup.coldIssues.computeds": 1662,
-    "write-idle.4x.startup.coldIssues.owners": 1337,
+    "write-idle.4x.startup.coldIssues.computeds": 1658,
+    "write-idle.4x.startup.coldIssues.owners": 1335,
     "write-idle.4x.startup.coldSessions.computeds": 51,
     "write-idle.4x.startup.coldSessions.owners": 51,
-    "write-idle.4x.startup.computeds.declared": 46837,
-    "write-idle.4x.startup.computeds.total": 46837,
-    "write-idle.4x.startup.held.arrayElements": 23292,
-    "write-idle.4x.startup.held.mapEntries": 99397,
-    "write-idle.4x.startup.held.setMembers": 52807,
-    "write-idle.4x.startup.observables.array": 8574,
-    "write-idle.4x.startup.observables.atom": 22888,
-    "write-idle.4x.startup.observables.map": 32,
+    "write-idle.4x.startup.computeds.declared": 46746,
+    "write-idle.4x.startup.computeds.total": 46746,
+    "write-idle.4x.startup.held.arrayElements": 24396,
+    "write-idle.4x.startup.held.mapEntries": 99462,
+    "write-idle.4x.startup.held.setMembers": 52834,
+    "write-idle.4x.startup.observables.array": 8604,
+    "write-idle.4x.startup.observables.atom": 84948,
+    "write-idle.4x.startup.observables.map": 40,
     "write-idle.4x.startup.observables.object": 3,
-    "write-idle.4x.startup.observables.set": 12136,
-    "write-idle.4x.startup.observables.value.mapEntry": 99397,
-    "write-idle.4x.startup.observables.value.mapHas": 45058,
-    "write-idle.4x.startup.observables.value.standalone": 5,
+    "write-idle.4x.startup.observables.set": 12928,
+    "write-idle.4x.startup.observables.value.mapEntry": 99462,
+    "write-idle.4x.startup.observables.value.mapHas": 44963,
+    "write-idle.4x.startup.observables.value.standalone": 780,
     "write-idle.4x.startup.reactions.built": 9616,
     "write-idle.4x.startup.reactions.live": 9616,
     "write-idle.4x.startup.visibleRows": 2928,
-    "write-pending.1x.firstPaint.byOwner.GroupNode.computeds": 48,
+    "write-pending.1x.firstPaint.byOwner.GroupNode.computeds": 56,
     "write-pending.1x.firstPaint.byOwner.GroupNode.owners": 8,
-    "write-pending.1x.firstPaint.byOwner.IssueModel.computeds": 11038,
-    "write-pending.1x.firstPaint.byOwner.IssueModel.owners": 2828,
+    "write-pending.1x.firstPaint.byOwner.IssueModel.computeds": 11051,
+    "write-pending.1x.firstPaint.byOwner.IssueModel.owners": 2827,
     "write-pending.1x.firstPaint.byOwner.IssueModel.reactions": 2429,
-    "write-pending.1x.firstPaint.byOwner.SessionModel.computeds": 1660,
+    "write-pending.1x.firstPaint.byOwner.SessionModel.computeds": 1659,
     "write-pending.1x.firstPaint.byOwner.SessionModel.owners": 1412,
-    "write-pending.1x.firstPaint.byOwner.WorklistGroups.computeds": 3,
+    "write-pending.1x.firstPaint.byOwner.WorklistGroups.computeds": 4,
     "write-pending.1x.firstPaint.byOwner.WorklistGroups.owners": 1,
-    "write-pending.1x.firstPaint.closedIssues.computeds": 3362,
-    "write-pending.1x.firstPaint.closedIssues.owners": 859,
+    "write-pending.1x.firstPaint.byOwner.WorktreeModel.computeds": 8,
+    "write-pending.1x.firstPaint.byOwner.WorktreeModel.owners": 8,
+    "write-pending.1x.firstPaint.closedIssues.computeds": 3348,
+    "write-pending.1x.firstPaint.closedIssues.owners": 858,
     "write-pending.1x.firstPaint.closedIssues.reactions": 432,
-    "write-pending.1x.firstPaint.coldIssues.computeds": 653,
-    "write-pending.1x.firstPaint.coldIssues.owners": 439,
+    "write-pending.1x.firstPaint.coldIssues.computeds": 651,
+    "write-pending.1x.firstPaint.coldIssues.owners": 438,
     "write-pending.1x.firstPaint.coldSessions.computeds": 11,
     "write-pending.1x.firstPaint.coldSessions.owners": 11,
-    "write-pending.1x.firstPaint.computeds.declared": 12749,
-    "write-pending.1x.firstPaint.computeds.total": 12749,
-    "write-pending.1x.firstPaint.held.arrayElements": 5823,
-    "write-pending.1x.firstPaint.held.mapEntries": 24641,
-    "write-pending.1x.firstPaint.held.setMembers": 13159,
-    "write-pending.1x.firstPaint.observables.array": 2154,
-    "write-pending.1x.firstPaint.observables.atom": 5869,
-    "write-pending.1x.firstPaint.observables.map": 32,
+    "write-pending.1x.firstPaint.computeds.declared": 12778,
+    "write-pending.1x.firstPaint.computeds.standalone": 5,
+    "write-pending.1x.firstPaint.computeds.total": 12783,
+    "write-pending.1x.firstPaint.held.arrayElements": 6107,
+    "write-pending.1x.firstPaint.held.mapEntries": 24685,
+    "write-pending.1x.firstPaint.held.setMembers": 13174,
+    "write-pending.1x.firstPaint.observables.array": 2178,
+    "write-pending.1x.firstPaint.observables.atom": 22502,
+    "write-pending.1x.firstPaint.observables.map": 40,
     "write-pending.1x.firstPaint.observables.object": 11,
-    "write-pending.1x.firstPaint.observables.set": 3004,
-    "write-pending.1x.firstPaint.observables.value.mapEntry": 24641,
-    "write-pending.1x.firstPaint.observables.value.mapHas": 11853,
-    "write-pending.1x.firstPaint.observables.value.standalone": 2,
+    "write-pending.1x.firstPaint.observables.set": 3197,
+    "write-pending.1x.firstPaint.observables.value.mapEntry": 24685,
+    "write-pending.1x.firstPaint.observables.value.mapHas": 12512,
+    "write-pending.1x.firstPaint.observables.value.standalone": 193,
     "write-pending.1x.firstPaint.reactions.built": 2450,
     "write-pending.1x.firstPaint.reactions.live": 2450,
     "write-pending.1x.firstPaint.visibleRows": 732,
-    "write-pending.1x.phases.create.built.atom": 36,
-    "write-pending.1x.phases.create.built.computed": 3,
-    "write-pending.1x.phases.create.built.map": 32,
+    "write-pending.1x.phases.create.built.atom": 45,
+    "write-pending.1x.phases.create.built.computed": 4,
+    "write-pending.1x.phases.create.built.map": 40,
     "write-pending.1x.phases.create.built.object": 3,
     "write-pending.1x.phases.create.built.observableValue": 4,
-    "write-pending.1x.phases.create.changes": 9,
+    "write-pending.1x.phases.create.built.set": 1,
+    "write-pending.1x.phases.create.changes": 10,
     "write-pending.1x.phases.create.computedRuns": 5,
     "write-pending.1x.phases.create.distinctRows": 4,
-    "write-pending.1x.phases.create.rowReads": 788,
-    "write-pending.1x.phases.firstPaint.built.atom": 129,
-    "write-pending.1x.phases.firstPaint.built.computed": 1019,
+    "write-pending.1x.phases.create.rowReads": 432,
+    "write-pending.1x.phases.firstPaint.built.atom": 911,
+    "write-pending.1x.phases.firstPaint.built.computed": 1076,
     "write-pending.1x.phases.firstPaint.built.object": 8,
-    "write-pending.1x.phases.firstPaint.built.observableValue": 594,
+    "write-pending.1x.phases.firstPaint.built.observableValue": 1281,
     "write-pending.1x.phases.firstPaint.built.reaction": 61,
-    "write-pending.1x.phases.firstPaint.changes": 48,
-    "write-pending.1x.phases.firstPaint.computedRuns": 1014,
-    "write-pending.1x.phases.firstPaint.distinctRows": 114,
+    "write-pending.1x.phases.firstPaint.changes": 56,
+    "write-pending.1x.phases.firstPaint.computedRuns": 1080,
+    "write-pending.1x.phases.firstPaint.distinctRows": 128,
     "write-pending.1x.phases.firstPaint.reactionRuns": 61,
-    "write-pending.1x.phases.firstPaint.rowReads": 2583,
-    "write-pending.1x.phases.firstReactiveRun.built.array": 21,
-    "write-pending.1x.phases.firstReactiveRun.built.atom": 567,
-    "write-pending.1x.phases.firstReactiveRun.built.computed": 11727,
-    "write-pending.1x.phases.firstReactiveRun.built.observableValue": 11280,
-    "write-pending.1x.phases.firstReactiveRun.changes": 2196,
-    "write-pending.1x.phases.firstReactiveRun.computedRuns": 11727,
-    "write-pending.1x.phases.firstReactiveRun.distinctRows": 3793,
+    "write-pending.1x.phases.firstPaint.rowReads": 5054,
+    "write-pending.1x.phases.firstReactiveRun.built.array": 45,
+    "write-pending.1x.phases.firstReactiveRun.built.atom": 16409,
+    "write-pending.1x.phases.firstReactiveRun.built.computed": 11703,
+    "write-pending.1x.phases.firstReactiveRun.built.observableValue": 11476,
+    "write-pending.1x.phases.firstReactiveRun.built.set": 192,
+    "write-pending.1x.phases.firstReactiveRun.changes": 4222,
+    "write-pending.1x.phases.firstReactiveRun.computedRuns": 11703,
+    "write-pending.1x.phases.firstReactiveRun.distinctRows": 3807,
     "write-pending.1x.phases.firstReactiveRun.reactionRuns": 2389,
-    "write-pending.1x.phases.firstReactiveRun.rowReads": 109301,
+    "write-pending.1x.phases.firstReactiveRun.rowReads": 125774,
     "write-pending.1x.phases.ingest.built.atom": 56,
-    "write-pending.1x.phases.ingest.built.observableValue": 19537,
+    "write-pending.1x.phases.ingest.built.observableValue": 19548,
     "write-pending.1x.phases.ingest.built.set": 56,
-    "write-pending.1x.phases.ingest.changes": 19742,
+    "write-pending.1x.phases.ingest.changes": 20238,
     "write-pending.1x.phases.ingest.distinctRows": 21219,
-    "write-pending.1x.phases.ingest.rowReads": 349359,
+    "write-pending.1x.phases.ingest.rowReads": 348313,
     "write-pending.1x.phases.nodeConstruction.built.reaction": 2389,
     "write-pending.1x.phases.relationUpkeep.built.array": 2133,
     "write-pending.1x.phases.relationUpkeep.built.atom": 5081,
     "write-pending.1x.phases.relationUpkeep.built.observableValue": 5081,
     "write-pending.1x.phases.relationUpkeep.built.set": 2948,
     "write-pending.1x.phases.relationUpkeep.changes": 21707,
-    "write-pending.1x.startup.byOwner.IssueModel.computeds": 10164,
-    "write-pending.1x.startup.byOwner.IssueModel.owners": 2742,
+    "write-pending.1x.startup.byOwner.IssueModel.computeds": 10142,
+    "write-pending.1x.startup.byOwner.IssueModel.owners": 2741,
     "write-pending.1x.startup.byOwner.IssueModel.reactions": 2389,
-    "write-pending.1x.startup.byOwner.SessionModel.computeds": 1563,
+    "write-pending.1x.startup.byOwner.SessionModel.computeds": 1561,
     "write-pending.1x.startup.byOwner.SessionModel.owners": 1412,
-    "write-pending.1x.startup.byOwner.WorklistGroups.computeds": 3,
+    "write-pending.1x.startup.byOwner.WorklistGroups.computeds": 4,
     "write-pending.1x.startup.byOwner.WorklistGroups.owners": 1,
-    "write-pending.1x.startup.closedIssues.computeds": 2944,
-    "write-pending.1x.startup.closedIssues.owners": 775,
+    "write-pending.1x.startup.closedIssues.computeds": 2922,
+    "write-pending.1x.startup.closedIssues.owners": 774,
     "write-pending.1x.startup.closedIssues.reactions": 424,
-    "write-pending.1x.startup.coldIssues.computeds": 432,
-    "write-pending.1x.startup.coldIssues.owners": 353,
+    "write-pending.1x.startup.coldIssues.computeds": 430,
+    "write-pending.1x.startup.coldIssues.owners": 352,
     "write-pending.1x.startup.coldSessions.computeds": 11,
     "write-pending.1x.startup.coldSessions.owners": 11,
-    "write-pending.1x.startup.computeds.declared": 11730,
-    "write-pending.1x.startup.computeds.total": 11730,
-    "write-pending.1x.startup.held.arrayElements": 5823,
-    "write-pending.1x.startup.held.mapEntries": 24641,
-    "write-pending.1x.startup.held.setMembers": 13159,
-    "write-pending.1x.startup.observables.array": 2154,
-    "write-pending.1x.startup.observables.atom": 5740,
-    "write-pending.1x.startup.observables.map": 32,
+    "write-pending.1x.startup.computeds.declared": 11707,
+    "write-pending.1x.startup.computeds.total": 11707,
+    "write-pending.1x.startup.held.arrayElements": 6107,
+    "write-pending.1x.startup.held.mapEntries": 24685,
+    "write-pending.1x.startup.held.setMembers": 13174,
+    "write-pending.1x.startup.observables.array": 2178,
+    "write-pending.1x.startup.observables.atom": 21591,
+    "write-pending.1x.startup.observables.map": 40,
     "write-pending.1x.startup.observables.object": 3,
-    "write-pending.1x.startup.observables.set": 3004,
-    "write-pending.1x.startup.observables.value.mapEntry": 24641,
-    "write-pending.1x.startup.observables.value.mapHas": 11259,
-    "write-pending.1x.startup.observables.value.standalone": 2,
+    "write-pending.1x.startup.observables.set": 3197,
+    "write-pending.1x.startup.observables.value.mapEntry": 24685,
+    "write-pending.1x.startup.observables.value.mapHas": 11231,
+    "write-pending.1x.startup.observables.value.standalone": 193,
     "write-pending.1x.startup.reactions.built": 2389,
     "write-pending.1x.startup.reactions.live": 2389,
     "write-pending.1x.startup.visibleRows": 732,
-    "write-pending.4x.firstPaint.byOwner.GroupNode.computeds": 48,
+    "write-pending.4x.firstPaint.byOwner.GroupNode.computeds": 56,
     "write-pending.4x.firstPaint.byOwner.GroupNode.owners": 8,
-    "write-pending.4x.firstPaint.byOwner.IssueModel.computeds": 41651,
-    "write-pending.4x.firstPaint.byOwner.IssueModel.owners": 11044,
+    "write-pending.4x.firstPaint.byOwner.IssueModel.computeds": 41603,
+    "write-pending.4x.firstPaint.byOwner.IssueModel.owners": 11042,
     "write-pending.4x.firstPaint.byOwner.IssueModel.reactions": 9656,
-    "write-pending.4x.firstPaint.byOwner.SessionModel.computeds": 6485,
-    "write-pending.4x.firstPaint.byOwner.SessionModel.owners": 5899,
-    "write-pending.4x.firstPaint.byOwner.WorklistGroups.computeds": 3,
+    "write-pending.4x.firstPaint.byOwner.SessionModel.computeds": 6490,
+    "write-pending.4x.firstPaint.byOwner.SessionModel.owners": 5904,
+    "write-pending.4x.firstPaint.byOwner.WorklistGroups.computeds": 4,
     "write-pending.4x.firstPaint.byOwner.WorklistGroups.owners": 1,
-    "write-pending.4x.firstPaint.closedIssues.computeds": 12148,
-    "write-pending.4x.firstPaint.closedIssues.owners": 3176,
+    "write-pending.4x.firstPaint.byOwner.WorktreeModel.computeds": 8,
+    "write-pending.4x.firstPaint.byOwner.WorktreeModel.owners": 8,
+    "write-pending.4x.firstPaint.closedIssues.computeds": 12066,
+    "write-pending.4x.firstPaint.closedIssues.owners": 3174,
     "write-pending.4x.firstPaint.closedIssues.reactions": 1758,
-    "write-pending.4x.firstPaint.coldIssues.computeds": 1933,
-    "write-pending.4x.firstPaint.coldIssues.owners": 1428,
+    "write-pending.4x.firstPaint.coldIssues.computeds": 1929,
+    "write-pending.4x.firstPaint.coldIssues.owners": 1426,
     "write-pending.4x.firstPaint.coldSessions.computeds": 51,
     "write-pending.4x.firstPaint.coldSessions.owners": 51,
-    "write-pending.4x.firstPaint.computeds.declared": 48187,
-    "write-pending.4x.firstPaint.computeds.total": 48187,
-    "write-pending.4x.firstPaint.held.arrayElements": 23292,
-    "write-pending.4x.firstPaint.held.mapEntries": 99400,
-    "write-pending.4x.firstPaint.held.setMembers": 52807,
-    "write-pending.4x.firstPaint.observables.array": 8574,
-    "write-pending.4x.firstPaint.observables.atom": 23041,
-    "write-pending.4x.firstPaint.observables.map": 32,
+    "write-pending.4x.firstPaint.computeds.declared": 48161,
+    "write-pending.4x.firstPaint.computeds.standalone": 12,
+    "write-pending.4x.firstPaint.computeds.total": 48173,
+    "write-pending.4x.firstPaint.held.arrayElements": 24396,
+    "write-pending.4x.firstPaint.held.mapEntries": 99465,
+    "write-pending.4x.firstPaint.held.setMembers": 52834,
+    "write-pending.4x.firstPaint.observables.array": 8604,
+    "write-pending.4x.firstPaint.observables.atom": 88460,
+    "write-pending.4x.firstPaint.observables.map": 40,
     "write-pending.4x.firstPaint.observables.object": 11,
-    "write-pending.4x.firstPaint.observables.set": 12136,
-    "write-pending.4x.firstPaint.observables.value.mapEntry": 99400,
-    "write-pending.4x.firstPaint.observables.value.mapHas": 45922,
-    "write-pending.4x.firstPaint.observables.value.standalone": 5,
+    "write-pending.4x.firstPaint.observables.set": 12928,
+    "write-pending.4x.firstPaint.observables.value.mapEntry": 99465,
+    "write-pending.4x.firstPaint.observables.value.mapHas": 48440,
+    "write-pending.4x.firstPaint.observables.value.standalone": 780,
     "write-pending.4x.firstPaint.reactions.built": 9677,
     "write-pending.4x.firstPaint.reactions.live": 9677,
     "write-pending.4x.firstPaint.visibleRows": 2928,
-    "write-pending.4x.phases.create.built.atom": 36,
-    "write-pending.4x.phases.create.built.computed": 3,
-    "write-pending.4x.phases.create.built.map": 32,
+    "write-pending.4x.phases.create.built.atom": 45,
+    "write-pending.4x.phases.create.built.computed": 4,
+    "write-pending.4x.phases.create.built.map": 40,
     "write-pending.4x.phases.create.built.object": 3,
     "write-pending.4x.phases.create.built.observableValue": 4,
-    "write-pending.4x.phases.create.changes": 9,
+    "write-pending.4x.phases.create.built.set": 1,
+    "write-pending.4x.phases.create.changes": 10,
     "write-pending.4x.phases.create.computedRuns": 5,
-    "write-pending.4x.phases.create.distinctRows": 4,
-    "write-pending.4x.phases.create.rowReads": 792,
-    "write-pending.4x.phases.firstPaint.built.atom": 153,
-    "write-pending.4x.phases.firstPaint.built.computed": 1350,
+    "write-pending.4x.phases.create.distinctRows": 5,
+    "write-pending.4x.phases.create.rowReads": 438,
+    "write-pending.4x.phases.firstPaint.built.atom": 3512,
+    "write-pending.4x.phases.firstPaint.built.computed": 1427,
     "write-pending.4x.phases.firstPaint.built.object": 8,
-    "write-pending.4x.phases.firstPaint.built.observableValue": 864,
+    "write-pending.4x.phases.firstPaint.built.observableValue": 3477,
     "write-pending.4x.phases.firstPaint.built.reaction": 61,
-    "write-pending.4x.phases.firstPaint.changes": 48,
-    "write-pending.4x.phases.firstPaint.computedRuns": 1345,
-    "write-pending.4x.phases.firstPaint.distinctRows": 189,
+    "write-pending.4x.phases.firstPaint.changes": 56,
+    "write-pending.4x.phases.firstPaint.computedRuns": 1431,
+    "write-pending.4x.phases.firstPaint.distinctRows": 210,
     "write-pending.4x.phases.firstPaint.reactionRuns": 61,
-    "write-pending.4x.phases.firstPaint.rowReads": 4078,
-    "write-pending.4x.phases.firstReactiveRun.built.array": 24,
-    "write-pending.4x.phases.firstReactiveRun.built.atom": 2166,
-    "write-pending.4x.phases.firstReactiveRun.built.computed": 46834,
-    "write-pending.4x.phases.firstReactiveRun.built.observableValue": 45082,
-    "write-pending.4x.phases.firstReactiveRun.changes": 8724,
-    "write-pending.4x.phases.firstReactiveRun.computedRuns": 46834,
-    "write-pending.4x.phases.firstReactiveRun.distinctRows": 15470,
+    "write-pending.4x.phases.firstPaint.rowReads": 8267,
+    "write-pending.4x.phases.firstReactiveRun.built.array": 54,
+    "write-pending.4x.phases.firstReactiveRun.built.atom": 64217,
+    "write-pending.4x.phases.firstReactiveRun.built.computed": 46742,
+    "write-pending.4x.phases.firstReactiveRun.built.observableValue": 45816,
+    "write-pending.4x.phases.firstReactiveRun.built.set": 791,
+    "write-pending.4x.phases.firstReactiveRun.changes": 16852,
+    "write-pending.4x.phases.firstReactiveRun.computedRuns": 46742,
+    "write-pending.4x.phases.firstReactiveRun.distinctRows": 15526,
     "write-pending.4x.phases.firstReactiveRun.reactionRuns": 9616,
-    "write-pending.4x.phases.firstReactiveRun.rowReads": 438539,
+    "write-pending.4x.phases.firstReactiveRun.rowReads": 502885,
     "write-pending.4x.phases.ingest.built.atom": 169,
-    "write-pending.4x.phases.ingest.built.observableValue": 78860,
+    "write-pending.4x.phases.ingest.built.observableValue": 78871,
     "write-pending.4x.phases.ingest.built.set": 169,
-    "write-pending.4x.phases.ingest.changes": 79650,
+    "write-pending.4x.phases.ingest.changes": 81550,
     "write-pending.4x.phases.ingest.distinctRows": 84914,
-    "write-pending.4x.phases.ingest.rowReads": 1362047,
+    "write-pending.4x.phases.ingest.rowReads": 1358195,
     "write-pending.4x.phases.nodeConstruction.built.reaction": 9616,
     "write-pending.4x.phases.relationUpkeep.built.array": 8550,
     "write-pending.4x.phases.relationUpkeep.built.atom": 20517,
     "write-pending.4x.phases.relationUpkeep.built.observableValue": 20517,
     "write-pending.4x.phases.relationUpkeep.built.set": 11967,
     "write-pending.4x.phases.relationUpkeep.changes": 87192,
-    "write-pending.4x.startup.byOwner.IssueModel.computeds": 40511,
-    "write-pending.4x.startup.byOwner.IssueModel.owners": 10953,
+    "write-pending.4x.startup.byOwner.IssueModel.computeds": 40427,
+    "write-pending.4x.startup.byOwner.IssueModel.owners": 10951,
     "write-pending.4x.startup.byOwner.IssueModel.reactions": 9616,
-    "write-pending.4x.startup.byOwner.SessionModel.computeds": 6323,
+    "write-pending.4x.startup.byOwner.SessionModel.computeds": 6315,
     "write-pending.4x.startup.byOwner.SessionModel.owners": 5899,
-    "write-pending.4x.startup.byOwner.WorklistGroups.computeds": 3,
+    "write-pending.4x.startup.byOwner.WorklistGroups.computeds": 4,
     "write-pending.4x.startup.byOwner.WorklistGroups.owners": 1,
-    "write-pending.4x.startup.closedIssues.computeds": 11681,
-    "write-pending.4x.startup.closedIssues.owners": 3087,
+    "write-pending.4x.startup.closedIssues.computeds": 11597,
+    "write-pending.4x.startup.closedIssues.owners": 3085,
     "write-pending.4x.startup.closedIssues.reactions": 1756,
-    "write-pending.4x.startup.coldIssues.computeds": 1662,
-    "write-pending.4x.startup.coldIssues.owners": 1337,
+    "write-pending.4x.startup.coldIssues.computeds": 1658,
+    "write-pending.4x.startup.coldIssues.owners": 1335,
     "write-pending.4x.startup.coldSessions.computeds": 51,
     "write-pending.4x.startup.coldSessions.owners": 51,
-    "write-pending.4x.startup.computeds.declared": 46837,
-    "write-pending.4x.startup.computeds.total": 46837,
-    "write-pending.4x.startup.held.arrayElements": 23292,
-    "write-pending.4x.startup.held.mapEntries": 99400,
-    "write-pending.4x.startup.held.setMembers": 52807,
-    "write-pending.4x.startup.observables.array": 8574,
-    "write-pending.4x.startup.observables.atom": 22888,
-    "write-pending.4x.startup.observables.map": 32,
+    "write-pending.4x.startup.computeds.declared": 46746,
+    "write-pending.4x.startup.computeds.total": 46746,
+    "write-pending.4x.startup.held.arrayElements": 24396,
+    "write-pending.4x.startup.held.mapEntries": 99465,
+    "write-pending.4x.startup.held.setMembers": 52834,
+    "write-pending.4x.startup.observables.array": 8604,
+    "write-pending.4x.startup.observables.atom": 84948,
+    "write-pending.4x.startup.observables.map": 40,
     "write-pending.4x.startup.observables.object": 3,
-    "write-pending.4x.startup.observables.set": 12136,
-    "write-pending.4x.startup.observables.value.mapEntry": 99400,
-    "write-pending.4x.startup.observables.value.mapHas": 45058,
-    "write-pending.4x.startup.observables.value.standalone": 5,
+    "write-pending.4x.startup.observables.set": 12928,
+    "write-pending.4x.startup.observables.value.mapEntry": 99465,
+    "write-pending.4x.startup.observables.value.mapHas": 44963,
+    "write-pending.4x.startup.observables.value.standalone": 780,
     "write-pending.4x.startup.reactions.built": 9616,
     "write-pending.4x.startup.reactions.live": 9616,
     "write-pending.4x.startup.visibleRows": 2928
@@ -3181,5 +3211,2079 @@
     "filingEligibility": "Archived/deleted resident rows release their filing reaction. Proposed/shipping resident rows retain theirs because pending stage edits can make them show without a table publication.",
     "coldReads": "Zero synchronous cold reads at startup, paint, and after settling at both history sizes; the existing load window batches requested rows.",
     "placementDependency": "A cold agent parent with a live descendant is loaded in the existing batch window only while its declared flatUntil summary (existing own/member/lane keepers) can give pre-nesting presence. Parentless agent ancestors retain their started-by fallback, and cold starter/keeper sessions answer through their declared summary."
-  }
+  },
+  "sidebarComparisonBase": "0a44022fb1a887be04bf2ce1511118bd234718cd",
+  "sidebarPerKeyChanges": {
+    "1x.firstPaint.byOwner.GroupNode.computeds": {
+      "before": 48,
+      "after": 56,
+      "delta": 8
+    },
+    "1x.firstPaint.byOwner.IssueModel.computeds": {
+      "before": 11038,
+      "after": 11051,
+      "delta": 13
+    },
+    "1x.firstPaint.byOwner.IssueModel.owners": {
+      "before": 2828,
+      "after": 2827,
+      "delta": -1
+    },
+    "1x.firstPaint.byOwner.SessionModel.computeds": {
+      "before": 1660,
+      "after": 1659,
+      "delta": -1
+    },
+    "1x.firstPaint.byOwner.WorklistGroups.computeds": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "1x.firstPaint.byOwner.WorktreeModel.computeds": {
+      "before": 0,
+      "after": 8,
+      "delta": 8
+    },
+    "1x.firstPaint.byOwner.WorktreeModel.owners": {
+      "before": 0,
+      "after": 8,
+      "delta": 8
+    },
+    "1x.firstPaint.closedIssues.computeds": {
+      "before": 3362,
+      "after": 3348,
+      "delta": -14
+    },
+    "1x.firstPaint.closedIssues.owners": {
+      "before": 859,
+      "after": 858,
+      "delta": -1
+    },
+    "1x.firstPaint.coldIssues.computeds": {
+      "before": 653,
+      "after": 651,
+      "delta": -2
+    },
+    "1x.firstPaint.coldIssues.owners": {
+      "before": 439,
+      "after": 438,
+      "delta": -1
+    },
+    "1x.firstPaint.computeds.declared": {
+      "before": 12749,
+      "after": 12778,
+      "delta": 29
+    },
+    "1x.firstPaint.computeds.standalone": {
+      "before": 0,
+      "after": 5,
+      "delta": 5
+    },
+    "1x.firstPaint.computeds.total": {
+      "before": 12749,
+      "after": 12783,
+      "delta": 34
+    },
+    "1x.firstPaint.held.arrayElements": {
+      "before": 5823,
+      "after": 6107,
+      "delta": 284
+    },
+    "1x.firstPaint.held.mapEntries": {
+      "before": 24638,
+      "after": 24682,
+      "delta": 44
+    },
+    "1x.firstPaint.held.setMembers": {
+      "before": 13159,
+      "after": 13174,
+      "delta": 15
+    },
+    "1x.firstPaint.observables.array": {
+      "before": 2154,
+      "after": 2178,
+      "delta": 24
+    },
+    "1x.firstPaint.observables.atom": {
+      "before": 5868,
+      "after": 22501,
+      "delta": 16633
+    },
+    "1x.firstPaint.observables.map": {
+      "before": 31,
+      "after": 39,
+      "delta": 8
+    },
+    "1x.firstPaint.observables.set": {
+      "before": 3004,
+      "after": 3197,
+      "delta": 193
+    },
+    "1x.firstPaint.observables.value.mapEntry": {
+      "before": 24638,
+      "after": 24682,
+      "delta": 44
+    },
+    "1x.firstPaint.observables.value.mapHas": {
+      "before": 9464,
+      "after": 10123,
+      "delta": 659
+    },
+    "1x.firstPaint.observables.value.standalone": {
+      "before": 2,
+      "after": 193,
+      "delta": 191
+    },
+    "1x.phases.create.built.atom": {
+      "before": 35,
+      "after": 44,
+      "delta": 9
+    },
+    "1x.phases.create.built.computed": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "1x.phases.create.built.map": {
+      "before": 31,
+      "after": 39,
+      "delta": 8
+    },
+    "1x.phases.create.built.set": {
+      "before": 0,
+      "after": 1,
+      "delta": 1
+    },
+    "1x.phases.create.changes": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "1x.phases.firstPaint.built.atom": {
+      "before": 129,
+      "after": 911,
+      "delta": 782
+    },
+    "1x.phases.firstPaint.built.computed": {
+      "before": 1019,
+      "after": 1076,
+      "delta": 57
+    },
+    "1x.phases.firstPaint.built.observableValue": {
+      "before": 594,
+      "after": 1281,
+      "delta": 687
+    },
+    "1x.phases.firstPaint.changes": {
+      "before": 48,
+      "after": 56,
+      "delta": 8
+    },
+    "1x.phases.firstPaint.computedRuns": {
+      "before": 1014,
+      "after": 1080,
+      "delta": 66
+    },
+    "1x.phases.firstPaint.distinctRows": {
+      "before": 114,
+      "after": 128,
+      "delta": 14
+    },
+    "1x.phases.firstPaint.rowReads": {
+      "before": 2235,
+      "after": 5058,
+      "delta": 2823
+    },
+    "1x.phases.firstReactiveRun.built.array": {
+      "before": 21,
+      "after": 45,
+      "delta": 24
+    },
+    "1x.phases.firstReactiveRun.built.atom": {
+      "before": 567,
+      "after": 16409,
+      "delta": 15842
+    },
+    "1x.phases.firstReactiveRun.built.computed": {
+      "before": 11727,
+      "after": 11703,
+      "delta": -24
+    },
+    "1x.phases.firstReactiveRun.built.observableValue": {
+      "before": 8891,
+      "after": 9087,
+      "delta": 196
+    },
+    "1x.phases.firstReactiveRun.built.set": {
+      "before": 0,
+      "after": 192,
+      "delta": 192
+    },
+    "1x.phases.firstReactiveRun.changes": {
+      "before": 2196,
+      "after": 4222,
+      "delta": 2026
+    },
+    "1x.phases.firstReactiveRun.computedRuns": {
+      "before": 11727,
+      "after": 11703,
+      "delta": -24
+    },
+    "1x.phases.firstReactiveRun.distinctRows": {
+      "before": 3793,
+      "after": 3807,
+      "delta": 14
+    },
+    "1x.phases.firstReactiveRun.rowReads": {
+      "before": 109301,
+      "after": 125774,
+      "delta": 16473
+    },
+    "1x.phases.ingest.built.observableValue": {
+      "before": 19537,
+      "after": 19548,
+      "delta": 11
+    },
+    "1x.phases.ingest.changes": {
+      "before": 19742,
+      "after": 20238,
+      "delta": 496
+    },
+    "1x.phases.ingest.rowReads": {
+      "before": 349359,
+      "after": 348313,
+      "delta": -1046
+    },
+    "1x.startup.byOwner.IssueModel.computeds": {
+      "before": 10164,
+      "after": 10142,
+      "delta": -22
+    },
+    "1x.startup.byOwner.IssueModel.owners": {
+      "before": 2742,
+      "after": 2741,
+      "delta": -1
+    },
+    "1x.startup.byOwner.SessionModel.computeds": {
+      "before": 1563,
+      "after": 1561,
+      "delta": -2
+    },
+    "1x.startup.byOwner.WorklistGroups.computeds": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "1x.startup.closedIssues.computeds": {
+      "before": 2944,
+      "after": 2922,
+      "delta": -22
+    },
+    "1x.startup.closedIssues.owners": {
+      "before": 775,
+      "after": 774,
+      "delta": -1
+    },
+    "1x.startup.coldIssues.computeds": {
+      "before": 432,
+      "after": 430,
+      "delta": -2
+    },
+    "1x.startup.coldIssues.owners": {
+      "before": 353,
+      "after": 352,
+      "delta": -1
+    },
+    "1x.startup.computeds.declared": {
+      "before": 11730,
+      "after": 11707,
+      "delta": -23
+    },
+    "1x.startup.computeds.total": {
+      "before": 11730,
+      "after": 11707,
+      "delta": -23
+    },
+    "1x.startup.held.arrayElements": {
+      "before": 5823,
+      "after": 6107,
+      "delta": 284
+    },
+    "1x.startup.held.mapEntries": {
+      "before": 24638,
+      "after": 24682,
+      "delta": 44
+    },
+    "1x.startup.held.setMembers": {
+      "before": 13159,
+      "after": 13174,
+      "delta": 15
+    },
+    "1x.startup.observables.array": {
+      "before": 2154,
+      "after": 2178,
+      "delta": 24
+    },
+    "1x.startup.observables.atom": {
+      "before": 5739,
+      "after": 21590,
+      "delta": 15851
+    },
+    "1x.startup.observables.map": {
+      "before": 31,
+      "after": 39,
+      "delta": 8
+    },
+    "1x.startup.observables.set": {
+      "before": 3004,
+      "after": 3197,
+      "delta": 193
+    },
+    "1x.startup.observables.value.mapEntry": {
+      "before": 24638,
+      "after": 24682,
+      "delta": 44
+    },
+    "1x.startup.observables.value.mapHas": {
+      "before": 8870,
+      "after": 8842,
+      "delta": -28
+    },
+    "1x.startup.observables.value.standalone": {
+      "before": 2,
+      "after": 193,
+      "delta": 191
+    },
+    "4x.firstPaint.byOwner.GroupNode.computeds": {
+      "before": 48,
+      "after": 56,
+      "delta": 8
+    },
+    "4x.firstPaint.byOwner.IssueModel.computeds": {
+      "before": 41651,
+      "after": 41603,
+      "delta": -48
+    },
+    "4x.firstPaint.byOwner.IssueModel.owners": {
+      "before": 11044,
+      "after": 11042,
+      "delta": -2
+    },
+    "4x.firstPaint.byOwner.SessionModel.computeds": {
+      "before": 6485,
+      "after": 6490,
+      "delta": 5
+    },
+    "4x.firstPaint.byOwner.SessionModel.owners": {
+      "before": 5899,
+      "after": 5904,
+      "delta": 5
+    },
+    "4x.firstPaint.byOwner.WorklistGroups.computeds": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "4x.firstPaint.byOwner.WorktreeModel.computeds": {
+      "before": 0,
+      "after": 8,
+      "delta": 8
+    },
+    "4x.firstPaint.byOwner.WorktreeModel.owners": {
+      "before": 0,
+      "after": 8,
+      "delta": 8
+    },
+    "4x.firstPaint.closedIssues.computeds": {
+      "before": 12148,
+      "after": 12066,
+      "delta": -82
+    },
+    "4x.firstPaint.closedIssues.owners": {
+      "before": 3176,
+      "after": 3174,
+      "delta": -2
+    },
+    "4x.firstPaint.coldIssues.computeds": {
+      "before": 1933,
+      "after": 1929,
+      "delta": -4
+    },
+    "4x.firstPaint.coldIssues.owners": {
+      "before": 1428,
+      "after": 1426,
+      "delta": -2
+    },
+    "4x.firstPaint.computeds.declared": {
+      "before": 48187,
+      "after": 48161,
+      "delta": -26
+    },
+    "4x.firstPaint.computeds.standalone": {
+      "before": 0,
+      "after": 12,
+      "delta": 12
+    },
+    "4x.firstPaint.computeds.total": {
+      "before": 48187,
+      "after": 48173,
+      "delta": -14
+    },
+    "4x.firstPaint.held.arrayElements": {
+      "before": 23292,
+      "after": 24396,
+      "delta": 1104
+    },
+    "4x.firstPaint.held.mapEntries": {
+      "before": 99397,
+      "after": 99462,
+      "delta": 65
+    },
+    "4x.firstPaint.held.setMembers": {
+      "before": 52807,
+      "after": 52834,
+      "delta": 27
+    },
+    "4x.firstPaint.observables.array": {
+      "before": 8574,
+      "after": 8604,
+      "delta": 30
+    },
+    "4x.firstPaint.observables.atom": {
+      "before": 23040,
+      "after": 88459,
+      "delta": 65419
+    },
+    "4x.firstPaint.observables.map": {
+      "before": 31,
+      "after": 39,
+      "delta": 8
+    },
+    "4x.firstPaint.observables.set": {
+      "before": 12136,
+      "after": 12928,
+      "delta": 792
+    },
+    "4x.firstPaint.observables.value.mapEntry": {
+      "before": 99397,
+      "after": 99462,
+      "delta": 65
+    },
+    "4x.firstPaint.observables.value.mapHas": {
+      "before": 36306,
+      "after": 38824,
+      "delta": 2518
+    },
+    "4x.firstPaint.observables.value.standalone": {
+      "before": 5,
+      "after": 780,
+      "delta": 775
+    },
+    "4x.phases.create.built.atom": {
+      "before": 35,
+      "after": 44,
+      "delta": 9
+    },
+    "4x.phases.create.built.computed": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "4x.phases.create.built.map": {
+      "before": 31,
+      "after": 39,
+      "delta": 8
+    },
+    "4x.phases.create.built.set": {
+      "before": 0,
+      "after": 1,
+      "delta": 1
+    },
+    "4x.phases.create.changes": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "4x.phases.firstPaint.built.atom": {
+      "before": 153,
+      "after": 3512,
+      "delta": 3359
+    },
+    "4x.phases.firstPaint.built.computed": {
+      "before": 1350,
+      "after": 1427,
+      "delta": 77
+    },
+    "4x.phases.firstPaint.built.observableValue": {
+      "before": 864,
+      "after": 3477,
+      "delta": 2613
+    },
+    "4x.phases.firstPaint.changes": {
+      "before": 48,
+      "after": 56,
+      "delta": 8
+    },
+    "4x.phases.firstPaint.computedRuns": {
+      "before": 1345,
+      "after": 1431,
+      "delta": 86
+    },
+    "4x.phases.firstPaint.distinctRows": {
+      "before": 189,
+      "after": 210,
+      "delta": 21
+    },
+    "4x.phases.firstPaint.rowReads": {
+      "before": 3738,
+      "after": 8271,
+      "delta": 4533
+    },
+    "4x.phases.firstReactiveRun.built.array": {
+      "before": 24,
+      "after": 54,
+      "delta": 30
+    },
+    "4x.phases.firstReactiveRun.built.atom": {
+      "before": 2166,
+      "after": 64217,
+      "delta": 62051
+    },
+    "4x.phases.firstReactiveRun.built.computed": {
+      "before": 46834,
+      "after": 46742,
+      "delta": -92
+    },
+    "4x.phases.firstReactiveRun.built.observableValue": {
+      "before": 35466,
+      "after": 36200,
+      "delta": 734
+    },
+    "4x.phases.firstReactiveRun.built.set": {
+      "before": 0,
+      "after": 791,
+      "delta": 791
+    },
+    "4x.phases.firstReactiveRun.changes": {
+      "before": 8724,
+      "after": 16852,
+      "delta": 8128
+    },
+    "4x.phases.firstReactiveRun.computedRuns": {
+      "before": 46834,
+      "after": 46742,
+      "delta": -92
+    },
+    "4x.phases.firstReactiveRun.distinctRows": {
+      "before": 15470,
+      "after": 15526,
+      "delta": 56
+    },
+    "4x.phases.firstReactiveRun.rowReads": {
+      "before": 438539,
+      "after": 502885,
+      "delta": 64346
+    },
+    "4x.phases.ingest.built.observableValue": {
+      "before": 78860,
+      "after": 78871,
+      "delta": 11
+    },
+    "4x.phases.ingest.changes": {
+      "before": 79650,
+      "after": 81550,
+      "delta": 1900
+    },
+    "4x.phases.ingest.rowReads": {
+      "before": 1362047,
+      "after": 1358195,
+      "delta": -3852
+    },
+    "4x.startup.byOwner.IssueModel.computeds": {
+      "before": 40511,
+      "after": 40427,
+      "delta": -84
+    },
+    "4x.startup.byOwner.IssueModel.owners": {
+      "before": 10953,
+      "after": 10951,
+      "delta": -2
+    },
+    "4x.startup.byOwner.SessionModel.computeds": {
+      "before": 6323,
+      "after": 6315,
+      "delta": -8
+    },
+    "4x.startup.byOwner.WorklistGroups.computeds": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "4x.startup.closedIssues.computeds": {
+      "before": 11681,
+      "after": 11597,
+      "delta": -84
+    },
+    "4x.startup.closedIssues.owners": {
+      "before": 3087,
+      "after": 3085,
+      "delta": -2
+    },
+    "4x.startup.coldIssues.computeds": {
+      "before": 1662,
+      "after": 1658,
+      "delta": -4
+    },
+    "4x.startup.coldIssues.owners": {
+      "before": 1337,
+      "after": 1335,
+      "delta": -2
+    },
+    "4x.startup.computeds.declared": {
+      "before": 46837,
+      "after": 46746,
+      "delta": -91
+    },
+    "4x.startup.computeds.total": {
+      "before": 46837,
+      "after": 46746,
+      "delta": -91
+    },
+    "4x.startup.held.arrayElements": {
+      "before": 23292,
+      "after": 24396,
+      "delta": 1104
+    },
+    "4x.startup.held.mapEntries": {
+      "before": 99397,
+      "after": 99462,
+      "delta": 65
+    },
+    "4x.startup.held.setMembers": {
+      "before": 52807,
+      "after": 52834,
+      "delta": 27
+    },
+    "4x.startup.observables.array": {
+      "before": 8574,
+      "after": 8604,
+      "delta": 30
+    },
+    "4x.startup.observables.atom": {
+      "before": 22887,
+      "after": 84947,
+      "delta": 62060
+    },
+    "4x.startup.observables.map": {
+      "before": 31,
+      "after": 39,
+      "delta": 8
+    },
+    "4x.startup.observables.set": {
+      "before": 12136,
+      "after": 12928,
+      "delta": 792
+    },
+    "4x.startup.observables.value.mapEntry": {
+      "before": 99397,
+      "after": 99462,
+      "delta": 65
+    },
+    "4x.startup.observables.value.mapHas": {
+      "before": 35442,
+      "after": 35347,
+      "delta": -95
+    },
+    "4x.startup.observables.value.standalone": {
+      "before": 5,
+      "after": 780,
+      "delta": 775
+    },
+    "write-idle.1x.firstPaint.byOwner.GroupNode.computeds": {
+      "before": 48,
+      "after": 56,
+      "delta": 8
+    },
+    "write-idle.1x.firstPaint.byOwner.IssueModel.computeds": {
+      "before": 11038,
+      "after": 11051,
+      "delta": 13
+    },
+    "write-idle.1x.firstPaint.byOwner.IssueModel.owners": {
+      "before": 2828,
+      "after": 2827,
+      "delta": -1
+    },
+    "write-idle.1x.firstPaint.byOwner.SessionModel.computeds": {
+      "before": 1660,
+      "after": 1659,
+      "delta": -1
+    },
+    "write-idle.1x.firstPaint.byOwner.WorklistGroups.computeds": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "write-idle.1x.firstPaint.byOwner.WorktreeModel.computeds": {
+      "before": 0,
+      "after": 8,
+      "delta": 8
+    },
+    "write-idle.1x.firstPaint.byOwner.WorktreeModel.owners": {
+      "before": 0,
+      "after": 8,
+      "delta": 8
+    },
+    "write-idle.1x.firstPaint.closedIssues.computeds": {
+      "before": 3362,
+      "after": 3348,
+      "delta": -14
+    },
+    "write-idle.1x.firstPaint.closedIssues.owners": {
+      "before": 859,
+      "after": 858,
+      "delta": -1
+    },
+    "write-idle.1x.firstPaint.coldIssues.computeds": {
+      "before": 653,
+      "after": 651,
+      "delta": -2
+    },
+    "write-idle.1x.firstPaint.coldIssues.owners": {
+      "before": 439,
+      "after": 438,
+      "delta": -1
+    },
+    "write-idle.1x.firstPaint.computeds.declared": {
+      "before": 12749,
+      "after": 12778,
+      "delta": 29
+    },
+    "write-idle.1x.firstPaint.computeds.standalone": {
+      "before": 0,
+      "after": 5,
+      "delta": 5
+    },
+    "write-idle.1x.firstPaint.computeds.total": {
+      "before": 12749,
+      "after": 12783,
+      "delta": 34
+    },
+    "write-idle.1x.firstPaint.held.arrayElements": {
+      "before": 5823,
+      "after": 6107,
+      "delta": 284
+    },
+    "write-idle.1x.firstPaint.held.mapEntries": {
+      "before": 24638,
+      "after": 24682,
+      "delta": 44
+    },
+    "write-idle.1x.firstPaint.held.setMembers": {
+      "before": 13159,
+      "after": 13174,
+      "delta": 15
+    },
+    "write-idle.1x.firstPaint.observables.array": {
+      "before": 2154,
+      "after": 2178,
+      "delta": 24
+    },
+    "write-idle.1x.firstPaint.observables.atom": {
+      "before": 5869,
+      "after": 22502,
+      "delta": 16633
+    },
+    "write-idle.1x.firstPaint.observables.map": {
+      "before": 32,
+      "after": 40,
+      "delta": 8
+    },
+    "write-idle.1x.firstPaint.observables.set": {
+      "before": 3004,
+      "after": 3197,
+      "delta": 193
+    },
+    "write-idle.1x.firstPaint.observables.value.mapEntry": {
+      "before": 24638,
+      "after": 24682,
+      "delta": 44
+    },
+    "write-idle.1x.firstPaint.observables.value.mapHas": {
+      "before": 11853,
+      "after": 12512,
+      "delta": 659
+    },
+    "write-idle.1x.firstPaint.observables.value.standalone": {
+      "before": 2,
+      "after": 193,
+      "delta": 191
+    },
+    "write-idle.1x.phases.create.built.atom": {
+      "before": 36,
+      "after": 45,
+      "delta": 9
+    },
+    "write-idle.1x.phases.create.built.computed": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "write-idle.1x.phases.create.built.map": {
+      "before": 32,
+      "after": 40,
+      "delta": 8
+    },
+    "write-idle.1x.phases.create.built.set": {
+      "before": 0,
+      "after": 1,
+      "delta": 1
+    },
+    "write-idle.1x.phases.create.changes": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "write-idle.1x.phases.firstPaint.built.atom": {
+      "before": 129,
+      "after": 911,
+      "delta": 782
+    },
+    "write-idle.1x.phases.firstPaint.built.computed": {
+      "before": 1019,
+      "after": 1076,
+      "delta": 57
+    },
+    "write-idle.1x.phases.firstPaint.built.observableValue": {
+      "before": 594,
+      "after": 1281,
+      "delta": 687
+    },
+    "write-idle.1x.phases.firstPaint.changes": {
+      "before": 48,
+      "after": 56,
+      "delta": 8
+    },
+    "write-idle.1x.phases.firstPaint.computedRuns": {
+      "before": 1014,
+      "after": 1080,
+      "delta": 66
+    },
+    "write-idle.1x.phases.firstPaint.distinctRows": {
+      "before": 114,
+      "after": 128,
+      "delta": 14
+    },
+    "write-idle.1x.phases.firstPaint.rowReads": {
+      "before": 2235,
+      "after": 5058,
+      "delta": 2823
+    },
+    "write-idle.1x.phases.firstReactiveRun.built.array": {
+      "before": 21,
+      "after": 45,
+      "delta": 24
+    },
+    "write-idle.1x.phases.firstReactiveRun.built.atom": {
+      "before": 567,
+      "after": 16409,
+      "delta": 15842
+    },
+    "write-idle.1x.phases.firstReactiveRun.built.computed": {
+      "before": 11727,
+      "after": 11703,
+      "delta": -24
+    },
+    "write-idle.1x.phases.firstReactiveRun.built.observableValue": {
+      "before": 11280,
+      "after": 11476,
+      "delta": 196
+    },
+    "write-idle.1x.phases.firstReactiveRun.built.set": {
+      "before": 0,
+      "after": 192,
+      "delta": 192
+    },
+    "write-idle.1x.phases.firstReactiveRun.changes": {
+      "before": 2196,
+      "after": 4222,
+      "delta": 2026
+    },
+    "write-idle.1x.phases.firstReactiveRun.computedRuns": {
+      "before": 11727,
+      "after": 11703,
+      "delta": -24
+    },
+    "write-idle.1x.phases.firstReactiveRun.distinctRows": {
+      "before": 3793,
+      "after": 3807,
+      "delta": 14
+    },
+    "write-idle.1x.phases.firstReactiveRun.rowReads": {
+      "before": 109301,
+      "after": 125774,
+      "delta": 16473
+    },
+    "write-idle.1x.phases.ingest.built.observableValue": {
+      "before": 19537,
+      "after": 19548,
+      "delta": 11
+    },
+    "write-idle.1x.phases.ingest.changes": {
+      "before": 19742,
+      "after": 20238,
+      "delta": 496
+    },
+    "write-idle.1x.phases.ingest.rowReads": {
+      "before": 349359,
+      "after": 348313,
+      "delta": -1046
+    },
+    "write-idle.1x.startup.byOwner.IssueModel.computeds": {
+      "before": 10164,
+      "after": 10142,
+      "delta": -22
+    },
+    "write-idle.1x.startup.byOwner.IssueModel.owners": {
+      "before": 2742,
+      "after": 2741,
+      "delta": -1
+    },
+    "write-idle.1x.startup.byOwner.SessionModel.computeds": {
+      "before": 1563,
+      "after": 1561,
+      "delta": -2
+    },
+    "write-idle.1x.startup.byOwner.WorklistGroups.computeds": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "write-idle.1x.startup.closedIssues.computeds": {
+      "before": 2944,
+      "after": 2922,
+      "delta": -22
+    },
+    "write-idle.1x.startup.closedIssues.owners": {
+      "before": 775,
+      "after": 774,
+      "delta": -1
+    },
+    "write-idle.1x.startup.coldIssues.computeds": {
+      "before": 432,
+      "after": 430,
+      "delta": -2
+    },
+    "write-idle.1x.startup.coldIssues.owners": {
+      "before": 353,
+      "after": 352,
+      "delta": -1
+    },
+    "write-idle.1x.startup.computeds.declared": {
+      "before": 11730,
+      "after": 11707,
+      "delta": -23
+    },
+    "write-idle.1x.startup.computeds.total": {
+      "before": 11730,
+      "after": 11707,
+      "delta": -23
+    },
+    "write-idle.1x.startup.held.arrayElements": {
+      "before": 5823,
+      "after": 6107,
+      "delta": 284
+    },
+    "write-idle.1x.startup.held.mapEntries": {
+      "before": 24638,
+      "after": 24682,
+      "delta": 44
+    },
+    "write-idle.1x.startup.held.setMembers": {
+      "before": 13159,
+      "after": 13174,
+      "delta": 15
+    },
+    "write-idle.1x.startup.observables.array": {
+      "before": 2154,
+      "after": 2178,
+      "delta": 24
+    },
+    "write-idle.1x.startup.observables.atom": {
+      "before": 5740,
+      "after": 21591,
+      "delta": 15851
+    },
+    "write-idle.1x.startup.observables.map": {
+      "before": 32,
+      "after": 40,
+      "delta": 8
+    },
+    "write-idle.1x.startup.observables.set": {
+      "before": 3004,
+      "after": 3197,
+      "delta": 193
+    },
+    "write-idle.1x.startup.observables.value.mapEntry": {
+      "before": 24638,
+      "after": 24682,
+      "delta": 44
+    },
+    "write-idle.1x.startup.observables.value.mapHas": {
+      "before": 11259,
+      "after": 11231,
+      "delta": -28
+    },
+    "write-idle.1x.startup.observables.value.standalone": {
+      "before": 2,
+      "after": 193,
+      "delta": 191
+    },
+    "write-idle.4x.firstPaint.byOwner.GroupNode.computeds": {
+      "before": 48,
+      "after": 56,
+      "delta": 8
+    },
+    "write-idle.4x.firstPaint.byOwner.IssueModel.computeds": {
+      "before": 41651,
+      "after": 41603,
+      "delta": -48
+    },
+    "write-idle.4x.firstPaint.byOwner.IssueModel.owners": {
+      "before": 11044,
+      "after": 11042,
+      "delta": -2
+    },
+    "write-idle.4x.firstPaint.byOwner.SessionModel.computeds": {
+      "before": 6485,
+      "after": 6490,
+      "delta": 5
+    },
+    "write-idle.4x.firstPaint.byOwner.SessionModel.owners": {
+      "before": 5899,
+      "after": 5904,
+      "delta": 5
+    },
+    "write-idle.4x.firstPaint.byOwner.WorklistGroups.computeds": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "write-idle.4x.firstPaint.byOwner.WorktreeModel.computeds": {
+      "before": 0,
+      "after": 8,
+      "delta": 8
+    },
+    "write-idle.4x.firstPaint.byOwner.WorktreeModel.owners": {
+      "before": 0,
+      "after": 8,
+      "delta": 8
+    },
+    "write-idle.4x.firstPaint.closedIssues.computeds": {
+      "before": 12148,
+      "after": 12066,
+      "delta": -82
+    },
+    "write-idle.4x.firstPaint.closedIssues.owners": {
+      "before": 3176,
+      "after": 3174,
+      "delta": -2
+    },
+    "write-idle.4x.firstPaint.coldIssues.computeds": {
+      "before": 1933,
+      "after": 1929,
+      "delta": -4
+    },
+    "write-idle.4x.firstPaint.coldIssues.owners": {
+      "before": 1428,
+      "after": 1426,
+      "delta": -2
+    },
+    "write-idle.4x.firstPaint.computeds.declared": {
+      "before": 48187,
+      "after": 48161,
+      "delta": -26
+    },
+    "write-idle.4x.firstPaint.computeds.standalone": {
+      "before": 0,
+      "after": 12,
+      "delta": 12
+    },
+    "write-idle.4x.firstPaint.computeds.total": {
+      "before": 48187,
+      "after": 48173,
+      "delta": -14
+    },
+    "write-idle.4x.firstPaint.held.arrayElements": {
+      "before": 23292,
+      "after": 24396,
+      "delta": 1104
+    },
+    "write-idle.4x.firstPaint.held.mapEntries": {
+      "before": 99397,
+      "after": 99462,
+      "delta": 65
+    },
+    "write-idle.4x.firstPaint.held.setMembers": {
+      "before": 52807,
+      "after": 52834,
+      "delta": 27
+    },
+    "write-idle.4x.firstPaint.observables.array": {
+      "before": 8574,
+      "after": 8604,
+      "delta": 30
+    },
+    "write-idle.4x.firstPaint.observables.atom": {
+      "before": 23041,
+      "after": 88460,
+      "delta": 65419
+    },
+    "write-idle.4x.firstPaint.observables.map": {
+      "before": 32,
+      "after": 40,
+      "delta": 8
+    },
+    "write-idle.4x.firstPaint.observables.set": {
+      "before": 12136,
+      "after": 12928,
+      "delta": 792
+    },
+    "write-idle.4x.firstPaint.observables.value.mapEntry": {
+      "before": 99397,
+      "after": 99462,
+      "delta": 65
+    },
+    "write-idle.4x.firstPaint.observables.value.mapHas": {
+      "before": 45922,
+      "after": 48440,
+      "delta": 2518
+    },
+    "write-idle.4x.firstPaint.observables.value.standalone": {
+      "before": 5,
+      "after": 780,
+      "delta": 775
+    },
+    "write-idle.4x.phases.create.built.atom": {
+      "before": 36,
+      "after": 45,
+      "delta": 9
+    },
+    "write-idle.4x.phases.create.built.computed": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "write-idle.4x.phases.create.built.map": {
+      "before": 32,
+      "after": 40,
+      "delta": 8
+    },
+    "write-idle.4x.phases.create.built.set": {
+      "before": 0,
+      "after": 1,
+      "delta": 1
+    },
+    "write-idle.4x.phases.create.changes": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "write-idle.4x.phases.firstPaint.built.atom": {
+      "before": 153,
+      "after": 3512,
+      "delta": 3359
+    },
+    "write-idle.4x.phases.firstPaint.built.computed": {
+      "before": 1350,
+      "after": 1427,
+      "delta": 77
+    },
+    "write-idle.4x.phases.firstPaint.built.observableValue": {
+      "before": 864,
+      "after": 3477,
+      "delta": 2613
+    },
+    "write-idle.4x.phases.firstPaint.changes": {
+      "before": 48,
+      "after": 56,
+      "delta": 8
+    },
+    "write-idle.4x.phases.firstPaint.computedRuns": {
+      "before": 1345,
+      "after": 1431,
+      "delta": 86
+    },
+    "write-idle.4x.phases.firstPaint.distinctRows": {
+      "before": 189,
+      "after": 210,
+      "delta": 21
+    },
+    "write-idle.4x.phases.firstPaint.rowReads": {
+      "before": 3738,
+      "after": 8271,
+      "delta": 4533
+    },
+    "write-idle.4x.phases.firstReactiveRun.built.array": {
+      "before": 24,
+      "after": 54,
+      "delta": 30
+    },
+    "write-idle.4x.phases.firstReactiveRun.built.atom": {
+      "before": 2166,
+      "after": 64217,
+      "delta": 62051
+    },
+    "write-idle.4x.phases.firstReactiveRun.built.computed": {
+      "before": 46834,
+      "after": 46742,
+      "delta": -92
+    },
+    "write-idle.4x.phases.firstReactiveRun.built.observableValue": {
+      "before": 45082,
+      "after": 45816,
+      "delta": 734
+    },
+    "write-idle.4x.phases.firstReactiveRun.built.set": {
+      "before": 0,
+      "after": 791,
+      "delta": 791
+    },
+    "write-idle.4x.phases.firstReactiveRun.changes": {
+      "before": 8724,
+      "after": 16852,
+      "delta": 8128
+    },
+    "write-idle.4x.phases.firstReactiveRun.computedRuns": {
+      "before": 46834,
+      "after": 46742,
+      "delta": -92
+    },
+    "write-idle.4x.phases.firstReactiveRun.distinctRows": {
+      "before": 15470,
+      "after": 15526,
+      "delta": 56
+    },
+    "write-idle.4x.phases.firstReactiveRun.rowReads": {
+      "before": 438539,
+      "after": 502885,
+      "delta": 64346
+    },
+    "write-idle.4x.phases.ingest.built.observableValue": {
+      "before": 78860,
+      "after": 78871,
+      "delta": 11
+    },
+    "write-idle.4x.phases.ingest.changes": {
+      "before": 79650,
+      "after": 81550,
+      "delta": 1900
+    },
+    "write-idle.4x.phases.ingest.rowReads": {
+      "before": 1362047,
+      "after": 1358195,
+      "delta": -3852
+    },
+    "write-idle.4x.startup.byOwner.IssueModel.computeds": {
+      "before": 40511,
+      "after": 40427,
+      "delta": -84
+    },
+    "write-idle.4x.startup.byOwner.IssueModel.owners": {
+      "before": 10953,
+      "after": 10951,
+      "delta": -2
+    },
+    "write-idle.4x.startup.byOwner.SessionModel.computeds": {
+      "before": 6323,
+      "after": 6315,
+      "delta": -8
+    },
+    "write-idle.4x.startup.byOwner.WorklistGroups.computeds": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "write-idle.4x.startup.closedIssues.computeds": {
+      "before": 11681,
+      "after": 11597,
+      "delta": -84
+    },
+    "write-idle.4x.startup.closedIssues.owners": {
+      "before": 3087,
+      "after": 3085,
+      "delta": -2
+    },
+    "write-idle.4x.startup.coldIssues.computeds": {
+      "before": 1662,
+      "after": 1658,
+      "delta": -4
+    },
+    "write-idle.4x.startup.coldIssues.owners": {
+      "before": 1337,
+      "after": 1335,
+      "delta": -2
+    },
+    "write-idle.4x.startup.computeds.declared": {
+      "before": 46837,
+      "after": 46746,
+      "delta": -91
+    },
+    "write-idle.4x.startup.computeds.total": {
+      "before": 46837,
+      "after": 46746,
+      "delta": -91
+    },
+    "write-idle.4x.startup.held.arrayElements": {
+      "before": 23292,
+      "after": 24396,
+      "delta": 1104
+    },
+    "write-idle.4x.startup.held.mapEntries": {
+      "before": 99397,
+      "after": 99462,
+      "delta": 65
+    },
+    "write-idle.4x.startup.held.setMembers": {
+      "before": 52807,
+      "after": 52834,
+      "delta": 27
+    },
+    "write-idle.4x.startup.observables.array": {
+      "before": 8574,
+      "after": 8604,
+      "delta": 30
+    },
+    "write-idle.4x.startup.observables.atom": {
+      "before": 22888,
+      "after": 84948,
+      "delta": 62060
+    },
+    "write-idle.4x.startup.observables.map": {
+      "before": 32,
+      "after": 40,
+      "delta": 8
+    },
+    "write-idle.4x.startup.observables.set": {
+      "before": 12136,
+      "after": 12928,
+      "delta": 792
+    },
+    "write-idle.4x.startup.observables.value.mapEntry": {
+      "before": 99397,
+      "after": 99462,
+      "delta": 65
+    },
+    "write-idle.4x.startup.observables.value.mapHas": {
+      "before": 45058,
+      "after": 44963,
+      "delta": -95
+    },
+    "write-idle.4x.startup.observables.value.standalone": {
+      "before": 5,
+      "after": 780,
+      "delta": 775
+    },
+    "write-pending.1x.firstPaint.byOwner.GroupNode.computeds": {
+      "before": 48,
+      "after": 56,
+      "delta": 8
+    },
+    "write-pending.1x.firstPaint.byOwner.IssueModel.computeds": {
+      "before": 11038,
+      "after": 11051,
+      "delta": 13
+    },
+    "write-pending.1x.firstPaint.byOwner.IssueModel.owners": {
+      "before": 2828,
+      "after": 2827,
+      "delta": -1
+    },
+    "write-pending.1x.firstPaint.byOwner.SessionModel.computeds": {
+      "before": 1660,
+      "after": 1659,
+      "delta": -1
+    },
+    "write-pending.1x.firstPaint.byOwner.WorklistGroups.computeds": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "write-pending.1x.firstPaint.byOwner.WorktreeModel.computeds": {
+      "before": 0,
+      "after": 8,
+      "delta": 8
+    },
+    "write-pending.1x.firstPaint.byOwner.WorktreeModel.owners": {
+      "before": 0,
+      "after": 8,
+      "delta": 8
+    },
+    "write-pending.1x.firstPaint.closedIssues.computeds": {
+      "before": 3362,
+      "after": 3348,
+      "delta": -14
+    },
+    "write-pending.1x.firstPaint.closedIssues.owners": {
+      "before": 859,
+      "after": 858,
+      "delta": -1
+    },
+    "write-pending.1x.firstPaint.coldIssues.computeds": {
+      "before": 653,
+      "after": 651,
+      "delta": -2
+    },
+    "write-pending.1x.firstPaint.coldIssues.owners": {
+      "before": 439,
+      "after": 438,
+      "delta": -1
+    },
+    "write-pending.1x.firstPaint.computeds.declared": {
+      "before": 12749,
+      "after": 12778,
+      "delta": 29
+    },
+    "write-pending.1x.firstPaint.computeds.standalone": {
+      "before": 0,
+      "after": 5,
+      "delta": 5
+    },
+    "write-pending.1x.firstPaint.computeds.total": {
+      "before": 12749,
+      "after": 12783,
+      "delta": 34
+    },
+    "write-pending.1x.firstPaint.held.arrayElements": {
+      "before": 5823,
+      "after": 6107,
+      "delta": 284
+    },
+    "write-pending.1x.firstPaint.held.mapEntries": {
+      "before": 24641,
+      "after": 24685,
+      "delta": 44
+    },
+    "write-pending.1x.firstPaint.held.setMembers": {
+      "before": 13159,
+      "after": 13174,
+      "delta": 15
+    },
+    "write-pending.1x.firstPaint.observables.array": {
+      "before": 2154,
+      "after": 2178,
+      "delta": 24
+    },
+    "write-pending.1x.firstPaint.observables.atom": {
+      "before": 5869,
+      "after": 22502,
+      "delta": 16633
+    },
+    "write-pending.1x.firstPaint.observables.map": {
+      "before": 32,
+      "after": 40,
+      "delta": 8
+    },
+    "write-pending.1x.firstPaint.observables.set": {
+      "before": 3004,
+      "after": 3197,
+      "delta": 193
+    },
+    "write-pending.1x.firstPaint.observables.value.mapEntry": {
+      "before": 24641,
+      "after": 24685,
+      "delta": 44
+    },
+    "write-pending.1x.firstPaint.observables.value.mapHas": {
+      "before": 11853,
+      "after": 12512,
+      "delta": 659
+    },
+    "write-pending.1x.firstPaint.observables.value.standalone": {
+      "before": 2,
+      "after": 193,
+      "delta": 191
+    },
+    "write-pending.1x.phases.create.built.atom": {
+      "before": 36,
+      "after": 45,
+      "delta": 9
+    },
+    "write-pending.1x.phases.create.built.computed": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "write-pending.1x.phases.create.built.map": {
+      "before": 32,
+      "after": 40,
+      "delta": 8
+    },
+    "write-pending.1x.phases.create.built.set": {
+      "before": 0,
+      "after": 1,
+      "delta": 1
+    },
+    "write-pending.1x.phases.create.changes": {
+      "before": 9,
+      "after": 10,
+      "delta": 1
+    },
+    "write-pending.1x.phases.create.rowReads": {
+      "before": 788,
+      "after": 432,
+      "delta": -356
+    },
+    "write-pending.1x.phases.firstPaint.built.atom": {
+      "before": 129,
+      "after": 911,
+      "delta": 782
+    },
+    "write-pending.1x.phases.firstPaint.built.computed": {
+      "before": 1019,
+      "after": 1076,
+      "delta": 57
+    },
+    "write-pending.1x.phases.firstPaint.built.observableValue": {
+      "before": 594,
+      "after": 1281,
+      "delta": 687
+    },
+    "write-pending.1x.phases.firstPaint.changes": {
+      "before": 48,
+      "after": 56,
+      "delta": 8
+    },
+    "write-pending.1x.phases.firstPaint.computedRuns": {
+      "before": 1014,
+      "after": 1080,
+      "delta": 66
+    },
+    "write-pending.1x.phases.firstPaint.distinctRows": {
+      "before": 114,
+      "after": 128,
+      "delta": 14
+    },
+    "write-pending.1x.phases.firstPaint.rowReads": {
+      "before": 2583,
+      "after": 5054,
+      "delta": 2471
+    },
+    "write-pending.1x.phases.firstReactiveRun.built.array": {
+      "before": 21,
+      "after": 45,
+      "delta": 24
+    },
+    "write-pending.1x.phases.firstReactiveRun.built.atom": {
+      "before": 567,
+      "after": 16409,
+      "delta": 15842
+    },
+    "write-pending.1x.phases.firstReactiveRun.built.computed": {
+      "before": 11727,
+      "after": 11703,
+      "delta": -24
+    },
+    "write-pending.1x.phases.firstReactiveRun.built.observableValue": {
+      "before": 11280,
+      "after": 11476,
+      "delta": 196
+    },
+    "write-pending.1x.phases.firstReactiveRun.built.set": {
+      "before": 0,
+      "after": 192,
+      "delta": 192
+    },
+    "write-pending.1x.phases.firstReactiveRun.changes": {
+      "before": 2196,
+      "after": 4222,
+      "delta": 2026
+    },
+    "write-pending.1x.phases.firstReactiveRun.computedRuns": {
+      "before": 11727,
+      "after": 11703,
+      "delta": -24
+    },
+    "write-pending.1x.phases.firstReactiveRun.distinctRows": {
+      "before": 3793,
+      "after": 3807,
+      "delta": 14
+    },
+    "write-pending.1x.phases.firstReactiveRun.rowReads": {
+      "before": 109301,
+      "after": 125774,
+      "delta": 16473
+    },
+    "write-pending.1x.phases.ingest.built.observableValue": {
+      "before": 19537,
+      "after": 19548,
+      "delta": 11
+    },
+    "write-pending.1x.phases.ingest.changes": {
+      "before": 19742,
+      "after": 20238,
+      "delta": 496
+    },
+    "write-pending.1x.phases.ingest.rowReads": {
+      "before": 349359,
+      "after": 348313,
+      "delta": -1046
+    },
+    "write-pending.1x.startup.byOwner.IssueModel.computeds": {
+      "before": 10164,
+      "after": 10142,
+      "delta": -22
+    },
+    "write-pending.1x.startup.byOwner.IssueModel.owners": {
+      "before": 2742,
+      "after": 2741,
+      "delta": -1
+    },
+    "write-pending.1x.startup.byOwner.SessionModel.computeds": {
+      "before": 1563,
+      "after": 1561,
+      "delta": -2
+    },
+    "write-pending.1x.startup.byOwner.WorklistGroups.computeds": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "write-pending.1x.startup.closedIssues.computeds": {
+      "before": 2944,
+      "after": 2922,
+      "delta": -22
+    },
+    "write-pending.1x.startup.closedIssues.owners": {
+      "before": 775,
+      "after": 774,
+      "delta": -1
+    },
+    "write-pending.1x.startup.coldIssues.computeds": {
+      "before": 432,
+      "after": 430,
+      "delta": -2
+    },
+    "write-pending.1x.startup.coldIssues.owners": {
+      "before": 353,
+      "after": 352,
+      "delta": -1
+    },
+    "write-pending.1x.startup.computeds.declared": {
+      "before": 11730,
+      "after": 11707,
+      "delta": -23
+    },
+    "write-pending.1x.startup.computeds.total": {
+      "before": 11730,
+      "after": 11707,
+      "delta": -23
+    },
+    "write-pending.1x.startup.held.arrayElements": {
+      "before": 5823,
+      "after": 6107,
+      "delta": 284
+    },
+    "write-pending.1x.startup.held.mapEntries": {
+      "before": 24641,
+      "after": 24685,
+      "delta": 44
+    },
+    "write-pending.1x.startup.held.setMembers": {
+      "before": 13159,
+      "after": 13174,
+      "delta": 15
+    },
+    "write-pending.1x.startup.observables.array": {
+      "before": 2154,
+      "after": 2178,
+      "delta": 24
+    },
+    "write-pending.1x.startup.observables.atom": {
+      "before": 5740,
+      "after": 21591,
+      "delta": 15851
+    },
+    "write-pending.1x.startup.observables.map": {
+      "before": 32,
+      "after": 40,
+      "delta": 8
+    },
+    "write-pending.1x.startup.observables.set": {
+      "before": 3004,
+      "after": 3197,
+      "delta": 193
+    },
+    "write-pending.1x.startup.observables.value.mapEntry": {
+      "before": 24641,
+      "after": 24685,
+      "delta": 44
+    },
+    "write-pending.1x.startup.observables.value.mapHas": {
+      "before": 11259,
+      "after": 11231,
+      "delta": -28
+    },
+    "write-pending.1x.startup.observables.value.standalone": {
+      "before": 2,
+      "after": 193,
+      "delta": 191
+    },
+    "write-pending.4x.firstPaint.byOwner.GroupNode.computeds": {
+      "before": 48,
+      "after": 56,
+      "delta": 8
+    },
+    "write-pending.4x.firstPaint.byOwner.IssueModel.computeds": {
+      "before": 41651,
+      "after": 41603,
+      "delta": -48
+    },
+    "write-pending.4x.firstPaint.byOwner.IssueModel.owners": {
+      "before": 11044,
+      "after": 11042,
+      "delta": -2
+    },
+    "write-pending.4x.firstPaint.byOwner.SessionModel.computeds": {
+      "before": 6485,
+      "after": 6490,
+      "delta": 5
+    },
+    "write-pending.4x.firstPaint.byOwner.SessionModel.owners": {
+      "before": 5899,
+      "after": 5904,
+      "delta": 5
+    },
+    "write-pending.4x.firstPaint.byOwner.WorklistGroups.computeds": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "write-pending.4x.firstPaint.byOwner.WorktreeModel.computeds": {
+      "before": 0,
+      "after": 8,
+      "delta": 8
+    },
+    "write-pending.4x.firstPaint.byOwner.WorktreeModel.owners": {
+      "before": 0,
+      "after": 8,
+      "delta": 8
+    },
+    "write-pending.4x.firstPaint.closedIssues.computeds": {
+      "before": 12148,
+      "after": 12066,
+      "delta": -82
+    },
+    "write-pending.4x.firstPaint.closedIssues.owners": {
+      "before": 3176,
+      "after": 3174,
+      "delta": -2
+    },
+    "write-pending.4x.firstPaint.coldIssues.computeds": {
+      "before": 1933,
+      "after": 1929,
+      "delta": -4
+    },
+    "write-pending.4x.firstPaint.coldIssues.owners": {
+      "before": 1428,
+      "after": 1426,
+      "delta": -2
+    },
+    "write-pending.4x.firstPaint.computeds.declared": {
+      "before": 48187,
+      "after": 48161,
+      "delta": -26
+    },
+    "write-pending.4x.firstPaint.computeds.standalone": {
+      "before": 0,
+      "after": 12,
+      "delta": 12
+    },
+    "write-pending.4x.firstPaint.computeds.total": {
+      "before": 48187,
+      "after": 48173,
+      "delta": -14
+    },
+    "write-pending.4x.firstPaint.held.arrayElements": {
+      "before": 23292,
+      "after": 24396,
+      "delta": 1104
+    },
+    "write-pending.4x.firstPaint.held.mapEntries": {
+      "before": 99400,
+      "after": 99465,
+      "delta": 65
+    },
+    "write-pending.4x.firstPaint.held.setMembers": {
+      "before": 52807,
+      "after": 52834,
+      "delta": 27
+    },
+    "write-pending.4x.firstPaint.observables.array": {
+      "before": 8574,
+      "after": 8604,
+      "delta": 30
+    },
+    "write-pending.4x.firstPaint.observables.atom": {
+      "before": 23041,
+      "after": 88460,
+      "delta": 65419
+    },
+    "write-pending.4x.firstPaint.observables.map": {
+      "before": 32,
+      "after": 40,
+      "delta": 8
+    },
+    "write-pending.4x.firstPaint.observables.set": {
+      "before": 12136,
+      "after": 12928,
+      "delta": 792
+    },
+    "write-pending.4x.firstPaint.observables.value.mapEntry": {
+      "before": 99400,
+      "after": 99465,
+      "delta": 65
+    },
+    "write-pending.4x.firstPaint.observables.value.mapHas": {
+      "before": 45922,
+      "after": 48440,
+      "delta": 2518
+    },
+    "write-pending.4x.firstPaint.observables.value.standalone": {
+      "before": 5,
+      "after": 780,
+      "delta": 775
+    },
+    "write-pending.4x.phases.create.built.atom": {
+      "before": 36,
+      "after": 45,
+      "delta": 9
+    },
+    "write-pending.4x.phases.create.built.computed": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "write-pending.4x.phases.create.built.map": {
+      "before": 32,
+      "after": 40,
+      "delta": 8
+    },
+    "write-pending.4x.phases.create.built.set": {
+      "before": 0,
+      "after": 1,
+      "delta": 1
+    },
+    "write-pending.4x.phases.create.changes": {
+      "before": 9,
+      "after": 10,
+      "delta": 1
+    },
+    "write-pending.4x.phases.create.distinctRows": {
+      "before": 4,
+      "after": 5,
+      "delta": 1
+    },
+    "write-pending.4x.phases.create.rowReads": {
+      "before": 792,
+      "after": 438,
+      "delta": -354
+    },
+    "write-pending.4x.phases.firstPaint.built.atom": {
+      "before": 153,
+      "after": 3512,
+      "delta": 3359
+    },
+    "write-pending.4x.phases.firstPaint.built.computed": {
+      "before": 1350,
+      "after": 1427,
+      "delta": 77
+    },
+    "write-pending.4x.phases.firstPaint.built.observableValue": {
+      "before": 864,
+      "after": 3477,
+      "delta": 2613
+    },
+    "write-pending.4x.phases.firstPaint.changes": {
+      "before": 48,
+      "after": 56,
+      "delta": 8
+    },
+    "write-pending.4x.phases.firstPaint.computedRuns": {
+      "before": 1345,
+      "after": 1431,
+      "delta": 86
+    },
+    "write-pending.4x.phases.firstPaint.distinctRows": {
+      "before": 189,
+      "after": 210,
+      "delta": 21
+    },
+    "write-pending.4x.phases.firstPaint.rowReads": {
+      "before": 4078,
+      "after": 8267,
+      "delta": 4189
+    },
+    "write-pending.4x.phases.firstReactiveRun.built.array": {
+      "before": 24,
+      "after": 54,
+      "delta": 30
+    },
+    "write-pending.4x.phases.firstReactiveRun.built.atom": {
+      "before": 2166,
+      "after": 64217,
+      "delta": 62051
+    },
+    "write-pending.4x.phases.firstReactiveRun.built.computed": {
+      "before": 46834,
+      "after": 46742,
+      "delta": -92
+    },
+    "write-pending.4x.phases.firstReactiveRun.built.observableValue": {
+      "before": 45082,
+      "after": 45816,
+      "delta": 734
+    },
+    "write-pending.4x.phases.firstReactiveRun.built.set": {
+      "before": 0,
+      "after": 791,
+      "delta": 791
+    },
+    "write-pending.4x.phases.firstReactiveRun.changes": {
+      "before": 8724,
+      "after": 16852,
+      "delta": 8128
+    },
+    "write-pending.4x.phases.firstReactiveRun.computedRuns": {
+      "before": 46834,
+      "after": 46742,
+      "delta": -92
+    },
+    "write-pending.4x.phases.firstReactiveRun.distinctRows": {
+      "before": 15470,
+      "after": 15526,
+      "delta": 56
+    },
+    "write-pending.4x.phases.firstReactiveRun.rowReads": {
+      "before": 438539,
+      "after": 502885,
+      "delta": 64346
+    },
+    "write-pending.4x.phases.ingest.built.observableValue": {
+      "before": 78860,
+      "after": 78871,
+      "delta": 11
+    },
+    "write-pending.4x.phases.ingest.changes": {
+      "before": 79650,
+      "after": 81550,
+      "delta": 1900
+    },
+    "write-pending.4x.phases.ingest.rowReads": {
+      "before": 1362047,
+      "after": 1358195,
+      "delta": -3852
+    },
+    "write-pending.4x.startup.byOwner.IssueModel.computeds": {
+      "before": 40511,
+      "after": 40427,
+      "delta": -84
+    },
+    "write-pending.4x.startup.byOwner.IssueModel.owners": {
+      "before": 10953,
+      "after": 10951,
+      "delta": -2
+    },
+    "write-pending.4x.startup.byOwner.SessionModel.computeds": {
+      "before": 6323,
+      "after": 6315,
+      "delta": -8
+    },
+    "write-pending.4x.startup.byOwner.WorklistGroups.computeds": {
+      "before": 3,
+      "after": 4,
+      "delta": 1
+    },
+    "write-pending.4x.startup.closedIssues.computeds": {
+      "before": 11681,
+      "after": 11597,
+      "delta": -84
+    },
+    "write-pending.4x.startup.closedIssues.owners": {
+      "before": 3087,
+      "after": 3085,
+      "delta": -2
+    },
+    "write-pending.4x.startup.coldIssues.computeds": {
+      "before": 1662,
+      "after": 1658,
+      "delta": -4
+    },
+    "write-pending.4x.startup.coldIssues.owners": {
+      "before": 1337,
+      "after": 1335,
+      "delta": -2
+    },
+    "write-pending.4x.startup.computeds.declared": {
+      "before": 46837,
+      "after": 46746,
+      "delta": -91
+    },
+    "write-pending.4x.startup.computeds.total": {
+      "before": 46837,
+      "after": 46746,
+      "delta": -91
+    },
+    "write-pending.4x.startup.held.arrayElements": {
+      "before": 23292,
+      "after": 24396,
+      "delta": 1104
+    },
+    "write-pending.4x.startup.held.mapEntries": {
+      "before": 99400,
+      "after": 99465,
+      "delta": 65
+    },
+    "write-pending.4x.startup.held.setMembers": {
+      "before": 52807,
+      "after": 52834,
+      "delta": 27
+    },
+    "write-pending.4x.startup.observables.array": {
+      "before": 8574,
+      "after": 8604,
+      "delta": 30
+    },
+    "write-pending.4x.startup.observables.atom": {
+      "before": 22888,
+      "after": 84948,
+      "delta": 62060
+    },
+    "write-pending.4x.startup.observables.map": {
+      "before": 32,
+      "after": 40,
+      "delta": 8
+    },
+    "write-pending.4x.startup.observables.set": {
+      "before": 12136,
+      "after": 12928,
+      "delta": 792
+    },
+    "write-pending.4x.startup.observables.value.mapEntry": {
+      "before": 99400,
+      "after": 99465,
+      "delta": 65
+    },
+    "write-pending.4x.startup.observables.value.mapHas": {
+      "before": 45058,
+      "after": 44963,
+      "delta": -95
+    },
+    "write-pending.4x.startup.observables.value.standalone": {
+      "before": 5,
+      "after": 780,
+      "delta": 775
+    }
+  },
+  "historyComparisonIssue": "POD-4947: comparisonBase, perKeyChanges and historyProbe retained unchanged"
 }
