@@ -150,6 +150,10 @@ describe('the roll-up combine', () => {
     const before = structuredClone(facts)
     expect(combineSidebarSessions(NO_SIDEBAR_SESSIONS, facts)).toBe(facts)
     expect(combineSidebarSessions(facts, NO_SIDEBAR_SESSIONS)).toBe(facts)
+    const exited = sidebarSessionFacts(session({ status: 'exited', agentState: { phase: 'ended', workingMsTotal: 20 } }))
+    const combined = combineSidebarSessions(facts, exited)
+    expect(combined.fleet).toBe(facts.fleet)
+    expect(combined.totalMs).toBe(20)
     expect(facts).toEqual(before)
   })
 

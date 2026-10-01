@@ -175,15 +175,8 @@ export function combineSidebarSessions(a: SidebarSessionFacts, b: SidebarSession
   if (b === NO_SIDEBAR_SESSIONS) return a
   const earliest = (left: TimerAnchor | undefined, right: TimerAnchor | undefined) =>
     left === undefined ? right : right !== undefined && right.stateSince < left.stateSince ? right : left
-  const tiles = a.fleet.tiles.map(tile => ({ ...tile }))
-  for (const tile of b.fleet.tiles) {
-    const previous = tiles.find(candidate => candidate.kind === tile.kind)
-    if (previous) previous.parked &&= tile.parked
-    else tiles.push({ ...tile })
-  }
   return {
-    fleet: { total: a.fleet.total + b.fleet.total, parkedCount: a.fleet.parkedCount + b.fleet.parkedCount,
-      nativeCount: a.fleet.nativeCount + b.fleet.nativeCount, tiles },
+    fleet: combineFleet(a.fleet, b.fleet),
     working: earliest(a.working, b.working), waitingOpen: earliest(a.waitingOpen, b.waitingOpen),
     waitingFinished: earliest(a.waitingFinished, b.waitingFinished),
     doneSince: Math.max(a.doneSince, b.doneSince),
@@ -191,6 +184,21 @@ export function combineSidebarSessions(a: SidebarSessionFacts, b: SidebarSession
     lastActiveMs: Math.max(a.lastActiveMs, b.lastActiveMs),
     errorClass: a.errorClass ?? b.errorClass, allUnstarted: a.allUnstarted && b.allUnstarted,
   }
+}
+
+function combineFleet(a: SidebarRowValues['fleet'], b: SidebarRowValues['fleet']): SidebarRowValues['fleet'] {
+  // An exited-only branch can still contribute timing, but contributes no
+  // fleet glyphs. Keep the other branch's immutable fleet in that case.
+  if (a.total === 0) return b
+  if (b.total === 0) return a
+  const tiles = a.tiles.map(tile => ({ ...tile }))
+  for (const tile of b.tiles) {
+    const previous = tiles.find(candidate => candidate.kind === tile.kind)
+    if (previous) previous.parked &&= tile.parked
+    else tiles.push({ ...tile })
+  }
+  return { total: a.total + b.total, parkedCount: a.parkedCount + b.parkedCount,
+    nativeCount: a.nativeCount + b.nativeCount, tiles }
 }
 
 export function sidebarTimingFromFacts(
