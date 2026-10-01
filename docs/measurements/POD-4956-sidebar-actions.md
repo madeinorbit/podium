@@ -47,7 +47,7 @@ All 39 new interaction checks rejected planted mistakes before their green resul
 | Default L4b correctness gate and built-in plants | Seeds 1/2/3 × 200 steps passed; all 21 built-in fault controls rejected |
 | Chromium pointer/keyboard proof and four phase controls | Four controls rejected their plants after clean boot; positive run has 9 clean S5 checkpoints |
 | Uncached affected-project typecheck | Graph, prototype and final web guard passed |
-| Scoped lint and span-effects | Web zero errors, assertion/style warnings retained; both package linters green; span gate 160 bodies, 0 unclassified effects; final guard lint closing |
+| Scoped lint and span-effects | Web and final guard zero errors, assertion/style warnings retained; both package linters green; span gate 160 bodies, 0 unclassified effects |
 | Lean run and routing repair | Initial run 152/153 passed; the missing server-test lane was fixed and all 50 focused configuration/shard checks passed; the other 113 unchanged lean checks were retained |
 | Private live-data comparison | Clean, no pending loads; live rows stayed in RAM on ludovico and only terminal counts were emitted; no result file, export or dump |
 
