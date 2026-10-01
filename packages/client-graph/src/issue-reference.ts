@@ -64,7 +64,13 @@ export class IssueReferences implements IssueReferenceReader {
   resetUnresolved(): void {
     runInAction(() => {
       this.requestGeneration++
-      this.requests.clear()
+      // Preserve the value atoms an already-loading chip observes. Replacing
+      // the map entry with another LOADING entry would leave that derivation
+      // observing the removed atom until its displayed value changes.
+      for (const key of this.requests.keys()) {
+        this.requests.set(key, LOADING)
+        this.queue(key)
+      }
     })
   }
 
