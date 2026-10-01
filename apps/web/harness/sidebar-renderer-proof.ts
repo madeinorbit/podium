@@ -207,6 +207,10 @@ try {
       // Measure readiness separately, then check ownership after that tail.
       await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 1000)))
       await cdp.send('HeapProfiler.collectGarbage')
+      // MobX's abandoned-render reactions are owned by FinalizationRegistry.
+      // Its cleanup runs in a later task; back-to-back collections retain the
+      // reaction's pool before that task has had a chance to dispose it.
+      await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 100)))
       await cdp.send('HeapProfiler.collectGarbage')
       const survivors = await page.evaluate(() => window.__sidebarRenderer.survivors())
       if (survivors.length) throw new Error(`${mode} principal retained ${survivors.join(', ')}`)
