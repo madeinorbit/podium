@@ -38,6 +38,7 @@ try {
     if (parity && (parity.differences || parity.pending)) throw new Error(`Header parity failed: ${JSON.stringify(parity)}`)
     const session = await page.context().newCDPSession(page)
     await session.send('Performance.enable')
+    let metricSequence = 0
     const metrics = async () => Object.fromEntries((await session.send('Performance.getMetrics')).metrics.map((entry) => [entry.name, entry.value]))
     const phase = async (name: string, durationMs: number, activity: boolean) => {
       await page.evaluate(() => window.__headerFixture.reset())
@@ -45,7 +46,10 @@ try {
       let sample = 0, step = 0
       while (Date.now() - started < durationMs) {
         const elapsed = Date.now() - started
-        if (elapsed >= sample * 5000) await page.evaluate((value) => window.__headerFixture.metrics(value), ++sample)
+        if (elapsed >= sample * 5000) {
+          sample++
+          await page.evaluate((value) => window.__headerFixture.metrics(value), ++metricSequence)
+        }
         if (activity) await page.evaluate((value) => window.__headerFixture.activity(value), ++step)
         await page.waitForTimeout(activity ? 100 : 250)
       }
@@ -64,6 +68,9 @@ try {
           if (unrelated.length) throw new Error(`Idle header recomputation: ${unrelated.map(([key]) => key).join(', ')}`)
           if (stats.header['pool.metricRow']?.calls !== sample) throw new Error(`Metric renders did not match changed rows: ${JSON.stringify({ phase: name, samples: sample, header: stats.header, commits: stats.commits })}`)
         }
+        const values = await page.evaluate(() => window.__headerFixture.check())
+        if (values?.differences || values?.pending) throw new Error(`Header values changed incorrectly: ${JSON.stringify(values)}`)
+        Object.assign(results[`${mode}.${name}`] as object, { parity: values })
       }
     }
     // Equal-length before/after idle and activity windows, then the long proof.
