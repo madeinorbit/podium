@@ -17,11 +17,14 @@ import {
 } from '@podium/client-core/viewmodels'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { checkSidebar } from '@podium/client-graph/diagnostics/sidebar-check'
-import { asIssueId, asSessionId, asUserId, spreadSortKeys } from '@podium/model/browser'
+import { spreadSortKeys } from '@podium/model'
+import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OperatorFocusProvider, useOperatorFocus } from '@/app/operator-focus'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
+import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { createSidebarActionsFixture } from '../../../test/sidebar-actions-fixture'
 import { SidebarUnified } from './SidebarUnified'
@@ -102,8 +105,16 @@ function CaptureActions({ pool: owner }: { pool: MobxPool }) {
   actions = usePoolUnifiedWork(owner)
   return null
 }
+function PoolMenuProbe({ id }: { id: string }) {
+  const [data, setData] = useState<ReturnType<PoolWorkActions['resolveMenuData']> | null>(null)
+  return <>
+    <button data-testid="pool-menu-probe" onClick={() => setData(actions.resolveMenuData(id))}>Open nested task menu</button>
+    {data && <IssueContextMenu issues={data.single} allIssues={data.all} surface="sidebar"
+      anchor={{ x: 40, y: 60 }} onClose={() => setData(null)} onOpen={actions.openIssuePage} />}
+  </>
+}
 
-async function mount(prepare?: (fixture: Fixture) => void, count = 12) {
+async function mount(prepare?: (fixture: Fixture) => void, count = 12, probeId?: string) {
   const fixture = createSidebarActionsFixture(count, NOW)
   prepare?.(fixture)
   const procedure = (name: string) => ({
@@ -131,6 +142,9 @@ async function mount(prepare?: (fixture: Fixture) => void, count = 12) {
       ].map((name) => [name, procedure(`issues.${name}`)]),
     ),
     sessions: { markRead: procedure('sessions.markRead'), handoff: procedure('sessions.handoff') },
+    pins: { set: { mutate: async () => ({ panels: [], worktrees: [], repos: [] }) } },
+    tabs: { setOrder: { mutate: async () => ({}) } },
+    layout: { set: { mutate: async () => ({}) }, clear: { mutate: async () => ({}) } },
   })
   render(
     <StoreProvider
@@ -154,6 +168,7 @@ async function mount(prepare?: (fixture: Fixture) => void, count = 12) {
         <OperatorFocusProvider missionId={null}>
           <Capture />
           <SidebarUnified />
+          {probeId && <PoolMenuProbe id={probeId} />}
         </OperatorFocusProvider>
       </ConfirmProvider>
     </StoreProvider>,
@@ -181,7 +196,10 @@ async function parity() {
     selectedWorktree: store.selectedWorktree,
   })
   expect(result.pending).toBe(0)
-  expect(result.first).toBeNull()
+  expect(result.first, JSON.stringify({
+    target: pool!.sidebar.row(TARGET),
+    legacy: allIssueViewModels(runtime.replica, store.issueProjections, store.issues).find((i) => i.id === TARGET),
+  })).toBeNull()
   expect(result.differences).toBe(0)
 }
 function row(id = TARGET) {
@@ -231,7 +249,9 @@ async function refuse(write: Request) {
   await parity()
 }
 async function menu(id = TARGET) {
-  fireEvent.contextMenu(row(id).querySelector('button')!, { clientX: 40, clientY: 60 })
+  const target = row(id)?.querySelector('button')
+  if (target) fireEvent.contextMenu(target, { clientX: 40, clientY: 60 })
+  else fireEvent.click(screen.getByTestId('pool-menu-probe'))
   return screen.findByRole('menu', { name: 'Task actions' })
 }
 async function item(name: string | RegExp) {
@@ -416,8 +436,14 @@ describe('pool navigation uses the existing gesture semantics', () => {
     await act(async () => {
       actions.selectIssue('synthetic-3')
     })
+    expect(beginSwitch).toHaveBeenLastCalledWith({ sessionId: expected, issueId: 'synthetic-3' })
     expect(runtime.getSnapshot().selectedIssueId).toBe(root.id)
-    expect(runtime.getSnapshot().paneA).toBe(expected)
+    expect(runtime.getSnapshot().paneA, JSON.stringify({
+      mission: [...mission], issueKeys: [...pool!.tables.issue.keys()],
+      members: [...members.keys()],
+      issueSessions: [...mission].map((id) => [id, actions.resolveMenuData(id).single[0]?.memberSessionIds]),
+      reads: [...pool!.tables.session.keys()].map((id) => pool!.row('session', id)),
+    })).toBe(expected)
     expect(focused).toBe('synthetic-3')
     await parity()
   })
@@ -691,7 +717,7 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(folded)
     await parity()
     expect(pool!.foldLatch.get()).toBe(true)
-    for (const queued of [...runtime.outbox.pending()])
+    for (const queued of runtime.outbox.pending().filter((entry) => entry.kind === 'issueMarkRead'))
       await accept(await request('issues.markRead', (queued.input as { id: string }).id))
     fireEvent.contextMenu(folded, { clientX: 30, clientY: 40 })
     fireEvent.click(await screen.findByTestId('bring-back'))
@@ -725,7 +751,9 @@ describe('real pool row mutations and receipts', () => {
     await mount()
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
     fireEvent.click(screen.getByTestId('closed-issue-archive'))
-    expect(pool!.sidebar.sections().bands[0]!.closedIds).not.toContain('synthetic-5')
+    expect(pool!.sidebar.sections().bands[0]!.closedIds, JSON.stringify({
+      pending: runtime.outbox.pending(), row: pool!.sidebar.row('synthetic-5'), requests,
+    })).not.toContain('synthetic-5')
     const write = await request('issues.archive', 'synthetic-5')
     expect(write.input).toMatchObject({ id: 'synthetic-5' })
     expect(pool!.sidebar.sections().bands[0]!.closedIds).not.toContain('synthetic-5')
@@ -782,10 +810,10 @@ describe('real pool row mutations and receipts', () => {
     await menu()
     fireEvent.click(await item('Mark as unread'))
     const unread = await request('issues.markUnread')
-    expect(value().unread).toBe(true)
+    expect(value().issue.unread).toBe(true)
     await parity()
     await refuse(unread)
-    expect(value().unread).toBe(false)
+    expect(value().issue.unread).toBe(false)
   })
 
   it('offers the same sidebar menu vocabulary and resolves live cascade counts and members on open', async () => {
@@ -827,15 +855,15 @@ describe('real pool row mutations and receipts', () => {
         deferUntil: new Date(NOW + 3600000).toISOString(),
       }),
     )
-    expect(value().unread).toBe(true)
+    expect(value().issue.unread).toBe(true)
     expect(actions.resolveMenuData(TARGET).single[0]?.unread).toBe(true)
     await menu()
     fireEvent.click(await item('Mark as read'))
     const read = await request('issues.markRead')
-    expect(value().unread).toBe(false)
+    expect(value().issue.unread).toBe(false)
     await parity()
     await refuse(read)
-    expect(value().unread).toBe(true)
+    expect(value().issue.unread).toBe(true)
     await menu()
     fireEvent.click(await item('Snooze / defer'))
     fireEvent.click(await item('Unsnooze'))
@@ -873,13 +901,8 @@ describe('real pool row mutations and receipts', () => {
     await mount((fixture) => {
       if (placement === 'own') patchIssue(fixture, TARGET, { parentId: 'synthetic-1' })
       if (placement === 'mission') discoveredFrom(fixture, id, 'synthetic-1')
-    })
+    }, 12, placement === 'own' ? TARGET : undefined)
     const targetId = placement === 'own' ? TARGET : id
-    if (placement === 'own') {
-      fireEvent.click(screen.getByText('Synthetic task 1'))
-      for (const queued of [...runtime.outbox.pending()])
-        await accept(await request('issues.markRead', (queued.input as { id: string }).id))
-    }
     await menu(targetId)
     fireEvent.click(await item(placement === 'own' ? /^Move to top level/ : /^Move into/))
     const write = await request('issues.setPlacement', targetId)
@@ -898,7 +921,9 @@ describe('real pool row mutations and receipts', () => {
       fixture.patch('session', 'synthetic-session-11', {
         machineId: 'source',
         harnessHandoff: true,
+        cwd: `${ROOT}/guests`,
       })
+      patchIssue(fixture, TARGET, { worktreePath: `${ROOT}/guests` })
       const refresh = fixture.api.discovery.refreshRepos.mutate
       fixture.api.discovery.refreshRepos.mutate = async (...args) => {
         const result = await refresh(...args)
@@ -910,7 +935,7 @@ describe('real pool row mutations and receipts', () => {
             repoId: 'synthetic-repo',
             kind: 'repository',
             branch: 'main',
-            worktrees: [],
+            worktrees: machineId === 'source' ? [{ path: `${ROOT}/guests`, branch: 'synthetic' }] : [],
           })),
           machines: ['source', 'target'].map((id) => ({
             id,
@@ -948,12 +973,13 @@ describe('real pool row mutations and receipts', () => {
     expect(
       runtime.outbox
         .pending()
+        .filter((entry) => entry.kind === 'issueArchive')
         .map((entry) => (entry.input as { id: string }).id)
         .sort(),
     ).toEqual(['synthetic-5', TARGET].sort())
     expect(pool!.sidebar.sections().bands[0]!.closedIds).toHaveLength(0)
     await parity()
-    for (const entry of [...runtime.outbox.pending()])
+    for (const entry of runtime.outbox.pending().filter((entry) => entry.kind === 'issueArchive'))
       await refuse(await request('issues.archive', (entry.input as { id: string }).id))
     expect(pool!.sidebar.sections().bands[0]!.closedIds).toHaveLength(2)
   })

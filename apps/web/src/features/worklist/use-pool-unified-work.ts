@@ -219,7 +219,7 @@ export function createPoolWorkActions(
             childIds: childIds.map(asIssueId),
             childCount: childIds.length,
             childDoneCount,
-            unread: value.unread,
+            unread: value.issue.unread,
             deferred: value.deferred,
           },
         ]

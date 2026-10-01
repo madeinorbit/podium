@@ -8,7 +8,8 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { checkSidebar } from '@podium/client-graph/diagnostics/sidebar-check'
-import { asUserId, spreadSortKeys } from '@podium/model/browser'
+import { spreadSortKeys } from '@podium/model'
+import { asUserId } from '@podium/model/browser'
 import { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
@@ -48,6 +49,9 @@ Object.assign(synthetic.api, {
     markRead: procedure('issues.markRead'),
     archive: procedure('issues.archive'),
   },
+  pins: { set: { mutate: async () => ({ panels: [], worktrees: [], repos: [] }) } },
+  tabs: { setOrder: { mutate: async () => ({}) } },
+  layout: { set: { mutate: async () => ({}) }, clear: { mutate: async () => ({}) } },
 })
 let runtime: ClientRuntime | undefined
 let pool: MobxPool | null = null
