@@ -1,12 +1,12 @@
 # POD-4956 — sidebar interaction parity
 
-The pool sidebar uses the current store actions and outbox for every interaction. The focused interaction acceptance is green: **36 checks**, with clean S5 comparisons across pending writes, receipts, rollback, eviction and readmission. Closing package and browser validation is in progress.
+The pool sidebar uses the current store actions and outbox for every interaction. The initial focused interaction acceptance is green: **36 checks**, with clean S5 comparisons across pending writes, receipts, rollback, eviction and readmission. Two final resume-collapse navigation regressions and closing browser validation are in progress.
 
 ## Behavior and ownership
 
 `use-pool-unified-work.ts` follows the formal mission at every depth, then the provenance chain of its attached sessions. Archived and headless senders can supply provenance; pane candidates keep the legacy membership filters and slice-order tie breaking. Selecting a child selects its mission root, keeps the clicked worktree/file candidates, traces the chosen session, batches navigation/read/defer/session-read, and focuses the clicked issue after the batch.
 
-Menu input is resolved on open from resident keys and the pool's one reader. It carries raw unread state, member IDs and child counts needed by the unchanged shared menus. Rows still use the existing rename editor, drag planning, folds, confirmations and command shortcuts. No pool mutation API, additional outbox, replica or runtime was added to the product path. The startup switch and legacy branch are unchanged.
+Navigation and provenance filter normal sessions through the existing R2 membership relation, which already applies resume collapse. Headless senders never collapse and remain eligible for provenance. Menu input is resolved on open from resident keys and the pool's one reader. It carries raw unread state, raw member IDs and child counts needed by the unchanged shared menus. Rows still use the existing rename editor, drag planning, folds, confirmations and command shortcuts. No pool mutation API, additional outbox, replica or runtime was added to the product path. The startup switch and legacy branch are unchanged.
 
 Two shared-reader defects surfaced in the interaction acceptance:
 
@@ -19,7 +19,7 @@ Both fixes have separate commits and exact pool-path negative controls. The summ
 
 | Surface | Evidence in `SidebarUnified.pool-actions.test.tsx` |
 | --- | --- |
-| Select issue/member | Mission root, explicit pane, trace/batch/focus order, deduplication, deep formal descendants, filed chains, headless/archived starters, spin-off departure, archived parents, shell/guest filtering |
+| Select issue/member | Mission root, explicit pane, trace/batch/focus order, deduplication, deep formal descendants, filed chains, headless/archived starters, spin-off departure, archived parents, shell/guest filtering; final collapsed-pane and collapsed-sender regressions pending |
 | File/worktree/panel | Keep a mission file pane; no redundant/file trace; worktree containment; explicit panel; existing session-read command |
 | Unloaded row | LOADING, no mutation/focus, repeated clicks coalesce into one two-row load |
 | Rename | Enter, blur, Escape, whitespace, menu editor, immediate paint, refusal, accepted write awaiting echo, later-write rollback |
@@ -40,7 +40,9 @@ All 36 new interaction checks rejected planted mistakes before their green resul
 | --- | --- |
 | Focused pool-path interactions, web config | 36 passed |
 | Exact shared-reader negative controls | 3 failed on plant; all 3 passed restored |
-| Required shared-arm checks, package config | 67 passed; census closing separately |
+| Required shared-arm checks, package config | 67 passed; final retained-session regressions 17 passed |
+| MobX census, bare/idle/pending at 1x/4x | 6 passed, no issue-added tracking objects or reads |
+| Default L4b correctness gate and built-in plants | Running |
 | Chromium pointer/keyboard proof and four phase controls | Pending |
 | Uncached affected-project typecheck | Pending |
 | Scoped lint, span-effects and lean gate | Pending |
@@ -68,4 +70,4 @@ The last baseline writer was POD-4953 commit `3cb72877e`. Historical package-con
 
 The separate baseline commit changes 43 counters, each with a `perKeyChanges` explanation. Section owners stay at eight while visible rows grow from 732 to 2,928: the extra computed is per visible section. Rail summaries consume retained visible-session offers and cached verdicts; they retain counts, not another history index. The fixed 20-row observer window and list-root roster composition differ at 1x/4x, so the read delta is not four identical windows. Earlier history and sidebar attribution remains in the file.
 
-An initial presence supplement incurred 725/2,899 extra first-reactive reads and a pending 1x bootstrap re-evaluation. Reusing existing standing removes that avoidable work. Final census verification is pending.
+An initial presence supplement incurred 725/2,899 extra first-reactive reads and a pending 1x bootstrap re-evaluation. `standingOf` now borrows `sessionFacts` once for both its existing activity fact and the headless boolean. Reusing that standing removes all avoidable work: the final six-case census matches integration exactly.
