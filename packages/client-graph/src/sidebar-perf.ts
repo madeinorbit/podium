@@ -29,7 +29,7 @@ function measureDerivations(perf: SidebarPerf): () => void {
     if (typeof proto[key] !== 'function') throw new Error(`Sidebar work meter: missing MobX ${key}`)
   }
   for (const [proto, key] of boundaries) {
-    const original = proto[key]
+    const original = proto[key]!
     const measured: Body = function (...args) {
       const start = performance.now()
       try {
