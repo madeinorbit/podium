@@ -62,7 +62,7 @@
  * The formal children, which the progress roll-up composes over, are the
  * relation engine's own `issue.children` bucket.
  *
- * THE COLLECTION IS MAINTAINED, ONE ROW AT A TIME. Every issue in memory
+ * THE COLLECTION IS MAINTAINED, ONE ROW AT A TIME. Every eligible issue in memory
  * holds ONE reaction (`VisibleCollection.track`, taken when its row enters
  * the table and released when it leaves), on what it files: its placement
  * and rank while it is visible, nothing while it is not. The effect moves

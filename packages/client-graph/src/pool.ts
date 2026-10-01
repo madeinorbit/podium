@@ -684,8 +684,8 @@ export class MobxPool {
   }
 
   /**
-   * The issue table moved (inside the action that moved it): a row entering
-   * memory takes its filing reaction, a row leaving releases it.
+   * The issue table moved: eligible rows take a filing reaction. Excluded rows
+   * release it immediately; a row returning from exclusion takes it again.
    */
   private followTable(type: 'add' | 'update' | 'delete', id: string): void {
     const row = type === 'delete' ? undefined : this.tables.issue.get(id)

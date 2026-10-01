@@ -175,7 +175,7 @@ function sessionRecord(id: string, patch: Partial<SliceSession> = {}): RowRecord
 /** A closed issue with at least `n` sessions of its own, none headless. */
 function closedWithSessions(n: number): { issue: SliceIssue; sessions: SliceSession[] } {
   for (const issue of corpus.sliceIssues) {
-    if (!isCold(issue) || issue.closedAt == null || issue.archived === true || issue.deletedAt != null) continue
+    if (!isCold(issue) || issue.closedAt == null || issue.archived === true || issue.deletedAt != null || issue.audience !== 'human') continue
     const sessions = corpus.sliceSessions.filter(
       (session) => session.issueId === issue.id && session.headless !== true,
     )

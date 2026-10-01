@@ -655,7 +655,7 @@ function issueFinishOf(row: Readonly<Record<string, unknown>>): number | null {
 function issueCanShow(row: Readonly<Record<string, unknown>>, ctx: ColdContext): boolean {
   if (issueExcluded(row)) return false
   if (row['audience'] !== 'agent' || !row['parentId'] || ctx.summary === undefined) return true
-  const seen = new Set<string>([row['id'] as string])
+  const seen = new Set<string>()
   let parent = row['parentId']
   while (typeof parent === 'string' && parent.length > 0 && !seen.has(parent)) {
     seen.add(parent)
@@ -731,7 +731,7 @@ const DECLARED = defineSchema({
       seq: { type: 'number', source: wire(), note: 'Immutable creation order key (slice §3 R-ORDER).' },
       createdAt: { type: 'isoDate', source: wire() },
       updatedAt: { type: 'isoDate', source: wire() },
-      closedAt: { type: 'isoDate', optional: true, nullable: true, source: wire(), note: 'Drives residency: a closed issue is cold.' },
+      closedAt: { type: 'isoDate', optional: true, nullable: true, source: wire(), note: 'History candidate alongside archived and deleted; visibility keepers bound residency.' },
       deletedAt: { type: 'isoDate', optional: true, nullable: true, source: wire() },
       archived: { type: 'boolean', optional: true, source: wire() },
       stage: { type: 'string', source: wire(), note: 'Vocabulary in model/src/predicates/issue-stage.ts; the value set is a view rule (L1b), not a schema rule.' },
@@ -909,7 +909,7 @@ const DECLARED = defineSchema({
           why: "R3 (POD-4745): an issueless session running in the issue's own checkout is one of its seats by containment (`indexSessionOwnership`, session-ownership.ts:152-158), and a retained seat keeps the row shown exactly as an explicit member does. Without it the bound held only on today's data (no closed row at 1x or 4x is kept by such a session alone), and an arm had to evaluate every cold row at bootstrap to be safe.",
         },
       ],
-      why: 'Audit §7: every issue is instantiated at bootstrap, including ~2,600 closed ones. Closed issues stay on disk until touched, EXCEPT one the list can draw (POD-4665): on the live-shaped corpus 376 of the 732 visible rows at 1x are closed, 45 of them in the first 96-row window, and a drawn row that is cold paints as a placeholder and loads a moment later.',
+      why: 'History stays out of observable tables unless R-VIS can show it: closed folds, completion windows, merge work and retained sessions. Archived/deleted rows and internal children without a warm human nesting ancestor cannot show, whatever a session keeps. A clock rewind remains the loading exception.',
     },
   },
 
