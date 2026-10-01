@@ -1,3 +1,3 @@
+export { compareStructural, computed } from 'mobx'
 export { observer } from 'mobx-react-lite'
-export { computed, compareStructural } from 'mobx'
-export { PoolRowSlot, type IssueRenderer } from './row'
+export { type IssueRenderer, PoolRowSlot } from './row'

@@ -81,12 +81,7 @@ import {
   type RightPanelTab,
   rightPanelAllowed,
 } from './shell-state'
-import {
-  type IssueViewModel,
-  type MainView,
-  useReplicaIssues,
-  useStoreSelector,
-} from './store'
+import { type IssueViewModel, type MainView, useReplicaIssues, useStoreSelector } from './store'
 
 const SEARCH_DEBOUNCE_MS = 150
 const SEARCH_MIN_QUERY_LEN = 2

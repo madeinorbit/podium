@@ -52,7 +52,12 @@ export function UnifiedWorktreeRow({
   onSelect: () => void
   onSelectPanel: (sessionId: SessionId) => void
   partition?: { visible: SessionMeta[]; stale: SessionMeta[] }
-  renderSession?: (session: SessionMeta, active: boolean, issueDisplayRef: string | undefined, trailingMeta: ReactNode) => ReactNode
+  renderSession?: (
+    session: SessionMeta,
+    active: boolean,
+    issueDisplayRef: string | undefined,
+    trailingMeta: ReactNode,
+  ) => ReactNode
 }): JSX.Element {
   const { worktree } = row
   const { visible, stale } = partition ?? partitionStaleSessions(worktree.sessions, now)
@@ -63,15 +68,21 @@ export function UnifiedWorktreeRow({
       ? issues.find((issue) => issue.id === session.issueId)?.displayRef
       : undefined
     const trailingMeta = orphan ? (
-            <span
-              className="shell-type-micro flex-none font-mono text-text-faint"
-              data-testid="orphan-provenance"
-              title={orphan.hint}
-            >
-              {orphan.text}
-            </span>
-          ) : undefined
-    if (renderSession) return renderSession(session, active && paneA === session.sessionId, attachedIssueDisplayRef, trailingMeta)
+      <span
+        className="shell-type-micro flex-none font-mono text-text-faint"
+        data-testid="orphan-provenance"
+        title={orphan.hint}
+      >
+        {orphan.text}
+      </span>
+    ) : undefined
+    if (renderSession)
+      return renderSession(
+        session,
+        active && paneA === session.sessionId,
+        attachedIssueDisplayRef,
+        trailingMeta,
+      )
     return (
       <PanelRow
         key={session.sessionId}

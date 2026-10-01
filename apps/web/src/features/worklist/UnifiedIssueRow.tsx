@@ -34,9 +34,9 @@ import { issueColorHex } from '@/lib/issueColors'
 import { PhaseTimer, WorkingMark } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
+import type { PoolIssueDisplay } from './pool-row-data'
 import { RowProgressMeter } from './row-progress'
 import { measureSidebarRow } from './sidebar-measurements'
-import type { PoolIssueDisplay } from './pool-row-data'
 import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
 import { WorkRowShell } from './WorkRowShell'
 
@@ -373,7 +373,9 @@ export function UnifiedIssueRowInner({
         }
         domMark={issue.id}
         onGripDown={
-          onGripDown && !(display?.deferred ?? isIssueDeferred(issue, now)) ? (e) => onGripDown(e, issue.id) : undefined
+          onGripDown && !(display?.deferred ?? isIssueDeferred(issue, now))
+            ? (e) => onGripDown(e, issue.id)
+            : undefined
         }
         statusExtra={
           <>
@@ -415,7 +417,12 @@ export function UnifiedIssueRowInner({
                 the only column, but the Flight Deck owns the tree now, and the
                 one row that is purely an agent was the one row that never named
                 one. */}
-            <IssueFleetSummary sessions={fleetSessions} summary={display?.fleet} size={11} variant="glyphs" />
+            <IssueFleetSummary
+              sessions={fleetSessions}
+              summary={display?.fleet}
+              size={11}
+              variant="glyphs"
+            />
             {issue.audience === 'agent' && (
               <span className="flex-none text-text-dim" data-testid="internal-issue-badge">
                 internal

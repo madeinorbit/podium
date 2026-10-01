@@ -1,16 +1,30 @@
-import { useStoreHandle } from '@podium/client-core/react'
 import { beginSwitch } from '@podium/client-core/perf'
+import { useStoreHandle } from '@podium/client-core/react'
 import { pickPaneSession } from '@podium/client-core/viewmodels'
 import { LOADING, type MobxPool } from '@podium/client-graph'
-import { asIssueId, asSessionId, type IssueColorSlot, type IssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
+import {
+  asIssueId,
+  asSessionId,
+  type IssueColorSlot,
+  type IssueId,
+  type SessionId,
+  type SessionMeta,
+} from '@podium/model/browser'
 import { useMemo, useRef } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { navigationIssue } from './pool-row-data'
 
 /** Pool reads are gesture-local. Writes and batching remain the app's actions. */
-export function createPoolWorkActions(pool: MobxPool, runtime: Pick<ReturnType<typeof useStoreHandle>, 'getSnapshot'>, focus: (id: string) => void) {
+export function createPoolWorkActions(
+  pool: MobxPool,
+  runtime: Pick<ReturnType<typeof useStoreHandle>, 'getSnapshot'>,
+  focus: (id: string) => void,
+) {
   let lastIssueNavigation: string | null = null
-  const batch = (fn: () => void) => (runtime.getSnapshot() as unknown as { batchGesture: (fn: () => void) => void }).batchGesture(fn)
+  const batch = (fn: () => void) =>
+    (runtime.getSnapshot() as unknown as { batchGesture: (fn: () => void) => void }).batchGesture(
+      fn,
+    )
   const trace = (target: SessionId | null, issueId: IssueId | null) => {
     if (target && target !== runtime.getSnapshot().paneA && !target.startsWith('file:'))
       beginSwitch({ sessionId: asSessionId(target), issueId })
@@ -23,7 +37,13 @@ export function createPoolWorkActions(pool: MobxPool, runtime: Pick<ReturnType<t
     while (root.issue.parentId && !seen.has(root.issue.id)) {
       seen.add(root.issue.id)
       const parent = pool.sidebar.row(root.issue.parentId)
-      if (parent === undefined || parent === LOADING || parent.issue.archived || parent.issue.deletedAt) break
+      if (
+        parent === undefined ||
+        parent === LOADING ||
+        parent.issue.archived ||
+        parent.issue.deletedAt
+      )
+        break
       root = parent
     }
     const store = runtime.getSnapshot()
@@ -34,17 +54,27 @@ export function createPoolWorkActions(pool: MobxPool, runtime: Pick<ReturnType<t
       const ids = new Set([...pool.graph.many('issue', member, 'sessions'), ...issue.laneMemberIds])
       for (const sessionId of ids) {
         const session = pool.row<SessionMeta>('session', sessionId)
-        if (session !== undefined && session !== LOADING && !session.archived && session.status !== 'exited')
+        if (
+          session !== undefined &&
+          session !== LOADING &&
+          !session.archived &&
+          session.status !== 'exited'
+        )
           members.set(sessionId, session as unknown as SessionMeta)
       }
     }
-    const files = clicked.issue.worktreePath ? store.fileTabs.filter(f => f.worktreePath === clicked.issue.worktreePath).map(f => f.id) : []
+    const files = clicked.issue.worktreePath
+      ? store.fileTabs.filter((f) => f.worktreePath === clicked.issue.worktreePath).map((f) => f.id)
+      : []
     const target = paneSession ?? pickPaneSession([...members.values()], store.paneA, files)
     trace(target, asIssueId(id))
     batch(() => {
-      const changed = store.navigateWorkspace({ selectedIssueId: asIssueId(root.issue.id),
+      const changed = store.navigateWorkspace({
+        selectedIssueId: asIssueId(root.issue.id),
         ...(clicked.issue.worktreePath ? { selectedWorktree: clicked.issue.worktreePath } : {}),
-        tabId: target, firstPane: true })
+        tabId: target,
+        firstPane: true,
+      })
       const commandKey = JSON.stringify([id, paneSession, clicked.issue.updatedAt])
       if (!changed && lastIssueNavigation === commandKey) return
       lastIssueNavigation = commandKey
@@ -59,15 +89,17 @@ export function createPoolWorkActions(pool: MobxPool, runtime: Pick<ReturnType<t
     batch(() => {
       store.setSelectedIssueId(null)
       store.setSelectedWorktree(path)
-      const members = [...pool.graph.many('worktree', path, 'sessions')].flatMap(id => {
+      const members = [...pool.graph.many('worktree', path, 'sessions')].flatMap((id) => {
         const session = pool.row('session', id)
-        return session === undefined || session === LOADING ? [] : [session as unknown as SessionMeta]
+        return session === undefined || session === LOADING
+          ? []
+          : [session as unknown as SessionMeta]
       })
-      const files = store.fileTabs.filter(f => f.worktreePath === path).map(f => f.id)
+      const files = store.fileTabs.filter((f) => f.worktreePath === path).map((f) => f.id)
       const target = pickPaneSession(members, store.paneA, files)
       trace(target, null)
       store.setPane('A', target)
-      if (target && members.some(s => s.sessionId === target)) void store.markSessionRead(target)
+      if (target && members.some((s) => s.sessionId === target)) void store.markSessionRead(target)
       store.setView('workspace')
     })
   }
@@ -91,19 +123,23 @@ export function createPoolWorkActions(pool: MobxPool, runtime: Pick<ReturnType<t
       store.setOpenIssueId(id)
       store.setView('issues')
     },
-    renameIssue: (id: string, title: string) => { void runtime.getSnapshot().updateIssue(id, { title }) },
-    setIssueColor: (id: string, color: IssueColorSlot | null) => runtime.getSnapshot().updateIssue(id, { color }),
+    renameIssue: (id: string, title: string) => {
+      void runtime.getSnapshot().updateIssue(id, { title })
+    },
+    setIssueColor: (id: string, color: IssueColorSlot | null) =>
+      runtime.getSnapshot().updateIssue(id, { color }),
     archiveIssue: (id: string) => runtime.getSnapshot().archiveIssue(id),
     applySortPatches: (patches: { id: string; sortKey: string; pinned?: boolean }[]) =>
       Promise.all(patches.map(({ id, ...patch }) => runtime.getSnapshot().updateIssue(id, patch))),
-    setIssueTucked: (id: string, tucked: boolean) => runtime.getSnapshot().setIssueTucked(id, tucked),
+    setIssueTucked: (id: string, tucked: boolean) =>
+      runtime.getSnapshot().setIssueTucked(id, tucked),
     resolveMenuData: (id: string) => {
       // Only on menu open: enumerate resident issues, through the one reader.
-      const all = [...pool.tables.issue.keys()].flatMap(key => {
+      const all = [...pool.tables.issue.keys()].flatMap((key) => {
         const value = pool.sidebar.row(key)
         return value === undefined || value === LOADING ? [] : [navigationIssue(value.issue)]
       })
-      return { single: all.filter(issue => issue.id === id), all }
+      return { single: all.filter((issue) => issue.id === id), all }
     },
   }
 }
@@ -115,5 +151,8 @@ export function usePoolUnifiedWork(pool: MobxPool): PoolWorkActions {
   const { setFocusedIssueId } = useOperatorFocus()
   const focus = useRef(setFocusedIssueId)
   focus.current = setFocusedIssueId
-  return useMemo(() => createPoolWorkActions(pool, runtime, id => focus.current(id)), [pool, runtime])
+  return useMemo(
+    () => createPoolWorkActions(pool, runtime, (id) => focus.current(id)),
+    [pool, runtime],
+  )
 }

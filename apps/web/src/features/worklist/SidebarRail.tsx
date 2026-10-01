@@ -81,15 +81,15 @@ import {
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
 import { FolderPlus, GitBranch, Plus, Search } from 'lucide-react'
-import { Fragment, lazy, Suspense, type JSX, useMemo, useState } from 'react'
+import { Fragment, type JSX, lazy, Suspense, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { openAddProject } from '@/app/desktop-menu'
 import { useStoreSelector } from '@/app/store'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
 import { MENU_HOVER_CARD } from '@/lib/menu-surface'
+import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
-import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
 import { useSidebarDerivation } from './derivation'
 import { useNewTask } from './new-task'
 import { RowShortcutBadge } from './RowShortcutBadge'
@@ -115,7 +115,9 @@ const TILE_WIDTH = 36
 const TILE_HEIGHT = 32
 const TILE_RADIUS = 9
 
-const PoolSidebarRail = lazy(() => import('./pool-sidebar-rail').then(m => ({ default: m.PoolSidebarRail })))
+const PoolSidebarRail = lazy(() =>
+  import('./pool-sidebar-rail').then((m) => ({ default: m.PoolSidebarRail })),
+)
 
 export function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | null {
   if (waitingCount > 0) return { kind: 'count', count: waitingCount }
@@ -210,7 +212,16 @@ export function RailHoverCard({
 }
 
 export function SidebarRail(): JSX.Element {
-  if (sidebarDataLayer() === 'pool') return <Suspense fallback={null}><PoolSidebarRail /></Suspense>
+  if (sidebarDataLayer() === 'pool')
+    return (
+      <Suspense fallback={null}>
+        <PoolSidebarRail />
+      </Suspense>
+    )
+  return <LegacySidebarRail />
+}
+
+function LegacySidebarRail(): JSX.Element {
   const derivation = useSidebarDerivation()
   const {
     pinned,

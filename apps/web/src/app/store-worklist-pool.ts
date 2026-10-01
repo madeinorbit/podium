@@ -3,8 +3,8 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { reportSidebarPool } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool, WorklistPoolHandle } from '@podium/client-graph'
-import { useMemo, useSyncExternalStore } from 'react'
 import type { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { useMemo, useSyncExternalStore } from 'react'
 import { initializeSidebarDataLayer, sidebarDataLayer, sidebarCheckRequested } from '@/lib/sidebar-data-layer'
 
 interface PoolSlot {
@@ -140,6 +140,9 @@ export function useWorklistPoolProjection<T>(read: (pool: MobxPool) => T, empty:
   const runtime = useStoreHandle()
   const pool = useWorklistPool()
   const project = slotFor(runtime).project
-  const view = useMemo(() => pool && project ? project(pool, read) : null, [pool, project, read])
-  return useSyncExternalStore(view?.subscribe ?? (() => () => {}), view?.getSnapshot ?? (() => empty))
+  const view = useMemo(() => (pool && project ? project(pool, read) : null), [pool, project, read])
+  return useSyncExternalStore(
+    view?.subscribe ?? (() => () => {}),
+    view?.getSnapshot ?? (() => empty),
+  )
 }

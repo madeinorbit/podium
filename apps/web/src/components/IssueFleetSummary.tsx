@@ -54,16 +54,26 @@ export function IssueFleetSummary({
    *  the first thing the eye landed on, ahead of every title. */
   variant?: 'tiles' | 'glyphs'
   className?: string
-  summary?: { total: number; parkedCount: number; nativeCount: number; tiles: readonly { kind: string | null; parked: boolean }[] }
+  summary?: {
+    total: number
+    parkedCount: number
+    nativeCount: number
+    tiles: readonly { kind: string | null; parked: boolean }[]
+  }
 }): JSX.Element | null {
   const fleet = summary ?? deriveFleetPresence(sessions)
   const total = 'total' in fleet ? fleet.total : fleet.present.length
   const { tiles, nativeCount } = fleet
-  const label = 'label' in fleet ? fleet.label : [
-    `${total} agent${total === 1 ? '' : 's'}`,
-    fleet.parkedCount > 0 ? `${fleet.parkedCount} parked` : null,
-    nativeCount > 0 ? `${nativeCount} native children` : null,
-  ].filter((part) => part !== null).join(' · ')
+  const label =
+    'label' in fleet
+      ? fleet.label
+      : [
+          `${total} agent${total === 1 ? '' : 's'}`,
+          fleet.parkedCount > 0 ? `${fleet.parkedCount} parked` : null,
+          nativeCount > 0 ? `${nativeCount} native children` : null,
+        ]
+          .filter((part) => part !== null)
+          .join(' · ')
   if (total === 0) return null
   const shown = tiles.slice(0, FLEET_KIND_LIMIT)
   const glyphs = variant === 'glyphs'

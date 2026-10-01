@@ -1,10 +1,10 @@
 import {
   groupUnifiedWorkRows,
+  type IssueNavigationModel,
   isDraftAgentVessel,
   issueDisplayTitle,
-  type IssueNavigationModel,
-  missionProgress,
   type MissionProgress,
+  missionProgress,
   orderProjectGroups,
   orderProjectItems,
   planReorderKeys,
@@ -20,34 +20,43 @@ import { asIssueId, type IssueId, isIssueDeferred } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import * as m from 'motion/react-m'
 import type {
-  AnimationEvent as ReactAnimationEvent,
   CSSProperties,
   JSX,
+  AnimationEvent as ReactAnimationEvent,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from 'react'
-import { lazy, memo, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
-import { useReducedMotion } from '@/lib/use-reduced-motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
-import { cn } from '@/lib/utils'
 import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
+import { useReducedMotion } from '@/lib/use-reduced-motion'
+import { cn } from '@/lib/utils'
 import { type SidebarDerivation, useSidebarDerivation } from './derivation'
 import { FoldedRowMenu } from './FoldedRowMenu'
 import { PINNED_FOLD_KEY, projectFoldKey } from './fold-keys'
-import { AddRepositoryButton, NewTaskRow, StartFirstTaskRow } from './new-task-row'
 import { ManageProjectsButton } from './ManageProjectsDialog'
-import { MAX_ROW_SHORTCUTS, type RowShortcutTarget, useRowShortcuts } from './row-shortcuts'
+import { AddRepositoryButton, NewTaskRow, StartFirstTaskRow } from './new-task-row'
 import { usePerIdThunk } from './row-callbacks'
+import { MAX_ROW_SHORTCUTS, type RowShortcutTarget, useRowShortcuts } from './row-shortcuts'
 import { useCollapsedKeys } from './sidebar-common'
 import { UnifiedIssueRow, type UnifiedIssueRowOrigin } from './UnifiedIssueRow'
 import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
 import { useUnifiedWork } from './use-unified-work'
 import { useRowDrag } from './useRowDrag'
 import { WorkListEmpty } from './WorkListEmpty'
-import { WorklistMotion } from './worklist-motion'
 import { indexWorkRows, matchesIndexedWorkQuery, normalizeWorkQuery } from './work-filter'
 import {
   ClosedIssueFold,
@@ -62,9 +71,14 @@ import {
   type WorkPlacement,
 } from './work-folds'
 import { useWorkFilter, WorkFilterEmpty, WorkFilterFootnote, WorkSearchField } from './work-search'
+import { WorklistMotion } from './worklist-motion'
 
-const PoolSidebarUnified = lazy(() => import('./pool-sidebar').then((m) => ({ default: m.PoolSidebarUnified })))
-const PoolWorkSections = lazy(() => import('./pool-sidebar').then((m) => ({ default: m.PoolWorkSections })))
+const PoolSidebarUnified = lazy(() =>
+  import('./pool-sidebar').then((m) => ({ default: m.PoolSidebarUnified })),
+)
+const PoolWorkSections = lazy(() =>
+  import('./pool-sidebar').then((m) => ({ default: m.PoolWorkSections })),
+)
 
 /**
  * A PROJECT ANSWERS TO MORE THAN ONE KEY, AND THE BAND HAS TO TRY ALL OF THEM
@@ -118,10 +132,7 @@ const MemoUnifiedWorktreeRow = memo(UnifiedWorktreeRow)
 // work-folds, so the memo boundary lives at this call site.
 const MemoFoldedWorkRow = memo(FoldedWorkRow)
 
-function sameOriginTick(
-  a: UnifiedIssueRowOrigin | null,
-  b: UnifiedIssueRowOrigin | null,
-): boolean {
+function sameOriginTick(a: UnifiedIssueRowOrigin | null, b: UnifiedIssueRowOrigin | null): boolean {
   if (a === b) return true
   if (!a || !b) return false
   return a.id === b.id && a.seq === b.seq && a.title === b.title && a.ref === b.ref
@@ -138,7 +149,16 @@ function sameOriginTick(
 
 export function SidebarUnified(): JSX.Element {
   // The mode is latched at boot. Legacy mounts neither graph code nor pool hooks.
-  if (sidebarDataLayer() === 'pool') return <Suspense fallback={null}><PoolSidebarUnified /></Suspense>
+  if (sidebarDataLayer() === 'pool')
+    return (
+      <Suspense fallback={null}>
+        <PoolSidebarUnified />
+      </Suspense>
+    )
+  return <LegacySidebarUnified />
+}
+
+function LegacySidebarUnified(): JSX.Element {
   const derivation = useSidebarDerivation()
   // The filter's pool is every LIVE row the column holds — pinned first, then
   // each project group's open rows. The tail folds are out: a closed archive is
@@ -217,7 +237,16 @@ export function WorkSections({
   derivation?: SidebarDerivation
   query?: string
 } = {}): JSX.Element {
-  if (sidebarDataLayer() === 'pool') return <Suspense fallback={null}><PoolWorkSections query={query} /></Suspense>
+  if (sidebarDataLayer() === 'pool')
+    return (
+      <Suspense fallback={null}>
+        <PoolWorkSections query={query} />
+      </Suspense>
+    )
+  return <LegacyWorkSections derivation={derivation} query={query} />
+}
+
+function LegacyWorkSections({ derivation, query = '' }: { derivation?: SidebarDerivation; query?: string } = {}): JSX.Element {
   const {
     work,
     pinned,
@@ -301,7 +330,13 @@ export function WorkSections({
     renameIssue,
     setIssueTucked,
   })
-  actionsRef.current = { selectIssue, selectPanelForIssue, openIssuePage, renameIssue, setIssueTucked }
+  actionsRef.current = {
+    selectIssue,
+    selectPanelForIssue,
+    openIssuePage,
+    renameIssue,
+    setIssueTucked,
+  }
   /** Row id -> whether that row sits in a folded lane (updated per render). */
   const foldedByIdRef = useRef(new Map<string, boolean>())
   /** Row id -> latest issue object (updated per render, for id-keyed lookup). */
@@ -591,7 +626,10 @@ export function WorkSections({
     for (const target of transitionTargets) {
       const r = target.value.row
       if (r.kind !== 'issue') continue
-      map.set(r.issue.id, r.missionRollup?.progress ?? missionProgress(issues, sessions, r.issue.id))
+      map.set(
+        r.issue.id,
+        r.missionRollup?.progress ?? missionProgress(issues, sessions, r.issue.id),
+      )
     }
     return map
   }, [transitionTargets, issues, sessions])
@@ -635,7 +673,9 @@ export function WorkSections({
   // holds the array and `memo` never sees it.
   const menuIssuesRef = useRef(issues)
   menuIssuesRef.current = issues
-  const menuResolverCacheRef = useRef(new Map<string, () => { single: IssueNavigationModel[]; all: IssueNavigationModel[] }>())
+  const menuResolverCacheRef = useRef(
+    new Map<string, () => { single: IssueNavigationModel[]; all: IssueNavigationModel[] }>(),
+  )
   const menuResolverFor = useCallback((issueId: string) => {
     let fn = menuResolverCacheRef.current.get(issueId)
     if (!fn) {
@@ -653,7 +693,10 @@ export function WorkSections({
   // reference while those issues are unchanged.
   const worktreeIssuesCacheRef = useRef(new Map<string, IssueNavigationModel[]>())
   const filteredIssuesForWorktree = useCallback(
-    (path: string, sessionIssueIds: readonly (string | null | undefined)[]): IssueNavigationModel[] => {
+    (
+      path: string,
+      sessionIssueIds: readonly (string | null | undefined)[],
+    ): IssueNavigationModel[] => {
       const needed = new Set(sessionIssueIds.filter((id): id is string => !!id))
       const filtered = menuIssuesRef.current.filter((i) => needed.has(i.id))
       const prev = worktreeIssuesCacheRef.current.get(path)
@@ -708,7 +751,9 @@ export function WorkSections({
     },
     [selectWorktree],
   )
-  const worktreePanelCacheRef = useRef(new Map<string, (sid: Parameters<typeof selectPanel>[1]) => void>())
+  const worktreePanelCacheRef = useRef(
+    new Map<string, (sid: Parameters<typeof selectPanel>[1]) => void>(),
+  )
   const worktreePanelFor = useCallback(
     (path: string) => {
       let fn = worktreePanelCacheRef.current.get(path)

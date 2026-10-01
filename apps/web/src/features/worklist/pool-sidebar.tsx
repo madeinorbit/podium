@@ -1,20 +1,39 @@
+import { relativeTime } from '@podium/client-core/focus'
+import { type Store, shallowEqual } from '@podium/client-core/store'
+import {
+  type IssueNavigationModel,
+  issueClosedFoldAt,
+  planReorderKeys,
+} from '@podium/client-core/viewmodels'
 import { LOADING, type MobxPool } from '@podium/client-graph'
-import { observer, compareStructural, computed } from '@podium/client-graph/react'
-import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
-import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
+import { compareStructural, computed, observer } from '@podium/client-graph/react'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import { isSessionWorking } from '@podium/client-graph/worklist/rollup'
-import { shallowEqual, type Store } from '@podium/client-core/store'
-import { issueClosedFoldAt, planReorderKeys, type IssueNavigationModel } from '@podium/client-core/viewmodels'
-import { relativeTime } from '@podium/client-core/focus'
+import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
+import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import { asIssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
 import * as m from 'motion/react-m'
-import { isValidElement, memo, useCallback, useEffect, useId, useMemo, useRef, useState, type AnimationEvent, type CSSProperties, type JSX, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
+import {
+  type AnimationEvent,
+  type CSSProperties,
+  isValidElement,
+  type JSX,
+  type MouseEvent,
+  memo,
+  type PointerEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useStoreSelector } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { issueColorHex } from '@/lib/issueColors'
-import { useRowTransitions, type RowTransitionItem, type RowTransitionTarget } from '@/lib/motion'
+import { type RowTransitionItem, type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
@@ -22,23 +41,55 @@ import { FoldedRowMenu } from './FoldedRowMenu'
 import { PINNED_FOLD_KEY, projectFoldKey } from './fold-keys'
 import { ManageProjectsButton } from './ManageProjectsDialog'
 import { AddRepositoryButton, NewTaskRow, StartFirstTaskRow } from './new-task-row'
-import { navigationIssue, poolIssueDisplay, poolIssueHaystack, poolIssuePaint, poolIssueRow, poolWorktreeRow, poolSessionPaint } from './pool-row-data'
+import {
+  navigationIssue,
+  poolIssueDisplay,
+  poolIssueHaystack,
+  poolIssuePaint,
+  poolIssueRow,
+  poolSessionPaint,
+  poolWorktreeRow,
+} from './pool-row-data'
 import { MAX_ROW_SHORTCUTS, useRowShortcuts } from './row-shortcuts'
 import { PanelRow, useCollapsedKeys } from './sidebar-common'
 import { UnifiedIssueRow } from './UnifiedIssueRow'
 import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
-import { usePoolUnifiedWork, type PoolWorkActions } from './use-pool-unified-work'
+import { type PoolWorkActions, usePoolUnifiedWork } from './use-pool-unified-work'
 import { useRowDrag } from './useRowDrag'
 import { WorkListEmpty } from './WorkListEmpty'
-import { WorklistMotion } from './worklist-motion'
 import { normalizeWorkQuery } from './work-filter'
-import { ClosedIssueFold, FoldedWorkRow, foldedMarker, FoldPanel, PinnedSectionLabel, ProjectGroupLabel, ROW_LAYOUT_TRANSITION, SECTION_GAP_CLASS, SnoozedIssueFold } from './work-folds'
-import { useWorkFilterState, WorkFilterEmpty, WorkFilterFootnote, WorkSearchField } from './work-search'
+import {
+  ClosedIssueFold,
+  FoldedWorkRow,
+  FoldPanel,
+  foldedMarker,
+  PinnedSectionLabel,
+  ProjectGroupLabel,
+  ROW_LAYOUT_TRANSITION,
+  SECTION_GAP_CLASS,
+  SnoozedIssueFold,
+} from './work-folds'
+import {
+  useWorkFilterState,
+  WorkFilterEmpty,
+  WorkFilterFootnote,
+  WorkSearchField,
+} from './work-search'
+import { WorklistMotion } from './worklist-motion'
 
-type Slot = { kind: 'issue' | 'worktree'; id: string; lane: 'pinned' | 'open' | 'snoozed' | 'closed'; groupKey: string; groupLabel: string }
+type Slot = {
+  kind: 'issue' | 'worktree'
+  id: string
+  lane: 'pinned' | 'open' | 'snoozed' | 'closed'
+  groupKey: string
+  groupLabel: string
+}
 type Item = RowTransitionItem<Slot>
-const selectLayout = (s: Store) => ({ projectOrder: s.sidebarSettings.repoOrder,
-  pinnedRepos: s.pins.repos, pinnedWorktrees: s.pins.worktrees })
+const selectLayout = (s: Store) => ({
+  projectOrder: s.sidebarSettings.repoOrder,
+  pinnedRepos: s.pins.repos,
+  pinnedWorktrees: s.pins.worktrees,
+})
 
 export function usePoolLayoutState(): SidebarState {
   const layout = useStoreSelector(selectLayout, shallowEqual)
@@ -48,10 +99,18 @@ export function usePoolLayoutState(): SidebarState {
 function slotsFor(pool: MobxPool, state: SidebarState): RowTransitionTarget<Slot>[] {
   const sections = pool.sidebar.sections(state)
   const slots: RowTransitionTarget<Slot>[] = []
-  const add = (id: string, kind: Slot['kind'], lane: Slot['lane'], groupKey: string, groupLabel: string) =>
-    slots.push({ key: `${kind === 'issue' ? 'issue' : 'wt'}:${id}`,
+  const add = (
+    id: string,
+    kind: Slot['kind'],
+    lane: Slot['lane'],
+    groupKey: string,
+    groupLabel: string,
+  ) =>
+    slots.push({
+      key: `${kind === 'issue' ? 'issue' : 'wt'}:${id}`,
       placement: lane === 'closed' || lane === 'snoozed' ? `${lane}:${groupKey}` : 'active',
-      value: { kind, id, lane, groupKey, groupLabel } })
+      value: { kind, id, lane, groupKey, groupLabel },
+    })
   for (const id of sections.pinnedIds) add(id, 'issue', 'pinned', 'pinned', 'Pinned')
   for (const band of sections.bands) {
     for (const id of band.rowIds) add(id, 'issue', 'open', band.key, band.label)
@@ -69,13 +128,19 @@ function matches(pool: MobxPool, slot: Slot, needle: string): boolean {
     return value !== undefined && value !== LOADING && poolIssueHaystack(value).includes(needle)
   }
   const value = pool.row<SliceWorktree>('worktree', slot.id)
-  return value !== undefined && value !== LOADING && `${value['repoName']} ${value['branch'] ?? ''} ${slot.id}`.toLowerCase().includes(needle)
+  return (
+    value !== undefined &&
+    value !== LOADING &&
+    `${value['repoName']} ${value['branch'] ?? ''} ${slot.id}`.toLowerCase().includes(needle)
+  )
 }
 
 const PoolEviction = observer(function PoolEviction({ pool }: { pool: MobxPool }) {
-  const clear = useStoreSelector(s => s.setSelectedIssueId)
+  const clear = useStoreSelector((s) => s.setSelectedIssueId)
   const evicted = pool.sidebar.selectionEvicted()
-  useEffect(() => { if (evicted) clear(null) }, [evicted, clear])
+  useEffect(() => {
+    if (evicted) clear(null)
+  }, [evicted, clear])
   return null
 })
 
@@ -84,19 +149,46 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
   const state = usePoolLayoutState()
   const input = useWorkFilterState()
   const needle = normalizeWorkQuery(input.deferredQuery)
-  const count = useMemo(() => computed(() => {
-    if (!pool) return { total: 0, hits: 0 }
-    const live = slotsFor(pool, state).filter(slot => slot.value.lane === 'pinned' || slot.value.lane === 'open')
-    return { total: live.length, hits: needle ? live.filter(slot => matches(pool, slot.value, needle)).length : live.length }
-  }, { equals: compareStructural }), [pool, state, needle]).get()
-  return <>
-    <NewTaskRow />
-    <WorkSearchField filter={{ ...input, ...count }} trailing={<div className="flex flex-none items-center gap-1"><ManageProjectsButton /><AddRepositoryButton /></div>} />
-    <div data-testid="work-scroll" className="scroll-none flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto pb-2.5">
-      <PoolWorkSections query={input.deferredQuery} />
-    </div>
-    <MobilePromoCard />
-  </>
+  const count = useMemo(
+    () =>
+      computed(
+        () => {
+          if (!pool) return { total: 0, hits: 0 }
+          const live = slotsFor(pool, state).filter(
+            (slot) => slot.value.lane === 'pinned' || slot.value.lane === 'open',
+          )
+          return {
+            total: live.length,
+            hits: needle
+              ? live.filter((slot) => matches(pool, slot.value, needle)).length
+              : live.length,
+          }
+        },
+        { equals: compareStructural },
+      ),
+    [pool, state, needle],
+  ).get()
+  return (
+    <>
+      <NewTaskRow />
+      <WorkSearchField
+        filter={{ ...input, ...count }}
+        trailing={
+          <div className="flex flex-none items-center gap-1">
+            <ManageProjectsButton />
+            <AddRepositoryButton />
+          </div>
+        }
+      />
+      <div
+        data-testid="work-scroll"
+        className="scroll-none flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto pb-2.5"
+      >
+        <PoolWorkSections query={input.deferredQuery} />
+      </div>
+      <MobilePromoCard />
+    </>
+  )
 })
 
 export function PoolWorkSections({ query = '' }: { query?: string }): JSX.Element | null {
@@ -106,27 +198,42 @@ export function PoolWorkSections({ query = '' }: { query?: string }): JSX.Elemen
 
 const ObservedClosedIssueFold = observer(ClosedIssueFold<Item>)
 const MemoFoldedWorkRow = memo(FoldedWorkRow)
-const stampPaint = (node: ReactNode) => isValidElement<{ title?: string; children?: ReactNode }>(node)
-  ? { title: node.props.title, children: node.props.children } : node
-const MemoPanelRow = memo(PanelRow, (a, b) => a.active === b.active && a.onSelect === b.onSelect &&
-  a.issueDisplayRef === b.issueDisplayRef && compareStructural(stampPaint(a.trailingMeta), stampPaint(b.trailingMeta)) &&
-  compareStructural(poolSessionPaint(a.session), poolSessionPaint(b.session)))
+const stampPaint = (node: ReactNode) =>
+  isValidElement<{ title?: string; children?: ReactNode }>(node)
+    ? { title: node.props.title, children: node.props.children }
+    : node
+const MemoPanelRow = memo(
+  PanelRow,
+  (a, b) =>
+    a.active === b.active &&
+    a.onSelect === b.onSelect &&
+    a.issueDisplayRef === b.issueDisplayRef &&
+    compareStructural(stampPaint(a.trailingMeta), stampPaint(b.trailingMeta)) &&
+    compareStructural(poolSessionPaint(a.session), poolSessionPaint(b.session)),
+)
 
-const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({ pool, query }: { pool: MobxPool; query: string }): JSX.Element {
+const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
+  pool,
+  query,
+}: {
+  pool: MobxPool
+  query: string
+}): JSX.Element {
   const state = usePoolLayoutState()
   const actions = usePoolUnifiedWork(pool)
   const sections = pool.sidebar.sections(state)
   const stableSlots = useRef(new Map<string, Slot>())
   const targets = useMemo(() => {
-    const next = slotsFor(pool, state).map(target => {
+    const next = slotsFor(pool, state).map((target) => {
       const key = `${target.key}:${target.placement}`
       const previous = stableSlots.current.get(key)
       const value = previous && compareStructural(previous, target.value) ? previous : target.value
       stableSlots.current.set(key, value)
       return { ...target, value }
     })
-    const keys = new Set(next.map(target => `${target.key}:${target.placement}`))
-    for (const key of stableSlots.current.keys()) if (!keys.has(key)) stableSlots.current.delete(key)
+    const keys = new Set(next.map((target) => `${target.key}:${target.placement}`))
+    for (const key of stableSlots.current.keys())
+      if (!keys.has(key)) stableSlots.current.delete(key)
     return next
   }, [pool, state, sections])
   const { items, settle, discardExit } = useRowTransitions(targets)
@@ -134,13 +241,27 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({ po
   const layoutGroupId = useId()
   const [quickArchive, setQuickArchive] = useState<ReadonlySet<string>>(() => new Set())
   const [menu, setMenu] = useState<{ id: string; anchor: ContextMenuAnchor } | null>(null)
-  const keys = [PINNED_FOLD_KEY, ...sections.bands.map(band => band.foldKey)]
+  const keys = [PINNED_FOLD_KEY, ...sections.bands.map((band) => band.foldKey)]
   const [collapsed, toggle] = useCollapsedKeys(keys)
   const needle = normalizeWorkQuery(query)
   const filtering = needle.length > 0
-  const search = useMemo(() => computed(() => new Set(targets.filter(target =>
-    (target.value.lane === 'pinned' || target.value.lane === 'open') && matches(pool, target.value, needle)).map(target => target.key)),
-    { equals: compareStructural }), [pool, targets, needle]).get()
+  const search = useMemo(
+    () =>
+      computed(
+        () =>
+          new Set(
+            targets
+              .filter(
+                (target) =>
+                  (target.value.lane === 'pinned' || target.value.lane === 'open') &&
+                  matches(pool, target.value, needle),
+              )
+              .map((target) => target.key),
+          ),
+        { equals: compareStructural },
+      ),
+    [pool, targets, needle],
+  ).get()
   const issue = (id: string) => {
     const value = pool.sidebar.row(id)
     return value === undefined || value === LOADING ? undefined : value
@@ -148,12 +269,23 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({ po
   const { startDrag, dragging } = useRowDrag({
     allowedTargets: (scope, id) => {
       const value = issue(id)
-      return scope === 'pinned' ? value ? [`group:${value.issue.repoId ?? value.issue.repoPath}`] : []
-        : scope.startsWith('group:') ? ['pinned'] : []
+      return scope === 'pinned'
+        ? value
+          ? [`group:${value.issue.repoId ?? value.issue.repoPath}`]
+          : []
+        : scope.startsWith('group:')
+          ? ['pinned']
+          : []
     },
-    onDrop: ({ sourceScope, targetScope, movedId, order }) => actions.applySortPatches(
-      planReorderKeys(order, movedId, id => issue(id)?.issue.sortKey).map(patch => ({ ...patch,
-        ...(sourceScope !== targetScope && patch.id === movedId ? { pinned: targetScope === 'pinned' } : {}) }))),
+    onDrop: ({ sourceScope, targetScope, movedId, order }) =>
+      actions.applySortPatches(
+        planReorderKeys(order, movedId, (id) => issue(id)?.issue.sortKey).map((patch) => ({
+          ...patch,
+          ...(sourceScope !== targetScope && patch.id === movedId
+            ? { pinned: targetScope === 'pinned' }
+            : {}),
+        })),
+      ),
   })
   const drag = useRef(startDrag)
   drag.current = startDrag
@@ -162,181 +294,622 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({ po
     event.preventDefault()
     setMenu({ id, anchor: { x: event.clientX, y: event.clientY } })
   }, [])
-  const forgetQuickArchive = (ids: readonly string[]) => setQuickArchive(current => {
-    const next = new Set([...current].filter(id => !ids.includes(id)))
-    return next.size === current.size ? current : next
-  })
+  const forgetQuickArchive = (ids: readonly string[]) =>
+    setQuickArchive((current) => {
+      const next = new Set([...current].filter((id) => !ids.includes(id)))
+      return next.size === current.size ? current : next
+    })
   useEffect(() => {
     if (!quickArchive.size) return
-    const onScreen = new Set(items.map(item => item.key))
-    setQuickArchive(current => {
-      const next = new Set([...current].filter(id => onScreen.has(`issue:${id}`)))
+    const onScreen = new Set(items.map((item) => item.key))
+    setQuickArchive((current) => {
+      const next = new Set([...current].filter((id) => onScreen.has(`issue:${id}`)))
       return next.size === current.size ? current : next
     })
   }, [items, quickArchive])
   const archive = (id: string) => {
-    setQuickArchive(current => new Set(current).add(id))
+    setQuickArchive((current) => new Set(current).add(id))
     void actions.archiveIssue(id).catch(() => forgetQuickArchive([id]))
   }
-  const signature = targets.map(target => `${target.key}:${target.placement}`).join('|')
+  const signature = targets.map((target) => `${target.key}:${target.placement}`).join('|')
   const revision = useRef({ signature: '', value: 0 })
-  if (!dragging && revision.current.signature !== signature) revision.current = { signature, value: revision.current.value + 1 }
-  const shortcutIds = targets.filter(target => target.value.kind === 'issue' &&
-    (target.value.lane === 'pinned' ? !collapsed.has(PINNED_FOLD_KEY) : target.value.lane === 'open' && !collapsed.has(projectFoldKey(target.value.groupKey))))
-    .slice(0, MAX_ROW_SHORTCUTS).map(target => target.value.id)
-  const { numbers } = useRowShortcuts(shortcutIds.map(id => ({ id, activate: () => {
-    const value = issue(id)
-    if (value?.draftAgentOnly && value.firstSessionId) actions.selectPanelForIssue(id, value.firstSessionId as SessionId)
-    else actions.selectIssue(id)
-  } })))
-  const renderRow = (item: Item, animate = true) => <PoolMotionRow key={`${item.key}:${item.placement}`}
-    pool={pool} item={item} actions={actions} digit={numbers.get(item.value.id)} layoutRevision={revision.current.value}
-    reduceMotion={reduceMotion} filtering={filtering} animate={animate} quickArchive={quickArchive.has(item.value.id)}
-    settle={settle} discardExit={discardExit} onGrip={onGrip} openMenu={openMenu} />
-  const pinned = items.filter(item => item.value.lane === 'pinned' && (!filtering || search.has(item.key)))
-  const bands = sections.bands.map(band => ({ ...band,
-    live: items.filter(item => item.value.groupKey === band.key && item.value.lane === 'open' && (!filtering || search.has(item.key))),
-    snoozed: filtering ? [] : items.filter(item => item.value.groupKey === band.key && item.value.lane === 'snoozed'),
-    closed: filtering ? [] : items.filter(item => item.value.groupKey === band.key && item.value.lane === 'closed'),
-  })).filter(band => !filtering || band.live.length > 0)
+  if (!dragging && revision.current.signature !== signature)
+    revision.current = { signature, value: revision.current.value + 1 }
+  const shortcutIds = targets
+    .filter(
+      (target) =>
+        target.value.kind === 'issue' &&
+        (target.value.lane === 'pinned'
+          ? !collapsed.has(PINNED_FOLD_KEY)
+          : target.value.lane === 'open' && !collapsed.has(projectFoldKey(target.value.groupKey))),
+    )
+    .slice(0, MAX_ROW_SHORTCUTS)
+    .map((target) => target.value.id)
+  const { numbers } = useRowShortcuts(
+    shortcutIds.map((id) => ({
+      id,
+      activate: () => {
+        const value = issue(id)
+        if (value?.draftAgentOnly && value.firstSessionId)
+          actions.selectPanelForIssue(id, value.firstSessionId as SessionId)
+        else actions.selectIssue(id)
+      },
+    })),
+  )
+  const renderRow = (item: Item, animate = true) => (
+    <PoolMotionRow
+      key={`${item.key}:${item.placement}`}
+      pool={pool}
+      item={item}
+      actions={actions}
+      digit={numbers.get(item.value.id)}
+      layoutRevision={revision.current.value}
+      reduceMotion={reduceMotion}
+      filtering={filtering}
+      animate={animate}
+      quickArchive={quickArchive.has(item.value.id)}
+      settle={settle}
+      discardExit={discardExit}
+      onGrip={onGrip}
+      openMenu={openMenu}
+    />
+  )
+  const pinned = items.filter(
+    (item) => item.value.lane === 'pinned' && (!filtering || search.has(item.key)),
+  )
+  const bands = sections.bands
+    .map((band) => ({
+      ...band,
+      live: items.filter(
+        (item) =>
+          item.value.groupKey === band.key &&
+          item.value.lane === 'open' &&
+          (!filtering || search.has(item.key)),
+      ),
+      snoozed: filtering
+        ? []
+        : items.filter((item) => item.value.groupKey === band.key && item.value.lane === 'snoozed'),
+      closed: filtering
+        ? []
+        : items.filter((item) => item.value.groupKey === band.key && item.value.lane === 'closed'),
+    }))
+    .filter((band) => !filtering || band.live.length > 0)
   // Exits can briefly outlive the band's pool membership.
-  for (const item of items) if (item.value.lane !== 'pinned' && !bands.some(band => band.key === item.value.groupKey) && !filtering)
-    bands.push({ key: item.value.groupKey, label: item.value.groupLabel, aliases: [], repoPath: '', rowIds: [], worktreeIds: [], snoozedIds: [], closedIds: [],
-      collapsed: false, snoozedCollapsed: true, closedCollapsed: true, foldKey: projectFoldKey(item.value.groupKey), snoozedFoldKey: '', closedFoldKey: '', startFirstTask: false,
-      live: items.filter(row => row.value.groupKey === item.value.groupKey && row.value.lane === 'open'),
-      snoozed: items.filter(row => row.value.groupKey === item.value.groupKey && row.value.lane === 'snoozed'),
-      closed: items.filter(row => row.value.groupKey === item.value.groupKey && row.value.lane === 'closed') })
-  if (items.length === 0 && sections.bands.length === 0) return <><PoolEviction pool={pool} /><WorkListEmpty /></>
-  if (filtering && pinned.length === 0 && bands.length === 0) return <><PoolEviction pool={pool} /><WorkFilterEmpty /></>
+  for (const item of items)
+    if (
+      item.value.lane !== 'pinned' &&
+      !bands.some((band) => band.key === item.value.groupKey) &&
+      !filtering
+    )
+      bands.push({
+        key: item.value.groupKey,
+        label: item.value.groupLabel,
+        aliases: [],
+        repoPath: '',
+        rowIds: [],
+        worktreeIds: [],
+        snoozedIds: [],
+        closedIds: [],
+        collapsed: false,
+        snoozedCollapsed: true,
+        closedCollapsed: true,
+        foldKey: projectFoldKey(item.value.groupKey),
+        snoozedFoldKey: '',
+        closedFoldKey: '',
+        startFirstTask: false,
+        live: items.filter(
+          (row) => row.value.groupKey === item.value.groupKey && row.value.lane === 'open',
+        ),
+        snoozed: items.filter(
+          (row) => row.value.groupKey === item.value.groupKey && row.value.lane === 'snoozed',
+        ),
+        closed: items.filter(
+          (row) => row.value.groupKey === item.value.groupKey && row.value.lane === 'closed',
+        ),
+      })
+  if (items.length === 0 && sections.bands.length === 0)
+    return (
+      <>
+        <PoolEviction pool={pool} />
+        <WorkListEmpty />
+      </>
+    )
+  if (filtering && pinned.length === 0 && bands.length === 0)
+    return (
+      <>
+        <PoolEviction pool={pool} />
+        <WorkFilterEmpty />
+      </>
+    )
   const transition = reduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }
-  return <WorklistMotion layoutGroupId={layoutGroupId}>
-    <PoolEviction pool={pool} />
-    {pinned.length > 0 && <m.div layout="position" layoutDependency={revision.current.value} transition={transition}
-      className="flex min-w-0 flex-col" data-testid="pinned-section" data-drag-section>
-      <PinnedSectionLabel count={pinned.length} collapsed={collapsed.has(PINNED_FOLD_KEY)} onToggle={() => toggle(PINNED_FOLD_KEY)} />
-      <FoldPanel open={!collapsed.has(PINNED_FOLD_KEY)} testId="pinned-section-rows" dragScope="pinned">{pinned.map(item => renderRow(item))}</FoldPanel>
-    </m.div>}
-    {bands.map((band, index) => <m.div key={band.key} layout="position" layoutDependency={revision.current.value} transition={transition}
-      className={cn('flex min-w-0 flex-col', (index > 0 || pinned.length > 0) && SECTION_GAP_CLASS)}
-      data-testid="project-group" data-empty={band.startFirstTask ? 'true' : undefined}
-      data-collapsed={collapsed.has(band.foldKey) ? 'true' : 'false'} data-drag-section={band.startFirstTask ? undefined : true}>
-      <ProjectGroupLabel label={band.label} count={band.live.length} collapsed={collapsed.has(band.foldKey)} onToggle={() => toggle(band.foldKey)} />
-      <FoldPanel open={!collapsed.has(band.foldKey)} testId={band.startFirstTask ? `project-group-empty:${band.key}` : 'project-group-rows'} dragScope={band.startFirstTask ? undefined : `group:${band.key}`}>
-        {band.startFirstTask ? <StartFirstTaskRow repoPath={band.repoPath} /> : <>
-          {band.live.map(item => renderRow(item))}
-          {band.snoozed.length > 0 && <m.div layout="position" layoutDependency={revision.current.value} transition={transition}>
-            <SnoozedIssueFold groupKey={band.key} rows={band.snoozed} renderRow={renderRow} settleTransition={settle} />
-          </m.div>}
-          {band.closed.length > 0 && <m.div layout="position" layoutDependency={revision.current.value} transition={transition}>
-            <ObservedClosedIssueFold groupKey={band.key} rows={band.closed} renderRow={renderRow}
-              issueForRow={item => { const value = issue(item.value.id); return value ? poolIssueRow(value) : { kind: 'issue', issue: { id: asIssueId(item.value.id), seq: 0 } as IssueNavigationModel, sessions: [], activityAt: 0 } }} onArchive={archive} />
-          </m.div>}
-        </>}
-      </FoldPanel>
-    </m.div>)}
-    {filtering && <WorkFilterFootnote total={targets.filter(target => target.value.lane === 'pinned' || target.value.lane === 'open').length} />}
-    {menu && <PoolFoldedMenu pool={pool} id={menu.id} anchor={menu.anchor} actions={actions} close={() => setMenu(null)} />}
-  </WorklistMotion>
+  return (
+    <WorklistMotion layoutGroupId={layoutGroupId}>
+      <PoolEviction pool={pool} />
+      {pinned.length > 0 && (
+        <m.div
+          layout="position"
+          layoutDependency={revision.current.value}
+          transition={transition}
+          className="flex min-w-0 flex-col"
+          data-testid="pinned-section"
+          data-drag-section
+        >
+          <PinnedSectionLabel
+            count={pinned.length}
+            collapsed={collapsed.has(PINNED_FOLD_KEY)}
+            onToggle={() => toggle(PINNED_FOLD_KEY)}
+          />
+          <FoldPanel
+            open={!collapsed.has(PINNED_FOLD_KEY)}
+            testId="pinned-section-rows"
+            dragScope="pinned"
+          >
+            {pinned.map((item) => renderRow(item))}
+          </FoldPanel>
+        </m.div>
+      )}
+      {bands.map((band, index) => (
+        <m.div
+          key={band.key}
+          layout="position"
+          layoutDependency={revision.current.value}
+          transition={transition}
+          className={cn(
+            'flex min-w-0 flex-col',
+            (index > 0 || pinned.length > 0) && SECTION_GAP_CLASS,
+          )}
+          data-testid="project-group"
+          data-empty={band.startFirstTask ? 'true' : undefined}
+          data-collapsed={collapsed.has(band.foldKey) ? 'true' : 'false'}
+          data-drag-section={band.startFirstTask ? undefined : true}
+        >
+          <ProjectGroupLabel
+            label={band.label}
+            count={band.live.length}
+            collapsed={collapsed.has(band.foldKey)}
+            onToggle={() => toggle(band.foldKey)}
+          />
+          <FoldPanel
+            open={!collapsed.has(band.foldKey)}
+            testId={band.startFirstTask ? `project-group-empty:${band.key}` : 'project-group-rows'}
+            dragScope={band.startFirstTask ? undefined : `group:${band.key}`}
+          >
+            {band.startFirstTask ? (
+              <StartFirstTaskRow repoPath={band.repoPath} />
+            ) : (
+              <>
+                {band.live.map((item) => renderRow(item))}
+                {band.snoozed.length > 0 && (
+                  <m.div
+                    layout="position"
+                    layoutDependency={revision.current.value}
+                    transition={transition}
+                  >
+                    <SnoozedIssueFold
+                      groupKey={band.key}
+                      rows={band.snoozed}
+                      renderRow={renderRow}
+                      settleTransition={settle}
+                    />
+                  </m.div>
+                )}
+                {band.closed.length > 0 && (
+                  <m.div
+                    layout="position"
+                    layoutDependency={revision.current.value}
+                    transition={transition}
+                  >
+                    <ObservedClosedIssueFold
+                      groupKey={band.key}
+                      rows={band.closed}
+                      renderRow={renderRow}
+                      issueForRow={(item) => {
+                        const value = issue(item.value.id)
+                        return value
+                          ? poolIssueRow(value)
+                          : {
+                              kind: 'issue',
+                              issue: {
+                                id: asIssueId(item.value.id),
+                                seq: 0,
+                              } as IssueNavigationModel,
+                              sessions: [],
+                              activityAt: 0,
+                            }
+                      }}
+                      onArchive={archive}
+                    />
+                  </m.div>
+                )}
+              </>
+            )}
+          </FoldPanel>
+        </m.div>
+      ))}
+      {filtering && (
+        <WorkFilterFootnote
+          total={
+            targets.filter(
+              (target) => target.value.lane === 'pinned' || target.value.lane === 'open',
+            ).length
+          }
+        />
+      )}
+      {menu && (
+        <PoolFoldedMenu
+          pool={pool}
+          id={menu.id}
+          anchor={menu.anchor}
+          actions={actions}
+          close={() => setMenu(null)}
+        />
+      )}
+    </WorklistMotion>
+  )
 })
 
-const PoolFoldedMenu = observer(function PoolFoldedMenu({ pool, id, anchor, actions, close }: { pool: MobxPool; id: string; anchor: ContextMenuAnchor; actions: PoolWorkActions; close: () => void }) {
+const PoolFoldedMenu = observer(function PoolFoldedMenu({
+  pool,
+  id,
+  anchor,
+  actions,
+  close,
+}: {
+  pool: MobxPool
+  id: string
+  anchor: ContextMenuAnchor
+  actions: PoolWorkActions
+  close: () => void
+}) {
   const value = pool.sidebar.row(id)
-  return value === undefined || value === LOADING ? null : <FoldedRowMenu issue={navigationIssue(value.issue)} canBringBack={value.canBringBack}
-    anchor={anchor} onClose={close} onBringBack={() => { void actions.setIssueTucked(id, false) }} />
+  return value === undefined || value === LOADING ? null : (
+    <FoldedRowMenu
+      issue={navigationIssue(value.issue)}
+      canBringBack={value.canBringBack}
+      anchor={anchor}
+      onClose={close}
+      onBringBack={() => {
+        void actions.setIssueTucked(id, false)
+      }}
+    />
+  )
 })
 
-const PoolMotionRow = observer(function PoolMotionRow({ pool, item, actions, digit, layoutRevision, reduceMotion, filtering, animate, quickArchive, settle, discardExit, onGrip, openMenu }: {
-  pool: MobxPool; item: Item; actions: PoolWorkActions; digit?: number; layoutRevision: number; reduceMotion: boolean; filtering: boolean; animate: boolean; quickArchive: boolean
-  settle: (key: string, placement: string) => void; discardExit: (key: string, placement: string) => void
-  onGrip: (event: PointerEvent, id: string) => void; openMenu: (id: string, event: MouseEvent) => void
+const PoolMotionRow = observer(function PoolMotionRow({
+  pool,
+  item,
+  actions,
+  digit,
+  layoutRevision,
+  reduceMotion,
+  filtering,
+  animate,
+  quickArchive,
+  settle,
+  discardExit,
+  onGrip,
+  openMenu,
+}: {
+  pool: MobxPool
+  item: Item
+  actions: PoolWorkActions
+  digit?: number
+  layoutRevision: number
+  reduceMotion: boolean
+  filtering: boolean
+  animate: boolean
+  quickArchive: boolean
+  settle: (key: string, placement: string) => void
+  discardExit: (key: string, placement: string) => void
+  onGrip: (event: PointerEvent, id: string) => void
+  openMenu: (id: string, event: MouseEvent) => void
 }): JSX.Element | null {
   const { id, kind, lane } = item.value
   const folded = lane === 'closed' || lane === 'snoozed'
-  const draw = useMemo(() => computed<{ value: SidebarRowValues | typeof LOADING | undefined; now: number; paint: unknown }>(() => {
-    const value = kind === 'issue' ? pool.sidebar.row(id) : undefined
-    const now = pool.clock.current
-    let paint: unknown
-    if (value !== undefined && value !== LOADING) {
-      if (folded) {
-        // A folded age observes clock ticks, but publishes only a changed word.
-        pool.clock.reached(now + 1)
-        const issue = navigationIssue(value.issue)
-        const stamp = lane === 'closed' ? issueClosedFoldAt(issue) : issue.updatedAt
-        paint = { seq: issue.seq, ref: issue.displayRef, title: issue.title,
-          marker: foldedMarker(issue, lane as 'closed' | 'snoozed', now), ago: stamp ? relativeTime(stamp, now) : null }
-      } else paint = poolIssuePaint(value)
-    } else paint = value
-    return { value, now, paint }
-  }, { equals: (a, b) => compareStructural(a.paint, b.paint) }), [pool, id, kind, folded, lane]).get()
+  const draw = useMemo(
+    () =>
+      computed<{
+        value: SidebarRowValues | typeof LOADING | undefined
+        now: number
+        paint: unknown
+      }>(
+        () => {
+          const value = kind === 'issue' ? pool.sidebar.row(id) : undefined
+          const now = pool.clock.current
+          let paint: unknown
+          if (value !== undefined && value !== LOADING) {
+            if (folded) {
+              // A folded age observes clock ticks, but publishes only a changed word.
+              pool.clock.reached(now + 1)
+              const issue = navigationIssue(value.issue)
+              const stamp = lane === 'closed' ? issueClosedFoldAt(issue) : issue.updatedAt
+              paint = {
+                seq: issue.seq,
+                ref: issue.displayRef,
+                title: issue.title,
+                marker: foldedMarker(issue, lane as 'closed' | 'snoozed', now),
+                ago: stamp ? relativeTime(stamp, now) : null,
+              }
+            } else paint = poolIssuePaint(value)
+          } else paint = value
+          return { value, now, paint }
+        },
+        { equals: (a, b) => compareStructural(a.paint, b.paint) },
+      ),
+    [pool, id, kind, folded, lane],
+  ).get()
   const fresh = draw.value
   const previous = useRef<SidebarRowValues | undefined>(undefined)
   if (fresh !== undefined && fresh !== LOADING) previous.current = fresh
   const value = fresh === undefined && item.phase === 'exiting' ? previous.current : fresh
-  const draftPane = useStoreSelector(s => value !== undefined && value !== LOADING && value.draftAgentOnly && s.paneA === value.firstSessionId)
+  const draftPane = useStoreSelector(
+    (s) =>
+      value !== undefined &&
+      value !== LOADING &&
+      value.draftAgentOnly &&
+      s.paneA === value.firstSessionId,
+  )
   const active = kind === 'issue' && pool.selection.has(id)
   const now = draw.now
   const arriving = animate && item.phase === 'entering'
   const exiting = item.phase === 'exiting'
-  const draggable = kind === 'issue' && !exiting && !filtering && value !== undefined && value !== LOADING && !value.deferred
+  const draggable =
+    kind === 'issue' &&
+    !exiting &&
+    !filtering &&
+    value !== undefined &&
+    value !== LOADING &&
+    !value.deferred
   const select = useCallback(() => actions.selectIssue(id), [actions, id])
-  const tuck = useCallback(() => { void actions.setIssueTucked(id, true) }, [actions, id])
+  const tuck = useCallback(() => {
+    void actions.setIssueTucked(id, true)
+  }, [actions, id])
   const menuData = useCallback(() => actions.resolveMenuData(id), [actions, id])
-  const selectIssue = useCallback((issue: IssueNavigationModel) => actions.selectIssue(issue.id), [actions])
-  const selectPanel = useCallback((issue: IssueNavigationModel, sid: SessionId) => actions.selectPanelForIssue(issue.id, sid), [actions])
-  const grip = useCallback((event: PointerEvent, issueId: string) => onGrip(event, issueId), [onGrip])
+  const selectIssue = useCallback(
+    (issue: IssueNavigationModel) => actions.selectIssue(issue.id),
+    [actions],
+  )
+  const selectPanel = useCallback(
+    (issue: IssueNavigationModel, sid: SessionId) => actions.selectPanelForIssue(issue.id, sid),
+    [actions],
+  )
+  const grip = useCallback(
+    (event: PointerEvent, issueId: string) => onGrip(event, issueId),
+    [onGrip],
+  )
   const contextMenu = useCallback((event: MouseEvent) => openMenu(id, event), [openMenu, id])
-  const row = useMemo(() => value !== undefined && value !== LOADING ? poolIssueRow(value) : undefined, [value])
-  const display = useMemo(() => value !== undefined && value !== LOADING ? poolIssueDisplay(value) : undefined, [value])
+  const row = useMemo(
+    () => (value !== undefined && value !== LOADING ? poolIssueRow(value) : undefined),
+    [value],
+  )
+  const display = useMemo(
+    () => (value !== undefined && value !== LOADING ? poolIssueDisplay(value) : undefined),
+    [value],
+  )
   if (kind === 'issue' && value === undefined) return null
-  const inner = kind === 'worktree' ? <PoolWorktreeRow pool={pool} path={id} actions={actions} />
-    : value === LOADING ? <div data-testid="pool-row-loading" aria-busy="true" className="min-h-12" />
-    : value === undefined ? null : folded ? <MemoFoldedWorkRow issue={navigationIssue(value.issue)} lane={lane as 'closed' | 'snoozed'} now={now} active={active}
-      onSelect={select} onContextMenu={lane === 'closed' ? contextMenu : undefined} />
-    : <UnifiedIssueRow row={row!} display={display} now={now} displayTitle={value.title}
-      progress={value.progress} origin={value.originTick as Parameters<typeof UnifiedIssueRow>[0]['origin']}
-      active={active && (!value.draftAgentOnly || draftPane)} shortcutDigit={digit} resolveMenuData={menuData}
-      onSelectIssue={selectIssue} onSelectPanelForIssue={selectPanel} onOpenIssue={actions.openIssuePage} onRenameIssue={actions.renameIssue}
-      onGripDown={draggable ? grip : undefined} onTuck={value.awaitsTuck ? tuck : undefined} />
-  return <m.div layout="position" layoutDependency={layoutRevision} transition={reduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
-    {...(draggable ? { 'data-drag-key': id } : {})}
-    className={cn('min-w-0', arriving && 'row-arrive', exiting && 'pointer-events-none', folded && 'opacity-50 transition-opacity duration-150 hover:opacity-80 focus-within:opacity-80')}
-    style={arriving && value !== undefined && value !== LOADING ? { '--arrive-tint': issueColorHex(value.issue.color as Parameters<typeof issueColorHex>[0]) } as CSSProperties : undefined}
-    onAnimationEnd={arriving ? (event: AnimationEvent) => { if (event.animationName === 'podium-arrive-wash') settle(item.key, item.placement) } : undefined}
-    data-transition-phase={item.phase}>
-    <m.div initial={arriving && !reduceMotion ? { opacity: 0, y: -8 } : false} animate={exiting ? { opacity: 0, y: -6 } : { opacity: 1, y: 0 }}
-      onAnimationComplete={exiting && quickArchive ? () => discardExit(item.key, item.placement) : undefined}
-      transition={reduceMotion ? { duration: 0 } : exiting ? quickArchive
-        ? { opacity: { duration: 0.14, ease: 'easeOut' }, y: { duration: 0.18, ease: [0.4, 0, 1, 1] } }
-        : { opacity: { duration: 0.64, ease: 'easeInOut' }, y: { duration: 0.7, ease: [0.4, 0, 1, 1] } }
-        : { opacity: { duration: 0.72, delay: arriving ? 0.22 : 0, ease: 'easeInOut' }, y: { duration: 0.78, delay: arriving ? 0.14 : 0, ease: [0.22, 1, 0.36, 1] } }}>
-      {inner}
+  const inner =
+    kind === 'worktree' ? (
+      <PoolWorktreeRow pool={pool} path={id} actions={actions} />
+    ) : value === LOADING ? (
+      <div data-testid="pool-row-loading" aria-busy="true" className="min-h-12" />
+    ) : value === undefined ? null : folded ? (
+      <MemoFoldedWorkRow
+        issue={navigationIssue(value.issue)}
+        lane={lane as 'closed' | 'snoozed'}
+        now={now}
+        active={active}
+        onSelect={select}
+        onContextMenu={lane === 'closed' ? contextMenu : undefined}
+      />
+    ) : (
+      <UnifiedIssueRow
+        row={row!}
+        display={display}
+        now={now}
+        displayTitle={value.title}
+        progress={value.progress}
+        origin={value.originTick as Parameters<typeof UnifiedIssueRow>[0]['origin']}
+        active={active && (!value.draftAgentOnly || draftPane)}
+        shortcutDigit={digit}
+        resolveMenuData={menuData}
+        onSelectIssue={selectIssue}
+        onSelectPanelForIssue={selectPanel}
+        onOpenIssue={actions.openIssuePage}
+        onRenameIssue={actions.renameIssue}
+        onGripDown={draggable ? grip : undefined}
+        onTuck={value.awaitsTuck ? tuck : undefined}
+      />
+    )
+  return (
+    <m.div
+      layout="position"
+      layoutDependency={layoutRevision}
+      transition={reduceMotion ? { duration: 0 } : { layout: ROW_LAYOUT_TRANSITION }}
+      {...(draggable ? { 'data-drag-key': id } : {})}
+      className={cn(
+        'min-w-0',
+        arriving && 'row-arrive',
+        exiting && 'pointer-events-none',
+        folded &&
+          'opacity-50 transition-opacity duration-150 hover:opacity-80 focus-within:opacity-80',
+      )}
+      style={
+        arriving && value !== undefined && value !== LOADING
+          ? ({
+              '--arrive-tint': issueColorHex(
+                value.issue.color as Parameters<typeof issueColorHex>[0],
+              ),
+            } as CSSProperties)
+          : undefined
+      }
+      onAnimationEnd={
+        arriving
+          ? (event: AnimationEvent) => {
+              if (event.animationName === 'podium-arrive-wash') settle(item.key, item.placement)
+            }
+          : undefined
+      }
+      data-transition-phase={item.phase}
+    >
+      <m.div
+        initial={arriving && !reduceMotion ? { opacity: 0, y: -8 } : false}
+        animate={exiting ? { opacity: 0, y: -6 } : { opacity: 1, y: 0 }}
+        onAnimationComplete={
+          exiting && quickArchive ? () => discardExit(item.key, item.placement) : undefined
+        }
+        transition={
+          reduceMotion
+            ? { duration: 0 }
+            : exiting
+              ? quickArchive
+                ? {
+                    opacity: { duration: 0.14, ease: 'easeOut' },
+                    y: { duration: 0.18, ease: [0.4, 0, 1, 1] },
+                  }
+                : {
+                    opacity: { duration: 0.64, ease: 'easeInOut' },
+                    y: { duration: 0.7, ease: [0.4, 0, 1, 1] },
+                  }
+              : {
+                  opacity: { duration: 0.72, delay: arriving ? 0.22 : 0, ease: 'easeInOut' },
+                  y: { duration: 0.78, delay: arriving ? 0.14 : 0, ease: [0.22, 1, 0.36, 1] },
+                }
+        }
+      >
+        {inner}
+      </m.div>
     </m.div>
-  </m.div>
+  )
 })
 
-const PoolWorktreeRow = observer(function PoolWorktreeRow({ pool, path, actions }: { pool: MobxPool; path: string; actions: PoolWorkActions }) {
-  const state = useStoreSelector(s => { const active = s.selectedIssueId === null && s.selectedWorktree === path; return { selectedWorktree: active ? path : null, paneA: active ? s.paneA : null } }, shallowEqual)
-  const value = useMemo(() => computed(() => pool.sidebar.worktree(path, state), { equals: (a, b) => compareStructural(
-    a && { worktree: { path: a.worktree.path, repoName: a.worktree.repoName, branch: a.worktree.branch }, active: a.active, issues: a.issues.map(i => ({ id: i.id, displayRef: i.displayRef, archived: i.archived, deletedAt: i.deletedAt })), visible: a.visible.map(s => s.sessionId), stale: a.stale.map(s => s.sessionId) },
-    b && { worktree: { path: b.worktree.path, repoName: b.worktree.repoName, branch: b.worktree.branch }, active: b.active, issues: b.issues.map(i => ({ id: i.id, displayRef: i.displayRef, archived: i.archived, deletedAt: i.deletedAt })), visible: b.visible.map(s => s.sessionId), stale: b.stale.map(s => s.sessionId) },
-  ) }), [pool, path, state]).get()
+const PoolWorktreeRow = observer(function PoolWorktreeRow({
+  pool,
+  path,
+  actions,
+}: {
+  pool: MobxPool
+  path: string
+  actions: PoolWorkActions
+}) {
+  const state = useStoreSelector((s) => {
+    const active = s.selectedIssueId === null && s.selectedWorktree === path
+    return { selectedWorktree: active ? path : null, paneA: active ? s.paneA : null }
+  }, shallowEqual)
+  const value = useMemo(
+    () =>
+      computed(() => pool.sidebar.worktree(path, state), {
+        equals: (a, b) =>
+          compareStructural(
+            a && {
+              worktree: {
+                path: a.worktree.path,
+                repoName: a.worktree.repoName,
+                branch: a.worktree.branch,
+              },
+              active: a.active,
+              issues: a.issues.map((i) => ({
+                id: i.id,
+                displayRef: i.displayRef,
+                archived: i.archived,
+                deletedAt: i.deletedAt,
+              })),
+              visible: a.visible.map((s) => s.sessionId),
+              stale: a.stale.map((s) => s.sessionId),
+            },
+            b && {
+              worktree: {
+                path: b.worktree.path,
+                repoName: b.worktree.repoName,
+                branch: b.worktree.branch,
+              },
+              active: b.active,
+              issues: b.issues.map((i) => ({
+                id: i.id,
+                displayRef: i.displayRef,
+                archived: i.archived,
+                deletedAt: i.deletedAt,
+              })),
+              visible: b.visible.map((s) => s.sessionId),
+              stale: b.stale.map((s) => s.sessionId),
+            },
+          ),
+      }),
+    [pool, path, state],
+  ).get()
   const select = useCallback(() => actions.selectWorktree(path), [actions, path])
   const panel = useCallback((sid: SessionId) => actions.selectPanel(path, sid), [actions, path])
-  const renderSession = useCallback((session: SessionMeta, active: boolean, ref: string | undefined, trailing: ReactNode) =>
-    <PoolPanelRow key={session.sessionId} pool={pool} id={session.sessionId} active={active} actions={actions} path={path} issueDisplayRef={ref} trailingMeta={trailing} />, [pool, actions, path])
+  const renderSession = useCallback(
+    (session: SessionMeta, active: boolean, ref: string | undefined, trailing: ReactNode) => (
+      <PoolPanelRow
+        key={session.sessionId}
+        pool={pool}
+        id={session.sessionId}
+        active={active}
+        actions={actions}
+        path={path}
+        issueDisplayRef={ref}
+        trailingMeta={trailing}
+      />
+    ),
+    [pool, actions, path],
+  )
   if (!value) return null
-  return <UnifiedWorktreeRow row={poolWorktreeRow(value)} issues={value.issues as unknown as IssueNavigationModel[]} active={value.active} paneA={state.paneA}
-    now={pool.clock.current} partition={{ visible: value.visible as SessionMeta[], stale: value.stale as SessionMeta[] }} renderSession={renderSession} onSelect={select} onSelectPanel={panel} />
+  return (
+    <UnifiedWorktreeRow
+      row={poolWorktreeRow(value)}
+      issues={value.issues as unknown as IssueNavigationModel[]}
+      active={value.active}
+      paneA={state.paneA}
+      now={pool.clock.current}
+      partition={{ visible: value.visible as SessionMeta[], stale: value.stale as SessionMeta[] }}
+      renderSession={renderSession}
+      onSelect={select}
+      onSelectPanel={panel}
+    />
+  )
 })
 
-const PoolPanelRow = observer(function PoolPanelRow({ pool, id, path, actions, active, issueDisplayRef, trailingMeta }: {
-  pool: MobxPool; id: string; path: string; actions: PoolWorkActions; active: boolean; issueDisplayRef?: string; trailingMeta: ReactNode
+const PoolPanelRow = observer(function PoolPanelRow({
+  pool,
+  id,
+  path,
+  actions,
+  active,
+  issueDisplayRef,
+  trailingMeta,
+}: {
+  pool: MobxPool
+  id: string
+  path: string
+  actions: PoolWorkActions
+  active: boolean
+  issueDisplayRef?: string
+  trailingMeta: ReactNode
 }) {
-  const value = useMemo(() => computed(() => pool.row<SessionMeta>('session', id), { equals: (a, b) => compareStructural(
-    a !== undefined && a !== LOADING ? poolSessionPaint(a) : a,
-    b !== undefined && b !== LOADING ? poolSessionPaint(b) : b,
-  ) }), [pool, id]).get()
+  const value = useMemo(
+    () =>
+      computed(() => pool.row<SessionMeta>('session', id), {
+        equals: (a, b) =>
+          compareStructural(
+            a !== undefined && a !== LOADING ? poolSessionPaint(a) : a,
+            b !== undefined && b !== LOADING ? poolSessionPaint(b) : b,
+          ),
+      }),
+    [pool, id],
+  ).get()
   const select = useCallback(() => actions.selectPanel(path, id as SessionId), [actions, path, id])
-  return value === LOADING ? <div aria-busy="true" data-testid="pool-row-loading" className="min-h-6" /> : value === undefined ? null
-    : <MemoPanelRow session={value} active={active} onSelect={select} dotRight roster guardWorking={isSessionWorking(value)} issueDisplayRef={issueDisplayRef} trailingMeta={trailingMeta} />
+  return value === LOADING ? (
+    <div aria-busy="true" data-testid="pool-row-loading" className="min-h-6" />
+  ) : value === undefined ? null : (
+    <MemoPanelRow
+      session={value}
+      active={active}
+      onSelect={select}
+      dotRight
+      roster
+      guardWorking={isSessionWorking(value)}
+      issueDisplayRef={issueDisplayRef}
+      trailingMeta={trailingMeta}
+    />
+  )
 })

@@ -66,10 +66,16 @@
  */
 
 import type { RowView } from '../shared/row-view'
-import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
-import { combineSidebarSessions, NO_SIDEBAR_SESSIONS, sidebarSessionFacts, sortedSidebarSessions, type SidebarSessionFacts } from './sidebar-row'
 import { unmergedDeliveryOf } from '../shared/schema'
+import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
 import { issueAbandoned } from '../views'
+import {
+  combineSidebarSessions,
+  NO_SIDEBAR_SESSIONS,
+  type SidebarSessionFacts,
+  sidebarSessionFacts,
+  sortedSidebarSessions,
+} from './sidebar-row'
 
 // ------------------------------------------------------------ session rules
 
@@ -245,7 +251,11 @@ export interface PhaseFlags {
  */
 export interface Aggregate {
   /** Rail badge facts, composed with attention rather than walking descendants. */
-  readonly railWaiting?: { readonly open: number; readonly finished: number; readonly decisions: number }
+  readonly railWaiting?: {
+    readonly open: number
+    readonly finished: number
+    readonly decisions: number
+  }
   /** Some seat anywhere in it (`rowSessions(row).length > 0`). */
   readonly sessions?: readonly SliceSession[]
   readonly sidebarFacts?: SidebarSessionFacts
@@ -308,8 +318,14 @@ export function withSeat(own: OwnAttention, seat: SeatVerdict): OwnAttention {
   return {
     ...own,
     seated: true,
-    sessions: seat.sidebarSession === undefined ? own.sessions : [...(own.sessions ?? []), seat.sidebarSession],
-    sidebarFacts: combineSidebarSessions(own.sidebarFacts ?? NO_SIDEBAR_SESSIONS, seat.sidebarFacts ?? NO_SIDEBAR_SESSIONS),
+    sessions:
+      seat.sidebarSession === undefined
+        ? own.sessions
+        : [...(own.sessions ?? []), seat.sidebarSession],
+    sidebarFacts: combineSidebarSessions(
+      own.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
+      seat.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
+    ),
     working: own.working || seat.working,
     open: flagsWith(own.open, seat.open),
     finished: flagsWith(own.finished, seat.finished),
@@ -345,17 +361,37 @@ export function aggregate(input: {
     sessions.push(...(child.sessions ?? []))
     sidebarFacts = combineSidebarSessions(sidebarFacts, child.sidebarFacts ?? NO_SIDEBAR_SESSIONS)
     if ((child.updatedAt ?? '') > updatedAt) updatedAt = child.updatedAt ?? ''
-    if (child.decidingAt !== undefined && (decidingAt === undefined || child.decidingAt < decidingAt)) decidingAt = child.decidingAt
+    if (
+      child.decidingAt !== undefined &&
+      (decidingAt === undefined || child.decidingAt < decidingAt)
+    )
+      decidingAt = child.decidingAt
     seated ||= child.seated
     working ||= child.working
     deciding ||= child.deciding
     open = joinFlags(open, child.open)
     finished = joinFlags(finished, child.finished)
     pending += child.pending
-    if (child.railWaiting) railWaiting = { open: railWaiting.open + child.railWaiting.open,
-      finished: railWaiting.finished + child.railWaiting.finished, decisions: railWaiting.decisions + child.railWaiting.decisions }
+    if (child.railWaiting)
+      railWaiting = {
+        open: railWaiting.open + child.railWaiting.open,
+        finished: railWaiting.finished + child.railWaiting.finished,
+        decisions: railWaiting.decisions + child.railWaiting.decisions,
+      }
   }
-  return { seated, working, deciding, open, finished, pending, sessions, sidebarFacts, updatedAt, decidingAt, railWaiting }
+  return {
+    seated,
+    working,
+    deciding,
+    open,
+    finished,
+    pending,
+    sessions,
+    sidebarFacts,
+    updatedAt,
+    decidingAt,
+    railWaiting,
+  }
 }
 
 /**
@@ -462,7 +498,14 @@ export function unitsOf(input: {
   readonly children: readonly { readonly own: UnitOwn; readonly below: Units }[]
 }): Units {
   let { members, units, done, pending } = NO_UNITS
-  const progress: Record<UnitState, number> = { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
+  const progress: Record<UnitState, number> = {
+    done: 0,
+    run: 0,
+    review: 0,
+    stall: 0,
+    block: 0,
+    wait: 0,
+  }
   let staffed = false
   for (const { own, below } of input.children) {
     if (own.cold) {
@@ -471,7 +514,8 @@ export function unitsOf(input: {
     }
     staffed ||= own.staffed === true || below.staffed === true
     if (own.unit) progress[own.state ?? (own.done ? 'done' : 'wait')] += 1
-    for (const state of Object.keys(progress) as UnitState[]) progress[state] += below.progress?.[state] ?? 0
+    for (const state of Object.keys(progress) as UnitState[])
+      progress[state] += below.progress?.[state] ?? 0
     members += (own.member ? 1 : 0) + below.members
     units += (own.unit ? 1 : 0) + below.units
     done += (own.done ? 1 : 0) + below.done
@@ -653,12 +697,13 @@ export interface TipTarget {
   readonly finished: boolean
   readonly activeAt: string
 }
-export interface Tip { readonly found: boolean; readonly pending: number; readonly target?: TipTarget }
+export interface Tip {
+  readonly found: boolean
+  readonly pending: number
+  readonly target?: TipTarget
+}
 
-export function tipPartOf(
-  input: RollupInputs,
-  id: string,
-): Tip {
+export function tipPartOf(input: RollupInputs, id: string): Tip {
   let pending = 0
   let target: TipTarget | undefined
   for (const spinOffId of input.spinOffIds(id)) {
@@ -669,20 +714,37 @@ export function tipPartOf(
     }
     if (issue === undefined || issue.archived === true || issue.deletedAt != null) continue
     const node = input.rollupNode(spinOffId)
-    const ownTarget: TipTarget | undefined = leftMission(issue) || node?.openOwn === true ? {
-      id: issue.id, seq: issue.seq, repoId: issue.repoId, staffed: node?.openOwn === true,
-      finished: issue.stage === 'done' || issue.closedReason != null,
-      activeAt: new Date(Math.max(Date.parse(issue.updatedAt) || 0,
-        issue.sessionFacts === undefined
-          ? node?.seatActivity ?? 0
-          : Date.parse(issue.sessionFacts.tipActivityAt ?? '') || 0)).toISOString(),
-    } : undefined
+    const ownTarget: TipTarget | undefined =
+      leftMission(issue) || node?.openOwn === true
+        ? {
+            id: issue.id,
+            seq: issue.seq,
+            repoId: issue.repoId,
+            staffed: node?.openOwn === true,
+            finished: issue.stage === 'done' || issue.closedReason != null,
+            activeAt: new Date(
+              Math.max(
+                Date.parse(issue.updatedAt) || 0,
+                issue.sessionFacts === undefined
+                  ? (node?.seatActivity ?? 0)
+                  : Date.parse(issue.sessionFacts.tipActivityAt ?? '') || 0,
+              ),
+            ).toISOString(),
+          }
+        : undefined
     const below = node?.tip
     for (const candidate of [ownTarget, below?.target]) {
       if (candidate === undefined) continue
-      if (target === undefined || Number(candidate.staffed) > Number(target.staffed) ||
-        (candidate.staffed === target.staffed && Number(candidate.finished) < Number(target.finished)) ||
-        (candidate.staffed === target.staffed && candidate.finished === target.finished && candidate.activeAt > target.activeAt)) target = candidate
+      if (
+        target === undefined ||
+        Number(candidate.staffed) > Number(target.staffed) ||
+        (candidate.staffed === target.staffed &&
+          Number(candidate.finished) < Number(target.finished)) ||
+        (candidate.staffed === target.staffed &&
+          candidate.finished === target.finished &&
+          candidate.activeAt > target.activeAt)
+      )
+        target = candidate
     }
     pending += below?.pending ?? 0
   }
@@ -708,7 +770,10 @@ export function ownAttentionPartOf(
   for (const sessionId of self.rosterIds) {
     const seat = input.seat(sessionId)
     if (seat === LOADING) pending += 1
-    else if (seat !== undefined) { own = withSeat(own, seat); seats.set(sessionId, seat) }
+    else if (seat !== undefined) {
+      own = withSeat(own, seat)
+      seats.set(sessionId, seat)
+    }
   }
   let deciding = false
   if (facts.decision !== null && (facts.finished || !own.working)) {
@@ -723,9 +788,19 @@ export function ownAttentionPartOf(
       }
     }
   }
-  const sessions = sortedSidebarSessions(own.sessions ?? [], input.reached ?? (() => false), facts.coordinatorSessionId)
-  const sidebarFacts = sessions.reduce((combined, session) =>
-    combineSidebarSessions(combined, seats.get(session.sessionId)?.sidebarFacts ?? NO_SIDEBAR_SESSIONS), NO_SIDEBAR_SESSIONS)
+  const sessions = sortedSidebarSessions(
+    own.sessions ?? [],
+    input.reached ?? (() => false),
+    facts.coordinatorSessionId,
+  )
+  const sidebarFacts = sessions.reduce(
+    (combined, session) =>
+      combineSidebarSessions(
+        combined,
+        seats.get(session.sessionId)?.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
+      ),
+    NO_SIDEBAR_SESSIONS,
+  )
   const railWaiting = { open: 0, finished: 0, decisions: deciding ? 1 : 0 }
   for (const session of sessions) {
     const verdict = seats.get(session.sessionId)
@@ -734,11 +809,17 @@ export function ownAttentionPartOf(
     if (verdict?.finished === 'waiting') railWaiting.finished += 1
   }
   return {
-    ...own, deciding, pending: own.pending + pending,
-    sessions, sidebarFacts, railWaiting,
+    ...own,
+    deciding,
+    pending: own.pending + pending,
+    sessions,
+    sidebarFacts,
+    railWaiting,
     updatedAt: facts.updatedAt,
     order: facts.order,
-    decidingAt: deciding ? (Date.parse(facts.closedAt ?? facts.updatedAt ?? '') || undefined) : undefined,
+    decidingAt: deciding
+      ? Date.parse(facts.closedAt ?? facts.updatedAt ?? '') || undefined
+      : undefined,
   }
 }
 
@@ -768,12 +849,17 @@ export function aggregatePartOf(
     if (child !== undefined) children.push(child.aggregate)
   }
   children.sort((a, b) => {
-    const x = a.order, y = b.order
+    const x = a.order,
+      y = b.order
     if (x === undefined || y === undefined) return 0
     const keyed = Number(!x.sortKey) - Number(!y.sortKey)
     if (keyed) return keyed
     if (x.sortKey && y.sortKey && x.sortKey !== y.sortKey) return x.sortKey < y.sortKey ? -1 : 1
-    return (Date.parse(y.createdAt) || 0) - (Date.parse(x.createdAt) || 0) || y.seq - x.seq || x.id.localeCompare(y.id)
+    return (
+      (Date.parse(y.createdAt) || 0) - (Date.parse(x.createdAt) || 0) ||
+      y.seq - x.seq ||
+      x.id.localeCompare(y.id)
+    )
   })
   const combined = aggregate({ own, children })
   return { ...combined, order: own.order }
@@ -797,8 +883,17 @@ export function unitOwnPartOf(
   const vacated = input.spinOffCount(id) > 0 && !self.openOwn
   const staffed = self.openOwn || self.unitsBelow.staffed === true
   const unit = unitOwnOf(issue, vacated)
-  const state: UnitState = unit.done ? 'done' : issue.blocked ? 'block' : issue.stage === 'review' ? 'review' :
-    ['planning', 'in_progress', 'shipping'].includes(issue.stage) ? (issue.stage === 'shipping' || staffed ? 'run' : 'stall') : 'wait'
+  const state: UnitState = unit.done
+    ? 'done'
+    : issue.blocked
+      ? 'block'
+      : issue.stage === 'review'
+        ? 'review'
+        : ['planning', 'in_progress', 'shipping'].includes(issue.stage)
+          ? issue.stage === 'shipping' || staffed
+            ? 'run'
+            : 'stall'
+          : 'wait'
   return { ...unit, staffed, state }
 }
 

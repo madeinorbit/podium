@@ -5,70 +5,173 @@ import { resolve } from 'node:path'
 import { chromium, type Page } from '@playwright/test'
 import type {} from '../test/sidebar-renderer.browser'
 
-const count = Number(process.argv.find(arg => arg.startsWith('--rows='))?.slice(7) ?? 18)
+const count = Number(process.argv.find((arg) => arg.startsWith('--rows='))?.slice(7) ?? 18)
 const target = `synthetic-${count - 1}`
 const out = resolve(`.artifacts/sidebar-renderer/${count}`)
 await mkdir(out, { recursive: true })
 const origin = 'http://127.0.0.1:41655'
-const server = Bun.spawn(['timeout', '600s', process.execPath, 'run', '--cwd', 'apps/web', 'dev', '--', '--config', 'vite.sidebar-pool-perf.config.ts', '--host', '127.0.0.1', '--port', '41655'],
-  { stdout: 'ignore', stderr: 'inherit' })
+const server = Bun.spawn(
+  [
+    'timeout',
+    '600s',
+    process.execPath,
+    'run',
+    '--cwd',
+    'apps/web',
+    'dev',
+    '--',
+    '--config',
+    'vite.sidebar-pool-perf.config.ts',
+    '--host',
+    '127.0.0.1',
+    '--port',
+    '41655',
+  ],
+  { stdout: 'ignore', stderr: 'inherit' },
+)
 console.log(`Synthetic sidebar server PID ${server.pid}`)
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
 const requireCheck = process.argv.includes('--check-s5')
 try {
   const until = Date.now() + 60000
   while (true) {
-    try { if ((await fetch(`${origin}/test/sidebar-renderer.browser.html`, { signal: AbortSignal.timeout(2000) })).ok) break } catch {}
+    try {
+      if (
+        (
+          await fetch(`${origin}/test/sidebar-renderer.browser.html`, {
+            signal: AbortSignal.timeout(2000),
+          })
+        ).ok
+      )
+        break
+    } catch {}
     if (Date.now() >= until) throw new Error('Synthetic sidebar server did not start')
     await Bun.sleep(200)
   }
-  browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--enable-precise-memory-info', '--js-flags=--expose-gc'] })
-  const readPaint = (page: Page) => page.evaluate(() => ({
-    rows: [...document.querySelectorAll('[data-testid="unified-issue-row"]')].map(row => {
-      const body = row.querySelector('[data-issue-row]')!
-      const css = getComputedStyle(body)
-      return { id: body.getAttribute('data-issue-row'), text: row.textContent, selected: body.getAttribute('data-selected'), class: body.className,
-        height: body.getBoundingClientRect().height, color: css.color, background: css.backgroundColor, font: css.font }
-    }),
-    guests: [...document.querySelectorAll('[data-session]')].map(row => ({ id: row.getAttribute('data-session'), text: row.textContent, class: row.className })),
-    bands: [...document.querySelectorAll('[data-testid="project-group-label"]')].map(row => row.textContent),
-    folds: [...document.querySelectorAll('[data-testid="snoozed-fold-toggle"], [data-testid="closed-fold-toggle"]')].map(row => row.textContent),
-  }))
+  browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--enable-precise-memory-info', '--js-flags=--expose-gc'],
+  })
+  const readPaint = (page: Page) =>
+    page.evaluate(() => ({
+      rows: [...document.querySelectorAll('[data-testid="unified-issue-row"]')].map((row) => {
+        const body = row.querySelector('[data-issue-row]')!
+        const css = getComputedStyle(body)
+        return {
+          id: body.getAttribute('data-issue-row'),
+          text: row.textContent,
+          selected: body.getAttribute('data-selected'),
+          class: body.className,
+          height: body.getBoundingClientRect().height,
+          color: css.color,
+          background: css.backgroundColor,
+          font: css.font,
+        }
+      }),
+      guests: [...document.querySelectorAll('[data-session]')].map((row) => ({
+        id: row.getAttribute('data-session'),
+        text: row.textContent,
+        class: row.className,
+      })),
+      bands: [...document.querySelectorAll('[data-testid="project-group-label"]')].map(
+        (row) => row.textContent,
+      ),
+      folds: [
+        ...document.querySelectorAll(
+          '[data-testid="snoozed-fold-toggle"], [data-testid="closed-fold-toggle"]',
+        ),
+      ].map((row) => row.textContent),
+    }))
   const results: Record<string, unknown> = {}
   const pages: Page[] = []
   for (const mode of ['legacy', 'pool'] as const) {
-    const page = await browser.newPage({ viewport: { width: 1000, height: 800 }, reducedMotion: 'reduce' })
+    const page = await browser.newPage({
+      viewport: { width: 1000, height: 800 },
+      reducedMotion: 'reduce',
+    })
     pages.push(page)
     const failures: string[] = []
-    page.on('pageerror', error => { failures.push(error.message); console.error(error.message) })
-    await page.goto(`${origin}/test/sidebar-renderer.browser.html?rows=${count}&mobxSidebar=${mode === 'pool' ? 1 : 0}&perfPanel=1${requireCheck && mode === 'pool' ? '&mobxSidebarCheck=1' : ''}`, { timeout: 60000, waitUntil: 'networkidle' })
-    await page.waitForFunction(target => window.__sidebarRenderer?.ready() && document.querySelector(`[data-issue-row="${target}"]`) !== null && document.querySelectorAll('[data-session^="synthetic-guest-"]').length === 2, target, { timeout: 30000 }).catch(async error => {
-      console.error(mode, await page.evaluate(() => ({ ready: window.__sidebarRenderer?.ready(), state: window.__sidebarRenderer?.state(), errors: window.__sidebarRenderer?.failures(), text: document.body.innerText.slice(0, 4000) })))
-      throw error
+    page.on('pageerror', (error) => {
+      failures.push(error.message)
+      console.error(error.message)
     })
-    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await page.goto(
+      `${origin}/test/sidebar-renderer.browser.html?rows=${count}&mobxSidebar=${mode === 'pool' ? 1 : 0}&perfPanel=1${requireCheck && mode === 'pool' ? '&mobxSidebarCheck=1' : ''}`,
+      { timeout: 60000, waitUntil: 'networkidle' },
+    )
+    await page
+      .waitForFunction(
+        (target) =>
+          window.__sidebarRenderer?.ready() &&
+          document.querySelector(`[data-issue-row="${target}"]`) !== null &&
+          document.querySelectorAll('[data-session^="synthetic-guest-"]').length === 2,
+        target,
+        { timeout: 30000 },
+      )
+      .catch(async (error) => {
+        console.error(
+          mode,
+          await page.evaluate(() => ({
+            ready: window.__sidebarRenderer?.ready(),
+            state: window.__sidebarRenderer?.state(),
+            errors: window.__sidebarRenderer?.failures(),
+            text: document.body.innerText.slice(0, 4000),
+          })),
+        )
+        throw error
+      })
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    )
     await page.evaluate(() => document.fonts.ready)
-    if (requireCheck && mode === 'pool') await page.waitForFunction(() => globalThis.__podiumSidebarPerf?.read().check.state === 'match', null, { timeout: 30000 })
+    if (requireCheck && mode === 'pool')
+      await page.waitForFunction(
+        () => globalThis.__podiumSidebarPerf?.read().check.state === 'match',
+        null,
+        { timeout: 30000 },
+      )
     const check = await page.evaluate(() => globalThis.__podiumSidebarPerf?.read().check)
     const initial = await readPaint(page)
     await page.screenshot({ path: `${out}/${mode}.png`, fullPage: true })
     await page.getByText('Only responsive target', { exact: true }).click()
-    await page.waitForFunction(target => window.__sidebarRenderer.state().selected === target, target)
-    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await page.waitForFunction(
+      (target) => window.__sidebarRenderer.state().selected === target,
+      target,
+    )
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    )
     const navigation = await page.evaluate(() => window.__sidebarRenderer.state())
     const click = await page.evaluate(() => globalThis.__podiumSidebarPerf?.read().input)
     await page.getByTestId('snoozed-fold-toggle').click()
     await page.getByTestId('closed-fold-toggle').click()
-    await page.waitForFunction(() => document.querySelectorAll('[data-testid="folded-work-row"]').length === 2)
+    await page.waitForFunction(
+      () => document.querySelectorAll('[data-testid="folded-work-row"]').length === 2,
+    )
     const folded = await page.locator('[data-testid="folded-work-row"]').allTextContents()
     await page.getByTestId('work-search-input').fill('only responsive target')
-    await page.waitForFunction(() => document.querySelectorAll('[data-testid="unified-issue-row"]').length === 1)
+    await page.waitForFunction(
+      () => document.querySelectorAll('[data-testid="unified-issue-row"]').length === 1,
+    )
     const filter = await page.getByTestId('work-search-count').textContent()
     await page.getByTestId('work-search-clear').click()
-    await page.waitForFunction(() => document.querySelectorAll('[data-testid="unified-issue-row"]').length > 1)
+    await page.waitForFunction(
+      () => document.querySelectorAll('[data-testid="unified-issue-row"]').length > 1,
+    )
     await page.evaluate(() => window.__sidebarRenderer.update({ title: 'Changed synthetic title' }))
     await page.getByText('Changed synthetic title', { exact: true }).waitFor()
-    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    )
     const update = await page.evaluate(() => globalThis.__podiumSidebarPerf?.read().lastUpdate)
     const updated = await readPaint(page)
     await page.locator('[data-session="synthetic-guest-0"] button').first().click()
@@ -81,33 +184,78 @@ try {
     await page.getByTestId('work-scroll').waitFor()
     const builds: unknown[] = []
     const cdp = await page.context().newCDPSession(page)
-    for (const [name, rebuild] of [['renderer-bob', false], ['renderer-bob', true], [null, false]] as const) {
+    for (const [name, rebuild] of [
+      ['renderer-bob', false],
+      ['renderer-bob', true],
+      [null, false],
+    ] as const) {
       const began = performance.now()
-      await page.evaluate(({ name, rebuild }) => window.__sidebarRenderer.show(name, rebuild), { name, rebuild })
+      await page.evaluate(({ name, rebuild }) => window.__sidebarRenderer.show(name, rebuild), {
+        name,
+        rebuild,
+      })
       if (name !== null) await page.waitForFunction(() => window.__sidebarRenderer.ready())
       const readyMs = performance.now() - began
       // The retained exit/motion callbacks have their existing finite lifetime.
       // Measure readiness separately, then check ownership after that tail.
-      await page.evaluate(() => new Promise<void>(resolve => setTimeout(resolve, 1000)))
+      await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 1000)))
       await cdp.send('HeapProfiler.collectGarbage')
       await cdp.send('HeapProfiler.collectGarbage')
       const survivors = await page.evaluate(() => window.__sidebarRenderer.survivors())
       if (survivors.length) throw new Error(`${mode} principal retained ${survivors.join(', ')}`)
       const heap = await cdp.send('Runtime.getHeapUsage')
-      builds.push({ name, rebuild, readyMs, elapsedMs: performance.now() - began, heap: heap.usedSize, survivors })
+      builds.push({
+        name,
+        rebuild,
+        readyMs,
+        elapsedMs: performance.now() - began,
+        heap: heap.usedSize,
+        survivors,
+      })
     }
     if (failures.length) throw new Error(`${mode} browser errors: ${failures.join('; ')}`)
     const fixtureFailures = await page.evaluate(() => window.__sidebarRenderer.failures())
     if (fixtureFailures.length) throw new Error(fixtureFailures.join('; '))
-    results[mode] = { initial, navigation, guestNavigation, click, check, folded, filter, update, updated, rail, builds }
+    results[mode] = {
+      initial,
+      navigation,
+      guestNavigation,
+      click,
+      check,
+      folded,
+      filter,
+      update,
+      updated,
+      rail,
+      builds,
+    }
   }
-  const legacy = results['legacy'] as { initial: unknown; navigation: { selected: unknown; pane: unknown }; guestNavigation: { selected: unknown; pane: unknown }; folded: unknown; filter: unknown; updated: unknown; rail: unknown; update: { work: { rows: number } } }
+  const legacy = results['legacy'] as {
+    initial: unknown
+    navigation: { selected: unknown; pane: unknown }
+    guestNavigation: { selected: unknown; pane: unknown }
+    folded: unknown
+    filter: unknown
+    updated: unknown
+    rail: unknown
+    update: { work: { rows: number } }
+  }
   const pool = results['pool'] as typeof legacy
   for (const field of ['initial', 'folded', 'filter', 'updated', 'rail'] as const)
-    if (JSON.stringify(legacy[field]) !== JSON.stringify(pool[field])) throw new Error(`Sidebar parity differs at ${field}`)
-  if (legacy.navigation.selected !== pool.navigation.selected || legacy.navigation.pane !== pool.navigation.pane) throw new Error('Sidebar navigation differs')
-  if (legacy.guestNavigation.selected !== pool.guestNavigation.selected || legacy.guestNavigation.pane !== pool.guestNavigation.pane) throw new Error('Guest navigation differs')
-  if ((pool.update?.work.rows ?? Infinity) > (legacy.update?.work.rows ?? 0)) throw new Error('Pool row commits exceed legacy')
+    if (JSON.stringify(legacy[field]) !== JSON.stringify(pool[field]))
+      throw new Error(`Sidebar parity differs at ${field}`)
+  if (
+    legacy.navigation.selected !== pool.navigation.selected ||
+    legacy.navigation.pane !== pool.navigation.pane
+  )
+    throw new Error('Sidebar navigation differs')
+  if (
+    legacy.guestNavigation.selected !== pool.guestNavigation.selected ||
+    legacy.guestNavigation.pane !== pool.guestNavigation.pane
+  )
+    throw new Error('Guest navigation differs')
+  if ((pool.update?.work.rows ?? Infinity) > (legacy.update?.work.rows ?? 0))
+    throw new Error('Pool row commits exceed legacy')
   await writeFile(`${out}/results.json`, JSON.stringify(results, null, 2))
   console.log(`Sidebar browser parity green; evidence ${out}`)
 } finally {

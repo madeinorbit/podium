@@ -26,7 +26,10 @@ import { useConfirm } from './use-confirm'
  * `isSessionWorking` (green-dot semantics) and the popup is the app-wide
  * `useConfirm` dialog.
  */
-export function useSessionGuard(scopedSessionId?: SessionId, knownWorking?: boolean): {
+export function useSessionGuard(
+  scopedSessionId?: SessionId,
+  knownWorking?: boolean,
+): {
   /** Delete (kill) a session — ALWAYS confirms; the row does not come back. */
   guardedDelete: (sessionId: SessionId) => Promise<void>
   /** Clean end [spec:SP-9904] — stops the process, frees the worktree, keeps the
@@ -40,14 +43,16 @@ export function useSessionGuard(scopedSessionId?: SessionId, knownWorking?: bool
   const { scopedWorking, sessions, killSession, archiveSession, endSession } = useStoreSelector(
     (s) => ({
       scopedWorking:
-        knownWorking !== undefined ? knownWorking : scopedSessionId === undefined
-          ? undefined
-          : (() => {
-              const session = s.sessions.find(
-                (candidate) => candidate.sessionId === scopedSessionId,
-              )
-              return session ? isSessionWorking(session) : false
-            })(),
+        knownWorking !== undefined
+          ? knownWorking
+          : scopedSessionId === undefined
+            ? undefined
+            : (() => {
+                const session = s.sessions.find(
+                  (candidate) => candidate.sessionId === scopedSessionId,
+                )
+                return session ? isSessionWorking(session) : false
+              })(),
       sessions: scopedSessionId === undefined ? s.sessions : undefined,
       killSession: s.killSession,
       archiveSession: s.archiveSession,

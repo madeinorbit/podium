@@ -1,13 +1,13 @@
+import { asClientPrincipal } from '@podium/client-core/principal'
+import { StoreProvider } from '@podium/client-core/react'
+import { asUserId } from '@podium/model/browser'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { flushSync } from 'react-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SidebarUnified } from '@/features/worklist/SidebarUnified'
-import { StoreProvider } from '@podium/client-core/react'
-import { asClientPrincipal } from '@podium/client-core/principal'
-import { asUserId } from '@podium/model/browser'
 import { attachWorklistPool } from '@/app/store-worklist-pool'
-import { createSidebarFixture } from '../../test/sidebar-fixture'
+import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { initializeSidebarDataLayer } from '@/lib/sidebar-data-layer'
+import { createSidebarFixture } from '../../test/sidebar-fixture'
 
 const ISSUE_COUNT = 674
 const NOW = Date.parse('2026-08-23T12:00:00.000Z')
@@ -77,14 +77,23 @@ function sessionAt(index: number) {
 
 const largeState = vi.hoisted(() => ({ store: {} as Record<string, unknown>, pool: false }))
 
-vi.mock('@/app/store', async importOriginal => {
+vi.mock('@/app/store', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/app/store')>()
   const useStore = () => largeState.store
   return {
-    useStore: () => largeState.pool ? original.useStore() : useStore(),
-    useReplicaIssues: () => largeState.pool ? original.useReplicaIssues() : largeState.store.issues ?? [],
-    useStoreSelector: (selector: (store: Record<string, unknown>) => unknown, equal?: (a: unknown, b: unknown) => boolean) =>
-      largeState.pool ? original.useStoreSelector(selector as unknown as Parameters<typeof original.useStoreSelector>[0], equal) : selector(largeState.store),
+    useStore: () => (largeState.pool ? original.useStore() : useStore()),
+    useReplicaIssues: () =>
+      largeState.pool ? original.useReplicaIssues() : (largeState.store.issues ?? []),
+    useStoreSelector: (
+      selector: (store: Record<string, unknown>) => unknown,
+      equal?: (a: unknown, b: unknown) => boolean,
+    ) =>
+      largeState.pool
+        ? original.useStoreSelector(
+            selector as unknown as Parameters<typeof original.useStoreSelector>[0],
+            equal,
+          )
+        : selector(largeState.store),
     useSlice: (definition: { derive: (store: Record<string, unknown>) => unknown }) => {
       if (largeState.pool) throw new Error('Responsive pool sidebar read a legacy slice')
       return definition.derive(largeState.store)
@@ -104,7 +113,10 @@ function setNativeInputValue(input: HTMLInputElement, value: string): void {
   input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
-afterEach(() => { cleanup(); largeState.pool = false })
+afterEach(() => {
+  cleanup()
+  largeState.pool = false
+})
 
 describe('large-state responsive filtering', () => {
   it('commits the urgent work query before the deferred 674-row tree, then settles', async () => {
@@ -164,13 +176,37 @@ describe('large-state responsive filtering', () => {
     history.replaceState(null, '', '/?mobxSidebar=1')
     initializeSidebarDataLayer({ get: () => null })
     const fixture = createSidebarFixture(ISSUE_COUNT, Date.now(), true)
-    render(<StoreProvider principal={asClientPrincipal(asUserId('responsive-pool'))}
-      config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
-      createReplicaFn={() => fixture.replica} networkEnabled={false} onFatalError={message => { throw new Error(message) }}
-      attachRuntime={runtime => attachWorklistPool(runtime, error => { throw error })}><SidebarUnified /></StoreProvider>)
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
-    const input = await screen.findByTestId('work-search-input', {}, { timeout: 10000 }) as HTMLInputElement
-    await waitFor(() => expect(screen.getAllByTestId('unified-issue-row')).toHaveLength(ISSUE_COUNT), { timeout: 10000 })
+    render(
+      <StoreProvider
+        principal={asClientPrincipal(asUserId('responsive-pool'))}
+        config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
+        api={fixture.api}
+        createReplicaFn={() => fixture.replica}
+        networkEnabled={false}
+        onFatalError={(message) => {
+          throw new Error(message)
+        }}
+        attachRuntime={(runtime) =>
+          attachWorklistPool(runtime, (error) => {
+            throw error
+          })
+        }
+      >
+        <SidebarUnified />
+      </StoreProvider>,
+    )
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    const input = (await screen.findByTestId(
+      'work-search-input',
+      {},
+      { timeout: 10000 },
+    )) as HTMLInputElement
+    await waitFor(
+      () => expect(screen.getAllByTestId('unified-issue-row')).toHaveLength(ISSUE_COUNT),
+      { timeout: 10000 },
+    )
     expect(screen.getAllByTestId('unified-issue-row')).toHaveLength(ISSUE_COUNT)
     flushSync(() => setNativeInputValue(input, 'only responsive target'))
     expect(input.value).toBe('only responsive target')
