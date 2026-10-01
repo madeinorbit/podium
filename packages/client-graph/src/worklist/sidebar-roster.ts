@@ -20,7 +20,7 @@ interface SeatLocation { readonly owner: string | null; readonly path: string }
  * tells a lane only whether a read needs to inspect the existing relation and
  * request a batch. It never supplies a roster id or payload. */
 interface ColdLaneSummary { readonly path: string; readonly possible: boolean }
-const EMPTY: ReadonlySet<string> = new Set()
+const EMPTY: readonly string[] = Object.freeze([])
 
 export class SidebarRosterIndex {
   private readonly seats = new Map<string, SeatLocation>()

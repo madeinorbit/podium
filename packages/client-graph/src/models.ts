@@ -450,7 +450,7 @@ function sameSidebar(a: LoadedRow<SidebarRowValues>, b: LoadedRow<SidebarRowValu
 
 /** Feed summaries stay inside derivation; the legacy navigation record never
  * carried them. The compatibility view borrows all other issue properties. */
-const SIDEBAR_ISSUE_OMISSIONS: ReadonlySet<PropertyKey> = new Set(['sessionFacts'])
+const SIDEBAR_ISSUE_OMISSIONS = Object.freeze({ has: (key: PropertyKey) => key === 'sessionFacts' })
 
 export class IssueModel extends EntityModel implements HeldIssue, RowView {
   /** The schema fields the row answers (`installFields`): the row's value of them, not the fed row's. */

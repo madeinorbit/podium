@@ -216,11 +216,13 @@ export function sidebarTimingFromFacts(
   return { phase, sinceMs: activityAt }
 }
 
-const labels = new Map(resolveDescriptors([]).map(d => [d.kind, d.shortLabel]))
+const labels: Readonly<Record<string, string>> = Object.freeze(Object.fromEntries(resolveDescriptors([]).map(d => [d.kind, d.shortLabel])))
 export function unstarted(s: SliceSession): boolean {
   if (s.name?.trim()) return false
   const title = (s.title ?? '').replace(/^[\p{So}\p{Sk}·•\s]+/u, '').trim().toLowerCase()
-  return !title || [labels.get(s.agentKind ?? '')?.toLowerCase(), s.agentKind, 'claude code', s.cwd.split('/').filter(Boolean).at(-1)?.toLowerCase()].includes(title)
+  const kind = s.agentKind ?? ''
+  const label = Object.hasOwn(labels, kind) ? labels[kind] : undefined
+  return !title || [label?.toLowerCase(), s.agentKind, 'claude code', s.cwd.split('/').filter(Boolean).at(-1)?.toLowerCase()].includes(title)
 }
 
 export function sidebarLifecycle(issue: SliceIssue, asking: boolean, passed: (at: number) => boolean, reached: (at: number) => boolean) {

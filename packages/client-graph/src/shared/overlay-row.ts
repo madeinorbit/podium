@@ -3,7 +3,7 @@
 export function overlayRow<T extends object, O extends object>(
   row: T,
   overrides: Readonly<O>,
-  omitted: ReadonlySet<PropertyKey> = NO_OMISSIONS,
+  omitted: Pick<ReadonlySet<PropertyKey>, 'has'> = NO_OMISSIONS,
 ): T & O {
   const read = (key: PropertyKey): unknown => omitted.has(key) ? undefined
     : Reflect.get(Object.hasOwn(overrides, key) ? overrides : row, key)
@@ -20,4 +20,4 @@ export function overlayRow<T extends object, O extends object>(
   })
 }
 
-const NO_OMISSIONS: ReadonlySet<PropertyKey> = new Set()
+const NO_OMISSIONS = Object.freeze({ has: () => false })
