@@ -82,7 +82,7 @@ describe('OpenCode measured text tolerance', () => {
     ['one\n\ntwo', 'one\ntwo '],
     ['one\ttwo', 'one    two '],
     ['one  two', 'one two'],
-    ['one\r\ntwo', 'one\ntwo'],
+    ['one\r\ntwo', 'one\n\ntwo'],
     ['e\u0301', 'é'],
     ['x\u200by', 'xy'],
     ['prompt', 'prompt extra'],
