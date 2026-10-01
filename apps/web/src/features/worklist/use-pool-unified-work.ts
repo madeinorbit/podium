@@ -2,6 +2,7 @@ import { beginSwitch } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import { pickPaneSession } from '@podium/client-core/viewmodels'
 import { LOADING, type MobxPool } from '@podium/client-graph'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import {
   asIssueId,
   asSessionId,
@@ -13,6 +14,45 @@ import {
 import { useMemo, useRef } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { navigationIssue } from './pool-row-data'
+
+/** Navigation includes the formal mission at every depth and tasks filed by
+ * its explicitly attached sessions. Display nesting is narrower than this:
+ * hidden descendants and unstarted spin-offs can still supply a pane. */
+function missionMembers(pool: MobxPool, rootId: string): Map<string, SliceIssue> {
+  const members = new Map<string, SliceIssue>()
+  const pending = [rootId]
+  const seen = new Set<string>()
+  while (pending.length > 0) {
+    const id = pending.pop()!
+    if (seen.has(id)) continue
+    seen.add(id)
+    const issue = pool.row('issue', id)
+    if (issue === undefined || issue === LOADING) continue
+    members.set(id, issue as SliceIssue)
+    // The filtered formal edge excludes archived/deleted children, matching
+    // missionParentId. Provenance does not recursively admit formal children.
+    pending.push(...pool.graph.many('issue', id, 'children'))
+  }
+  const filed = [...members.keys()]
+  for (let index = 0; index < filed.length; index += 1) {
+    for (const sessionId of pool.graph.many('issue', filed[index]!, 'sessions')) {
+      for (const id of pool.graph.many('session', sessionId, 'startedIssues')) {
+        if (members.has(id)) continue
+        const issue = pool.row('issue', id)
+        if (issue === undefined || issue === LOADING) continue
+        const candidate = issue as SliceIssue
+        const departed =
+          candidate.stage !== 'proposed' &&
+          candidate.stage !== 'backlog' &&
+          candidate.deps?.some((dep) => dep.type === 'discovered-from') === true
+        if (departed) continue
+        members.set(id, candidate)
+        filed.push(id)
+      }
+    }
+  }
+  return members
+}
 
 /** Pool reads are gesture-local. Writes and batching remain the app's actions. */
 export function createPoolWorkActions(
@@ -48,17 +88,29 @@ export function createPoolWorkActions(
     }
     const store = runtime.getSnapshot()
     const members = new Map<string, SessionMeta>()
-    for (const member of [root.issue.id, ...(pool.issue(root.issue.id)?.nested ?? [])]) {
-      const issue = pool.issue(member)
+    const mission = missionMembers(pool, root.issue.id)
+    // The legacy candidate order is the slice order, including tie-breaking
+    // on lastActiveAt. Walk resident keys, reading only this mission's rows.
+    const sessionOrder = new Map(
+      [...pool.tables.session.keys()].map((sessionId, index) => [sessionId, index]),
+    )
+    for (const member of pool.tables.issue.keys()) {
+      const issue = mission.get(member)
       if (!issue) continue
-      const ids = new Set([...pool.graph.many('issue', member, 'sessions'), ...issue.laneMemberIds])
+      // The app's issue membership summary comes from session.issueId and
+      // excludes dock shells. Cwd-only seats can draw a row but do not become
+      // workspace pane candidates for an issue.
+      const ids = [...pool.graph.many('issue', member, 'sessions')].sort(
+        (a, b) => (sessionOrder.get(a) ?? Infinity) - (sessionOrder.get(b) ?? Infinity),
+      )
       for (const sessionId of ids) {
         const session = pool.row('session', sessionId) as SessionMeta | typeof LOADING | undefined
         if (
           session !== undefined &&
           session !== LOADING &&
           !session.archived &&
-          session.headless !== true
+          session.headless !== true &&
+          session.agentKind !== 'shell'
         )
           members.set(sessionId, session as unknown as SessionMeta)
       }
@@ -132,6 +184,7 @@ export function createPoolWorkActions(
     setIssueColor: (id: string, color: IssueColorSlot | null) =>
       runtime.getSnapshot().updateIssue(id, { color }),
     archiveIssue: (id: string) => runtime.getSnapshot().archiveIssue(id),
+    deleteIssue: (id: string) => runtime.getSnapshot().deleteIssue(id),
     applySortPatches: (patches: { id: string; sortKey: string; pinned?: boolean }[]) =>
       Promise.all(patches.map(({ id, ...patch }) => runtime.getSnapshot().updateIssue(id, patch))),
     setIssueTucked: (id: string, tucked: boolean) =>
@@ -140,7 +193,28 @@ export function createPoolWorkActions(
       // Only on menu open: enumerate resident issues, through the one reader.
       const all = [...pool.tables.issue.keys()].flatMap((key) => {
         const value = pool.sidebar.row(key)
-        return value === undefined || value === LOADING ? [] : [navigationIssue(value.issue)]
+        if (value === undefined || value === LOADING) return []
+        // These compatibility summaries used to arrive on the legacy issue
+        // view. The menu needs the same cascade counts, membership and read
+        // state; build them on open from resident relations and the one reader.
+        const memberSessionIds = [...pool.graph.many('issue', key, 'sessions')].filter((id) => {
+          const session = pool.row('session', id)
+          return session !== undefined && session !== LOADING && session['agentKind'] !== 'shell'
+        })
+        const childIds = [...pool.graph.many('issue', key, 'treeChildren')]
+        const childDoneCount = childIds.filter((id) => {
+          const child = pool.row('issue', id)
+          return child !== undefined && child !== LOADING && child['stage'] === 'done'
+        }).length
+        return [{
+          ...navigationIssue(value.issue),
+          memberSessionIds,
+          childIds: childIds.map(asIssueId),
+          childCount: childIds.length,
+          childDoneCount,
+          unread: value.unread,
+          deferred: value.deferred,
+        }]
       })
       return { single: all.filter((issue) => issue.id === id), all }
     },
