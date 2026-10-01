@@ -461,8 +461,10 @@ export function createRowSource(
     }
   }
 
-  function closedInput(id: string, pending: PendingByRow | null): boolean | undefined {
-    const projection = folded('issueProjections', id, pending) ?? folded('issues', id, pending)
+  function closedInput(id: string): boolean | undefined {
+    // Replica blocking is a truth fact. Optimistic stages change their own
+    // row immediately, but a neighbour stops blocking only on the server echo.
+    const projection = authority('issueProjections', id) ?? authority('issues', id)
     return projection === undefined ? undefined : projection.stage === 'done'
   }
 
@@ -477,7 +479,7 @@ export function createRowSource(
     const projection = folded('issueProjections', id, pending)
     const temporary = folded('issues', id, pending)
     const deps = outgoing.get(id) ?? EMPTY
-    const blocked = deps.some(edge => edge.type === 'blocks' && closedInput(edge.id, pending) === false)
+    const blocked = deps.some(edge => edge.type === 'blocks' && closedInput(edge.id) === false)
     return temporaryIssueInput(projection, temporary, deps, blocked, issueSessionFacts.get(id) ?? NO_SESSION_FACTS)
   }
 
@@ -670,7 +672,7 @@ export function createRowSource(
     for (const id of ids) {
       stats.rowsVisited += 1
       const value = resolve(kind, id, pending)
-      if (kind === 'issue') { const closed = closedInput(id, pending); if (closed !== undefined) closure.set(id, closed) }
+      if (kind === 'issue') { const closed = closedInput(id); if (closed !== undefined) closure.set(id, closed) }
       if (hasOverlays(kind, id, pending)) overlaid.set(`${kind}:${id}`, value)
       // An insert a server row already covers, or a patch on a row that is
       // gone, resolves to nothing: not a row.
@@ -768,25 +770,12 @@ export function createRowSource(
         }
       } else {
         addressed.set(`issue:${address.id}`, { kind: 'issue', id: address.id })
-        const closed = closedInput(address.id, pending)
+        const closed = closedInput(address.id)
         if (closure.get(address.id) !== closed) {
           for (const owner of incoming.get(address.id) ?? EMPTY) addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
         }
         if (closed === undefined) closure.delete(address.id)
         else closure.set(address.id, closed)
-      }
-    }
-    // A pending stage can settle/reject without a kernel address. Its small
-    // completion summary fans out only to owners of incoming blocking edges.
-    const pendingIssueIds = new Set([...pending.issues.keys(), ...pending.issueProjections.keys()])
-    for (const key of overlaid.keys()) if (key.startsWith('issue:')) pendingIssueIds.add(key.slice(6))
-    for (const id of pendingIssueIds) {
-      if (!incoming.has(id)) continue
-      const closed = closedInput(id, pending)
-      if (closure.get(id) !== closed) {
-        for (const owner of incoming.get(id) ?? EMPTY) addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
-        if (closed === undefined) closure.delete(id)
-        else closure.set(id, closed)
       }
     }
     for (const [key, { kind, id }] of addressed) {

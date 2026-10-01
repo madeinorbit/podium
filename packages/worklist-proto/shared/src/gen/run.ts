@@ -513,11 +513,12 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           { pinned: true, readAt: stamp, commentCount: 3, color: 'violet' },
           { pinned: false, deferUntil: new Date(now + 60_000).toISOString() },
           { deferUntil: new Date(now - 60_000).toISOString(), readAt: null },
-          { deferUntil: 'next-message', needsHuman: true, humanQuestion: 'Which path?', humanQuestionOptions: ['A', 'B'] },
-          { deferUntil: null, needsHuman: false, humanQuestion: null, humanQuestionOptions: null, tuckedAt: stamp },
+          { deferUntil: 'next-message', needsHuman: true, humanQuestion: 'Which path?', humanQuestionOptions: ['A', 'B'],
+            asked: { question: 'Which path?', options: ['A', 'B'], at: stamp, by: 'sidebar-asker' } },
+          { deferUntil: null, needsHuman: false, humanQuestion: null, humanQuestionOptions: null, asked: null, tuckedAt: stamp },
           { tuckedAt: null, branch: 'issue/sidebar-facts', gitState: { shared: false, merged: false, ahead: 4, dirtyFiles: 2, updatedAt: stamp } },
           { gitState: { shared: true, merged: true, ahead: 0, dirtyFiles: 0, updatedAt: stamp }, commentCount: 5, color: 'blue' },
-          { audience: 'agent', draft: true, origin: 'agent', worktreePath: null },
+          { audience: 'agent', draft: true, isDraftVessel: true, origin: 'agent', intentOrigin: 'agent', worktreePath: null },
         ]
         return patchIssue(c.id, patches[c.variant % patches.length]!)
       }
@@ -525,13 +526,17 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         const now = ctx.engine.getSnapshot().coarseNow
         const stamp = new Date(now).toISOString()
         const patches: Record<string, unknown>[] = [
-          { name: 'Named seat', agentKind: 'claude-code', status: 'live', agentState: { phase: 'working', since: stamp, workingMsTotal: 1200, nativeSubagentCount: 3 } },
+          { name: 'Named seat', agentKind: 'claude-code', status: 'live', agentColor: '#8b5cf6',
+            createdBy: { actor: { kind: 'user', id: 'u-sidebar' }, onBehalfOf: 'u-sidebar' },
+            agentState: { phase: 'working', since: stamp, workingMsTotal: 1200, nativeSubagentCount: 3 } },
           { name: null, title: 'New seat', snoozedUntil: null, draftUpdatedAt: stamp },
           { snoozedUntil: new Date(now - 60_000).toISOString(), agentState: { phase: 'needs_user', since: stamp, workingMsTotal: 1800, nativeSubagentCount: 2 } },
           { snoozedUntil: new Date(now + 60_000).toISOString(), agentState: { phase: 'errored', since: stamp, error: { class: 'auth', retryable: true }, nativeSubagentCount: 0 } },
-          { status: 'hibernated', agentState: { phase: 'idle', since: stamp, idle: { kind: 'done', summary: 'Turn finished' }, workingMsTotal: 2000, nativeSubagentCount: 4 } },
-          { status: 'exited', agentState: { phase: 'ended', since: stamp, workingMsTotal: 2300 } },
-          { status: 'live', snoozedUntil: undefined, agentKind: 'codex', name: null, title: 'Codex', agentState: { phase: 'idle', since: stamp, idle: { kind: 'open_todos', summary: '' } } },
+          { status: 'hibernated', stoppedAt: stamp, stopReason: 'parent', agentState: { phase: 'idle', since: stamp, idle: { kind: 'done', summary: 'Turn finished' }, workingMsTotal: 2000, nativeSubagentCount: 4 } },
+          { status: 'exited', stoppedAt: stamp, stopReason: 'oom', agentState: { phase: 'ended', since: stamp, workingMsTotal: 2300 } },
+          { status: 'live', snoozedUntil: undefined, stoppedAt: undefined, stopReason: undefined, agentColor: '#3b82f6',
+            createdBy: { actor: { kind: 'session', id: c.sessionId }, onBehalfOf: 'u-sidebar' },
+            agentKind: 'codex', name: null, title: 'Codex', agentState: { phase: 'idle', since: stamp, idle: { kind: 'open_todos', summary: '' } } },
           { status: 'live', name: null, title: 'Codex', agentState: { phase: 'idle', since: stamp, idle: { kind: 'done', summary: '' }, workingMsTotal: 2500, nativeSubagentCount: 0 } },
         ]
         return patchSession(c.sessionId, s => ({ ...s, ...patches[c.variant % patches.length], lastActiveAt: stamp }))

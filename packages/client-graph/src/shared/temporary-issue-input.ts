@@ -29,7 +29,8 @@ export function temporaryIssueInput(
   }
   const cached = joined.get(old)
   if (cached !== undefined && (deps === undefined || cached.deps === deps) && cached.blocked === blocked && cached.sessionFacts === sessionFacts) return cached
-  const asked = projection.asked as { question?: string; options?: string[]; at?: string; by?: string } | undefined
+  const asked = projection.asked as { question?: string; options?: string[]; at?: string; by?: string } | null | undefined
+  const hasAsked = Object.hasOwn(projection, 'asked')
   const row = {
     ...projection,
     readAt: old.readAt,
@@ -40,8 +41,8 @@ export function temporaryIssueInput(
     commentCount: old.commentCount,
     draft: projection.isDraftVessel ?? projection.draft ?? old.draft ?? false,
     origin: projection.intentOrigin ?? projection.origin ?? old.origin,
-    humanQuestion: asked?.question ?? projection.humanQuestion ?? old.humanQuestion,
-    humanQuestionOptions: asked?.options ?? projection.humanQuestionOptions ?? old.humanQuestionOptions,
+    humanQuestion: hasAsked ? asked?.question : projection.humanQuestion ?? old.humanQuestion,
+    humanQuestionOptions: hasAsked ? asked?.options : projection.humanQuestionOptions ?? old.humanQuestionOptions,
     humanQuestionAskedAt: asked?.at,
     humanQuestionAskedBy: asked?.by,
     // Edges are a normalized feed input. Legacy-shaped test projections can

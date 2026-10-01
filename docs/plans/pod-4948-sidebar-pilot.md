@@ -4,7 +4,9 @@ POD-4948 is the opt-in sidebar pilot under POD-4286. The existing sidebar, rows,
 
 ## Temporary feed input
 
-`packages/client-graph/src/shared/temporary-issue-input.ts` is the single declared temporary adapter until POD-4949 supplies normalized homes. The normalized projection owns durable issue facts. The retained issue record supplies only `readAt`, `tuckedAt`, `pinned`, `gitState`, `repoPath` and `commentCount`; the adapter translates `asked`/`intentOrigin`/`isDraftVessel` to the compatibility payload's question/origin/draft spellings. Replacing these six inputs with their new homes changes this one file. Normalized dependency edges are indexed at the feed boundary; target completion is a small declared boolean summary, and edge removal remembers its owner.
+`packages/client-graph/src/shared/temporary-issue-input.ts` is the single declared temporary adapter until POD-4949 supplies normalized homes. The normalized projection owns durable issue facts. The retained issue record supplies only `readAt`, `tuckedAt`, `pinned`, `gitState`, `repoPath` and `commentCount`; the adapter translates `asked`/`intentOrigin`/`isDraftVessel` to the compatibility payload's question/origin/draft spellings. A cleared normalized ask clears stale legacy text. Replacing these six inputs with their new homes changes this one file. Normalized dependency edges are indexed at the feed boundary; target completion is a small declared boolean summary, and edge removal remembers its owner. As in the replica, blocking uses server-truth target stages during optimistic edits.
+
+The feed also declares a small raw-session summary: owner ID and two activity timestamps. Replica unread includes parked resume twins that disappear from the roster; continuation recency includes exited own sessions. The summary holds no full session records and updates only affected owners. Resident row/index readers continue to use the one pool reader. POD-4952's unscanned persisted repo fallback remains in feed snapshots and replacements.
 
 Every row read still goes through `MobxPool.row`. Cold facts answer `LOADING` and schedule a batched load. The pool does not call legacy worklist selectors. A plain `IssueModel.sidebar` getter reuses the existing cached groups; `pool.sidebar` exposes section, worktree roster and selection facts over resident indexes. `SidebarState` carries caller-owned project order, pins, persisted collapse and pane selection without reading storage.
 
@@ -23,7 +25,7 @@ In the test column, **corpus** means `arms/mobx/pool/sidebar.test.ts` at 1x and 
 | WorkingMark | `rowHasWorkingSession` | existing `IssueModel.working` | corpus, gate, R3 |
 | Merge/review decision | `rowPendingDecision`, `issuePendingDecision`; working/continuation suppression | existing own attention; `sidebar.decision` | corpus, gate, awaiting-merge tests |
 | Merge commit count | `issue.gitState.ahead` when merge decision | `sidebar.mergeCommits`, temporary git input | corpus, gate `issueFacts` |
-| Status line | `rowStatusLine`, continuation, issue workflow fields, mission rollup, unstarted draft sessions | `sidebar.issue`, `continuation`, `progress`, `fromChildren`, `awaitingFirstPrompt`, own/aggregate sessions; formatting remains in row | corpus, gate (actual legacy formatter on payload) |
+| Status line | `rowStatusLine`, continuation, issue workflow fields, root-only mission rollup, unstarted draft sessions | `sidebar.issue`, `continuation`, `progress`, `statusFromChildren`, `awaitingFirstPrompt`, own/aggregate sessions; formatting remains in row | corpus, gate (actual legacy formatter on payload) |
 | RowProgressMeter distributions | `missionRollup.progress`: done/run/review/stall/block/wait/total | existing `unitOwn`/`unitsBelow` composition; `sidebar.progress` | corpus, gate, rollup tests |
 | Child-derived meter | `missionRollup.fromChildren` | `sidebar.fromChildren` | corpus, gate |
 | GitStamp branch, parent branch, shared/merged/ahead/dirty state | `useReplicaIssues` projection branch plus retained `gitState` | `sidebar.issue.branch/parentBranch`, `sidebar.gitState` | corpus, gate `issueFacts` |
@@ -51,6 +53,8 @@ In the test column, **corpus** means `arms/mobx/pool/sidebar.test.ts` at 1x and 
 | Worktree roster rows | `worklistSlice.work`, `UnifiedWorktreeRow`: retained unrepresented seats per lane | `sidebar.worktree`, declared worktree/session relations and owner summaries | corpus, gate |
 | Worktree branch/label/path | nav worktree from repo discovery | feed worktree lane fields | corpus, gate discovery |
 | Worktree session order, visible/stale partition | `sortSessionsForSidebar`, `partitionStaleSessions` | `SidebarWorktree.sessions/visible/stale` | corpus, gate, roster test |
+| Roster session ref, name, attribution, outcome, colour, draft/snooze and agent status | `PanelRow`/`WorkerLabel` session payload | borrowed resident `SidebarWorktree.sessions`, same payload on issue rosters | corpus, gate `sessionFacts` |
+| Worktree attached issue ref and orphan provenance | `UnifiedWorktreeRow`: `useReplicaIssues` owner lookup; missing owner falls back to birth `session.displayRef` | `SidebarWorktree.issues` contains only retained roster owners through the one reader; missing-owner session retains birth ref | corpus, gate, roster test |
 | Worktree activity and selection | `row.activityAt`, selected worktree and paneA | `SidebarWorktree.activityAt/active`; paneA stays caller data | corpus, gate, roster test |
 
 ## Validation and counts

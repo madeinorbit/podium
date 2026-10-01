@@ -110,7 +110,7 @@ export class SidebarIndex {
       if (session.issueId && owner) {
         const raw = this.pool.row('issue', session.issueId)
         if (raw === LOADING) pending += 1
-        else if (raw !== undefined) issues.set(session.issueId, { ...raw as SliceIssue, displayRef: owner.displayRef })
+        else if (raw !== undefined) issues.set(session.issueId, { ...(raw as SliceIssue), displayRef: owner.displayRef })
       }
       activityAt = Math.max(activityAt, Date.parse(session.lastActiveAt) || 0)
       if (session.status !== 'exited') sessions.push(session)
@@ -156,7 +156,7 @@ export class SidebarIndex {
       const example = this.pool.issue(ids[0] ?? closedIds[0] ?? '')
       const band = add(key, group.label, example?.ownFacts.issue?.repoPath ?? key)
       const snoozedIds = ids.filter(id => this.pool.issue(id)?.band === 2)
-      bands.set(key, { ...band, rowIds: ids.filter(id => this.pool.issue(id)?.band !== 2), snoozedIds, closedIds, startFirstTask: false })
+      bands.set(key, { ...band, label: group.label, rowIds: ids.filter(id => this.pool.issue(id)?.band !== 2), snoozedIds, closedIds, startFirstTask: false })
     }
     for (const lane of lanes) {
       if (this.worktree(lane.path, state) === undefined) continue

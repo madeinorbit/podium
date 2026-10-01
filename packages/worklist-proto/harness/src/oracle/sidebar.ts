@@ -37,12 +37,21 @@ function temporaryComments(derivation: LegacyDerivation, id: string): unknown {
   return indexed.get(id)
 }
 
+/** PanelRow/WorkerLabel inputs, including raw attribution and outcome facts
+ * whose formatting remains in those components. */
+const SESSION_CONTENT_FIELDS = [
+  'sessionId', 'issueId', 'displayRef', 'name', 'title', 'createdAt', 'agentKind',
+  'agentColor', 'status', 'archived', 'lastActiveAt', 'readAt', 'unread',
+  'agentState', 'offer', 'snoozedUntil', 'draftUpdatedAt', 'createdBy',
+  'stoppedAt', 'stopReason', 'busy',
+] as const
+const sessionComparable = (session: unknown) => pick(session, SESSION_CONTENT_FIELDS)
+
 /** Compare raw compatibility payloads by the fields presentation actually
  * reads. No old record's irrelevant server supplement enters the oracle. */
 export function sidebarComparable(value: SidebarRowValues): Record<string, unknown> {
-  const session = (s: unknown) => pick(s, ['sessionId', 'issueId', 'name', 'title', 'createdAt', 'agentKind', 'status', 'archived', 'lastActiveAt', 'readAt', 'unread', 'agentState', 'offer', 'snoozedUntil'])
   return { ...value, issue: pick(value.issue, ISSUE_CONTENT_FIELDS),
-    sessions: value.sessions.map(session), aggregateSessions: value.aggregateSessions.map(session) }
+    sessions: value.sessions.map(sessionComparable), aggregateSessions: value.aggregateSessions.map(sessionComparable) }
 }
 
 export function legacySidebarRow(row: UnifiedIssueRow, derivation: LegacyDerivation, now: number): Record<string, unknown> {
@@ -116,10 +125,19 @@ export function worktreeDiff(pool: MobxPool, derivation: LegacyDerivation, state
     const partition = partitionStaleSessions(row.worktree.sessions, now)
     for (const [field, actual, expected] of [
       ['sessions', value.sessions, row.worktree.sessions], ['visible', value.visible, partition.visible], ['stale', value.stale, partition.stale],
-    ] as const) if (!isDeepStrictEqual(actual.map(s => s.sessionId), expected.map(s => s.sessionId))) differences.push(`${row.worktree.path}.${field}: ${actual.map(s => s.sessionId)} expected ${expected.map(s => s.sessionId)}`)
+    ] as const) if (!isDeepStrictEqual(actual.map(sessionComparable), expected.map(sessionComparable))) differences.push(`${row.worktree.path}.${field}: session payload/order differs`)
     if (value.activityAt !== row.activityAt) differences.push(`${row.worktree.path}.activityAt: ${value.activityAt} expected ${row.activityAt}`)
     if ((value.worktree.branch ?? null) !== (row.worktree.branch ?? null)) differences.push(`${row.worktree.path}.branch`)
     if (value.worktree.repoName !== row.worktree.repoName) differences.push(`${row.worktree.path}.repoName`)
+    const active = pool.selection.size === 0 && state.selectedWorktree === row.worktree.path
+    if (value.active !== active) differences.push(`${row.worktree.path}.active`)
+    for (const session of row.worktree.sessions) {
+      if (!session.issueId) continue
+      const actual = value.issues.find(issue => issue.id === session.issueId)
+      const expected = derivation.models.find(issue => issue.id === session.issueId)
+      if (!isDeepStrictEqual(actual ? pick(actual, ['id', 'seq', 'displayRef', 'archived', 'deletedAt']) : null,
+        expected ? pick(expected, ['id', 'seq', 'displayRef', 'archived', 'deletedAt']) : null)) differences.push(`${row.worktree.path}.${session.sessionId}.ownerRef/provenance`)
+    }
   }
   return differences
 }
@@ -145,9 +163,6 @@ export function sidebarDiff(pool: MobxPool, derivation: LegacyDerivation, rows: 
         for (const key of ISSUE_CONTENT_FIELDS) {
           const a = (actual.issue as Record<string, unknown>)[key], e = (expected.issue as Record<string, unknown>)[key]
           if (!isDeepStrictEqual(a, e)) differences.push(`${row.issue.id}.issue.${key}: ${JSON.stringify(a)} expected ${JSON.stringify(e)}`)
-          if (key === 'unread' && !isDeepStrictEqual(a, e)) console.info('[sidebar unread]', row.issue.id, row.issue.readAt,
-            pool.issue(row.issue.id)?.seatIds.map(id => ({ id, raw: pool.row('session', id), retention: pool.model('session', id)?.retention })),
-            derivation.sessions.filter(s => s.issueId === row.issue.id))
         }
       } else {
         const short = (value: unknown) => JSON.stringify(value).slice(0, 500)
@@ -155,10 +170,6 @@ export function sidebarDiff(pool: MobxPool, derivation: LegacyDerivation, rows: 
       }
     }
     const line = row.continuation ?? rowStatusLine(row, now, 0)
-    if (!isDeepStrictEqual(actual.continuation, expected.continuation)) console.info('[sidebar continuation]', row.issue.id,
-      pool.issue(row.issue.id)?.tip, pool.issue(row.issue.id)?.openOwn,
-      derivation.models.filter(i => [String((actual.continuation as {ref?:string})?.ref), String((expected.continuation as {ref?:string})?.ref)].includes(i.displayRef ?? '')).map(i => ({ id: i.id, stage: i.stage, updatedAt: i.updatedAt,
-        sessions: derivation.sessions.filter(s => s.issueId === i.id).map(s => ({ id:s.sessionId, lastActiveAt:s.lastActiveAt,status:s.status,archived:s.archived })) })))
     if (poolStatusLine(value, pool.issue(row.issue.id)?.activityAt ?? 0, now) !== line) differences.push(`${row.issue.id}.statusLine: ${poolStatusLine(value, pool.issue(row.issue.id)?.activityAt ?? 0, now)} expected ${line}`)
   }
   return differences

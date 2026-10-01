@@ -66,12 +66,11 @@ describe('real sidebar oracle (POD-4953)', () => {
         const state = stateFor(derivation.slice.groups.map(g => g.key), ctx.engine.getSnapshot().pins, variant)
         const gotSections = tracked(() => handle.pool.sidebar.sections(state))
         const expectedSections = legacySidebarSections(derivation, state, null, false, locals.coarseNow)
-        for (const path of gotSections.bands.flatMap(b => b.worktreeIds).filter(path => !expectedSections.bands.some(b => b.worktreeIds.includes(path)))) {
-          console.info('[extra roster]', path, tracked(() => handle.pool.sidebar.worktree(path)?.sessions.map(s => ({ id: s.sessionId, issueId: s.issueId,
-            owner: handle.pool.model('session', s.sessionId)?.issueLink, owned: handle.pool.knownIssue(s.issueId ?? '')?.placed, retained: handle.pool.knownIssue(s.issueId ?? '')?.retainedSeatIds }))))
-        }
         expect(gotSections).toEqual(expectedSections)
         expect(tracked(() => worktreeDiff(handle.pool, derivation, state, locals.coarseNow))).toEqual([])
+        const roster = derivation.slice.work.find(row => row.kind === 'worktree')
+        if (roster?.kind === 'worktree') expect(tracked(() => worktreeDiff(handle.pool, derivation,
+          { ...state, selectedWorktree: roster.worktree.path }, locals.coarseNow))).toEqual([])
       }
       writeResult(`sidebar-values-${scale}x`, { issue: 'POD-4953', scale, rows: rows.length,
         fields: SIDEBAR_ROW_FIELDS, differences: rowErrors.length, rosterRows: derivation.slice.work.filter(r => r.kind === 'worktree').length })
@@ -87,6 +86,9 @@ describe('real sidebar oracle (POD-4953)', () => {
     expect(joined).toMatchObject({ title: 'Projection title', stage: 'review', draft: true, origin: 'agent',
       humanQuestion: 'Pick one', humanQuestionOptions: ['A'], pinned: true, tuckedAt: 'tucked', readAt: 'read',
       gitState: { ahead: 2 }, repoPath: '/repo', commentCount: 8 })
+    expect(temporaryIssueInput({ ...projection, asked: null, isDraftVessel: false, intentOrigin: 'human' }, wire, [], false)).toMatchObject({
+      draft: false, origin: 'human', humanQuestion: undefined, humanQuestionOptions: undefined,
+    })
   })
 
   it('cold sidebar reads answer LOADING and batch loads; eviction only clears a previously seen selection', () => {
