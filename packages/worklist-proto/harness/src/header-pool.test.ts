@@ -133,6 +133,10 @@ describe('header pool values', () => {
       f.pool.header.apply([{ kind: 'connection', id: 'server', value: { ...actual, rttMs: 999 } }])
       expect(runInAction(() => checkHeader(f.pool, f.ctx.engine.getSnapshot(), f.inputs())).differences).toBeGreaterThan(0)
       f.pool.header.apply([{ kind: 'connection', id: 'server', value: f.inputs().connection }])
+      const ids = f.inputs().metrics.map((row) => row.machineId ?? row.hostname)
+      runInAction(() => f.pool.header.order('hostMetric', [...ids].reverse()))
+      expect(runInAction(() => checkHeader(f.pool, f.ctx.engine.getSnapshot(), f.inputs())).first?.section).toBe('metrics')
+      runInAction(() => f.pool.header.order('hostMetric', ids))
       f.pool.header.apply([{ kind: 'hostMetric', id: 'extra', value: metric('extra' as MachineId, 'fixed') }])
       expect(runInAction(() => checkHeader(f.pool, f.ctx.engine.getSnapshot(), f.inputs())).first?.section).toBe('metrics')
     } finally { f.dispose(); f.ctx.engine.destroy() }

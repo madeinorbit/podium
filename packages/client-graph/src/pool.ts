@@ -457,6 +457,7 @@ export class MobxPool {
     makeObservable<
       MobxPool,
       | 'models'
+      | 'headerState'
       | 'target'
       | 'selectedId'
       | 'select'
@@ -469,6 +470,7 @@ export class MobxPool {
       sidebarRosters: false,
       tables: false,
       header: false,
+      headerState: false,
       headerViews: false,
       relations: false,
       graph: false,

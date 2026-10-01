@@ -93,6 +93,8 @@ async function main() {
     for (const selectedIssueId of selections) {
       store = { ...store, selectedIssueId }
       for (const listener of listeners) listener()
+      // Locals publish at the existing bridge's microtask boundary.
+      await Promise.resolve()
       for (let turn = 0; turn < 64; turn++) {
         runInAction(() => poolHeaderSnapshot(handle.pool, inputs))
         if (handle.pool.hydrate() === 0) break
@@ -108,7 +110,7 @@ async function main() {
           const b = expected.sections[index]?.fields.value as Record<string, unknown> | null
           if (JSON.stringify(a) === JSON.stringify(b)) continue
           for (const field of ['id', 'title', 'seq', 'stage', 'displayRef', 'color', 'root', 'progress', 'live', 'working', 'needs', 'unfinishedCount', 'decisionCount']) {
-            if (JSON.stringify(a?.[field]) !== JSON.stringify(b?.[field])) locations.push({ check: checks, sectionIndex: index, field })
+            if (locations.length < 32 && JSON.stringify(a?.[field]) !== JSON.stringify(b?.[field])) locations.push({ check: checks, sectionIndex: index, field })
           }
         }
       }
