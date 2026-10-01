@@ -369,6 +369,7 @@ export function ChatView({
           <PinnedBrief
             brief={chat.scroll.pinnedBrief}
             scrollerRef={chat.scrollerRef}
+            scrollBy={chat.scroll.scrollBy}
             onBodyClick={(e) => {
               handleChatMdClick(e, sessionId, chat.cwd, chat.openFile)
             }}
@@ -435,6 +436,7 @@ export function ChatView({
             baseIndex={chat.renderStart}
             isOperatorPromptRow={chat.isOperatorPromptRow}
             scrollerRef={chat.scrollerRef}
+            scrollToOffset={chat.scroll.scrollToOffset}
             matches={chat.search.matches}
             activeMatch={chat.search.activeMatch}
             findOpen={find.open}

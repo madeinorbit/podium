@@ -90,6 +90,7 @@ export function Minimap({
   baseIndex,
   isOperatorPromptRow,
   scrollerRef,
+  scrollToOffset,
   matches = [],
   activeMatch,
 }: {
@@ -101,6 +102,7 @@ export function Minimap({
   /** "The human typed this row" — the feed's predicate, not the `user` role. */
   isOperatorPromptRow: (row: ChatRow) => boolean
   scrollerRef: React.RefObject<HTMLDivElement | null>
+  scrollToOffset: (offset: number) => void
   /** Matching BLOCK indices from the search slice — marked on the map so the
    *  spread of hits stays visible with the find bar closed. */
   matches?: readonly number[]
@@ -190,7 +192,7 @@ export function Minimap({
     if (!el || f === null) return
     const max = Math.max(0, el.scrollHeight - el.clientHeight)
     const fromTop = Math.max(0, Math.min(max, f * el.scrollHeight - el.clientHeight / 2))
-    el.scrollTop = fromTop
+    scrollToOffset(fromTop)
   }
 
   // Which band is under the pointer. Ticks are laid out in the same ratio space,

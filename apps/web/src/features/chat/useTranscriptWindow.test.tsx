@@ -110,12 +110,14 @@ function Probe({
   active,
   session = meta({}),
   deferInitialRead = false,
+  followTail = true,
 }: {
   active: boolean
   /** Overridable so the liveness tests below can move the session row's
    *  activity fingerprint (POD-701) between renders. */
   session?: SessionMeta
   deferInitialRead?: boolean
+  followTail?: boolean
 }): JSX.Element | null {
   const scrollerRef = { current: null }
   captured = useTranscriptWindow({
@@ -126,6 +128,7 @@ function Probe({
     active,
     session,
     deferInitialRead,
+    followTail,
     scrollerRef,
   } as unknown as UseTranscriptWindowOptions)
   return null
@@ -215,9 +218,7 @@ describe('useTranscriptWindow optimistic session boundary', () => {
 
     expect(captured?.initialLoaded).toBe(true)
     // The read can settle before asynchronous transcript computation finishes.
-    await waitFor(() =>
-      expect(captured?.blocks.map((block) => block.item.id)).toEqual(['mounted']),
-    )
+    await waitFor(() => expect(captured?.blocks.map((block) => block.item.id)).toEqual(['mounted']))
     expect(fakeHub.subscribes).toHaveLength(1)
   })
 
@@ -541,6 +542,22 @@ describe('useTranscriptWindow initial depth and search deepen (POD-1631)', () =>
     expect(reads[0]?.input.limit).toBe(200)
     // No anchor on the initial read — it is the newest window off the tail.
     expect(reads[0]?.input.anchor).toBeUndefined()
+  })
+
+  it('retains the mounted head during reading and trims only when following resumes', async () => {
+    act(() => root.render(<Probe active />))
+    await act(async () =>
+      reads[0]?.resolve({ items: page(1, 200), head: 'c1', tail: 'c200', hasMore: false }),
+    )
+    await flush()
+    act(() => root.render(<Probe active followTail={false} />))
+    await act(async () => fakeHub.subscribes.at(-1)?.cb(page(201, 200), { reset: false }))
+    await flush()
+    expect(captured?.visibleRows).toHaveLength(400)
+    expect(captured?.renderStart).toBe(0)
+    act(() => root.render(<Probe active />))
+    expect(captured?.visibleRows).toHaveLength(RENDER_WINDOW)
+    expect(captured?.renderStart).toBe(100)
   })
 
   it('deepens the LOADED window to search depth on the first query, without rendering it', async () => {

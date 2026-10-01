@@ -567,12 +567,13 @@ export function TranscriptFeed({
                 onQuote={onQuote}
               />
             )
-          if (!dayMark) return rowNode
           return (
-            <Fragment key={`day-${identity}`}>
-              <div className="transcript-daymark" data-testid="transcript-daymark">
-                <span className="transcript-daymark-label">{dayMark}</span>
-              </div>
+            <Fragment key={identity}>
+              {dayMark && (
+                <div className="transcript-daymark" data-testid="transcript-daymark">
+                  <span className="transcript-daymark-label">{dayMark}</span>
+                </div>
+              )}
               {rowNode}
             </Fragment>
           )

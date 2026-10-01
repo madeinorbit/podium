@@ -37,6 +37,7 @@ export function ChatRail({
   baseIndex,
   isOperatorPromptRow,
   scrollerRef,
+  scrollToOffset,
   matches,
   activeMatch,
   onFind,
@@ -50,6 +51,7 @@ export function ChatRail({
   baseIndex: number
   isOperatorPromptRow: (row: ChatRow) => boolean
   scrollerRef: React.RefObject<HTMLDivElement | null>
+  scrollToOffset: (offset: number) => void
   matches: readonly number[]
   activeMatch: number | undefined
   onFind: () => void
@@ -91,6 +93,7 @@ export function ChatRail({
         baseIndex={baseIndex}
         isOperatorPromptRow={isOperatorPromptRow}
         scrollerRef={scrollerRef}
+        scrollToOffset={scrollToOffset}
         matches={matches}
         activeMatch={activeMatch}
       />

@@ -66,6 +66,9 @@ function render(
       <Minimap
         rows={rows}
         scrollerRef={ref}
+        scrollToOffset={(offset) => {
+          scroller.scrollTop = offset
+        }}
         baseIndex={opts.baseIndex ?? 0}
         isOperatorPromptRow={opts.isOperatorPromptRow ?? (() => true)}
       />,

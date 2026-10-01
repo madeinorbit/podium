@@ -30,6 +30,9 @@ function render(
       <PinnedBrief
         brief={state}
         scrollerRef={scroller ?? { current: null }}
+        scrollBy={(delta) => {
+          if (scroller?.current) scroller.current.scrollTop += delta
+        }}
         onBodyClick={onBodyClick}
       />,
     )

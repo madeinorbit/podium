@@ -14,13 +14,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const markdownRenders = vi.hoisted(() => new Map<string, number>())
 const transcriptBuilds = vi.hoisted(() => vi.fn())
-const flatListData = vi.hoisted(() => [] as unknown[])
+const viewportData = vi.hoisted(() => [] as unknown[])
 
 afterEach(() => {
   cleanup()
   markdownRenders.clear()
   transcriptBuilds.mockClear()
-  flatListData.length = 0
+  viewportData.length = 0
 })
 
 vi.mock('expo-haptics', () => ({
@@ -30,17 +30,20 @@ vi.mock('expo-haptics', () => ({
   notificationAsync: vi.fn(async () => {}),
 }))
 vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => {}) }))
-vi.mock('react-native', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react-native')>()
+vi.mock('./TranscriptViewport', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./TranscriptViewport')>()
   const { createElement, forwardRef } = await import('react')
-  const CapturingFlatList = forwardRef<unknown, Record<string, unknown>>((props) => {
-    flatListData.push(props.data)
+  const CapturingViewport = forwardRef<
+    import('./TranscriptViewport.types').TranscriptViewportHandle,
+    Record<string, unknown>
+  >((props, ref) => {
+    viewportData.push(props.data)
     return createElement(
-      actual.FlatList as unknown as ComponentType<Record<string, unknown>>,
-      props,
+      actual.TranscriptViewport as unknown as ComponentType<Record<string, unknown>>,
+      { ...props, ref },
     )
   })
-  return { ...actual, FlatList: CapturingFlatList }
+  return { ...actual, TranscriptViewport: CapturingViewport }
 })
 vi.mock('./RichMarkdown', () => ({
   RichMarkdown: ({ text }: { text: string }) => {
@@ -159,7 +162,7 @@ describe('TranscriptList pendingAsk', () => {
         onAnswer={onAnswer}
       />,
     )
-    const initialFlatListData = flatListData.at(-1)
+    const initialViewportData = viewportData.at(-1)
 
     rerender(
       <TranscriptList
@@ -173,8 +176,8 @@ describe('TranscriptList pendingAsk', () => {
 
     expect(transcriptBuilds).toHaveBeenCalledTimes(1)
     expect(transcriptBuilds).toHaveBeenCalledWith(settled)
-    expect(initialFlatListData).toBeDefined()
-    expect(flatListData.at(-1)).toBe(initialFlatListData)
+    expect(initialViewportData).toBeDefined()
+    expect(viewportData.at(-1)).toBe(initialViewportData)
     expect(markdownRenders.get('Settled answer 0')).toBe(1)
     expect(markdownRenders.get('Live one')).toBe(1)
     expect(markdownRenders.get('Live two')).toBe(1)

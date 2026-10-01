@@ -140,6 +140,91 @@ describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }
 })
 
 describe('transcript lifecycle boundaries', () => {
+  it('retains the reading prefix and paging cursor across refresh, then trims when released', async () => {
+    const io = source()
+    let reading = true
+    const controller = createTranscriptController({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      retainHistory: () => reading,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({
+      items: [item('old', 'c1'), item('tail', 'c2')],
+      head: 'h1',
+      tail: 'h2',
+      hasMore: true,
+    })
+    await starting
+    const refresh = controller.refresh()
+    io.pending[1]?.resolve({
+      items: [item('tail', 'c2', 'updated'), item('new', 'c3')],
+      head: 'h2',
+      tail: 'h3',
+      hasMore: false,
+    })
+    await refresh
+    expect(controller.getSnapshot()).toMatchObject({
+      items: [item('old', 'c1'), item('tail', 'c2', 'updated'), item('new', 'c3')],
+      head: 'h1',
+      hasMoreOlder: true,
+    })
+    reading = false
+    const resumed = controller.refresh()
+    io.pending[2]?.resolve({ items: [item('new', 'c3')], head: 'h3', tail: 'h3', hasMore: true })
+    await resumed
+    expect(controller.getSnapshot().items).toEqual([item('new', 'c3')])
+    controller.dispose()
+  })
+
+  it('lets a retained-prefix refresh coexist with an older page in flight', async () => {
+    const io = source()
+    const controller = createTranscriptController({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      retainHistory: () => true,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({ items: [item('tail', 'c2')], head: 'h2', tail: 'h2', hasMore: true })
+    await starting
+    const older = controller.loadOlder()
+    const refreshed = controller.refresh()
+    io.pending[2]?.resolve({ items: [item('new', 'c3')], head: 'h3', tail: 'h3', hasMore: true })
+    await refreshed
+    expect(controller.getSnapshot().loadingOlder).toBe(true)
+    io.pending[1]?.resolve({ items: [item('old', 'c1')], head: 'h1', tail: 'h1', hasMore: false })
+    expect(await older).toBe(true)
+    expect(controller.getSnapshot().items.map((entry) => entry.id)).toEqual(['old', 'tail', 'new'])
+    controller.dispose()
+  })
+
+  it('honors an explicit source reset even while retaining history', async () => {
+    const io = source()
+    const controller = createTranscriptController({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      retainHistory: () => true,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({ items: [item('old', 'c1')], head: 'h1', tail: 'h1', hasMore: true })
+    await starting
+    const reset = controller.refresh()
+    io.pending[1]?.resolve({
+      items: [item('replacement', 'c1')],
+      head: 'new-head',
+      tail: 'new-tail',
+      hasMore: false,
+      reset: true,
+    })
+    await reset
+    expect(controller.getSnapshot()).toMatchObject({
+      items: [item('replacement', 'c1')],
+      head: 'new-head',
+      hasMoreOlder: false,
+    })
+    controller.dispose()
+  })
+
   it('restarts cleanly after an adapter effect releases its resources', async () => {
     const io = source()
     const controller = createTranscriptController({
@@ -385,18 +470,31 @@ describe('transcript lifecycle boundaries', () => {
   })
 })
 
-
 describe('history paging and reset boundaries', () => {
   it('uses page cursors for paging and native item cursors for stream catch-up', async () => {
     const io = source()
     const controller = createTranscriptController({ sessionId: asSessionId('s1'), source: io.port })
     const starting = controller.start()
-    io.pending[0]?.resolve({ items: [item('new', 'native-new')], head: 'history-new', tail: 'history-tail', hasMore: true })
+    io.pending[0]?.resolve({
+      items: [item('new', 'native-new')],
+      head: 'history-new',
+      tail: 'history-tail',
+      hasMore: true,
+    })
     await starting
-    expect(io.port.subscribe).toHaveBeenCalledWith(asSessionId('s1'), 'native-new', expect.any(Function))
+    expect(io.port.subscribe).toHaveBeenCalledWith(
+      asSessionId('s1'),
+      'native-new',
+      expect.any(Function),
+    )
     const first = controller.loadOlder()
     expect(io.reads[1]?.anchor).toBe('history-new')
-    io.pending[1]?.resolve({ items: [item('older', 'native-old')], head: 'history-old', tail: 'history-old', hasMore: true })
+    io.pending[1]?.resolve({
+      items: [item('older', 'native-old')],
+      head: 'history-old',
+      tail: 'history-old',
+      hasMore: true,
+    })
     await first
     const second = controller.loadOlder()
     expect(io.reads[2]?.anchor).toBe('history-old')
@@ -409,7 +507,8 @@ describe('history paging and reset boundaries', () => {
     const io = source()
     const write = vi.fn()
     const controller = createTranscriptController({
-      sessionId: asSessionId('s1'), source: io.port,
+      sessionId: asSessionId('s1'),
+      source: io.port,
       cache: { read: () => undefined, write },
     })
     const starting = controller.start()
@@ -426,18 +525,29 @@ describe('history paging and reset boundaries', () => {
   })
 })
 
-
 it('replaces a live window when paging switches to archive history', async () => {
   const io = source()
   const controller = createTranscriptController({ sessionId: asSessionId('s1'), source: io.port })
   const starting = controller.start()
-  io.pending[0]?.resolve({ items: [item('live', 'native-live')], head: 'runtime-history:head', hasMore: true })
+  io.pending[0]?.resolve({
+    items: [item('live', 'native-live')],
+    head: 'runtime-history:head',
+    hasMore: true,
+  })
   await starting
   const older = controller.loadOlder()
-  io.pending[1]?.resolve({ reset: true, items: [item('archived', 'archive-item')], head: 'archive-head', tail: 'archive-tail', hasMore: true })
+  io.pending[1]?.resolve({
+    reset: true,
+    items: [item('archived', 'archive-item')],
+    head: 'archive-head',
+    tail: 'archive-tail',
+    hasMore: true,
+  })
   await older
   expect(controller.getSnapshot()).toMatchObject({
-    items: [item('archived', 'archive-item')], head: 'archive-head', hasMoreOlder: true,
+    items: [item('archived', 'archive-item')],
+    head: 'archive-head',
+    hasMoreOlder: true,
   })
   controller.dispose()
 })
@@ -595,7 +705,10 @@ describe('a live window that the stream stopped feeding heals itself (POD-4643)'
 it('a host that starts the controller before reporting the row pays no second read (POD-4643)', async () => {
   vi.useFakeTimers()
   const authority = silentStreamAuthority([item('a', 'c1')])
-  const controller = createTranscriptController({ sessionId: asSessionId('s1'), source: authority.port })
+  const controller = createTranscriptController({
+    sessionId: asSessionId('s1'),
+    source: authority.port,
+  })
   try {
     const starting = controller.start()
     controller.observeActivity({ signal: 'row-1', live: false })

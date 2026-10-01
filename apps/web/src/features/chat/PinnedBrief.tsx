@@ -53,11 +53,13 @@ function measureBrief(el: HTMLElement): { content: number; clamp: number } {
 export function PinnedBrief({
   brief,
   scrollerRef,
+  scrollBy,
   onBodyClick,
 }: {
   brief: PinnedBriefState | null
   /** The feed under the shelf — see `onWheel` below for why it is needed. */
   scrollerRef: RefObject<HTMLDivElement | null>
+  scrollBy: (delta: number) => void
   /** The row's own delegated chat-md handling, so the refs, file links and code
    *  copy buttons cloned into the shelf are as live here as in the column. The
    *  shelf is not a descendant of the row, so it cannot inherit the delegation
@@ -136,7 +138,7 @@ export function PinnedBrief({
         e.deltaY > 0 ? inner.scrollHeight - inner.clientHeight - inner.scrollTop : inner.scrollTop
       if (room > 0) return
     }
-    el.scrollTop += e.deltaY
+    scrollBy(e.deltaY)
   }
 
   return (

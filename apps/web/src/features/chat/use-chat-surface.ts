@@ -301,6 +301,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const machineOnline = machineWire ? !isMachineOfflineForLiveTerminal(machineWire) : undefined
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
+  const [followTail, setFollowTail] = useState(true)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const [lightbox, setLightbox] = useState<string | null>(null)
   const [query, setQueryState] = useState('')
@@ -360,6 +361,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     query,
     cursor: matchCursor,
     machineOnline,
+    followTail,
   })
 
   // Operator-prompt recognition needs the message-envelope parser, which is a
@@ -421,8 +423,10 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     renderStart,
     stickyEnabled,
     moreAbove,
+    loadingOlder,
     loadOlder,
     rowsToRender,
+    onFollowChange: setFollowTail,
   })
   const revealLoadOlder = scroll.loadOlder
   const revealScrollToBlock = scroll.scrollToBlock

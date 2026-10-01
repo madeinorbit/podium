@@ -201,12 +201,17 @@ export function SessionConversation({
     useRefreshableList()
   const keyboardLift = useKeyboardLift()
 
+  const followingTranscript = useRef(true)
+  const followTranscript = useCallback((following: boolean) => {
+    followingTranscript.current = following
+  }, [])
   const transcriptController = useMemo(
     () =>
       createTranscriptController({
         sessionId,
         initialLimit: 80,
         pageLimit: 80,
+        retainHistory: () => !followingTranscript.current,
         source: {
           read: (request) => trpc.sessions.transcriptRead.query(request),
           subscribe: (sid, since, listener) => hub.subscribeTranscript(sid, since, listener),
@@ -688,6 +693,9 @@ export function SessionConversation({
               onAnswer={answerAsk}
               answerInteractionId={currentQuestion?.id}
               onLoadOlder={loadOlder}
+              moreAbove={transcript.hasMoreOlder}
+              loadingOlder={transcript.loadingOlder}
+              onFollowChange={followTranscript}
               onRefPress={(ref) => {
                 const seq = Number(ref.slice(4))
                 const target = issues.find((i) => i.seq === seq)

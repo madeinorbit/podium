@@ -26,9 +26,6 @@ import {
 import {
   Animated,
   AppState,
-  FlatList,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
   Platform,
   Pressable,
   type RefreshControlProps,
@@ -55,13 +52,6 @@ import {
   transcriptItemKey,
 } from '../lib/transcript-feed'
 import {
-  atTail as atTailRule,
-  measureAtTail,
-  newestJump,
-  shouldFollowContentGrowth,
-  tailOffset,
-} from '../lib/transcript-tail'
-import {
   color,
   elevation,
   font,
@@ -84,6 +74,8 @@ import { RichMarkdown } from './RichMarkdown'
 import { SharedFiles } from './SharedFiles'
 import { ToolDescription } from './ToolDescription'
 import { WorkingMark } from './WorkingMark'
+import { TranscriptViewport } from './TranscriptViewport'
+import type { TranscriptViewportHandle } from './TranscriptViewport.types'
 
 /**
  * Flat Field rows (POD-159, adapted for mobile in POD-176): the agent's work
@@ -913,6 +905,9 @@ export function TranscriptList({
   onAnswer,
   answerInteractionId,
   onLoadOlder,
+  moreAbove = onLoadOlder !== undefined,
+  loadingOlder = false,
+  onFollowChange,
   onRefPress,
   assetContext,
   collapseContext = false,
@@ -942,6 +937,9 @@ export function TranscriptList({
   onAnswer: (answer: AskQuestionAnswer) => Promise<void>
   /** Called when the user scrolls back to the oldest loaded item (paging). */
   onLoadOlder?: () => void
+  moreAbove?: boolean
+  loadingOlder?: boolean
+  onFollowChange?: (following: boolean) => void
   /** Tap handler for POD-refs in message text (opens the task peek sheet). */
   onRefPress?: (ref: string) => void
   /** Session-scoped server route context for transferred files and image previews. */
@@ -1057,7 +1055,7 @@ export function TranscriptList({
         : model,
     [hidePendingQuestion, model, pendingKey],
   )
-  // The settled rows remain FlatList's stable data while transport text changes.
+  // The settled rows remain stable viewport data while transport text changes.
   // Tail-only rows are a bounded suffix rendered in the footer, in the same
   // order they had when all rows shared one array.
   const suffixRows = useMemo(() => {
@@ -1099,7 +1097,7 @@ export function TranscriptList({
     () => searchMobileTranscript(visibleModel, findOpen ? query : '', cursor),
     [cursor, findOpen, query, visibleModel],
   )
-  const listRef = useRef<FlatList<Row>>(null)
+  const listRef = useRef<TranscriptViewportHandle>(null)
   const seenKeys = useRef<Set<string> | null>(null)
   const previousKeys = useRef<string[]>([])
   const seenSuffixKeys = useRef(new Set<string>())
@@ -1144,58 +1142,21 @@ export function TranscriptList({
     () => [...rows].reverse().find((row) => row.kind === 'prose' || row.kind === 'answer')?.key,
     [rows],
   )
-  // Chronological (not inverted). Bottom-pinning is done by hand: scrollToEnd
-  // on growth while the user sits at the tail.
-  //
-  // `pinned` is a MEASUREMENT and `operatorMoved` is an INTENT, and the split is
-  // what makes opening at the newest message deterministic (POD-724). The
-  // measurement cannot be trusted while the transcript is still laying out:
-  // content height climbs for several frames as markdown, images and tool rows
-  // resolve, and each settling scroll reported on the way reads as "not at the
-  // bottom". So until a real gesture moves the feed, every content-size change
-  // goes back to the end no matter what the measurement currently says. After a
-  // gesture the measurement is the whole answer — a reader who scrolled up to
-  // find something must never be yanked back down. See ../lib/transcript-tail.
-  const pinned = useRef(true)
-  const operatorMoved = useRef(false)
-  // Last measured content height. Used to ignore the echo the pin sends back
-  // through onContentSizeChange — that loop froze the phone for minutes.
-  const contentHeight = useRef(0)
-  // The feed's own height, from its onLayout. The pin subtracts it rather than
-  // asking the list where its end is (POD-1251).
-  const viewportHeight = useRef(0)
-  // A different session is a different conversation, and it opens at ITS tail
-  // even if the previous one was left scrolled up.
-  const transcriptId = assetContext?.sessionId ?? null
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the transcript's identity is the trigger, not a value the reset reads.
-  useEffect(() => {
-    operatorMoved.current = false
-    pinned.current = true
-    contentHeight.current = 0
-    setAtTail(true)
+  const transcriptId = assetContext?.sessionId ?? 'transcript'
+  const followChangeRef = useRef(onFollowChange)
+  useLayoutEffect(() => {
+    followChangeRef.current = onFollowChange
+  }, [onFollowChange])
+  const followChanged = useCallback((following: boolean) => {
+    setAtTail(following)
+    followChangeRef.current?.(following)
+  }, [])
+  useLayoutEffect(() => {
     setUnread(0)
   }, [transcriptId])
-
-  const markOperatorMoved = useCallback(() => {
-    operatorMoved.current = true
-  }, [])
-
-  /**
-   * Back to the tail as an INTENT, not just a scroll: the same regime the
-   * transcript opens in. Clearing `operatorMoved` matters as much as the scroll
-   * itself — while the travel animates (and while streaming keeps growing the
-   * content under it), every settling frame measures as "not at the bottom",
-   * and leaving the gesture flag up would let those frames drop the pin the
-   * press just declared. With the flag down, growth re-anchors until the
-   * operator's next real gesture.
-   */
-  const pinToNewest = useCallback((animated: boolean) => {
-    operatorMoved.current = false
-    pinned.current = true
-    setAtTail(true)
+  const pinToNewest = useCallback(() => {
+    listRef.current?.pinToNewest()
     setUnread(0)
-    const jump = newestJump(contentHeight.current, viewportHeight.current, !animated)
-    listRef.current?.scrollToOffset(jump)
   }, [])
 
   const lastPinRequest = useRef(pinRequest)
@@ -1204,7 +1165,7 @@ export function TranscriptList({
     lastPinRequest.current = pinRequest
     // A send re-pins without travel: the optimistic row is about to grow the
     // content, and the follow-on growth pin lands the exact final offset.
-    pinToNewest(false)
+    pinToNewest()
   }, [pinRequest, pinToNewest])
 
   // What landed while the operator was reading further up. `arrivedKeys` is
@@ -1220,10 +1181,7 @@ export function TranscriptList({
 
   useEffect(() => {
     if (search.activeRow === undefined) return
-    // Jumping to a match IS the operator moving the feed. Without this the
-    // opening pin outlives the jump and every page the search loads snaps the
-    // reader back to the tail (POD-724).
-    operatorMoved.current = true
+    // Search explicitly enters reading; subsequent page and tail growth retain it.
     listRef.current?.scrollToIndex({
       index: search.activeRow,
       animated: !reduceMotion,
@@ -1236,26 +1194,6 @@ export function TranscriptList({
     if (!findOpen || !query.trim()) return
     onLoadOlder?.()
   }, [findOpen, items.length, onLoadOlder, query])
-
-  const onScroll = useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
-      const nextPinned = atTailRule({
-        operatorMoved: operatorMoved.current,
-        measuredAtTail: measureAtTail(
-          contentOffset.y,
-          layoutMeasurement.height,
-          contentSize.height,
-        ),
-      })
-      if (nextPinned !== pinned.current) {
-        pinned.current = nextPinned
-        setAtTail(nextPinned)
-      }
-      if (contentOffset.y < 200) onLoadOlder?.()
-    },
-    [onLoadOlder],
-  )
 
   const messageActions = useMemo<SheetAction[]>(() => {
     if (!actionText) return []
@@ -1279,15 +1217,24 @@ export function TranscriptList({
 
   return (
     <View style={styles.listFrame}>
-      <FlatList
+      <TranscriptViewport
         ref={listRef}
+        identity={transcriptId}
+        moreAbove={moreAbove}
+        loadingOlder={loadingOlder}
+        onLoadOlder={onLoadOlder}
+        onFollowChange={followChanged}
         data={rows}
         keyExtractor={(row) => row.key}
+        anchorKeys={(row) =>
+          row.kind === 'tools'
+            ? (row.blocks?.map((block) => block.item.id) ?? [row.item.id])
+            : [row.key]
+        }
         contentContainerStyle={[styles.content, { paddingBottom: space.md + bottomInset }]}
         refreshControl={refreshControl}
         {...refreshAccessibilityProps}
         ListEmptyComponent={suffixRows.length === 0 ? emptyComponent : undefined}
-        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         // The iOS chat convention: dragging the transcript down slides the
         // keyboard away with the finger (Messages, Mail, Slack). Android and
         // web get the discrete on-drag dismissal. `handled` keeps a tap on a
@@ -1295,47 +1242,6 @@ export function TranscriptList({
         // typing — taps outside interactive children still dismiss.
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         keyboardShouldPersistTaps="handled"
-        onScroll={onScroll}
-        // Four ways to learn that the OPERATOR moved, because no single one
-        // covers both targets: native fires the drag/momentum pair, and
-        // react-native-web's ScrollView forwards only touch and wheel — which
-        // is the phone web app, so a missing wheel handler would let a settling
-        // scroll speak for the reader on the surface that actually ships.
-        // `onTouchMove` rather than `onTouchStart`: tapping a ref chip is not
-        // leaving the tail.
-        onScrollBeginDrag={markOperatorMoved}
-        onMomentumScrollBegin={markOperatorMoved}
-        onTouchMove={markOperatorMoved}
-        {...({ onWheel: markOperatorMoved } as object)}
-        scrollEventThrottle={32}
-        onScrollToIndexFailed={({ index, averageItemLength }) => {
-          listRef.current?.scrollToOffset({
-            offset: Math.max(0, index * averageItemLength),
-            animated: false,
-          })
-        }}
-        onLayout={(event) => {
-          viewportHeight.current = event.nativeEvent.layout.height
-        }}
-        onContentSizeChange={(_width, height) => {
-          const previous = contentHeight.current
-          contentHeight.current = height
-          if (
-            shouldFollowContentGrowth({
-              previousHeight: previous,
-              nextHeight: height,
-              pinning: !operatorMoved.current || pinned.current,
-            })
-          ) {
-            // scrollToOffset, NOT scrollToEnd: the end this list computes for
-            // itself is 0 until a cell has been measured, which is exactly the
-            // frame the opening pin runs in. See `tailOffset`.
-            listRef.current?.scrollToOffset({
-              offset: tailOffset(height, viewportHeight.current),
-              animated: false,
-            })
-          }
-        }}
         ListFooterComponent={
           <>
             {suffixRows.map((row) => (
@@ -1446,11 +1352,7 @@ export function TranscriptList({
         unread={unread}
         lift={bottomInset + space.md}
         reduceMotion={reduceMotion}
-        // NOT scrollToEnd: without getItemLayout its end is approximated from
-        // average cell lengths and omits the content container's paddingBottom
-        // (the composer's room), so it reliably stopped short of the last
-        // message. `pinToNewest` aims at the height the list itself reported.
-        onPress={() => pinToNewest(!reduceMotion)}
+        onPress={pinToNewest}
       />
 
       <ActionSheet

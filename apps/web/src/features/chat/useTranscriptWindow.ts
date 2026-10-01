@@ -8,19 +8,29 @@ import { applyChatVerbosity, type ChatVerbosity } from '@podium/client-core/view
 import type { SessionId, SessionMeta, TranscriptItem } from '@podium/model/browser'
 import type { TranscriptSearchState } from '@podium/client-core/viewmodels'
 import type { Dispatch, SetStateAction } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import type { Store } from '@/app/store'
 import { type ChatBlock, type ChatRow } from './chat'
 import {
   transcriptComputeClient,
   type WebTranscriptComputeResult,
 } from './transcript-compute-client'
+import { rowIdentity } from './use-feed-arrivals'
 
 // Windowing: a marathon session can hold tens of thousands of items, and
 // rendering every one mounts a matching count of (markdown-parsed) DOM
-// subtrees — slow to lay out and heavy to keep. Cap the rendered tail and grow it
-// in PAGE steps as the user scrolls up; the node count stays bounded no matter how
-// long the transcript is. RENDER_WINDOW is the initial/grow-step ROW count (the
+// subtrees — slow to lay out and heavy to keep. Start with the rendered tail and
+// grow it in PAGE steps as the reader scrolls up. While reading, retain that
+// mounted history; resume trimming only when following the tail. RENDER_WINDOW
+// is the initial/grow-step ROW count (the
 // render unit is a ChatRow — consecutive tool calls fold into one batch row).
 export const RENDER_WINDOW = 300
 // Items in the initial transcript window (the newest N off disk, via
@@ -95,6 +105,8 @@ export interface UseTranscriptWindowOptions {
    *  the window so the "history will load when it reconnects" promise holds
    *  without a reload. */
   machineOnline?: boolean
+  /** Live appends may trim the rendered tail only while the reader follows it. */
+  followTail?: boolean
 }
 
 export interface UseTranscriptWindowResult {
@@ -107,8 +119,8 @@ export interface UseTranscriptWindowResult {
   markdownHtml: ReadonlyMap<string, string>
   /** False only while the first worker/index result for this read is pending. */
   computeReady: boolean
-  /** Only the trailing window of `rows` — the DOM node count stays bounded for
-   *  arbitrarily long transcripts. */
+  /** The rendered window of `rows`: a bounded tail while following, with
+   *  loaded history retained while reading. */
   visibleRows: ChatRow[]
   /** First windowed-in row's absolute index into `rows` (0 when everything
    *  loaded fits in the window). */
@@ -164,14 +176,20 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     query = '',
     cursor = 0,
     machineOnline,
+    followTail = true,
   } = opts
 
+  const followTailRef = useRef(followTail)
+  useLayoutEffect(() => {
+    followTailRef.current = followTail
+  }, [followTail])
   const transcriptController = useMemo(
     () =>
       createTranscriptController({
         sessionId,
         initialLimit: INITIAL_LIMIT,
         pageLimit: PAGE_LIMIT,
+        retainHistory: () => !followTailRef.current,
         source: {
           async read(request) {
             const tracedNewest = request.anchor === undefined && request.limit === INITIAL_LIMIT
@@ -600,12 +618,27 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
       })
     })
   }, [active, initialLoaded, sessionId, rows])
-  // Render only the trailing window of ROWS so the DOM node count stays bounded
-  // for arbitrarily long transcripts. `renderStart` is the first windowed-in row;
+  // Trim the trailing window only while following. Reading retains its mounted
+  // head across live appends and refreshes. `renderStart` is the first mounted row;
   // the row index passed to each view stays absolute into `rows` (renderStart + ri)
   // so the minimap, scroll-to-match (activeRow), and [data-block] line up.
-  const renderStart = Math.max(0, rows.length - renderCount)
+  const heldHead = useRef<{ sessionId: SessionId; key: string } | null>(null)
+  const tailStart = Math.max(0, rows.length - renderCount)
+  const retainedStart =
+    !followTail && heldHead.current?.sessionId === sessionId
+      ? rows.findIndex(
+          (row) =>
+            rowIdentity(row) === heldHead.current?.key ||
+            (row.kind === 'tools' &&
+              row.blocks.some((block) => block.item.id === heldHead.current?.key)),
+        )
+      : -1
+  const renderStart = retainedStart >= 0 ? Math.min(tailStart, retainedStart) : tailStart
   const visibleRows = renderStart > 0 ? rows.slice(renderStart) : rows
+  useLayoutEffect(() => {
+    const first = visibleRows[0]
+    heldHead.current = first ? { sessionId, key: rowIdentity(first) } : null
+  }, [sessionId, visibleRows])
   // More rows exist above the current window: either already loaded locally
   // (just reveal them) or still on disk (autoload + prepend). Drives the top
   // sentinel + the scroll trigger.

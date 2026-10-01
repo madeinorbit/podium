@@ -134,6 +134,11 @@
       "@podium/source": "./src/code-highlight.ts",
       "types": "./src/code-highlight.ts",
       "import": "./src/code-highlight.ts"
+    },
+    "./react/transcript-scroll": {
+      "@podium/source": "./src/react/use-dom-transcript-scroll.ts",
+      "types": "./src/react/use-dom-transcript-scroll.ts",
+      "import": "./src/react/use-dom-transcript-scroll.ts"
     }
   },
   "scripts": {

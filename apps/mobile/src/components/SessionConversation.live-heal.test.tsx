@@ -14,7 +14,7 @@
  */
 
 import type { SessionMeta, TranscriptItem } from '@podium/model'
-import { act, cleanup, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { type ReactNode, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
@@ -49,10 +49,27 @@ vi.mock('./SessionLifecycle', () => ({ MobileSessionLifecycle: () => null }))
 vi.mock('./TaskSheet', () => ({ TaskSheet: () => null }))
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: () => null }))
 vi.mock('./TranscriptList', async () => {
-  const { Text, View } = await import('react-native')
+  const { Pressable, Text, View } = await import('react-native')
   return {
-    TranscriptList: ({ items }: { items: readonly TranscriptItem[] }) => (
+    TranscriptList: ({
+      items,
+      onLoadOlder,
+      onFollowChange,
+    }: {
+      items: readonly TranscriptItem[]
+      onLoadOlder?: () => void
+      onFollowChange?: (following: boolean) => void
+    }) => (
       <View>
+        <Pressable accessibilityLabel="Read history" onPress={() => onFollowChange?.(false)}>
+          <Text>Read</Text>
+        </Pressable>
+        <Pressable accessibilityLabel="Load history" onPress={onLoadOlder}>
+          <Text>Older</Text>
+        </Pressable>
+        <Pressable accessibilityLabel="Follow newest" onPress={() => onFollowChange?.(true)}>
+          <Text>Follow</Text>
+        </Pressable>
         {items.map((entry) => (
           <Text key={entry.id}>{entry.text}</Text>
         ))}
@@ -84,8 +101,8 @@ function entry(
 
 /** What the agent has written, answered to every read like the server's
  *  transcript read does — newest window, or the page before an anchor. */
-function authority() {
-  const written: TranscriptItem[] = [
+function authority(initial?: TranscriptItem[]) {
+  const written: TranscriptItem[] = initial ?? [
     entry('u1', 'c1', 'user', 'What is 2 times 50?'),
     entry('a1', 'c2', 'assistant', '100 DATE'),
     entry('u2', 'c3', 'user', 'What is 7 times 7?'),
@@ -109,8 +126,8 @@ function Screen({ initial }: { initial: SessionMeta }) {
   return <SessionConversation session={session} issue={undefined} />
 }
 
-async function mount() {
-  const io = authority()
+async function mount(initial?: TranscriptItem[]) {
+  const io = authority(initial)
   await renderWithMobileStore(<Screen initial={working} />, {
     sessions: [working],
     api: {
@@ -121,11 +138,29 @@ async function mount() {
       },
     },
   })
-  await screen.findByText('What is 7 times 7?')
+  await screen.findByText(initial?.at(-1)?.text ?? 'What is 7 times 7?')
   return io
 }
 
 describe('phone transcript over a live stream that went quiet', () => {
+  it('retains paged history during activity refresh while reading, then permits trimming on follow', async () => {
+    const initial = Array.from({ length: 180 }, (_, index) =>
+      entry(`i${index}`, `c${index}`, 'assistant', `Message ${index}`),
+    )
+    const io = await mount(initial)
+    fireEvent.click(screen.getByLabelText('Read history'))
+    fireEvent.click(screen.getByLabelText('Load history'))
+    expect(await screen.findByText('Message 20')).toBeTruthy()
+    io.written.push(entry('new', 'c180', 'assistant', 'New live answer'))
+    act(() => moveRow({ ...working, lastActiveAt: '2026-09-23T07:49:00.000Z' } as SessionMeta))
+    expect(await screen.findByText('New live answer')).toBeTruthy()
+    expect(screen.getByText('Message 20')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Follow newest'))
+    io.written.push(entry('later', 'c181', 'assistant', 'Later answer'))
+    act(() => moveRow({ ...working, lastActiveAt: '2026-09-23T07:50:00.000Z' } as SessionMeta))
+    expect(await screen.findByText('Later answer')).toBeTruthy()
+    expect(screen.queryByText('Message 20')).toBeNull()
+  })
   it('shows the answer once the session row moves, without a reload', async () => {
     const io = await mount()
     io.written.push(entry('a2', 'c4', 'assistant', '49 LEMON'))

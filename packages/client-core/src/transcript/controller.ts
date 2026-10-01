@@ -57,6 +57,9 @@ export interface TranscriptControllerOptions {
   /** Whether the reader can see the transcript now. The live heartbeat skips
    *  a tick nobody would see; absent means always visible. */
   visible?: () => boolean
+  /** Keep the loaded prefix during newest reads while a host is reading history.
+   * An explicit source reset always replaces the transcript. */
+  retainHistory?: () => boolean
 }
 
 /**
@@ -343,21 +346,28 @@ export class TranscriptController {
         limit: this.initialLimit,
       })
       if (!this.accepts(generation, serial)) return false
-      this.windowEpoch += 1
+      const retainHistory =
+        !page.reset &&
+        this.state.initialLoaded &&
+        this.state.items.length > 0 &&
+        this.options.retainHistory?.() === true
+      if (!retainHistory) this.windowEpoch += 1
       this.reconciledSignal = signal ?? this.activity?.signal ?? null
-      this.pagedBack = false
+      if (!retainHistory) this.pagedBack = false
       const reconciled = page.reset
         ? mergeTranscriptFrame([], page.items)
-        : reconcileTranscriptSnapshot(this.state.items, page.items, page.items.at(-1)?.cursor)
+        : retainHistory
+          ? mergeTranscriptFrame(this.state.items, page.items)
+          : reconcileTranscriptSnapshot(this.state.items, page.items, page.items.at(-1)?.cursor)
       const items = sameTranscriptItems(this.state.items, reconciled)
         ? this.state.items
         : reconciled
       this.patch({
         items,
-        head: page.head,
+        head: retainHistory ? (this.state.head ?? page.head) : page.head,
         tail: page.tail,
-        hasMoreOlder: page.hasMore,
-        loadingOlder: false,
+        hasMoreOlder: retainHistory ? this.state.hasMoreOlder : page.hasMore,
+        loadingOlder: retainHistory ? this.state.loadingOlder : false,
         initialLoaded: true,
         subscriptionHealthy: page.items.length > 0,
         freshness:
@@ -505,9 +515,10 @@ export class TranscriptController {
    *                 Working is exactly that).
    *
    * Both reconcile rather than replace, so a read that finds nothing new costs
-   * one query and no render. Both stand down while older pages are loaded: a
-   * newest-window read drops them, and someone reading history is not watching
-   * the tail. Call on every row change; an unchanged signal costs nothing.
+   * one query and no render. Hosts with an explicit retention policy can keep
+   * reconciling after paging: reading preserves history, following permits
+   * trimming. Legacy hosts stand down while paged back. An unchanged signal
+   * costs nothing.
    */
   observeActivity(activity: TranscriptActivity): void {
     this.activity = activity
@@ -522,7 +533,7 @@ export class TranscriptController {
       !this.started ||
       this.disposed ||
       !this.state.initialLoaded ||
-      this.pagedBack ||
+      (this.pagedBack && !this.options.retainHistory) ||
       signal === this.reconciledSignal
     ) {
       this.clearSettle()
@@ -531,7 +542,11 @@ export class TranscriptController {
     this.clearSettle()
     this.settleTimer = setTimeout(() => {
       this.settleTimer = null
-      if (this.pagedBack || this.activity?.signal === this.reconciledSignal) return
+      if (
+        (this.pagedBack && !this.options.retainHistory) ||
+        this.activity?.signal === this.reconciledSignal
+      )
+        return
       void this.refresh().catch(() => {})
     }, TRANSCRIPT_ACTIVITY_SETTLE_MS)
   }
@@ -553,7 +568,12 @@ export class TranscriptController {
   }
 
   private beat(): void {
-    if (!this.state.initialLoaded || this.pagedBack || this.probing) return
+    if (
+      !this.state.initialLoaded ||
+      (this.pagedBack && !this.options.retainHistory) ||
+      this.probing
+    )
+      return
     if (this.options.visible && !this.options.visible()) return
     const probing = this.probe().catch(() => false)
     this.probing = probing
@@ -583,8 +603,12 @@ export class TranscriptController {
           // the follow-up paging read fails. It must remove held/cache rows now.
           const items = mergeTranscriptFrame([], frame)
           this.patch({
-            items, head: undefined, tail: items.at(-1)?.cursor,
-            hasMoreOlder: false, loadingOlder: false, subscriptionHealthy: false,
+            items,
+            head: undefined,
+            tail: items.at(-1)?.cursor,
+            hasMoreOlder: false,
+            loadingOlder: false,
+            subscriptionHealthy: false,
           })
           this.options.cache?.write(this.options.sessionId, items)
           void this.refresh({ disclose: true }).catch(() => {})

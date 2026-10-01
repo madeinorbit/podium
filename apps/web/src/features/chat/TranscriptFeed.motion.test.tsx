@@ -126,6 +126,16 @@ describe('TranscriptFeed — arrival', () => {
     expect(arriving()).toEqual([])
   })
 
+  it('retains the message element when a prepend removes its leading day mark', () => {
+    const first = { ...say('first', 'retained message'), ts: '2026-01-02T09:00:00Z' }
+    render([first])
+    const element = host.querySelector('[data-row-key="first"]')
+    expect(element).not.toBeNull()
+    expect(host.querySelectorAll('.transcript-daymark')).toHaveLength(1)
+    render([{ ...say('older', 'older message'), ts: '2026-01-02T08:00:00Z' }, first])
+    expect(host.querySelector('[data-row-key="first"]')).toBe(element)
+  })
+
   it('animates nothing when the transcript is replaced wholesale', () => {
     render([say('a', 'one'), say('b', 'two')])
     render([say('x', 'other'), say('y', 'session')])

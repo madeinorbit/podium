@@ -314,7 +314,12 @@ export function ToolBatchView({
   )
   const toggle = (): void => setOpen((v) => !v)
   return (
-    <div className={rowClass} data-block={index}>
+    <div
+      className={rowClass}
+      data-block={index}
+      data-row-key={row.blocks[0]!.item.id}
+      data-row-aliases={JSON.stringify(row.blocks.map((block) => block.item.id))}
+    >
       {/* No rail — tool activity stays quiet, aligned with prose via the spacer. */}
       <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
       {/* No padding of its own: the work line carries its own margin, which is

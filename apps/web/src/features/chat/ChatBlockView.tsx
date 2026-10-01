@@ -392,7 +392,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   // Claude Code's while-you-were-gone recap (away_summary) — a distinct block.
   if (item.role === 'system' && item.systemKind === 'recap')
     return (
-      <div className={rowClass} data-block={index}>
+      <div className={rowClass} data-block={index} data-row-key={item.id}>
         <div className="transcript-rail transcript-rail--answer" aria-hidden="true" />
         <div className="transcript-body">
           <div className="transcript-header">
@@ -408,6 +408,7 @@ export const ChatBlockView = memo(function ChatBlockView({
     return (
       <div
         data-block={index}
+        data-row-key={item.id}
         className={cn(
           rowClass,
           'my-1 flex items-center gap-2 text-[10px] tracking-[0.06em] text-muted-foreground/45 uppercase',
@@ -432,7 +433,7 @@ export const ChatBlockView = memo(function ChatBlockView({
       `${item.toolName ?? ''} ${item.toolTitle ?? ''}`,
     )
     return (
-      <div className={rowClass} data-block={index} data-testid="asked-you">
+      <div className={rowClass} data-block={index} data-row-key={item.id} data-testid="asked-you">
         <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
         <div className="transcript-body">
           <div className="asked-you" data-attention={planApproval ? 'plan' : 'question'}>
@@ -456,7 +457,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   // reach here. Anything else stray shows as a lone quiet tool row.
   if (item.role === 'tool')
     return (
-      <div className={rowClass} data-block={index}>
+      <div className={rowClass} data-block={index} data-row-key={item.id}>
         <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
         <div className="transcript-body py-0.5">
           {process === 'start' && <div className="transcript-process-label">Process</div>}
@@ -472,6 +473,7 @@ export const ChatBlockView = memo(function ChatBlockView({
     return (
       <div
         data-block={index}
+        data-row-key={item.id}
         data-event="interrupt"
         className={cn(rowClass, 'transcript-interrupt')}
       >
@@ -584,6 +586,7 @@ export const ChatBlockView = memo(function ChatBlockView({
       <div
         className={rowClass}
         data-block={index}
+        data-row-key={item.id}
         data-operator-prompt={isUser ? 'true' : undefined}
         // The shelf's source set (POD-993). `data-operator-prompt` says "the
         // human spoke here"; this says "and it is a brief the pinned shelf may

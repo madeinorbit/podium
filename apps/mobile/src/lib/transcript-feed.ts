@@ -69,7 +69,7 @@ function indexedTranscript(items: TranscriptItem[]): MobileTranscriptIndex {
 }
 
 export function transcriptItemKey(item: TranscriptItem): string {
-  return item.cursor ?? item.id
+  return item.id
 }
 
 /** Build phone rows from the same normal-detail paired blocks as web. */
