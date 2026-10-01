@@ -1112,17 +1112,20 @@ export class HandPool {
 
   /**
    * TRACKED: session `id`'s contribution to `activityAt`, from its cell. The
-   * cell reads the session's row (a cold or absent one reads as null, and its
-   * arrival re-runs the cell); a reader of the cell re-runs only when the
-   * value moves. It asks nothing else, so a roll-up over N members that
-   * re-composes after one member's change reads that one row, not N.
+   * cell reads the session's row through the one reader's peek (hot or its
+   * declared cold summary with `lastActiveAt`, never a load), so retained
+   * cold seats contribute their stamp without loading history; a cold update
+   * re-runs via its `coldRows` key and warming via `residency`. A reader of
+   * the cell re-runs only when the value moves. It asks nothing else, so a
+   * roll-up over N members that re-composes after one member's change reads
+   * that one row, not N.
    */
   sessionActivity(id: string): number | null {
     let cell = this.sessionCells.get(id)
     if (cell === undefined) {
       cell = this.graph.cell(
         `activity:${id}`,
-        () => sessionActivityOf(this.inputs.session(id)),
+        () => sessionActivityOf(this.visibleInputs.sessionRow(id) as SliceSession | undefined),
         Object.is,
       )
       this.sessionCells.set(id, cell)
