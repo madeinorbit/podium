@@ -9,12 +9,13 @@ import { asUserId } from '@podium/model'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { buildCorpus } from '../../../packages/worklist-proto/harness/src/fixture'
-import { pickTargets, ScenarioCache } from '../../../packages/worklist-proto/shared/src/scenarios'
 import { attachWorklistPool, useWorklistPool, worklistPoolSurvivors } from '../src/app/store-worklist-pool'
 import { sidebarDataLayer } from '../src/lib/sidebar-data-layer'
 
 const corpus = buildCorpus(1)
-const id = pickTargets(corpus).visibleRootId
+const issue = corpus.issues.find((row) => row.audience === 'human' && row.stage === 'in_progress' && !row.closedAt && !row.parentId)!
+const projection = corpus.issueProjections.find((row) => row.id === issue.id)!
+const id = issue.id
 const api = {} as PodiumClientApi
 let config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
 let current: MobxPool | null = null
@@ -26,9 +27,16 @@ const root = createRoot(document.getElementById('root')!)
 
 function replica() {
   replicas += 1
-  const cache = new ScenarioCache()
-  cache.put('issue', id, corpus.issues.find((row) => row.id === id)!)
-  cache.put('issueProjection', id, corpus.issueProjections.find((row) => row.id === id)!)
+  const records = [
+    { entity: 'issue', entityId: id, value: issue, provenance: { seq: 1 } },
+    { entity: 'issueProjection', entityId: id, value: projection, provenance: { seq: 1 } },
+  ]
+  const cache = {
+    readCursor: () => null,
+    readEntities: () => records,
+    read: (entity: string, entityId: string) => records.find((row) => row.entity === entity && row.entityId === entityId),
+    durability: () => 'durable' as const,
+  }
   return createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
 }
 
