@@ -10,6 +10,8 @@ import bisect
 import collections
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 
 class Maps:
@@ -123,6 +125,57 @@ def analyze(root):
     print(f'{len(summaries)} separate source-mapped switch attributions saved')
 
 
+def controls(out):
+    root = out / 'golden'
+    directory = root / 'attribution'
+    directory.mkdir(parents=True, exist_ok=True)
+    record = {'scale': '1x', 'mode': 'pool', 'target': 'i0', 'traceFile': 'control.trace.json',
+        'paint': {'markers': {'input': 1000, 'paintEnd': 3000}, 'layout': {}}, 'result': {'capture': {'events': []}}}
+    trace = {'traceEvents': [{'name': 'acceptance:input'}]}
+    profile = {'startTime': 0, 'nodes': [{'id': 1, 'callFrame': {'url': '', 'functionName': '(program)', 'lineNumber': -1, 'columnNumber': 0}}], 'samples': [1, 1], 'timeDeltas': [2000, 1000]}
+    records_file = directory / 'records.jsonl'
+    trace_file = directory / 'control.trace.json'
+    records_file.write_text(json.dumps(record) + '\n')
+    trace_file.write_text(json.dumps(trace))
+    (directory / 'control.cpuprofile').write_text(json.dumps(profile))
+    for path in [records_file, trace_file]:
+        subprocess.run(['cp', str(path), str(path.with_suffix('.aside'))], check=True, timeout=10)
+    def check():
+        return subprocess.run([sys.executable, __file__, '--root', str(root)], capture_output=True, text=True, timeout=20)
+    baseline = check()
+    assert baseline.returncode == 0, baseline.stderr
+    log = []
+    for name, planted in [('missing_input_mark', []), ('duplicate_input_mark', trace['traceEvents'] * 2)]:
+        trace_file.write_text(json.dumps({'traceEvents': planted}))
+        result = check()
+        assert result.returncode != 0, f'{name} was not caught'
+        log.append({'plant': name, 'exit': result.returncode})
+        subprocess.run(['cp', str(trace_file.with_suffix('.aside')), str(trace_file)], check=True, timeout=10)
+    record['paint']['markers']['paintEnd'] = 999
+    records_file.write_text(json.dumps(record) + '\n')
+    result = check(); assert result.returncode != 0
+    log.append({'plant': 'invalid_paint_window', 'exit': result.returncode})
+    subprocess.run(['cp', str(records_file.with_suffix('.aside')), str(records_file)], check=True, timeout=10)
+    source = Path(__file__)
+    aside = out / 'attribution-source.aside'
+    subprocess.run(['cp', str(source), str(aside)], check=True, timeout=10)
+    original = source.read_text()
+    try:
+        assert '; previous = clock' in original
+        source.write_text(original.replace('; previous = clock', "; previous = profile['startTime']", 1))
+        result = check(); assert result.returncode != 0
+        assert 'Exclusive sample intervals exceed observed wall span' in result.stderr
+        log.append({'plant': 'overlapping_sample_accounting', 'exit': result.returncode})
+    finally:
+        subprocess.run(['cp', str(aside), str(source)], check=True, timeout=10)
+    result = check(); assert result.returncode == 0, result.stderr
+    log.append({'restored': True, 'exit': result.returncode})
+    (out / 'negative-controls.json').write_text(json.dumps(log, indent=2))
+    print('Four attribution plants RED; cp restoration GREEN')
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--root', type=Path, default=Path('.artifacts/sidebar-acceptance'))
-analyze(parser.parse_args().root)
+parser.add_argument('--controls', type=Path)
+args = parser.parse_args()
+controls(args.controls) if args.controls else analyze(args.root)
