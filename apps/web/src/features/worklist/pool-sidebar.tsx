@@ -8,7 +8,7 @@ import { issueClosedFoldAt, planReorderKeys, type IssueNavigationModel } from '@
 import { relativeTime } from '@podium/client-core/focus'
 import { asIssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
 import * as m from 'motion/react-m'
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type AnimationEvent, type CSSProperties, type JSX, type MouseEvent, type PointerEvent } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type AnimationEvent, type CSSProperties, type JSX, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
@@ -21,9 +21,9 @@ import { FoldedRowMenu } from './FoldedRowMenu'
 import { PINNED_FOLD_KEY, projectFoldKey } from './fold-keys'
 import { ManageProjectsButton } from './ManageProjectsDialog'
 import { AddRepositoryButton, NewTaskRow, StartFirstTaskRow } from './new-task-row'
-import { navigationIssue, poolIssueDisplay, poolIssueHaystack, poolIssuePaint, poolIssueRow, poolWorktreeRow } from './pool-row-data'
+import { navigationIssue, poolIssueDisplay, poolIssueHaystack, poolIssuePaint, poolIssueRow, poolWorktreeRow, poolSessionPaint } from './pool-row-data'
 import { MAX_ROW_SHORTCUTS, useRowShortcuts } from './row-shortcuts'
-import { useCollapsedKeys } from './sidebar-common'
+import { PanelRow, useCollapsedKeys } from './sidebar-common'
 import { UnifiedIssueRow } from './UnifiedIssueRow'
 import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
 import { usePoolUnifiedWork, type PoolWorkActions } from './use-pool-unified-work'
@@ -310,10 +310,27 @@ const PoolMotionRow = observer(function PoolMotionRow({ pool, item, actions, dig
 
 const PoolWorktreeRow = observer(function PoolWorktreeRow({ pool, path, actions }: { pool: MobxPool; path: string; actions: PoolWorkActions }) {
   const state = useStoreSelector(s => { const active = s.selectedIssueId === null && s.selectedWorktree === path; return { selectedWorktree: active ? path : null, paneA: active ? s.paneA : null } }, shallowEqual)
-  const value = pool.sidebar.worktree(path, state)
+  const value = useMemo(() => computed(() => pool.sidebar.worktree(path, state), { equals: (a, b) => compareStructural(
+    a && { worktree: a.worktree, active: a.active, issues: a.issues.map(i => ({ id: i.id, displayRef: i.displayRef, archived: i.archived, deletedAt: i.deletedAt })), visible: a.visible.map(s => s.sessionId), stale: a.stale.map(s => s.sessionId) },
+    b && { worktree: b.worktree, active: b.active, issues: b.issues.map(i => ({ id: i.id, displayRef: i.displayRef, archived: i.archived, deletedAt: i.deletedAt })), visible: b.visible.map(s => s.sessionId), stale: b.stale.map(s => s.sessionId) },
+  ) }), [pool, path, state]).get()
   const select = useCallback(() => actions.selectWorktree(path), [actions, path])
   const panel = useCallback((sid: SessionId) => actions.selectPanel(path, sid), [actions, path])
+  const renderSession = useCallback((session: SessionMeta, active: boolean, ref: string | undefined, trailing: ReactNode) =>
+    <PoolPanelRow key={session.sessionId} pool={pool} id={session.sessionId} active={active} actions={actions} path={path} issueDisplayRef={ref} trailingMeta={trailing} />, [pool, actions, path])
   if (!value) return null
   return <UnifiedWorktreeRow row={poolWorktreeRow(value)} issues={value.issues as unknown as IssueNavigationModel[]} active={value.active} paneA={state.paneA}
-    now={pool.clock.current} partition={{ visible: value.visible as SessionMeta[], stale: value.stale as SessionMeta[] }} onSelect={select} onSelectPanel={panel} />
+    now={pool.clock.current} partition={{ visible: value.visible as SessionMeta[], stale: value.stale as SessionMeta[] }} renderSession={renderSession} onSelect={select} onSelectPanel={panel} />
+})
+
+const PoolPanelRow = observer(function PoolPanelRow({ pool, id, path, actions, active, issueDisplayRef, trailingMeta }: {
+  pool: MobxPool; id: string; path: string; actions: PoolWorkActions; active: boolean; issueDisplayRef?: string; trailingMeta: ReactNode
+}) {
+  const value = useMemo(() => computed(() => pool.row<SessionMeta>('session', id), { equals: (a, b) => compareStructural(
+    a !== undefined && a !== LOADING ? poolSessionPaint(a) : a,
+    b !== undefined && b !== LOADING ? poolSessionPaint(b) : b,
+  ) }), [pool, id]).get()
+  const select = useCallback(() => actions.selectPanel(path, id as SessionId), [actions, path, id])
+  return value === LOADING ? <div aria-busy="true" data-testid="pool-row-loading" className="min-h-6" /> : value === undefined ? null
+    : <PanelRow session={value} active={active} onSelect={select} dotRight roster issueDisplayRef={issueDisplayRef} trailingMeta={trailingMeta} />
 })

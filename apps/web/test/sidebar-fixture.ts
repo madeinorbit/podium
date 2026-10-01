@@ -12,7 +12,7 @@ export function createSidebarFixture(count = 18, now = Date.now(), simple = fals
     records.set(`${entity}:${entityId}`, record)
     return record
   }
-  const repos = [{ path: '/synthetic/project', repoId: 'synthetic-repo', kind: 'repository', branch: 'main', worktrees: [] },
+  const repos = [{ path: '/synthetic/project', repoId: 'synthetic-repo', kind: 'repository', branch: 'main', worktrees: !simple ? [{ path: '/synthetic/project/guests', branch: 'guests' }] : [] },
     ...(!simple ? [{ path: '/synthetic/empty', repoId: 'empty-repo', kind: 'repository', branch: 'main', worktrees: [] }] : [])]
   for (const repo of repos) put('repo', repo.repoId, { id: repo.repoId, path: repo.path, prefix: 'SYN', name: repo.path.split('/').at(-1) })
   for (let i = 0; i < count; i += 1) {
@@ -40,6 +40,11 @@ export function createSidebarFixture(count = 18, now = Date.now(), simple = fals
       busy: false, readAt: iso(-3600000), unread: false,
       agentState: { phase: 'idle', since: iso(-3600000), idle: { kind: 'done' } },
     })
+  }
+  if (!simple) for (let i = 0; i < 2; i += 1) {
+    const sessionId = `synthetic-guest-${i}`
+    put('session', sessionId, { ...records.get('session:synthetic-session-0')!.value as object,
+      sessionId, issueId: undefined, cwd: '/synthetic/project/guests', title: `Synthetic guest ${i}` })
   }
   let replica = makeReplica()
   function makeReplica() {

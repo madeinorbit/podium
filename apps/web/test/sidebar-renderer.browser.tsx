@@ -12,6 +12,7 @@ import { SidebarPerfPanel } from '../src/features/worklist/SidebarPerfPanel'
 import { initializeSidebarMeasurements } from '../src/features/worklist/sidebar-measurements'
 import { initializeSidebarDataLayer, sidebarDataLayer } from '../src/lib/sidebar-data-layer'
 import { createSidebarFixture } from './sidebar-fixture'
+import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import '../src/index.css'
 import '../src/styles.css'
 
@@ -53,7 +54,7 @@ function show(name: string | null = 'renderer-alice', rebuild = false) {
   flushSync(() => root.render(<StoreProvider principal={name === null ? null : asClientPrincipal(asUserId(name))}
     config={config} api={synthetic.api} createReplicaFn={() => replica} networkEnabled={false}
     onFatalError={message => failures.push(message)} attachRuntime={owner => attachWorklistPool(owner, error => failures.push(error.message))}>
-    <Fixture />
+    <ConfirmProvider><Fixture /></ConfirmProvider>
   </StoreProvider>))
 }
 

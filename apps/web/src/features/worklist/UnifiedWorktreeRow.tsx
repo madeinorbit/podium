@@ -5,7 +5,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import type { JSX } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { AgentRosterBand, PanelRow, StaleSection } from './sidebar-common'
 
 /** Provenance whisper for an orphaned session (L6): a session whose issue was
@@ -42,6 +42,7 @@ export function UnifiedWorktreeRow({
   onSelect,
   onSelectPanel,
   partition,
+  renderSession,
 }: {
   row: Extract<UnifiedWorkRow, { kind: 'worktree' }>
   issues: IssueNavigationModel[]
@@ -51,6 +52,7 @@ export function UnifiedWorktreeRow({
   onSelect: () => void
   onSelectPanel: (sessionId: SessionId) => void
   partition?: { visible: SessionMeta[]; stale: SessionMeta[] }
+  renderSession?: (session: SessionMeta, active: boolean, issueDisplayRef: string | undefined, trailingMeta: ReactNode) => ReactNode
 }): JSX.Element {
   const { worktree } = row
   const { visible, stale } = partition ?? partitionStaleSessions(worktree.sessions, now)
@@ -60,6 +62,16 @@ export function UnifiedWorktreeRow({
     const attachedIssueDisplayRef = session.issueId
       ? issues.find((issue) => issue.id === session.issueId)?.displayRef
       : undefined
+    const trailingMeta = orphan ? (
+            <span
+              className="shell-type-micro flex-none font-mono text-text-faint"
+              data-testid="orphan-provenance"
+              title={orphan.hint}
+            >
+              {orphan.text}
+            </span>
+          ) : undefined
+    if (renderSession) return renderSession(session, active && paneA === session.sessionId, attachedIssueDisplayRef, trailingMeta)
     return (
       <PanelRow
         key={session.sessionId}
@@ -69,17 +81,7 @@ export function UnifiedWorktreeRow({
         dotRight
         roster
         issueDisplayRef={attachedIssueDisplayRef}
-        trailingMeta={
-          orphan ? (
-            <span
-              className="shell-type-micro flex-none font-mono text-text-faint"
-              data-testid="orphan-provenance"
-              title={orphan.hint}
-            >
-              {orphan.text}
-            </span>
-          ) : undefined
-        }
+        trailingMeta={trailingMeta}
       />
     )
   }

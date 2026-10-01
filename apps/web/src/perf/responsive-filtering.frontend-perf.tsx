@@ -7,6 +7,7 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { asUserId } from '@podium/model/browser'
 import { attachWorklistPool } from '@/app/store-worklist-pool'
 import { createSidebarFixture } from '../../test/sidebar-fixture'
+import { initializeSidebarDataLayer } from '@/lib/sidebar-data-layer'
 
 const ISSUE_COUNT = 674
 const NOW = Date.parse('2026-08-23T12:00:00.000Z')
@@ -161,6 +162,7 @@ describe('large-state responsive filtering', () => {
   it('commits the urgent query before the deferred 674-row pool sidebar, then settles', async () => {
     largeState.pool = true
     history.replaceState(null, '', '/?mobxSidebar=1')
+    initializeSidebarDataLayer({ get: () => null })
     const fixture = createSidebarFixture(ISSUE_COUNT, Date.now(), true)
     render(<StoreProvider principal={asClientPrincipal(asUserId('responsive-pool'))}
       config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}

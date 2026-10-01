@@ -30,7 +30,8 @@ vi.mock('./sidebar-measurements', async importOriginal => {
   return { ...original, measureSidebarRow: (Row: (props: Record<string, unknown>) => unknown) => (props: Record<string, unknown>) => {
     const row = props['row'] as { issue?: { id: string } } | undefined
     const issue = props['issue'] as { id: string } | undefined
-    const id = row?.issue?.id ?? issue?.id
+    const session = props['session'] as { sessionId: string } | undefined
+    const id = row?.issue?.id ?? issue?.id ?? session?.sessionId
     useLayoutEffect(() => { if (id) mode.commits.set(id, (mode.commits.get(id) ?? 0) + 1) })
     return Row(props)
   }, sidebarMeasurementsRequested: () => false }
@@ -107,6 +108,10 @@ describe('real sidebar pool cutover', () => {
     expect(Object.fromEntries(mode.commits)).toEqual({})
     await act(async () => { fixture.patch('session', 'synthetic-session-11', { name: 'Unused roster name' }) })
     expect(Object.fromEntries(mode.commits)).toEqual({})
+    await act(async () => { fixture.patch('session', 'synthetic-guest-0', { geometry: { cols: 100, rows: 30 } }) })
+    expect(Object.fromEntries(mode.commits)).toEqual({})
+    await act(async () => { fixture.patch('session', 'synthetic-guest-0', { name: 'Changed guest name' }) })
+    expect(Object.fromEntries(mode.commits)).toEqual({ 'synthetic-guest-0': 1 })
     expect(mode.reads).toBe(0)
   })
 
@@ -118,7 +123,7 @@ describe('real sidebar pool cutover', () => {
     expect(runtime.getSnapshot().paneA).toBe('synthetic-session-11')
     fireEvent.change(screen.getByTestId('work-search-input'), { target: { value: 'only responsive target' } })
     await waitFor(() => expect(screen.getAllByTestId('unified-issue-row')).toHaveLength(1))
-    expect(screen.getByTestId('work-search-count').textContent).toBe('1/8')
+    expect(screen.getByTestId('work-search-count').textContent).toBe('1/9')
     expect(mode.reads).toBe(0)
   })
 
