@@ -110,7 +110,11 @@ function PoolMenuProbe({ id }: { id: string }) {
   const [data, setData] = useState<ReturnType<PoolWorkActions['resolveMenuData']> | null>(null)
   return (
     <>
-      <button data-testid="pool-menu-probe" onClick={() => setData(actions.resolveMenuData(id))}>
+      <button
+        type="button"
+        data-testid="pool-menu-probe"
+        onClick={() => setData(actions.resolveMenuData(id))}
+      >
         Open nested task menu
       </button>
       {data && (
