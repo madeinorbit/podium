@@ -44,12 +44,14 @@ function setup(count = 2000) {
     rows: rows.map((row) => ({ kind: 'issue', id: row.id, value: row as never })),
   })
   const queue = vi.fn()
-  const refs = new IssueReferences(pool, queue)
+  const row = vi.fn(pool.row.bind(pool))
+  const refs = new IssueReferences({ row, tables: pool.tables, relations: pool.relations }, queue)
   return {
     pool,
     refs,
     rows,
     queue,
+    row,
     dispose() {
       refs.dispose()
       pool.dispose()
@@ -77,7 +79,7 @@ describe('per-issue pool references', () => {
       vi.spyOn(f.pool.tables.issue, 'values'),
       vi.spyOn(f.pool.tables.issue, 'entries'),
     ]
-    const row = vi.spyOn(f.pool, 'row')
+    const row = f.row
     for (const read of reads) read.mockClear()
     for (const paint of paints) paint.mockClear()
     f.pool.apply({
@@ -98,7 +100,6 @@ describe('per-issue pool references', () => {
     expect(row.mock.calls.some((call) => (call as unknown[])[2] === 'peek')).toBe(false)
     for (const stop of stops) stop()
     for (const scan of scans) scan.mockRestore()
-    row.mockRestore()
     f.dispose()
   })
 

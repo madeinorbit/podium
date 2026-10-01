@@ -135,7 +135,9 @@ export class IssueReferences implements IssueReferenceReader {
     // A read never blocks. Repeated chips of the same token enqueue it once.
     runInAction(() => this.requests.set(key, LOADING))
     this.queue(key)
-    return LOADING
+    // Track the value atom created above too. A reference that becomes
+    // unresolved during a reaction must observe its later batch response.
+    return this.requests.get(key)
   }
 
   read(token: string): Loaded<IssueReferenceModel | null> {
