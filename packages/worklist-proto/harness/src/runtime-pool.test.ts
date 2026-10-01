@@ -66,12 +66,18 @@ describe('the pool over the app-owned runtime', () => {
       start: false,
       network: { isOnline: () => false, onlineEvents: { add: () => {}, remove: () => {} } },
     })
+    const input = vi.spyOn(rowSource, 'createRowSource')
     const handle = createRuntimeWorklistPool(ctx.engine)
     const pool = handle.pool
     try {
       const id = ctx.targets.visibleRootId
       snapshotPool(pool)
-      expect(tracked(() => pool.row('issue', id))).toBe(ctx.replica.row!('issues', id))
+      // POD-4953 (7ccf96945) introduced the temporary normalized join. The
+      // pool borrows that exact input, with no second copy on repeated reads.
+      // POD-4968 retires the join and must restore plain replica-row identity.
+      const joined = input.mock.results[0]!.value.source.row!('issue', id)
+      expect(tracked(() => pool.row('issue', id))).toBe(joined)
+      expect(tracked(() => pool.row('issue', id))).toBe(joined)
       expect(snapshotPool(pool)).toEqual(snapshotFromStore(ctx.engine.getSnapshot(), localsOfEngine(ctx.engine)))
       ctx.engine.start()
       ctx.replica.onKernelEvent({
