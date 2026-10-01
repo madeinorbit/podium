@@ -27,7 +27,6 @@ function LegacyIssueReference({ token, ...props }: ChipProps): JSX.Element {
   const owner = useStoreHandle()
   const issues = useReplicaIssues()
   recordChipWork(owner, 'legacyScans')
-  recordChipWork(owner, 'legacyRows', issues.length)
   return <IssueReference {...props} model={resolveIssueReference(token, issues) ?? unavailable(token)} />
 }
 

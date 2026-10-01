@@ -5,6 +5,7 @@ import type { MobxPool } from './pool'
 import { createEngineLocals, type LocalsEngine } from './shared/engine-locals'
 import { createRowSource, type RowSourceReplica, type RowSourceRuntime } from './shared/row-source'
 import { measureWorklistPoolDelivery, observeWorklistPoolPerf } from './sidebar-perf'
+import type { ResolveIssueReferences } from './residency'
 
 /** React's scalar/layout readers share MobX tracking without eagerly loading
  * the graph in legacy mode. Rows use observer directly; this seam is for the
@@ -32,7 +33,7 @@ export type WorklistRuntime = RowSourceRuntime &
   LocalsEngine & { readonly replica: RowSourceReplica }
 
 /** A read-only attachment: optimism and every write still belong to the runtime. */
-export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { header?: boolean } = {}): WorklistPoolHandle {
+export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { header?: boolean; resolveReferences?: ResolveIssueReferences } = {}): WorklistPoolHandle {
   const rows = createRowSource(runtime, runtime.replica, { mode: 'overlaid' })
   let locals: ReturnType<typeof createEngineLocals> | undefined
   let handle: WorklistPoolHandle | undefined
@@ -49,7 +50,7 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { h
           }),
       },
       locals.source,
-      { header: options.header },
+      { header: options.header, ...(options.resolveReferences ? { resolveReferences: options.resolveReferences } : {}) },
     )
     if (options.header) stopHeader = attachHeaderSource(handle.pool, runtime as Parameters<typeof attachHeaderSource>[1])
     stopPerf = observeWorklistPoolPerf(runtime, handle.pool)

@@ -1,7 +1,7 @@
-import type { UiState } from '@podium/client-core/ui-state'
+import { MOBX_CHIPS_KEY, type UiState } from '@podium/client-core/ui-state'
+export { MOBX_CHIPS_KEY } from '@podium/client-core/ui-state'
 
 export type ChipsDataLayer = 'legacy' | 'pool'
-export const MOBX_CHIPS_KEY = 'podium.mobxChips'
 
 // One choice per app load. Principal rebuilds and preference edits never change
 // a mounted reader's data source; the operator's rollback takes a reload.

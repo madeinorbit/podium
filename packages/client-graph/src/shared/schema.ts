@@ -786,6 +786,18 @@ const DECLARED = defineSchema({
       blocked: { type: 'boolean', optional: true, source: wire(), note: 'The compatibility boolean is derived at the feed boundary from normalized edges and server-truth target stages, matching replica blocking (POD-4953).' },
       readAt: { type: 'isoDate', optional: true, nullable: true, source: wire(), note: "The per-user cursor. `unread` is NOT a field: it is a rollup over this issue's sessions (issue-views.ts:391-410) and belongs to L1b." },
       title: { type: 'string', source: projection() },
+      // The one open reference card, through the same normalized row reader.
+      priority: { type: 'number', source: projection() },
+      assignee: { type: 'id', optional: true, source: projection() },
+      description: { type: 'object', source: projection(), note: 'The materialized document value is rendered by the reference card.' },
+      activityNotes: { type: 'string', optional: true, source: projection() },
+      notesUpdatedAt: { type: 'isoDate', optional: true, source: projection() },
+      blockedByNotes: { type: 'object', source: projection() },
+      panel: { type: 'object', optional: true, source: projection() },
+      defaultAgent: { type: 'string', source: projection() },
+      defaultModel: { type: 'string', source: projection() },
+      defaultEffort: { type: 'string', source: projection() },
+      machineId: { type: 'id', optional: true, source: projection() },
     },
     relations: {
       parent: belongsTo({

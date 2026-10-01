@@ -88,7 +88,8 @@ import {
   type SessionModel,
 } from './models'
 import { PoolRelations, type ReadableTables } from './relations'
-import { type LoadRow, Residency, type Schedule } from './residency'
+import { type LoadRow, Residency, type ResolveIssueReferences, type Schedule } from './residency'
+import { IssueReferences } from './issue-reference'
 import {
   createObservableTables,
   ENTITIES,
@@ -150,6 +151,7 @@ function cursorOnlyChange(previous: object, next: object): boolean {
 /** Residency options: the per-row read, and (tests) the window and timer. */
 export interface PoolLazyOptions {
   readonly load: LoadRow
+  readonly resolveReferences?: ResolveIssueReferences
   /** Add the header's declared cold summaries only for its startup switch. */
   readonly header?: boolean
   readonly windowMs?: number
@@ -242,6 +244,17 @@ export class MobxPool {
    * Functions are skipped by the sweep; closures stay a review item.
    */
   private readonly clearSeats: () => void
+  private referenceReader: IssueReferences | undefined
+  private readonly resolveReferences: ResolveIssueReferences | undefined
+  private disposed = false
+
+  /** Built only for a screen that uses references. Its identity index covers
+   * resident rows; cold identities are resolved through the same load window. */
+  get references(): IssueReferences {
+    return this.referenceReader ??= new IssueReferences(this, ref => {
+      if (!this.disposed) this.residency?.requestReference(ref)
+    })
+  }
 
   constructor(
     locals: SliceLocals,
@@ -249,6 +262,7 @@ export class MobxPool {
     lazy?: PoolLazyOptions,
     writes?: WriteSeam,
   ) {
+    this.resolveReferences = lazy?.resolveReferences
     this.writes = writes ?? null
     this.tables = createObservableTables()
     const tables = this.tables
@@ -463,10 +477,17 @@ export class MobxPool {
       | 'select'
       | 'followTable'
       | 'clearSeats'
+      | 'referenceReader'
+      | 'resolveReferences'
+      | 'disposed'
       | 'object'
       | 'release'
     >(this, {
       sidebar: false,
+      references: false,
+      referenceReader: false,
+      resolveReferences: false,
+      disposed: false,
       sidebarRosters: false,
       tables: false,
       header: false,
@@ -691,6 +712,20 @@ export class MobxPool {
     const residency = this.residency
     if (residency === null) return 0
     const batch = residency.take()
+    const refs = residency.takeReferences()
+    if (refs.length && this.resolveReferences) {
+      try {
+        void this.resolveReferences(refs).then(replies => {
+          if (this.disposed) return
+          runInAction(() => {
+            for (const { ref, id } of replies) this.referenceReader?.resolved(ref, id)
+          })
+        }).catch(() => {
+          // The reference stays LOADING; failure never fabricates an absent
+          // row or falls back to a legacy list/peek.
+        })
+      } catch { /* A synchronous transport failure has the same LOADING answer. */ }
+    }
     if (batch.length === 0) return 0
     const out = ingestOut()
     this.graph.begin()
@@ -766,6 +801,8 @@ export class MobxPool {
 
   /** Empty every table, model cache, selection and clock registration. */
   dispose(): void {
+    this.disposed = true
+    this.referenceReader?.dispose()
     runInAction(() => {
       this.worklist.clear()
       this.groups.clear()

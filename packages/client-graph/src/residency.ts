@@ -101,6 +101,8 @@ export type LoadableEntity = 'issue' | 'session'
 /** A per-row read: the row's current value, or undefined when it is gone. */
 export type LoadRow = (entity: LoadableEntity, id: string) => object | undefined
 
+export type ResolveIssueReferences = (refs: readonly string[]) => Promise<readonly { ref: string; id: string | null }[]>
+
 /** Arms a timer; returns its cancel. Tests pass a manual one. */
 export type Schedule = (run: () => void, ms: number) => () => void
 
@@ -201,6 +203,7 @@ export class Residency {
   /** One atom per `entity:id` a derivation has asked about, while observed. */
   private readonly atoms = new Map<string, IAtom>()
   private readonly queue = new Map<LoadableEntity, Set<string>>()
+  private readonly referenceQueue = new Set<string>()
   private cancel: (() => void) | null = null
   /** Runs a closed window's batch (the pool's action). */
   private due: () => void = () => {}
@@ -461,13 +464,38 @@ export class Residency {
     }
     if (ids.has(id)) return false
     ids.add(id)
+    this.arm()
+    return true
+  }
+
+  /** Unknown reference identities share the existing row-load window. */
+  requestReference(ref: string): boolean {
+    if (this.referenceQueue.has(ref)) return false
+    this.referenceQueue.add(ref)
+    this.arm()
+    return true
+  }
+
+  private arm(): void {
     if (this.cancel === null) {
       this.cancel = this.schedule(() => {
         this.cancel = null
         this.due()
       }, this.windowMs)
     }
-    return true
+  }
+
+  /** One bounded identity query per closed window, without walking the rest
+   * of the queue. Remaining references join the next existing load window. */
+  takeReferences(): string[] {
+    const batch: string[] = []
+    for (const ref of this.referenceQueue) {
+      this.referenceQueue.delete(ref)
+      batch.push(ref)
+      if (batch.length === 200) break
+    }
+    if (this.referenceQueue.size) this.arm()
+    return batch
   }
 
   /** Close the window now: the queued rows, cleared. */
@@ -617,6 +645,7 @@ export class Residency {
 
   /** Forget everything (the pool's dispose). */
   clear(): void {
+    this.referenceQueue.clear()
     this.cancel?.()
     this.cancel = null
     this.queue.clear()

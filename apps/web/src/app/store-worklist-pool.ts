@@ -1,7 +1,7 @@
 import { headerDataLayer, headerCheckRequested, initializeHeaderDataLayer } from '@/lib/header-data-layer'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { reportSidebarPool } from '@podium/client-core/perf'
+import { chipCheckFor, chipPerf, recordChipWork, reportSidebarPool } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool, WorklistPoolHandle } from '@podium/client-graph'
 import type { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -11,6 +11,7 @@ import {
   sidebarCheckRequested,
   sidebarDataLayer,
 } from '@/lib/sidebar-data-layer'
+import { chipsCheckRequested, chipsDataLayer, chipsPerfRequested, initializeChipsDataLayer } from '@/lib/chips-data-layer'
 
 interface PoolSlot {
   handle: WorklistPoolHandle | null
@@ -27,6 +28,7 @@ const poolBackedScreens: readonly {
 }[] = [
   { initialize: initializeSidebarDataLayer, enabled: () => sidebarDataLayer() === 'pool' },
   { initialize: initializeHeaderDataLayer, enabled: () => headerDataLayer() === 'pool' },
+  { initialize: initializeChipsDataLayer, enabled: () => chipsDataLayer() === 'pool' },
 ]
 
 // The store handle IS the runtime. Weak keys never retain a departed principal;
@@ -80,24 +82,54 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   // Structural legacy/test runtimes without UI state request no pool screen.
   if (!runtime.ui) return () => {}
   for (const screen of poolBackedScreens) screen.initialize(runtime.ui)
-  if (!poolBackedScreens.some((screen) => screen.enabled())) return () => {}
+  let stopCensus = (): void => {}
+  if (chipsPerfRequested() && typeof window !== 'undefined') {
+    chipPerf.enable()
+    const owner = new WeakRef(runtime)
+    const census = { reset: chipPerf.reset,
+      read: () => { const current = owner.deref(); return current ? chipPerf.read(current) : null },
+      check: () => { const current = owner.deref(); return current ? chipCheckFor(current) : null },
+    }
+    Object.assign(window, { __chipPerf: census })
+    stopCensus = () => { if (Reflect.get(window, '__chipPerf') === census) Reflect.deleteProperty(window, '__chipPerf') }
+  }
+  if (!poolBackedScreens.some((screen) => screen.enabled())) return stopCensus
   reportSidebarPool(runtime, null, false)
   const slot = slotFor(runtime)
   slot.error = null
   let disposed = false
   let stopCheck: (() => void) | undefined
   let stopHeaderCheck: (() => void) | undefined
+  let stopChipCheck: (() => void) | undefined
   if (import.meta.env.DEV && typeof window !== 'undefined') {
     Object.assign(window, { __sidebarPool: { survivors: worklistPoolSurvivors } })
   }
   void import('@podium/client-graph/runtime-pool')
     .then(({ createRuntimeWorklistPool, createPoolProjection }) => {
       if (disposed) return
-      slot.handle = headerDataLayer() === 'pool'
-        ? createRuntimeWorklistPool(runtime, { header: true })
+      const chips = chipsDataLayer() === 'pool'
+      const header = headerDataLayer() === 'pool'
+      slot.handle = chips || header
+        ? createRuntimeWorklistPool(runtime, { ...(header ? { header: true } : {}), ...(chips ? {
+          resolveReferences: async (refs) => {
+            recordChipWork(runtime, 'resolveBatches')
+            recordChipWork(runtime, 'resolveRefs', refs.length)
+            return await runtime.getSnapshot().trpc.issues.resolveRefs.query({ refs: [...refs] })
+          },
+        } : {}) })
         : createRuntimeWorklistPool(runtime)
+      // Build the resident identity index once on attachment, before a
+      // conversation opens. No reference reader exists for other screens.
+      const references = chips ? slot.handle.pool.references : null
       slot.project = createPoolProjection
       notify(slot)
+      if (chipsCheckRequested() && references) {
+        void import('@podium/client-graph/diagnostics/chip-check').then(({ startChipCheck }) => {
+          if (disposed) return
+          stopChipCheck = startChipCheck(runtime, references, () => [...document.querySelectorAll('a.ref-link--issue[data-ref], [data-issue-reference]')]
+            .map(node => node.getAttribute('data-ref') ?? node.getAttribute('data-issue-reference')!))
+        }).catch(() => {})
+      }
       if (headerCheckRequested()) {
         void import('@podium/client-graph/diagnostics/header-runtime-check').then(({ startHeaderCheck }) => {
           if (disposed || !slot.handle) return
@@ -157,6 +189,9 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   return () => {
     if (disposed) return
     disposed = true
+    stopCensus()
+    stopChipCheck?.()
+    stopChipCheck = undefined
     stopHeaderCheck?.()
     stopHeaderCheck = undefined
     stopCheck?.()
