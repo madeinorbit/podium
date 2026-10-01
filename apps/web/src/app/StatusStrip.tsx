@@ -1,4 +1,5 @@
 import { issueReferenceModel } from '@podium/client-core/viewmodels'
+import type { IssueId } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { IssueReference } from '@/components/IssueReference'
 import { ConnectionIndicator, useStableConnection } from '@/features/machines/ConnectionIndicator'
@@ -59,7 +60,7 @@ export function StatusStrip(): JSX.Element {
           <span className="status-strip-seam" aria-hidden="true" />
           <span className="status-strip-issue" title={issue.title}>
             <IssueReference
-              model={issueReferenceModel(issue)}
+              model={issueReferenceModel({ ...issue, id: issue.id as IssueId })}
               size={11}
               refClassName="status-strip-ref"
               titleClassName="status-strip-issue-title"

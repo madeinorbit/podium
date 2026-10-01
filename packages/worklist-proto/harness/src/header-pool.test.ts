@@ -110,11 +110,12 @@ describe('header pool values', () => {
     const id = 'cold-header-added'
     try {
       const old = new Date(f.pool.clock.current - 30 * 86_400_000).toISOString()
-      f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: {
+      const value = {
         id, seq: 999999, title: 'Synthetic cold issue', repoPath: '/synthetic',
         stage: 'done', createdAt: old, updatedAt: old, closedAt: old,
         worktreePath: '/synthetic/cold-header-added', machineId: machine,
-      } }] })
+      }
+      f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value }] })
       expect(f.pool.residency?.isCold('issue', id)).toBe(true)
       expect(count).toBe(initial + 1)
       expect(f.pool.tables.issue.has(id)).toBe(false)
