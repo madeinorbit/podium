@@ -82,7 +82,9 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   void import('@podium/client-graph/runtime-pool')
     .then(({ createRuntimeWorklistPool, createPoolProjection }) => {
       if (disposed) return
-      slot.handle = createRuntimeWorklistPool(runtime, { header: headerDataLayer() === 'pool' })
+      slot.handle = headerDataLayer() === 'pool'
+        ? createRuntimeWorklistPool(runtime, { header: true })
+        : createRuntimeWorklistPool(runtime)
       slot.project = createPoolProjection
       notify(slot)
       if (headerCheckRequested()) {
