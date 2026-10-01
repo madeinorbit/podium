@@ -883,9 +883,8 @@ export function unitOwnPartOf(
   const issue = input.loadedIssue(id)
   if (issue === LOADING) return PENDING_UNIT
   if (issue === undefined) return NO_UNIT
-  const ownStaffed = issue.sessionFacts?.headlessStaffed === true || self.openOwn
-  const vacated = input.spinOffCount(id) > 0 && !ownStaffed
-  const staffed = ownStaffed || self.unitsBelow.staffed === true
+  const vacated = input.spinOffCount(id) > 0 && !self.openOwn
+  const staffed = self.openOwn || self.unitsBelow.staffed === true
   const unit = unitOwnOf(issue, vacated)
   const state: UnitState = unit.done
     ? 'done'

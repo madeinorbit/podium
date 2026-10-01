@@ -604,7 +604,10 @@ export function openOwnPartOf(input: VisibleInputs, id: string, seatIds: readonl
       return true
     }
   }
-  return false
+  // Headless seats are absent from R2 and never collapse with resume twins.
+  // Their declared summary supplements own presence, without joining rosters.
+  const issue = input.loadedIssue(id)
+  return issue !== undefined && typeof issue !== 'symbol' && issue.sessionFacts?.headlessStaffed === true
 }
 
 /** The retained seats not exited, in member order (`sessionVisibleInLiveRoster`). */
