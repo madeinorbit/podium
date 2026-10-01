@@ -63,6 +63,21 @@ In the test column, **corpus** means `arms/mobx/pool/sidebar.test.ts` at 1x and 
 | Worktree attached issue ref and orphan provenance | `UnifiedWorktreeRow`: `useReplicaIssues` owner lookup; missing owner falls back to birth `session.displayRef` | `SidebarWorktree.issues` contains only retained roster owners through the one reader; missing-owner session retains birth ref | corpus, gate, roster test |
 | Worktree activity and selection | `row.activityAt`, selected worktree and paneA | `SidebarWorktree.activityAt/active`; paneA stays caller data | corpus, gate, roster test |
 
+The temporary and renamed issue inputs have the following individual homes. They enter the same borrowed `sidebar.issue` payload; the adapter owns their compatibility spellings.
+
+| Input | Legacy source | Pool source | Test |
+| --- | --- | --- | --- |
+| `readAt` | retained per-user issue field, enriched by `useReplicaIssues`; pool cursor/write lane supplies optimistic mark-read | temporary adapter → existing cursor lane → `sidebar.issue.readAt` | corpus, gate `issueFacts`, reader/write checks |
+| `tuckedAt` | retained per-user issue field through `useReplicaIssues` | temporary adapter → `sidebar.issue.tuckedAt` and tuck verdicts | corpus, gate `issueFacts`, adapter check |
+| `pinned` | retained per-user issue field; `splitPinnedWork` | temporary adapter → root pinned lane and `sidebar.issue.pinned` | corpus, gate `issueFacts`, root plant |
+| `gitState` | retained issue field; `issueAwaitingMerge` in `slices/issues.ts:348–438` | temporary adapter → `awaitingMergeOf`, `sidebar.gitState/issue.gitState` | corpus, gate `issueFacts`, adapter/merge checks |
+| `repoPath` | retained issue field, then replica rich model and worklist grouping | temporary adapter → `sidebar.issue.repoPath` and group metadata | corpus, gate discovery/issue changes, adapter check |
+| `commentCount` | retained issue record; replica rich model removes it | temporary adapter → `sidebar.issue.commentCount`; oracle explicitly borrows the retained record | corpus, gate `issueFacts`, adapter check |
+| `humanQuestion` | replica rich issue field | normalized `asked.question` → adapter compatibility field | corpus, gate `issueFacts`, cleared-ask adapter check |
+| `humanQuestionOptions` | replica rich issue field | normalized `asked.options` → adapter compatibility field | corpus, gate `issueFacts`, cleared-ask adapter check |
+| `origin` | replica rich issue field | normalized `intentOrigin` → adapter compatibility field | corpus, gate `issueFacts`, adapter check |
+| `draft` | replica rich issue field and draft-vessel predicate | normalized `isDraftVessel` → adapter compatibility field | corpus, gate `issueFacts`, adapter/selection checks |
+
 ## Validation and counts
 
 All validation runs on flatblock in `~/podium-test-4953`, with Bun 1.4.2 and a WIP commit before each run. New checks are first exercised against a copied-aside planted mistake, then restored with `cp`. The prototype's package config is used. Browser evidence uses only the synthetic corpus and a private StoreProvider fixture; operator live data stays on ludovico.
@@ -109,4 +124,4 @@ Work-per-change is green at `5a8a80d274` for all sixteen scenarios at both sizes
 | Burst of 50, write variants | 310→269 | 1,390→1,374 | 3,669→3,278 |
 | Burst of 50, window | 185→182 | 431→425 | 1,775→1,558 |
 
-The default round-three L4b gate, final strict census, uncached typecheck, lint and real Chromium acceptance are pending below.
+The default round-three L4b gate is green at `3cb72877eb`: three seeds of 200 changes, oracle/rebuild/relations/views/cold/full-residency checks and every built-in plant. All six strict census cells passed there too (9 checks passed, one baseline-update helper skipped). Uncached typecheck, lint and real Chromium acceptance remain pending below.
