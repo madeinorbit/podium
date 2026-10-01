@@ -1,4 +1,4 @@
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual, type Store } from '@podium/client-core/store'
 import { worklistSlice, type SidebarProject, type SidebarSections } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
@@ -11,10 +11,11 @@ import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
 
 const EMPTY_PROJECTS: SidebarProject[] = []
 const EMPTY_SECTIONS: SidebarSections = { pinnedRepos: [], repos: [], pinnedWorktrees: [] }
+const selectLayout = (s: Store) => ({ projectOrder: s.sidebarSettings.repoOrder,
+  pinnedRepos: s.pins.repos, pinnedWorktrees: s.pins.worktrees })
 
 function useLayout(): SidebarState {
-  return useStoreSelector(s => ({ projectOrder: s.sidebarSettings.repoOrder,
-    pinnedRepos: s.pins.repos, pinnedWorktrees: s.pins.worktrees }), shallowEqual)
+  return useStoreSelector(selectLayout, shallowEqual)
 }
 
 export function useSidebarProjects(): SidebarProject[] {

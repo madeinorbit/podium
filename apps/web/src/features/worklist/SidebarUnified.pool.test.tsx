@@ -7,6 +7,7 @@ import { asUserId } from '@podium/model/browser'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { CommandPalette } from '@/app/CommandPalette'
+import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { createSidebarFixture } from '../../../test/sidebar-fixture'
 import { SidebarUnified } from './SidebarUnified'
 import { SidebarRail } from './SidebarRail'
@@ -56,7 +57,7 @@ async function mount(layer: 'legacy' | 'pool', rail = false, count = 12) {
     config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
     createReplicaFn={() => fixture.replica} networkEnabled={false} onFatalError={message => { throw new Error(message) }}
     attachRuntime={owner => attachWorklistPool(owner, error => { throw error })}>
-    <Capture />{rail ? <SidebarRail /> : <SidebarUnified />}<CommandPalette />
+    <ConfirmProvider><Capture />{rail ? <SidebarRail /> : <SidebarUnified />}<CommandPalette /></ConfirmProvider>
   </StoreProvider>)
   await act(async () => { await runtime.getSnapshot().refreshRepos() })
   await waitFor(() => expect(screen.getByTestId(rail ? 'sidebar-rail' : 'work-scroll')).toBeTruthy())
@@ -131,6 +132,6 @@ describe('real sidebar pool cutover', () => {
       attachRuntime={owner => attachWorklistPool(owner, error => { throw error })}><Capture /><SidebarRail /></StoreProvider>)
     await waitFor(() => expect(screen.getByTestId('sidebar-rail')).toBeTruthy())
     expect(mode.reads).toBe(0)
-    expect(screen.getAllByTestId('id-square').length).toBeGreaterThan(0)
+    expect(screen.getAllByTestId('issue-id-square').length).toBeGreaterThan(0)
   })
 })

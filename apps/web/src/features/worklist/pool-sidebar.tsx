@@ -3,7 +3,7 @@ import { observer, compareStructural, computed } from '@podium/client-graph/reac
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual, type Store } from '@podium/client-core/store'
 import { issueClosedFoldAt, planReorderKeys, type IssueNavigationModel } from '@podium/client-core/viewmodels'
 import { relativeTime } from '@podium/client-core/focus'
 import { asIssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
@@ -36,10 +36,11 @@ import { useWorkFilterState, WorkFilterEmpty, WorkFilterFootnote, WorkSearchFiel
 
 type Slot = { kind: 'issue' | 'worktree'; id: string; lane: 'pinned' | 'open' | 'snoozed' | 'closed'; groupKey: string; groupLabel: string }
 type Item = RowTransitionItem<Slot>
+const selectLayout = (s: Store) => ({ projectOrder: s.sidebarSettings.repoOrder,
+  pinnedRepos: s.pins.repos, pinnedWorktrees: s.pins.worktrees })
 
 export function usePoolLayoutState(): SidebarState {
-  const layout = useStoreSelector(s => ({ projectOrder: s.sidebarSettings.repoOrder,
-    pinnedRepos: s.pins.repos, pinnedWorktrees: s.pins.worktrees }), shallowEqual)
+  const layout = useStoreSelector(selectLayout, shallowEqual)
   return useMemo(() => layout, [layout])
 }
 
