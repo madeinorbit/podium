@@ -101,7 +101,9 @@ export function createHeaderViews(pool: MobxPool) {
         const value = issue(id)
         if (value === LOADING) { loading = true; return }
         if (!value || value.archived || value.deletedAt) return
-        const ownIds = pool.model('issue', id)?.memberIds ?? []
+        // The deck consumes normalized IssueNavigationModel membership, which
+        // is explicit attachment (issue-views.ts), unlike sidebar cwd seating.
+        const ownIds = pool.graph.many('issue', id, 'sessions')
         let asking = false
         for (const sid of ownIds) {
           const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
