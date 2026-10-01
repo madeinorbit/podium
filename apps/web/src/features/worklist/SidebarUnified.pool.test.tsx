@@ -20,6 +20,7 @@ const mode = vi.hoisted(() => ({
 vi.mock('@/lib/sidebar-data-layer', () => ({
   sidebarDataLayer: () => mode.value,
   initializeSidebarDataLayer: () => {},
+  sidebarCheckRequested: () => false,
 }))
 vi.mock('@/app/store', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/app/store')>()
