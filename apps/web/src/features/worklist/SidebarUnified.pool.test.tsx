@@ -2,7 +2,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { worklistSlice } from '@podium/client-core/viewmodels'
-import { asUserId } from '@podium/model/browser'
+import { asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CommandPalette } from '@/app/CommandPalette'
@@ -226,5 +226,36 @@ describe('real sidebar pool cutover', () => {
     await waitFor(() => expect(screen.getByTestId('sidebar-rail')).toBeTruthy())
     expect(mode.reads).toBe(0)
     expect(screen.getAllByTestId('issue-id-square').length).toBeGreaterThan(0)
+  })
+
+  it('preserves legacy navigation membership for exited, headless and archived sessions', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    for (const layer of ['legacy', 'pool'] as const) {
+      const fixture = await mount(layer)
+      await act(async () => {
+        fixture.patch('session', 'synthetic-session-11', { status: 'exited' })
+        runtime.getSnapshot().setPane('A', asSessionId('synthetic-session-11'))
+      })
+      fireEvent.click(screen.getByText('Only responsive target'))
+      expect(runtime.getSnapshot().paneA).toBe('synthetic-session-11')
+      await act(async () => {
+        fixture.patch('session', 'synthetic-session-11', { status: 'live', headless: true })
+      })
+      fireEvent.click(screen.getByText('Only responsive target'))
+      expect(runtime.getSnapshot().paneA).toBeNull()
+      await act(async () => {
+        fixture.patch('session', 'synthetic-session-11', { headless: false, archived: true })
+        fixture.patch('session', 'synthetic-guest-0', {
+          archived: true,
+          lastActiveAt: new Date(NOW).toISOString(),
+        })
+      })
+      fireEvent.click(screen.getByText('Only responsive target'))
+      expect(runtime.getSnapshot().paneA).toBeNull()
+      fireEvent.click(screen.getByText('project · guests'))
+      expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-1')
+      cleanup()
+    }
   })
 })
