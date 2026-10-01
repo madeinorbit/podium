@@ -196,6 +196,8 @@ export class Residency {
   private readonly dependents = new Map<EntityName, Map<string, Set<string>>>()
   /** `via` entities by the entity they inherit from. */
   private readonly inheritors = new Map<EntityName, EntityName[]>()
+  /** Header-only catalog subscriptions, ids only, released when unobserved. */
+  private readonly idAtoms = new Map<EntityName, IAtom>()
   /** One atom per `entity:id` a derivation has asked about, while observed. */
   private readonly atoms = new Map<string, IAtom>()
   private readonly queue = new Map<LoadableEntity, Set<string>>()
@@ -280,7 +282,20 @@ export class Residency {
   }
 
   /** Cold ids of `entity` (the gate's partition check). */
-  ids(entity: EntityName): readonly string[] {
+  ids(entity: EntityName, tracked = false): readonly string[] {
+    if (tracked && _isComputingDerivation()) {
+      let atom = this.idAtoms.get(entity)
+      let fresh = false
+      if (!atom) {
+        const created = createAtom(`residency.ids.${entity}`, undefined, () => {
+          if (this.idAtoms.get(entity) === created) this.idAtoms.delete(entity)
+        })
+        atom = created
+        this.idAtoms.set(entity, atom)
+        fresh = true
+      }
+      if (!atom.reportObserved() && fresh) this.idAtoms.delete(entity)
+    }
     return [...(this.cold.get(entity)?.keys() ?? [])]
   }
 
@@ -605,7 +620,10 @@ export class Residency {
     this.cancel?.()
     this.cancel = null
     this.queue.clear()
-    for (const ids of this.cold.values()) ids.clear()
+    for (const [entity, ids] of this.cold) {
+      if (ids.size) this.idAtoms.get(entity)?.reportChanged()
+      ids.clear()
+    }
     for (const byTarget of this.dependents.values()) byTarget.clear()
     this.keeps.clear()
     this.keeperKey.clear()
@@ -886,9 +904,11 @@ export class Residency {
 
   private register(entity: EntityName, id: string, row: object): void {
     const ids = this.cold.get(entity) as Map<string, string | null>
+    const added = !ids.has(id)
     const before = ids.get(id) ?? null
     const after = viaTargetOf(this.schema, entity, row)?.id ?? null
     ids.set(id, after)
+    if (added) this.idAtoms.get(entity)?.reportChanged()
     const key = `${entity}:${id}`
     if (this.schema[entity].cold.kind === 'unlessShown') {
       const spec = this.schema[entity].cold
@@ -922,6 +942,7 @@ export class Residency {
     if (ids === undefined || !ids.has(id)) return
     const before = ids.get(id) ?? null
     ids.delete(id)
+    this.idAtoms.get(entity)?.reportChanged()
     this.finish.delete(`${entity}:${id}`)
     this.summaries.delete(`${entity}:${id}`)
     const byTarget = this.dependents.get(entity)

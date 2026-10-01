@@ -99,6 +99,30 @@ describe('header pool values', () => {
     } finally { for (const stop of stops) stop(); f.dispose(); f.ctx.engine.destroy() }
   }, 120_000)
 
+  it('cold summary additions and removals refresh reclaim counts without loading rows', async () => {
+    const f = await fixture()
+    const machine = 'cold-summary-host' as MachineId
+    f.ctx.hub.emit('hostMetrics', [metric(machine, 'fixed')])
+    let count = 0
+    const stop = autorun(() => { count = f.pool.headerViews.reclaimCounts(14)[machine] ?? 0 })
+    const initial = count
+    const id = 'cold-header-added'
+    try {
+      const old = new Date(f.pool.clock.current - 30 * 86_400_000).toISOString()
+      f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: {
+        id, seq: 999999, title: 'Synthetic cold issue', repoPath: '/synthetic',
+        stage: 'done', createdAt: old, updatedAt: old, closedAt: old,
+        worktreePath: '/synthetic/cold-header-added', machineId: machine,
+      } }] })
+      expect(f.pool.residency?.isCold('issue', id)).toBe(true)
+      expect(count).toBe(initial + 1)
+      expect(f.pool.tables.issue.has(id)).toBe(false)
+      expect(f.pool.hydrate()).toBe(0)
+      f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
+      expect(count).toBe(initial)
+    } finally { stop(); f.dispose(); f.ctx.engine.destroy() }
+  }, 120_000)
+
   it('the checker detects value, order and extra-row faults', async () => {
     const f = await fixture()
     try {

@@ -18,8 +18,8 @@ export function allResidentSessions(pool: MobxPool): [string, object][] {
 }
 
 export function knownIssueIds(pool: MobxPool): string[] {
-  return [...new Set([...pool.tables.issue.keys(), ...(pool.residency?.ids('issue') ?? [])])]
+  return [...new Set([...pool.tables.issue.keys(), ...(pool.residency?.ids('issue', true) ?? [])])]
 }
 export function knownSessionIds(pool: MobxPool): string[] {
-  return [...new Set([...pool.tables.session.keys(), ...(pool.residency?.ids('session') ?? [])])]
+  return [...new Set([...pool.tables.session.keys(), ...(pool.residency?.ids('session', true) ?? [])])]
 }
