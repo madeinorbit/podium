@@ -252,17 +252,19 @@ describe('POD-5059 section label from root rows', () => {
 
 
 describe('POD-5072 snoozed roster section label', () => {
-  const repos = [{ ...REPO, originUrl: 'https://github.com/synthetic/synthetic-project.git' }]
+  const unownedPath = `${ROOT}/unowned-checkout`
+  const repos = [{ ...REPO, originUrl: 'https://github.com/synthetic/synthetic-project.git',
+    worktrees: [{ path: unownedPath, branch: 'synthetic-unowned' }] }] as unknown as GitRepositoryWire[]
   it('follows the retained worktree head until an issue sorts ahead of it', () => {
     const task = issue('iss_synthetic_snoozed_label', { deferUntil: new Date(NOW + 3_600_000).toISOString() })
-    const seat = session('synthetic-unowned-label', '', { issueId: undefined })
+    const seat = session('synthetic-unowned-label', '', { issueId: undefined, cwd: unownedPath })
     const ctx = replay(collections([task], [seat], repos))
     try {
       const band = () => {
         const sections = ctx.sections()
         return { actual: required(sections.actual.bands.find(b => b.key === 'synthetic-repo')), expected: required(sections.expected.bands.find(b => b.key === 'synthetic-repo')) }
       }
-      expect(band().expected).toMatchObject({ label: 'synthetic-project', rowIds: [], worktreeIds: [ROOT], snoozedIds: [task.id] })
+      expect(band().expected).toMatchObject({ label: 'synthetic-project', rowIds: [], worktreeIds: [unownedPath], snoozedIds: [task.id] })
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
       expect(band().actual.label).toBe(band().expected.label)
       const renamed = { ...task, repoPath: '/synthetic/renamed-checkout' }
@@ -286,12 +288,12 @@ describe('POD-5072 snoozed roster section label', () => {
     const old = new Date(NOW - 2 * 24 * 3_600_000).toISOString()
     const snoozed = issue('iss_synthetic_snoozed_with_closed', { seq: 2, deferUntil: new Date(NOW + 3_600_000).toISOString() })
     const closed = issue('iss_synthetic_closed_label', { repoPath: '/synthetic/closed-checkout', stage: 'done', closedReason: 'done', closedAt: old, tuckedAt: old })
-    const seat = session('synthetic-unowned-closed-label', '', { issueId: undefined })
+    const seat = session('synthetic-unowned-closed-label', '', { issueId: undefined, cwd: unownedPath })
     const ctx = replay(collections([snoozed, closed], [seat], repos))
     try {
       const { expected } = ctx.sections()
       expect(required(expected.bands.find(b => b.key === 'synthetic-repo'))).toMatchObject({
-        label: 'closed-checkout', rowIds: [], worktreeIds: [ROOT], snoozedIds: [snoozed.id], closedIds: [closed.id],
+        label: 'closed-checkout', rowIds: [], worktreeIds: [unownedPath], snoozedIds: [snoozed.id], closedIds: [closed.id],
       })
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
       // Closed-fold membership cannot substitute for the root's ordering band.
