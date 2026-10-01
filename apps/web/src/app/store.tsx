@@ -30,6 +30,7 @@ import { toast } from 'sonner'
 import { elidePathHead, looksLikePath } from '@/lib/notice-path'
 import { formatAppError } from './AppErrorPage'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
+import { attachWorklistPool } from './store-worklist-pool'
 
 /** The web store: the shared store, with `trpc` carrying the full AppRouter type. */
 export type Store = CoreStore<Trpc>
@@ -112,6 +113,9 @@ export function StoreProvider({
       feed={feed}
       createOutboxFn={createOutboxFn}
       onServerRelocation={onServerRelocation}
+      attachRuntime={(runtime) =>
+        attachWorklistPool(runtime, (error) => onFatalError(error.message))
+      }
     >
       {children}
     </CoreStoreProvider>

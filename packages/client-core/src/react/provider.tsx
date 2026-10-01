@@ -188,6 +188,10 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
   /** Test seam: runtime timing knobs (e.g. spawnConfirmGraceMs: 0 so a spawn
    *  rollback test doesn't wait out the 2s broadcast-confirm grace). */
   engineOverrides?: { spawnConfirmGraceMs?: number }
+  /** Optional app data layer over THIS runtime. Attached after start; released
+   * before dispose/destroy, including a principal/config rebuild. StrictMode
+   * re-attaches it when the same runtime starts again. */
+  attachRuntime?: (runtime: ClientRuntime<TApi>) => () => void
   /** What to paint while there is no principal. Default: nothing. NEVER a
    *  cached world — this branch exists because painting one would be the leak. */
   unauthenticated?: ReactNode
@@ -212,14 +216,15 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   networkEnabled,
   routerWindow,
   engineOverrides,
+  attachRuntime,
   unauthenticated = null,
   children,
 }: StoreProviderProps<TApi>): JSX.Element {
   // The runtime consults callbacks through this ref, so a parent re-rendering
   // with fresh closure identities (an inline onFatalError, a new notices
   // object) is picked up without reconstructing anything.
-  const latest = useRef({ onFatalError, formatError, notices })
-  latest.current = { onFatalError, formatError, notices }
+  const latest = useRef({ onFatalError, formatError, notices, attachRuntime })
+  latest.current = { onFatalError, formatError, notices, attachRuntime }
   // ONE RUNTIME PER (principal, config, api) IDENTITY. The principal is the
   // load-bearing key: a change to it is a different person, so the previous
   // runtime is DESTROYED (irreversible — see ClientRuntime.destroy) before the
@@ -237,6 +242,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
     api: TApi
     networkEnabled: boolean
     runtime: ClientRuntime<TApi>
+    detach?: () => void
   } | null>(null)
   const held = runtimeRef.current
   if (
@@ -251,8 +257,14 @@ export function StoreProvider<TApi extends PodiumClientApi>({
     // moment when two runtimes for two principals are both live over the same
     // storage — and never a window in which a previous principal's in-flight
     // callback can find a live consumer to publish to.
-    held.runtime.destroy()
-    runtimeRef.current = null
+    const detach = held.detach
+    held.detach = undefined
+    try {
+      detach?.()
+    } finally {
+      held.runtime.destroy()
+      runtimeRef.current = null
+    }
   }
   if (principal !== null && runtimeRef.current === null) {
     runtimeRef.current = {
@@ -284,15 +296,25 @@ export function StoreProvider<TApi extends PodiumClientApi>({
       }),
     }
   }
-  const runtime = runtimeRef.current?.runtime ?? null
+  const owner = runtimeRef.current
+  const runtime = owner?.runtime ?? null
   // start/dispose pair, keyed on the runtime: StrictMode's dev double-mount
   // disposes and re-arms the SAME runtime (both are idempotent). dispose() is
   // deliberately the REVERSIBLE half — the irreversible destroy() above is the
   // principal boundary and must not be driven by React's effect scheduling.
   useEffect(() => {
-    if (runtime === null) return
+    if (runtime === null || owner === null) return
     runtime.start()
-    return () => runtime.dispose()
+    owner.detach = latest.current.attachRuntime?.(runtime)
+    return () => {
+      const detach = owner.detach
+      owner.detach = undefined
+      try {
+        detach?.()
+      } finally {
+        runtime.dispose()
+      }
+    }
   }, [runtime])
   if (runtime === null) {
     // FAIL CLOSED: no runtime means no transport, no replica read, no outbox —
