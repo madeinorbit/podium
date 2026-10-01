@@ -9,7 +9,7 @@ import type { SliceIssue, SliceDepEdge } from './slice-types'
 
 type Input = Readonly<Record<string, unknown>>
 const composed = new WeakMap<object, WeakMap<object, SliceIssue>>()
-const NO_TEMPORARY_INPUT = Object.freeze({})
+const NO_TEMPORARY_INPUT: Input = Object.freeze({})
 
 export function temporaryIssueInput(
   projection: Input | undefined,

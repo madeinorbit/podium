@@ -8,7 +8,7 @@ import {
   rowPendingDecision, rowUnreadEmphasized, rowStatusLine,
   type UnifiedIssueRow,
 } from '@podium/client-core/viewmodels'
-import { issueReturnedFromDefer, isIssueDeferred } from '@podium/model'
+import { issueReturnedFromDefer, isIssueDeferred, asIssueId } from '@podium/model'
 import { isDeepStrictEqual } from 'node:util'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import type { SidebarSections, SidebarState } from '@podium/client-graph/worklist/sidebar'
@@ -65,7 +65,7 @@ export function legacySidebarRow(row: UnifiedIssueRow, derivation: LegacyDerivat
 export function legacySidebarSections(derivation: LegacyDerivation, state: SidebarState, selectedId: string | null = null, selectedClosed = false, now = Date.now()): SidebarSections {
   const slice = derivation.slice
   const { pinned, rest } = splitPinnedWork(slice.work)
-  const groups = groupUnifiedWorkRows(rest, selectedId, selectedClosed, now)
+  const groups = groupUnifiedWorkRows(rest, selectedId === null ? null : asIssueId(selectedId), selectedClosed, now)
   const projects = orderedSidebarProjects(slice.sections, groups, state.projectOrder ?? [])
   const bands = groups.map(group => {
     const project = projects.find(p => p.aliases.includes(group.key))

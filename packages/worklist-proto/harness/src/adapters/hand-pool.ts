@@ -239,7 +239,7 @@ export function harnessWritableHandPoolArm(
               | Partial<SliceIssue>
               | undefined
             if (pending === undefined) return record
-            return { ...record, value: { ...record.value, ...pending } }
+            return { ...record, value: { ...(record.value as SliceIssue), ...pending } }
           })
         },
         ...(source.row === undefined

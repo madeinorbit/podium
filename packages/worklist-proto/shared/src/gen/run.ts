@@ -525,7 +525,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         const now = ctx.engine.getSnapshot().coarseNow
         const stamp = new Date(now).toISOString()
         const patches: Record<string, unknown>[] = [
-          { name: 'Named seat', agentKind: 'claude', status: 'live', agentState: { phase: 'working', since: stamp, workingMsTotal: 1200, nativeSubagentCount: 3 } },
+          { name: 'Named seat', agentKind: 'claude-code', status: 'live', agentState: { phase: 'working', since: stamp, workingMsTotal: 1200, nativeSubagentCount: 3 } },
           { name: null, title: 'New seat', snoozedUntil: null, draftUpdatedAt: stamp },
           { snoozedUntil: new Date(now - 60_000).toISOString(), agentState: { phase: 'needs_user', since: stamp, workingMsTotal: 1800, nativeSubagentCount: 2 } },
           { snoozedUntil: new Date(now + 60_000).toISOString(), agentState: { phase: 'errored', since: stamp, error: { class: 'auth', retryable: true }, nativeSubagentCount: 0 } },
