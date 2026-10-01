@@ -56,7 +56,14 @@ export class SidebarRosterIndex {
     let band = this.bands.get(key)
     if (!band) {
       band = computed(() => {
-        const ids = this.paths.lane(key).slice()
+        const ids = this.paths.lane(key).filter(path => {
+          if (!this.coldPending(path)) return true
+          // A potential cold lane is only a loading summary. Ask the existing
+          // worktree reader to request its batch, then forget that dependency
+          // as soon as the summary resolves to resident candidates or emptiness.
+          const roster = this.pool.model('worktree', path)?.roster
+          return roster !== undefined && (roster.ids.length > 0 || roster.pending > 0)
+        })
         const head = ids[0] === undefined ? undefined : this.pool.row('worktree', ids[0])
         const lane = head === LOADING ? undefined : head as SliceWorktree | undefined
         return { ids, label: lane?.repoName ?? key, repoPath: lane?.repoPath ?? key }
