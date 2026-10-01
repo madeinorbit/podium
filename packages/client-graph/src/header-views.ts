@@ -116,10 +116,28 @@ export function createHeaderViews(pool: MobxPool) {
           }
         }
       }
+      // Placement can hide a provenance branch behind an archived owner.
+      // Keep formal edges when their parent is in the mission; otherwise graft
+      // under the starter's owner, falling back to the selected mission root.
+      const grafts = new Map<string, string[]>()
       for (const id of ids) {
+        if (id === root.id) continue
         const value = issue(id)
         if (value === LOADING) { loading = true; continue }
-        if (!value || value.archived || value.deletedAt) continue
+        if (!value || value.archived || value.deletedAt || (value.parentId && ids.has(value.parentId))) continue
+        const owner = value.startedBySession ? sessionSummary(value.startedBySession)?.issueId : undefined
+        const parent = owner && ids.has(owner) && owner !== id ? owner : root.id
+        const siblings = grafts.get(parent) ?? []
+        siblings.push(id)
+        grafts.set(parent, siblings)
+      }
+      const visible = new Set<string>()
+      function collect(id: string): void {
+        if (visible.has(id)) return
+        const value = issue(id)
+        if (value === LOADING) { loading = true; return }
+        if (!value || value.archived || value.deletedAt) return
+        visible.add(id)
         const ownIds = [...pool.graph.many('issue', id, 'sessions')]
         let asking = false, staffed = false
         for (const sid of ownIds) {
@@ -132,7 +150,10 @@ export function createHeaderViews(pool: MobxPool) {
         }
         const vacated = !staffed && pool.graph.size('issue', id, 'spinOffs') > 0
         if (value.stage !== 'done' && !value.closedReason && (asking || value.needsHuman || (value.stage === 'review' && !vacated))) needs++
+        for (const child of pool.graph.many('issue', id, 'children')) collect(child)
+        for (const child of grafts.get(id) ?? []) collect(child)
       }
+      collect(root.id)
       const crew = [...sessions.values()].filter((member) => sessionPresentOnTask(member as SessionMeta))
       if (root.draft && !root.worktreePath && ![...pool.graph.many('issue', root.id, 'sessions')].some((sid) => {
         const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
@@ -141,7 +162,7 @@ export function createHeaderViews(pool: MobxPool) {
       const sidebar = pool.model('issue', root.id)?.sidebar
       if (sidebar === LOADING) loading = true
       return { root, progress: sidebar && sidebar !== LOADING ? sidebar.progress : NO_PROGRESS,
-        live: crew.length, working: crew.filter(isSessionWorking).length, needs, loading, issueIds: [...ids] }
+        live: crew.length, working: crew.filter(isSessionWorking).length, needs, loading }
     })
   }
   function shipping() {
