@@ -21,6 +21,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
+import { combineSidebarSessions, NO_SIDEBAR_SESSIONS, sidebarSessionFacts } from '@podium/client-graph/worklist/sidebar-row'
 import {
   type Aggregate,
   aggregate,
@@ -144,6 +145,14 @@ const one = (...seats: ReturnType<typeof seatVerdictOf>[]): Aggregate =>
   aggregate({ own: seats.reduce(withSeat, EMPTY_OWN), children: [] })
 
 describe('the roll-up combine', () => {
+  it('borrows composed sidebar facts through a sessionless branch', () => {
+    const facts = sidebarSessionFacts(session({ agentState: { phase: 'working', nativeSubagentCount: 3 } }))
+    const before = structuredClone(facts)
+    expect(combineSidebarSessions(NO_SIDEBAR_SESSIONS, facts)).toBe(facts)
+    expect(combineSidebarSessions(facts, NO_SIDEBAR_SESSIONS)).toBe(facts)
+    expect(facts).toEqual(before)
+  })
+
   it('reads the root verdict from a child: an offer-only ask waits under an open root only', () => {
     const child = one(offerOnly)
     const root = aggregate({ own: EMPTY_OWN, children: [child] })

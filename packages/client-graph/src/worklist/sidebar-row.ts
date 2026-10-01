@@ -169,6 +169,10 @@ export function sidebarSessionFacts(session: SliceSession): SidebarSessionFacts 
 /** Ordered and associative: ties keep the first roster member, as the row's
  * earliest-session choice and fleet glyph order do. */
 export function combineSidebarSessions(a: SidebarSessionFacts, b: SidebarSessionFacts): SidebarSessionFacts {
+  // Sessionless branches are the composition's identity. Borrow the already
+  // composed facts instead of copying fleet tiles through every empty branch.
+  if (a === NO_SIDEBAR_SESSIONS) return b
+  if (b === NO_SIDEBAR_SESSIONS) return a
   const earliest = (left: TimerAnchor | undefined, right: TimerAnchor | undefined) =>
     left === undefined ? right : right !== undefined && right.stateSince < left.stateSince ? right : left
   const tiles = a.fleet.tiles.map(tile => ({ ...tile }))
