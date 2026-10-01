@@ -162,7 +162,8 @@ try {
     const filter = await page.getByTestId('work-search-count').textContent()
     await page.getByTestId('work-search-clear').click()
     await page.waitForFunction(
-      (expected) => document.querySelectorAll('[data-testid="unified-issue-row"]').length === expected,
+      (expected) =>
+        document.querySelectorAll('[data-testid="unified-issue-row"]').length === expected,
       initial.rows.length,
     )
     await page.evaluate(
