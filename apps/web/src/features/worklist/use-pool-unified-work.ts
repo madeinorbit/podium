@@ -206,15 +206,17 @@ export function createPoolWorkActions(
           const child = pool.row('issue', id)
           return child !== undefined && child !== LOADING && child['stage'] === 'done'
         }).length
-        return [{
-          ...navigationIssue(value.issue),
-          memberSessionIds,
-          childIds: childIds.map(asIssueId),
-          childCount: childIds.length,
-          childDoneCount,
-          unread: value.unread,
-          deferred: value.deferred,
-        }]
+        return [
+          {
+            ...navigationIssue(value.issue),
+            memberSessionIds,
+            childIds: childIds.map(asIssueId),
+            childCount: childIds.length,
+            childDoneCount,
+            unread: value.unread,
+            deferred: value.deferred,
+          },
+        ]
       })
       return { single: all.filter((issue) => issue.id === id), all }
     },

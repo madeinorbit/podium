@@ -24,16 +24,23 @@ import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { createSidebarFixture } from '../../../test/sidebar-fixture'
 import { SidebarUnified } from './SidebarUnified'
-import { createPoolWorkActions, type PoolWorkActions, usePoolUnifiedWork } from './use-pool-unified-work'
+import {
+  createPoolWorkActions,
+  type PoolWorkActions,
+  usePoolUnifiedWork,
+} from './use-pool-unified-work'
 import type { useRowDrag } from './useRowDrag'
 
 const drag = vi.hoisted(() => ({ options: null as Parameters<typeof useRowDrag>[0] | null }))
 vi.mock('./useRowDrag', async (original) => {
   const module = await original<typeof import('./useRowDrag')>()
-  return { ...module, useRowDrag: (options: Parameters<typeof useRowDrag>[0]) => {
-    drag.options = options
-    return module.useRowDrag(options)
-  } }
+  return {
+    ...module,
+    useRowDrag: (options: Parameters<typeof useRowDrag>[0]) => {
+      drag.options = options
+      return module.useRowDrag(options)
+    },
+  }
 })
 
 vi.mock('@/lib/sidebar-data-layer', () => ({
@@ -98,9 +105,23 @@ async function mount(prepare?: (fixture: Fixture) => void, count = 12) {
   })
   Object.assign(fixture.api, {
     issues: Object.fromEntries(
-      ['update', 'archive', 'delete', 'setTucked', 'markRead', 'markUnread', 'defer', 'undefer',
-        'setLabels', 'setPlacement', 'close', 'restore', 'duplicate', 'start', 'assignAgent']
-        .map((name) => [name, procedure(`issues.${name}`)]),
+      [
+        'update',
+        'archive',
+        'delete',
+        'setTucked',
+        'markRead',
+        'markUnread',
+        'defer',
+        'undefer',
+        'setLabels',
+        'setPlacement',
+        'close',
+        'restore',
+        'duplicate',
+        'start',
+        'assignAgent',
+      ].map((name) => [name, procedure(`issues.${name}`)]),
     ),
     sessions: { markRead: procedure('sessions.markRead'), handoff: procedure('sessions.handoff') },
   })
@@ -113,8 +134,14 @@ async function mount(prepare?: (fixture: Fixture) => void, count = 12) {
       // Only the synthetic procedure promises are online. No hub/feed/network.
       createOutboxFn={(options) => createEngineOutbox({ ...options, isOnline: () => true })}
       networkEnabled={false}
-      onFatalError={(message) => { throw new Error(message) }}
-      attachRuntime={(owner) => attachWorklistPool(owner, (error) => { throw error })}
+      onFatalError={(message) => {
+        throw new Error(message)
+      }}
+      attachRuntime={(owner) =>
+        attachWorklistPool(owner, (error) => {
+          throw error
+        })
+      }
     >
       <ConfirmProvider>
         <OperatorFocusProvider missionId={null}>
@@ -124,7 +151,9 @@ async function mount(prepare?: (fixture: Fixture) => void, count = 12) {
       </ConfirmProvider>
     </StoreProvider>,
   )
-  await act(async () => { await runtime.getSnapshot().refreshRepos() })
+  await act(async () => {
+    await runtime.getSnapshot().refreshRepos()
+  })
   await waitFor(() => expect(pool).not.toBeNull())
   await screen.findByText('Only responsive target')
   runtime.subscribeOutboxOutcomes((outcome) => outcomes.push(outcome))
@@ -133,7 +162,9 @@ async function mount(prepare?: (fixture: Fixture) => void, count = 12) {
 }
 
 async function parity() {
-  await act(async () => { await Promise.resolve() })
+  await act(async () => {
+    await Promise.resolve()
+  })
   const store = runtime.getSnapshot()
   const result = checkSidebar(pool!, store, {
     pinnedRepos: store.pins.repos,
@@ -157,17 +188,25 @@ function value(id = TARGET) {
   return result
 }
 async function request(name: string, id = TARGET) {
-  await waitFor(() => expect(requests.some((r) => r.procedure === name &&
-    (r.input['id'] === id || r.input['sessionId'] === id))).toBe(true))
-  return requests.find((r) => r.procedure === name &&
-    (r.input['id'] === id || r.input['sessionId'] === id))!
+  await waitFor(() =>
+    expect(
+      requests.some(
+        (r) => r.procedure === name && (r.input['id'] === id || r.input['sessionId'] === id),
+      ),
+    ).toBe(true),
+  )
+  return requests.find(
+    (r) => r.procedure === name && (r.input['id'] === id || r.input['sessionId'] === id),
+  )!
 }
 async function refuse(write: Request) {
   const before = outcomes.length
   await act(async () => {
-    write.reject(Object.assign(new Error('Synthetic refusal'), {
-      data: { code: 'BAD_REQUEST', httpStatus: 400 },
-    }))
+    write.reject(
+      Object.assign(new Error('Synthetic refusal'), {
+        data: { code: 'BAD_REQUEST', httpStatus: 400 },
+      }),
+    )
   })
   await waitFor(() => expect(outcomes.slice(before).some((o) => o.type === 'rejected')).toBe(true))
   await parity()
@@ -185,8 +224,12 @@ function patchIssue(fixture: Fixture, id: string, patch: Record<string, unknown>
 }
 function discoveredFrom(fixture: Fixture, fromId: string, toId: string) {
   const id = `synthetic-edge-${fromId}`
-  const record = { entity: 'issueDep', entityId: id,
-    value: { id, fromId, toId, type: 'discovered-from' }, provenance: { seq: 1 } }
+  const record = {
+    entity: 'issueDep',
+    entityId: id,
+    value: { id, fromId, toId, type: 'discovered-from' },
+    provenance: { seq: 1 },
+  }
   fixture.records.set(`issueDep:${id}`, record)
   fixture.replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
 }
@@ -208,86 +251,153 @@ afterEach(() => {
 
 describe('pool navigation uses the existing gesture semantics', () => {
   it('selects the mission root, traces the explicit pane and batches read/defer before focus once', async () => {
-    await mount((fixture) => patchIssue(fixture, 'synthetic-3', { deferUntil: new Date(NOW - 1000).toISOString() }))
+    await mount((fixture) =>
+      patchIssue(fixture, 'synthetic-3', { deferUntil: new Date(NOW - 1000).toISOString() }),
+    )
     const calls: string[] = []
     const store = {
       ...runtime.getSnapshot(),
-      batchGesture: vi.fn((fn: () => void) => { calls.push('batch'); fn(); calls.push('end') }),
-      navigateWorkspace: vi.fn(() => { calls.push('navigate'); return false }),
-      markIssueRead: vi.fn(async () => { calls.push('issue-read') }),
-      deferIssue: vi.fn(async () => { calls.push('defer') }),
-      markSessionRead: vi.fn(async () => { calls.push('session-read') }),
+      batchGesture: vi.fn((fn: () => void) => {
+        calls.push('batch')
+        fn()
+        calls.push('end')
+      }),
+      navigateWorkspace: vi.fn(() => {
+        calls.push('navigate')
+        return false
+      }),
+      markIssueRead: vi.fn(async () => {
+        calls.push('issue-read')
+      }),
+      deferIssue: vi.fn(async () => {
+        calls.push('defer')
+      }),
+      markSessionRead: vi.fn(async () => {
+        calls.push('session-read')
+      }),
     }
-    vi.mocked(beginSwitch).mockImplementation(() => { calls.push('trace') })
-    const focus = vi.fn(() => { calls.push('focus') })
+    vi.mocked(beginSwitch).mockImplementation(() => {
+      calls.push('trace')
+    })
+    const focus = vi.fn(() => {
+      calls.push('focus')
+    })
     const work = createPoolWorkActions(pool!, { getSnapshot: () => store }, focus)
     work.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3'))
-    expect(calls).toEqual(['trace', 'batch', 'navigate', 'issue-read', 'defer', 'session-read', 'end', 'focus'])
+    expect(calls).toEqual([
+      'trace',
+      'batch',
+      'navigate',
+      'issue-read',
+      'defer',
+      'session-read',
+      'end',
+      'focus',
+    ])
     expect(store.navigateWorkspace).toHaveBeenCalledExactlyOnceWith({
-      selectedIssueId: 'synthetic-1', selectedWorktree: ROOT,
-      tabId: 'synthetic-session-3', firstPane: true,
+      selectedIssueId: 'synthetic-1',
+      selectedWorktree: ROOT,
+      tabId: 'synthetic-session-3',
+      firstPane: true,
     })
-    expect(beginSwitch).toHaveBeenCalledWith({ sessionId: 'synthetic-session-3', issueId: 'synthetic-3' })
+    expect(beginSwitch).toHaveBeenCalledWith({
+      sessionId: 'synthetic-session-3',
+      issueId: 'synthetic-3',
+    })
     work.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3'))
     expect(store.markIssueRead).toHaveBeenCalledTimes(1)
     expect(store.deferIssue).toHaveBeenCalledExactlyOnceWith('synthetic-3', null)
     expect(store.markSessionRead).toHaveBeenCalledTimes(1)
     expect(focus).toHaveBeenCalledWith('synthetic-3')
-    store.navigateWorkspace.mockImplementation(() => { throw new Error('invalid plan') })
+    store.navigateWorkspace.mockImplementation(() => {
+      throw new Error('invalid plan')
+    })
     focus.mockClear()
     expect(() => work.selectIssue(TARGET)).toThrow('invalid plan')
     expect(focus).not.toHaveBeenCalled()
     vi.mocked(beginSwitch).mockReset()
   })
 
-  it.each(['grandchild', 'filed-chain', 'unstarted-spin', 'departed-spin', 'shell-and-guest', 'archived-parent'])(
-    'chooses the same mission pane as legacy for %s', async (scenario) => {
-      await mount((fixture) => {
-        patchIssue(fixture, 'synthetic-7', { parentId: 'synthetic-3' })
-        fixture.patch('session', 'synthetic-session-7', { lastActiveAt: new Date(NOW - 20).toISOString() })
-        if (scenario !== 'grandchild') {
-          patchIssue(fixture, 'synthetic-7', {
-            parentId: null, startedBySession: 'synthetic-session-3',
-            stage: scenario === 'unstarted-spin' ? 'backlog' : 'in_progress',
-            deps: scenario.includes('spin') ? [{ id: 'synthetic-3', type: 'discovered-from' }] : [],
-          })
-          if (scenario.includes('spin')) discoveredFrom(fixture, 'synthetic-7', 'synthetic-3')
-        }
-        if (scenario === 'filed-chain') {
-          patchIssue(fixture, 'synthetic-8', { startedBySession: 'synthetic-session-7' })
-          fixture.patch('session', 'synthetic-session-8', { lastActiveAt: new Date(NOW - 10).toISOString() })
-        }
-        if (scenario === 'shell-and-guest') {
-          fixture.patch('session', 'synthetic-session-7', { agentKind: 'shell' })
-          fixture.patch('session', 'synthetic-guest-1', { cwd: ROOT,
-            lastActiveAt: new Date(NOW - 1).toISOString() })
-        }
-        if (scenario === 'archived-parent') patchIssue(fixture, 'synthetic-1', { archived: true })
+  it.each([
+    'grandchild',
+    'filed-chain',
+    'unstarted-spin',
+    'departed-spin',
+    'shell-and-guest',
+    'archived-parent',
+  ])('chooses the same mission pane as legacy for %s', async (scenario) => {
+    await mount((fixture) => {
+      patchIssue(fixture, 'synthetic-7', { parentId: 'synthetic-3' })
+      fixture.patch('session', 'synthetic-session-7', {
+        lastActiveAt: new Date(NOW - 20).toISOString(),
       })
-      const store = runtime.getSnapshot()
-      const clicked = store.issues.find((issue) => issue.id === 'synthetic-3')!
-      const root = missionRootFor(store.issues, clicked.id)!
-      const mission = missionIssueIds(store.issues, root.id, store.sessions)
-      const members = [...new Map(store.issues.filter((i) => mission.has(i.id))
-        .flatMap((i) => sessionsForIssueNav(i, store.sessions, [ROOT, `${ROOT}/guests`], { includeShells: true }))
-        .map((s) => [s.sessionId, s])).values()]
-      const expected = pickPaneSession(members, null)
-      await act(async () => { actions.selectIssue('synthetic-3') })
-      expect(runtime.getSnapshot().selectedIssueId).toBe(root.id)
-      expect(runtime.getSnapshot().paneA).toBe(expected)
-      expect(focused).toBe('synthetic-3')
-      await parity()
-    },
-  )
+      if (scenario !== 'grandchild') {
+        patchIssue(fixture, 'synthetic-7', {
+          parentId: null,
+          startedBySession: 'synthetic-session-3',
+          stage: scenario === 'unstarted-spin' ? 'backlog' : 'in_progress',
+          deps: scenario.includes('spin') ? [{ id: 'synthetic-3', type: 'discovered-from' }] : [],
+        })
+        if (scenario.includes('spin')) discoveredFrom(fixture, 'synthetic-7', 'synthetic-3')
+      }
+      if (scenario === 'filed-chain') {
+        patchIssue(fixture, 'synthetic-8', { startedBySession: 'synthetic-session-7' })
+        fixture.patch('session', 'synthetic-session-8', {
+          lastActiveAt: new Date(NOW - 10).toISOString(),
+        })
+      }
+      if (scenario === 'shell-and-guest') {
+        fixture.patch('session', 'synthetic-session-7', { agentKind: 'shell' })
+        fixture.patch('session', 'synthetic-guest-1', {
+          cwd: ROOT,
+          lastActiveAt: new Date(NOW - 1).toISOString(),
+        })
+      }
+      if (scenario === 'archived-parent') patchIssue(fixture, 'synthetic-1', { archived: true })
+    })
+    const store = runtime.getSnapshot()
+    const clicked = store.issues.find((issue) => issue.id === 'synthetic-3')!
+    const root = missionRootFor(store.issues, clicked.id)!
+    const mission = missionIssueIds(store.issues, root.id, store.sessions)
+    const members = [
+      ...new Map(
+        store.issues
+          .filter((i) => mission.has(i.id))
+          .flatMap((i) =>
+            sessionsForIssueNav(i, store.sessions, [ROOT, `${ROOT}/guests`], {
+              includeShells: true,
+            }),
+          )
+          .map((s) => [s.sessionId, s]),
+      ).values(),
+    ]
+    const expected = pickPaneSession(members, null)
+    await act(async () => {
+      actions.selectIssue('synthetic-3')
+    })
+    expect(runtime.getSnapshot().selectedIssueId).toBe(root.id)
+    expect(runtime.getSnapshot().paneA).toBe(expected)
+    expect(focused).toBe('synthetic-3')
+    await parity()
+  })
 
   it('keeps a mission file pane, avoids redundant/file traces, and still focuses a sessionless child', async () => {
     await mount((fixture) => fixture.patch('session', 'synthetic-session-3', { archived: true }))
     const file = asSessionId('file:synthetic')
-    const store = { ...runtime.getSnapshot(), paneA: file,
-      fileTabs: [{ id: file, worktreePath: ROOT }], navigateWorkspace: vi.fn(() => false),
-      batchGesture: (fn: () => void) => fn(), markIssueRead: vi.fn(async () => {}) }
+    const store = {
+      ...runtime.getSnapshot(),
+      paneA: file,
+      fileTabs: [{ id: file, worktreePath: ROOT }],
+      navigateWorkspace: vi.fn(() => false),
+      batchGesture: (fn: () => void) => fn(),
+      markIssueRead: vi.fn(async () => {}),
+    }
     const focus = vi.fn()
-    const work = createPoolWorkActions(pool!, { getSnapshot: () => store as ReturnType<typeof runtime.getSnapshot> }, focus)
+    const work = createPoolWorkActions(
+      pool!,
+      { getSnapshot: () => store as ReturnType<typeof runtime.getSnapshot> },
+      focus,
+    )
     work.selectIssue('synthetic-3')
     expect(store.navigateWorkspace).toHaveBeenCalledWith(expect.objectContaining({ tabId: file }))
     expect(focus).toHaveBeenCalledWith('synthetic-3')
@@ -298,15 +408,28 @@ describe('pool navigation uses the existing gesture semantics', () => {
   })
 
   it('selects a worktree and its explicit panel with the same trace and mark-read actions', async () => {
-    await mount((fixture) => fixture.patch('session', 'synthetic-guest-1', {
-      lastActiveAt: new Date(NOW - 1).toISOString(), cwd: `${ROOT}/guests/src`,
-    }))
-    await act(async () => { actions.selectWorktree(`${ROOT}/guests`) })
-    expect(runtime.getSnapshot()).toMatchObject({ selectedIssueId: null,
-      selectedWorktree: `${ROOT}/guests`, paneA: 'synthetic-guest-1', view: 'workspace' })
+    await mount((fixture) =>
+      fixture.patch('session', 'synthetic-guest-1', {
+        lastActiveAt: new Date(NOW - 1).toISOString(),
+        cwd: `${ROOT}/guests/src`,
+      }),
+    )
+    await act(async () => {
+      actions.selectWorktree(`${ROOT}/guests`)
+    })
+    expect(runtime.getSnapshot()).toMatchObject({
+      selectedIssueId: null,
+      selectedWorktree: `${ROOT}/guests`,
+      paneA: 'synthetic-guest-1',
+      view: 'workspace',
+    })
     expect(beginSwitch).toHaveBeenLastCalledWith({ sessionId: 'synthetic-guest-1', issueId: null })
-    expect((await request('sessions.markRead', 'synthetic-guest-1')).input).toMatchObject({ sessionId: 'synthetic-guest-1' })
-    await act(async () => { actions.selectPanel(`${ROOT}/guests`, asSessionId('synthetic-guest-0')) })
+    expect((await request('sessions.markRead', 'synthetic-guest-1')).input).toMatchObject({
+      sessionId: 'synthetic-guest-1',
+    })
+    await act(async () => {
+      actions.selectPanel(`${ROOT}/guests`, asSessionId('synthetic-guest-0'))
+    })
     expect(runtime.getSnapshot().paneA).toBe('synthetic-guest-0')
     expect(beginSwitch).toHaveBeenLastCalledWith({ sessionId: 'synthetic-guest-0', issueId: null })
     await request('sessions.markRead', 'synthetic-guest-0')
@@ -321,14 +444,20 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const rows = ids.map((id) => owner.row('issue', id))
     const coldRule = residency.coldRule.bind(residency)
     const hidden = residency.hidden.bind(residency)
-    residency.coldRule = (entity, record) => entity === 'issue' && ids.includes((record as { id: string }).id)
-      ? true : coldRule(entity, record)
-    residency.hidden = (entity, id) => entity === 'issue' && ids.includes(id) ? false : hidden(entity, id)
+    residency.coldRule = (entity, record) =>
+      entity === 'issue' && ids.includes((record as { id: string }).id)
+        ? true
+        : coldRule(entity, record)
+    residency.hidden = (entity, id) =>
+      entity === 'issue' && ids.includes(id) ? false : hidden(entity, id)
     try {
       act(() => {
         ids.forEach((id, index) => {
           owner.apply({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
-          owner.apply({ type: 'update', rows: [{ kind: 'issue', id, value: rows[index] as Record<string, unknown> }] })
+          owner.apply({
+            type: 'update',
+            rows: [{ kind: 'issue', id, value: rows[index] as Record<string, unknown> }],
+          })
         })
       })
       const fetch = vi.spyOn(runtime.replica, 'row')
@@ -360,17 +489,27 @@ describe('real pool row mutations and receipts', () => {
     const patches = planReorderKeys(order, movedId, () => undefined)
     expect(patches).toHaveLength(original.length)
     await act(async () => {
-      await drag.options!.onDrop({ sourceScope: 'group:synthetic-repo', targetScope: 'group:synthetic-repo', movedId, order })
+      await drag.options!.onDrop({
+        sourceScope: 'group:synthetic-repo',
+        targetScope: 'group:synthetic-repo',
+        movedId,
+        order,
+      })
     })
     await waitFor(() => expect(requests).toHaveLength(patches.length))
-    expect(requests.map((r) => ({ id: r.input['id'], ...(r.input['patch'] as object) }))).toEqual(patches)
+    expect(requests.map((r) => ({ id: r.input['id'], ...(r.input['patch'] as object) }))).toEqual(
+      patches,
+    )
     expect(pool!.sidebar.sections().bands[0]!.rowIds).toEqual(order)
     await parity()
     for (const write of [...requests]) await refuse(write)
     expect(pool!.sidebar.sections().bands[0]!.rowIds).toEqual(original)
   })
 
-  it.each([true, false])('crosses the pinned boundary (%s) with only the moved row patch', async (pinned) => {
+  it.each([
+    true,
+    false,
+  ])('crosses the pinned boundary (%s) with only the moved row patch', async (pinned) => {
     await mount((fixture) => {
       for (let index = 0; index < 12; index += 1)
         patchIssue(fixture, `synthetic-${index}`, { sortKey: `a${'0123456789AB'[index]}` })
@@ -378,13 +517,20 @@ describe('real pool row mutations and receipts', () => {
     const movedId = pinned ? TARGET : 'synthetic-0'
     const sourceScope = pinned ? 'group:synthetic-repo' : 'pinned'
     const targetScope = pinned ? 'pinned' : 'group:synthetic-repo'
-    const existing = pinned ? [...pool!.sidebar.sections().pinnedIds] : [...pool!.sidebar.sections().bands[0]!.rowIds]
+    const existing = pinned
+      ? [...pool!.sidebar.sections().pinnedIds]
+      : [...pool!.sidebar.sections().bands[0]!.rowIds]
     const order = [...existing, movedId]
     expect(drag.options!.allowedTargets?.(sourceScope, movedId)).toEqual([targetScope])
-    await act(async () => { await drag.options!.onDrop({ sourceScope, targetScope, movedId, order }) })
+    await act(async () => {
+      await drag.options!.onDrop({ sourceScope, targetScope, movedId, order })
+    })
     const write = await request('issues.update', movedId)
     expect(requests).toHaveLength(1)
-    expect(write.input).toMatchObject({ id: movedId, patch: { pinned, sortKey: expect.any(String) } })
+    expect(write.input).toMatchObject({
+      id: movedId,
+      patch: { pinned, sortKey: expect.any(String) },
+    })
     expect(pool!.sidebar.sections().pinnedIds.includes(movedId)).toBe(pinned)
     await parity()
     await refuse(write)
@@ -414,14 +560,20 @@ describe('real pool row mutations and receipts', () => {
     const fixture = await mount()
     act(() => actions.renameIssue(TARGET, 'Accepted title'))
     const first = await request('issues.update')
-    await act(async () => { first.resolve({ ok: true }) })
+    await act(async () => {
+      first.resolve({ ok: true })
+    })
     await waitFor(() => expect(outcomes.some((o) => o.type === 'applied')).toBe(true))
     expect(value().title).toBe('Accepted title')
     await parity()
     act(() => actions.renameIssue(TARGET, 'Second pending title'))
-    await waitFor(() => expect(requests.filter((r) => r.procedure === 'issues.update')).toHaveLength(2))
+    await waitFor(() =>
+      expect(requests.filter((r) => r.procedure === 'issues.update')).toHaveLength(2),
+    )
     const second = requests.filter((r) => r.procedure === 'issues.update')[1]!
-    await act(async () => { patchIssue(fixture, TARGET, { title: 'Accepted title' }) })
+    await act(async () => {
+      patchIssue(fixture, TARGET, { title: 'Accepted title' })
+    })
     expect(value().title).toBe('Second pending title')
     await parity()
     await refuse(second)
@@ -460,16 +612,22 @@ describe('real pool row mutations and receipts', () => {
   })
 
   it('tucks and brings back with the shared action and keeps a clicked closed row folded', async () => {
-    await mount((fixture) => patchIssue(fixture, TARGET, {
-      stage: 'done', closedReason: 'done', closedAt: new Date(NOW - 600000).toISOString(),
-    }))
+    await mount((fixture) =>
+      patchIssue(fixture, TARGET, {
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: new Date(NOW - 600000).toISOString(),
+      }),
+    )
     fireEvent.click(within(row()).getByTestId('tuck-away'))
     const tuck = await request('issues.setTucked')
     expect(tuck.input).toMatchObject({ id: TARGET, tucked: true })
     await waitFor(() => expect(pool!.sidebar.sections().bands[0]!.closedIds).toContain(TARGET))
     await parity()
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
-    const folded = await screen.findByText('Only responsive target', { selector: '[data-testid="folded-work-row"] *' })
+    const folded = await screen.findByText('Only responsive target', {
+      selector: '[data-testid="folded-work-row"] *',
+    })
     fireEvent.click(folded)
     expect(pool!.foldLatch.get()).toBe(true)
     await parity()
@@ -483,9 +641,11 @@ describe('real pool row mutations and receipts', () => {
   })
 
   it('keeps Bring back disabled with its explanation after the grace window', async () => {
-    await mount((fixture) => patchIssue(fixture, 'synthetic-5', {
-      closedAt: new Date(NOW - 2 * 86400000).toISOString(),
-    }))
+    await mount((fixture) =>
+      patchIssue(fixture, 'synthetic-5', {
+        closedAt: new Date(NOW - 2 * 86400000).toISOString(),
+      }),
+    )
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
     const folded = screen.getByTestId('folded-work-row')
     fireEvent.contextMenu(folded)
@@ -507,7 +667,9 @@ describe('real pool row mutations and receipts', () => {
     await parity()
     await refuse(write)
     expect(pool!.sidebar.sections().bands[0]!.closedIds).toContain('synthetic-5')
-    await waitFor(() => expect(screen.getByTestId('folded-work-row').textContent).toContain('Synthetic task 5'))
+    await waitFor(() =>
+      expect(screen.getByTestId('folded-work-row').textContent).toContain('Synthetic task 5'),
+    )
   })
 
   it('opens the task page without changing the workspace pane', async () => {
@@ -515,14 +677,23 @@ describe('real pool row mutations and receipts', () => {
     const pane = runtime.getSnapshot().paneA
     await menu()
     fireEvent.click(await item('Open in tasks'))
-    expect(runtime.getSnapshot()).toMatchObject({ openIssueId: TARGET, view: 'issues', paneA: pane })
+    expect(runtime.getSnapshot()).toMatchObject({
+      openIssueId: TARGET,
+      view: 'issues',
+      paneA: pane,
+    })
     expect(requests).toHaveLength(0)
     await parity()
   })
 
   it.each([
     ['Set status', 'Review', 'issues.update', { patch: { stage: 'review' } }],
-    ['Snooze / defer', 'For 1 hour', 'issues.defer', { until: new Date(NOW + 3600000).toISOString() }],
+    [
+      'Snooze / defer',
+      'For 1 hour',
+      'issues.defer',
+      { until: new Date(NOW + 3600000).toISOString() },
+    ],
   ] as const)('dispatches %s through the existing menu and outbox', async (entry, option, name, expected) => {
     await mount((fixture) => patchIssue(fixture, 'synthetic-8', { labels: ['synthetic-label'] }))
     await menu()
@@ -558,17 +729,39 @@ describe('real pool row mutations and receipts', () => {
     expect(resolved.childCount).toBe(2)
     expect(resolved.memberSessionIds).toEqual(['synthetic-session-1'])
     await menu()
-    for (const name of ['Open in tasks', 'Rename', 'Mark as unread', 'Set status', 'Set colour', 'Snooze / defer', 'Pin', 'Archive…', 'Delete…'])
+    for (const name of [
+      'Open in tasks',
+      'Rename',
+      'Mark as unread',
+      'Set status',
+      'Set colour',
+      'Snooze / defer',
+      'Pin',
+      'Archive…',
+      'Delete…',
+    ])
       expect(await item(name)).toBeTruthy()
-    for (const name of ['Set priority', 'Labels', 'Assign agent', 'Run now', 'Duplicate of', 'Restore'])
+    for (const name of [
+      'Set priority',
+      'Labels',
+      'Assign agent',
+      'Run now',
+      'Duplicate of',
+      'Restore',
+    ])
       expect(screen.queryByRole('menuitem', { name })).toBeNull()
     fireEvent.keyDown(document, { key: 'Escape' })
     await parity()
   })
 
   it('marks an unread task read, clears deferral and unpins through the actual menu', async () => {
-    await mount((fixture) => patchIssue(fixture, TARGET, { readAt: null, pinned: true,
-      deferUntil: new Date(NOW + 3600000).toISOString() }))
+    await mount((fixture) =>
+      patchIssue(fixture, TARGET, {
+        readAt: null,
+        pinned: true,
+        deferUntil: new Date(NOW + 3600000).toISOString(),
+      }),
+    )
     await menu()
     fireEvent.click(await item('Mark as read'))
     const read = await request('issues.markRead')
@@ -630,19 +823,25 @@ describe('real pool row mutations and receipts', () => {
 
   it('treats eviction as absence, never requests the evicted row, and accepts readmission', async () => {
     const fixture = await mount()
-    await act(async () => { runtime.getSnapshot().setSelectedIssueId(asIssueId(TARGET)) })
+    await act(async () => {
+      runtime.getSnapshot().setSelectedIssueId(asIssueId(TARGET))
+    })
     expect(runtime.getSnapshot().selectedIssueId).toBe(TARGET)
     await act(async () => {
-      for (const entity of ['issue', 'issueProjection']) fixture.replica.onKernelEvent({ type: 'evicted', entity, entityId: TARGET })
+      for (const entity of ['issue', 'issueProjection'])
+        fixture.replica.onKernelEvent({ type: 'evicted', entity, entityId: TARGET })
     })
     await waitFor(() => expect(runtime.getSnapshot().selectedIssueId).toBeNull())
     expect(pool!.sidebar.row(TARGET)).toBeUndefined()
     expect(requests).toHaveLength(0)
     await parity()
     await act(async () => {
-      for (const entity of ['issue', 'issueProjection']) fixture.replica.onKernelEvent({
-        type: 'upserted', record: fixture.records.get(`${entity}:${TARGET}`)!, readmitted: true,
-      })
+      for (const entity of ['issue', 'issueProjection'])
+        fixture.replica.onKernelEvent({
+          type: 'upserted',
+          record: fixture.records.get(`${entity}:${TARGET}`)!,
+          readmitted: true,
+        })
     })
     expect(value().title).toBe('Only responsive target')
     await parity()
@@ -652,10 +851,22 @@ describe('real pool row mutations and receipts', () => {
 describe('pool command-hold row shortcuts', () => {
   it('numbers and selects the settled first nine tasks in column order, excluding folded/collapsed bands', async () => {
     await mount(undefined, 18)
-    const ids = [...document.querySelectorAll('[data-issue-row]')].map((node) => node.getAttribute('data-issue-row')!)
+    const ids = [...document.querySelectorAll('[data-issue-row]')].map(
+      (node) => node.getAttribute('data-issue-row')!,
+    )
     fireEvent.keyDown(window, { key: 'Meta', code: 'MetaLeft', metaKey: true })
     const badges = [...document.querySelectorAll('[data-shortcut-digit]')]
-    expect(badges.map((node) => node.getAttribute('data-shortcut-digit'))).toEqual(['1','2','3','4','5','6','7','8','9'])
+    expect(badges.map((node) => node.getAttribute('data-shortcut-digit'))).toEqual([
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+      '6',
+      '7',
+      '8',
+      '9',
+    ])
     for (let digit = 1; digit <= 9; digit += 1) {
       fireEvent.keyDown(window, { key: String(digit), code: `Digit${digit}`, metaKey: true })
       expect(runtime.getSnapshot().selectedIssueId).toBe(ids[digit - 1])
