@@ -12,7 +12,7 @@ import { legacySidebarRow, legacySidebarSections } from '@podium/client-graph/di
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { asUserId, type GitRepositoryWire, type IssueProjection, type IssueWire, type SessionMeta } from '@podium/model'
+import { asRepoId, asUserId, type GitRepositoryWire, type IssueProjection, type IssueWire, type SessionMeta } from '@podium/model'
 import { reaction, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { corpusFromLive, type LiveCollections } from '../../../harness/src/fixture/live-snapshot'
@@ -25,6 +25,11 @@ const NOW = Date.parse('2026-09-30T12:00:00.000Z')
 const STAMP = new Date(NOW - 60_000).toISOString()
 const ROOT = '/synthetic/repo'
 const REPO = { path: ROOT, repoId: 'synthetic-repo', name: 'Synthetic project', worktrees: [] } as unknown as GitRepositoryWire
+
+function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error('Synthetic fixture value absent')
+  return value
+}
 
 function issue(id: string, patch: Partial<IssueWire> = {}): IssueWire {
   return { id, seq: 1, title: 'Synthetic task', stage: 'in_progress', audience: 'human',
@@ -86,7 +91,7 @@ function replay(data: LiveCollections) {
       expected: legacySidebarSections(legacyDerivationFromStore(store, NOW), {}, null, false, NOW),
     })),
     updateIssue: (row: IssueWire) => {
-      const projection = collections([row]).issueProjections[0]!
+      const projection = required(collections([row]).issueProjections[0])
       for (const [entity, value] of [['issue', row], ['issueProjection', projection]] as const) {
         cache.put(entity, row.id, value)
         replica.onKernelEvent({ type: 'upserted', record: { entity, entityId: row.id, value, provenance: { seq: 1 } }, readmitted: false })
@@ -228,7 +233,7 @@ describe('POD-5059 section label from root rows', () => {
     try {
       const band = () => {
         const sections = ctx.sections()
-        return { actual: sections.actual.bands.find(b => b.key === 'synthetic-repo')!, expected: sections.expected.bands.find(b => b.key === 'synthetic-repo')! }
+        return { actual: required(sections.actual.bands.find(b => b.key === 'synthetic-repo')), expected: required(sections.expected.bands.find(b => b.key === 'synthetic-repo')) }
       }
       expect(band().expected.label).toBe('repo')
       expect(band().actual.label).toBe(band().expected.label)
@@ -240,6 +245,59 @@ describe('POD-5059 section label from root rows', () => {
       ctx.updateIssue({ ...root, repoPath: '/synthetic/renamed-root' })
       expect(band().expected.label).toBe('renamed-root')
       expect(band().actual.label).toBe(band().expected.label)
+      expect(ctx.check().first).toBeNull()
+    } finally { ctx.dispose() }
+  })
+})
+
+
+describe('POD-5060 section repository path fallback', () => {
+  it.each(['closed', 'snoozed'] as const)('uses the key for an unregistered section with only %s rows', fold => {
+    const old = new Date(NOW - 2 * 24 * 3_600_000).toISOString()
+    const task = issue('iss_synthetic_path_folded', { repoId: asRepoId('synthetic-unregistered'), repoPath: '/synthetic/unregistered-checkout',
+      ...(fold === 'closed' ? { stage: 'done', closedReason: 'done', closedAt: old, tuckedAt: old } : { deferUntil: new Date(NOW + 3_600_000).toISOString() }) })
+    const ctx = replay(collections([task]))
+    try {
+      const { actual, expected } = ctx.sections()
+      const e = required(expected.bands.find(b => b.key === 'synthetic-unregistered'))
+      const a = required(actual.bands.find(b => b.key === e.key))
+      expect(e.rowIds).toEqual([])
+      expect(e.repoPath).toBe(e.key)
+      expect(a.repoPath).toBe(e.repoPath)
+      expect(ctx.check().first).toBeNull()
+    } finally { ctx.dispose() }
+  })
+  it('uses the first open root path rather than a newer folded root path', () => {
+    const old = new Date(NOW - 2 * 24 * 3_600_000).toISOString()
+    const closed = issue('iss_synthetic_path_closed', { seq: 2, repoId: asRepoId('synthetic-unregistered'), repoPath: '/synthetic/folded-checkout',
+      stage: 'done', closedReason: 'done', closedAt: old, tuckedAt: old })
+    const open = issue('iss_synthetic_path_open', { repoId: asRepoId('synthetic-unregistered'), repoPath: '/synthetic/open-checkout' })
+    const ctx = replay(collections([closed, open]))
+    try {
+      const { actual, expected } = ctx.sections()
+      const e = required(expected.bands.find(b => b.key === 'synthetic-unregistered'))
+      const a = required(actual.bands.find(b => b.key === e.key))
+      expect(e.repoPath).toBe(open.repoPath)
+      expect(a.repoPath).toBe(e.repoPath)
+      expect(ctx.check().first).toBeNull()
+    } finally { ctx.dispose() }
+  })
+  it('keeps the canonical discovery root across clone aliases and a duplicate linked entry', () => {
+    const linked = '/synthetic/linked-checkout'
+    const clone = '/synthetic/clone-checkout'
+    const repos = [
+      { ...REPO, worktrees: [{ path: linked, branch: 'synthetic-topic' }] },
+      { ...REPO, path: linked },
+      { ...REPO, path: clone },
+    ] as unknown as GitRepositoryWire[]
+    const task = issue('iss_synthetic_path_registered', { repoPath: clone, worktreePath: linked, stage: 'done', closedReason: 'done', tuckedAt: STAMP })
+    const ctx = replay(collections([task], [], repos))
+    try {
+      const { actual, expected } = ctx.sections()
+      const e = required(expected.bands.find(b => b.key === 'synthetic-repo'))
+      const a = required(actual.bands.find(b => b.key === e.key))
+      expect(e.repoPath).toBe(ROOT)
+      expect(a.repoPath).toBe(e.repoPath)
       expect(ctx.check().first).toBeNull()
     } finally { ctx.dispose() }
   })

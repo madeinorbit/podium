@@ -1,6 +1,6 @@
 # POD-4954 — ordered sidebar differential
 
-The checker compares the exact legacy worklist derivation with the pool's sidebar model on the same data and clock. Synthetic corpus and scenario replay, all three default random-change seeds, and focused oracle gates have zero differences. The operator export found **eight mismatch locations**, all covered by **POD-5056 through POD-5060**, sub-issues under POD-4948. Real-data parity is not green.
+The checker compares the exact legacy worklist derivation with the pool's sidebar model on the same data and clock. The original synthetic acceptance was green, while the initial operator replay found **eight mismatch locations**, covered by **POD-5056 through POD-5060**. The POD-5063 follow-up below resolves them: **zero mismatches across 1,071 comparison positions**.
 
 ## Usage and comparison contract
 
@@ -47,7 +47,7 @@ The export and raw command logs stayed in the ignored local `.live` directory. T
 
 The first export exposed a fidelity error: `origin` was hashed while normalized `intentOrigin` was retained. The exporter now preserves both enum spellings; its regression was proven red and the **15-test shape file** was green at `3bdf32c7c` before the faithful replay.
 
-Faithful replay at `ce73b0feb`: **5,602 issues, 5,013 sessions, 35 sections, 1,070 row-comparison positions, eight mismatches, zero pending loads**. Three issue-row differences each appear twice; two section headers differ. Every observed location is covered below. Indices are zero-based; section keys and field values were withheld because they can contain private paths or text.
+Initial replay at `ce73b0feb` (session-order fidelity corrected below): **5,602 issues, 5,013 sessions, 35 sections, 1,070 row-comparison positions, eight mismatches, zero pending loads**. Three issue-row differences each appear twice; two section headers differ. Every observed location is covered below. Indices are zero-based; section keys and field values were withheld because they can contain private paths or text.
 
 | Follow-up under POD-4948 | First field | Observed positions `(sectionIndex, rowIndex)` |
 | --- | --- | --- |
@@ -79,4 +79,25 @@ The lean gate's counts are from its own report: runtime boot 16, server router w
 
 These are focused correctness and boot/wiring results. No whole-suite, long L4b, performance benchmark or browser lane ran. The changed boundary is timer ownership/accounting, covered by focused runtime tests; no pointer, OS, browser-new-tab or desktop-shell dispatch changed. Documentation and final trailing-whitespace cleanup do not require repeating runtime checks.
 
-The checker meets the acceptance alternative that every observed real-data difference is filed under POD-4948. The remaining parity work is POD-5056–POD-5060. The operator's pilot landing target is `integrate/4286-pilot`; publishing or moving `dev/mw` remains a separate operator decision.
+At the original checker landing, every observed real-data difference was filed under POD-4948; POD-5056–POD-5060 remained open. The follow-up below closes that parity work. The operator's pilot landing target is `integrate/4286-pilot`; publishing or moving `dev/mw` remains a separate operator decision.
+
+
+## POD-5063 real-data follow-up
+
+A fresh ludovico-only export contains **5,610 issues, 5,014 sessions, 35 sections and 1,071 comparison positions**. Its initial replay reproduced all eight locations. The final replay, after rebasing the five child commits onto POD-4955, reports **0 differences, 0 pending loads, no first difference and an empty locations list**. No comparison was suppressed or allowlisted.
+
+| Child | Field | Fresh-export positions | New checks failing with planted faults | Restored checks passing |
+| --- | --- | --- | --- | --- |
+| POD-5056 | `fleet.total` | `(1, 1)`, `(34, 760)` | 3 | 3 |
+| POD-5057 | `timing.sinceMs` | `(19, 74)`, `(34, 482)` | 2 | 2 |
+| POD-5058 | `continuation.ref` | `(19, 79)`, `(34, 504)` | 4 | 4 |
+| POD-5059 | `label` | `(22, null)` | 2 | 2 |
+| POD-5060 | `repoPath` | `(31, null)` | 4 | 4 |
+
+Fleet and timing shared a replay-input defect: transport order selected a different exact-rank resume twin from the actual runtime. Replay now seeds sessions in replica order. The permanent tie test constructs the real `ClientRuntime` and compares its legacy answer with replay; restoring the original transport-order input fails both tie variants. The pool's existing lower-ID tie rule and legacy behavior remain intact.
+
+The three pool corrections follow the legacy rules: staffed continuation tips prefer activity regardless of closure, section labels come from the first root before nesting, and section paths prefer a registered root, then the first open issue, then the section key. The label reads existing group membership and cached placement; no cold-ID index, peek caller, runtime, replica, outbox or old-record field was added. Switch-off code was untouched.
+
+All 15 new checks were proven red with targeted source faults and restored with `cp`. Closing validation on flatblock executed **27 checks in five focused files**, with nine deliberately deselected cases, plus both affected uncached type targets and scoped lint. The final combined-candidate run preserves POD-4955's rail counters, companion projection bridge and checker teardown. This is focused correctness evidence; no full-suite or performance claim is made.
+
+The export and every raw replay/inspection log were deleted from ludovico after the final replay. Only counts, positions, field names and opaque IDs are retained as evidence. The independently shippable snoozed-roster label finding is Proposed POD-5070, unclaimed, with a discovered-from dependency on POD-5063.

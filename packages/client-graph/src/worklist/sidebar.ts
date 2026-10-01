@@ -201,7 +201,11 @@ export class SidebarIndex {
       const { rowIds, snoozedIds, closedIds } = group.sidebarRows
       if (!rowIds.length && !snoozedIds.length && !closedIds.length) continue
       const label = group.sidebarMetadata.label
-      const band = add(key, label, group.repoPath)
+      // A registered root was seeded above. Otherwise legacy uses the first
+      // open issue's path, then the key; folded rows never supply this path.
+      const firstOpen = rowIds[0]
+      const path = firstOpen === undefined ? key : this.pool.groups.placementOf(firstOpen)?.repoPath ?? key
+      const band = add(key, label, path)
       bands.set(key, { ...band, label, rowIds, snoozedIds, closedIds, startFirstTask: false })
     }
     for (const key of index.keys()) {
