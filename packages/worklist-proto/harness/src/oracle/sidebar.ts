@@ -57,7 +57,7 @@ export function legacySidebarRow(row: UnifiedIssueRow, derivation: LegacyDerivat
     title: issueDisplayTitle(issue, derivation.sessions, derivation.allWorktreePaths),
     timing: rowMotionTiming(row), decision,
     mergeCommits: decision === 'merge' ? issue.gitState?.ahead ?? 0 : 0,
-    progress: rollup.progress, fromChildren: rollup.fromChildren,
+    progress: rollup.progress, fromChildren: rollup.fromChildren, statusFromChildren: row.missionRollup?.fromChildren === true,
     gitState: issue.gitState, unread: rowUnreadEmphasized(row),
     errorClass: errorSession ? errorSession.agentState?.error?.class ?? 'unknown' : null,
     internal: issue.audience === 'agent', unsnoozed: issueReturnedFromDefer(issue, now),
@@ -127,7 +127,7 @@ export function worktreeDiff(pool: MobxPool, derivation: LegacyDerivation, state
 export function poolStatusLine(value: SidebarRowValues, activityAt: number, now: number): string {
   const continuation = value.continuation ? `${value.continuation.kind} · ${value.continuation.ref}` : undefined
   const row = { kind: 'issue', issue: value.issue, sessions: value.sessions,
-    aggregateSessions: value.aggregateSessions, missionRollup: { progress: value.progress, fromChildren: value.fromChildren }, activityAt, continuation } as unknown as UnifiedIssueRow
+    aggregateSessions: value.aggregateSessions, missionRollup: { progress: value.progress, fromChildren: value.statusFromChildren }, activityAt, continuation } as unknown as UnifiedIssueRow
   return continuation ?? rowStatusLine(row, now, 0)
 }
 

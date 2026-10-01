@@ -80,13 +80,10 @@
  * `conversations`, `automations`, `automationRuns`, `userLayouts`) never
  * produce rows. A publication touching only those kinds emits no event.
  *
- * ISSUE DUAL-WRITE ASSUMPTION. An `issue` row carries the folded wire row
- * (`IssueWire`, cast to `SliceIssue` — the wire holds every slice field the
- * legacy views read), else the folded projection row cast up. The scenarios
- * keep wire and projection dual-written, so a projection change arrives with
- * its wire change in the same batch and dedupes to one row. A projection-only
- * write under a stale wire would paint stale — a write-path finding
- * (methodology §6.4), not a silent miss.
+ * ISSUE INPUT (POD-4953). Durable issue facts come from the folded normalized
+ * projection. One temporary adapter supplies the six old-only fields and
+ * translates compatibility spellings. A projection-only write therefore wins
+ * over a stale old record. Wire/projection addresses dedupe to one issue row.
  *
  * SESSION RESUME TWINS (a known divergence, not a silent one). The runtime
  * hides all-parked legacy sessions that share a resume ref
@@ -99,9 +96,10 @@
  * that forgets the rule fails parity.
  *
  * DEP EDGES. An `issueDeps` address resolves through the dep row's `fromId`
- * to the owning issue and emits that issue's row. A dep removal whose row is
- * already gone cannot resolve its owner and is skipped; the scenarios always
- * update the wire alongside the edge, so the issue event still lands.
+ * to the owning issue and emits that issue's row. A plain edge index remembers
+ * the owner through removal. A target's completion boolean is a declared small
+ * summary: only a changed completion fans out to its incoming blocking edges,
+ * including optimistic stage changes. No worklist selector is read.
  *
  * WORKTREE LANES. One `SliceWorktree` per repo root plus one per scanned
  * worktree, from `EngineState.repos` (`GitRepositoryWire`, engine-local, not a
@@ -722,6 +720,19 @@ export function createRowSource(
         }
         if (closed === undefined) closure.delete(address.id)
         else closure.set(address.id, closed)
+      }
+    }
+    // A pending stage can settle/reject without a kernel address. Its small
+    // completion summary fans out only to owners of incoming blocking edges.
+    const pendingIssueIds = new Set([...pending.issues.keys(), ...pending.issueProjections.keys()])
+    for (const key of overlaid.keys()) if (key.startsWith('issue:')) pendingIssueIds.add(key.slice(6))
+    for (const id of pendingIssueIds) {
+      if (!incoming.has(id)) continue
+      const closed = closedInput(id, pending)
+      if (closure.get(id) !== closed) {
+        for (const owner of incoming.get(id) ?? EMPTY) addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
+        if (closed === undefined) closure.delete(id)
+        else closure.set(id, closed)
       }
     }
     for (const [key, { kind, id }] of addressed) {

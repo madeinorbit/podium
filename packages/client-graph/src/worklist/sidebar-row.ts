@@ -24,6 +24,8 @@ export interface SidebarRowValues {
   readonly mergeCommits: number
   readonly progress: SidebarProgress
   readonly fromChildren: boolean
+  /** Legacy enriches root status with progress; a nested row keeps leaf copy. */
+  readonly statusFromChildren: boolean
   readonly gitState: SliceIssue['gitState']
   readonly unread: boolean
   readonly errorClass: string | null
@@ -51,7 +53,7 @@ export interface SidebarRowValues {
 /** Exhaustive comparison surface for the round-three sidebar oracle. */
 export const SIDEBAR_ROW_FIELDS = [
   'idNumber', 'color', 'title', 'timing', 'decision', 'mergeCommits', 'progress',
-  'fromChildren', 'gitState', 'unread', 'errorClass', 'internal', 'unsnoozed',
+  'fromChildren', 'statusFromChildren', 'gitState', 'unread', 'errorClass', 'internal', 'unsnoozed',
   'deferred', 'awaitsTuck', 'canBringBack', 'draftAgentOnly', 'firstSessionId',
   'continuation', 'fleet', 'issue', 'sessions', 'aggregateSessions', 'awaitingFirstPrompt',
 ] as const satisfies readonly (keyof SidebarRowValues)[]

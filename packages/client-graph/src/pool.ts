@@ -712,6 +712,9 @@ export class MobxPool {
     const clock = changed.has('coarseNow')
     if (!selection && !latch && !clock) return
     runInAction(() => {
+      if (selection && locals.selectedIssueWasFolded === undefined) {
+        this.foldLatch.set(locals.selectedIssueId !== null && this.groups.placementOf(locals.selectedIssueId)?.closed === true)
+      }
       if (selection) this.select(locals.selectedIssueId)
       if (latch) this.foldLatch.set(locals.selectedIssueWasFolded === true)
       if (clock) this.clock.advance(locals.coarseNow)

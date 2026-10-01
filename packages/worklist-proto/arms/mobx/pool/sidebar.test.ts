@@ -16,6 +16,7 @@ import { buildCorpus } from '../../../harness/src/fixture/index'
 import { legacyDerivationFromStore, visibleIssueRows } from '../../../harness/src/oracle/oracle'
 import { legacySidebarSections, sidebarDiff, worktreeDiff, legacySidebarRow } from '../../../harness/src/oracle/sidebar'
 import { harnessMobxPoolArm, snapshotPool, tracked, visibleOrderOf } from '../../../harness/src/adapters/mobx-pool'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { writeResult } from '../../../harness/src/results'
 import { startScenarioEngine, upsert } from '../../../shared/src/scenarios'
@@ -24,6 +25,19 @@ import { startGenRun } from '../../../shared/src/gen/run'
 import { DISABLED_READ_FENCE } from '../../../shared/src/instrument/reads'
 
 installMobxWarnTrap()
+
+/** Render requests each newly needed cold dependency, one load window at a time. */
+function settleSidebar(pool: MobxPool): void {
+  for (let window = 0; window < 64; window += 1) {
+    snapshotPool(pool)
+    tracked(() => {
+      for (const id of visibleOrderOf(pool)) pool.sidebar.row(id)
+      pool.sidebar.sections()
+    })
+    if (pool.hydrate() === 0) return
+  }
+  throw new Error('sidebar did not settle its batched dependencies')
+}
 
 function stateFor(keys: readonly string[], pins: { repos: string[]; worktrees: string[] }, variant = 0): SidebarState {
   return { pinnedRepos: pins.repos, pinnedWorktrees: pins.worktrees,
@@ -41,7 +55,7 @@ describe('real sidebar oracle (POD-4953)', () => {
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
     try {
-      snapshotPool(handle.pool)
+      settleSidebar(handle.pool)
       const locals = engineLocals(ctx)
       const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), locals.coarseNow)
       const rows = visibleIssueRows(derivation, locals)
@@ -180,7 +194,7 @@ describe('real sidebar random-change gate (POD-4953)', () => {
           feed = run.feed(); locals = createEngineLocals(run.ctx.engine)
           handle = harnessMobxPoolArm.create(feed.source, locals.source); stop = observe()
         }
-        locals.flush(); snapshotPool(handle.pool)
+        locals.flush(); settleSidebar(handle.pool)
         if (!step.skipped && step.change.kind === 'issueFacts') appliedIssue.add(step.change.variant)
         if (!step.skipped && step.change.kind === 'sessionFacts') appliedSession.add(step.change.variant)
         const local = engineLocals(run.ctx)

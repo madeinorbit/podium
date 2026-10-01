@@ -540,6 +540,9 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     const agg = this.aggregate
     const sessions = this.ownAttention.sessions ?? []
     const aggregateSessions = agg.sessions ?? []
+    const targetId = own.supersededBy ?? own.duplicateOf
+    const tip = !targetId && !this.openOwn ? this.tip : undefined
+    if (agg.pending > 0 || this.unitsBelow.pending > 0 || this.unitOwn.pending > 0 || (tip?.pending ?? 0) > 0) return LOADING
     const fromChildren = this.unitsBelow.members > 0
     const progress = fromChildren
       ? { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, ...this.unitsBelow.progress, total: this.unitsBelow.units }
@@ -548,22 +551,22 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     const decision = this.ownAttention.deciding ? facts.decision : null
     const errored = facts.finished ? undefined : aggregateSessions.find(s => !s.archived && s.status !== 'exited' && s.agentState?.phase === 'errored')
     let continuation: SidebarRowValues['continuation'] = null
-    const targetId = own.supersededBy ?? own.duplicateOf
     if (targetId) {
+      if (this.host.rollupInputs.loadedIssue(targetId) === LOADING) return LOADING
       const target = this.host.inputs.parts(targetId)?.label
       continuation = { kind: own.supersededBy ? 'continued' : 'duplicate', ref: target?.displayRef ?? 'another task' }
     } else if (!this.openOwn) {
-      const tip = this.tip.target
-      if (tip) continuation = { kind: 'continued', ref: this.host.inputs.parts(tip.id)?.label.displayRef ?? `#${tip.seq}` }
+      const destination = tip?.target
+      if (destination) continuation = { kind: 'continued', ref: this.host.inputs.parts(destination.id)?.label.displayRef ?? `#${destination.seq}` }
     }
     const readMs = Date.parse(issue.readAt ?? '')
-    const descendantUnread = issue.readAt && Number.isFinite(readMs) && (
+    const descendantUnread = this.nested.length > 0 && issue.readAt && Number.isFinite(readMs) && (
       (Date.parse(agg.updatedAt ?? '') || 0) > readMs || aggregateSessions.some(s => Date.parse(s.lastActiveAt) > readMs))
     return {
       idNumber: this.seq, color: own.color ?? null, title: this.title,
       timing: sidebarTiming(aggregateSessions, this.phase, facts.finished, this.activityAt, agg.decidingAt),
       decision, mergeCommits: decision === 'merge' ? own.gitState?.ahead ?? 0 : 0,
-      progress, fromChildren, gitState: own.gitState,
+      progress, fromChildren, statusFromChildren: this.nestParent === null && fromChildren, gitState: own.gitState,
       unread: !this.working && (this.unread || Boolean(descendantUnread)),
       errorClass: errored ? errored.agentState?.error?.class ?? 'unknown' : null,
       internal: own.audience === 'agent',
