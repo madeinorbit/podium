@@ -160,16 +160,24 @@ describe('fence steps #1-#4, #8, #8b', () => {
           assertReads(result, { readsPerChange: readsBudget })
           continue
         }
-        // The retained seats of the changed session's row, and nothing else:
-        // more than one level's budget, so the fence names it.
+        // The retained seats of the changed session's row, plus its owner:
+        // more than one level's budget, so the fence names it. Since POD-4953
+        // the owner issue carries denormalized sessionFacts (row-source
+        // installSessionFacts: replica/tip max lastActiveAt per owner, for
+        // complete sidebar parity). #2's phase change bumps lastActiveAt
+        // (writePhaseChange patches lastActiveAt:now), moving the owner's
+        // sessionFacts, so the plant reads the owner issue (1) in addition to
+        // the 5 retained sessions. The read is needed (otherwise the arm
+        // misses the sessionFacts move); session reads alone (5) still exceed
+        // the budget (3), so the plant still fails for its intended reason.
         const family = (mounted.handle as HarnessHandPoolHandle).pool.inputs.retainedSeats(
           ctx.targets.visibleRootId,
         ).length
         expect(readsBudget).toBe(3)
         expect(family).toBeGreaterThan(readsBudget)
-        expect(result.reads?.byEntity).toEqual({ session: family })
+        expect(result.reads?.byEntity).toEqual({ issue: 1, session: family })
         expect(() => assertReads(result, { readsPerChange: readsBudget })).toThrow(
-          `read ${family} rows, budget ${readsBudget}`,
+          `read ${family + 1} rows, budget ${readsBudget}`,
         )
       }
     } finally {
