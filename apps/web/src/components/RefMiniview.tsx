@@ -1,7 +1,7 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import { type IssueReferenceModel, issueReferenceModel } from '@podium/client-core/viewmodels'
-import type { IssueId, SessionId } from '@podium/model/browser'
+import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
 import { formatLong, truncateTitle } from '@podium/protocol'
 import {
   ArchiveRestore,
@@ -14,7 +14,7 @@ import {
   User,
   X,
 } from 'lucide-react'
-import { type JSX, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { type JSX, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
@@ -65,6 +65,7 @@ export function RefMiniviewHost(): JSX.Element | null {
     shallowEqual,
   )
   const { retarget } = useIssueExplorer()
+  const loadComments = useCallback((id: IssueId) => trpc.issues.comments.query({ id }), [trpc])
 
   const openIssueFull = (issueId: IssueId): void => {
     setOpenIssueId(issueId)
@@ -139,6 +140,7 @@ export function RefMiniviewHost(): JSX.Element | null {
       }}
       onStart={(issueId) => trpc.issues.start.mutate({ id: issueId })}
       onPromote={(issueId) => trpc.issues.promote.mutate({ id: issueId })}
+      loadComments={loadComments}
     />,
     document.body,
   )
@@ -178,6 +180,7 @@ export function RefCard({
   onGoToSession,
   onStart,
   onPromote,
+  loadComments,
 }: {
   refToken: string
   anchor?: { x: number; y: number }
@@ -194,6 +197,8 @@ export function RefCard({
   onStart?: (issueId: IssueId) => Promise<unknown>
   /** Approve an agent proposal into backlog without starting it. */
   onPromote?: (issueId: IssueId) => Promise<unknown>
+  /** Loaded only while the issue card is open; the feed carries no count here. */
+  loadComments?: (issueId: IssueId) => Promise<readonly IssueComment[]>
 }): JSX.Element {
   // Fixed position, placed once next to the activating click (falling back to
   // top-right when there is none) and left there. The card is not draggable: it
@@ -383,7 +388,7 @@ export function RefCard({
               />
             </div>
           )}
-          <IssueDetailsStrip issue={target.issue} />
+          <IssueDetailsStrip key={target.issue.id} issue={target.issue} loadComments={loadComments} />
           {onStart && isIssueStartable(target.issue) && (
             <IssueActions
               issue={target.issue}
@@ -729,11 +734,23 @@ function IssueSummary({
 /** The mock's three-cell evidence strip: labeled cells between hairlines, each
  *  degrading away when it has no data (the strip vanishes entirely when empty).
  *  Evidence stays a quiet table, not a dashboard. */
-function IssueDetailsStrip({ issue }: { issue: RefIssueLike }): JSX.Element | null {
+function IssueDetailsStrip({ issue, loadComments }: {
+  issue: RefIssueLike
+  loadComments?: (issueId: IssueId) => Promise<readonly IssueComment[]>
+}): JSX.Element | null {
+  const [comments, setComments] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    if (loadComments) {
+      void Promise.resolve().then(() => loadComments(issue.id)).then(rows => {
+        if (!cancelled) setComments(rows.length)
+      }).catch(() => {})
+    }
+    return () => { cancelled = true }
+  }, [issue.id, issue.updatedAt, loadComments])
   const todos = issue.panel?.todos ?? []
   const todosDone = todos.filter((t) => t.done).length
   const artifacts = issue.panel?.artifacts?.length ?? 0
-  const comments = issue.commentCount ?? 0
   const cells: { label: string; value: string }[] = []
   if (todos.length > 0)
     cells.push({ label: 'Tasks', value: `${todosDone} of ${todos.length} done` })

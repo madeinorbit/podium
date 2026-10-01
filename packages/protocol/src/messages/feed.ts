@@ -92,14 +92,14 @@ export const FeedChange = z.discriminatedUnion('entity', [
   feedChangeArm(z.literal('session'), SessionMeta),
   feedChangeArm(z.literal('issue'), IssueWire),
   feedChangeArm(z.literal('issueProjection'), IssueProjection),
-  feedChangeArm(z.literal('issueUserState'), IssueUserStateWire),
-  feedChangeArm(z.literal('issueGitState'), IssueGitStateProjection),
   feedChangeArm(z.literal('issueDep'), IssueDepProjection),
   feedChangeArm(z.literal('repo'), RepoProjection),
   feedChangeArm(z.literal('shipOrder'), ShipOrderProjection),
   feedChangeArm(z.literal('conversation'), ConversationSummaryWire),
   feedChangeArm(z.literal('automation'), AutomationWire),
   feedChangeArm(z.literal('automationRun'), AutomationRunWire),
+  feedChangeArm(z.literal('issueUserState'), IssueUserStateWire),
+  feedChangeArm(z.literal('issueGitState'), IssueGitStateProjection),
 ])
 export type FeedChange = z.infer<typeof FeedChange>
 

@@ -49,7 +49,7 @@ export type RefIssueLike = Pick<IssueWire, 'id' | 'seq' | 'title'> &
       | 'description'
       | 'activityNotes'
       | 'notesUpdatedAt'
-      | 'commentCount'
+      | 'updatedAt'
       // Membership, for the card's "Go to session" action: the designated
       // coordinator wins over the merely-most-recent member.
       | 'coordinatorSessionId'

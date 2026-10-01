@@ -154,8 +154,6 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  Emitted unconditionally after POD-797; CAP_ISSUES_NORMALIZED tells clients
    *  which issue collection to render. */
   metadataChangeArm(z.literal('issueProjection'), IssueProjection),
-  metadataChangeArm(z.literal('issueUserState'), IssueUserStateWire),
-  metadataChangeArm(z.literal('issueGitState'), IssueGitStateProjection),
   /** An issue dependency EDGE [POD-822, ADR 4 D7.1] — `issue_deps` rows as
    *  first-class entities, keyed by their own primary key (`issueDepId`).
    *
@@ -250,6 +248,8 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  an older build parses these rows as {@link UnknownMetadataChange}, ignores
    *  them and advances its cursor. `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
   metadataChangeArm(z.literal('message'), MessageRecordWire),
+  metadataChangeArm(z.literal('issueUserState'), IssueUserStateWire),
+  metadataChangeArm(z.literal('issueGitState'), IssueGitStateProjection),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -267,6 +267,8 @@ export const MetadataEntityKind = z.enum([
   'issueEvent',
   'pendingInteraction',
   'message',
+  'issueUserState',
+  'issueGitState',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 

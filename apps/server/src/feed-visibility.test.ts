@@ -4,8 +4,10 @@ import {
   asUserId,
   interactionRowId,
   messageRecordRowId,
+  issueUserStateRowId,
 } from '@podium/model'
-import type { EntityRef } from '@podium/sync'
+import { Authority, GrantEdgeVisibilityPolicy, NoDelegationsGranted, type EntityRef } from '@podium/sync'
+import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { FeedVisibilityStore, IssueRow, SessionRow } from './hot-path-ports'
@@ -64,6 +66,47 @@ const refs: EntityRef[] = [
 ]
 
 describe('feed visibility grant semantics', () => {
+  it('keeps issue user-state private in bootstrap and delta even when the issue is shared', async () => {
+    const { store, policy, grant } = await fixture()
+    await grant('issue', reader, 'read')
+    const authority = new Authority({
+      store: store.sync,
+      now: () => 1_000,
+      transact: async fn => await store.transact(fn),
+      visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
+      anchors: policy.anchors,
+    })
+    const principal = (user: typeof owner): Principal => ({ kind: 'user', user,
+      device: asDeviceId(`device:${user}`), capability: asCapabilityRef(`cap:${user}`) })
+    const id = asIssueId('shared')
+    const cursor = await authority.cursor()
+    await authority.capture([owner, reader].map(userId => ({
+      entity: 'issueUserState', entityId: issueUserStateRowId(userId, id), op: 'upsert' as const,
+      value: { userId, entityId: id, readAt: userId === owner ? 'owner-read' : null, tuckedAt: null, pinned: userId === owner },
+    })))
+    for (const user of [owner, reader]) {
+      const bootstrap = await authority.bootstrap(principal(user))
+      expect(bootstrap.changes.filter(c => c.entity === 'issueUserState').map(c => c.entityId)).toEqual([issueUserStateRowId(user, id)])
+      const delta = await authority.changesSince(cursor, principal(user))
+      expect(delta?.kind).toBe('batch')
+      if (delta?.kind !== 'batch') throw new Error('expected delta')
+      expect(delta.changes.filter(c => c.entity === 'issueUserState').map(c => c.entityId)).toEqual([issueUserStateRowId(user, id)])
+    }
+    expect((await authority.bootstrap(principal(stranger))).changes).toEqual([])
+    expect(policy.state.keyedUserOf({ entity: 'issueUserState', entityId: 'malformed' })).toBeNull()
+  })
+
+  it('git observations share the issue audience and ride its grant/revoke subjects', async () => {
+    const { policy, grant } = await fixture()
+    const git = { entity: 'issueGitState', entityId: 'shared' }
+    await grant('issue', reader, 'read')
+    const state = await policy.state.forBootstrap!([git])
+    expect(state.classOf(git.entity)).toBe('personal')
+    expect(state.mayRead(owner, git)).toBe(true)
+    expect(state.mayRead(reader, git)).toBe(true)
+    expect(state.mayRead(stranger, git)).toBe(false)
+    expect((await policy.anchors.visibilityEdge({ entity: 'issue', entityId: 'shared' }))?.subjects).toContainEqual(git)
+  })
   it('cannot access grant persistence through its store port', () => {
     expectTypeOf<FeedVisibilityStore>().not.toHaveProperty('grants')
   })

@@ -370,6 +370,15 @@ describe('issueDep projection [POD-822]', () => {
 })
 
 describe('repo projection [POD-822]', () => {
+  it('carries repoPath once per logical repo and picks a stable registered root', () => {
+    const repos = [
+      { repoId: asRepoId('repo_a'), prefix: 'POD', path: '/z/repo' },
+      { repoId: asRepoId('repo_a'), prefix: 'POD', path: '/a/repo' },
+    ]
+    const expected = [{ id: 'repo_a', value: { id: 'repo_a', prefix: 'POD', repoPath: '/a/repo' } }]
+    expect(repoProjectionRows(repos)).toEqual(expected)
+    expect(repoProjectionRows([...repos].reverse())).toEqual(expected)
+  })
   it('keys by the LOGICAL repoId and collapses sibling checkouts to one row', () => {
     // repos.listRepos() returns one row per (machine, path); the entity is the
     // logical repo, so two checkouts of repo_a with the same prefix are ONE row.

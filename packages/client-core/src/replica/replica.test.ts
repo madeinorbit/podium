@@ -19,6 +19,8 @@ import {
   asMutationId,
   asSessionId,
   asUserId,
+  asIssueId,
+  issueUserStateRowId,
   type ShipOrderProjection,
   type IssueWire,
   type LayoutWire,
@@ -98,6 +100,40 @@ describe('ship-order replica collection', () => {
     // and tombstone/cancel eviction path used by the feed hub.
     replica.applySnapshot('shipOrders', [])
     expect(replica.rows('shipOrders')).toEqual([])
+  })
+})
+
+describe('issue companion replica collections', () => {
+  it('persists the new rows, hydrates them offline and removes personal rows by the full key', async () => {
+    const storage = memoryStorage()
+    const replica = createReplica({ storage, keyPrefix: 'companions.alice' })
+    const userId = asUserId('user:alice')
+    const entityId = asIssueId('issue:a')
+    const markers = { userId, entityId, readAt: 'read', tuckedAt: null, pinned: true }
+    const git = { id: entityId, updatedAt: 'probe', branch: 'feature', shared: false, ahead: 2, dirtyFiles: 0, merged: true }
+    replica.batch(() => {
+      replica.applySnapshot('issueUserStates', [markers])
+      replica.applySnapshot('issueGitStates', [git])
+    })
+    await replica.flush()
+    const reopened = createReplica({ storage, keyPrefix: 'companions.alice' })
+    const offline = await reopened.hydrate()
+    expect(offline.issueUserStates).toEqual([markers])
+    expect(offline.issueGitStates).toEqual([git])
+    const stranger = createReplica({ storage, keyPrefix: 'companions.bob' })
+    expect((await stranger.hydrate()).issueUserStates).toEqual([])
+    reopened.applyChanges('issueUserStates', [], [issueUserStateRowId(userId, entityId)])
+    expect(reopened.rows('issueUserStates')).toEqual([])
+    reopened.applyChanges('issueGitStates', [{ ...git, merged: false }], [])
+    expect(reopened.rows('issueGitStates')[0]?.merged).toBe(false)
+    reopened.applySnapshot('issueGitStates', [])
+    expect(reopened.rows('issueGitStates')).toEqual([])
+    const oldCache = createReplica({ storage: memoryStorage() })
+    oldCache.applySnapshot('issues', [issue('old')])
+    const oldHydrate = await oldCache.hydrate()
+    expect(oldHydrate.issues).toEqual([issue('old')])
+    expect(oldHydrate.issueUserStates).toEqual([])
+    expect(oldHydrate.issueGitStates).toEqual([])
   })
 })
 
