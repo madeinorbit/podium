@@ -45,6 +45,7 @@
  */
 
 import { SidebarIndex } from './worklist/sidebar'
+import { overlayRow } from './shared/overlay-row'
 import {
   compareStructural,
   type IObservableArray,
@@ -526,7 +527,7 @@ export class MobxPool {
       if (server === undefined) return undefined
     }
     const pending = this.writes?.pending(entity, id)
-    return pending === undefined ? server : { ...server, ...pending }
+    return pending === undefined ? server : overlayRow(server, pending)
   }
 
   /**

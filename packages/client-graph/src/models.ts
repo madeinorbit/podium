@@ -69,6 +69,7 @@
 
 import { NO_SIDEBAR_SESSIONS, sidebarLifecycle, sidebarTimingFromFacts, type SidebarRowValues } from './worklist/sidebar-row'
 import { sidebarRosterOf, type SidebarRoster } from './worklist/sidebar'
+import { overlayRow } from './shared/overlay-row'
 import type { RelationReader } from './shared/relation-reader'
 import type {
   CollectionName,
@@ -444,6 +445,10 @@ function sameSidebar(a: LoadedRow<SidebarRowValues>, b: LoadedRow<SidebarRowValu
   return sameSeats(ownA, ownB) && sameSeats(allA, allB) && compareStructural(factsA, factsB)
 }
 
+/** Feed summaries stay inside derivation; the legacy navigation record never
+ * carried them. The compatibility view borrows all other issue properties. */
+const SIDEBAR_ISSUE_OMISSIONS: ReadonlySet<PropertyKey> = new Set(['sessionFacts'])
+
 export class IssueModel extends EntityModel implements HeldIssue, RowView {
   /** The schema fields the row answers (`installFields`): the row's value of them, not the fed row's. */
   static override readonly answers: ReadonlySet<string> = new Set<string>(ROW_VIEW_FIELDS)
@@ -577,7 +582,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     if (own === LOADING) return LOADING
     if (own === undefined) return undefined
     const facts = this.loaded.facts
-    const issue = { ...own, readAt: this.host.visibleInputs.issueRead(this.id), unread: this.unread }
+    const issue = overlayRow(own, { readAt: this.host.visibleInputs.issueRead(this.id), unread: this.unread }, SIDEBAR_ISSUE_OMISSIONS)
     const agg = this.aggregate
     const sessionFacts = agg.sidebarFacts ?? NO_SIDEBAR_SESSIONS
     const sessions = this.ownAttention.sessions ?? []
