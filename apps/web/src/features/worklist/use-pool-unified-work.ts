@@ -105,12 +105,7 @@ export function createPoolWorkActions(
       seen.add(root.issue.id)
       const parent = pool.sidebar.row(root.issue.parentId)
       if (parent === LOADING) return
-      if (
-        parent === undefined ||
-        parent.issue.archived ||
-        parent.issue.deletedAt
-      )
-        break
+      if (parent === undefined || parent.issue.archived || parent.issue.deletedAt) break
       root = parent
     }
     const store = runtime.getSnapshot()

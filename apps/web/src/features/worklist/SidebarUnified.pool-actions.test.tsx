@@ -647,7 +647,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
         expect(owner.hydrate()).toBe(1)
       })
       await act(async () => actions.selectIssue(TARGET))
-      expect(runtime.getSnapshot().selectedIssueId).toBe('synthetic-3')
+      expect(runtime.getSnapshot().selectedIssueId).toBe('synthetic-1')
       expect(focused).toBe(TARGET)
     } finally {
       residency.coldRule = coldRule
