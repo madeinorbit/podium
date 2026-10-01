@@ -1,16 +1,13 @@
-import { shallowEqual } from '@podium/client-core/store'
 import { issueReferenceModel } from '@podium/client-core/viewmodels'
-import { isAgentConfirmedComputing } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { IssueReference } from '@/components/IssueReference'
 import { ConnectionIndicator, useStableConnection } from '@/features/machines/ConnectionIndicator'
 import { MobileHandoffChip } from '@/features/mobile-handoff/MobileHandoffChip'
 import { UpdateIndicator } from '@/features/updates/UpdateIndicator'
 import { useUpdates } from '@/features/updates/updates-panel-context'
-import { useNow } from '@/lib/useNow'
 import { AgentConcurrencyHistory } from './AgentConcurrencyHistory'
 import { StatusPerformanceStats } from './StatusPerformanceStats'
-import { useReplicaIssues, useStoreSelector } from './store'
+import { useHeaderActions, useHeaderStatus } from './header-data'
 
 /**
  * THE STATUS STRIP (POD-365) — 24px, the bottom edge of the frame.
@@ -43,31 +40,13 @@ import { useReplicaIssues, useStoreSelector } from './store'
  * two problems".
  */
 export function StatusStrip(): JSX.Element {
-  const { sessions, selectedIssueId, trpc } = useStoreSelector(
-    (s) => ({
-      sessions: s.sessions,
-      selectedIssueId: s.selectedIssueId,
-      trpc: s.trpc,
-    }),
-    shallowEqual,
-  )
-  const issues = useReplicaIssues()
+  const { trpc } = useHeaderActions()
+  const { workingSessions, issue } = useHeaderStatus()
   const { health, visible: connVisible } = useStableConnection()
   // The update affordance (POD-2102). It passes the same test as the rest of
   // the strip: window-scoped, stated nowhere else, and present only while it is
   // a FACT — there is an update, or one is running, or one failed.
   const updates = useUpdates()
-  const now = useNow(60_000)
-
-  // Confirmed liveness is part of the question, not just the phase: a session that exited
-  // mid-turn keeps `phase: 'working'` (the server preserves the final turn
-  // diagnosis), a parked one keeps it, and a reconnecting session has no live
-  // daemon observation. Counting any of those as current work makes the number
-  // survive the evidence behind it. Context compaction still counts.
-  const workingSessions = sessions.filter((session) => isAgentConfirmedComputing(session, now))
-  const issue = selectedIssueId
-    ? issues.find((candidate) => candidate.id === selectedIssueId && !candidate.deletedAt)
-    : undefined
 
   return (
     <footer className="status-strip" data-testid="status-strip">

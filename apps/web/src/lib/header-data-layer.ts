@@ -11,3 +11,5 @@ export function initializeHeaderDataLayer(): void {
 }
 export function headerDataLayer(): 'legacy' | 'pool' { return startup ?? 'legacy' }
 export function headerCheckRequested(): boolean { return check }
+
+initializeHeaderDataLayer()

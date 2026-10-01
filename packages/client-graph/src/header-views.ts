@@ -1,8 +1,7 @@
-import type { ConnectionHealth } from '@podium/client-core/socket-transport'
 import { measureHeader } from '@podium/client-core/perf'
-import type { IssueId, MachineId, SessionMeta } from '@podium/model/browser'
-import { sessionPresentOnTask } from '@podium/model/browser'
-import { compareStructural, computed, onBecomeUnobserved, type IComputedValue } from 'mobx'
+import type { MachineId, SessionMeta } from '@podium/model/browser'
+import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
+import { _isComputingDerivation, compareStructural, computed, onBecomeUnobserved, type IComputedValue } from 'mobx'
 import type { MobxPool } from './pool'
 import { headerIds, knownIssueIds, knownSessionIds, residentSessionIds } from './header-enumerate'
 import type { HeaderEntity, HeaderRows } from './header-schema'
@@ -15,6 +14,7 @@ export const EMPTY_HOST_AGGREGATE = {
   phases: { working: 0, idle: 0, waiting: 0, other: 0 },
 }
 export type HeaderAggregate = typeof EMPTY_HOST_AGGREGATE
+const sessionPresentOnTask = (session: SessionMeta) => !session.archived && session.status !== 'exited'
 const NO_PROGRESS = { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
 const contains = (cwd: string, root: string) => cwd === root || cwd.startsWith(root.endsWith('/') ? root : `${root}/`)
 
@@ -23,6 +23,7 @@ const contains = (cwd: string, root: string) => cwd === root || cwd.startsWith(r
 export function createHeaderViews(pool: MobxPool) {
   const cache = new Map<string, IComputedValue<unknown>>()
   function memo<T>(key: string, read: () => T): T {
+    if (!_isComputingDerivation()) return measureHeader(`pool.${key.split(':')[0]}`, read)
     let value = cache.get(key)
     if (!value) {
       value = computed(() => measureHeader(`pool.${key.split(':')[0]}`, read), { equals: compareStructural, name: `header.${key}` })
@@ -164,15 +165,15 @@ export function createHeaderViews(pool: MobxPool) {
           repoId = best?.repoId ?? null
         }
       }
-      const orders = state?.shipOrders.filter((order) => order.repoId === repoId) ?? []
+      const orders = repoId ? pool.header.members('repo', repoId, 'shipOrders').flatMap((id) => { const order = row('shipOrder', id); return order ? [order] : [] }) : []
       return { unfinishedCount: orders.filter((order) => ['needs_you', 'in_progress', 'waiting'].includes(order.humanState)).length,
         decisionCount: orders.filter((order) => order.humanState === 'needs_you').length }
     })
   }
   function reclaimCounts(afterDays: number) {
     return memo(`reclaim:${afterDays}`, () => {
-      const metrics = headerIds(pool, 'hostMetric').map((id) => row('hostMetric', id))
-      const sole = metrics.length === 1 ? metrics[0]?.machineId : undefined
+      const metrics = headerIds(pool, 'hostMetric')
+      const sole = metrics.length === 1 ? pool.header.one('hostMetric', metrics[0]!, 'machine') : undefined
       const occupied = occupancyKey().split('\n').filter(Boolean)
       const result: Record<string, number> = {}
       if (!metrics.length) return result
@@ -194,6 +195,22 @@ export function createHeaderViews(pool: MobxPool) {
     metrics: () => headerIds(pool, 'hostMetric').flatMap((id) => { const metric = row('hostMetric', id); return metric ? [metric] : [] }),
     machines: () => headerIds(pool, 'machine').flatMap((id) => { const machine = row('machine', id); return machine ? [machine] : [] }),
     quotas: () => headerIds(pool, 'quota').flatMap((id) => { const quota = row('quota', id); return quota ? [quota] : [] }),
+    offlineMachines: () => memo('offlineMachines', () => {
+      const sampled = new Set(headerIds(pool, 'hostMetric').map((id) => pool.header.one('hostMetric', id, 'machine')))
+      return headerIds(pool, 'machine').flatMap((id) => {
+        const machine = row('machine', id)
+        if (!machine || !isMachineOfflineForLiveTerminal(machine) || sampled.has(id) || machine.serviceAssignment?.agentExecution === false || machine.revokedAt || machine.supersededBy) return []
+        const seen = Date.parse(machine.lastSeenAt)
+        return Number.isFinite(seen) && !pool.clock.passed(seen + 7 * 86_400_000) ? [machine] : []
+      })
+    }),
+    history: () => memo('history', () => {
+      const reading = row('history', 'fleet')
+      if (!reading) return null
+      const working = residentSessionIds(pool).filter((id) => pool.model('session', id)?.headerWorking).length
+      const buckets = reading.buckets.map((bucket, index) => index === reading.buckets.length - 1 ? { ...bucket, count: Math.max(bucket.count, working) } : bucket)
+      return { ...reading, peak: Math.max(reading.peak, working), buckets }
+    }),
     connection: () => row('connection', 'server'),
     working: () => memo('workingRoster', () => residentSessionIds(pool).flatMap((id) => {
       const member = pool.model('session', id)?.headerWorking

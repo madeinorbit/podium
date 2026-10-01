@@ -1,4 +1,4 @@
-import { observe, runInAction } from 'mobx'
+import { observe, reaction, runInAction } from 'mobx'
 import { allResidentSessions } from './header-enumerate'
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import type { PodiumClientApi } from '@podium/client-core/api'
@@ -19,7 +19,10 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
       if (!next.has(id)) records.push({ kind: entity, id, value: undefined })
     }
     known.set(entity, next)
-    pool.header.apply(records)
+    runInAction(() => {
+      pool.header.apply(records)
+      pool.header.order(entity, [...next])
+    })
   }
   let previousMachines: Store<TApi>['machines'] | undefined
   let previousWindow: object | undefined
@@ -30,13 +33,16 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
       replace('machine', state.machines.map((machine) => [machine.id, machine]))
     }
     const window = { view: state.view, paneA: state.paneA, fileTabs: state.fileTabs,
-      outboxSize: state.outboxSize, shipOrders: state.shipOrders }
+      outboxSize: state.outboxSize }
     if (previousWindow && Object.entries(window).every(([key, value]) => Object.is((previousWindow as Record<string, unknown>)[key], value))) return
     previousWindow = window
     replace('window', [['window', window]])
   }
   function metrics(): void {
     replace('hostMetric', runtime.hostMetrics.getSnapshot().map((metric) => [metric.machineId ?? metric.hostname, metric]))
+  }
+  function shipping(): void {
+    replace('shipOrder', runtime.replica.rows('shipOrders').map((order) => [order.id, order]))
   }
   const api = runtime.getSnapshot().trpc
   let quotaPending = false
@@ -57,15 +63,34 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
   })
   locals()
   metrics()
+  shipping()
   replace('connection', [['server', runtime.hub.connectionHealth()]])
-  const stops = [offSessions, runtime.subscribe(locals), runtime.hostMetrics.subscribe(metrics),
+  const stops = [offSessions, runtime.replica.subscribeAddressedBatch!((batch) => {
+    if (batch.type === 'replace' || batch.rows.some((record) => record.kind === 'shipOrders')) shipping()
+  }), runtime.subscribe(locals), runtime.hostMetrics.subscribe(metrics),
     runtime.hub.onConnectionHealth((health) => replace('connection', [['server', health]]))]
   void quota()
+  void api.settings.get.query().then((settings) => replace('lifecycle', [['hosts', settings]])).catch(() => {})
+  // This endpoint is optional on the structural client API; the web supplies it.
+  const historyApi = (api.sessions as typeof api.sessions & { concurrencyHistory?: { query(): Promise<import('./header-schema').HeaderRows['history']> } } | undefined)?.concurrencyHistory
+  let historyPending = false
+  async function history(): Promise<void> {
+    if (!historyApi || disposed || historyPending) return
+    historyPending = true
+    try {
+      const reading = await historyApi.query()
+      if (reading.buckets.length === 24 && Number.isFinite(reading.bucketMs) && reading.bucketMs > 0 && Number.isInteger(reading.peak) && reading.peak >= 0 && reading.buckets.every((bucket) => Number.isInteger(bucket.count) && bucket.count >= 0 && Number.isFinite(Date.parse(bucket.start)))) replace('history', [['fleet', reading]])
+    } catch {} finally { historyPending = false }
+  }
+  stops.push(reaction(() => pool.headerViews.working().length, () => { void history() }))
+  void history()
+  const historyTimer = setInterval(() => { void history() }, 5 * 60_000)
   const timer = setInterval(() => { void quota() }, 60_000)
   return () => {
     if (disposed) return
     disposed = true
     clearInterval(timer)
+    clearInterval(historyTimer)
     for (const stop of stops) stop()
     known.clear()
   }

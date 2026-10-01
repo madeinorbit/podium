@@ -1,4 +1,4 @@
-import { headerDataLayer, initializeHeaderDataLayer } from '@/lib/header-data-layer'
+import { headerDataLayer, headerCheckRequested, initializeHeaderDataLayer } from '@/lib/header-data-layer'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { reportSidebarPool } from '@podium/client-core/perf'
@@ -75,6 +75,7 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   slot.error = null
   let disposed = false
   let stopCheck: (() => void) | undefined
+  let stopHeaderCheck: (() => void) | undefined
   if (import.meta.env.DEV && typeof window !== 'undefined') {
     Object.assign(window, { __sidebarPool: { survivors: worklistPoolSurvivors } })
   }
@@ -84,6 +85,14 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
       slot.handle = createRuntimeWorklistPool(runtime, { header: headerDataLayer() === 'pool' })
       slot.project = createPoolProjection
       notify(slot)
+      if (headerCheckRequested()) {
+        void import('@podium/client-graph/diagnostics/header-runtime-check').then(({ startHeaderCheck }) => {
+          if (disposed || !slot.handle) return
+          stopHeaderCheck = startHeaderCheck(runtime, slot.handle.pool, (report) => {
+            if (typeof window !== 'undefined') Object.assign(window, { __headerCheck: report })
+          })
+        }).catch(() => {})
+      }
       if (sidebarCheckRequested()) {
         const pool = slot.handle.pool
         void import('@podium/client-graph/diagnostics/runtime-check')
@@ -135,6 +144,8 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   return () => {
     if (disposed) return
     disposed = true
+    stopHeaderCheck?.()
+    stopHeaderCheck = undefined
     stopCheck?.()
     stopCheck = undefined
     const handle = slot.handle

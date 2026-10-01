@@ -4,7 +4,7 @@ import type { HeaderEntity } from './header-schema'
 /** The header's only resident-key enumeration. It never reads row values or
  * indexes unloaded payloads. All values go through the pool's single reader. */
 export function headerIds(pool: MobxPool, entity: HeaderEntity): string[] {
-  return [...pool.header.tables[entity].keys()]
+  return [...(pool.header.orders.get(entity) ?? pool.header.tables[entity].keys())]
 }
 export function residentSessionIds(pool: MobxPool): string[] {
   return [...pool.header.sessionIds.keys()]

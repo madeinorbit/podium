@@ -1,6 +1,6 @@
 import type { ConnectionHealth } from '@podium/client-core/socket-transport'
 import type { Store } from '@podium/client-core/engine'
-import type { HostMetricsWire, MachineQuotaWire, MachineWire } from '@podium/model/browser'
+import type { HostMetricsWire, MachineQuotaWire, MachineWire, ShipOrderProjection } from '@podium/model/browser'
 
 /** Pool-only extension. The prototype's frozen EntityName and SCHEMA stay four
  * entities. Samples are separate rows, so sampling cannot invalidate machines,
@@ -10,7 +10,10 @@ export interface HeaderRows {
   hostMetric: HostMetricsWire
   quota: MachineQuotaWire
   connection: ConnectionHealth
-  window: Pick<Store, 'view' | 'paneA' | 'fileTabs' | 'outboxSize' | 'shipOrders'>
+  shipOrder: ShipOrderProjection
+  history: { sampledAt: string; bucketMs: number; peak: number; buckets: { start: string; count: number }[] }
+  lifecycle: Awaited<ReturnType<Store['trpc']['settings']['get']['query']>>
+  window: Pick<Store, 'view' | 'paneA' | 'fileTabs' | 'outboxSize'>
 }
 export type HeaderEntity = keyof HeaderRows
 export interface HeaderRecord<E extends HeaderEntity = HeaderEntity> {
@@ -23,8 +26,11 @@ export const HEADER_SCHEMA = {
   machine: { key: 'id', source: 'engine:machines', model: 'MachineWire', cold: 'never' },
   hostMetric: { key: 'machineId ?? hostname', source: 'runtime:hostMetrics', model: 'HostMetricsWire', cold: 'never' },
   quota: { key: 'machineId', source: 'api:quota.summary', model: 'MachineQuotaWire', cold: 'never' },
+  shipOrder: { key: 'id', source: 'replica:shipOrders', model: 'ShipOrderProjection', cold: 'never' },
+  history: { key: 'fleet', source: 'api:sessions.concurrencyHistory', cold: 'never' },
+  lifecycle: { key: 'hosts', source: 'api:settings.get', cold: 'never' },
   connection: { key: 'server', source: 'hub:connectionHealth', model: 'ConnectionHealth', cold: 'never' },
-  window: { key: 'window', source: 'engine:locals', fields: ['view', 'paneA', 'fileTabs', 'outboxSize', 'shipOrders'], cold: 'never' },
+  window: { key: 'window', source: 'engine:locals', fields: ['view', 'paneA', 'fileTabs', 'outboxSize'], cold: 'never' },
 } as const satisfies Record<HeaderEntity, object>
 
 /** belongsTo and inverse hasMany use one generic maintenance path. Session
@@ -32,6 +38,7 @@ export const HEADER_SCHEMA = {
 export const HEADER_RELATIONS = [
   { from: 'session', name: 'machine', key: 'machineId', to: 'machine', inverse: 'sessions' },
   { from: 'hostMetric', name: 'machine', key: 'machineId', to: 'machine', inverse: 'metrics' },
+  { from: 'shipOrder', name: 'repo', key: 'repoId', to: 'repo', inverse: 'shipOrders' },
   { from: 'quota', name: 'machine', key: 'machineId', to: 'machine', inverse: 'quotas' },
 ] as const
 

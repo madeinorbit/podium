@@ -7,8 +7,9 @@ export function createHeaderEntities() {
   const tables = Object.fromEntries(Object.keys(HEADER_SCHEMA).map((entity) => [
     entity, observable.map<string, object>(undefined, { deep: false, name: `pool.${entity}` }),
   ])) as Record<HeaderEntity, ReturnType<typeof observable.map<string, object>>>
+  const orders = observable.map<HeaderEntity, readonly string[]>(undefined, { deep: false })
   const members = observable.map<string, readonly string[]>(undefined, { deep: false })
-  const refs = new Map<string, string>()
+  const refs = observable.map<string, string>(undefined, { deep: false })
   const sessionIds = observable.map<string, true>(undefined, { deep: false })
 
   function change(entity: string, id: string, next: object | undefined): void {
@@ -25,7 +26,9 @@ export function createHeaderEntities() {
       if (previous === current) continue
       if (previous) {
         const key = `${relation.to}:${previous}:${relation.inverse}`
-        members.set(key, (members.get(key) ?? []).filter((member) => member !== id))
+        const remaining = (members.get(key) ?? []).filter((member) => member !== id)
+        if (remaining.length) members.set(key, remaining)
+        else members.delete(key)
       }
       if (current) {
         const key = `${relation.to}:${current}:${relation.inverse}`
@@ -37,9 +40,14 @@ export function createHeaderEntities() {
 
   return {
     tables,
+    orders,
+    order(entity: HeaderEntity, ids: readonly string[]): void {
+      if (!compareStructural(orders.get(entity), ids)) orders.set(entity, ids)
+    },
     sessionIds,
     get: (entity: HeaderEntity, id: string) => tables[entity].get(id),
-    members: (entity: HeaderEntity, id: string, relation: string) => members.get(`${entity}:${id}:${relation}`) ?? [],
+    one: (entity: string, id: string, relation: string) => refs.get(`${entity}:${id}:${relation}`),
+    members: (entity: string, id: string, relation: string) => members.get(`${entity}:${id}:${relation}`) ?? [],
     change,
     apply(records: readonly HeaderRecord[]): void {
       runInAction(() => {
@@ -55,6 +63,7 @@ export function createHeaderEntities() {
     clear(): void {
       for (const table of Object.values(tables)) table.clear()
       members.clear()
+      orders.clear()
       refs.clear()
       sessionIds.clear()
     },

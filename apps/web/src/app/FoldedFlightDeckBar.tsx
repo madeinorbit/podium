@@ -1,3 +1,7 @@
+import { useStoreHandle } from '@podium/client-core/react'
+import { measureLegacyHeader } from '@podium/client-core/perf'
+import { headerDataLayer } from '@/lib/header-data-layer'
+import { usePoolFolded } from './header-data'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   buildFlightDeckRows,
@@ -212,32 +216,10 @@ function FootStat({
 
 /** The Flight Deck's compact state keeps its operational payload visible. */
 export function FoldedFlightDeckBar({ onExpand }: { onExpand: () => void }): JSX.Element {
-  const { sessions, selectedIssueId } = useStoreSelector(
-    (store) => ({ sessions: store.sessions, selectedIssueId: store.selectedIssueId }),
-    shallowEqual,
-  )
-  const issues = useReplicaIssues()
-  // This bar is mounted for as long as the deck is folded, so the mission walk
-  // is memoized here exactly as the open column memoizes it.
-  // Folded and open read the SAME selection rule (POD-1112): a bar that names a
-  // mission the open column shows as empty is the two halves of one control
-  // disagreeing about what is on screen.
-  const root = useMemo(
-    () => selectedMissionRoot(issues, sessions, selectedIssueId),
-    [issues, sessions, selectedIssueId],
-  )
-  const rows = useMemo(
-    () => (root ? buildFlightDeckRows(issues, sessions, root.id) : []),
-    [issues, sessions, root],
-  )
-  const progress = useMemo(
-    () => missionProgress(issues, sessions, root?.id),
-    [issues, sessions, root],
-  )
-  const live = rows[0]?.liveAgentCount ?? 0
-  const working = rows[0]?.workingAgentCount ?? 0
+  const useRead = headerDataLayer() === 'pool' ? usePoolFolded : useLegacyFolded
+  const { root: sourceRoot, progress, live, working, needs } = useRead()
+  const root = sourceRoot as ReturnType<typeof selectedMissionRoot>
   const crew = missionCrewLabel(live, working)
-  const needs = rows[0]?.actionableCount ?? 0
   const label = root ? idSquareLabel(root) : null
   return (
     <aside
@@ -309,4 +291,34 @@ export function FoldedFlightDeckBar({ onExpand }: { onExpand: () => void }): JSX
       </div>
     </aside>
   )
+}
+
+function useLegacyFolded() {
+  const owner = useStoreHandle()
+  const { sessions, selectedIssueId } = useStoreSelector(
+    (store) => ({ sessions: store.sessions, selectedIssueId: store.selectedIssueId }),
+    shallowEqual,
+  )
+  const issues = useReplicaIssues()
+  // This bar is mounted for as long as the deck is folded, so the mission walk
+  // is memoized here exactly as the open column memoizes it.
+  // Folded and open read the SAME selection rule (POD-1112): a bar that names a
+  // mission the open column shows as empty is the two halves of one control
+  // disagreeing about what is on screen.
+  const root = useMemo(
+    () => measureLegacyHeader(owner, 'foldedRoot', () => selectedMissionRoot(issues, sessions, selectedIssueId)),
+    [issues, sessions, selectedIssueId],
+  )
+  const rows = useMemo(
+    () => measureLegacyHeader(owner, 'foldedRows', () => (root ? buildFlightDeckRows(issues, sessions, root.id) : [])),
+    [issues, sessions, root],
+  )
+  const progress = useMemo(
+    () => measureLegacyHeader(owner, 'foldedProgress', () => missionProgress(issues, sessions, root?.id)),
+    [issues, sessions, root],
+  )
+  const needs = rows[0]?.actionableCount ?? 0
+  const live = rows[0]?.liveAgentCount ?? 0
+  const working = rows[0]?.workingAgentCount ?? 0
+  return { root, progress, live, working, needs }
 }
