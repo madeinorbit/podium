@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   isSessionWorking,
@@ -8,7 +9,7 @@ import {
   missionSessions as missionSessionsOf,
   sessionNeedsHuman,
 } from '@podium/client-core/viewmodels'
-import { asIssueId, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
+import { asIssueId, type SessionId, type SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -90,7 +91,7 @@ export function MissionScreen() {
   const [pinnedSessionId, setPinnedSessionId] = useState<SessionId | null>(
     requestedSessionId ? (requestedSessionId as SessionId) : null,
   )
-  const [peek, setPeek] = useState<IssueWire | null>(null)
+  const [peek, setPeek] = useState<IssueViewModel | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [launchOpen, setLaunchOpen] = useState(false)
   const [colorOpen, setColorOpen] = useState(false)
@@ -302,7 +303,7 @@ function MissionBody({
   onOpenDetails,
 }: {
   current: SessionMeta | undefined
-  currentIssue: IssueWire | undefined
+  currentIssue: IssueViewModel | undefined
   progress: MissionProgress
   live: number
   working: number

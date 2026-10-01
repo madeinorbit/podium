@@ -1,12 +1,13 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/viewmodels'
-import type { IssuePanelArtifact, IssueWire } from '@podium/model'
+import type { IssuePanelArtifact } from '@podium/model'
 
 export type IssueArtifactPreview = 'image' | 'video' | 'html' | 'markdown' | 'text' | 'file'
 
 const TEXT_EXTS = new Set(['txt', 'json', 'ts', 'tsx', 'js', 'jsx', 'css', 'svg', 'log', 'csv'])
 
 export function issueArtifactHref(
-  issue: IssueWire,
+  issue: IssueViewModel,
   artifact: IssuePanelArtifact,
   httpOrigin: string,
   workspace?: string,

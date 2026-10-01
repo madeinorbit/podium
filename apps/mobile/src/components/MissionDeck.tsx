@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { relativeTime } from '@podium/client-core/focus'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
@@ -30,7 +31,7 @@ import {
   treeGuides,
   writeFlightDeckFolds,
 } from '@podium/client-core/viewmodels'
-import type { IssueId, IssueWire, SessionId, SessionMeta } from '@podium/model'
+import type { IssueId, SessionId, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { memo, useCallback, useEffect, useMemo } from 'react'
 import { ArrowDown, Check, ChevronsDownUp, ChevronsUpDown, Plus, X } from './icons'
@@ -117,8 +118,8 @@ export const MissionDeck = memo(function MissionDeck({
   onOpenDeparture,
   onContentHeight,
 }: {
-  root: IssueWire
-  issues: readonly IssueWire[]
+  root: IssueViewModel
+  issues: readonly IssueViewModel[]
   sessions: readonly SessionMeta[]
   allWorktreePaths: string[]
   /** The mission's own accent — what the lead rail and every tick are drawn in. */
@@ -559,7 +560,7 @@ function SpineRow({
    *  block and the next row instead of stopping at the last agent's elbow. */
   childFollows: boolean
   mode: FlightDeckMode
-  byId: ReadonlyMap<string, IssueWire>
+  byId: ReadonlyMap<string, IssueViewModel>
   nameOf: (sessionId: SessionId) => string | undefined
   folded: boolean
   currentSessionId: SessionId | undefined

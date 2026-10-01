@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { relativeTime, withoutShells } from '@podium/client-core/focus'
 import {
   groupRelations,
@@ -7,16 +8,13 @@ import {
   sessionTitle,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
-import {
-  type IssueCloseReason,
+import { type IssueCloseReason,
   type IssuePanelArtifact,
-  type IssueWire,
   issueStatusControlLabel,
   issueStatusMenuEntries,
   issueStatusValueOf,
   parseIssueStatusValue,
-  type SessionMeta,
-} from '@podium/model'
+  type SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
@@ -86,13 +84,13 @@ export function TaskSheet({
   onOpenSession,
   onOpenIssue,
 }: {
-  issue: IssueWire | null
-  issues: readonly IssueWire[]
+  issue: IssueViewModel | null
+  issues: readonly IssueViewModel[]
   sessions: readonly SessionMeta[]
   onClose: () => void
   onOpenSession: (session: SessionMeta) => void
   /** Retarget the sheet at another task (a subtask row). Absent = navigate. */
-  onOpenIssue?: (issue: IssueWire) => void
+  onOpenIssue?: (issue: IssueViewModel) => void
 }) {
   const trpc = useTrpc()
   const router = useRouter()
@@ -183,9 +181,9 @@ function SheetHead({
   hex,
   onOpenSession,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   sessions: readonly SessionMeta[]
-  issues: readonly IssueWire[]
+  issues: readonly IssueViewModel[]
   hex: string
   onOpenSession: (session: SessionMeta) => void
 }) {
@@ -330,13 +328,13 @@ function SheetBody({
   onOpenSession,
   onOpenIssue,
 }: {
-  issue: IssueWire
-  issues: readonly IssueWire[]
+  issue: IssueViewModel
+  issues: readonly IssueViewModel[]
   sessions: readonly SessionMeta[]
   /** Hands the artifact up: the viewer must present ABOVE this sheet's modal. */
   onOpenArtifact: (artifact: IssuePanelArtifact, url: string) => void
   onOpenSession: (s: SessionMeta) => void
-  onOpenIssue: (issue: IssueWire) => void
+  onOpenIssue: (issue: IssueViewModel) => void
 }) {
   const children = useMemo(() => subIssuesOf(issues, issue.id), [issues, issue.id])
   const relations = useMemo(() => groupRelations(issue), [issue])

@@ -1,4 +1,5 @@
-import type { IssueId, IssueWire } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueId } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { Check, Inbox, Play, RotateCcw, SkipForward, X } from '../components/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -31,8 +32,8 @@ interface Failure {
   message: string
 }
 
-const repoName = (issue: IssueWire) => issue.repoPath.split('/').filter(Boolean).pop() ?? ''
-const refOf = (issue: IssueWire) => issue.displayRef ?? `#${issue.seq}`
+const repoName = (issue: IssueViewModel) => issue.repoPath.split('/').filter(Boolean).pop() ?? ''
+const refOf = (issue: IssueViewModel) => issue.displayRef ?? `#${issue.seq}`
 const sameDeck = (a: Deck, b: Deck) =>
   a.index === b.index &&
   a.order.length === b.order.length &&
@@ -78,7 +79,7 @@ export function ProposalScreeningScreen() {
   }, [issues])
 
   const run = useCallback(
-    async (issue: IssueWire, outcome: ScreeningOutcome) => {
+    async (issue: IssueViewModel, outcome: ScreeningOutcome) => {
       const ref = refOf(issue)
       inFlight.current.add(issue.id)
       setPending((p) => [...p, issue.id])
@@ -113,7 +114,7 @@ export function ProposalScreeningScreen() {
   )
 
   const decide = useCallback(
-    (issue: IssueWire, outcome: ScreeningOutcome) => {
+    (issue: IssueViewModel, outcome: ScreeningOutcome) => {
       // A card can only be decided once; a second gesture on an in-flight
       // mutation is a no-op rather than a double promote/close.
       if (inFlight.current.has(issue.id)) return

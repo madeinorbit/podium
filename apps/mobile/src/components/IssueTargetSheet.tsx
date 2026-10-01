@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useMemo, useState } from 'react'
 import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native'
@@ -21,8 +21,8 @@ export function IssueTargetSheet({
   visible: boolean
   title: string
   subtitle?: string
-  issues: readonly IssueWire[]
-  onPick: (issue: IssueWire) => void
+  issues: readonly IssueViewModel[]
+  onPick: (issue: IssueViewModel) => void
   onClose: () => void
 }) {
   const [query, setQuery] = useState('')
@@ -110,9 +110,9 @@ export function IssueTargetSheet({
 
 /** Pure, deterministic membership used by the virtualized picker and its scale guard. */
 export function filterIssueTargets(
-  issues: readonly IssueWire[],
+  issues: readonly IssueViewModel[],
   query: string,
-): readonly IssueWire[] {
+): readonly IssueViewModel[] {
   const needle = query.trim().toLocaleLowerCase()
   if (!needle) return issues
   const refNeedle = needle.replace(/[^a-z0-9]/g, '')

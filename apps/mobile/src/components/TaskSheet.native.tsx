@@ -1,4 +1,5 @@
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useRef } from 'react'
 
@@ -7,12 +8,12 @@ export function TaskSheet({
   issue,
   onClose,
 }: {
-  issue: IssueWire | null
-  issues: readonly IssueWire[]
+  issue: IssueViewModel | null
+  issues: readonly IssueViewModel[]
   sessions: readonly SessionMeta[]
   onClose: () => void
   onOpenSession: (session: SessionMeta) => void
-  onOpenIssue?: (issue: IssueWire) => void
+  onOpenIssue?: (issue: IssueViewModel) => void
 }) {
   const router = useRouter()
   const presented = useRef<string | null>(null)

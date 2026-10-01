@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { shallowEqual } from '@podium/client-core/store'
 import { matchesQuestionInteraction } from '@podium/client-core/viewmodels'
 import {
@@ -22,14 +23,11 @@ import {
   createTranscriptController,
   transcriptActivitySignal,
 } from '@podium/client-core/transcript'
-import {
-  asMutationId,
-  type IssueWire,
+import { asMutationId,
   isAgentComputing,
   isMachineOfflineForLiveTerminal,
   type MessageDeliveryStatus,
-  type SessionMeta,
-} from '@podium/model'
+  type SessionMeta } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { AppState, StyleSheet, Text, View } from 'react-native'
@@ -135,10 +133,10 @@ export function SessionConversation({
 }: {
   session: SessionMeta
   /** The task this session belongs to; drives task context and the plan bridge. */
-  issue: IssueWire | undefined
+  issue: IssueViewModel | undefined
   /** Where a tapped `POD-…` ref in the transcript should go when it is NOT this
    *  task — absent keeps the peek sheet, which is the default everywhere. */
-  onOpenTerminalRef?: (issue: IssueWire) => void
+  onOpenTerminalRef?: (issue: IssueViewModel) => void
   /** Incremented by screen chrome to open transcript search. */
   findRequest?: number
   /** First turn supplied by the shared spawn optimism engine. */
@@ -376,7 +374,7 @@ export function SessionConversation({
   // growing the field does not relayout the transcript under the operator.
   const [composerHeight, setComposerHeight] = useState(0)
   const [askHeight, setAskHeight] = useState(0)
-  const [peekIssue, setPeekIssue] = useState<IssueWire | null>(null)
+  const [peekIssue, setPeekIssue] = useState<IssueViewModel | null>(null)
   useEffect(() => {
     if (deferInitialTranscript) return
     void transcriptController.start()

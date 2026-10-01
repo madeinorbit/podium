@@ -1,5 +1,6 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { agentColorHex, type DotTone, type SessionCardModel } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
@@ -52,10 +53,10 @@ const SQUARE_STATE: Record<DotTone, IdSquareState> = {
  */
 export function hidesDraftDot(
   model: Pick<SessionCardModel, 'dotTone'>,
-  issue: Pick<IssueWire, 'draft'> | undefined,
+  issue: Pick<IssueViewModel, 'isDraftVessel'> | undefined,
   session: Pick<SessionMeta, 'agentState' | 'busy'> | undefined,
 ): boolean {
-  if (!issue?.draft || !session) return false
+  if (!issue?.isDraftVessel || !session) return false
   if (model.dotTone !== 'ready' && model.dotTone !== 'neutral') return false
   const phase = session.agentState?.phase
   return (phase === undefined || phase === 'unknown') && !session.busy
@@ -77,7 +78,7 @@ export function SessionCard({
   children,
 }: {
   model: SessionCardModel
-  issue?: IssueWire
+  issue?: IssueViewModel
   /** The row's session, for the draft-dot gate ({@link hidesDraftDot}).
    *  Optional so existing call sites keep today's behaviour untouched. */
   session?: SessionMeta

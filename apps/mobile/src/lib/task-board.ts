@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   boardIssues,
   type BoardFilter,
@@ -12,7 +13,7 @@ import {
   taskProgressMap,
   type IssuesOrdering,
 } from '@podium/client-core/viewmodels'
-import type { IssueBoardStage, IssueWire } from '@podium/model'
+import type { IssueBoardStage } from '@podium/model'
 import { STAGE_LABEL } from '../theme/stage'
 import { buildScreeningQueue } from './screening'
 
@@ -84,12 +85,12 @@ export interface TaskBoardSection {
   stage: IssueBoardStage
   title: string
   /** Rows the section WOULD show — its count, independent of the fold. */
-  rows: IssueRow<IssueWire>[]
+  rows: IssueRow<IssueViewModel>[]
 }
 
 /** Full-subtree progress for the roots currently represented on the phone board. */
 export function taskBoardProgress(
-  issues: readonly IssueWire[],
+  issues: readonly IssueViewModel[],
   sections: readonly TaskBoardSection[],
   workingByIssue: ReadonlyMap<string, number>,
 ): Map<string, TaskProgress | null> {
@@ -111,7 +112,7 @@ export function taskBoardProgress(
  * disambiguates.
  */
 export function taskBoardSections(
-  issues: IssueWire[],
+  issues: IssueViewModel[],
   opts: {
     showDone: boolean
     expanded?: ReadonlySet<string>
@@ -158,7 +159,7 @@ export function taskBoardSections(
       ? scoped
       : scoped.filter((issue) => {
           const seen = new Set<string>()
-          let current: IssueWire | undefined = issue
+          let current: IssueViewModel | undefined = issue
           while (current && !seen.has(current.id)) {
             if (promotedIds.has(current.id)) return false
             seen.add(current.id)
@@ -198,18 +199,18 @@ export function taskBoardSections(
  * sort in front (found in review, 2026-08-29).
  */
 function promoteScreenableProposals(
-  scoped: IssueWire[],
-  byStage: Map<IssueBoardStage, IssueRow<IssueWire>[]>,
+  scoped: IssueViewModel[],
+  byStage: Map<IssueBoardStage, IssueRow<IssueViewModel>[]>,
   expanded: ReadonlySet<string>,
   ordering: IssuesOrdering,
-  promoted: readonly IssueWire[],
+  promoted: readonly IssueViewModel[],
 ): void {
   const listed = new Set([...byStage.values()].flatMap((rows) => rows.map((row) => row.issue.id)))
   const { childrenByParent } = partitionIssueTree(scoped)
   const extras = promoted.filter((issue) => !listed.has(issue.id))
   if (extras.length === 0) return
 
-  const emit = (issue: IssueWire, depth: number, out: IssueRow<IssueWire>[]): void => {
+  const emit = (issue: IssueViewModel, depth: number, out: IssueRow<IssueViewModel>[]): void => {
     if (listed.has(issue.id)) return
     listed.add(issue.id)
     const children = childrenByParent.get(issue.id) ?? []
@@ -221,17 +222,17 @@ function promoteScreenableProposals(
 
   const blocks = rootBlocks(byStage.get('proposed') ?? [])
   for (const issue of extras) {
-    const block: IssueRow<IssueWire>[] = []
+    const block: IssueRow<IssueViewModel>[] = []
     emit(issue, 0, block)
     if (block.length > 0) blocks.push(block)
   }
   const byRootId = new Map(
-    blocks.map((block) => [(block[0] as IssueRow<IssueWire>).issue.id, block]),
+    blocks.map((block) => [(block[0] as IssueRow<IssueViewModel>).issue.id, block]),
   )
   byStage.set(
     'proposed',
     orderIssues(
-      blocks.map((block) => (block[0] as IssueRow<IssueWire>).issue),
+      blocks.map((block) => (block[0] as IssueRow<IssueViewModel>).issue),
       ordering,
     ).flatMap((issue) => byRootId.get(issue.id) ?? []),
   )
@@ -239,11 +240,11 @@ function promoteScreenableProposals(
 
 /** Split a section into blocks — each a depth-0 row plus the rows it revealed.
  *  A block is the unit that may be reordered; its inside never is. */
-function rootBlocks(rows: readonly IssueRow<IssueWire>[]): IssueRow<IssueWire>[][] {
-  const blocks: IssueRow<IssueWire>[][] = []
+function rootBlocks(rows: readonly IssueRow<IssueViewModel>[]): IssueRow<IssueViewModel>[][] {
+  const blocks: IssueRow<IssueViewModel>[][] = []
   for (const row of rows) {
     if (row.depth === 0 || blocks.length === 0) blocks.push([row])
-    else (blocks[blocks.length - 1] as IssueRow<IssueWire>[]).push(row)
+    else (blocks[blocks.length - 1] as IssueRow<IssueViewModel>[]).push(row)
   }
   return blocks
 }
@@ -258,7 +259,7 @@ function rootBlocks(rows: readonly IssueRow<IssueWire>[]): IssueRow<IssueWire>[]
  * or a parent's sub-task list. Prev/next from a child you opened that way
  * should not dead-end just because the child is not a list row.
  */
-export function taskBoardOrder(issues: IssueWire[]): string[] {
+export function taskBoardOrder(issues: IssueViewModel[]): string[] {
   const groups = issueRowsByStage(boardIssues(issues), TASK_BOARD_ORDERING, {
     flatten: true,
     expanded: new Set<string>(),

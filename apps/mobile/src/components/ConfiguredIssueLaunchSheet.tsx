@@ -1,5 +1,6 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueWire } from '@podium/model'
+
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
@@ -34,7 +35,7 @@ export function ConfiguredIssueLaunchSheet({
   onStarted,
   onClose,
 }: {
-  issue: IssueWire | null
+  issue: IssueViewModel | null
   onStarted?: () => void
   onClose: () => void
 }) {

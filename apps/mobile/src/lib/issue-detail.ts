@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type { ActivityComment, IssueEvent } from '@podium/client-core/viewmodels'
 import type { IssueUpdatePatch } from '@podium/commands'
 import {
@@ -119,7 +120,7 @@ export function issueCommands({
   requestClose,
 }: {
   trpc: MobileTrpc
-  issue: IssueWire
+  issue: IssueViewModel
   /** The session roster, for the close guard's blocker check (POD-1129). */
   sessions?: readonly SessionMeta[]
   run: RunMutation

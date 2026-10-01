@@ -1,6 +1,7 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
@@ -33,7 +34,7 @@ export function SessionsScreen() {
   const booting = useBooting()
   const bottomInset = useContentBottomInset()
   const now = Date.now()
-  const [peek, setPeek] = useState<{ issue: IssueWire; session: SessionMeta } | null>(null)
+  const [peek, setPeek] = useState<{ issue: IssueViewModel; session: SessionMeta } | null>(null)
 
   const groups = useMemo(() => groupSessions(withoutShells(sessions)), [sessions])
   const sections = useMemo(
@@ -46,7 +47,7 @@ export function SessionsScreen() {
     [groups],
   )
 
-  const issueFor = (session: SessionMeta): IssueWire | undefined =>
+  const issueFor = (session: SessionMeta): IssueViewModel | undefined =>
     session.issueId ? issues.find((issue) => issue.id === session.issueId) : undefined
 
   return (

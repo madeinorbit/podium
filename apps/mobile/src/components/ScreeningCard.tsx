@@ -1,5 +1,6 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { relativeTime } from '@podium/client-core/focus'
-import type { IssueWire } from '@podium/model'
+
 import * as Haptics from 'expo-haptics'
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
 import Animated, {
@@ -63,10 +64,10 @@ export function ScreeningCard({
   onDecide,
   onOpen,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   repoName: string
   /** Resolved parent issue, when the proposal was filed under one. */
-  parent?: IssueWire | undefined
+  parent?: IssueViewModel | undefined
   onDecide: (gesture: ScreeningGesture) => void
   onOpen: () => void
 }) {
@@ -279,7 +280,7 @@ export function ScreeningCard({
           />
           {blockers > 0 ? <Pill label={`blocked by ${blockers}`} toneKey="danger" /> : null}
           {openChildren > 0 ? <Pill label={`${openChildren} sub-tasks`} /> : null}
-          {issue.origin === 'agent' ? <Pill label="agent proposal" /> : null}
+          {issue.intentOrigin === 'agent' ? <Pill label="agent proposal" /> : null}
         </View>
 
         <View style={styles.body}>

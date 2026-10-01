@@ -22,6 +22,9 @@
  *  - fatal errors, storage notices, sign-out erase → `./shell`
  */
 import type { Store } from '@podium/client-core/engine'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { useAllIssueViewModels, useIssueViewModel } from '@podium/client-core/react'
+import { asIssueId } from '@podium/model'
 import {
   useHostMetrics as useCoreHostMetrics,
   useStore,
@@ -32,7 +35,6 @@ import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type {
   GitRepositoryWire,
   HostMetricsWire,
-  IssueWire,
   MachineWire,
   SessionId,
   SessionMeta,
@@ -164,8 +166,17 @@ export function useSessions(): SessionMeta[] {
   return useStoreSelector<SessionMeta[], MobileTrpc>((s) => s.sessions)
 }
 
-export function useIssues(): IssueWire[] {
-  return useStoreSelector<IssueWire[], MobileTrpc>((s) => s.issues)
+/** The runtime's folded sources include normalized optimism and personal markers. */
+function useIssueSources() {
+  return useMobileStoreSelector(
+    (s) => ({ replica: s.replica, issueProjections: s.issueProjections, issueUserStates: s.issueUserStates }),
+    shallowEqualPick,
+  )
+}
+
+export function useIssues(): IssueViewModel[] {
+  const { replica, issueProjections, issueUserStates } = useIssueSources()
+  return useAllIssueViewModels(replica, issueProjections, issueUserStates)
 }
 
 /**
@@ -177,10 +188,10 @@ export function useIssues(): IssueWire[] {
  * deletion. Callers here show the id inert rather than an error, which is the
  * same choice `resolveIssueEdge`'s `pending` renders on the desktop issue page.
  */
-export function useIssue(id: string | undefined): IssueWire | undefined {
-  return useStoreSelector<IssueWire | undefined, MobileTrpc>((s) =>
-    id === undefined ? undefined : s.issues.find((issue) => issue.id === id),
-  )
+export function useIssue(id: string | undefined): IssueViewModel | undefined {
+  const { replica, issueProjections, issueUserStates } = useIssueSources()
+  const model = useIssueViewModel(replica, asIssueId(id ?? ''), issueProjections, issueUserStates)
+  return id === undefined ? undefined : model
 }
 
 export function useSession(id: SessionId | undefined): SessionMeta | undefined {
@@ -270,7 +281,7 @@ export function useBooting(): boolean {
   return useStoreSelector<boolean, MobileTrpc>((s) =>
     demoEnabled()
       ? false
-      : s.replica.getCursor() === null && s.sessions.length === 0 && s.issues.length === 0,
+      : s.replica.getCursor() === null && s.sessions.length === 0 && s.issueProjections.length === 0,
   )
 }
 

@@ -1,6 +1,7 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { relativeTime } from '@podium/client-core/focus'
 import { artifactKind } from '@podium/client-core/viewmodels'
-import type { IssuePanelArtifact, IssueWire } from '@podium/model'
+import type { IssuePanelArtifact } from '@podium/model'
 import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { authenticatedImageSource } from '../../client/authenticated-assets'
@@ -30,7 +31,7 @@ import { SectionHeading } from './chrome'
  * remain intact for agent tooling; this reader surface simply does not expose
  * or mutate the checklist.
  */
-export function IssueAgentPanel({ issue }: { issue: IssueWire }) {
+export function IssueAgentPanel({ issue }: { issue: IssueViewModel }) {
   const httpOrigin = useHttpOrigin()
   const profile = useOptionalServerProfile()
   // Prefer the immutable hosted id. The slug fallback keeps URL-selected web

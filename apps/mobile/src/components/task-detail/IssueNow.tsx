@@ -1,5 +1,6 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { motionPhase, sessionTitle } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
+import type { SessionId, SessionMeta } from '@podium/model'
 import { ChevronRight } from '../icons'
 import { StyleSheet, Text, View } from 'react-native'
 import { alpha } from '../../theme/mix'
@@ -50,7 +51,7 @@ export function IssueNow({
   sessions,
   onOpenSession,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   sessions: SessionMeta[]
   onOpenSession: (sessionId: SessionId) => void
 }) {

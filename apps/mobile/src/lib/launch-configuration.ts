@@ -1,5 +1,6 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type { ModelCatalog, ModelCatalogStatus } from '@podium/client-core/react'
-import type { IssueWire, MachineId } from '@podium/model'
+import type { MachineId } from '@podium/model'
 import {
   AUTO,
   decodeModelPick,
@@ -104,7 +105,7 @@ export function selectLaunchMachine(
   return { ...value, machineId, modelPick: AUTO, effort: AUTO }
 }
 
-export function launchConfigurationForIssue(issue: IssueWire): LaunchConfiguration {
+export function launchConfigurationForIssue(issue: IssueViewModel): LaunchConfiguration {
   const agentKind = issueAgentKind(issue.defaultAgent) ?? issueDefaultAgentKind(undefined)
   return {
     inheritAgent: false,

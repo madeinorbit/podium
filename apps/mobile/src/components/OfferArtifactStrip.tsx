@@ -1,4 +1,5 @@
-import type { IssueWire, SessionOffer } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionOffer } from '@podium/model'
 import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { authenticatedImageSource } from '../client/authenticated-assets'
@@ -39,7 +40,7 @@ export function OfferArtifactStrip({
 }: {
   offer: SessionOffer
   /** The session's issue. Without it nothing resolves and the strip is absent. */
-  issue: IssueWire | undefined
+  issue: IssueViewModel | undefined
   /** SessionMeta.lastInputAt — the freshness anchor for an offer naming no paths. */
   lastInputAt?: string
   /** Where the "+N" chip goes: the task peek, which lists every artifact. Absent

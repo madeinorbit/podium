@@ -1,6 +1,7 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { pendingAskFromState, sessionCardModel } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useMemo } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
@@ -41,7 +42,7 @@ function NeedsYouCard({
   now,
 }: {
   session: SessionMeta
-  issue: IssueWire | undefined
+  issue: IssueViewModel | undefined
   now: number
 }) {
   const router = useRouter()
@@ -141,7 +142,7 @@ export function InboxScreen() {
   // An issue this principal cannot see resolves to undefined and renders as
   // NOTHING — not as a deletion and not as a spinner (doc §3.1 ¶2). The card
   // keeps its session identity either way.
-  const issueFor = (session: SessionMeta): IssueWire | undefined =>
+  const issueFor = (session: SessionMeta): IssueViewModel | undefined =>
     session.issueId ? issues.find((issue) => issue.id === session.issueId) : undefined
 
   return (

@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { relativeTime } from '@podium/client-core/focus'
 import {
   type ActivityEntry,
@@ -7,7 +8,7 @@ import {
   type IssueEventIcon,
   type IssueEventLine,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire } from '@podium/model'
+
 import {
   ArrowRight,
   type AppIcon,
@@ -110,7 +111,7 @@ export function IssueActivitySection({
   commands,
   feed,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   busy: boolean
   commands: IssueCommands
   feed: ActivityItem[]

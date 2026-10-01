@@ -1,10 +1,11 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   type ActivityComment,
   type ActivityItem,
   buildActivityFeed,
   type IssueEvent,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire } from '@podium/model'
+
 import { useEffect, useState } from 'react'
 import { useHub, useTrpc } from '../client/hooks'
 import {
@@ -63,7 +64,7 @@ export interface IssueActivity {
   appendLocalComment: (body: string) => void
 }
 
-export function useIssueActivity(issue: IssueWire): IssueActivity {
+export function useIssueActivity(issue: IssueViewModel): IssueActivity {
   const trpc = useTrpc()
   const hub = useHub()
   const [comments, setComments] = useState<ActivityComment[]>([])
@@ -73,15 +74,10 @@ export function useIssueActivity(issue: IssueWire): IssueActivity {
   const issueId = issue.id
   const updatedAt = issue.updatedAt
   const repoPath = issue.repoPath
-  // The legacy embedded thread (pre-#175 payloads still carry one) is the seed
-  // and the fallback: a hub-mirrored row has no local comments, so an empty
-  // fetch means "ask the wire", not "there are none".
-  const embedded = issue.comments
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on task switch / update tick only; `embedded` is a seed read at that moment and trpc is a stable store singleton
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on task switch / update tick only; trpc is a stable store singleton
   useEffect(() => {
     let cancelled = false
-    setComments(embedded ?? [])
+    setComments([])
     Promise.resolve()
       .then(() => loadIssueComments(trpc, issueId))
       .then((rows) => {
@@ -90,7 +86,7 @@ export function useIssueActivity(issue: IssueWire): IssueActivity {
         // `.map` to throw inside a render.
         if (cancelled) return
         const list = Array.isArray(rows) ? rows : []
-        setComments(list.length === 0 ? (embedded ?? []) : list)
+        setComments(list)
       })
       .catch(() => {
         // best-effort — keep whatever we already have

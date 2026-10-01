@@ -1,15 +1,13 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { withoutShells } from '@podium/client-core/focus'
 import { resolveIssueEdge, subIssuesOf } from '@podium/client-core/viewmodels'
-import {
-  type IssueCloseReason,
+import { type IssueCloseReason,
   type IssueId,
   IssueType,
-  type IssueWire,
   issueStatusMenuEntries,
   issueStatusValueOf,
   parseIssueStatusValue,
-  type SessionId,
-} from '@podium/model'
+  type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { ChevronDown, ChevronUp, MoreHorizontal } from '../components/icons'
@@ -165,8 +163,8 @@ type OpenSheet =
   /** Carries the ending being recorded — the guard is raised BY a close, so it
    *  has to remember which one it is guarding (POD-1129). */
   | { kind: 'confirm-close'; reason: IssueCloseReason }
-  | { kind: 'child-status'; child: IssueWire }
-  | { kind: 'confirm-child-close'; child: IssueWire; reason: IssueCloseReason }
+  | { kind: 'child-status'; child: IssueViewModel }
+  | { kind: 'confirm-child-close'; child: IssueViewModel; reason: IssueCloseReason }
   | { kind: 'flag' }
   | { kind: 'colour' }
   | { kind: 'launch' }
@@ -182,7 +180,7 @@ function IssueContent({
   onBack,
   dismiss,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   onBack: () => void
   dismiss: boolean
 }) {
@@ -262,7 +260,7 @@ function IssueContent({
   const openSession = (id: SessionId) =>
     router.push(sessionHref(id, `/issue/${encodeURIComponent(issue.id)}`))
   const askingSession =
-    sessions.find((s) => s.sessionId === issue.humanQuestionAskedBy) ?? sessions[0]
+    sessions.find((s) => s.sessionId === issue.asked?.by) ?? sessions[0]
 
   /**
    * Dismiss THIS sheet, and only if it is still the one showing.
@@ -667,7 +665,7 @@ function IssueContent({
     return actions
   }
 
-  function selectChildStatus(child: IssueWire, value: string): void {
+  function selectChildStatus(child: IssueViewModel, value: string): void {
     const intent = parseIssueStatusValue(value)
     if (!intent) return
     if (intent.kind === 'stage') {

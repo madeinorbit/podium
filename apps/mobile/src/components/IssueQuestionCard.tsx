@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
@@ -11,14 +11,14 @@ export function IssueQuestionCard({
   onOpenSession,
   onResolve,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   onAnswer?: (answer: string) => Promise<void>
   onOpenSession?: () => void
   onResolve: () => Promise<void>
 }) {
   const [sending, setSending] = useState(false)
   const [failed, setFailed] = useState(false)
-  const options = issue.humanQuestionOptions ?? []
+  const options = issue.asked?.options ?? []
 
   const commit = async (action: () => Promise<void>) => {
     setSending(true)
@@ -40,7 +40,7 @@ export function IssueQuestionCard({
         {failed ? <Text style={styles.error}>not sent — try again</Text> : null}
       </View>
       <Text style={styles.question}>
-        {issue.humanQuestion?.trim() || 'This task is waiting for human input.'}
+        {issue.asked?.question?.trim() || 'This task is waiting for human input.'}
       </Text>
       {options.length > 0 && onAnswer ? (
         <View style={styles.options}>
