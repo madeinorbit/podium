@@ -9,6 +9,7 @@ import { asUserId } from '@podium/model'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { buildCorpus } from '../../../packages/worklist-proto/harness/src/fixture'
+import type { RuntimePoolFixture } from '../../../packages/worklist-proto/harness/browser/runtime-pool-fixture'
 import { attachWorklistPool, useWorklistPool, worklistPoolSurvivors } from '../src/app/store-worklist-pool'
 import { sidebarDataLayer } from '../src/lib/sidebar-data-layer'
 
@@ -47,7 +48,8 @@ function Probe(): null {
 
 function show(name: string | null, rebuild = false): void {
   if (current !== null) {
-    const model = current.object('issue', id)
+    const model = current.model('issue', id)
+    if (model === undefined) throw new Error('fixture issue is not resident')
     models.push(new WeakRef(model))
   }
   current = null
@@ -73,10 +75,6 @@ const fixture = {
     ...worklistPoolSurvivors(),
     ...models.flatMap((ref, index) => ref.deref() === undefined ? [] : [`model.${index}`]),
   ],
-}
+} satisfies RuntimePoolFixture
 Object.assign(window, { __poolFixture: fixture })
 show('fixture-alice')
-
-declare global {
-  interface Window { __poolFixture: typeof fixture }
-}

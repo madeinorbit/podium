@@ -1,17 +1,27 @@
 /** Real-browser lifetime evidence belongs to the integration lane. */
 import { fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { resolve } from 'node:path'
 import { chromium, type Browser, type Page } from '@playwright/test'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type {} from '../../../../apps/web/test/store-worklist-pool.browser'
+import type {} from './runtime-pool-fixture'
 
 let server: Server
 let browser: Browser
 let origin: string
 
 beforeAll(async () => {
+  // Vite runs in its own foreground process, outside the Vitest worker.
+  // Rebuild from source so test:file never serves stale or absent fixture bytes.
+  execFileSync(process.execPath, [
+    'x', 'vite', 'build', '--config',
+    'packages/worklist-proto/harness/browser/runtime-pool.vite.config.ts',
+  ], {
+    cwd: fileURLToPath(new URL('../../../../', import.meta.url)),
+    timeout: 120_000, stdio: 'pipe',
+  })
   const dist = fileURLToPath(new URL('../../node_modules/.cache/runtime-pool-browser/', import.meta.url))
   server = createServer((request, response) => {
     const pathname = new URL(request.url ?? '/', 'http://fixture').pathname
@@ -30,7 +40,7 @@ beforeAll(async () => {
   if (address === null || typeof address === 'string') throw new Error('fixture did not bind TCP')
   origin = `http://127.0.0.1:${address.port}`
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] })
-}, 60_000)
+}, 150_000)
 
 afterAll(async () => {
   await browser?.close()
