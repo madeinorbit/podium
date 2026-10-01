@@ -30,6 +30,11 @@ try {
       const ms = await page.evaluate(async () => {
         const start = performance.now()
         window.__issueChips.open()
+        const deadline = start + 30000
+        while (document.querySelectorAll('a[data-issue-availability="present"]').length < 361) {
+          if (performance.now() > deadline) throw new Error('Conversation chips did not become ready')
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+        }
         await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
         return performance.now() - start
       })

@@ -58,8 +58,8 @@ function Fixture() {
     return () => { ready = false; runtime = undefined; pool = null; open = undefined }
   }, [attached, owner])
   return <main ref={setRoot} className="flex h-screen flex-col bg-background text-foreground">
-    <IssueChipLiveness root={root} />
     {shown && <>
+      <IssueChipLiveness root={root} />
       <div className="p-3" data-surface="issue-page"><LiveIssueReference token="SYN-1000" /></div>
       <div className="p-3" data-surface="miniview"><LiveIssueReference token="SYN-1001" showTitle={false} /></div>
       <div className="chat-md p-3" data-surface="mail"><a className="ref-link ref-link--issue" data-ref="SYN-1000">SYN-1000</a></div>
