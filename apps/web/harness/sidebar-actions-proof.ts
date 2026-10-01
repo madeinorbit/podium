@@ -1,6 +1,7 @@
 /** Foreground synthetic browser proof; no operator data or live backend. */
-import { chromium, type Page } from '@playwright/test'
+
 import { mkdir, writeFile } from 'node:fs/promises'
+import { chromium, type Page } from '@playwright/test'
 import type {} from '../test/sidebar-actions.browser'
 
 const out = '.artifacts/sidebar-actions'
