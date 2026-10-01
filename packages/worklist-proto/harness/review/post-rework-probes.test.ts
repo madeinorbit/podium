@@ -237,7 +237,19 @@ describe('POD-4942 post-rework probes', () => {
           const hiddenIssues: Record<string, number> = {}
           const hiddenSessions: Record<string, number> = {}
           const memberKeptHidden: Record<string, number> = {}
-          const memberKeptExamples: unknown[] = []
+          const hasHumanAncestor = (row: Record<string, unknown>): boolean => {
+            const seen = new Set<string>()
+            let parent = row['parentId']
+            while (typeof parent === 'string' && !seen.has(parent)) {
+              seen.add(parent)
+              const ancestor = issueRows.get(parent)
+              if (ancestor === undefined) return true // unknown stays conservative
+              if (ancestor['audience'] !== 'agent' && ancestor['archived'] !== true &&
+                ancestor['deletedAt'] == null && ancestor['stage'] !== 'proposed' && ancestor['stage'] !== 'shipping') return true
+              parent = ancestor['parentId']
+            }
+            return false
+          }
           const bump = (table: Record<string, number>, why: string) => { table[why] = (table[why] ?? 0) + 1 }
           for (const id of pool.tables.issue.keys()) {
             if (shownIssues.has(id)) continue
@@ -247,11 +259,7 @@ describe('POD-4942 post-rework probes', () => {
             if (clauses.includes('members:')) bump(memberKeptHidden,
               row['archived'] === true ? 'archived' : row['deletedAt'] != null ? 'deleted' :
                 row['stage'] === 'proposed' || row['stage'] === 'shipping' ? `excluded-stage:${row['stage']}` :
-                  row['audience'] === 'agent' && !row['parentId'] ? 'agent-root' : 'other')
-            if (clauses.includes('members:') && memberKeptExamples.length < 3) {
-              memberKeptExamples.push({ row, parent: issueRows.get(row['parentId'] as string),
-                sessions: sessionsOf.get(id) })
-            }
+                  row['audience'] === 'agent' && row['parentId'] && !hasHumanAncestor(row) ? 'agent-without-human-ancestor' : 'other')
           }
           for (const id of pool.tables.session.keys()) {
             if (shownSessions.has(id)) continue
@@ -286,7 +294,6 @@ describe('POD-4942 post-rework probes', () => {
             hiddenIssues,
             hiddenSessions,
             memberKeptHidden,
-            memberKeptExamples,
             closedColdByRule,
             sessionsColdByRuleResident,
             unboundSessions: unbound,
