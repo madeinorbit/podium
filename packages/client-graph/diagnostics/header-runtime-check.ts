@@ -19,7 +19,7 @@ export function startHeaderCheck(runtime: ClientRuntime<PodiumClientApi>, pool: 
     try {
       const result = runInAction(() => checkHeader(pool, runtime.getSnapshot(), {
         metrics: runtime.hostMetrics.getSnapshot(), quotas: pool.headerViews.quotas(),
-        connection: runtime.hub.connectionHealth(), afterDays: pool.headerViews.row('lifecycle', 'hosts')?.worktreeGc.afterDays ?? 14,
+        connection: runtime.hub.connectionHealth(), afterDays: pool.headerViews.row('lifecycle', 'hosts')?.worktreeGc?.afterDays ?? 14,
       }))
       checks++
       report({ state: result.pending ? 'waiting' : result.differences ? 'different' : 'match', checks,

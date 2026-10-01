@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { autorun, runInAction } from 'mobx'
 import { headerStats } from '@podium/client-core/perf'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
-import { checkHeader, poolHeaderSnapshot } from '@podium/client-graph/diagnostics/header-check'
+import { checkHeader, legacyHeaderSnapshot, poolHeaderSnapshot } from '@podium/client-graph/diagnostics/header-check'
 import { startHeaderCheck } from '@podium/client-graph/diagnostics/header-runtime-check'
 import { HEADER_RELATIONS, HEADER_SCHEMA } from '@podium/client-graph/header-schema'
 import type { HostMetricsWire, MachineId } from '@podium/model/browser'
@@ -27,10 +27,15 @@ async function fixture(scale: 1 | 4 = 1) {
     }
     throw new Error('Header loads did not settle')
   }
-  const parity = () => {
+  const parity = (label = 'corpus') => {
     settle()
     const value = runInAction(() => checkHeader(handle.pool, ctx.engine.getSnapshot(), inputs()))
-    expect(value.first).toBeNull()
+    if (value.first) {
+      const expected = legacyHeaderSnapshot(ctx.engine.getSnapshot(), inputs(), handle.pool.clock.current)
+      const actual = runInAction(() => poolHeaderSnapshot(handle.pool, inputs()))
+      expect(actual.sections[value.first.sectionIndex], label).toEqual(expected.sections[value.first.sectionIndex])
+    }
+    expect(value.first, label).toBeNull()
     expect(value.differences).toBe(0)
     expect(value.pending).toBe(0)
   }
@@ -52,7 +57,7 @@ describe('header pool values', () => {
         writeClockTick, writeBurst50, writeRescopeGrow, writeRescopeBack]) {
         await write(f.ctx)
         await Promise.resolve()
-        f.parity()
+        f.parity(write.name)
       }
     } finally { stop(); f.dispose(); f.ctx.engine.destroy() }
   }, 180_000)

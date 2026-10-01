@@ -101,29 +101,34 @@ export function createHeaderViews(pool: MobxPool) {
         const value = issue(id)
         if (value === LOADING) { loading = true; return }
         if (!value || value.archived || value.deletedAt) return
-        const ownIds = new Set(pool.graph.many('issue', id, 'sessions'))
-        if (value.worktreePath) {
-          for (const sid of pool.graph.many('worktree', value.worktreePath, 'sessions')) {
-            const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
-            if (member === LOADING) loading = true
-            else if (member && !member.issueId) ownIds.add(sid)
-          }
-        }
+        const ownIds = pool.model('issue', id)?.memberIds ?? []
         let asking = false
         for (const sid of ownIds) {
           const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
           if (member === LOADING) { loading = true; continue }
-          if (!member || member.archived) continue
+          if (!member || member.archived || member.headless) continue
           sessions.set(sid, member)
-          asking ||= sessionPresentOnTask(member as SessionMeta) && (member.agentState?.phase === 'needs_user' || member.agentState?.phase === 'errored' || !!member.offer)
-          for (const child of pool.graph.many('session', sid, 'startedIssues')) visit(child)
+          asking ||= member.agentState?.phase === 'needs_user' || member.agentState?.phase === 'errored' || !!member.offer
+          for (const child of pool.graph.many('session', sid, 'startedIssues')) {
+            const spawned = issue(child)
+            if (spawned === LOADING) { loading = true; continue }
+            if (spawned && (!['backlog', 'proposed'].includes(spawned.stage) && spawned.deps?.some((dep) => dep.type === 'discovered-from'))) continue
+            visit(child)
+          }
         }
-        if (value.stage !== 'done' && !value.closedReason && (asking || value.humanQuestion || value.needsHuman || value.stage === 'review')) needs++
+        const vacated = !ownIds.some((sid) => {
+          const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
+          return member && member !== LOADING && member.issueId === id && sessionPresentOnTask(member as SessionMeta)
+        }) && pool.graph.many('issue', id, 'spinOffs').length > 0
+        if (value.stage !== 'done' && !value.closedReason && (asking || value.needsHuman || (value.stage === 'review' && !vacated))) needs++
         for (const child of pool.graph.many('issue', id, 'children')) visit(child)
       }
       visit(root.id)
       const crew = [...sessions.values()].filter((member) => sessionPresentOnTask(member as SessionMeta))
-      if (root.draft && !root.worktreePath && crew.length === 0) return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading }
+      if (root.draft && !root.worktreePath && !pool.graph.many('issue', root.id, 'sessions').some((sid) => {
+        const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
+        return member && member !== LOADING && !member.archived
+      })) return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading }
       const sidebar = pool.model('issue', root.id)?.sidebar
       if (sidebar === LOADING) loading = true
       return { root, progress: sidebar && sidebar !== LOADING ? sidebar.progress : NO_PROGRESS,
