@@ -136,7 +136,14 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
  *  all other internal bytes remain exact. An empty prompt cannot prove a send. */
 export function codexPromptTextMatches(submitted: string, recorded: string): boolean {
   const text = submitted.trim()
-  return text.length > 0 && text === recorded.trim()
+  const stored = recorded.trim()
+  return (
+    text.length > 0 &&
+    (text === stored ||
+      text.replaceAll('\r\n', '\n') === stored ||
+      text.replaceAll('\r\n', '\n\n') === stored ||
+      text.replaceAll('\t', '') === stored)
+  )
 }
 
 function userMessageText(payload: Record<string, unknown>): string {
