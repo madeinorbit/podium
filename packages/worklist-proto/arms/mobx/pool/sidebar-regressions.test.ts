@@ -295,7 +295,7 @@ describe('POD-5072 snoozed roster section label', () => {
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
       // Closed-fold membership cannot substitute for the root's ordering band.
       ctx.updateIssue({ ...closed, deferUntil: snoozed.deferUntil })
-      expect(required(ctx.sections().expected.bands.find(b => b.key === 'synthetic-repo'))).label).toBe('Synthetic project')
+      expect(required(ctx.sections().expected.bands.find(b => b.key === 'synthetic-repo')).label).toBe('Synthetic project')
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0 })
     } finally { ctx.dispose() }
   })
