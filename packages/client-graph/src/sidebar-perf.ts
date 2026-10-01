@@ -8,7 +8,7 @@ import {
   sidebarPerfFor,
   type SidebarPerf,
 } from '@podium/client-core/perf'
-import { computed, observe, Reaction } from 'mobx'
+import { computed, observe, Reaction, runInAction } from 'mobx'
 import type { MobxPool } from './pool'
 
 type Body = (this: object, ...args: unknown[]) => unknown
@@ -51,7 +51,7 @@ function measureDerivations(perf: SidebarPerf): () => void {
  * dereference the old/new row values supplied by MobX. */
 export function observeWorklistPoolPerf(owner: object, pool: MobxPool): () => void {
   const tables = Object.values(pool.tables)
-  let rows = tables.reduce((total, table) => total + table.size, 0)
+  let rows = runInAction(() => tables.reduce((total, table) => total + table.size, 0))
   reportSidebarPool(owner, rows)
   const stops = tables.map((table) =>
     observe(table, (change) => {
