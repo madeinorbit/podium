@@ -14,11 +14,20 @@ import {
   User,
   X,
 } from 'lucide-react'
-import { type JSX, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  type JSX,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
+import { IssueAgentSettings } from '@/features/issues/IssueAgentSettings'
 import { PriorityGlyph } from '@/features/issues/issue-glyphs'
 import { isIssueStartable } from '@/features/issues/issue-startable'
 import { IssueAgentSettings } from '@/features/issues/IssueAgentSettings'
@@ -388,7 +397,11 @@ export function RefCard({
               />
             </div>
           )}
-          <IssueDetailsStrip key={target.issue.id} issue={target.issue} loadComments={loadComments} />
+          <IssueDetailsStrip
+            key={target.issue.id}
+            issue={target.issue}
+            loadComments={loadComments}
+          />
           {onStart && isIssueStartable(target.issue) && (
             <IssueActions
               issue={target.issue}
@@ -734,19 +747,28 @@ function IssueSummary({
 /** The mock's three-cell evidence strip: labeled cells between hairlines, each
  *  degrading away when it has no data (the strip vanishes entirely when empty).
  *  Evidence stays a quiet table, not a dashboard. */
-function IssueDetailsStrip({ issue, loadComments }: {
+function IssueDetailsStrip({
+  issue,
+  loadComments,
+}: {
   issue: RefIssueLike
   loadComments?: (issueId: IssueId) => Promise<readonly IssueComment[]>
 }): JSX.Element | null {
   const [comments, setComments] = useState(0)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: issue updates invalidate the on-demand comment count.
   useEffect(() => {
     let cancelled = false
     if (loadComments) {
-      void Promise.resolve().then(() => loadComments(issue.id)).then(rows => {
-        if (!cancelled) setComments(rows.length)
-      }).catch(() => {})
+      void Promise.resolve()
+        .then(() => loadComments(issue.id))
+        .then((rows) => {
+          if (!cancelled) setComments(rows.length)
+        })
+        .catch(() => {})
     }
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [issue.id, issue.updatedAt, loadComments])
   const todos = issue.panel?.todos ?? []
   const todosDone = todos.filter((t) => t.done).length

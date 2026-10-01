@@ -29,16 +29,16 @@ import { readIssue, readIssues } from './modules/world-index/issue-reader'
 import {
   asIssueId,
   asUserId,
+  type IssueId,
+  parseInteractionRowId,
   parseIssueDepId,
   parseIssueEventRowId,
-  parseInteractionRowId,
-  parseMessageRecordRowId,
-  parseLayoutRowId,
-  parseReadPositionRowId,
   parseIssueUserStateRowId,
-  type IssueId,
-  type UserId,
+  parseLayoutRowId,
+  parseMessageRecordRowId,
+  parseReadPositionRowId,
   type SessionId,
+  type UserId,
 } from '@podium/model'
 import type { Principal } from '@podium/protocol'
 import type {
@@ -303,7 +303,11 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // An unresolved root policy, or a ref outside this pass, denies. The
         // producer must prepare every ref before entering the synchronous loop.
         if (!prefetch) return false
-        if (ref.entity === 'issue' || ref.entity === 'issueProjection' || ref.entity === 'issueGitState') {
+        if (
+          ref.entity === 'issue' ||
+          ref.entity === 'issueProjection' ||
+          ref.entity === 'issueGitState'
+        ) {
           return mayReadIssueFromSnapshot(userId, ref.entityId, prefetch)
         }
         if (ref.entity === 'issueDep') {
@@ -433,7 +437,11 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const automationIds = new Set<string>()
     const automationRunIds = new Set<string>()
     for (const ref of refs) {
-      if (ref.entity === 'issue' || ref.entity === 'issueProjection' || ref.entity === 'issueGitState') {
+      if (
+        ref.entity === 'issue' ||
+        ref.entity === 'issueProjection' ||
+        ref.entity === 'issueGitState'
+      ) {
         issueIds.add(ref.entityId)
       } else if (ref.entity === 'issueDep') {
         const dep = parseIssueDepId(ref.entityId)

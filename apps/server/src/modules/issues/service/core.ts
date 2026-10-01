@@ -23,6 +23,7 @@ import {
   issueOverlayOf,
   issueUserStateRowId,
   issueUserStateToWire,
+  type MachineId,
   type RepoProjection,
   requireInstant,
   type SessionId,
@@ -206,19 +207,24 @@ export class IssueStore {
    * POD-723's memo would otherwise serve the pre-change payload.
    */
   async writeIssueUserState(issueId: IssueId, patch: Partial<StoredIssueUserState>): Promise<void> {
-    const user = (await this.broadcastViewer())
+    const user = await this.broadcastViewer()
     const { result: next } = await this.deps.ledger.commit({
       write: async () => {
         await this.deps.store.issues.setIssueUserState(user, issueId, patch)
         return await this.deps.store.issues.getIssueUserState(user, issueId)
       },
-      changes: (state) => [{
-        entity: 'issueUserState',
-        id: issueUserStateRowId(user, issueId),
-        ...(state
-          ? { op: 'upsert' as const, value: issueUserStateToWire({ userId: user, entityId: issueId, ...state }) }
-          : { op: 'remove' as const }),
-      }],
+      changes: (state) => [
+        {
+          entity: 'issueUserState',
+          id: issueUserStateRowId(user, issueId),
+          ...(state
+            ? {
+                op: 'upsert' as const,
+                value: issueUserStateToWire({ userId: user, entityId: issueId, ...state }),
+              }
+            : { op: 'remove' as const }),
+        },
+      ],
     })
     this.stagedViewerState.set(issueId, next)
     this.bumpIssueInputs()
@@ -1040,9 +1046,9 @@ export class IssueStore {
   async companionChanges(row: IssueRow): Promise<EntityChangeSpec[]> {
     const states = await this.deps.store.issues.listIssueUserStateRows(row.id)
     return [
-      ...await this.projectionChanges(row),
+      ...(await this.projectionChanges(row)),
       this.gitStateChange(row),
-      ...states.map(state => ({
+      ...states.map((state) => ({
         entity: 'issueUserState' as const,
         id: issueUserStateRowId(state.userId, state.entityId),
         op: 'upsert' as const,
@@ -1054,7 +1060,12 @@ export class IssueStore {
   private gitStateChange(row: IssueRow): EntityChangeSpec {
     const state = row.deletedAt ? undefined : this.gitStates.get(row.id)
     return state
-      ? { entity: 'issueGitState', id: row.id, op: 'upsert', value: IssueGitStateProjection.parse({ id: row.id, ...state }) }
+      ? {
+          entity: 'issueGitState',
+          id: row.id,
+          op: 'upsert',
+          value: IssueGitStateProjection.parse({ id: row.id, ...state }),
+        }
       : { entity: 'issueGitState', id: row.id, op: 'remove' }
   }
 
@@ -1062,16 +1073,19 @@ export class IssueStore {
    * recovery path. Boot removes prior-process git observations; purge removes
    * personal rows whose issue was deleted. */
   async reconcileCompanions(): Promise<void> {
-    const gitRows = [...this.rows.values()].flatMap(row => {
+    const gitRows = [...this.rows.values()].flatMap((row) => {
       const change = this.gitStateChange(row)
       return change.op === 'upsert' ? [{ id: change.id, value: change.value }] : []
     })
     await this.deps.ledger.reconcile('issueGitState', gitRows)
     const states = await this.deps.store.issues.listIssueUserStateRows()
-    await this.deps.ledger.reconcile('issueUserState', states.map(state => ({
-      id: issueUserStateRowId(state.userId, state.entityId),
-      value: issueUserStateToWire(state),
-    })))
+    await this.deps.ledger.reconcile(
+      'issueUserState',
+      states.map((state) => ({
+        id: issueUserStateRowId(state.userId, state.entityId),
+        value: issueUserStateToWire(state),
+      })),
+    )
   }
 
   /** Full LOCAL projection truth for a reconcile. `undefined` = do not reconcile
@@ -1260,32 +1274,37 @@ export class IssueStore {
     // the ledger's own failure.
     let committedProjectionChanges: readonly EntityChangeSpec[] = []
     let committedExtraChanges: readonly EntityChangeSpec[] = []
-    const wire = (await this.deps.ledger.commit({
-      write: async () => {
-        await extraWrite?.()
-        await this.deps.store.issues.upsertIssue(row, pin === undefined ? undefined : { expectedRevision: pin })
-        // toWire never looks `row` itself up in the map (children/blocked scan
-        // OTHER rows), so it is safe to serialize before the map install below.
-        const committedWire = await this.toWire(row)
-        committedProjectionChanges = await this.companionChanges(row)
-        committedExtraChanges =
-          typeof opts?.extraChanges === 'function'
-            ? await opts.extraChanges()
-            : (opts?.extraChanges ?? [])
-        return committedWire
-      },
-      // Both kinds are declared by the SAME commit, so they land in one
-      // transact span: a cap client and a legacy client can never observe an
-      // issue at two different truths, and neither feed can record a write
-      // the other rolled back. The projection is built from `row` (post-write,
-      // so it carries the revision upsertIssue just assigned — the same
-      // ordering `w` depends on), not from `w`.
-      changes: (w) => [
-        { entity: 'issue', id: row.id, op: 'upsert', value: w },
-        ...committedProjectionChanges,
-        ...committedExtraChanges,
-      ],
-    })).result
+    const wire = (
+      await this.deps.ledger.commit({
+        write: async () => {
+          await extraWrite?.()
+          await this.deps.store.issues.upsertIssue(
+            row,
+            pin === undefined ? undefined : { expectedRevision: pin },
+          )
+          // toWire never looks `row` itself up in the map (children/blocked scan
+          // OTHER rows), so it is safe to serialize before the map install below.
+          const committedWire = await this.toWire(row)
+          committedProjectionChanges = await this.companionChanges(row)
+          committedExtraChanges =
+            typeof opts?.extraChanges === 'function'
+              ? await opts.extraChanges()
+              : (opts?.extraChanges ?? [])
+          return committedWire
+        },
+        // Both kinds are declared by the SAME commit, so they land in one
+        // transact span: a cap client and a legacy client can never observe an
+        // issue at two different truths, and neither feed can record a write
+        // the other rolled back. The projection is built from `row` (post-write,
+        // so it carries the revision upsertIssue just assigned — the same
+        // ordering `w` depends on), not from `w`.
+        changes: (w) => [
+          { entity: 'issue', id: row.id, op: 'upsert', value: w },
+          ...committedProjectionChanges,
+          ...committedExtraChanges,
+        ],
+      })
+    ).result
     // The commit changed an issue-side input feeding toWire (row / label / dep /
     // comment via extraWrite, or read state) — invalidate the wire memo
     // [POD-723]. LOST IN THE POD-1246 MERGE and restored here: without it a
@@ -1345,56 +1364,65 @@ export class IssueStore {
     let committedExtraChanges: readonly EntityChangeSpec[] = []
     // NO try/catch — see persistWith: the drafts are the only objects that
     // carry this write, so a throw has nothing to undo.
-    const committed = (await this.deps.ledger.commit({
-      write: async () => {
-        result = await write()
-        for (const row of rows) {
-          const pin = pins.get(row.id)
-          await this.deps.store.issues.upsertIssue(
-            row,
-            pin === undefined ? undefined : { expectedRevision: pin },
+    const committed = (
+      await this.deps.ledger.commit({
+        write: async () => {
+          result = await write()
+          for (const row of rows) {
+            const pin = pins.get(row.id)
+            await this.deps.store.issues.upsertIssue(
+              row,
+              pin === undefined ? undefined : { expectedRevision: pin },
+            )
+          }
+          // Beyond a handful of rows the per-row joins dominate — see
+          // `wireBatch`. Built HERE, after `write` and the upserts, so it can
+          // never serve a projection from before the mutation it describes; the
+          // threshold keeps the shipping paths (a few rows) off an
+          // O(all issues) prefetch they would not amortize.
+          const batch = rows.length > 8 ? await this.wireBatch() : undefined
+          wires = await Promise.all(
+            rows.map(async (row) => await this.toWire(row, undefined, batch)),
           )
-        }
-        // Beyond a handful of rows the per-row joins dominate — see
-        // `wireBatch`. Built HERE, after `write` and the upserts, so it can
-        // never serve a projection from before the mutation it describes; the
-        // threshold keeps the shipping paths (a few rows) off an
-        // O(all issues) prefetch they would not amortize.
-        const batch = rows.length > 8 ? await this.wireBatch() : undefined
-        wires = await Promise.all(rows.map(async (row) => await this.toWire(row, undefined, batch)))
-        committedProjectionChanges = await Promise.all(rows.map(async (row) => await this.companionChanges(row)))
-        committedExtraChanges = await extraChanges(result)
-        const committedEvents = await events(result)
-        eventIds = await Promise.all(committedEvents.map(async (event) =>
-          await this.deps.store.events.appendEvent(
+          committedProjectionChanges = await Promise.all(
+            rows.map(async (row) => await this.companionChanges(row)),
+          )
+          committedExtraChanges = await extraChanges(result)
+          const committedEvents = await events(result)
+          eventIds = await Promise.all(
+            committedEvents.map(
+              async (event) =>
+                await this.deps.store.events.appendEvent(
+                  {
+                    ts: this.now(),
+                    kind: event.kind,
+                    subject: event.subject,
+                    repoPath:
+                      drafted.get(event.subject)?.repoPath ??
+                      this.rows.get(event.subject)?.repoPath ??
+                      null,
+                    payload: event.payload,
+                  },
+                  { announce: false },
+                ),
+            ),
+          )
+          return { result, wires }
+        },
+        changes: ({ result: value, wires: committedWires }) => [
+          ...rows.flatMap((row, index) => [
             {
-              ts: this.now(),
-              kind: event.kind,
-              subject: event.subject,
-              repoPath:
-                drafted.get(event.subject)?.repoPath ??
-                this.rows.get(event.subject)?.repoPath ??
-                null,
-              payload: event.payload,
+              entity: 'issue' as const,
+              id: row.id,
+              op: 'upsert' as const,
+              value: committedWires[index]!,
             },
-            { announce: false },
-          ),
-        ))
-        return { result, wires }
-      },
-      changes: ({ result: value, wires: committedWires }) => [
-        ...rows.flatMap((row, index) => [
-          {
-            entity: 'issue' as const,
-            id: row.id,
-            op: 'upsert' as const,
-            value: committedWires[index]!,
-          },
-          ...(committedProjectionChanges[index] ?? []),
-        ]),
-        ...committedExtraChanges,
-      ],
-    })).result
+            ...(committedProjectionChanges[index] ?? []),
+          ]),
+          ...committedExtraChanges,
+        ],
+      })
+    ).result
     result = committed.result
     wires = committed.wires
     this.bumpIssueInputs()

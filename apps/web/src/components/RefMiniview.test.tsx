@@ -251,32 +251,67 @@ describe('RefCard issue summary (#517)', () => {
   it('loads the comment count on demand and refreshes it when issue activity moves', async () => {
     const loadComments = vi.fn().mockResolvedValue([{}, {}])
     const issue = { ...rich, panel: undefined, childCount: 0, updatedAt: 't1', commentCount: 99 }
-    const show = (updatedAt: string) => root.render(<RefCard refToken="POD-517"
-      target={issueTarget({ ...issue, updatedAt })} issues={issues}
-      onClose={() => {}} onOpenFull={() => {}} loadComments={loadComments} />)
-    await act(async () => { show('t1') })
+    const show = (updatedAt: string) =>
+      root.render(
+        <RefCard
+          refToken="POD-517"
+          target={issueTarget({ ...issue, updatedAt })}
+          issues={issues}
+          onClose={() => {}}
+          onOpenFull={() => {}}
+          loadComments={loadComments}
+        />,
+      )
+    await act(async () => {
+      show('t1')
+    })
     expect(loadComments).toHaveBeenCalledWith(issue.id)
     expect(container.textContent).toContain('2 comments')
     expect(container.textContent).not.toContain('99 comments')
     loadComments.mockResolvedValue([{}])
-    await act(async () => { show('t2') })
+    await act(async () => {
+      show('t2')
+    })
     expect(container.textContent).toContain('1 comment')
     loadComments.mockResolvedValue([])
-    await act(async () => { show('t3') })
+    await act(async () => {
+      show('t3')
+    })
     expect(container.textContent).not.toContain('Activity')
   })
 
   it('ignores a late comments response after the card switches issues', async () => {
     let finish!: (rows: never[]) => void
-    const loadComments = vi.fn().mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const loadComments = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve
+          }),
+      )
       .mockResolvedValue([{}])
-    const show = (issue: RefIssueLike) => root.render(<RefCard refToken="POD-517"
-      target={issueTarget(issue)} issues={issues} onClose={() => {}} onOpenFull={() => {}}
-      loadComments={loadComments} />)
-    await act(async () => { show({ ...rich, panel: undefined, childCount: 0 }) })
-    await act(async () => { show({ ...parent, stage: 'done', childCount: 0 }) })
+    const show = (issue: RefIssueLike) =>
+      root.render(
+        <RefCard
+          refToken="POD-517"
+          target={issueTarget(issue)}
+          issues={issues}
+          onClose={() => {}}
+          onOpenFull={() => {}}
+          loadComments={loadComments}
+        />,
+      )
+    await act(async () => {
+      show({ ...rich, panel: undefined, childCount: 0 })
+    })
+    await act(async () => {
+      show({ ...parent, stage: 'done', childCount: 0 })
+    })
     expect(container.textContent).toContain('1 comment')
-    await act(async () => { finish([{} as never, {} as never]) })
+    await act(async () => {
+      finish([{} as never, {} as never])
+    })
     expect(container.textContent).toContain('1 comment')
     expect(container.textContent).not.toContain('2 comments')
   })

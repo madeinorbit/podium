@@ -88,36 +88,77 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       await svc.markIssueRead(issue.id)
       await svc.update(issue.id, { stage: 'done' })
       await svc.setIssueTucked(issue.id, true)
-      const personal = (await ledger.changesSince(0) ?? []).filter(c => c.entity === 'issueUserState')
+      const personal = ((await ledger.changesSince(0)) ?? []).filter(
+        (c) => c.entity === 'issueUserState',
+      )
       expect(personal.at(-1)).toMatchObject({
-        id: key, op: 'upsert', value: { userId: user, entityId: issue.id, pinned: true,
-          readAt: expect.any(String), tuckedAt: expect.any(String) },
+        id: key,
+        op: 'upsert',
+        value: {
+          userId: user,
+          entityId: issue.id,
+          pinned: true,
+          readAt: expect.any(String),
+          tuckedAt: expect.any(String),
+        },
       })
-      expect(await svc.get(issue.id)).toMatchObject({ pinned: true, readAt: expect.any(String), tuckedAt: expect.any(String) })
+      expect(await svc.get(issue.id)).toMatchObject({
+        pinned: true,
+        readAt: expect.any(String),
+        tuckedAt: expect.any(String),
+      })
       await svc.setIssueTucked(issue.id, false)
       await svc.markIssueUnread(issue.id)
       await svc.update(issue.id, { pinned: false })
-      expect((await ledger.changesSince(0) ?? []).filter(c => c.entity === 'issueUserState').at(-1)).toMatchObject({ id: key, op: 'remove' })
+      expect(
+        ((await ledger.changesSince(0)) ?? []).filter((c) => c.entity === 'issueUserState').at(-1),
+      ).toMatchObject({ id: key, op: 'remove' })
       expect(await store.issues.getIssueUserState(user, issue.id)).toBeUndefined()
-    } finally { await store.close() }
+    } finally {
+      await store.close()
+    }
   })
 
   it('boot reconciles every user and removes stale git observations after restart', async () => {
     const { svc, store, ledger } = await harness()
     try {
-      const issue = await svc.create({ repoPath: '/r', title: 'Recoverable companions', startNow: false })
+      const issue = await svc.create({
+        repoPath: '/r',
+        title: 'Recoverable companions',
+        startNow: false,
+      })
       const other = asUserId('user:other')
-      await store.issues.setIssueUserState(other, issue.id, { readAt: '2026-07-02', pinnedAt: '2026-07-02' })
-      svc.gitStates.set(issue.id, { updatedAt: '2026-07-02', branch: 'feature', shared: false, ahead: 2, dirtyFiles: 0, merged: false })
+      await store.issues.setIssueUserState(other, issue.id, {
+        readAt: '2026-07-02',
+        pinnedAt: '2026-07-02',
+      })
+      svc.gitStates.set(issue.id, {
+        updatedAt: '2026-07-02',
+        branch: 'feature',
+        shared: false,
+        ahead: 2,
+        dirtyFiles: 0,
+        merged: false,
+      })
       await svc.broadcastIssue(await svc.rowOrThrow(issue.id))
       const cursor = await ledger.cursor()
       svc.gitStates.clear()
       await svc.boot()
-      expect((await ledger.changesSince(cursor) ?? []).find(c => c.entity === 'issueGitState')).toMatchObject({ id: issue.id, op: 'remove' })
-      const personal = (await ledger.changesSince(0) ?? []).filter(c => c.entity === 'issueUserState')
-      expect(personal).toContainEqual(expect.objectContaining({ id: issueUserStateRowId(other, issue.id),
-        value: expect.objectContaining({ userId: other, entityId: issue.id, pinned: true }) }))
-    } finally { await store.close() }
+      expect(
+        ((await ledger.changesSince(cursor)) ?? []).find((c) => c.entity === 'issueGitState'),
+      ).toMatchObject({ id: issue.id, op: 'remove' })
+      const personal = ((await ledger.changesSince(0)) ?? []).filter(
+        (c) => c.entity === 'issueUserState',
+      )
+      expect(personal).toContainEqual(
+        expect.objectContaining({
+          id: issueUserStateRowId(other, issue.id),
+          value: expect.objectContaining({ userId: other, entityId: issue.id, pinned: true }),
+        }),
+      )
+    } finally {
+      await store.close()
+    }
   })
 
   it('git publication targets one issue and appends both records and its observation in one commit', async () => {
@@ -126,14 +167,24 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       const issue = await svc.create({ repoPath: '/r', title: 'Git observation', startNow: false })
       const other = await svc.create({ repoPath: '/r', title: 'Untouched', startNow: false })
       const cursor = await ledger.cursor()
-      svc.gitStates.set(issue.id, { updatedAt: '2026-07-02', branch: 'feature', shared: false, ahead: 2, dirtyFiles: 0, merged: false })
+      svc.gitStates.set(issue.id, {
+        updatedAt: '2026-07-02',
+        branch: 'feature',
+        shared: false,
+        ahead: 2,
+        dirtyFiles: 0,
+        merged: false,
+      })
       appended.length = 0
       await svc.broadcastIssue(await svc.rowOrThrow(issue.id))
-      const changes = await ledger.changesSince(cursor) ?? []
-      expect(changes.find(c => c.entity === 'issueGitState')).toMatchObject({ id: issue.id, op: 'upsert',
-        value: { id: issue.id, shared: false, ahead: 2, merged: false } })
+      const changes = (await ledger.changesSince(cursor)) ?? []
+      expect(changes.find((c) => c.entity === 'issueGitState')).toMatchObject({
+        id: issue.id,
+        op: 'upsert',
+        value: { id: issue.id, shared: false, ahead: 2, merged: false },
+      })
       expect(appended).toHaveLength(1)
-      expect(appended[0]?.some(c => c.entity === 'issue')).toBe(true)
+      expect(appended[0]?.some((c) => c.entity === 'issue')).toBe(true)
       // The unchanged projection is deduped. If its baseline was missing, it is
       // backfilled in this same commit rather than waiting for a full-list emit.
       await ledger.capture([{ entity: 'issueProjection', id: issue.id, op: 'remove' }])
@@ -141,40 +192,85 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       svc.gitStates.set(issue.id, { ...svc.gitStates.get(issue.id)!, merged: true })
       await svc.broadcastIssue(await svc.rowOrThrow(issue.id))
       expect(appended).toHaveLength(1)
-      expect(appended[0]?.map(c => c.entity)).toEqual(expect.arrayContaining(['issue', 'issueProjection', 'issueGitState']))
-      expect((await ledger.changesSince(cursor) ?? []).some(c => c.id === other.id)).toBe(false)
+      expect(appended[0]?.map((c) => c.entity)).toEqual(
+        expect.arrayContaining(['issue', 'issueProjection', 'issueGitState']),
+      )
+      expect(((await ledger.changesSince(cursor)) ?? []).some((c) => c.id === other.id)).toBe(false)
       const unchanged = await ledger.cursor()
       await svc.broadcastIssue(await svc.rowOrThrow(issue.id))
       expect(await ledger.cursor()).toBe(unchanged)
-    } finally { await store.close() }
+    } finally {
+      await store.close()
+    }
   })
 
   it('delete and restore declare normalized and companion truth before their publish tail', async () => {
     const { svc, store, ledger, appended } = await harness()
     try {
-      const issue = await svc.create({ repoPath: '/r', title: 'Lifecycle companions', startNow: false })
+      const issue = await svc.create({
+        repoPath: '/r',
+        title: 'Lifecycle companions',
+        startNow: false,
+      })
       const user = await firstAdminMemberId(store)
-      svc.gitStates.set(issue.id, { updatedAt: '2026-07-02', branch: 'feature', shared: false, ahead: 1, dirtyFiles: 0, merged: true })
+      svc.gitStates.set(issue.id, {
+        updatedAt: '2026-07-02',
+        branch: 'feature',
+        shared: false,
+        ahead: 1,
+        dirtyFiles: 0,
+        merged: true,
+      })
       await svc.broadcastIssue(await svc.rowOrThrow(issue.id))
       await store.issues.setIssueUserState(user, issue.id, { readAt: '2026-07-02' })
       const deleting = await svc.prepareSoftDelete(issue.id)
       appended.length = 0
-      await ledger.commit({ write: deleting.write, changes: deleting.changes, apply: deleting.apply })
+      await ledger.commit({
+        write: deleting.write,
+        changes: deleting.changes,
+        apply: deleting.apply,
+      })
       expect(appended).toHaveLength(1)
-      expect(appended[0]?.map(c => c.entity)).toEqual(expect.arrayContaining(['issue', 'issueProjection', 'issueGitState', 'issueUserState']))
-      const projection = appended[0]?.find(c => c.entity === 'issueProjection')
-      expect(projection).toMatchObject({ value: { deletedAt: expect.any(String), revision: (await store.issues.getIssue(issue.id))?.revision } })
-      expect(appended[0]?.find(c => c.entity === 'issueGitState')).toMatchObject({ op: 'remove' })
+      expect(appended[0]?.map((c) => c.entity)).toEqual(
+        expect.arrayContaining(['issue', 'issueProjection', 'issueGitState', 'issueUserState']),
+      )
+      const projection = appended[0]?.find((c) => c.entity === 'issueProjection')
+      expect(projection).toMatchObject({
+        value: {
+          deletedAt: expect.any(String),
+          revision: (await store.issues.getIssue(issue.id))?.revision,
+        },
+      })
+      expect(appended[0]?.find((c) => c.entity === 'issueGitState')).toMatchObject({ op: 'remove' })
       await store.issues.setIssueUserState(user, issue.id, { pinnedAt: '2026-07-03' })
       const restoring = await svc.prepareRestore(issue.id)
       appended.length = 0
-      await ledger.commit({ write: restoring.write, changes: restoring.changes, apply: restoring.apply })
+      await ledger.commit({
+        write: restoring.write,
+        changes: restoring.changes,
+        apply: restoring.apply,
+      })
       expect(appended).toHaveLength(1)
-      expect(appended[0]?.map(c => c.entity)).toEqual(expect.arrayContaining(['issue', 'issueProjection', 'issueGitState', 'issueUserState']))
-      expect(appended[0]?.find(c => c.entity === 'issueProjection')).toMatchObject({ value: { revision: (await store.issues.getIssue(issue.id))?.revision } })
-      expect((appended[0]?.find(c => c.entity === 'issueProjection') as { value: { deletedAt?: string } }).value.deletedAt).toBeUndefined()
-      expect(appended[0]?.find(c => c.entity === 'issueGitState')).toMatchObject({ op: 'upsert', value: { merged: true } })
-    } finally { await store.close() }
+      expect(appended[0]?.map((c) => c.entity)).toEqual(
+        expect.arrayContaining(['issue', 'issueProjection', 'issueGitState', 'issueUserState']),
+      )
+      expect(appended[0]?.find((c) => c.entity === 'issueProjection')).toMatchObject({
+        value: { revision: (await store.issues.getIssue(issue.id))?.revision },
+      })
+      expect(
+        (
+          appended[0]?.find((c) => c.entity === 'issueProjection') as {
+            value: { deletedAt?: string }
+          }
+        ).value.deletedAt,
+      ).toBeUndefined()
+      expect(appended[0]?.find((c) => c.entity === 'issueGitState')).toMatchObject({
+        op: 'upsert',
+        value: { merged: true },
+      })
+    } finally {
+      await store.close()
+    }
   })
 
   it('rolls back a personal marker and its feed declaration together', async () => {
@@ -182,18 +278,26 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     try {
       const issue = await svc.create({ repoPath: '/r', title: 'Atomic marker', startNow: false })
       const before = await ledger.cursor()
-      const append = vi.spyOn(store.sync, 'appendChanges').mockRejectedValueOnce(new Error('marker append failed'))
-      await expect(svc.writeIssueUserState(issue.id, { pinnedAt: '2026-07-02' })).rejects.toThrow('marker append failed')
+      const append = vi
+        .spyOn(store.sync, 'appendChanges')
+        .mockRejectedValueOnce(new Error('marker append failed'))
+      await expect(svc.writeIssueUserState(issue.id, { pinnedAt: '2026-07-02' })).rejects.toThrow(
+        'marker append failed',
+      )
       append.mockRestore()
-      expect(await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id)).toBeUndefined()
+      expect(
+        await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id),
+      ).toBeUndefined()
       expect(svc.issueOverlay(issue.id).pinned).toBe(false)
       expect(await ledger.cursor()).toBe(before)
-    } finally { await store.close() }
+    } finally {
+      await store.close()
+    }
   })
   it('commits the upsert change row atomically with the issue row write', async () => {
     const { ledger, svc, appended } = await harness()
     const wire = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const recorded = await ledger.changesSince(0) ?? []
+    const recorded = (await ledger.changesSince(0)) ?? []
     expect(recorded.some((c) => c.id === wire.id && c.op === 'upsert')).toBe(true)
     // The committed change entered the delta pipe (durable before fan-out), and
     // it carries the VALUE a client is served — which the deleted snapshot used

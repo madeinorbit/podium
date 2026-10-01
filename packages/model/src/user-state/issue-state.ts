@@ -44,7 +44,7 @@
 
 import { z } from 'zod'
 import { parseUserEntityKey, perUserKey, userEntityKey } from '../fields/per-user-key'
-import { asIssueId, IssueIdField, type IssueId, type UserId } from '../ids'
+import { asIssueId, type IssueId, IssueIdField, type UserId } from '../ids'
 import { perUserKeyOfString } from './session-state'
 
 /**

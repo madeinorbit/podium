@@ -3,11 +3,16 @@ import {
   asSessionId,
   asUserId,
   interactionRowId,
-  messageRecordRowId,
   issueUserStateRowId,
+  messageRecordRowId,
 } from '@podium/model'
-import { Authority, GrantEdgeVisibilityPolicy, NoDelegationsGranted, type EntityRef } from '@podium/sync'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
+import {
+  Authority,
+  type EntityRef,
+  GrantEdgeVisibilityPolicy,
+  NoDelegationsGranted,
+} from '@podium/sync'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { FeedVisibilityStore, IssueRow, SessionRow } from './hot-path-ports'
@@ -72,25 +77,43 @@ describe('feed visibility grant semantics', () => {
     const authority = new Authority({
       store: store.sync,
       now: () => 1_000,
-      transact: async fn => await store.transact(fn),
+      transact: async (fn) => await store.transact(fn),
       visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
       anchors: policy.anchors,
     })
-    const principal = (user: typeof owner): Principal => ({ kind: 'user', user,
-      device: asDeviceId(`device:${user}`), capability: asCapabilityRef(`cap:${user}`) })
+    const principal = (user: typeof owner): Principal => ({
+      kind: 'user',
+      user,
+      device: asDeviceId(`device:${user}`),
+      capability: asCapabilityRef(`cap:${user}`),
+    })
     const id = asIssueId('shared')
     const cursor = await authority.cursor()
-    await authority.capture([owner, reader].map(userId => ({
-      entity: 'issueUserState', entityId: issueUserStateRowId(userId, id), op: 'upsert' as const,
-      value: { userId, entityId: id, readAt: userId === owner ? 'owner-read' : null, tuckedAt: null, pinned: userId === owner },
-    })))
+    await authority.capture(
+      [owner, reader].map((userId) => ({
+        entity: 'issueUserState',
+        entityId: issueUserStateRowId(userId, id),
+        op: 'upsert' as const,
+        value: {
+          userId,
+          entityId: id,
+          readAt: userId === owner ? 'owner-read' : null,
+          tuckedAt: null,
+          pinned: userId === owner,
+        },
+      })),
+    )
     for (const user of [owner, reader]) {
       const bootstrap = await authority.bootstrap(principal(user))
-      expect(bootstrap.changes.filter(c => c.entity === 'issueUserState').map(c => c.entityId)).toEqual([issueUserStateRowId(user, id)])
+      expect(
+        bootstrap.changes.filter((c) => c.entity === 'issueUserState').map((c) => c.entityId),
+      ).toEqual([issueUserStateRowId(user, id)])
       const delta = await authority.changesSince(cursor, principal(user))
       expect(delta?.kind).toBe('batch')
       if (delta?.kind !== 'batch') throw new Error('expected delta')
-      expect(delta.changes.filter(c => c.entity === 'issueUserState').map(c => c.entityId)).toEqual([issueUserStateRowId(user, id)])
+      expect(
+        delta.changes.filter((c) => c.entity === 'issueUserState').map((c) => c.entityId),
+      ).toEqual([issueUserStateRowId(user, id)])
     }
     expect((await authority.bootstrap(principal(stranger))).changes).toEqual([])
     expect(policy.state.keyedUserOf({ entity: 'issueUserState', entityId: 'malformed' })).toBeNull()
@@ -105,7 +128,9 @@ describe('feed visibility grant semantics', () => {
     expect(state.mayRead(owner, git)).toBe(true)
     expect(state.mayRead(reader, git)).toBe(true)
     expect(state.mayRead(stranger, git)).toBe(false)
-    expect((await policy.anchors.visibilityEdge({ entity: 'issue', entityId: 'shared' }))?.subjects).toContainEqual(git)
+    expect(
+      (await policy.anchors.visibilityEdge({ entity: 'issue', entityId: 'shared' }))?.subjects,
+    ).toContainEqual(git)
   })
   it('cannot access grant persistence through its store port', () => {
     expectTypeOf<FeedVisibilityStore>().not.toHaveProperty('grants')

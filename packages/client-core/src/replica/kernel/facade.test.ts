@@ -1,4 +1,4 @@
-import { asMutationId, asIssueId, asUserId, issueUserStateRowId } from '@podium/model'
+import { asIssueId, asMutationId, asUserId, issueUserStateRowId } from '@podium/model'
 import type { EntityRecord, ReplicaEvent } from '@podium/sync/replica'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { FEED_TASK_BUDGET_MS } from '../../socket-transport'
@@ -61,7 +61,15 @@ describe('kind mapping', () => {
     const entityId = asIssueId('issue:a')
     const key = issueUserStateRowId(userId, entityId)
     const markers = { userId, entityId, readAt: 'read', tuckedAt: null, pinned: true }
-    const git = { id: entityId, updatedAt: 'probe', branch: 'feature', shared: false, ahead: 2, dirtyFiles: 0, merged: true }
+    const git = {
+      id: entityId,
+      updatedAt: 'probe',
+      branch: 'feature',
+      shared: false,
+      ahead: 2,
+      dirtyFiles: 0,
+      merged: true,
+    }
     cache.put('issueUserState', key, markers)
     cache.put('issueGitState', entityId, git)
     expect(kindForEntity('issueUserState')).toBe('issueUserStates')
@@ -71,21 +79,35 @@ describe('kind mapping', () => {
     expect((await replica.hydrate()).issueUserStates).toEqual([markers])
     expect((await replica.hydrate()).issueGitStates).toEqual([git])
     const notices: string[][] = []
-    replica.subscribeRowBatch(kinds => notices.push([...kinds]))
+    replica.subscribeRowBatch((kinds) => notices.push([...kinds]))
     cache.drop('issueUserState', key)
     replica.onKernelEvent({ type: 'evicted', entity: 'issueUserState', entityId: key })
     expect(replica.rows('issueUserStates')).toEqual([])
     cache.put('issueUserState', key, markers)
-    replica.onKernelEvent({ type: 'upserted', record: cache.read('issueUserState', key)!, readmitted: true })
+    replica.onKernelEvent({
+      type: 'upserted',
+      record: cache.read('issueUserState', key)!,
+      readmitted: true,
+    })
     expect(replica.rows('issueUserStates')).toEqual([markers])
     cache.drop('issueGitState', entityId)
     replica.onKernelEvent({ type: 'removed', entity: 'issueGitState', entityId })
     expect(replica.rows('issueGitStates')).toEqual([])
     cache.put('issueGitState', entityId, git)
-    replica.onKernelEvent({ type: 'upserted', record: cache.read('issueGitState', entityId)!, readmitted: true })
+    replica.onKernelEvent({
+      type: 'upserted',
+      record: cache.read('issueGitState', entityId)!,
+      readmitted: true,
+    })
     expect(replica.rows('issueGitStates')).toEqual([git])
     cache.records = []
-    replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'rescope', snapshotSeq: 4, entityCount: 0, bufferedFramesApplied: 0 })
+    replica.onKernelEvent({
+      type: 'bootstrap-installed',
+      cause: 'rescope',
+      snapshotSeq: 4,
+      entityCount: 0,
+      bufferedFramesApplied: 0,
+    })
     expect(replica.rows('issueUserStates')).toEqual([])
     expect(replica.rows('issueGitStates')).toEqual([])
     expect(notices.at(-1)).toEqual(expect.arrayContaining(['issueUserStates', 'issueGitStates']))

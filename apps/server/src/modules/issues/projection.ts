@@ -298,7 +298,10 @@ export function repoProjectionRows(
     const current = byId.get(repo.repoId)
     const repoPath = repo.path ?? null
     if (current?.repoPath && (repoPath === null || current.repoPath <= repoPath)) continue
-    byId.set(repo.repoId, repoToWire(Repo.parse({ id: repo.repoId, prefix: repo.prefix, repoPath })))
+    byId.set(
+      repo.repoId,
+      repoToWire(Repo.parse({ id: repo.repoId, prefix: repo.prefix, repoPath })),
+    )
   }
   return [...byId].map(([id, value]) => ({ id: id as RepoId, value }))
 }

@@ -16,16 +16,16 @@ import {
   type AutomationWire,
   asAutomationId,
   asAutomationRunId,
+  asIssueId,
   asMutationId,
   asSessionId,
   asUserId,
-  asIssueId,
-  issueUserStateRowId,
-  type ShipOrderProjection,
   type IssueWire,
+  issueUserStateRowId,
   type LayoutWire,
   layoutRowId,
   type SessionMeta,
+  type ShipOrderProjection,
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { createReplica, memoryStorage } from './replica'
@@ -110,7 +110,15 @@ describe('issue companion replica collections', () => {
     const userId = asUserId('user:alice')
     const entityId = asIssueId('issue:a')
     const markers = { userId, entityId, readAt: 'read', tuckedAt: null, pinned: true }
-    const git = { id: entityId, updatedAt: 'probe', branch: 'feature', shared: false, ahead: 2, dirtyFiles: 0, merged: true }
+    const git = {
+      id: entityId,
+      updatedAt: 'probe',
+      branch: 'feature',
+      shared: false,
+      ahead: 2,
+      dirtyFiles: 0,
+      merged: true,
+    }
     replica.batch(() => {
       replica.applySnapshot('issueUserStates', [markers])
       replica.applySnapshot('issueGitStates', [git])

@@ -252,7 +252,10 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     }
     dirty.add(entityId)
     let addresses = pendingAddresses.get(kind)
-    if (!addresses) pendingAddresses.set(kind, (addresses = new Set()))
+    if (!addresses) {
+      addresses = new Set()
+      pendingAddresses.set(kind, addresses)
+    }
     addresses.add(entityId)
     pending.add(kind)
     if (batchDepth === 0) drain()

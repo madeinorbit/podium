@@ -5,19 +5,19 @@ import {
   ChangeSeqField,
   ConversationDiagnosticWire,
   ConversationSummaryWire,
-  ReadPositionWire,
   GlobalChangeOpField,
   IssueDepProjection,
   IssueEventWire,
-  IssueProjection,
   IssueGitStateProjection,
+  IssueProjection,
   IssueUserStateWire,
   IssueWire,
   LayoutWire,
   MessageRecordWire,
+  ReadPositionWire,
   RepoProjection,
-  SessionMeta,
   type SessionId,
+  SessionMeta,
 } from '@podium/model'
 import { ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
@@ -36,11 +36,11 @@ import { PendingInteractionWire } from './runtime-interactions'
  * consumers stay on protocol.
  */
 export {
-  IssueGitStateProjection,
-  IssueUserStateWire,
   IssueDepProjection,
   IssueEventWire,
+  IssueGitStateProjection,
   IssueProjection,
+  IssueUserStateWire,
   RepoProjection,
   ShipOrderProjection,
 }
