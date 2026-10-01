@@ -45,6 +45,7 @@ const ENTITY_TO_KIND = {
   /** POD-4764's chat message records. */
   message: 'messageRecords',
   shipOrder: 'shipOrders',
+  shipLane: 'shipLanes',
   conversation: 'conversations',
   automation: 'automations',
   automationRun: 'automationRuns',

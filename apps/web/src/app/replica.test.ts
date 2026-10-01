@@ -311,6 +311,7 @@ describe('replica adapter', () => {
       // empty table is still a table the degraded replica has to offer, or a
       // reader would have to branch on whether storage happened to work.
       shipOrders: [],
+      shipLanes: [],
       userLayouts: [],
       cursor: null,
       // Degraded storage has no durable entity data, so the cursor triple reads
@@ -345,6 +346,7 @@ describe('replica adapter', () => {
       automations: [],
       automationRuns: [],
       shipOrders: [],
+      shipLanes: [],
       userLayouts: [],
       cursor: null,
       feedCursor: COLD_CURSOR,

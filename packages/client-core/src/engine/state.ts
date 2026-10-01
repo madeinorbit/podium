@@ -34,6 +34,7 @@ import type {
   MessageRecordWire,
   SessionId,
   SessionMeta,
+  ShipLaneProjection,
   ShipOrderProjection,
   ThreadId,
 } from '@podium/model'
@@ -86,6 +87,7 @@ export interface EngineState {
   /** People's chat message records (POD-4764), replicated by id. */
   messageRecords: MessageRecordWire[]
   shipOrders: ShipOrderProjection[]
+  shipLanes: ShipLaneProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
@@ -659,6 +661,7 @@ export interface EngineStateSeed {
   readonly pendingInteractions: PendingInteractionWire[]
   readonly messageRecords: MessageRecordWire[]
   readonly shipOrders: ShipOrderProjection[]
+  readonly shipLanes: ShipLaneProjection[]
   readonly conversations: ConversationSummaryWire[]
   readonly automations: AutomationWire[]
   readonly automationRuns: AutomationRunWire[]
@@ -700,6 +703,7 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     pendingInteractions: seed.pendingInteractions,
     messageRecords: seed.messageRecords,
     shipOrders: seed.shipOrders,
+    shipLanes: seed.shipLanes,
     conversations: seed.conversations,
     automations: seed.automations,
     automationRuns: seed.automationRuns,

@@ -570,6 +570,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       pendingInteractions: replicaSeed.pendingInteractions,
       messageRecords: replicaSeed.messageRecords,
       shipOrders: replicaSeed.shipOrders,
+      shipLanes: replicaSeed.shipLanes,
       conversations: replicaSeed.conversations,
       automations: replicaSeed.automations,
       automationRuns: replicaSeed.automationRuns,
@@ -1398,6 +1399,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           patch.pendingInteractions = snapshot.pendingInteractions
         if (changed.has('messageRecords')) patch.messageRecords = snapshot.messageRecords
         if (changed.has('shipOrders')) patch.shipOrders = snapshot.shipOrders
+        if (changed.has('shipLanes')) patch.shipLanes = snapshot.shipLanes
         if (changed.has('conversations')) patch.conversations = snapshot.conversations
         if (changed.has('automations')) patch.automations = snapshot.automations
         if (changed.has('automationRuns')) patch.automationRuns = snapshot.automationRuns

@@ -1,4 +1,5 @@
 import type { EntityRecord } from '@podium/sync/replica'
+import { asRepoId, shipLaneId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { createKernelReplica, createSideCache } from '../replica/kernel'
 import type { KernelCacheRead } from '../replica/kernel'
@@ -28,6 +29,49 @@ const issue = (id: string, readAt: string | null = null) =>
   }) as never
 
 describe('replica snapshot binding', () => {
+  it('hydrates shipping lanes and publishes lane changes, eviction, readmission, removal and empty rescopes', async () => {
+    const cache = new BindingCache()
+    const repoId = asRepoId('repo-a')
+    const lane = { id: shipLaneId(repoId, 'local:main'), repoId, destination: 'local:main', trains: [{ orderIds: ['ship-a' as never] }], blockedOrderIds: [] }
+    cache.put('shipLane', lane.id, lane)
+    const exits = new Map<string, 'evicted' | 'removed'>()
+    const replica = createKernelReplica({
+      cache,
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+      exits: (_entity, id) => exits.get(id),
+    })
+    const binding = createReplicaBinding({ replica })
+    expect(binding.snapshot().shipLanes).toEqual([lane])
+    expect((await replica.hydrate()).shipLanes).toEqual([lane])
+    const publications: ReplicaPublication[] = []
+    const stop = binding.start({ publish: (publication) => publications.push(publication) })
+    await Promise.resolve()
+    publications.length = 0
+    const changed = { ...lane, trains: [], blockedOrderIds: ['ship-a'] }
+    cache.put('shipLane', lane.id, changed)
+    replica.onKernelEvent({ type: 'upserted', record: cache.read('shipLane', lane.id)!, readmitted: false })
+    expect(publications).toHaveLength(1)
+    expect([...publications[0]!.changed]).toEqual(['shipLanes'])
+    expect(publications[0]!.snapshot.shipLanes).toEqual([changed])
+    for (const kind of ['evicted', 'removed'] as const) {
+      cache.drop('shipLane', lane.id)
+      exits.set(lane.id, kind)
+      replica.onKernelEvent({ type: kind, entity: 'shipLane', entityId: lane.id })
+      expect(binding.snapshot().shipLanes).toEqual([])
+      expect(replica.exitKind?.('shipLane', lane.id)).toBe(kind)
+      cache.put('shipLane', lane.id, lane)
+      exits.delete(lane.id)
+      replica.onKernelEvent({ type: 'upserted', record: cache.read('shipLane', lane.id)!, readmitted: kind === 'evicted' })
+      expect(binding.snapshot().shipLanes).toEqual([lane])
+      expect(replica.exitKind?.('shipLane', lane.id)).toBeUndefined()
+    }
+    cache.records = []
+    replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'rescope', snapshotSeq: 10, entityCount: 0, bufferedFramesApplied: 0 })
+    expect(binding.snapshot().shipLanes).toEqual([])
+    expect(publications.at(-1)?.changed.has('shipLanes')).toBe(true)
+    stop()
+  })
+
   it('cold-start snapshot paints the persisted principal slice, including per-user fields', async () => {
     const storage = memoryStorage()
     const keyPrefix = 'podium.replica.principal.alice'

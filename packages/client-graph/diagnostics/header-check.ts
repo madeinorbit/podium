@@ -72,7 +72,7 @@ export function legacyHeaderSnapshot(store: Store<PodiumClientApi>, inputs: Head
       repoId = (id ? issues.find((issue) => issue.id === id) : issueForCwd(issues, active.cwd))?.repoId ?? null
     }
   }
-  const shipping = shippingPanelModel(store.shipOrders ?? [], issues, repoId)
+  const shipping = shippingPanelModel(store.shipOrders ?? [], issues, repoId, store.shipLanes)
   const working = sessions.filter((session) => isAgentConfirmedComputing(session, now))
   const history = inputs.history ? { ...inputs.history, peak: Math.max(inputs.history.peak, working.length),
     buckets: inputs.history.buckets.map((bucket, index) => index === inputs.history!.buckets.length - 1 ? { ...bucket, count: Math.max(bucket.count, working.length) } : bucket) } : null

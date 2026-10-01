@@ -65,6 +65,7 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   issueDep: 'issueDeps',
   repo: 'repos',
   shipOrder: 'shipOrders',
+  shipLane: 'shipLanes',
   conversation: 'conversations',
   automation: 'automations',
   automationRun: 'automationRuns',
@@ -246,6 +247,7 @@ export function snapshotToChunks(
     issueDeps?: unknown[]
     repos?: unknown[]
     shipOrders?: unknown[]
+    shipLanes?: unknown[]
     conversations?: unknown[]
     automations?: unknown[]
     automationRuns?: unknown[]
@@ -259,6 +261,7 @@ export function snapshotToChunks(
     ['issueDep', snapshot.issueDeps, (r) => (r as { id: string }).id],
     ['repo', snapshot.repos, (r) => (r as { id: string }).id],
     ['shipOrder', snapshot.shipOrders, (r) => (r as { id: string }).id],
+    ['shipLane', snapshot.shipLanes, (r) => (r as { id: string }).id],
     ['conversation', snapshot.conversations, (r) => (r as { id: string }).id],
     ['automation', snapshot.automations, (r) => (r as { id: string }).id],
     ['automationRun', snapshot.automationRuns, (r) => (r as { id: string }).id],

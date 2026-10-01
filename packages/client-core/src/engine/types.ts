@@ -175,6 +175,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   messageRecords: import('@podium/model').MessageRecordWire[]
   /** Compact order rows; Shipping views join these to issues by issueId. */
   shipOrders: import('@podium/model').ShipOrderProjection[]
+  shipLanes: import('@podium/model').ShipLaneProjection[]
   /** Conversation summaries mirrored from the replica (offline search, mobile inbox). */
   conversations: ConversationSummaryWire[]
   /** Scheduled definitions and honest run history mirrored live from the replica. */

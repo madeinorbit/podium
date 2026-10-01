@@ -5,16 +5,21 @@ import {
   asAutomationId,
   asAutomationRunId,
   asIssueId,
+  asRepoId,
   asSessionId,
   IssueProjection,
   type IssueWire,
   RepoProjection,
+  type ShipLaneProjection,
+  shipLaneId,
 } from '@podium/model'
 import type { SyncChangesSinceResult, SyncChangesSinceResultLenient } from '@podium/protocol'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SocketHub, type WebSocketLike } from '../socket-transport/socket-hub'
 import { type LegacyMetadataAppliedState, LegacyWireV1Feed } from './legacy-wire-v1-feed'
+import { applyLegacyMetadataState } from './legacy-wire-v1-binding'
+import { createReplica, memoryStorage } from './replica'
 
 class FakeSocket implements WebSocketLike {
   sent: string[] = []
@@ -156,6 +161,50 @@ function setup(
 // Delta-mode SocketHub (docs/spec/oplog-read-path.md §2.4): caps negotiation,
 // cursor bootstrap via changesSince, in-order delta application, and gap healing.
 describe('SocketHub metadata delta mode', () => {
+  it('seeds shipping lanes offline, replaces them from snapshots and applies lane-only deltas through the replica', async () => {
+    const repoId = asRepoId('repo-a')
+    const lane: ShipLaneProjection = {
+      id: shipLaneId(repoId, 'local:main'), repoId, destination: 'local:main',
+      trains: [{ orderIds: ['ship-a' as never] }], blockedOrderIds: [],
+    }
+    const cached = { ...lane, trains: [] }
+    const replica = createReplica({ storage: memoryStorage() })
+    const { hub, sock } = setup([{ ...snapshot(5), shipLanes: [lane] }], {
+      onMetadataApplied: (state) => applyLegacyMetadataState(replica, state),
+    })
+    const seen: ShipLaneProjection[][] = []
+    hub.on('shipLanes', (rows) => seen.push(rows))
+    try {
+      hub.seedMetadata({ sessions: [], issues: [], conversations: [], shipLanes: [cached] })
+      expect(seen.at(-1)).toEqual([cached])
+      hub.connect()
+      sock.open()
+      await vi.waitFor(() => expect(replica.rows('shipLanes')).toEqual([lane]))
+      expect(seen.at(-1)).toEqual([lane])
+      const changed = { ...lane, trains: [], blockedOrderIds: ['ship-a' as never] }
+      sock.recv({ type: 'metadataDelta', seq: 6, changes: [{ seq: 6, entity: 'shipLane', id: lane.id, op: 'upsert', value: changed }] })
+      await vi.waitFor(() => expect(replica.rows('shipLanes')).toEqual([changed]))
+      expect(seen.at(-1)).toEqual([changed])
+      sock.recv({ type: 'metadataDelta', seq: 7, changes: [{ seq: 7, entity: 'shipLane', id: lane.id, op: 'remove' }] })
+      await vi.waitFor(() => expect(replica.rows('shipLanes')).toEqual([]))
+      expect(seen.at(-1)).toEqual([])
+      expect(replica.getCursor()).toBe(7)
+    } finally {
+      hub.dispose()
+    }
+    const older = setup([snapshot(0)])
+    try {
+      const oldSeen: ShipLaneProjection[][] = []
+      older.hub.on('shipLanes', (rows) => oldSeen.push(rows))
+      older.hub.seedMetadata({ sessions: [], issues: [], conversations: [], shipLanes: [cached] })
+      older.hub.connect()
+      older.sock.open()
+      await vi.waitFor(() => expect(oldSeen.at(-1)).toEqual([]))
+    } finally {
+      older.hub.dispose()
+    }
+  })
+
   it('advertises the caps in hello only when a fetcher is wired', () => {
     const { sock, hub } = setup([snapshot(0)])
     hub.connect()

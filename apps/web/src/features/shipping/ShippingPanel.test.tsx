@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
-import type { ShipOrderProjection } from '@podium/model'
+import { shipLaneId } from '@podium/model'
+import type { ShipLaneProjection, ShipOrderProjection } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
@@ -38,6 +39,41 @@ const commands = (over: Partial<ShippingPanelCommands> = {}): ShippingPanelComma
 afterEach(cleanup)
 
 describe('ShippingPanel', () => {
+  it('renders canonical lanes and lane ranks in badges, status and drill-in after a lane-only update', () => {
+    const orders = [
+      order({ state: 'queued', humanState: 'waiting', activity: 'waiting', destination: 'main', queueRank: 8 }),
+      order({ id: 'order-b' as never, state: 'queued', humanState: 'waiting', activity: 'waiting', destination: 'refs/heads/main', queueRank: 1 }),
+    ]
+    const lane: ShipLaneProjection = {
+      id: shipLaneId(orders[0]!.repoId, 'local:main'),
+      repoId: orders[0]!.repoId,
+      destination: 'local:main',
+      trains: [{ orderIds: [orders[0]!.id] }, { orderIds: [orders[1]!.id] }],
+      blockedOrderIds: [],
+    }
+    const props = { orders, issues: [issue], repoId: 'repo-a', now: Date.parse('2026-08-13T12:00:00.000Z'), commands: commands() }
+    const { container, rerender } = render(<ShippingPanel {...props} lanes={[lane]} />)
+    expect(screen.getAllByRole('heading', { name: /WAITING ·/ }).map((heading) => heading.textContent)).toEqual(['WAITING · local:main'])
+    const first = screen.getByRole('button', { name: /Position 1.*main → main/ })
+    expect(first.textContent).toContain('Next')
+    expect(screen.getByRole('button', { name: /Position 2.*main → refs\/heads\/main/ }).textContent).toContain('#2')
+    expect(container.textContent).not.toContain('#8')
+
+    fireEvent.click(first)
+    expect(screen.getByText(/Next/)).toBeTruthy()
+    const blocked = { ...lane, trains: [{ orderIds: [orders[1]!.id] }], blockedOrderIds: [orders[0]!.id] }
+    rerender(<ShippingPanel {...props} lanes={[blocked]} />)
+    expect(screen.getByText(/^Waiting\s*·/)).toBeTruthy()
+    expect(screen.queryByText(/Next/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'All shipping' }))
+    expect(screen.getByRole('button', { name: /Position 1.*refs\/heads\/main/ }).textContent).toContain('Next')
+    expect(screen.getByRole('button', { name: /Shipping sidebar panel.*main → main/ }).textContent).toContain('Waiting')
+    expect(screen.queryByText('Position 8')).toBeNull()
+
+    rerender(<ShippingPanel {...props} lanes={[]} />)
+    expect(screen.getByRole('button', { name: /Position 8.*main → main/ }).textContent).toContain('#8')
+  })
+
   it('uses plain activity language and replaces only the dock body for drill-in', () => {
     render(
       <ShippingPanel

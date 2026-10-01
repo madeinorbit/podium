@@ -41,6 +41,7 @@ export function applyLegacyMetadataState(
     replica.applySnapshot('issueDeps', state.issueDeps)
     replica.applySnapshot('repos', state.repos)
     replica.applySnapshot('shipOrders', state.shipOrders ?? [])
+    replica.applySnapshot('shipLanes', state.shipLanes ?? [])
     replica.applySnapshot('conversations', state.conversations)
     replica.applySnapshot('automations', state.automations)
     replica.applySnapshot('automationRuns', state.automationRuns)

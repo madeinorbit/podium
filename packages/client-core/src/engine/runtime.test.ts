@@ -18,6 +18,8 @@ import type {
   SessionId,
   SessionMeta,
   SessionMetaInput,
+  ShipLaneProjection,
+  ShipOrderProjection,
 } from '@podium/model'
 import {
   asArtifactId,
@@ -27,6 +29,7 @@ import {
   asSessionId,
   asUserId,
   issueUserStateRowId,
+  shipLaneId,
   UNADDRESSABLE_SEND_REASON,
 } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
@@ -42,7 +45,7 @@ import { createKernelReplica, createSideCache } from '../replica/kernel'
 import { createReplica, memoryStorage, type Replica, type StorageApi } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
 import { type Router, routeDefaults, type RouterWindow, SIDEBAR_COLLAPSED_KEY, SUPERAGENT_MODE_KEY } from '../ui-state'
-import { allTabIds, leafPaneIds } from '../viewmodels'
+import { allTabIds, leafPaneIds, shippingPanelModel } from '../viewmodels'
 import { sessionById } from '../session-index'
 import { readStoreStats, storeStats } from '../perf/store-stats'
 import { Reactions } from './reactions'
@@ -1178,6 +1181,42 @@ describe('snapshot stability (useSyncExternalStore contract)', () => {
 })
 
 describe('replica snapshot coalescing (#262 review)', () => {
+  it('paints shipping lanes before start and republishes lane-only rank changes without rewriting orders', async () => {
+    const replica = createReplica({ storage: memoryStorage() })
+    const order: ShipOrderProjection = {
+      id: 'ship-a' as never, issueId: 'issue-a' as never, repoId: 'repo-a' as never,
+      targetBranch: 'main', destination: 'main', state: 'queued', humanState: 'waiting',
+      activity: 'waiting', queuedAt: '2026-10-01T12:00:00.000Z', stateChangedAt: '2026-10-01T12:00:00.000Z', queueRank: 9,
+    }
+    const lane: ShipLaneProjection = {
+      id: shipLaneId(order.repoId, 'local:main'), repoId: order.repoId, destination: 'local:main',
+      trains: [{ orderIds: [order.id] }], blockedOrderIds: [],
+    }
+    replica.applySnapshot('shipOrders', [order])
+    replica.applySnapshot('shipLanes', [lane])
+    const { engine } = makeEngine({ replica })
+    const rank = () => {
+      const state = engine.getSnapshot()
+      return shippingPanelModel(state.shipOrders, [], order.repoId, state.shipLanes).waiting[0]?.rows[0]?.queueRank
+    }
+    try {
+      expect(engine.getSnapshot().shipLanes).toEqual([lane])
+      expect(rank()).toBe(1)
+      engine.start()
+      await settle()
+      const before = engine.getSnapshot().shipOrders
+      replica.applyChanges('shipLanes', [{ ...lane, trains: [{ orderIds: ['hidden' as never] }, { orderIds: [order.id] }] }], [])
+      expect(rank()).toBe(2)
+      expect(engine.getSnapshot().shipOrders).toBe(before)
+      replica.applyChanges('shipLanes', [], [lane.id])
+      expect(rank()).toBe(9)
+      replica.applyChanges('shipLanes', [lane], [])
+      expect(rank()).toBe(1)
+    } finally {
+      engine.dispose()
+    }
+  })
+
   it('a snapshot replacing the sole session anchoring an unregistered worktree keeps the selection with zero URL writes', async () => {
     const { engine, rw, fatals } = makeEngine({ url: '/workspace' })
     engine.start()

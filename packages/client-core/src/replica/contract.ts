@@ -70,6 +70,7 @@ import type {
   MessageRecordWire,
   RepoProjection,
   SessionMeta,
+  ShipLaneProjection,
   ShipOrderProjection,
   TranscriptItem,
 } from '@podium/model'
@@ -135,6 +136,8 @@ export interface ReplicaRows {
   messageRecords: MessageRecordWire
   /** Compact Shipping rows, keyed by order and joined locally through issueId. */
   shipOrders: ShipOrderProjection
+  /** Canonical shipping lanes, carrying server-owned train positions. */
+  shipLanes: ShipLaneProjection
   conversations: ConversationSummaryWire
   automations: AutomationWire
   automationRuns: AutomationRunWire
@@ -173,6 +176,7 @@ export interface ReplicaHydrateResult {
   pendingInteractions: PendingInteractionWire[]
   messageRecords: MessageRecordWire[]
   shipOrders: ShipOrderProjection[]
+  shipLanes: ShipLaneProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]

@@ -17,6 +17,7 @@ import type {
   RepoProjection,
   SessionId,
   SessionMeta,
+  ShipLaneProjection,
   ShipOrderProjection,
   TranscriptItem,
 } from '@podium/model'
@@ -528,6 +529,7 @@ export interface HubEvents {
   messageRecords: [records: MessageRecordWire[]]
   /** Compact shipping read rows, joined to issues by `issueId`. */
   shipOrders: [orders: ShipOrderProjection[]]
+  shipLanes: [lanes: ShipLaneProjection[]]
   /**
    * Per-user layout rows after any change (POD-1350, entity kind `userLayout`).
    * Feed demux only — POD-403's ui-state module is the hydrate/write owner; this
@@ -650,6 +652,7 @@ export class SocketHub {
   private pendingInteractionList: PendingInteractionWire[] = []
   private messageRecordList: MessageRecordWire[] = []
   private shipOrderList: ShipOrderProjection[] = []
+  private shipLaneList: ShipLaneProjection[] = []
   /** Per-user layout rows (POD-1350). Empty until the feed carries userLayout. */
   private userLayoutList: LayoutWire[] = []
   /** Per-user read-cursor rows (POD-1380). Empty until the feed carries them. */
@@ -1329,6 +1332,7 @@ export class SocketHub {
     issueDeps?: IssueDepProjection[]
     repos?: RepoProjection[]
     shipOrders?: ShipOrderProjection[]
+    shipLanes?: ShipLaneProjection[]
     conversations: ConversationSummaryWire[]
     automations?: AutomationWire[]
     automationRuns?: AutomationRunWire[]
@@ -1341,6 +1345,7 @@ export class SocketHub {
         issueDeps: seed.issueDeps ?? [],
         repos: seed.repos ?? [],
         shipOrders: seed.shipOrders ?? [],
+        shipLanes: seed.shipLanes ?? [],
         conversations: seed.conversations,
         automations: seed.automations ?? [],
         automationRuns: seed.automationRuns ?? [],
@@ -1357,6 +1362,7 @@ export class SocketHub {
     this.issueDepList = seed.issueDeps ?? []
     this.repoList = seed.repos ?? []
     this.shipOrderList = seed.shipOrders ?? []
+    this.shipLaneList = seed.shipLanes ?? []
     this.conversationList = seed.conversations
     this.automationList = seed.automations ?? []
     this.automationRunList = seed.automationRuns ?? []
@@ -1370,6 +1376,7 @@ export class SocketHub {
     if (this.issueDepList.length > 0) this.emit('issueDeps', this.issueDepList)
     if (this.repoList.length > 0) this.emit('repos', this.repoList)
     if (this.shipOrderList.length > 0) this.emit('shipOrders', this.shipOrderList)
+    if (this.shipLaneList.length > 0) this.emit('shipLanes', this.shipLaneList)
     this.emit('conversations', this.conversationList)
     this.emit('automations', this.automationList)
     this.emit('automationRuns', this.automationRunList)
@@ -2182,6 +2189,7 @@ export class SocketHub {
       issueDeps: this.issueDepList,
       repos: this.repoList,
       shipOrders: this.shipOrderList,
+      shipLanes: this.shipLaneList,
       conversations: this.conversationList,
       automations: this.automationList,
       automationRuns: this.automationRunList,
@@ -2195,6 +2203,7 @@ export class SocketHub {
     this.issueDepList = result.issueDeps
     this.repoList = result.repos
     this.shipOrderList = result.shipOrders ?? []
+    this.shipLaneList = result.shipLanes ?? []
     this.conversationList = result.conversations
     this.automationList = result.automations
     this.automationRunList = result.automationRuns
@@ -2204,6 +2213,7 @@ export class SocketHub {
     this.emit('issueDeps', this.issueDepList)
     this.emit('repos', this.repoList)
     this.emit('shipOrders', this.shipOrderList)
+    this.emit('shipLanes', this.shipLaneList)
     this.emit('conversations', this.conversationList)
     this.emit('automations', this.automationList)
     this.emit('automationRuns', this.automationRunList)
@@ -2344,8 +2354,12 @@ export class SocketHub {
           // reading their values from the old issue record until their cutover.
           break
         case 'shipLane':
-          // POD-4974 O2: additive lane rows. The shipping panel keeps reading
-          // queueRank off the order row until O3 moves it to the lane.
+          this.shipLaneList = applyChange(
+            this.shipLaneList,
+            c.op,
+            c.value,
+            (lane) => lane.id === c.id,
+          )
           break
         default:
           c satisfies never
@@ -2361,6 +2375,7 @@ export class SocketHub {
       this.emit('pendingInteractions', this.pendingInteractionList)
     if (touched.has('message')) this.emit('messageRecords', this.messageRecordList)
     if (touched.has('shipOrder')) this.emit('shipOrders', this.shipOrderList)
+    if (touched.has('shipLane')) this.emit('shipLanes', this.shipLaneList)
     if (touched.has('conversation')) this.emit('conversations', this.conversationList)
     if (touched.has('automation')) this.emit('automations', this.automationList)
     if (touched.has('automationRun')) this.emit('automationRuns', this.automationRunList)

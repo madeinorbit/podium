@@ -114,13 +114,14 @@ export function RightRail({
 }
 
 function useLegacyShipping() {
-  const { paneA, fileTabs, sessions, repos, shipOrders, trpc: owner } = useStoreSelector(
+  const { paneA, fileTabs, sessions, repos, shipOrders, shipLanes, trpc: owner } = useStoreSelector(
     (state) => ({
       paneA: state.paneA,
       fileTabs: state.fileTabs,
       sessions: state.sessions,
       repos: state.repos,
       shipOrders: state.shipOrders,
+      shipLanes: state.shipLanes,
       trpc: state.trpc,
     }),
     shallowEqual,
@@ -152,8 +153,8 @@ function useLegacyShipping() {
     return issue?.repoId ?? null
   }, [active, issues, repos, sessions])
   const shipping = useMemo(
-    () => measureLegacyHeader(owner, 'shipping', () => shippingPanelModel(shipOrders, issues, repoId)),
-    [issues, repoId, shipOrders],
+    () => measureLegacyHeader(owner, 'shipping', () => shippingPanelModel(shipOrders, issues, repoId, shipLanes)),
+    [issues, repoId, shipOrders, shipLanes],
   )
   return shipping
 }

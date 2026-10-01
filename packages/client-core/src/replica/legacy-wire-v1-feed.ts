@@ -195,6 +195,7 @@ const projectionOf = (
   issueDeps: snapshot.issueDeps ?? [],
   repos: snapshot.repos ?? [],
   shipOrders: snapshot.shipOrders ?? [],
+  shipLanes: snapshot.shipLanes ?? [],
   conversations: snapshot.conversations,
   automations: snapshot.automations ?? [],
   automationRuns: snapshot.automationRuns ?? [],

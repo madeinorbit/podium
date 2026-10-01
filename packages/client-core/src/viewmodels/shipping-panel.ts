@@ -1,4 +1,5 @@
-import type { ShipOrderProjection } from '@podium/model'
+import { canonicalShippingDestination, shipLaneId } from '@podium/model'
+import type { ShipLaneProjection, ShipOrderProjection } from '@podium/model'
 
 export interface ShippingIssueSummary {
   id: string
@@ -10,6 +11,7 @@ export interface ShippingIssueSummary {
 export interface ShippingPanelRow {
   order: ShipOrderProjection
   issue: ShippingIssueSummary | undefined
+  queueRank: number | undefined
 }
 
 export interface ShippingWaitingLane {
@@ -36,17 +38,19 @@ const byChangedAt = (a: ShippingPanelRow, b: ShippingPanelRow): number =>
   a.order.id.localeCompare(b.order.id)
 
 const byQueueRank = (a: ShippingPanelRow, b: ShippingPanelRow): number =>
-  (a.order.queueRank ?? Number.MAX_SAFE_INTEGER) - (b.order.queueRank ?? Number.MAX_SAFE_INTEGER) ||
+  (a.queueRank ?? Number.MAX_SAFE_INTEGER) - (b.queueRank ?? Number.MAX_SAFE_INTEGER) ||
   Date.parse(a.order.queuedAt) - Date.parse(b.order.queuedAt) ||
   a.order.id.localeCompare(b.order.id)
 
 /** The one client projection used by both the Shipping dock and its rail cell.
- * Queue position is server-owned; this selector only orders the stamped ranks
- * within one repository/destination lane. */
+ * Queue position is server-owned: a train's position in its canonical lane.
+ * Older servers and offline caches fall back to the order's stamped rank only
+ * while that lane row is absent. A present lane's unranked orders stay unranked. */
 export function shippingPanelModel(
   orders: readonly ShipOrderProjection[],
   issues: readonly ShippingIssueSummary[],
   repoId: string | null,
+  lanes: readonly ShipLaneProjection[] = [],
   recentLimit = 5,
 ): ShippingPanelModel {
   if (!repoId) {
@@ -61,28 +65,44 @@ export function shippingPanelModel(
   }
 
   const issuesById = new Map(issues.map((issue) => [issue.id, issue]))
+  const ranksByLane = new Map(
+    lanes
+      .filter((lane) => lane.repoId === repoId)
+      .map((lane) => [
+        lane.id,
+        new Map(lane.trains.flatMap((train, index) => train.orderIds.map((id) => [id, index + 1] as const))),
+      ] as const),
+  )
   const rows = orders
     .filter((order) => order.repoId === repoId)
-    .map((order): ShippingPanelRow => ({ order, issue: issuesById.get(order.issueId) }))
+    .map((order): ShippingPanelRow => {
+      const destination = canonicalShippingDestination(order.destination, order.targetBranch)
+      const ranks = ranksByLane.get(shipLaneId(order.repoId, destination))
+      return {
+        order,
+        issue: issuesById.get(order.issueId),
+        queueRank: ranks === undefined ? order.queueRank : ranks.get(order.id),
+      }
+    })
   const needsYou = rows.filter((row) => row.order.humanState === 'needs_you').sort(byChangedAt)
   const inProgress = rows.filter((row) => row.order.humanState === 'in_progress').sort(byChangedAt)
   const waitingRows = rows.filter((row) => row.order.humanState === 'waiting')
   const laneRows = new Map<string, ShippingPanelRow[]>()
   for (const row of waitingRows) {
-    const key = row.order.destination
+    const key = canonicalShippingDestination(row.order.destination, row.order.targetBranch)
     const lane = laneRows.get(key) ?? []
     lane.push(row)
     laneRows.set(key, lane)
   }
-  const waiting = [...laneRows.values()]
+  const waiting = [...laneRows.entries()]
     .map(
-      (lane): ShippingWaitingLane => ({
-        destination: lane[0]?.order.destination ?? '',
+      ([destination, lane]): ShippingWaitingLane => ({
+        destination,
         rows: lane.sort(byQueueRank),
       }),
     )
     // Independent lanes have no honest global rank. A stable name sort makes
-    // no scheduling claim while each lane retains its server-stamped order.
+    // no scheduling claim while each lane retains its server-owned order.
     .sort((a, b) => a.destination.localeCompare(b.destination))
   const recentlyShipped = rows
     .filter((row) => row.order.humanState === 'shipped' && row.order.receiptId !== undefined)

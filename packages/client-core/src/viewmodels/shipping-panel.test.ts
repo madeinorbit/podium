@@ -1,4 +1,5 @@
-import type { ShipOrderProjection } from '@podium/model'
+import { shipLaneId } from '@podium/model'
+import type { ShipLaneProjection, ShipOrderProjection } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   formatShippingElapsed,
@@ -23,7 +24,85 @@ const order = (id: string, over: Partial<ShipOrderProjection> = {}): ShipOrderPr
 
 const issue = (id: string) => ({ id: `issue-${id}`, seq: Number(id) || 1, title: `Issue ${id}` })
 
+const lane = (
+  destination: string,
+  trains: string[][],
+  over: Partial<ShipLaneProjection> = {},
+): ShipLaneProjection => ({
+  id: shipLaneId(order('1').repoId, destination),
+  repoId: order('1').repoId,
+  destination,
+  trains: trains.map((ids) => ({ orderIds: ids as ShipLaneProjection['blockedOrderIds'] })),
+  blockedOrderIds: [],
+  ...over,
+})
+
 describe('shippingPanelModel', () => {
+  it('groups by canonical lane instead of raw destination, including without lane rows', () => {
+    const orders = [
+      order('1', { destination: 'main', queueRank: 2 }),
+      order('2', { destination: 'refs/heads/main', queueRank: 1 }),
+      order('3', { destination: 'local:main', queueRank: 3 }),
+      order('4', { destination: 'remote:origin/main', queueRank: 2 }),
+      order('5', { destination: 'git:origin/main', targetBranch: 'release', queueRank: 1 }),
+      // The same raw spelling can be local for one target and opaque for another.
+      order('6', { destination: 'main', targetBranch: 'release', queueRank: 1 }),
+      order('other-repo', { repoId: 'repo-b' as never, destination: 'main' }),
+    ]
+    const lanes = [lane('local:main', [['2'], ['1'], ['3']]), lane('git:origin/main', [['5'], ['4']])]
+    for (const records of [[], lanes]) {
+      const model = shippingPanelModel(orders, [], 'repo-a', records)
+      expect(model.waiting.map((group) => ({
+        destination: group.destination,
+        ids: group.rows.map((row) => row.order.id),
+      }))).toEqual([
+        { destination: 'git:origin/main', ids: ['5', '4'] },
+        { destination: 'local:main', ids: ['2', '1', '3'] },
+        { destination: 'main', ids: ['6'] },
+      ])
+      expect(model.unfinishedCount).toBe(6)
+    }
+  })
+
+  it('takes scheduler train positions from the lane, sharing ranks and retaining hidden turns', () => {
+    const orders = [
+      order('later', { destination: 'remote:origin/main', queueRank: 1 }),
+      order('first-b', { destination: 'git:origin/main', queueRank: 8 }),
+      order('first-a', { destination: 'remote:origin/main', queueRank: 9 }),
+    ]
+    const model = shippingPanelModel(orders, [], 'repo-a', [
+      lane('git:origin/main', [['hidden-order'], ['first-a', 'first-b'], ['later']]),
+    ])
+    expect(model.waiting[0]?.rows.map((row) => [row.order.id, row.queueRank])).toEqual([
+      ['first-a', 2], ['first-b', 2], ['later', 3],
+    ])
+    // Join the view without changing the authority rows or rendering unseen ids.
+    expect(orders.map((row) => row.queueRank)).toEqual([1, 8, 9])
+    expect(model.unfinishedCount).toBe(3)
+  })
+
+  it('uses legacy ranks only while that canonical lane row is absent', () => {
+    const orders = [
+      order('blocked', { destination: 'main', queueRank: 1 }),
+      order('ranked', { destination: 'local:main', queueRank: 7 }),
+      order('not-in-lane', { destination: 'refs/heads/main', queueRank: 2 }),
+      order('no-rank', { destination: 'local:main' }),
+    ]
+    const local = lane('local:main', [['ranked']], { blockedOrderIds: [orders[0]!.id] })
+    const ranks = (records: ShipLaneProjection[]) =>
+      shippingPanelModel(orders, [], 'repo-a', records).waiting[0]?.rows.map((row) => [row.order.id, row.queueRank])
+    const legacy = [['blocked', 1], ['not-in-lane', 2], ['ranked', 7], ['no-rank', undefined]]
+    expect(ranks([])).toEqual(legacy)
+    expect(ranks([local])).toEqual([
+      ['ranked', 1], ['blocked', undefined], ['no-rank', undefined], ['not-in-lane', undefined],
+    ])
+    // A lane disappearing re-enables compatibility; a row from another repo cannot supply rank.
+    expect(ranks([])).toEqual(legacy)
+    expect(ranks([lane('local:main', [['ranked']], {
+      id: shipLaneId('repo-b' as never, 'local:main'), repoId: 'repo-b' as never,
+    })])).toEqual(legacy)
+  })
+
   it('scopes counts to one repository and excludes retained receipts', () => {
     const model = shippingPanelModel(
       [
@@ -82,6 +161,7 @@ describe('shippingPanelModel', () => {
       ],
       ['1', '2', '3', '4', '5', '6'].map(issue),
       'repo-a',
+      [],
       1,
     )
 
