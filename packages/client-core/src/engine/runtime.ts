@@ -723,6 +723,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
             snap.sessions.length +
               snap.issues.length +
               snap.shipOrders.length +
+              snap.shipLanes.length +
               snap.conversations.length +
               snap.automations.length +
               snap.automationRuns.length >

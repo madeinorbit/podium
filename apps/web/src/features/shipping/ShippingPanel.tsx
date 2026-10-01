@@ -8,9 +8,9 @@ import {
 import type {
   DeliveryReceipt,
   ShipHoldAction,
+  ShipLaneProjection,
   ShipOrderId,
   ShipOrderProjection,
-  ShipLaneProjection,
   ShipOrderState,
 } from '@podium/model'
 import { ChevronLeft, Circle, CircleCheck, TriangleAlert } from 'lucide-react'
