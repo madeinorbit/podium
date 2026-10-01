@@ -21,9 +21,10 @@ export function createHeaderFixture(count: number) {
   }] }]
   const history = { sampledAt: new Date(now).toISOString(), bucketMs: 1800000, peak: 2,
     buckets: Array.from({ length: 24 }, (_, index) => ({ start: new Date(now - (23 - index) * 1800000).toISOString(), count: index % 3 })) }
+  const lifecycle = { sessionDefaults: { agent: 'codex' }, hibernation: { enabled: false, memoryPct: 90, maxIdleSessions: 10, loadPerCore: 1 }, worktreeGc: { enabled: false, afterDays: 14 } }
   Object.assign(base.api, {
     discovery: { refreshRepos: { mutate: async () => ({ repositories: [{ path: '/synthetic/project', repoId: 'synthetic-repo', kind: 'repository', branch: 'main', worktrees: [] }], machines, diagnostics: [] }) } },
-    settings: { get: { query: async () => ({ sessionDefaults: { agent: 'codex' }, hibernation: { enabled: false, memoryPct: 90, maxIdleSessions: 10, loadPerCore: 1 }, worktreeGc: { enabled: false, afterDays: 14 } }) } },
+    settings: { get: { query: async () => lifecycle } },
     quota: { summary: { query: async () => quota } },
     sessions: { concurrencyHistory: { query: async () => history } },
     usage: { summary: { query: async () => ({ hostname: 'synthetic', sampledAt: new Date(now).toISOString(), buckets: [] }) } },
@@ -60,7 +61,7 @@ export function createHeaderFixture(count: number) {
       Object.assign(real, { connectionHealth: hub.connectionHealth, onConnectionHealth: hub.onConnectionHealth })
     },
     publishMetrics, publishMachines: () => deliver('machines', machines),
-    inputs: () => ({ metrics, quotas: quota, connection: health, afterDays: 14 }),
+    inputs: () => ({ metrics, quotas: quota, connection: health, afterDays: 14, history, lifecycle }),
     activity(step: number) {
       const index = step % Math.min(12, count)
       base.patch('session', `synthetic-session-${index}`, { lastActiveAt: new Date().toISOString(),

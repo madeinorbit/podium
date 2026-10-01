@@ -10,6 +10,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import { isAgentConfirmedComputing, type HostMetricsWire, type MachineQuotaWire } from '@podium/model/browser'
 import type { MobxPool } from '../src/pool'
+import type { HeaderRows } from '../src/header-schema'
 import { legacyDerivationFromStore } from './legacy'
 import { compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
 
@@ -18,6 +19,8 @@ export interface HeaderCheckInputs {
   quotas: readonly MachineQuotaWire[]
   connection: ConnectionHealth | undefined
   afterDays: number
+  history?: HeaderRows['history']
+  lifecycle?: HeaderRows['lifecycle']
 }
 const roster = (sessions: ReturnType<MobxPool['headerViews']['working']>) => sessions.map((session) => ({
   sessionId: session.sessionId, name: session.name ?? null, title: session.title,
@@ -39,6 +42,8 @@ export function poolHeaderSnapshot(pool: MobxPool, inputs: Pick<HeaderCheckInput
     reclaim: view.reclaimCounts(inputs.afterDays),
     folded: { root: selected(folded.root), progress: folded.progress, live: folded.live, working: folded.working, needs: folded.needs },
     shipping: view.shipping(),
+    history: view.history(), lifecycle: view.row('lifecycle', 'hosts') ?? null,
+    outboxSize: view.row('window', 'window')?.outboxSize ?? 0,
   }, folded.loading ? 1 : 0)
 }
 
@@ -67,12 +72,16 @@ export function legacyHeaderSnapshot(store: Store<PodiumClientApi>, inputs: Head
     }
   }
   const shipping = shippingPanelModel(store.shipOrders ?? [], issues, repoId)
+  const working = sessions.filter((session) => isAgentConfirmedComputing(session, now))
+  const history = inputs.history ? { ...inputs.history, peak: Math.max(inputs.history.peak, working.length),
+    buckets: inputs.history.buckets.map((bucket, index) => index === inputs.history!.buckets.length - 1 ? { ...bucket, count: Math.max(bucket.count, working.length) } : bucket) } : null
   return sections({ view: store.view ?? 'workspace', working: roster(sessions.filter((session) => isAgentConfirmedComputing(session, now))),
     selected: selected(issues.find((issue) => issue.id === store.selectedIssueId && !issue.deletedAt)),
     machines: store.machines, metrics: inputs.metrics, quotas: inputs.quotas, connection: inputs.connection ?? null,
     aggregates: inputs.metrics.map((metric) => aggregates.forMachine(metric.machineId)), reclaim,
     folded: { root: selected(root), progress: missionProgress(issues, sessions, root?.id), live: first?.liveAgentCount ?? 0, working: first?.workingAgentCount ?? 0, needs: first?.actionableCount ?? 0 },
     shipping: { unfinishedCount: shipping.unfinishedCount, decisionCount: shipping.decisionCount },
+    history, lifecycle: inputs.lifecycle ?? null, outboxSize: store.outboxSize ?? 0,
   })
 }
 export function checkHeader(pool: MobxPool, store: Store<PodiumClientApi>, inputs: HeaderCheckInputs) {

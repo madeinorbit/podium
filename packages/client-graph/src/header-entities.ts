@@ -1,5 +1,5 @@
 import { compareStructural, observable, runInAction } from 'mobx'
-import { HEADER_RELATIONS, HEADER_SCHEMA, type HeaderEntity, type HeaderRecord } from './header-schema'
+import { HEADER_RELATIONS, HEADER_SCHEMA, type HeaderEntity, type HeaderRecord, type HeaderRows } from './header-schema'
 
 /** Storage and metadata-driven edges owned by MobxPool, never a second runtime
  * or feed. Product reads call pool.row; get is the pool reader's storage seam. */
@@ -11,6 +11,9 @@ export function createHeaderEntities() {
   const members = observable.map<string, readonly string[]>(undefined, { deep: false })
   const refs = observable.map<string, string>(undefined, { deep: false })
   const sessionIds = observable.map<string, true>(undefined, { deep: false })
+  // Borrow the last successful API response for opt-in differential checks.
+  // Same objects as the rows, no second fetch, replica or mutation owner.
+  const received: { quotas: HeaderRows['quota'][]; history?: HeaderRows['history']; lifecycle?: HeaderRows['lifecycle'] } = { quotas: [] }
 
   function change(entity: string, id: string, next: object | undefined): void {
     if (entity === 'session') {
@@ -40,6 +43,7 @@ export function createHeaderEntities() {
 
   return {
     tables,
+    received,
     orders,
     order(entity: HeaderEntity, ids: readonly string[]): void {
       if (!compareStructural(orders.get(entity), ids)) orders.set(entity, ids)

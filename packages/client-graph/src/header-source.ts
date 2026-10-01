@@ -51,6 +51,8 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
     quotaPending = true
     try {
       const rows = await api.quota.summary.query()
+      if (disposed) return
+      pool.header.received.quotas = rows
       replace('quota', rows.map((row) => [row.machineId, row]))
     } catch { /* Preserve the last reading, as the legacy indicator does. */ }
     finally { quotaPending = false }
@@ -70,7 +72,11 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
   }), runtime.subscribe(locals), runtime.hostMetrics.subscribe(metrics),
     runtime.hub.onConnectionHealth((health) => replace('connection', [['server', health]]))]
   void quota()
-  void api.settings.get.query().then((settings) => replace('lifecycle', [['hosts', settings]])).catch(() => {})
+  void api.settings.get.query().then((settings) => {
+    if (disposed) return
+    pool.header.received.lifecycle = settings
+    replace('lifecycle', [['hosts', settings]])
+  }).catch(() => {})
   // This endpoint is optional on the structural client API; the web supplies it.
   const historyApi = (api.sessions as typeof api.sessions & { concurrencyHistory?: { query(): Promise<import('./header-schema').HeaderRows['history']> } } | undefined)?.concurrencyHistory
   let historyPending = false
@@ -79,7 +85,11 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
     historyPending = true
     try {
       const reading = await historyApi.query()
-      if (reading.buckets.length === 24 && Number.isFinite(reading.bucketMs) && reading.bucketMs > 0 && Number.isInteger(reading.peak) && reading.peak >= 0 && reading.buckets.every((bucket) => Number.isInteger(bucket.count) && bucket.count >= 0 && Number.isFinite(Date.parse(bucket.start)))) replace('history', [['fleet', reading]])
+      if (disposed) return
+      if (reading.buckets.length === 24 && Number.isFinite(reading.bucketMs) && reading.bucketMs > 0 && Number.isInteger(reading.peak) && reading.peak >= 0 && reading.buckets.every((bucket) => Number.isInteger(bucket.count) && bucket.count >= 0 && Number.isFinite(Date.parse(bucket.start)))) {
+        pool.header.received.history = reading
+        replace('history', [['fleet', reading]])
+      }
     } catch {} finally { historyPending = false }
   }
   stops.push(reaction(() => pool.headerViews.working().length, () => { void history() }))

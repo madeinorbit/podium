@@ -19,7 +19,8 @@ async function fixture(scale: 1 | 4 = 1) {
   const health = { status: 'ok', rttMs: 12, since: 0 }
   Object.assign(ctx.engine.hub, { connectionHealth: () => health, onConnectionHealth: () => () => {} })
   const handle = createRuntimeWorklistPool(ctx.engine, { header: true })
-  const inputs = () => ({ metrics: ctx.engine.hostMetrics.getSnapshot(), quotas: [], connection: health as never, afterDays: 14 })
+  const inputs = () => ({ metrics: ctx.engine.hostMetrics.getSnapshot(), quotas: [], connection: health as never, afterDays: 14,
+    lifecycle: handle.pool.header.received.lifecycle, history: handle.pool.header.received.history })
   const settle = () => {
     for (let turn = 0; turn < 64; turn++) {
       runInAction(() => poolHeaderSnapshot(handle.pool, inputs()))

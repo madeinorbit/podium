@@ -18,7 +18,8 @@ export function startHeaderCheck(runtime: ClientRuntime<PodiumClientApi>, pool: 
     const finish = beginSidebarCheck(runtime)
     try {
       const result = runInAction(() => checkHeader(pool, runtime.getSnapshot(), {
-        metrics: runtime.hostMetrics.getSnapshot(), quotas: pool.headerViews.quotas(),
+        metrics: runtime.hostMetrics.getSnapshot(), quotas: pool.header.received.quotas,
+        history: pool.header.received.history, lifecycle: pool.header.received.lifecycle,
         connection: runtime.hub.connectionHealth(), afterDays: pool.headerViews.row('lifecycle', 'hosts')?.worktreeGc?.afterDays ?? 14,
       }))
       checks++

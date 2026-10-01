@@ -3,7 +3,7 @@ import { useHeaderActions, usePoolHeaderMetrics, usePoolMetricIds, usePoolMetric
 import type { HeaderAggregate } from '@podium/client-graph/header-views'
 import type { HostMetricsWire, MachineWire } from '@podium/model/browser'
 import { memo } from 'react'
-import { measureLegacyHeader } from '@podium/client-core/perf'
+import { measureHeader, measureLegacyHeader } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   createHostSessionAggregatesSelector,
@@ -519,8 +519,8 @@ const PoolMachineReadout = memo(function PoolMachineReadout({ id, lifecycle, ser
   const host = usePoolMetric(id)
   const machine = usePoolMachine(host?.machineId)
   const aggregate = usePoolHostAggregate(host?.machineId)
-  return host ? <HeaderMachineChip host={host} machine={machine} aggregate={aggregate} lifecycle={lifecycle}
-    serverAppVersion={serverAppVersion} healthStatus={healthStatus} reclaimCount={reclaimCount} onInfo={onInfo} /> : null
+  return measureHeader('pool.metricRow', () => host ? <HeaderMachineChip host={host} machine={machine} aggregate={aggregate} lifecycle={lifecycle}
+    serverAppVersion={serverAppVersion} healthStatus={healthStatus} reclaimCount={reclaimCount} onInfo={onInfo} /> : null)
 })
 
 function PoolHeaderHostIndicators(): JSX.Element {

@@ -109,6 +109,10 @@ export function createHeaderViews(pool: MobxPool) {
           if (!member || member.archived || member.headless) continue
           sessions.set(sid, member)
           asking ||= member.agentState?.phase === 'needs_user' || member.agentState?.phase === 'errored' || !!member.offer
+        }
+        // Provenance follows explicit attachment, including retired starters.
+        // A cwd-owned session cannot graft its started work into this mission.
+        for (const sid of pool.graph.many('issue', id, 'sessions')) {
           for (const child of pool.graph.many('session', sid, 'startedIssues')) {
             const spawned = issue(child)
             if (spawned === LOADING) { loading = true; continue }

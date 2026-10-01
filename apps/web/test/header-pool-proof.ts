@@ -54,8 +54,9 @@ try {
         const legacy = Object.entries(stats.header).filter(([key]) => key.startsWith('legacy.'))
         if (legacy.length) throw new Error(`Legacy header derivation ran: ${legacy.map(([key]) => key).join(', ')}`)
         if (!activity) {
-          const unrelated = Object.entries(stats.header).filter(([key, value]) => value.calls > 0 && !['pool.history'].includes(key))
+          const unrelated = Object.entries(stats.header).filter(([key, value]) => value.calls > 0 && key !== 'pool.metricRow')
           if (unrelated.length) throw new Error(`Idle header recomputation: ${unrelated.map(([key]) => key).join(', ')}`)
+          if (stats.header['pool.metricRow']?.calls !== sample) throw new Error('Metric renders did not match changed rows')
         }
       }
     }
