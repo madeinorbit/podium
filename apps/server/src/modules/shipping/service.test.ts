@@ -63,6 +63,7 @@ async function harness(
     repair?: ShippingRepairPort
     beforeRepairAcknowledge?: (resultToken: string) => void
     audit?: ConstructorParameters<typeof ShippingService>[0]['audit']
+    now?: ConstructorParameters<typeof ShippingService>[0]['now']
   } = {},
 ) {
   const store = await openTestStore(':memory:')
@@ -154,7 +155,7 @@ async function harness(
     resolveBranchTip: options.resolveBranchTip ?? (async () => 'head-sha'),
     resolveRefTip: options.resolveRefTip ?? (async () => 'base-sha'),
     isAncestor: options.isAncestor ?? (async () => false),
-    now: () => '2026-08-13T10:00:00.000Z',
+    now: options.now ?? (() => '2026-08-13T10:00:00.000Z'),
     ...(options.beforeCompletionCommit
       ? { beforeCompletionCommit: options.beforeCompletionCommit }
       : {}),
@@ -295,14 +296,16 @@ describe('ShippingService enqueue transaction', () => {
   })
 
   it('O1 scheduler claims the same compatible train and leader', async () => {
-    const { store, issues, service, deps } = await harness(undefined, {
+    let now = '2026-08-13T10:00:00.000Z'
+    const { store, issues, service } = await harness(undefined, {
+      now: () => now,
       resolveBranchTip: async (issue) => (issue.title === 'upper' ? 'head-upper' : 'head-sha'),
       isAncestor: async (_issue, ancestor, descendant) =>
         ancestor === 'head-sha' && descendant === 'head-upper',
     })
     try {
       for (const [index, repoPath] of ['/repo', '/repo', '/other'].entries()) {
-        deps.now = () => `2026-08-13T10:00:0${index}.000Z`
+        now = `2026-08-13T10:00:0${index}.000Z`
         const title = ['lower', 'upper', 'other'][index]!
         const issue = await issues.create({ repoPath, title, startNow: false })
         await issues.update(issue.id, { stage: 'review' })
@@ -315,7 +318,7 @@ describe('ShippingService enqueue transaction', () => {
           },
         })
       }
-      deps.now = () => '2026-08-13T10:00:00.000Z'
+      now = '2026-08-13T10:00:00.000Z'
       const orders = await store.shipping.listOrders()
       const members = orders
         .filter((order) => order.repoPath === '/repo')
