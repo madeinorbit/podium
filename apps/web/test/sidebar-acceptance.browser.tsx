@@ -70,7 +70,7 @@ const apiAt = (path: string[] = []): unknown => new Proxy(() => {}, {
 })
 const api = apiAt() as PodiumClientApi
 const seedRecords = seedCacheFromCorpus(corpus).readEntities()
-const database = await IndexedDbSyncStore.open({ factory: indexedDB, databaseName: 'sidebar-acceptance-synthetic' })
+const database = await IndexedDbSyncStore.open({ factory: indexedDB as unknown as Parameters<typeof IndexedDbSyncStore.open>[0]['factory'], databaseName: 'sidebar-acceptance-synthetic' })
 let owner: ClientRuntime | undefined
 let graph: MobxPool | null = null
 let ready = false
@@ -107,14 +107,15 @@ function instrumentRuntime(runtime: ClientRuntime) {
 async function assemble(name: string) {
   const principal = replicaNamespaceKey({ syncBoundaryId: 'acceptance-synthetic', memberId: name })
   const view = database.viewFor(principal)
-  view.cache.installSnapshot(seedRecords, { feedId: 'synthetic-fixture', epoch: 1, seq: 1 }, [])
+  view.cache.installSnapshot(seedRecords, { feedId: 'synthetic-fixture', epoch: '1', seq: 1 }, [])
   await database.settled()
   const replica = createKernelReplica({ cache: view.cache, side: createSideCache({
     storage: localStorage, storageEventApi: window, enumerateKeys: () => Object.keys(localStorage),
     keyPrefix: `acceptance-side.${name}`,
   }) })
   return { view, replica, principal: asClientPrincipal(asUserId(name), 'acceptance-synthetic'),
-    createOutboxFn: await openKernelEngineOutbox({ store: view.outbox, principal: name, api }) }
+    createOutboxFn: await openKernelEngineOutbox({ store: view.outbox, principal: name, api,
+      onDegraded: reason => errors.push(`Synthetic outbox degraded: ${String(reason)}`) }) }
 }
 
 function MeasurementBinding() {
@@ -194,7 +195,7 @@ function patch(entity: string, id: string, changes: Record<string, unknown>) {
   const record: EntityRecord = { ...old, value: { ...(old.value as object), ...changes }, provenance: { ...old.provenance, seq: ++seq } }
   // The fixture's simulated authority updates the app's existing replica;
   // gestures still use the production store actions and its one outbox.
-  assembly.view.cache.applyAtomic({ operations: [{ kind: 'upsert', ...record }], cursor: { feedId: 'synthetic-fixture', epoch: 1, seq } })
+  assembly.view.cache.applyAtomic({ operations: [{ kind: 'upsert', ...record }], cursor: { feedId: 'synthetic-fixture', epoch: '1', seq } })
   assembly.replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
 }
 

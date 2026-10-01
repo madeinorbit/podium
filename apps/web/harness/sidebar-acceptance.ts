@@ -163,6 +163,9 @@ try {
       for (const mode of ['pool', 'legacy'] as const) {
         const opened = await open(mode, scale)
         const { page } = opened
+        await save({ kind: 'bootstrap', scale, mode, result: await page.evaluate(() => ({
+          state: window.__acceptance.state(), stats: window.__acceptance.stats(), panel: window.__acceptance.perf(),
+        })) })
         await page.waitForTimeout(1500)
         await page.evaluate(() => window.__acceptance.begin())
         for (let seconds = 0; seconds < plan.idleSeconds; seconds += 5) await page.waitForTimeout(Math.min(5, plan.idleSeconds - seconds) * 1000)
