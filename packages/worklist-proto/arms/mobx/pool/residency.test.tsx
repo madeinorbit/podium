@@ -175,7 +175,7 @@ function sessionRecord(id: string, patch: Partial<SliceSession> = {}): RowRecord
 /** A closed issue with at least `n` sessions of its own, none headless. */
 function closedWithSessions(n: number): { issue: SliceIssue; sessions: SliceSession[] } {
   for (const issue of corpus.sliceIssues) {
-    if (!isCold(issue)) continue
+    if (!isCold(issue) || issue.closedAt == null || issue.archived === true || issue.deletedAt != null) continue
     const sessions = corpus.sliceSessions.filter(
       (session) => session.issueId === issue.id && session.headless !== true,
     )
@@ -789,7 +789,7 @@ describe('transitions', () => {
   it('a replace re-partitions: what was resident stays, the rest follows the rule', () => {
     const r = rig()
     const { pool } = r
-    const [looked, untouched] = corpus.sliceIssues.filter(isCold)
+    const [looked, untouched] = corpus.sliceIssues.filter((row) => isCold(row) && row.closedAt != null && row.archived !== true && row.deletedAt == null)
     tracked(() => pool.resident('issue', looked!.id))
     r.fire()
     const { issues, sessions, worktrees } = records()

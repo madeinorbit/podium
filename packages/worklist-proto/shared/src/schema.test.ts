@@ -701,7 +701,7 @@ describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
     const seats = [session('s', 'i')]
     for (const parent of [child('p', 30, { parentId: null, archived: true }),
       child('p', 30, { parentId: 'older' }), child('p', 30, { parentId: null, audience: 'agent' })]) {
-      const rows = [agent, parent]
+      const rows = [agent, parent, child('older', 30, { parentId: null, archived: true })]
       expect(ruleAt(rows, seats).issue('i')).toBe(true)
       expect(ruleAt(rows, seats).session('s')).toBe(true)
       const schema = clone()

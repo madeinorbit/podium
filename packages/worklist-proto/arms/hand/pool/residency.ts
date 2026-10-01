@@ -371,7 +371,7 @@ export class Residency {
           if (summary === undefined || bound === undefined) continue
           const ctx = this.context()
           const kept = ctx.now <= bound.shownUntil || spec.keptBy.some((source) => {
-            const key = keptByKey(this.options.schema, entity, summary, source)
+            const key = keptByKey(this.options.schema, entity, { ...summary, [this.options.schema[entity].key]: child }, source)
             return key !== null && [...ctx.keeps(entity, source, key)].some(
               (keep) => ctx.now <= keepDeadline(keep, bound.finish),
             )

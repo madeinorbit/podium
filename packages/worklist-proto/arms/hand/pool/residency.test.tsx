@@ -193,7 +193,7 @@ function sessionRecord(id: string, patch: Partial<SliceSession> = {}): RowRecord
 /** A closed issue with at least `n` sessions of its own, none headless. */
 function closedWithSessions(n: number): { issue: SliceIssue; sessions: SliceSession[] } {
   for (const issue of corpus.sliceIssues) {
-    if (!isCold(issue)) continue
+    if (!isCold(issue) || issue.closedAt == null || issue.archived === true || issue.deletedAt != null) continue
     const sessions = corpus.sliceSessions.filter(
       (session) => session.issueId === issue.id && session.headless !== true,
     )
@@ -795,7 +795,7 @@ describe('transitions', () => {
   it('a replace re-partitions by rule: a resident row the rule calls cold is evicted, a reopened one stays', () => {
     const r = rig()
     const { pool } = r
-    const cold = corpus.sliceIssues.filter(isCold)
+    const cold = corpus.sliceIssues.filter((row) => isCold(row) && row.closedAt != null && row.archived !== true && row.deletedAt == null)
     const looked = cold[0] as SliceIssue
     const untouched = cold[1] as SliceIssue
     // A derivation read the first cold row: queued, loaded, resident — and

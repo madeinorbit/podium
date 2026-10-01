@@ -668,7 +668,10 @@ function issueCanShow(row: Readonly<Record<string, unknown>>, ctx: ColdContext):
 }
 
 /** The session fields {@link sessionKeep} reads. */
-const SESSION_KEEP_FIELDS = ['archived', 'agentKind', 'stoppedAt', 'agentState', 'unread', 'readAt']
+const SESSION_KEEP_FIELDS = ['archived', 'agentKind', 'stoppedAt', 'agentState', 'unread', 'readAt'] as const
+
+/** What visibility reads of a cold session, without loading the full row. */
+export const COLD_SESSION_FIELDS = [...SESSION_KEEP_FIELDS, 'issueId', 'status', 'lastActiveAt'] as const
 
 /**
  * How long a session can keep its issue shown (`sessionRetainsWorklistRow`,
@@ -882,7 +885,7 @@ const DECLARED = defineSchema({
       ],
       predicate: (row) => row['closedAt'] != null || row['archived'] === true || row['deletedAt'] != null,
       canShow: {
-        fields: ['id', 'parentId', 'audience', 'archived', 'deletedAt', 'stage', 'worktreePath'],
+        fields: ['parentId', 'audience', 'archived', 'deletedAt', 'stage', 'worktreePath'],
         through: 'treeParent',
         test: issueCanShow,
       },

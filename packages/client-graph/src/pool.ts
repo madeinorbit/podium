@@ -57,7 +57,7 @@ import {
 } from 'mobx'
 import type { RelationReader } from './shared/relation-reader'
 import { relationLinks } from './shared/links'
-import { type EntityName, issueExcluded, type ModelSchema, SCHEMA } from './shared/schema'
+import { COLD_SESSION_FIELDS, type EntityName, issueExcluded, type ModelSchema, SCHEMA } from './shared/schema'
 import type {
   LocalsKey,
   SliceIssue,
@@ -249,7 +249,7 @@ export class MobxPool {
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
             // What visibility reads of a hidden issue (POD-4753), never the row.
-            summaries: { issue: HIDDEN_ISSUE_FIELDS },
+            summaries: { issue: HIDDEN_ISSUE_FIELDS, session: COLD_SESSION_FIELDS },
             // The rule's lane source (R3, POD-4745) reads the engine, built below.
             lanes: () => this.graph,
           })
@@ -514,7 +514,7 @@ export class MobxPool {
       if (absent === 'load') return residency.loading(entity, id) ? LOADING : undefined
       if (!residency.known(entity, id)) return undefined
       if (absent === 'mark') return LOADING
-      server = residency.read(entity, id)
+      server = entity === 'session' ? residency.summary(entity, id) ?? residency.read(entity, id) : residency.read(entity, id)
       if (server === undefined) return undefined
     }
     const pending = this.writes?.pending(entity, id)

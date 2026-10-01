@@ -876,7 +876,7 @@ export class PoolRelations implements RelationReader {
       // on a rename, which moves no root).
       if (link.issueless !== null) {
         if (was) this.dropIssueless(link, current as string, id)
-        const row = this.options.rows[link.from].get(id) as Row | undefined
+        const row = this.maintainedRow(link.from, id)
         if (row !== undefined && (row as Row).issueId === undefined) {
           this.addIssueless(link, root, id)
         }
@@ -904,7 +904,7 @@ export class PoolRelations implements RelationReader {
       if (link.issueless !== null) {
         if (was) this.dropIssueless(link, root, id)
         if (next !== null) {
-          const row = this.options.rows[link.from].get(id) as Row | undefined
+          const row = this.maintainedRow(link.from, id)
           if (row !== undefined && (row as Row).issueId === undefined) {
             this.addIssueless(link, next, id)
           }

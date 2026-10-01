@@ -87,7 +87,7 @@
 
 import type { RelationReader } from '../../../../shared/src/instrument/reads'
 import { compareRank, type RowRank, type RowView, rankOf } from '@podium/client-graph/shared/row-view'
-import { awaitingMergeOf } from '@podium/client-graph/shared/schema'
+import { awaitingMergeOf, COLD_SESSION_FIELDS as SESSION_SUMMARY_FIELDS } from '@podium/client-graph/shared/schema'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import type { Cell, CellGraph } from '../cells'
 import { sameData } from '../cells'
@@ -141,7 +141,7 @@ export function hiddenExcludedOf(hidden: HiddenIssue): boolean {
  * explicit owner and whether it is open, never its row. A small declared
  * summary, like the hidden issue's.
  */
-export const COLD_SESSION_FIELDS = ['issueId', 'archived', 'status'] as const
+export const COLD_SESSION_FIELDS = SESSION_SUMMARY_FIELDS
 
 /** Everything the visibility parts read. Tracked in the live pool; plain in the rebuild. */
 export interface VisibleInputs {
