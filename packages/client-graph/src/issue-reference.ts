@@ -101,6 +101,10 @@ export class IssueReferences implements IssueReferenceReader {
   read(token: string): Loaded<IssueReferenceModel | null> {
     const id = this.id(token)
     if (id === LOADING || id === null || id === undefined) return id
+    return this.readById(id)
+  }
+
+  readById(id: string): Loaded<IssueReferenceModel | null> {
     let value = this.values.get(id)
     if (!value) {
       value = computed(() => {

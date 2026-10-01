@@ -394,6 +394,18 @@ const defs = {
         return { ...issue, sessions }
       }),
   }),
+  resolveRefs: def('resolveRefs', {
+    kind: 'query',
+    handler: async (ctx, input) => await Promise.all([...new Set(input.refs)].map(async (ref) => {
+      try {
+        const id = await ctx.reports.resolveRef(ref)
+        // Missing and unreadable references have exactly the same answer.
+        return { ref, id: await ctx.mayReadIssue(id) ? id : null }
+      } catch {
+        return { ref, id: null }
+      }
+    })),
+  }),
   /** Read one artifact's stored bytes back (POD-1999). A read of issue content,
    *  so it rides `readIssue` like `get` — and it is served from the server's own
    *  snapshot dir, so it answers with the authoring machine offline. */

@@ -188,6 +188,9 @@ export const orphansInput = z.object({ repoPath: z.string() })
 
 export const getInput = byIssueId
 
+/** Opaque identity resolution for a batch of unloaded client references. */
+export const resolveRefsInput = z.object({ refs: z.array(z.string().min(1).max(100)).max(200) })
+
 export const commentsInput = byIssueId
 
 /**
@@ -938,6 +941,13 @@ export const issueGetContract = {
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
   conflict: 'n/a',
+} as const satisfies CommandContract
+
+export const issueResolveRefsContract = {
+  ...issueGetContract,
+  name: 'issues.resolveRefs',
+  input: resolveRefsInput,
+  exposure: SERVED_ON_WIRE,
 } as const satisfies CommandContract
 
 export const issueCommentsContract = {
@@ -1998,6 +2008,7 @@ export const ISSUE_CONTRACTS = {
   events: issueEventsContract,
   findDuplicates: issueFindDuplicatesContract,
   get: issueGetContract,
+  resolveRefs: issueResolveRefsContract,
   graph: issueGraphContract,
   integrate: issueIntegrateContract,
   linearSearch: issueLinearSearchContract,

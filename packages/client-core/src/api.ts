@@ -226,6 +226,8 @@ export interface PodiumClientApi {
     clear: ApiMutation<WithMutationId<{ sessionId: SessionId }>>
   }
   issues: {
+    /** Identity only. The pool loads the row through its existing reader. */
+    resolveRefs: ApiQuery<{ refs: string[] }, Array<{ ref: string; id: IssueId | null }>>
     /** Insert-shaped optimistic create: both ids are minted by the client and
      * reused by the authority so task/session rows reconcile without a swap. */
     create: ApiMutation<
