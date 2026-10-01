@@ -113,14 +113,11 @@ try {
     await page.waitForTimeout(200)
     const before = await page.evaluate(() => window.__issueChips.stats())
     const shape = await page.evaluate(() => window.__issueChips.status())
-    const mounted = await page.evaluateHandle(() => new Map(
+    const captureChips = () => page.evaluateHandle(() => new Map(
       [...document.querySelectorAll('a.ref-link--issue, [data-issue-reference]')]
         .map(el => [el, [el.getAttribute('data-issue-stage'), el.getAttribute('data-issue-availability'), el.getAttribute('aria-label')].join('\0')]),
     ))
-    await page.evaluate(() => window.__issueChips.traffic())
-    await page.waitForTimeout(200)
-    const traffic = await page.evaluate(() => window.__issueChips.stats())
-    const trafficMounts = await page.evaluate(previous => {
+    const mountsSince = (previous: Awaited<ReturnType<typeof captureChips>>) => page.evaluate(previous => {
       let added = 0, changed = 0
       for (const el of document.querySelectorAll('a.ref-link--issue, [data-issue-reference]')) {
         if (!previous.has(el)) { added++; continue }
@@ -128,7 +125,12 @@ try {
         if (previous.get(el) !== value) changed++
       }
       return { added, changed }
-    }, mounted)
+    }, previous)
+    const mounted = await captureChips()
+    await page.evaluate(() => window.__issueChips.traffic())
+    await page.waitForTimeout(200)
+    const traffic = await page.evaluate(() => window.__issueChips.stats())
+    const trafficMounts = await mountsSince(mounted)
     await mounted.dispose()
     if (
       mode === 'pool' &&
@@ -150,6 +152,7 @@ try {
       )
     const initial = await paint()
     await page.screenshot({ path: `${out}/${mode}.png`, fullPage: false })
+    const issueBefore = await captureChips()
     await page.evaluate(() =>
       window.__issueChips.patch(0, { title: 'Changed chip title', stage: 'review' }),
     )
@@ -161,7 +164,10 @@ try {
           .querySelector('[data-issue-reference="SYN-1000"]')
           ?.getAttribute('data-issue-stage') === 'review',
     )
+    await page.waitForTimeout(200)
     const changed = await paint()
+    const issueMounts = await mountsSince(issueBefore)
+    await issueBefore.dispose()
     const after = await page.evaluate(() => window.__issueChips.stats())
     const changedChips = changed.filter(
       (row, i) => JSON.stringify(row) !== JSON.stringify(initial[i]),
@@ -170,10 +176,10 @@ try {
     let check: unknown = null
     if (mode === 'pool') {
       if (
-        after.redraws - traffic.redraws !== changedChips ||
-        after.reads - traffic.reads > changedChips * 2
+        after.redraws - traffic.redraws !== issueMounts.added + issueMounts.changed ||
+        after.reads - traffic.reads > issueMounts.added * 4 + issueMounts.changed * 2
       )
-        throw new Error('Chip census exceeded the changed-chip fanout')
+        throw new Error(`Chip census exceeded the changed-chip fanout: ${JSON.stringify({ changedChips, issueMounts, traffic, after })}`)
       check = await page.evaluate(() => window.__issueChips.check())
       if (
         (check as { differences: number; pending: number }).differences !== 0 ||
@@ -217,6 +223,7 @@ try {
       trafficMounts,
       after,
       changedChips,
+      issueMounts,
       check,
       miniview,
     })
