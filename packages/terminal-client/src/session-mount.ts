@@ -243,6 +243,25 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const proposeViewport = (): Grid | undefined =>
     viewportEl === el ? view.proposeFit() : view.proposeFitIn(viewportEl)
 
+  // Startup readiness can change the box after attach's callback returns.
+  // Keep painting W immediately, but coalesce automatic statements until the
+  // first attached box has been quiet for the ordinary layout debounce.
+  const BOX_DEBOUNCE_MS = 60
+  let boxTimer: ReturnType<typeof setTimeout> | undefined
+  let firstViewportPending = true
+  let firstViewportClaim = false
+
+  function settleFirstViewport(): void {
+    if (boxTimer !== undefined) clearTimeout(boxTimer)
+    boxTimer = setTimeout(() => {
+      boxTimer = undefined
+      firstViewportPending = false
+      const claimControl = firstViewportClaim
+      firstViewportClaim = false
+      ask('attach-settled', claimControl)
+    }, BOX_DEBOUNCE_MS)
+  }
+
   /**
    * THE ONE ASK (POD-3239 B4; POD-3190 design rev 3).
    *
@@ -262,6 +281,23 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     if (!eligible()) {
       trace('ask:skipped', { reason, claimControl, cause: 'ineligible' })
       return
+    }
+    if (firstViewportPending) {
+      if (reason !== 'take-control') {
+        firstViewportClaim ||= claimControl
+        // A measurable first render needs only one wakeup, even if the program
+        // keeps rendering while startup's quiet window is pending.
+        if (reason === 'first-render' && proposeViewport()) everMeasured = true
+        trace('ask:deferred', { reason, claimControl })
+        if (authoritative) settleFirstViewport()
+        return
+      }
+      // Explicit input/takeover samples synchronously, even during startup.
+      // Retire its queued automatic claim so it cannot claim again later.
+      firstViewportPending = false
+      firstViewportClaim = false
+      if (boxTimer !== undefined) clearTimeout(boxTimer)
+      boxTimer = undefined
     }
     const measured = proposeViewport()
     if (!measured && !claimControl) {
@@ -392,10 +428,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
 
   /**
    * Move the buffer to the server's grid, and only ever to the server's grid
-   * (MODEL rule 2). The clear + repaint are kept: xterm reflows the old buffer
-   * into the new shape, and for an alt-screen TUI that content is garbage until
-   * the app's own SIGWINCH repaint arrives, so blank-then-clean beats shredded
-   * mid-width fragments.
+   * (MODEL rule 2). Geometry is not replacement content: an idle program need
+   * not repaint on SIGWINCH. Let xterm resize its normal/alternate buffers and
+   * repaint the retained cells; snapshots and program output own screen resets.
    */
   function applyServerGrid(state: ConnectionState, source: string): void {
     const { cols, rows } = state
@@ -403,7 +438,6 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     if (view.cols() === cols && view.rows() === rows) return
     trace('geometry:applied', { state, source })
     view.resize(cols, rows)
-    view.clear()
     // A resize/reflow can leave the GPU canvas showing only the cells that moved
     // or changed (the "caret at top, my text at bottom, rest black" symptom).
     view.forceRepaint()
@@ -439,9 +473,12 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       // TRIGGER 3: EVERY ATTACH IS AN ASK. The server's per-connection record of
       // this box dies with the socket, so a new one — a reconnect, a restarted
       // server — has heard nothing from us, and a statement lost on the way is
-      // repaired here. On the first attach it repeats the mount's ask, which the
-      // server finds equal to what it already forwarded and drops.
+      // repaired here. The first attach coalesces startup triggers until the
+      // ready-state layout settles; later attaches state the box immediately.
       ask('attach', claimsOnReveal())
+      // Start the quiet window even for a hidden pane: its later reveal uses
+      // the ordinary policy once startup's layout window has elapsed.
+      if (firstViewportPending) settleFirstViewport()
     },
     onFrame: (bytes) => {
       view.write(bytes)
@@ -528,7 +565,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
 
   // A mount that starts as the active tab of a visible page is revealed by
   // being mounted: it claims control (last-foregrounded-wins) and states this
-  // client's box. We never ask while ineligible, so a hidden tab cannot pin the
+  // client's box once the first attached layout settles. We never ask while
+  // ineligible, so a hidden tab cannot pin the
   // shared PTY to its stale grid.
   syncRendererLease()
   if (active) ask('mount', claimsOnReveal())
@@ -577,11 +615,13 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   // display:none → visible transition (ResizeObserver fires on it) — not just
   // window resizes. Debounced: a layout transition emits a burst of intermediate
   // sizes, and each one the server forwarded would be a SIGWINCH to the TUI.
-  const BOX_DEBOUNCE_MS = 60
-  let boxTimer: ReturnType<typeof setTimeout> | undefined
   const viewport = new DomViewportSource(viewportEl)
   const offViewport = viewport.onChange((size) => {
     trace('viewport:changed', { viewport: size })
+    if (firstViewportPending) {
+      measuredGridChanged('box-change')
+      return
+    }
     if (boxTimer !== undefined) clearTimeout(boxTimer)
     boxTimer = setTimeout(() => {
       boxTimer = undefined

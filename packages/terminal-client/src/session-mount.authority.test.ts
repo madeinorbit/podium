@@ -25,7 +25,7 @@ import {
 import { asSessionId } from '@podium/model'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { FitAddon } from '@xterm/addon-fit'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mountSession } from './session-mount'
 
 const SESSION = asSessionId('s-authority')
@@ -68,6 +68,11 @@ function realHub(): { hub: SocketHubType; socket: FakeSocket } {
   hub.connect()
   socket.open()
   return { hub: hub as unknown as SocketHubType, socket }
+}
+
+function withFakeTimers(): void {
+  vi.useFakeTimers()
+  restorers.push(() => vi.useRealTimers())
 }
 
 function withResizeObserver(): void {
@@ -219,6 +224,7 @@ describe('T6: a desktop reveal at an unchanged size still claims, and moves noth
     // has not changed — and saying so must cost nothing, which is the other half
     // of this test.
     withResizeObserver()
+    withFakeTimers()
     withProposal({ cols: 104, rows: 31 }) // the box already equals W
     const { hub, socket } = realHub()
     const mounted = mountSession(host(), {
@@ -229,6 +235,7 @@ describe('T6: a desktop reveal at an unchanged size still claims, and moves noth
     })
     try {
       socket.deliver(attachedFrame({ cols: 104, rows: 31 }))
+      vi.advanceTimersByTime(60) // Hidden startup settled before this warm reveal.
       const sentBefore = socket.sent.length
 
       mounted.setActive(true)
@@ -260,6 +267,7 @@ describe('T6: a desktop reveal at an unchanged size still claims, and moves noth
 
   it('and the server’s controllerChanged makes it the controller', () => {
     withResizeObserver()
+    withFakeTimers()
     withProposal({ cols: 104, rows: 31 })
     const { hub, socket } = realHub()
     const mounted = mountSession(host(), {
@@ -271,6 +279,7 @@ describe('T6: a desktop reveal at an unchanged size still claims, and moves noth
     try {
       socket.deliver({ type: 'welcome', clientId: 'this-client' } as ServerMessage)
       socket.deliver(attachedFrame({ cols: 104, rows: 31 }))
+      vi.advanceTimersByTime(60) // Hidden startup settled before this warm reveal.
       expect(mounted.connection.state().role).toBe('spectator')
 
       mounted.setActive(true)

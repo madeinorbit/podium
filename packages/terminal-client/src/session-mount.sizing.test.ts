@@ -252,12 +252,14 @@ describe('mountSession eligibility-gated sizing', () => {
     withResizeObserver()
     withFakeTimedRaf()
     withFittableAddon()
-    const { hub, calls } = fakeHub()
+    const { hub, calls, attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
       active: false,
     })
+    attached()
+    vi.advanceTimersByTime(60) // First attach settled while hidden.
     mounted.setActive(true)
     // POD-3239 B4: ONE ask, sent immediately. The rAF ladder that used to sit
     // between the reveal and the claim is gone — nothing is waiting on this
@@ -293,6 +295,7 @@ describe('mountSession eligibility-gated sizing', () => {
       active: false,
     })
     attached()
+    vi.advanceTimersByTime(60)
     mounted.setActive(true)
 
     const motion = '\u001b[<35;10;5M'
@@ -305,6 +308,7 @@ describe('mountSession eligibility-gated sizing', () => {
 
   it('keeps a server-grid spectator on the authoritative grid and only reports its viewport', () => {
     withResizeObserver()
+    withFakeTimedRaf()
     withFittableAddon() // phone container proposes 150×50
     const { hub, calls, role, state , attached } = fakeHub()
     role('spectator')
@@ -319,6 +323,7 @@ describe('mountSession eligibility-gated sizing', () => {
     // attached has been told nothing, so nothing may move it — which is why
     // every state-driven case below has to attach first.
     attached()
+    vi.advanceTimersByTime(60)
 
     state(183, 55, 'spectator') // desktop-owned PTY geometry
 
@@ -405,6 +410,7 @@ describe('mountSession eligibility-gated sizing', () => {
 
   it('fits a server-grid client that the server made controller', () => {
     withResizeObserver()
+    withFakeTimedRaf()
     withFittableAddon()
     const { hub, calls, role, state , attached } = fakeHub()
     role('spectator')
@@ -419,6 +425,7 @@ describe('mountSession eligibility-gated sizing', () => {
     // attached has been told nothing, so nothing may move it — which is why
     // every state-driven case below has to attach first.
     attached()
+    vi.advanceTimersByTime(60)
 
     state(80, 24, 'controller') // first/only attached client receives control
 
@@ -460,13 +467,15 @@ describe('mountSession eligibility-gated sizing', () => {
         Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
     })
 
-    const { hub, calls } = fakeHub()
+    const { hub, calls, attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
       active: true,
     })
     // Active but hidden: no control claim, no resize.
+    attached()
+    vi.advanceTimersByTime(60) // Startup completed while the page was hidden.
     expect(calls.requestControl).toBe(0)
     expect(calls.resize).toEqual([])
 
@@ -492,12 +501,14 @@ describe('mountSession eligibility-gated sizing', () => {
       else
         Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
     })
-    const { hub, calls } = fakeHub()
+    const { hub, calls, attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
       active: true,
     })
+    attached()
+    vi.advanceTimersByTime(60) // Startup completed while the page was hidden.
     expect(calls.requestControl).toBe(0)
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
     window.dispatchEvent(new Event('focus'))
@@ -519,12 +530,14 @@ describe('mountSession eligibility-gated sizing', () => {
       else
         Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
     })
-    const { hub, calls } = fakeHub()
+    const { hub, calls, attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
       active: true,
     })
+    attached()
+    vi.advanceTimersByTime(60) // Startup completed while the page was hidden.
     expect(calls.requestControl).toBe(0)
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
     window.dispatchEvent(new Event('pageshow'))
@@ -582,12 +595,14 @@ describe('mountSession eligibility-gated sizing', () => {
     withResizeObserver()
     withFakeTimedRaf()
     withFittableAddon()
-    const { hub, calls } = fakeHub()
+    const { hub, calls, attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
       active: false,
     })
+    attached()
+    vi.advanceTimersByTime(60) // First attach settled while hidden.
     mounted.setActive(true)
     window.dispatchEvent(new Event('focus'))
     vi.advanceTimersByTime(16 * 2)
@@ -625,7 +640,10 @@ describe('mountSession eligibility-gated sizing', () => {
     vi.advanceTimersByTime(60)
 
     // The box wants 150×50 and the client ASKED for it…
-    expect(calls.resize.at(-1)).toEqual([150, 50])
+    expect(calls.asks.at(-1)).toMatchObject({
+      geometry: { cols: 150, rows: 50 },
+      claimControl: true,
+    })
     // …and did NOT apply it. The buffer is still at the server's grid.
     expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
       cols: 80,
@@ -682,6 +700,7 @@ describe('mountSession eligibility-gated sizing', () => {
       active: false,
     })
     attached()
+    vi.advanceTimersByTime(60) // Warm reveal policy, after startup.
     state(80, 24)
 
     mounted.setActive(true)
@@ -715,6 +734,7 @@ describe('mountSession eligibility-gated sizing', () => {
 
   it('re-fits and re-asserts size on reconnect (server-reload quarter-size fix)', () => {
     withResizeObserver()
+    withFakeTimedRaf()
     withFittableAddon() // fit → 150×50
     const { hub, calls, attached, state } = fakeHub()
     const mounted = mountSession(fittableHost(), {
@@ -723,6 +743,7 @@ describe('mountSession eligibility-gated sizing', () => {
       active: true,
     })
     attached() // first attach
+    vi.advanceTimersByTime(60)
     calls.resize.length = 0
     const rcBefore = calls.requestControl
     // Server reload: the rebuilt session resets to 80×24. On reconnect the 'attached'
@@ -798,7 +819,7 @@ describe('mountSession eligibility-gated sizing', () => {
     withResizeObserver()
     withFakeTimedRaf()
     const addon = withToggleableAddon() // unmeasurable at mount: hidden / mid-layout
-    const { hub, calls } = fakeHub()
+    const { hub, calls, attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
@@ -824,12 +845,13 @@ describe('mountSession eligibility-gated sizing', () => {
     const ro = withCapturingResizeObserver()
     withFakeTimedRaf()
     const addon = withToggleableAddon()
-    const { hub, calls } = fakeHub()
+    const { hub, calls, attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
       active: true,
     })
+    attached()
     // Let the whole retry schedule (rAF window + slow timeouts) run dry while hidden.
     vi.advanceTimersByTime(16 * 12 + 250 + 500 + 1000 + 50)
     expect(calls.resize).toEqual([])
@@ -865,6 +887,7 @@ describe('mountSession eligibility-gated sizing', () => {
       active: false,
     })
     attached()
+    await new Promise((resolve) => setTimeout(resolve, 70))
     recover.mockClear()
     mounted.setActive(true)
     // Recovered synchronously, before the layout has even been measured.
@@ -931,11 +954,12 @@ describe('mountSession size triggers', () => {
     }
   })
 
-  it('EVERY attach states the box — the first one too, which the server dedups', () => {
-    // The first attach used to be skipped as a repeat of the mount's ask. On the
+  it('every attach states the box, with the first deferred until layout settles', () => {
+    // The first attach must still state the box after settling. On the
     // phone's native bridge the mount's ask can land before the native socket
     // connection exists and be dropped; the attach is what repairs it.
     withResizeObserver()
+    withFakeTimedRaf()
     withFittableAddon()
     const { hub, calls, attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
@@ -947,9 +971,14 @@ describe('mountSession size triggers', () => {
     try {
       calls.asks.length = 0
       attached()
+      expect(calls.asks).toEqual([])
+      vi.advanceTimersByTime(60)
       expect(calls.asks).toEqual([
         { geometry: { cols: 150, rows: 50 }, visible: true, mode: 'native', claimControl: false },
       ])
+      calls.asks.length = 0
+      attached() // A warm reconnect has no ready-state layout change.
+      expect(calls.asks).toHaveLength(1)
     } finally {
       mounted.dispose()
     }
@@ -960,6 +989,7 @@ describe('mountSession size triggers', () => {
     // by the server whoever sent it, and a controller change reconciles
     // against that record.
     withResizeObserver()
+    withFakeTimedRaf()
     const proposal = withResizableAddon()
     const { hub, calls, attached, state } = fakeHub()
     const mounted = mountSession(fittableHost(), {
@@ -970,6 +1000,7 @@ describe('mountSession size triggers', () => {
     })
     try {
       attached()
+      vi.advanceTimersByTime(60)
       state(80, 24, 'spectator')
       calls.asks.length = 0
       // A box that measures differently now, with no box event to say so — the

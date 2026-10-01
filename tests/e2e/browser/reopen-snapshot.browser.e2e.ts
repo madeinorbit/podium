@@ -81,7 +81,13 @@ test('a cold return to an alternate screen keeps its colours and glyphs', async 
   const before = await frameShown(page)
   const colourBefore = await colouredPixels(page)
   await visibleSurface(page).screenshot({ path: info.outputPath('before.png') })
-  const beforeGrid = await podium.state(page)
+  const grid = () =>
+    page.evaluate(() => {
+      const state = (window as unknown as { __podium?: { state(): { cols: number; rows: number } } })
+        .__podium?.state()
+      return { cols: state?.cols, rows: state?.rows }
+    })
+  const beforeGrid = await grid()
   expect(line(before, 'auto mode on')).toContain('⏵⏵')
   expect(colourBefore, 'the frame is coloured to begin with').toBeGreaterThan(500)
 
@@ -119,6 +125,19 @@ test('a cold return to an alternate screen keeps its colours and glyphs', async 
     expect(line(after, needle)).toBe(line(before, needle))
   }
   expect(after.split('\n').slice(0, 3)).toEqual(before.split('\n').slice(0, 3))
-  expect(await podium.state(page)).toMatchObject({ cols: beforeGrid.cols, rows: beforeGrid.rows })
+  expect(await grid()).toEqual(beforeGrid)
+  const requests = await page.evaluate(
+    (id) =>
+      (window as unknown as {
+        __podiumTerminalDiagnostics?: {
+          snapshot(id?: string): { event: string; data: { geometry?: { cols: number; rows: number } } }[]
+        }
+      }).__podiumTerminalDiagnostics?.snapshot(id)
+        .filter((event) => event.event === 'ask:sent')
+        .map((event) => event.data.geometry) ?? [],
+    sessionId,
+  )
+  expect(requests.length, 'the attached viewer states its settled box').toBeGreaterThan(0)
+  for (const geometry of requests) expect(geometry, 'no transient PTY resize').toEqual(beforeGrid)
   expect(colourAfter, 'the return kept the colours').toBeGreaterThan(colourBefore * 0.8)
 })
