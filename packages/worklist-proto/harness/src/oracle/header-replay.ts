@@ -11,7 +11,7 @@ import { createKernelReplica, createSideCache, memoryStorage } from '@podium/cli
 import { HttpBootstrapSource } from '@podium/client-core/sync-stream'
 import { parseServerOrigin } from '@podium/client-core/transport'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
-import { checkHeader, poolHeaderSnapshot } from '@podium/client-graph/diagnostics/header-check'
+import { checkHeader, legacyHeaderSnapshot, poolHeaderSnapshot } from '@podium/client-graph/diagnostics/header-check'
 import type { HeaderRows } from '@podium/client-graph/header-schema'
 import type { HostMetricsWire } from '@podium/model/browser'
 import { runInAction } from 'mobx'
@@ -89,6 +89,7 @@ async function main() {
     const selections = [null, ...replica.rows('issueProjections').slice(0, 32).map((row) => row.id)]
     let differences = 0, pending = 0, checks = 0
     let first: { check: number; sectionIndex: number; field: string } | null = null
+    const locations: { check: number; sectionIndex: number; field: string }[] = []
     for (const selectedIssueId of selections) {
       store = { ...store, selectedIssueId }
       for (const listener of listeners) listener()
@@ -99,9 +100,21 @@ async function main() {
       const result = runInAction(() => checkHeader(handle.pool, store, inputs))
       checks++; differences += result.differences; pending += result.pending
       if (!first && result.first) first = { check: checks, sectionIndex: result.first.sectionIndex, field: result.first.field }
+      if (result.differences) {
+        const expected = legacyHeaderSnapshot(store, inputs, handle.pool.clock.current)
+        const actual = runInAction(() => poolHeaderSnapshot(handle.pool, inputs))
+        for (let index = 0; index < expected.sections.length; index++) {
+          const a = actual.sections[index]?.fields.value as Record<string, unknown> | null
+          const b = expected.sections[index]?.fields.value as Record<string, unknown> | null
+          if (JSON.stringify(a) === JSON.stringify(b)) continue
+          for (const field of ['id', 'title', 'seq', 'stage', 'displayRef', 'color', 'root', 'progress', 'live', 'working', 'needs', 'unfinishedCount', 'decisionCount']) {
+            if (JSON.stringify(a?.[field]) !== JSON.stringify(b?.[field])) locations.push({ check: checks, sectionIndex: index, field })
+          }
+        }
+      }
     }
     console.log(JSON.stringify({ issues: corpus.issues.length, sessions: corpus.sessions.length, machines: corpus.machines.length,
-      metricRows: metrics.length, quotaRows: quotas.length, checks, differences, pending, first }))
+      metricRows: metrics.length, quotaRows: quotas.length, checks, differences, pending, first, locations }))
     if (differences || pending) process.exitCode = 1
   } finally { handle.dispose() }
 }
