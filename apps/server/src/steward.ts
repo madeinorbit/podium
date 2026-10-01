@@ -580,23 +580,48 @@ export class StewardService {
       options.limit === undefined ? undefined : { limit: options.limit },
     )
     if (readEvents.length === 0) return
-    // Guard every route (parent wake, ack fallback, subscriptions and fact
-    // retirement). A genuine completion before stop is still reportable even
-    // if this poll runs later; a new phase created after stop is stale.
+    // Suppress stopped sessions before producing notification events.
+    // This fences every route: parent wake, ack fallback, subscriptions and
+    // fact retirement. Even a genuine pre-stop phase is history once stopped:
+    // a lagging cursor must not announce it hours later as a fresh settlement
+    // (POD-5128). Keep the row and advance past it, as in POD-4992.
     const sessions = this.deps.sessionFacts()
     const events = readEvents.filter((event) => {
       if (event.kind !== 'session.phase') return true
       const session = sessions.find((s) => s.sessionId === event.subject)
-      if (!session || (session.status !== 'hibernated' && session.status !== 'exited')) return true
-      const stoppedAt = Date.parse(session.stoppedAt ?? '')
-      const eventAt = Date.parse(event.ts)
-      if (Number.isFinite(stoppedAt) && Number.isFinite(eventAt) && eventAt < stoppedAt) return true
-      log.info('ignored phase for an already stopped session', {
-        sessionId: session.sessionId, status: session.status, stoppedAt: session.stoppedAt,
-        eventId: event.id, eventAt: event.ts,
-        producer: (event.payload as { producer?: string } | null)?.producer ?? 'legacy',
-      })
-      return false
+      const payload = event.payload as {
+        phase?: string
+        verdict?: string
+        producer?: string
+        sessionStatus?: string
+      } | null
+      const stopped = session?.status === 'hibernated' || session?.status === 'exited'
+      const settled =
+        (payload?.phase === 'idle' && payload.verdict === 'done') || payload?.phase === 'errored'
+      if (stopped || settled) {
+        // Attribution belongs at the window source, before any handler can
+        // claim a fact. Event time can be hours behind this poll; record both
+        // the producer's lifecycle snapshot and the current one.
+        log.info(
+          stopped ? 'ignored phase for an already stopped session' : 'read settled phase for notification',
+          {
+            eventSource: 'podium_events',
+            cursor,
+            throughEventId: readEvents[readEvents.length - 1]!.id,
+            eventId: event.id,
+            eventAt: event.ts,
+            sessionId: event.subject,
+            sessionStatus: session?.status ?? 'unknown',
+            stoppedAt: session?.stoppedAt,
+            producer: payload?.producer ?? 'legacy',
+            producerSessionStatus: payload?.sessionStatus ?? 'unknown',
+            phase: payload?.phase,
+            verdict: payload?.verdict,
+            disposition: stopped ? 'ignored-stopped' : 'eligible',
+          },
+        )
+      }
+      return !stopped
     })
     // Coalesce: all events for the same key form one batch this poll.
     const batches = new Map<string, StewardEvent[]>()

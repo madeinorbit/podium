@@ -1848,7 +1848,19 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
       h.advanceTime(Date.parse('2026-07-02T22:05:27.495Z') - Date.parse('2026-07-02T00:00:00.000Z'))
       expect(await h.store.events.getStewardState('cursor')).toBe('0')
       const steward = new StewardService(h.deps)
-      await steward.tick({ limit: JANITOR_STEWARD_EVENT_LIMIT })
+      const logs = captureLogs()
+      try {
+        await steward.tick({ limit: JANITOR_STEWARD_EVENT_LIMIT })
+        expect(logs.at('info')).toContainEqual(expect.objectContaining({
+          ns: 'server:steward', eventSource: 'podium_events', cursor: 0,
+          eventId, throughEventId: eventId, eventAt: '2026-07-02T10:48:34.290Z',
+          sessionId: childId, sessionStatus: status, stoppedAt: '2026-07-02T12:19:13.703Z',
+          producer: 'notify.session.stateChanged', producerSessionStatus: 'live',
+          phase, disposition: 'ignored-stopped',
+        }))
+      } finally {
+        logs.restore()
+      }
       expect(h.sendNotice).not.toHaveBeenCalled()
       expect(h.notify).not.toHaveBeenCalled()
       expect(ackFallback).not.toHaveBeenCalled()
@@ -1859,6 +1871,45 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
       expect(await h.store.events.listEventsSince(0)).toHaveLength(1)
       await steward.tick()
       expect(h.sendNotice).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['idle', 'errored'] as const)(
+    'POD-5128: attributes a queued %s phase and still reports a running child',
+    async (phase) => {
+      const childId = asSessionId('child')
+      const parentId = asSessionId('parent')
+      const h = await harness({ sessions: [
+        fakeSession({ sessionId: parentId, status: 'hibernated' }),
+        fakeSession({ sessionId: childId, status: 'live', spawnedBy: 'session:parent' }),
+      ] })
+      const ackFallback = vi.fn()
+      h.deps.messaging = { ackFallback }
+      const eventId = await h.store.events.appendEvent({
+        ts: '2026-07-02T10:48:34.290Z', kind: 'session.phase', subject: childId,
+        payload: { phase, ...(phase === 'idle' ? { verdict: 'done' } : {}) },
+      })
+      h.advanceTime(Date.parse('2026-07-02T22:05:27.495Z') - Date.parse('2026-07-02T00:00:00.000Z'))
+      const logs = captureLogs()
+      try {
+        await new StewardService(h.deps).tick({ limit: JANITOR_STEWARD_EVENT_LIMIT })
+        expect(logs.at('info')).toContainEqual(expect.objectContaining({
+          ns: 'server:steward', eventSource: 'podium_events', cursor: 0,
+          eventId, throughEventId: eventId, eventAt: '2026-07-02T10:48:34.290Z',
+          sessionId: childId, sessionStatus: 'live', producer: 'legacy',
+          producerSessionStatus: 'unknown', phase, disposition: 'eligible',
+        }))
+      } finally {
+        logs.restore()
+      }
+      expect(h.sendNotice).toHaveBeenCalledExactlyOnceWith(
+        parentId, expect.stringContaining(phase === 'idle' ? 'finished (done)' : 'errored'),
+        noticeMessageId(`sessionparentnudge:phase-reported:${childId}`, parentId, eventId), 'wake',
+      )
+      expect(ackFallback).toHaveBeenCalledExactlyOnceWith(childId, phase === 'idle' ? 'finished' : 'errored', {
+        factKey: `settle:${childId}`, target: childId,
+      })
+      expect(await h.store.events.getStewardState('cursor')).toBe(String(eventId))
     },
   )
 
