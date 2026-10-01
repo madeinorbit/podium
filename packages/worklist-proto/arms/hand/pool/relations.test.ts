@@ -862,6 +862,8 @@ describe('the reads fence and the write record', () => {
       // it — and I2's roster: the retained live roster reads I2's sessions
       // bucket through memberIds (its own cell since eb0b2dad5, so retention
       // churn stops there), and S2 just joined that bucket. Nothing of I1.
+      // Retention reads the session's row/declared summary directly: a cold
+      // member can retain a loaded unplaced parent, so it needs no resident cell.
       expect(ran.stop().sort()).toEqual(
         [
           'sessionIds:I2',
@@ -873,7 +875,6 @@ describe('the reads fence and the write record', () => {
           'memberIds:I2',
           'retained:I2',
           'flat:I2',
-          'resident:S2',
           'retention:S2',
           'rollup:aggregate:I2',
           'rollup:ownAttention:I2',
