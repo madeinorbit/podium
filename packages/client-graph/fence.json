@@ -1,8 +1,5 @@
 {
-  "enumeration": [
-    "src/enumerate.ts",
-    "src/header-enumerate.ts"
-  ],
+  "enumeration": ["src/enumerate.ts"],
   "tables": [
     "issue",
     "session",

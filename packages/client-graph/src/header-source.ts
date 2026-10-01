@@ -1,5 +1,5 @@
 import { observe, reaction, runInAction } from 'mobx'
-import { allResidentSessions } from './header-enumerate'
+import { allResidentSessions } from './enumerate'
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { MobxPool } from './pool'

@@ -14,6 +14,8 @@
  */
 
 import type { RowRecord } from './shared/source'
+import type { MobxPool } from './pool'
+import type { HeaderEntity } from './header-schema'
 import {
   createPlainTables,
   drop,
@@ -57,4 +59,28 @@ export function reseed(target: IngestTarget, rows: readonly RowRecord[], out: In
     for (const [id, row] of next) put(target, entity, id, row, out)
   }
   residency?.replaced(target, out)
+}
+
+/** Header key census stays in the pool's one enumeration module. Values are
+ * read only through pool.row; unloaded rows use their declared summaries. */
+export function headerIds(pool: MobxPool, entity: HeaderEntity): string[] {
+  return [...new Set([...(pool.header.orders.get(entity) ?? []), ...pool.header.tables[entity].keys()])]
+}
+export function residentSessionIds(pool: MobxPool): string[] {
+  return pool.header.sessionOrder.get()
+}
+export function allResidentSessions(pool: MobxPool): [string, object][] {
+  return [...pool.tables.session.keys()].flatMap((id) => {
+    const row = pool.row('session', id)
+    return typeof row === 'object' && row !== null ? [[id, row] as [string, object]] : []
+  })
+}
+export function knownIssueIds(pool: MobxPool): string[] {
+  return [...new Set([...pool.tables.issue.keys(), ...(pool.residency?.ids('issue', true) ?? [])])]
+}
+export function knownSessionIds(pool: MobxPool): string[] {
+  return [...new Set([...pool.tables.session.keys(), ...(pool.residency?.ids('session', true) ?? [])])].sort()
+}
+export function coldSessionIds(pool: MobxPool): readonly string[] {
+  return pool.residency?.ids('session', true) ?? []
 }
