@@ -197,7 +197,7 @@ def controls(out):
 
 def analyze(root):
     records = []
-    for phase in ['counts', 'timing', 'memory', 'attribution']:
+    for phase in ['counts', 'timing', 'memory']:
         path = root / phase / 'records.jsonl'
         if path.exists():
             with path.open() as source:
@@ -206,7 +206,7 @@ def analyze(root):
                         records.append(dict(compact_record(json.loads(line)), phase=phase))
     void = [r for r in records if not r['valid'] or r.get('before', {}).get('loadavg', [0])[0] > PLAN['maxLoad']]
     accepted = [r for r in records if r not in void]
-    summary = {'plan': PLAN, 'records': len(records), 'voidRecords': len(void), 'cells': {}, 'bars': {}, 's9': 'PENDING: one operator day on ludovico with panel'}
+    summary = {'plan': PLAN, 'phases': ['counts', 'timing', 'memory'], 'records': len(records), 'voidRecords': len(void), 'cells': {}, 'bars': {}, 's9': 'PENDING: one operator day on ludovico with panel'}
     cpu_cells = []
     warm_cells = []
     selection_cells = []
