@@ -123,7 +123,7 @@ function containers(snapshot: ReturnType<ReturnType<typeof startCensus>['snapsho
     counts[key] = (counts[key] ?? 0) + (entry.size ?? 0)
   }
   for (const [kind, held] of [['map', snapshot.held.mapEntries], ['set', snapshot.held.setMembers]] as const) {
-    expect(Object.entries(counts).filter(([name]) => name.startsWith(`${kind}:`))
+    expect.soft(Object.entries(counts).filter(([name]) => name.startsWith(`${kind}:`))
       .reduce((n, [, size]) => n + size, 0)).toBe(held)
   }
   return counts
@@ -283,12 +283,12 @@ describe('POD-4942 post-rework probes', () => {
             bump(hiddenSessions, owner === undefined ? 'not-cold-by-predicate:unbound-or-unknown-owner' :
               `via-issue:${issueClauses(owner)}`)
           }
-          expect(hiddenIssues['unattributed'] ?? 0).toBe(0)
-          expect(hiddenSessions['via-issue:unattributed'] ?? 0).toBe(0)
-          expect(Object.values(hiddenIssues).reduce((a, b) => a + b, 0)).toBe(
+          expect.soft(hiddenIssues['unattributed'] ?? 0).toBe(0)
+          expect.soft(hiddenSessions['via-issue:unattributed'] ?? 0).toBe(0)
+          expect.soft(Object.values(hiddenIssues).reduce((a, b) => a + b, 0)).toBe(
             [...pool.tables.issue.keys()].filter((id) => !shownIssues.has(id)).length,
           )
-          expect(Object.values(hiddenSessions).reduce((a, b) => a + b, 0)).toBe(
+          expect.soft(Object.values(hiddenSessions).reduce((a, b) => a + b, 0)).toBe(
             [...pool.tables.session.keys()].filter((id) => !shownSessions.has(id)).length,
           )
           let closedColdByRule = 0
@@ -343,7 +343,7 @@ describe('POD-4942 post-rework probes', () => {
     expect(Object.keys(report)).toHaveLength(3)
     const cells = report as Record<string, { residentIssues: number; residentSessions: number; filingReactions: number }>
     for (const key of ['residentIssues', 'residentSessions', 'filingReactions'] as const) {
-      expect(cells['h10a1']![key], `${key}: history x10 stays within 10%`).toBeLessThanOrEqual(cells['h1a1']![key] * 1.1)
+      expect.soft(cells['h10a1']![key], `${key}: history x10 stays within 10%`).toBeLessThanOrEqual(cells['h1a1']![key] * 1.1)
     }
   }, 900_000)
 
