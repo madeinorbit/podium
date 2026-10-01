@@ -407,8 +407,11 @@ describe('pool navigation uses the existing gesture semantics', () => {
         fixture.patch('session', 'synthetic-session-8', {
           lastActiveAt: new Date(NOW - 10).toISOString(),
         })
-        if (scenario === 'headless-starter')
+        if (scenario === 'headless-starter') {
           fixture.patch('session', 'synthetic-session-7', { headless: true })
+          patchIssue(fixture, 'synthetic-8', { stage: 'backlog' })
+          discoveredFrom(fixture, 'synthetic-8', 'synthetic-7')
+        }
         if (scenario === 'archived-starter')
           fixture.patch('session', 'synthetic-session-7', { archived: true })
       }
