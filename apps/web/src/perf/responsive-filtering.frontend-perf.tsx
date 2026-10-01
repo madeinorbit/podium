@@ -80,20 +80,27 @@ const largeState = vi.hoisted(() => ({ store: {} as Record<string, unknown>, poo
 vi.mock('@/app/store', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/app/store')>()
   const useStore = () => largeState.store
+  const useLegacyIssues = () => largeState.store.issues ?? []
+  const useLegacySelector: typeof original.useStoreSelector = (selector) => selector(largeState.store as unknown as Parameters<typeof selector>[0])
   return {
-    useStore: () => (largeState.pool ? original.useStore() : useStore()),
-    useReplicaIssues: () =>
-      largeState.pool ? original.useReplicaIssues() : (largeState.store.issues ?? []),
+    useStore: () => {
+      const useRead = largeState.pool ? original.useStore : useStore
+      return useRead()
+    },
+    useReplicaIssues: () => {
+      const useRead = largeState.pool ? original.useReplicaIssues : useLegacyIssues
+      return useRead()
+    },
     useStoreSelector: (
       selector: (store: Record<string, unknown>) => unknown,
       equal?: (a: unknown, b: unknown) => boolean,
-    ) =>
-      largeState.pool
-        ? original.useStoreSelector(
+    ) => {
+      const useRead = largeState.pool ? original.useStoreSelector : useLegacySelector
+      return useRead(
             selector as unknown as Parameters<typeof original.useStoreSelector>[0],
             equal,
           )
-        : selector(largeState.store),
+    },
     useSlice: (definition: { derive: (store: Record<string, unknown>) => unknown }) => {
       if (largeState.pool) throw new Error('Responsive pool sidebar read a legacy slice')
       return definition.derive(largeState.store)

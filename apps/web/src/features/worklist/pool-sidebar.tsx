@@ -9,7 +9,7 @@ import { LOADING, type MobxPool } from '@podium/client-graph'
 import { compareStructural, computed, observer } from '@podium/client-graph/react'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import { isSessionWorking } from '@podium/client-graph/worklist/rollup'
-import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
+import type { SidebarState, SidebarSections } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import { asIssueId, type SessionId, type SessionMeta } from '@podium/model/browser'
 import * as m from 'motion/react-m'
@@ -96,8 +96,7 @@ export function usePoolLayoutState(): SidebarState {
   return useMemo(() => layout, [layout])
 }
 
-function slotsFor(pool: MobxPool, state: SidebarState): RowTransitionTarget<Slot>[] {
-  const sections = pool.sidebar.sections(state)
+function slotsFor(sections: SidebarSections): RowTransitionTarget<Slot>[] {
   const slots: RowTransitionTarget<Slot>[] = []
   const add = (
     id: string,
@@ -154,7 +153,7 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
       computed(
         () => {
           if (!pool) return { total: 0, hits: 0 }
-          const live = slotsFor(pool, state).filter(
+      const live = slotsFor(pool.sidebar.sections(state)).filter(
             (slot) => slot.value.lane === 'pinned' || slot.value.lane === 'open',
           )
           return {
@@ -224,7 +223,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   const sections = pool.sidebar.sections(state)
   const stableSlots = useRef(new Map<string, Slot>())
   const targets = useMemo(() => {
-    const next = slotsFor(pool, state).map((target) => {
+    const next = slotsFor(sections).map((target) => {
       const key = `${target.key}:${target.placement}`
       const previous = stableSlots.current.get(key)
       const value = previous && compareStructural(previous, target.value) ? previous : target.value
@@ -235,7 +234,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     for (const key of stableSlots.current.keys())
       if (!keys.has(key)) stableSlots.current.delete(key)
     return next
-  }, [pool, state, sections])
+  }, [sections])
   const { items, settle, discardExit } = useRowTransitions(targets)
   const reduceMotion = useReducedMotion()
   const layoutGroupId = useId()

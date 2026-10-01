@@ -246,7 +246,13 @@ export function WorkSections({
   return <LegacyWorkSections derivation={derivation} query={query} />
 }
 
-function LegacyWorkSections({ derivation, query = '' }: { derivation?: SidebarDerivation; query?: string } = {}): JSX.Element {
+function LegacyWorkSections({
+  derivation,
+  query = '',
+}: {
+  derivation?: SidebarDerivation
+  query?: string
+} = {}): JSX.Element {
   const {
     work,
     pinned,

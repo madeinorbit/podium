@@ -292,8 +292,8 @@ const PoolRailTile = observer(function PoolRailTile({
   const close = () => {
     if (hover?.key === key) setHover(null)
   }
-  // biome-ignore lint/a11y/noStaticElementInteractions: handlers reveal the descriptive card; the tile owns activation
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: handlers reveal the descriptive card; the tile owns activation
     <span
       className="relative flex flex-none"
       onMouseEnter={open}
