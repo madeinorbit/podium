@@ -51,8 +51,8 @@ function Surfaces() {
 const root = createRoot(document.getElementById('root')!)
 root.render(<StoreProvider principal={asClientPrincipal(asUserId('header-synthetic'))}
   config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
-  createReplicaFn={() => fixture.newReplica()} createHub={() => fixture.hub} networkEnabled={false}
-  onFatalError={(error) => failures.push(error)} attachRuntime={(owner) => attachWorklistPool(owner, (error) => failures.push(error.message))}>
+  createReplicaFn={() => fixture.newReplica()} networkEnabled={false}
+  onFatalError={(error) => failures.push(error)} attachRuntime={(owner) => { fixture.bindHub(owner.hub); return attachWorklistPool(owner, (error) => failures.push(error.message)) }}>
   <ConfirmProvider><Surfaces /></ConfirmProvider>
 </StoreProvider>)
 const driver = {

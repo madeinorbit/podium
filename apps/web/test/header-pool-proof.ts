@@ -3,6 +3,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { chromium } from '@playwright/test'
+import { spawn, sleep } from 'bun'
 import type {} from './header-pool.browser'
 
 const rows = Number(process.argv.find((arg) => arg.startsWith('--rows='))?.slice(7) ?? 5600)
@@ -11,7 +12,7 @@ const activityMs = Number(process.argv.find((arg) => arg.startsWith('--activity-
 const output = resolve('.artifacts/header-pool')
 await mkdir(output, { recursive: true })
 const origin = 'http://127.0.0.1:45079'
-const server = Bun.spawn([process.execPath, 'apps/web/node_modules/vite/bin/vite.js', '--config', 'apps/web/vite.sidebar-pool-perf.config.ts', '--port', '45079'], { stdout: 'ignore', stderr: 'inherit' })
+const server = spawn([process.execPath, 'apps/web/node_modules/vite/bin/vite.js', '--config', 'apps/web/vite.sidebar-pool-perf.config.ts', '--port', '45079'], { stdout: 'ignore', stderr: 'inherit' })
 console.log(`Header fixture Vite PID ${server.pid}`)
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
 try {
@@ -19,7 +20,7 @@ try {
   while (true) {
     try { if ((await fetch(`${origin}/test/header-pool.browser.html`, { signal: AbortSignal.timeout(2000) })).ok) break } catch {}
     if (Date.now() >= until) throw new Error('Header fixture did not start')
-    await Bun.sleep(200)
+    await sleep(200)
   }
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
   const results: Record<string, unknown> = {}

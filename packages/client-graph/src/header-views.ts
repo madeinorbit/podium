@@ -5,7 +5,7 @@ import { _isComputingDerivation, compareStructural, computed, onBecomeUnobserved
 import type { MobxPool } from './pool'
 import { headerIds, knownIssueIds, knownSessionIds, residentSessionIds } from './header-enumerate'
 import type { HeaderEntity, HeaderRows } from './header-schema'
-import { LOADING } from './shared/links'
+import { LOADING } from './worklist/rollup'
 import type { SliceIssue, SliceSession } from './shared/slice-types'
 import { isSessionWorking } from './worklist/rollup'
 
@@ -38,11 +38,11 @@ export function createHeaderViews(pool: MobxPool) {
   function issue(id: string): SliceIssue | typeof LOADING | undefined {
     return pool.row('issue', id) as SliceIssue | typeof LOADING | undefined
   }
-  function issueSummary(id: string): Partial<SliceIssue> | undefined {
-    return (pool.hidden('issue', id) ?? pool.row('issue', id)) as Partial<SliceIssue> | undefined
+  function issueSummary(id: string): (Partial<SliceIssue> & { machineId?: MachineId }) | undefined {
+    return (pool.hidden('issue', id) ?? pool.row('issue', id)) as (Partial<SliceIssue> & { machineId?: MachineId }) | undefined
   }
-  function sessionSummary(id: string): Partial<SliceSession> | undefined {
-    return (pool.hidden('session', id) ?? pool.row('session', id)) as Partial<SliceSession> | undefined
+  function sessionSummary(id: string): (Partial<SliceSession> & { machineId?: MachineId }) | undefined {
+    return (pool.hidden('session', id) ?? pool.row('session', id)) as (Partial<SliceSession> & { machineId?: MachineId }) | undefined
   }
   function selectedIssue() {
     return memo('selectedIssue', () => {
@@ -143,7 +143,7 @@ export function createHeaderViews(pool: MobxPool) {
         }
       }
       if (!active) {
-        let latest: Partial<SliceSession> | undefined
+        let latest: ReturnType<typeof sessionSummary>
         for (const id of knownSessionIds(pool)) {
           const member = sessionSummary(id)
           if (member && !member.archived && (!latest || (member.lastActiveAt ?? '') > (latest.lastActiveAt ?? ''))) latest = member

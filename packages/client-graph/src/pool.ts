@@ -199,7 +199,9 @@ export class MobxPool {
   /** The tables: every read and write in the pool goes here. */
   readonly sidebar: SidebarIndex
   readonly sidebarRosters: SidebarRosterIndex
-  readonly header = createHeaderEntities()
+  private headerState: ReturnType<typeof createHeaderEntities> | undefined
+  /** Off means no extra observable maps, relations or sidebar census objects. */
+  get header() { return this.headerState ??= createHeaderEntities() }
   readonly headerViews = createHeaderViews(this)
   readonly tables: PoolTables
   readonly relations: RelationReader
@@ -767,7 +769,7 @@ export class MobxPool {
       this.groups.clear()
       for (const entity of ENTITIES) this.tables[entity].clear()
       this.graph.clear()
-      this.header.clear()
+      this.headerState?.clear()
       this.headerViews.clear()
       this.clearSeats()
       this.selection.clear()

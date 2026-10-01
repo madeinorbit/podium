@@ -1,6 +1,7 @@
 import type { ConnectionHealth } from '@podium/client-core/socket-transport'
 import type { Store } from '@podium/client-core/engine'
-import type { HostMetricsWire, MachineQuotaWire, MachineWire, ShipOrderProjection } from '@podium/model/browser'
+import type { HostMetricsWire, MachineQuotaWire, MachineWire } from '@podium/model/browser'
+import type { ShipOrderProjection } from '@podium/model/shipping-projection'
 
 /** Pool-only extension. The prototype's frozen EntityName and SCHEMA stay four
  * entities. Samples are separate rows, so sampling cannot invalidate machines,
