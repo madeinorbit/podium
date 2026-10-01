@@ -81,6 +81,8 @@ const retired: { name: string; ref: WeakRef<object> }[] = []
 const root = createRoot(document.getElementById('root')!)
 
 type Interval = { start: number; end: number; kind: string; derivations?: number; rows?: number }
+type CaptureStats = ReturnType<typeof storeStats.snapshot>
+type PanelSnapshot = ReturnType<ReturnType<typeof createSidebarPerf>['read']>
 let active = false
 let intervals: Interval[] = []
 if (measured) Object.assign(globalThis, { __acceptanceTiming: {
@@ -209,8 +211,10 @@ const fixture = {
   show,
   settled: () => database.settled(),
   begin() { storeStats.reset(); perf?.reset(); intervals = []; active = true },
-  stop() { active = false; return { intervals, stats: storeStats.snapshot(), panel: perf?.read() } },
-  stats: () => storeStats.snapshot(),
+  stop(): { intervals: Interval[]; stats: CaptureStats; panel: PanelSnapshot | undefined } {
+    active = false; return { intervals, stats: storeStats.snapshot(), panel: perf?.read() }
+  },
+  stats: (): CaptureStats => storeStats.snapshot(),
   perf: () => perf?.read(),
   state: () => ({ selected: owner?.getSnapshot().selectedIssueId, pane: owner?.getSnapshot().paneA,
     issues: owner?.getSnapshot().issues.length, sessions: owner?.getSnapshot().sessions.length,
