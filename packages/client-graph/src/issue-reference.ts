@@ -131,7 +131,13 @@ export class IssueReferences implements IssueReferenceReader {
     const resident = this.resident.get(key)
     if (resident !== undefined) return resident
     const pending = this.requests.get(key)
-    if (pending !== undefined) return pending
+    if (pending !== undefined) {
+      if (typeof pending !== 'string') return pending
+      const model = this.readById(pending)
+      // A late authority reply may follow a prefix change. It cannot bind
+      // the old token to a row that now has a different canonical identity.
+      return model === LOADING || (model && issueRefKey(model.ref) === key) ? pending : null
+    }
     // A read never blocks. Repeated chips of the same token enqueue it once.
     runInAction(() => this.requests.set(key, LOADING))
     this.queue(key)

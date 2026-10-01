@@ -207,6 +207,9 @@ describe('per-issue pool references', () => {
       const changed = checkIssueChips(f.refs, legacy, tokens)
       if (patch.prefix) {
         expect(changed.pending).toBe(1)
+        f.refs.resolved('POD-1', 'iss_1')
+        expect(f.refs.id('POD-1')).toBeNull()
+        expect(f.refs.read('POD-1')).toBeNull()
         f.refs.resolved('POD-1', null)
       }
       const result = checkIssueChips(f.refs, legacy, tokens)
