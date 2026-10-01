@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import { newSession, openApp, podium } from './_harness'
+import { newSession, openHome, podium } from './_harness'
 
 /**
  * POD-4848: a return repaints an alternate screen WITH its colours and glyphs.
@@ -70,7 +70,14 @@ test('a cold return preserves an idle multi-row alternate screen and its settled
 }, info) => {
   test.setTimeout(300_000)
   await page.setViewportSize({ width: 1280, height: 900 })
-  await openApp(page)
+  await openHome(page)
+  // This spec starts with a fresh harness: the current first-task composer is
+  // already open, and its Launch control creates the initial workspace.
+  await page.getByTestId('cold-start-launch').click({ timeout: 30_000 })
+  await page.locator('button[aria-label="New panel"]:visible').first().waitFor({
+    state: 'visible',
+    timeout: 30_000,
+  })
   await newSession(page, 'Shell')
   const sessionId = await page.evaluate(
     () =>
