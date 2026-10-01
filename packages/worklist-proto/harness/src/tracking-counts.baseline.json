@@ -1,6 +1,6 @@
 {
   "updatedBy": "POD-4953",
-  "reason": "Complete sidebar row/section consumption; existing issue reaction maintains root and resident roster indexes. Narrow facts avoid unrelated record invalidation; no new per-row reactions.",
+  "reason": "Complete sidebar row/section consumption; existing issue reaction maintains root and resident roster indexes. Narrow facts avoid unrelated record invalidation; no new per-row reactions. The cold observer creates atoms only for tracked reads, avoiding temporary maintenance-probe allocations.",
   "counts": {
     "1x.firstPaint.byOwner.GroupNode.computeds": 56,
     "1x.firstPaint.byOwner.GroupNode.owners": 8,
@@ -27,7 +27,7 @@
     "1x.firstPaint.held.mapEntries": 24682,
     "1x.firstPaint.held.setMembers": 13174,
     "1x.firstPaint.observables.array": 2178,
-    "1x.firstPaint.observables.atom": 22501,
+    "1x.firstPaint.observables.atom": 6872,
     "1x.firstPaint.observables.map": 39,
     "1x.firstPaint.observables.object": 11,
     "1x.firstPaint.observables.set": 3197,
@@ -55,7 +55,7 @@
     "1x.phases.firstPaint.reactionRuns": 61,
     "1x.phases.firstPaint.rowReads": 5058,
     "1x.phases.firstReactiveRun.built.array": 45,
-    "1x.phases.firstReactiveRun.built.atom": 16409,
+    "1x.phases.firstReactiveRun.built.atom": 780,
     "1x.phases.firstReactiveRun.built.computed": 11703,
     "1x.phases.firstReactiveRun.built.observableValue": 9087,
     "1x.phases.firstReactiveRun.built.set": 192,
@@ -96,7 +96,7 @@
     "1x.startup.held.mapEntries": 24682,
     "1x.startup.held.setMembers": 13174,
     "1x.startup.observables.array": 2178,
-    "1x.startup.observables.atom": 21590,
+    "1x.startup.observables.atom": 5961,
     "1x.startup.observables.map": 39,
     "1x.startup.observables.object": 3,
     "1x.startup.observables.set": 3197,
@@ -131,7 +131,7 @@
     "4x.firstPaint.held.mapEntries": 99462,
     "4x.firstPaint.held.setMembers": 52834,
     "4x.firstPaint.observables.array": 8604,
-    "4x.firstPaint.observables.atom": 88459,
+    "4x.firstPaint.observables.atom": 27223,
     "4x.firstPaint.observables.map": 39,
     "4x.firstPaint.observables.object": 11,
     "4x.firstPaint.observables.set": 12928,
@@ -159,7 +159,7 @@
     "4x.phases.firstPaint.reactionRuns": 61,
     "4x.phases.firstPaint.rowReads": 8271,
     "4x.phases.firstReactiveRun.built.array": 54,
-    "4x.phases.firstReactiveRun.built.atom": 64217,
+    "4x.phases.firstReactiveRun.built.atom": 2981,
     "4x.phases.firstReactiveRun.built.computed": 46742,
     "4x.phases.firstReactiveRun.built.observableValue": 36200,
     "4x.phases.firstReactiveRun.built.set": 791,
@@ -200,7 +200,7 @@
     "4x.startup.held.mapEntries": 99462,
     "4x.startup.held.setMembers": 52834,
     "4x.startup.observables.array": 8604,
-    "4x.startup.observables.atom": 84947,
+    "4x.startup.observables.atom": 23711,
     "4x.startup.observables.map": 39,
     "4x.startup.observables.object": 3,
     "4x.startup.observables.set": 12928,
@@ -235,7 +235,7 @@
     "write-idle.1x.firstPaint.held.mapEntries": 24682,
     "write-idle.1x.firstPaint.held.setMembers": 13174,
     "write-idle.1x.firstPaint.observables.array": 2178,
-    "write-idle.1x.firstPaint.observables.atom": 22502,
+    "write-idle.1x.firstPaint.observables.atom": 6873,
     "write-idle.1x.firstPaint.observables.map": 40,
     "write-idle.1x.firstPaint.observables.object": 11,
     "write-idle.1x.firstPaint.observables.set": 3197,
@@ -263,7 +263,7 @@
     "write-idle.1x.phases.firstPaint.reactionRuns": 61,
     "write-idle.1x.phases.firstPaint.rowReads": 5058,
     "write-idle.1x.phases.firstReactiveRun.built.array": 45,
-    "write-idle.1x.phases.firstReactiveRun.built.atom": 16409,
+    "write-idle.1x.phases.firstReactiveRun.built.atom": 780,
     "write-idle.1x.phases.firstReactiveRun.built.computed": 11703,
     "write-idle.1x.phases.firstReactiveRun.built.observableValue": 11476,
     "write-idle.1x.phases.firstReactiveRun.built.set": 192,
@@ -304,7 +304,7 @@
     "write-idle.1x.startup.held.mapEntries": 24682,
     "write-idle.1x.startup.held.setMembers": 13174,
     "write-idle.1x.startup.observables.array": 2178,
-    "write-idle.1x.startup.observables.atom": 21591,
+    "write-idle.1x.startup.observables.atom": 5962,
     "write-idle.1x.startup.observables.map": 40,
     "write-idle.1x.startup.observables.object": 3,
     "write-idle.1x.startup.observables.set": 3197,
@@ -339,7 +339,7 @@
     "write-idle.4x.firstPaint.held.mapEntries": 99462,
     "write-idle.4x.firstPaint.held.setMembers": 52834,
     "write-idle.4x.firstPaint.observables.array": 8604,
-    "write-idle.4x.firstPaint.observables.atom": 88460,
+    "write-idle.4x.firstPaint.observables.atom": 27224,
     "write-idle.4x.firstPaint.observables.map": 40,
     "write-idle.4x.firstPaint.observables.object": 11,
     "write-idle.4x.firstPaint.observables.set": 12928,
@@ -367,7 +367,7 @@
     "write-idle.4x.phases.firstPaint.reactionRuns": 61,
     "write-idle.4x.phases.firstPaint.rowReads": 8271,
     "write-idle.4x.phases.firstReactiveRun.built.array": 54,
-    "write-idle.4x.phases.firstReactiveRun.built.atom": 64217,
+    "write-idle.4x.phases.firstReactiveRun.built.atom": 2981,
     "write-idle.4x.phases.firstReactiveRun.built.computed": 46742,
     "write-idle.4x.phases.firstReactiveRun.built.observableValue": 45816,
     "write-idle.4x.phases.firstReactiveRun.built.set": 791,
@@ -408,7 +408,7 @@
     "write-idle.4x.startup.held.mapEntries": 99462,
     "write-idle.4x.startup.held.setMembers": 52834,
     "write-idle.4x.startup.observables.array": 8604,
-    "write-idle.4x.startup.observables.atom": 84948,
+    "write-idle.4x.startup.observables.atom": 23712,
     "write-idle.4x.startup.observables.map": 40,
     "write-idle.4x.startup.observables.object": 3,
     "write-idle.4x.startup.observables.set": 12928,
@@ -443,7 +443,7 @@
     "write-pending.1x.firstPaint.held.mapEntries": 24685,
     "write-pending.1x.firstPaint.held.setMembers": 13174,
     "write-pending.1x.firstPaint.observables.array": 2178,
-    "write-pending.1x.firstPaint.observables.atom": 22502,
+    "write-pending.1x.firstPaint.observables.atom": 6873,
     "write-pending.1x.firstPaint.observables.map": 40,
     "write-pending.1x.firstPaint.observables.object": 11,
     "write-pending.1x.firstPaint.observables.set": 3197,
@@ -474,7 +474,7 @@
     "write-pending.1x.phases.firstPaint.reactionRuns": 61,
     "write-pending.1x.phases.firstPaint.rowReads": 5054,
     "write-pending.1x.phases.firstReactiveRun.built.array": 45,
-    "write-pending.1x.phases.firstReactiveRun.built.atom": 16409,
+    "write-pending.1x.phases.firstReactiveRun.built.atom": 780,
     "write-pending.1x.phases.firstReactiveRun.built.computed": 11703,
     "write-pending.1x.phases.firstReactiveRun.built.observableValue": 11476,
     "write-pending.1x.phases.firstReactiveRun.built.set": 192,
@@ -515,7 +515,7 @@
     "write-pending.1x.startup.held.mapEntries": 24685,
     "write-pending.1x.startup.held.setMembers": 13174,
     "write-pending.1x.startup.observables.array": 2178,
-    "write-pending.1x.startup.observables.atom": 21591,
+    "write-pending.1x.startup.observables.atom": 5962,
     "write-pending.1x.startup.observables.map": 40,
     "write-pending.1x.startup.observables.object": 3,
     "write-pending.1x.startup.observables.set": 3197,
@@ -550,7 +550,7 @@
     "write-pending.4x.firstPaint.held.mapEntries": 99465,
     "write-pending.4x.firstPaint.held.setMembers": 52834,
     "write-pending.4x.firstPaint.observables.array": 8604,
-    "write-pending.4x.firstPaint.observables.atom": 88460,
+    "write-pending.4x.firstPaint.observables.atom": 27224,
     "write-pending.4x.firstPaint.observables.map": 40,
     "write-pending.4x.firstPaint.observables.object": 11,
     "write-pending.4x.firstPaint.observables.set": 12928,
@@ -581,7 +581,7 @@
     "write-pending.4x.phases.firstPaint.reactionRuns": 61,
     "write-pending.4x.phases.firstPaint.rowReads": 8267,
     "write-pending.4x.phases.firstReactiveRun.built.array": 54,
-    "write-pending.4x.phases.firstReactiveRun.built.atom": 64217,
+    "write-pending.4x.phases.firstReactiveRun.built.atom": 2981,
     "write-pending.4x.phases.firstReactiveRun.built.computed": 46742,
     "write-pending.4x.phases.firstReactiveRun.built.observableValue": 45816,
     "write-pending.4x.phases.firstReactiveRun.built.set": 791,
@@ -622,7 +622,7 @@
     "write-pending.4x.startup.held.mapEntries": 99465,
     "write-pending.4x.startup.held.setMembers": 52834,
     "write-pending.4x.startup.observables.array": 8604,
-    "write-pending.4x.startup.observables.atom": 84948,
+    "write-pending.4x.startup.observables.atom": 23712,
     "write-pending.4x.startup.observables.map": 40,
     "write-pending.4x.startup.observables.object": 3,
     "write-pending.4x.startup.observables.set": 12928,
@@ -3306,8 +3306,8 @@
     },
     "1x.firstPaint.observables.atom": {
       "before": 5868,
-      "after": 22501,
-      "delta": 16633
+      "after": 6872,
+      "delta": 1004
     },
     "1x.firstPaint.observables.map": {
       "before": 31,
@@ -3401,8 +3401,8 @@
     },
     "1x.phases.firstReactiveRun.built.atom": {
       "before": 567,
-      "after": 16409,
-      "delta": 15842
+      "after": 780,
+      "delta": 213
     },
     "1x.phases.firstReactiveRun.built.computed": {
       "before": 11727,
@@ -3526,8 +3526,8 @@
     },
     "1x.startup.observables.atom": {
       "before": 5739,
-      "after": 21590,
-      "delta": 15851
+      "after": 5961,
+      "delta": 222
     },
     "1x.startup.observables.map": {
       "before": 31,
@@ -3651,8 +3651,8 @@
     },
     "4x.firstPaint.observables.atom": {
       "before": 23040,
-      "after": 88459,
-      "delta": 65419
+      "after": 27223,
+      "delta": 4183
     },
     "4x.firstPaint.observables.map": {
       "before": 31,
@@ -3746,8 +3746,8 @@
     },
     "4x.phases.firstReactiveRun.built.atom": {
       "before": 2166,
-      "after": 64217,
-      "delta": 62051
+      "after": 2981,
+      "delta": 815
     },
     "4x.phases.firstReactiveRun.built.computed": {
       "before": 46834,
@@ -3871,8 +3871,8 @@
     },
     "4x.startup.observables.atom": {
       "before": 22887,
-      "after": 84947,
-      "delta": 62060
+      "after": 23711,
+      "delta": 824
     },
     "4x.startup.observables.map": {
       "before": 31,
@@ -3991,8 +3991,8 @@
     },
     "write-idle.1x.firstPaint.observables.atom": {
       "before": 5869,
-      "after": 22502,
-      "delta": 16633
+      "after": 6873,
+      "delta": 1004
     },
     "write-idle.1x.firstPaint.observables.map": {
       "before": 32,
@@ -4086,8 +4086,8 @@
     },
     "write-idle.1x.phases.firstReactiveRun.built.atom": {
       "before": 567,
-      "after": 16409,
-      "delta": 15842
+      "after": 780,
+      "delta": 213
     },
     "write-idle.1x.phases.firstReactiveRun.built.computed": {
       "before": 11727,
@@ -4211,8 +4211,8 @@
     },
     "write-idle.1x.startup.observables.atom": {
       "before": 5740,
-      "after": 21591,
-      "delta": 15851
+      "after": 5962,
+      "delta": 222
     },
     "write-idle.1x.startup.observables.map": {
       "before": 32,
@@ -4336,8 +4336,8 @@
     },
     "write-idle.4x.firstPaint.observables.atom": {
       "before": 23041,
-      "after": 88460,
-      "delta": 65419
+      "after": 27224,
+      "delta": 4183
     },
     "write-idle.4x.firstPaint.observables.map": {
       "before": 32,
@@ -4431,8 +4431,8 @@
     },
     "write-idle.4x.phases.firstReactiveRun.built.atom": {
       "before": 2166,
-      "after": 64217,
-      "delta": 62051
+      "after": 2981,
+      "delta": 815
     },
     "write-idle.4x.phases.firstReactiveRun.built.computed": {
       "before": 46834,
@@ -4556,8 +4556,8 @@
     },
     "write-idle.4x.startup.observables.atom": {
       "before": 22888,
-      "after": 84948,
-      "delta": 62060
+      "after": 23712,
+      "delta": 824
     },
     "write-idle.4x.startup.observables.map": {
       "before": 32,
@@ -4676,8 +4676,8 @@
     },
     "write-pending.1x.firstPaint.observables.atom": {
       "before": 5869,
-      "after": 22502,
-      "delta": 16633
+      "after": 6873,
+      "delta": 1004
     },
     "write-pending.1x.firstPaint.observables.map": {
       "before": 32,
@@ -4776,8 +4776,8 @@
     },
     "write-pending.1x.phases.firstReactiveRun.built.atom": {
       "before": 567,
-      "after": 16409,
-      "delta": 15842
+      "after": 780,
+      "delta": 213
     },
     "write-pending.1x.phases.firstReactiveRun.built.computed": {
       "before": 11727,
@@ -4901,8 +4901,8 @@
     },
     "write-pending.1x.startup.observables.atom": {
       "before": 5740,
-      "after": 21591,
-      "delta": 15851
+      "after": 5962,
+      "delta": 222
     },
     "write-pending.1x.startup.observables.map": {
       "before": 32,
@@ -5026,8 +5026,8 @@
     },
     "write-pending.4x.firstPaint.observables.atom": {
       "before": 23041,
-      "after": 88460,
-      "delta": 65419
+      "after": 27224,
+      "delta": 4183
     },
     "write-pending.4x.firstPaint.observables.map": {
       "before": 32,
@@ -5131,8 +5131,8 @@
     },
     "write-pending.4x.phases.firstReactiveRun.built.atom": {
       "before": 2166,
-      "after": 64217,
-      "delta": 62051
+      "after": 2981,
+      "delta": 815
     },
     "write-pending.4x.phases.firstReactiveRun.built.computed": {
       "before": 46834,
@@ -5256,8 +5256,8 @@
     },
     "write-pending.4x.startup.observables.atom": {
       "before": 22888,
-      "after": 84948,
-      "delta": 62060
+      "after": 23712,
+      "delta": 824
     },
     "write-pending.4x.startup.observables.map": {
       "before": 32,
