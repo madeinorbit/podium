@@ -79,8 +79,17 @@ def analyze(root):
     maps = Maps(root / 'build')
     directory = root / 'attribution'
     records = [json.loads(line) for line in (directory / 'records.jsonl').read_text().splitlines()]
-    summaries = []
+    headlines = json.loads((root / 'headline-index.json').read_text())
+    summaries, void, seen = [], [], set()
     for record in records:
+        key = f"{record['scale']}/{record['mode']}/{record['iteration']}"
+        if not record.get('valid', True) or record.get('runner', {}).get('loadavg', [0])[0] > 8:
+            void.append({'key': key, 'traceFile': record['traceFile'], 'runner': record.get('runner')})
+            continue
+        assert key in headlines, 'Profile has no qualified headline switch'
+        assert key not in seen, 'Duplicate qualified profile key'
+        assert record['target'] == headlines[key]['target'], 'Profile target differs from headline switch'
+        seen.add(key)
         trace = json.loads((directory / record['traceFile']).read_text())['traceEvents']
         markers = record['paint']['markers']
         start, end = markers['input'], markers['paintEnd']
@@ -115,13 +124,15 @@ def analyze(root):
                 functions[(name, tuple(location) if location else ())] += span / 1000
         wall = (end - start) / 1000
         assert sum(totals.values()) <= wall + 0.01, 'Exclusive sample intervals exceed observed wall span'
-        summaries.append({'scale': record['scale'], 'mode': record['mode'], 'target': record['target'],
+        summaries.append({'scale': record['scale'], 'mode': record['mode'], 'target': record['target'], 'iteration': record['iteration'],
+            'headlineInputToPaintMs': headlines[key]['inputToPaintMs'],
             'inputToPaintMs': wall, 'sampledExclusiveMs': dict(totals),
             'timelineMs': record['paint']['layout'], 'indexedDb': record['result']['capture']['events'],
             'topFrames': [{'function': name, 'source': location, 'ms': duration} for (name, location), duration in sorted(functions.items(), key=lambda entry: -entry[1])[:15]]})
+    assert seen == set(headlines), 'Missing qualified matched switch profiles'
     (root / 'attribution-summary.json').write_text(json.dumps({'samplingUs': 1000,
         'scope': 'Separate profiling run. Buckets sum within each wall window; timeline and IDB request latency are not additive.',
-        'records': summaries}, indent=2))
+        'records': summaries, 'voidRecords': void}, indent=2))
     print(f'{len(summaries)} separate source-mapped switch attributions saved')
 
 
@@ -129,8 +140,9 @@ def controls(out):
     root = out / 'golden'
     directory = root / 'attribution'
     directory.mkdir(parents=True, exist_ok=True)
-    record = {'scale': '1x', 'mode': 'pool', 'target': 'i0', 'traceFile': 'control.trace.json',
+    record = {'scale': '1x', 'mode': 'pool', 'target': 'i0', 'iteration': 0, 'valid': True, 'traceFile': 'control.trace.json',
         'paint': {'markers': {'input': 1000, 'paintEnd': 3000}, 'layout': {}}, 'result': {'capture': {'events': []}}}
+    (root / 'headline-index.json').write_text(json.dumps({'1x/pool/0': {'target': 'i0', 'inputToPaintMs': 2}}))
     trace = {'traceEvents': [{'name': 'acceptance:input'}]}
     profile = {'startTime': 0, 'nodes': [{'id': 1, 'callFrame': {'url': '', 'functionName': '(program)', 'lineNumber': -1, 'columnNumber': 0}}], 'samples': [1, 1], 'timeDeltas': [2000, 1000]}
     records_file = directory / 'records.jsonl'
@@ -156,6 +168,17 @@ def controls(out):
     result = check(); assert result.returncode != 0
     log.append({'plant': 'invalid_paint_window', 'exit': result.returncode})
     subprocess.run(['cp', str(records_file.with_suffix('.aside')), str(records_file)], check=True, timeout=10)
+    for name in ['void_profile', 'high_load_profile', 'wrong_target', 'duplicate_profile', 'missing_profile']:
+        planted = json.loads(records_file.read_text())
+        if name == 'void_profile': planted['valid'] = False
+        if name == 'high_load_profile': planted['runner'] = {'loadavg': [8.01, 1, 1]}
+        if name == 'wrong_target': planted['target'] = 'wrong'
+        text = '' if name == 'missing_profile' else json.dumps(planted) + '\n'
+        if name == 'duplicate_profile': text *= 2
+        records_file.write_text(text)
+        result = check(); assert result.returncode != 0, f'{name} was not rejected'
+        log.append({'plant': name, 'exit': result.returncode})
+        subprocess.run(['cp', str(records_file.with_suffix('.aside')), str(records_file)], check=True, timeout=10)
     source = Path(__file__)
     aside = out / 'attribution-source.aside'
     subprocess.run(['cp', str(source), str(aside)], check=True, timeout=10)
@@ -171,7 +194,7 @@ def controls(out):
     result = check(); assert result.returncode == 0, result.stderr
     log.append({'restored': True, 'exit': result.returncode})
     (out / 'negative-controls.json').write_text(json.dumps(log, indent=2))
-    print('Four attribution plants RED; cp restoration GREEN')
+    print('Nine attribution plants RED; cp restoration GREEN')
 
 
 parser = argparse.ArgumentParser()
