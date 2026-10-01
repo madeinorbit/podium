@@ -62,58 +62,98 @@ def regression(pilot, legacy):
     return 100 * (pilot / legacy - 1) if legacy else None
 
 
-def control_verdict(value):
-    b = PLAN['bars']
-    return {
-        'idle': value['idle'] == b['idleWork'],
-        'unrelated': value['unrelated'] == b['unrelatedSidebarDerivations'],
-        'publication': value['publication'] == b['gesturePublications'],
-        'warm': value['warm'] <= b['warmSwitchP95Ms'],
-        'cpu': value['cpu'] <= b['stateCpuP95Ms'],
-        'benefit': value['benefit'] >= b['minimumCpuReductionPercent'],
-        'startup': value['startup'] <= b['maximumStartupRegressionPercent'],
-        'memory': value['memory'] <= b['maximumRetainedMemoryRegressionPercent'],
-        'selection': value['selection'] <= b['sidebarSelectionP95Ms'],
-        'parity': value['parity'] == b['sideBySideDifferences'],
-        'complete': value['samples'] >= PLAN['samples'],
-        'load': value['load'] <= PLAN['maxLoad'],
-        'cpu_union': union_ms(value['intervals']) == value['unionExpected'],
-        'p95_not_max': distribution(value['percentiles'])['p95'] == value['p95Expected'],
-        'sparse_p95': distribution(value['sparse'])['p95'] is None,
-    }
+def check_math():
+    assert union_ms([{'start': 0, 'end': 8}, {'start': 2, 'end': 6}]) == 8
+    assert distribution([1] * 37 + [7, 999, 1000])['p95'] == 7
+    assert distribution([1, 2, 3])['p95'] is None
 
 
 def controls(out):
     out.mkdir(parents=True, exist_ok=True)
-    target = out / 'planted-control.json'
-    aside = out / 'control.aside'
-    good = {'idle': 0, 'unrelated': 0, 'publication': 1, 'warm': 99, 'cpu': 7,
-            'benefit': 51, 'startup': 9, 'memory': 9, 'selection': 15, 'parity': 0,
-            'samples': 40, 'load': 8, 'intervals': [{'start': 0, 'end': 8}, {'start': 2, 'end': 6}],
-            'unionExpected': 8, 'percentiles': list(range(40)), 'p95Expected': 37,
-            'sparse': [1, 2, 3]}
-    bad = {'idle': 1, 'unrelated': 1, 'publication': 2, 'warm': 101, 'cpu': 9,
-           'benefit': 49, 'startup': 11, 'memory': 11, 'selection': 17, 'parity': 1,
-           'samples': 39, 'load': 8.01, 'unionExpected': 12, 'p95Expected': 39,
-           'sparse': list(range(40))}
-    target.write_text(json.dumps(good))
-    subprocess.run(['cp', str(target), str(aside)], check=True, timeout=10)
+    golden = {'counts': [], 'timing': [], 'memory': []}
+    def meter(mode, kind='click'):
+        return {'intervals': [{'start': 0, 'end': 2 if mode == 'pool' else 6, 'kind': 'state delivery/selector'}],
+            'stats': {'publishes': [{'changedKeys': ['selectedIssueId']}] if kind == 'click' else []},
+            'panel': {'idle': {'rows': 0, 'derivations': 0, 'mainThreadMs': 0}, 'lastUpdate': None}}
+    for scale in PLAN['scales']:
+        golden['counts'].append({'kind': 'idle', 'scale': scale, 'mode': 'pool', 'result': meter('pool', 'idle')})
+        for i in range(12):
+            golden['counts'].append({'kind': 'parity', 'scale': scale, 'mode': 'pool', 'result': {'differences': 0, 'pending': 0, 'sections': 1, 'rows': 1}})
+        for mode in ['pool', 'legacy']:
+            for kind in ['click', 'unrelated', 'title', 'phase', 'draft']:
+                for i in range(40):
+                    record = {'kind': kind, 'scale': scale, 'surface': 'sidebar', 'mode': mode, 'iteration': i, 'result': meter(mode, kind)}
+                    if kind == 'click': record['paint'] = {'inputToPaintMs': 15, 'twoRafMs': 30}
+                    golden['timing'].append(record)
+            for i in range(40):
+                golden['timing'].append({'kind': 'click', 'scale': scale, 'surface': 'full', 'mode': mode, 'iteration': i,
+                    'result': meter(mode), 'paint': {'inputToPaintMs': 99, 'twoRafMs': 120}})
+    for scale in PLAN['memoryCells']:
+        for mode in ['pool', 'legacy']:
+            for i in range(10):
+                golden['memory'].append({'kind': 'memory', 'scale': scale, 'mode': mode, 'iteration': i, 'startupMs': 100,
+                    'heapStartup': {'usedSize': 1000}, 'heapRetained': {'usedSize': 1000, 'embedderHeapUsedSize': 100, 'backingStorageSize': 100}})
+    for phase, records in golden.items():
+        directory = out / 'golden' / phase
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / 'records.jsonl'
+        path.write_text(''.join(json.dumps(dict(r, valid=True, runner={'loadavg': [1, 1, 1]})) + '\n' for r in records))
+        subprocess.run(['cp', str(path), str(path.with_suffix('.aside'))], check=True, timeout=10)
+    def run_checker():
+        return subprocess.run([sys.executable, __file__, '--root', str(out / 'golden'), '--require-all-bars'], capture_output=True, text=True, timeout=30)
+    baseline = run_checker()
+    if baseline.returncode: raise AssertionError(baseline.stdout + baseline.stderr)
     log = []
-    for key, wrong in bad.items():
-        planted = copy.deepcopy(good)
-        planted[key] = wrong
-        target.write_text(json.dumps(planted))
-        run = subprocess.run([sys.executable, __file__, '--check-control', str(target)], capture_output=True, text=True, timeout=20)
-        if run.returncode == 0:
-            raise AssertionError(f'Planted {key} was not rejected')
-        log.append({'plant': key, 'exit': run.returncode, 'output': run.stdout.strip()})
-        subprocess.run(['cp', str(aside), str(target)], check=True, timeout=10)
-    clean = subprocess.run([sys.executable, __file__, '--check-control', str(target)], capture_output=True, text=True, timeout=20)
-    if clean.returncode:
-        raise AssertionError(clean.stdout + clean.stderr)
-    log.append({'restored': True, 'exit': clean.returncode, 'output': clean.stdout.strip()})
+    plants = ['idle', 'unrelated', 'onePublication', 'warmSwitch', 'stateCpu', 'cpuBenefit', 'startup', 'retainedMemory', 'selectionFrame', 'sideBySide', 'missingCell', 'highLoad']
+    for plant in plants:
+        phase = 'counts' if plant in ['idle', 'sideBySide'] else 'memory' if plant in ['startup', 'retainedMemory'] else 'timing'
+        path = out / 'golden' / phase / 'records.jsonl'
+        values = [json.loads(line) for line in path.read_text().splitlines()]
+        for r in values:
+            if r.get('mode') != 'pool': continue
+            if plant == 'idle' and r['kind'] == 'idle': r['result']['panel']['idle']['rows'] = 1
+            if plant == 'unrelated' and r['kind'] == 'unrelated': r['result']['panel']['idle']['derivations'] = 1
+            if plant == 'onePublication' and r['kind'] == 'click': r['result']['stats']['publishes'].append({'changedKeys': ['selectedIssueId']})
+            if plant == 'warmSwitch' and r['kind'] == 'click' and r.get('surface') == 'full': r['paint']['inputToPaintMs'] = 101
+            if plant == 'stateCpu': r['result']['intervals'][0]['end'] = 9
+            if plant == 'cpuBenefit': r['result']['intervals'][0]['end'] = 4
+            if plant == 'startup': r['startupMs'] = 111
+            if plant == 'retainedMemory': r['heapRetained']['usedSize'] = 1111
+            if plant == 'selectionFrame' and r['kind'] == 'click' and r.get('surface') == 'sidebar': r['paint']['inputToPaintMs'] = 17
+            if plant == 'sideBySide' and r['kind'] == 'parity': r['result']['differences'] = 1
+            if plant == 'highLoad': r['valid'] = False; r['runner']['loadavg'][0] = 8.01
+        if plant == 'missingCell': values = [r for r in values if not (r['mode'] == 'pool' and r['scale'] == '4x' and r['kind'] == 'click' and r.get('surface') == 'full')]
+        path.write_text(''.join(json.dumps(r) + '\n' for r in values))
+        run = run_checker()
+        if run.returncode == 0: raise AssertionError(f'Planted {plant} was not rejected by actual raw-record analysis')
+        summary = json.loads((out / 'golden' / 'summary.json').read_text())
+        log.append({'plant': plant, 'exit': run.returncode, 'failedBars': [k for k, v in summary['bars'].items() if v == 'FAIL']})
+        subprocess.run(['cp', str(path.with_suffix('.aside')), str(path)], check=True, timeout=10)
+    script = Path(__file__)
+    aside = out / 'analyzer.aside'
+    subprocess.run(['cp', str(script), str(aside)], check=True, timeout=10)
+    original = script.read_text()
+    source_plants = {
+        'nested_cpu_double_count': ('end = -math.inf', "return sum(i['end'] - i['start'] for i in intervals)\n    end = -math.inf"),
+        'max_as_p95': ('ordered[math.ceil(0.95 * len(ordered)) - 1]', 'ordered[-1]'),
+        'sparse_p95_as_max': ("len(ordered) >= PLAN['samples']", 'len(ordered) > 0'),
+    }
+    try:
+        for name, (old, wrong) in source_plants.items():
+            assert old in original
+            script.write_text(original.replace(old, wrong, 1))
+            run = subprocess.run([sys.executable, str(script), '--check-math'], capture_output=True, text=True, timeout=20)
+            if run.returncode == 0: raise AssertionError(f'Planted {name} was not caught')
+            log.append({'plant': name, 'exit': run.returncode, 'output': run.stderr.strip().splitlines()[-1]})
+            subprocess.run(['cp', str(aside), str(script)], check=True, timeout=10)
+    finally:
+        subprocess.run(['cp', str(aside), str(script)], check=True, timeout=10)
+    check_math()
+    clean = run_checker()
+    if clean.returncode: raise AssertionError(clean.stdout + clean.stderr)
+    log.append({'restored': True, 'exit': clean.returncode, 'allBars': 'PASS'})
     (out / 'negative-controls.json').write_text(json.dumps(log, indent=2))
-    print(f'{len(bad)} independent raw-record plants RED; cp restoration GREEN')
+    print(f'{len(plants)} actual-record plants and {len(source_plants)} source plants RED; cp restoration GREEN')
 
 
 def analyze(root):
@@ -143,6 +183,12 @@ def analyze(root):
             pilot = cells[surface]['pool']['paint']
             (warm_cells if surface == 'full' else selection_cells).append(pilot['p95'] is not None and pilot['p95'] <= PLAN['bars']['warmSwitchP95Ms' if surface == 'full' else 'sidebarSelectionP95Ms'])
             publish_cells.extend(p['navigation'] == 1 and p['other'] == 0 for p in cells[surface]['pool']['publications'])
+            if surface == 'full':
+                p = cells[surface]['pool']['stateCpu']['p95']
+                l = cells[surface]['legacy']['stateCpu']['p95']
+                reduction = 100 * (1 - p / l) if p is not None and l else None
+                cells[surface]['stateCpuReductionPercent'] = reduction
+                cpu_cells.append((p is not None and p <= PLAN['bars']['stateCpuP95Ms'], reduction is not None and reduction >= PLAN['bars']['minimumCpuReductionPercent']))
         cells['cpu'] = {}
         for kind in ['click', 'unrelated', 'title', 'phase', 'draft']:
             arms = {}
@@ -182,7 +228,7 @@ def analyze(root):
     summary['parity'] = {'checks': len(parity), 'differences': sum(r['result']['differences'] for r in parity), 'pending': sum(r['result']['pending'] for r in parity), 'results': [r['result'] for r in parity]}
     summary['principal'] = [{'scale': r['scale'], 'mode': r['mode'], 'readyMs': r['readyMs'], 'rebuild': r['rebuild'], 'survivors': r['survivors']} for r in principal]
     results = {
-        'idle': len(idle) == len(PLAN['scales']) and all((measurement(r).get('panel') or {}).get('idle', {}).get('rows', -1) == 0 and derives(r) == 0 and publications(r)['total'] == publications(r)['clock'] for r in idle),
+        'idle': len(idle) == len(PLAN['scales']) and all((measurement(r).get('panel') or {}).get('idle', {}).get('rows', -1) == 0 and (measurement(r).get('panel') or {}).get('idle', {}).get('mainThreadMs', -1) == 0 and derives(r) == 0 and publications(r)['total'] == publications(r)['clock'] for r in idle),
         'unrelated': len(unrelated) >= len(PLAN['scales']) * PLAN['samples'] and all(derives(r) == 0 for r in unrelated),
         'onePublication': bool(publish_cells) and all(publish_cells),
         'warmSwitch': all(warm_cells),
@@ -196,20 +242,20 @@ def analyze(root):
     summary['bars'] = {key: 'PASS' if passed else 'FAIL' for key, passed in results.items()}
     summary['verdict'] = 'NOT ACCEPTED: S9 pending' if all(results.values()) else 'FAIL: fixed browser acceptance bars not all met; S9 pending'
     (root / 'summary.json').write_text(json.dumps(summary, indent=2))
-    print(json.dumps({'bars': summary['bars'], 'verdict': summary['verdict'], 'records': len(records), 'void': len(void), 'cells': summary['cells']}, indent=2))
+    print(json.dumps({'bars': summary['bars'], 'verdict': summary['verdict'], 'records': len(records), 'void': len(void)}, indent=2))
+    return all(results.values())
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--controls', type=Path)
-parser.add_argument('--check-control', type=Path)
+parser.add_argument('--check-math', action='store_true')
+parser.add_argument('--require-all-bars', action='store_true')
 parser.add_argument('--root', type=Path, default=Path('.artifacts/sidebar-acceptance'))
 args = parser.parse_args()
-if args.check_control:
-    checks = control_verdict(json.loads(args.check_control.read_text()))
-    failed = [name for name, passed in checks.items() if not passed]
-    print(json.dumps({'failed': failed}))
-    sys.exit(1 if failed else 0)
+if args.check_math:
+    check_math()
 elif args.controls:
     controls(args.controls)
 else:
-    analyze(args.root)
+    passed = analyze(args.root)
+    sys.exit(1 if args.require_all_bars and not passed else 0)

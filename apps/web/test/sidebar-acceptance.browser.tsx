@@ -82,6 +82,10 @@ const root = createRoot(document.getElementById('root')!)
 type Interval = { start: number; end: number; kind: string; derivations?: number; rows?: number }
 let active = false
 let intervals: Interval[] = []
+if (measured) Object.assign(globalThis, { __acceptanceTiming: {
+  active: () => active,
+  record: (interval: Interval) => intervals.push(interval),
+} })
 let perf: ReturnType<typeof createSidebarPerf> | undefined
 const patched = new WeakSet<object>()
 function patchBoundary(object: object, key: string, kind: string) {
@@ -223,7 +227,7 @@ const fixture = {
     })
     else if (kind === 'phase') patch('session', targets.phaseSessionId, {
       agentState: iteration % 2 ? { phase: 'working', since: stamp } : { phase: 'idle', since: stamp, idle: { kind: 'done' } }, lastActiveAt: stamp })
-    else if (kind === 'draft') owner!.getSnapshot().setDraft(targets.phaseSessionId as never, `Acceptance draft ${iteration}`)
+    else if (kind === 'draft') owner!.getSnapshot().setSessionDraft(targets.phaseSessionId as never, `Acceptance draft ${iteration}`)
     else throw new Error(`Unknown event ${kind}`)
   },
   async compare() {
