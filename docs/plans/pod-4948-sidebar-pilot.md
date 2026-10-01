@@ -8,7 +8,9 @@ POD-4948 is the opt-in sidebar pilot under POD-4286. The existing sidebar, rows,
 
 The feed also declares a small raw-session summary: owner ID and two activity timestamps. Replica unread includes parked resume twins that disappear from the roster; continuation recency includes exited own sessions. The summary holds no full session records and updates only affected owners. Resident row/index readers continue to use the one pool reader. POD-4952's unscanned persisted repo fallback remains in feed snapshots and replacements.
 
-Every row read still goes through `MobxPool.row`. Cold facts answer `LOADING` and schedule a batched load. The pool does not call legacy worklist selectors. A plain `IssueModel.sidebar` getter reuses the existing cached groups; `pool.sidebar` exposes section, worktree roster and selection facts over resident indexes. `SidebarState` carries caller-owned project order, pins, persisted collapse and pane selection without reading storage.
+Every row read still goes through `MobxPool.row`. Cold facts answer `LOADING` and schedule a batched load. The pool does not call legacy worklist selectors. `IssueModel.sidebar` is a cached group on the one existing issue object. It borrows the feed issue/session records and overlays the cursor, unread verdict and display ref; it creates no second record or row object. Timer anchors, fleet totals and error facts compose through the existing attention aggregate, so a clock redraw does not re-walk the subtree sessions. `pool.sidebar` exposes section, worktree roster and selection facts; `SidebarState` carries caller-owned project order, pins, persisted collapse and pane selection without reading storage.
+
+Root pinned/open/snoozed/closed lanes are maintained by the existing issue filing reaction. The same reaction supplies represented/excluded/finished ownership and retained unowned-seat claims to `worklist/sidebar-roster.ts`. Existing ingest/relation deltas maintain resident fallback-seat IDs, project-root IDs, project lane counts and sorted roster paths. There is no new per-issue or per-session reaction. A two-field cold-lane summary (`path`, `possible`) requests the existing batched reader only while unresolved; cold IDs do not enter the resident roster indexes. Forward clock ticks update only due fallback seats; clock rewind recomputes their retention. Per-project caches keep unrelated roster paths out of a changed band's work.
 
 ## Field inventory
 
@@ -19,6 +21,7 @@ In the test column, **corpus** means `arms/mobx/pool/sidebar.test.ts` at 1x and 
 | Value the real sidebar reads | Legacy source | Pool source | Test |
 | --- | --- | --- | --- |
 | ID square number/ref | `UnifiedIssueRow`: `issue.seq`, `issue.displayRef`; `useReplicaIssues` repo prefix | `IssueModel.seq`, `displayRef`; `sidebar.idNumber` | corpus, gate, R3 |
+| ID tooltip/external identifier | `useReplicaIssues`: formatted repo ref and normalized `linearIdentifier` | borrowed `sidebar.issue.displayRef/linearIdentifier` | corpus, gate `issueFacts`, ref plant |
 | ID square colour | `issue.color`; tokens in component | `sidebar.color` from projection | corpus, gate `issueFacts` |
 | Title and draft placeholder | `issueDisplayTitle`, `sessionsForIssueNav`, session name/kind | existing `IssueModel.title`/label group | corpus, gate `sessionFacts`, draft-title test |
 | PhaseTimer phase, anchor, accumulated time | `rowMotionPhase`, `rowMotionTiming` over own/nested sessions and decisions | existing attention aggregate; `sidebar.timing` | corpus, gate `sessionFacts`, R3 |
@@ -43,15 +46,15 @@ In the test column, **corpus** means `arms/mobx/pool/sidebar.test.ts` at 1x and 
 | Draft vessel click target and active selection | `draft && !worktreePath && sessions.length`; first own session/paneA | `sidebar.draftAgentOnly/firstSessionId`, `pool.sidebar.active` | corpus, gate, selection test |
 | Compatibility issue content | `useReplicaIssues` model: question, origin, workflow, git, read/tuck/pin/repo/comment fields | `sidebar.issue` from normalized adapter and cursor lane | corpus, gate, adapter test |
 | Parent relationship and menu eligibility | `useReplicaIssues.parentId`; `issueMenuEligibility.canSetColor` permits root issues | borrowed `sidebar.issue.parentId` from projection | corpus, gate reparent, exact redraw fence |
-| Pinned band | `worklistSlice.pinned`, root `splitPinnedWork` | existing pinned index, root filter in `sidebar.sections` | corpus, gate `issueFacts` |
-| Project bands and order | slice `groups/sections`, `orderProjectItems`/`orderedSidebarProjects` with saved aliases | existing group + worktree lanes, `SidebarState.projectOrder/pinnedRepos` | corpus, gate |
+| Pinned band | `worklistSlice.pinned`, root `splitPinnedWork` | maintained root pinned lane, `sidebar.sections.pinnedIds` | corpus, gate `issueFacts`, root plant |
+| Project bands and order | slice `groups/sections`, `orderProjectItems`/`orderedSidebarProjects` with saved aliases | maintained project/group/roster paths, `SidebarState.projectOrder/pinnedRepos` | corpus, gate |
 | Empty project with StartFirstTaskRow | registered repos without unified work | `SidebarBand.startFirstTask` | corpus, gate |
 | Snoozed fold | `group.snoozedRows`, defer deadline | `SidebarBand.snoozedIds`, existing band index | corpus, gate `issueFacts`/clock |
 | Closed fold with Archive | `group.closedRows`, `rowInClosedFold` | existing closed index + latch; `SidebarBand.closedIds`; Archive action stays existing | corpus, gate, groups tests |
 | Persisted band/fold collapse | `usePersistedBool` keys: pinned/project/snoozed/closed | `SidebarState.collapsed`, band keys/verdicts (same defaults) | corpus, gate |
 | Closed-row fold latch | `useUnifiedWork` selection-at-click latch | existing `WorklistGroups` selected fold latch | groups tests, sidebar selection test |
 | Eviction recovery | `useUnifiedWork` previously seen selection absent from current models | `sidebar.selectionEvicted`, cold known rows preserved; existing action clears selection | cold/eviction test |
-| Worktree roster rows | `worklistSlice.work`, `UnifiedWorktreeRow`: retained unrepresented seats per lane | `sidebar.worktree`, declared worktree/session relations and owner summaries | corpus, gate |
+| Worktree roster rows | `worklistSlice.work`, `UnifiedWorktreeRow`: retained unrepresented seats per lane | `sidebar.worktree`, resident candidate index, declared worktree/session relations and owner summaries | corpus, gate, represented-roster plant, expiry/rewind |
 | Worktree branch/label/path | nav worktree from repo discovery | feed worktree lane fields | corpus, gate discovery |
 | Worktree session order, visible/stale partition | `sortSessionsForSidebar`, `partitionStaleSessions` | `SidebarWorktree.sessions/visible/stale` | corpus, gate, roster test |
 | Roster session ref, name, attribution, outcome, colour, draft/snooze and agent status | `PanelRow`/`WorkerLabel` session payload | borrowed resident `SidebarWorktree.sessions`, same payload on issue rosters | corpus, gate `sessionFacts` |
@@ -60,7 +63,11 @@ In the test column, **corpus** means `arms/mobx/pool/sidebar.test.ts` at 1x and 
 
 ## Validation and counts
 
-All validation runs on flatblock in `~/podium-test-4953`, with the pinned Bun toolchain and a WIP commit before each run. New checks are first exercised against a copied-aside planted mistake, then restored with `cp`. The prototype's package config is included. No operator live data or browser interaction is involved in this data-contract change.
+All validation runs on flatblock in `~/podium-test-4953`, with Bun 1.4.2 and a WIP commit before each run. New checks are first exercised against a copied-aside planted mistake, then restored with `cp`. The prototype's package config is used. Browser evidence uses only the synthetic corpus and a private StoreProvider fixture; operator live data stays on ludovico.
+
+Field parity at `472dbd2e3` is green for the full 1x/4x corpus and three observed seeds of 200 changes. Each seed applies all eight issue-fact and all eight session-fact variants. All 28 row values, 28 compatibility-issue inputs, 21 session-content inputs, roster owners/partitions and section fields are compared with the actual legacy derivations. The rollup and group checks are green at `7097dc3ea` (10 tests); the remaining five sidebar adapter/cold/selection/roster/expiry tests also passed there. The expiry check was first red at `7c9146af8` after removing the fallback deadline publication: the expired last seat remained in its band. Restoring with `cp` passes the forward and backward clock assertions.
+
+Planted defects also made the new checks fail for incorrect row facts, sections, motion, normalized input precedence, progress, attention invalidation, composed fleet totals, ref/external identifier, parent/menu facts and represented-roster membership. In particular, `d1959e7df` caught 1,464 ref/identifier field differences, `c36c0926e` caught missing root lanes and `de37ea73a` caught extra represented-owner worktree rows. The exact redraw fence now compares the complete payload at every feed publication, including optimistic paint and rollback; its new transient-publication check was red with that collection disabled (`b050568ac`) and green after restoration (`32665cf4d`). No redraw or scaling allowance was relaxed.
 
 The pre-change census at `30180e6a0` is green at 1x and 4x, including both write-layer variants. Counts below are per visible issue row, as the census reports them (not per resident row).
 
