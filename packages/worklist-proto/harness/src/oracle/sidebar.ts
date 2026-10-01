@@ -21,7 +21,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 export const ISSUE_CONTENT_FIELDS = [
   'id', 'seq', 'color', 'title', 'stage', 'closedReason', 'closedAt', 'updatedAt',
   'audience', 'draft', 'pinned', 'tuckedAt', 'readAt', 'unread', 'gitState',
-  'repoPath', 'worktreePath', 'branch', 'parentBranch', 'needsHuman', 'blocked',
+  'repoPath', 'worktreePath', 'branch', 'parentBranch', 'parentId', 'needsHuman', 'blocked',
   'humanQuestion', 'humanQuestionOptions', 'origin', 'commentCount',
 ] as const
 const ISSUE_BOOLEAN_FIELDS = new Set(['draft', 'pinned', 'needsHuman', 'blocked'])

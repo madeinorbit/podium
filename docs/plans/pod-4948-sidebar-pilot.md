@@ -42,6 +42,7 @@ In the test column, **corpus** means `arms/mobx/pool/sidebar.test.ts` at 1x and 
 | Aggregated nested sessions | row construction own + ordered visible subtree | existing attention composition | corpus, gate, rollup tests |
 | Draft vessel click target and active selection | `draft && !worktreePath && sessions.length`; first own session/paneA | `sidebar.draftAgentOnly/firstSessionId`, `pool.sidebar.active` | corpus, gate, selection test |
 | Compatibility issue content | `useReplicaIssues` model: question, origin, workflow, git, read/tuck/pin/repo/comment fields | `sidebar.issue` from normalized adapter and cursor lane | corpus, gate, adapter test |
+| Parent relationship and menu eligibility | `useReplicaIssues.parentId`; `issueMenuEligibility.canSetColor` permits root issues | borrowed `sidebar.issue.parentId` from projection | corpus, gate reparent, exact redraw fence |
 | Pinned band | `worklistSlice.pinned`, root `splitPinnedWork` | existing pinned index, root filter in `sidebar.sections` | corpus, gate `issueFacts` |
 | Project bands and order | slice `groups/sections`, `orderProjectItems`/`orderedSidebarProjects` with saved aliases | existing group + worktree lanes, `SidebarState.projectOrder/pinnedRepos` | corpus, gate |
 | Empty project with StartFirstTaskRow | registered repos without unified work | `SidebarBand.startFirstTask` | corpus, gate |
