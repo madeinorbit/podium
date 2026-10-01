@@ -11,11 +11,11 @@ let startupCheck = false
 export function initializeSidebarDataLayer(ui: Pick<UiState, 'get'>): void {
   if (startupDataLayer !== undefined) return
   let override: boolean | undefined
-  let checkRequested = false
+  let params: URLSearchParams | undefined
   try {
     if (typeof location !== 'undefined') {
-      const value = new URLSearchParams(location.search).get('mobxSidebar')
-      checkRequested = new URLSearchParams(location.search).get('mobxSidebarCheck') === '1'
+      params = new URLSearchParams(location.search)
+      const value = params.get('mobxSidebar')
       if (value === '1' || value === 'true') override = true
       if (value === '0' || value === 'false') override = false
     }
@@ -23,7 +23,7 @@ export function initializeSidebarDataLayer(ui: Pick<UiState, 'get'>): void {
     // The authenticated principal's setting is the fallback, like echoHud.
   }
   startupDataLayer = (override ?? debugFlagEnabled(ui, MOBX_SIDEBAR_KEY)) ? 'pool' : 'legacy'
-  startupCheck = startupDataLayer === 'pool' && checkRequested
+  startupCheck = startupDataLayer === 'pool' && params?.get('mobxSidebarCheck') === '1'
 }
 
 export function sidebarCheckRequested(): boolean {

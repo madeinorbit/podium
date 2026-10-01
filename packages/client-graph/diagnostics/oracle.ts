@@ -9,8 +9,7 @@ import {
   type UnifiedIssueRow,
 } from '@podium/client-core/viewmodels'
 import { issueReturnedFromDefer, isIssueDeferred, asIssueId } from '@podium/model'
-import { comparer } from 'mobx'
-const isDeepStrictEqual = comparer.structural
+import { compareStructural as isDeepStrictEqual } from 'mobx'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import type { SidebarSections, SidebarState } from '@podium/client-graph/worklist/sidebar'
 import type { LegacyDerivation } from './legacy'
@@ -89,7 +88,7 @@ export function legacySidebarRow(row: UnifiedIssueRow, derivation: LegacyDerivat
   })
 }
 
-export function legacySidebarSections(derivation: LegacyDerivation, state: SidebarState, selectedId: string | null = null, selectedClosed = false, now = 0): SidebarSections {
+export function legacySidebarSections(derivation: LegacyDerivation, state: SidebarState, selectedId: string | null = null, selectedClosed = false, now = Date.now()): SidebarSections {
   const slice = derivation.slice
   const { pinned, rest } = splitPinnedWork(slice.work)
   const groups = groupUnifiedWorkRows(rest, selectedId === null ? null : asIssueId(selectedId), selectedClosed, now)

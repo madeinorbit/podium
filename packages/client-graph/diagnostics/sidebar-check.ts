@@ -5,7 +5,7 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
 import { partitionStaleSessions, rowStatusLine } from '@podium/client-core/viewmodels'
-import { comparer } from 'mobx'
+import { compareStructural } from 'mobx'
 import type { MobxPool } from '../src/pool'
 import type { SliceLocals } from '../src/shared/slice-types'
 import { compareRank } from '../src/shared/row-view'
@@ -45,7 +45,7 @@ export interface SidebarCheckResult {
 
 /** Finds the first leaf, including absent keys and extra array elements. */
 function differingField(expected: unknown, actual: unknown, path = ''): string | null {
-  if (comparer.structural(expected, actual)) return null
+  if (compareStructural(expected, actual)) return null
   if (expected !== null && actual !== null && typeof expected === 'object' && typeof actual === 'object') {
     const e = expected as Record<string, unknown>, a = actual as Record<string, unknown>
     for (const key of new Set([...Object.keys(e), ...Object.keys(a)])) {
