@@ -1151,7 +1151,23 @@ describe('history rule warming', () => {
     drain(r)
     expect(r.pool.residency?.isCold('issue', 'history-child')).toBe(false)
     expect(r.pool.residency?.isCold('session', 'history-child-seat')).toBe(false)
-    expect(r.handle.snapshot().rows['history-child']).toBeDefined()
+    expect(r.handle.snapshot().rowsById['history-child']).toBeDefined()
+  })
+
+  it('a renewed keeper loads a cold agent parent only when its live child needs the nesting verdict', () => {
+    const r = rig()
+    r.push({ type: 'update', rows: [issue('history-outer', { archived: true }),
+      issue('history-parent', { parentId: 'history-outer', audience: 'agent',
+        stage: 'done', closedAt: old, closedReason: 'done' }),
+      issue('history-child', { parentId: 'history-parent' }),
+      seat('history-parent-seat', { issueId: 'history-parent', stoppedAt: old })] })
+    expect(r.pool.residency?.isCold('issue', 'history-parent')).toBe(true)
+    expect(poolPendingLoads(r.pool)).toBe(0)
+    expect(r.handle.snapshot().rowsById['history-child']).toBeDefined()
+    r.push({ type: 'update', rows: [seat('history-parent-seat', { issueId: 'history-parent', stoppedAt: null })] })
+    drain(r)
+    expect(r.pool.residency?.isCold('issue', 'history-parent')).toBe(false)
+    expect(r.handle.snapshot().rowsById['history-child']).toBeUndefined()
   })
 })
 

@@ -125,7 +125,10 @@ export const HIDDEN_ISSUE_FIELDS = [
 /** A hidden issue's declared summary (`HIDDEN_ISSUE_FIELDS`). */
 export type HiddenIssue = Partial<
   Pick<SliceIssue, (typeof HIDDEN_ISSUE_FIELDS)[number]>
->
+> & {
+  /** Declared derived summary, from existing own/member/lane deadlines (`coldFlatUntil`). */
+  readonly flatUntil?: number
+}
 
 /** Whether a hidden summary is excluded (`standingOf`'s first clause). */
 export function hiddenExcludedOf(hidden: HiddenIssue): boolean {
@@ -639,7 +642,8 @@ export const VISIBLE_RULES: { readonly [K in VisiblePartName]: VisibleRule<K> } 
   present(input, id, self) {
     const hidden = input.hidden?.(id)
     if (hidden !== undefined) {
-      if (hidden.audience === 'agent' && !hiddenExcludedOf(hidden) && self.keptBelow) input.loadIssue?.(id)
+      if (hidden.audience === 'agent' && !hiddenExcludedOf(hidden) && self.keptBelow &&
+        hidden.flatUntil !== undefined && !input.passed(hidden.flatUntil)) input.loadIssue?.(id)
       return false
     }
     if (self.flat) return true

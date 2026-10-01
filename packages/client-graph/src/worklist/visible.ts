@@ -229,7 +229,10 @@ function excludedOf(issue: Partial<Pick<SliceIssue, 'archived' | 'deletedAt' | '
 export const HIDDEN_ISSUE_FIELDS = ['parentId', 'audience', 'archived', 'deletedAt', 'stage'] as const
 
 /** A hidden issue's declared summary (`HIDDEN_ISSUE_FIELDS`). */
-export type HiddenIssue = Partial<Pick<SliceIssue, (typeof HIDDEN_ISSUE_FIELDS)[number]>>
+export type HiddenIssue = Partial<Pick<SliceIssue, (typeof HIDDEN_ISSUE_FIELDS)[number]>> & {
+  /** Declared derived summary, from existing own/member/lane deadlines (`coldFlatUntil`). */
+  readonly flatUntil?: number
+}
 
 /** The presence of a hidden issue, from its summary and the rows below it: never flat or present. */
 export function hiddenPresenceOf(input: VisibleInputs, id: string, hidden: HiddenIssue): Presence {
@@ -238,7 +241,9 @@ export function hiddenPresenceOf(input: VisibleInputs, id: string, hidden: Hidde
   // A live descendant needs that verdict: it might nest under this row and
   // disappear with it. Load through the normal window only when needed,
   // rather than observing all the historical row's member sessions.
-  if (keeps && hidden.audience === 'agent') void input.loadedIssue(id)
+  if (keeps && hidden.audience === 'agent' && hidden.flatUntil !== undefined && !input.passed(hidden.flatUntil)) {
+    void input.loadedIssue(id)
+  }
   return { flat: false, keeps, present: false }
 }
 

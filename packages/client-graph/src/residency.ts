@@ -79,6 +79,7 @@ import {
   type ColdContext,
   coldByRule,
   coldFinishOf,
+  coldFlatUntil,
   type EntityName,
   type KeptBySpec,
   keepDeadline,
@@ -169,7 +170,7 @@ export class Residency {
   /** Per `members` source: owner id → member id → how long it keeps the owner shown, for EVERY known member row. */
   private readonly keeps = new Map<KeptBySpec, Map<string, Map<string, MemberKeep>>>()
   /** `member:id` → the source and owner id it is indexed under. */
-  private readonly keeperKey = new Map<string, { source: KeptBySpec; owner: string }>()
+  private readonly keeperKey = new Map<string, { source: KeptBySpec; owner: string; to: EntityName }>()
   /** The schema's `lane` sources (R3, POD-4745). */
   private readonly laneSources: readonly LaneSource[]
   /** Per `lane` source: member id → how long it keeps the owners of its lane shown, for every UNOWNED member row. */
@@ -417,7 +418,11 @@ export class Residency {
   summary(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined {
     if (!this.capable(entity)) return undefined
     this.observe(entity, id)
-    return this.summaries.get(`${entity}:${id}`)
+    const key = `${entity}:${id}`
+    const summary = this.summaries.get(key)
+    const bound = this.finish.get(key)
+    return summary === undefined || bound === undefined ? summary :
+      { ...summary, flatUntil: coldFlatUntil(this.schema, entity, id, summary, bound, this.context()) }
   }
 
   /** TRACKED: whether `id` is known and cold, without asking for it. */
@@ -758,8 +763,12 @@ export class Residency {
     const priorKeep = priorKey === undefined ? undefined : this.keeps.get(priorKey.source)?.get(priorKey.owner)?.get(id)
     this.unindexMember(entity, id)
     const keeper = value === undefined ? null : this.indexMember(entity, id, value)
+    if (priorKey !== undefined && (keeper === null || keeper.id !== priorKey.owner || priorKeep !== keeper.keep)) {
+      this.notify(priorKey.to, priorKey.owner)
+    }
     if (keeper !== null && (priorKey?.owner !== keeper.id || priorKeep !== keeper.keep)) {
       this.ancestorDirty.get(keeper.to)?.add(keeper.id)
+      this.notify(keeper.to, keeper.id)
     }
     // A lane member's deadline (a row with an explicit owner is none), and a
     // re-check of its lane once the publication is in when it can keep: its
@@ -811,7 +820,7 @@ export class Residency {
       byOwner.set(keeper.id, members)
     }
     members.set(id, keeper.keep)
-    this.keeperKey.set(`${entity}:${id}`, { source: keeper.source, owner: keeper.id })
+    this.keeperKey.set(`${entity}:${id}`, { source: keeper.source, owner: keeper.id, to: keeper.to })
     return keeper
   }
 

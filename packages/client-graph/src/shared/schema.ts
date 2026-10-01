@@ -1260,6 +1260,31 @@ export function keepDeadline(keep: MemberKeep, finish: number | null): number {
 }
 
 /**
+ * The pre-nesting presence bound in a cold issue's declared summary. Reuses
+ * its compact own/finish deadlines and existing keeper indexes; no row read.
+ * A placement-cold issue with a live descendant needs a load only while
+ * this bound could still give it a row before nesting.
+ */
+export function coldFlatUntil(
+  schema: ModelSchema,
+  entity: EntityName,
+  id: string,
+  summary: Readonly<Record<string, unknown>>,
+  bound: { readonly finish: number | null; readonly shownUntil: number },
+  ctx: ColdContext,
+): number {
+  const spec = schema[entity].cold
+  if (spec.kind !== 'unlessShown') return Number.NEGATIVE_INFINITY
+  let until = bound.shownUntil
+  for (const source of spec.keptBy) {
+    const key = keptByKey(schema, entity, { ...summary, [schema[entity].key]: id }, source)
+    if (key === null) continue
+    for (const keep of ctx.keeps(entity, source, key)) until = Math.max(until, keepDeadline(keep, bound.finish))
+  }
+  return until
+}
+
+/**
  * Where `source` holds the members of `row` of the `unlessShown` entity
  * `entity`: its own key for `members`; the raw foreign key of `through` (its
  * lane) for `lane`. Null when the row has none.

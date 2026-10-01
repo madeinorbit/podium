@@ -830,6 +830,7 @@ export class HandPool {
         if (!(this.residency?.isCold('issue', id) ?? false)) return undefined
         return this.residency?.summary('issue', id) as Record<string, unknown> | undefined
       },
+      loadIssue: (id) => { void this.row('issue', id) },
       sessionRow: (id) =>
         (this.tables.session.get(id) ?? this.residency?.summary('session', id)) as
           | SliceSession
