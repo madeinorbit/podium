@@ -1,7 +1,7 @@
 import type { IssueReferenceSource } from '@podium/client-core/viewmodels'
 import { MobxPool } from '@podium/client-graph'
 import { parseAnyRef } from '@podium/protocol'
-import { act, useState } from 'react'
+import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { describe, expect, it, vi } from 'vitest'
 import { renderMarkdown } from '@/lib/markdown'
@@ -51,11 +51,10 @@ describe('non-reference fallback labels', () => {
     document.body.append(host)
     const root = createRoot(host)
     function Host() {
-      const [node, setNode] = useState<HTMLDivElement | null>(null)
       return (
         <>
-          <IssueChipLiveness root={node} />
-          <div ref={setNode} dangerouslySetInnerHTML={{ __html: html }} />
+          <IssueChipLiveness root={host} />
+          <div ref={node => { if (node) node.innerHTML = html }} />
         </>
       )
     }
