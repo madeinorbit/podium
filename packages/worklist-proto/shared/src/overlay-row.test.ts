@@ -18,7 +18,8 @@ it('borrows unchanged values, overlays an explicit null and enumerates a read-on
 })
 
 it('the unchanged copy fence accepts borrowed overlays and rejects full-record copies', () => {
-  const row = { id: 'issue', title: 'Title', stage: 'planning', audience: 'human', repoPath: '/repo', branch: 'private', readAt: 'old' }
+  const row = { id: 'issue', seq: 42, title: 'Title', stage: 'planning', audience: 'human', repoPath: '/repo',
+    branch: 'private', readAt: 'old', createdAt: '2026-09-30', updatedAt: '2026-09-30' }
   const source: RowSource = {
     snapshot: kind => kind === 'issue' ? [{ kind, id: row.id, value: row }] : [],
     subscribe: () => () => {},
