@@ -19,7 +19,8 @@
  *
  * WHICH ROWS A FLUSH VISITS (the fence `row-source.test.ts` asserts at 1x and
  * 4x): the distinct slice rows named by the kernel's addressed batch, plus the
- * rows with pending overlays now or at the previous flush. Nothing else. The
+ * rows with pending overlays now or at the previous flush, and the owners
+ * whose declared small dependency/session summaries moved. The
  * pending set is O(pending writes) — a handful — and it is the only way an
  * optimistic-only publication (a press, an echo retirement, a rejection) can
  * name its rows without diffing arrays.
@@ -30,9 +31,10 @@
  * last received, so a durable commit that repaints the press's own overlay
  * emits nothing (POD-1053).
  *
- * IDENTITY. With no overlay the value IS the replica's row object (borrowed),
- * so identity-based commit counting holds and a rejection restores the prior
- * object itself. A folded value that is shallow-equal to the one last emitted
+ * IDENTITY. Sessions without overlays borrow the replica's row object. Issue
+ * composition is memoized by projection, temporary input and declared summary
+ * identities, so a rejection restores the previous composed issue itself.
+ * A folded value that is shallow-equal to the one last emitted
  * for that row keeps the earlier object, as the ledger's whole-list fold does.
  *
  * SPEC CITATIONS (frozen slice `docs/plans/pod-4441-round-two-slice.md`).
@@ -68,7 +70,9 @@
  *
  * REPLACE. A bootstrap or rescope is the one place a flush enumerates the
  * slice (`replica.rows()` per kind, plus pending inserts); `snapshot()` is the
- * other enumeration. Both count in `stats.enumerations`, which the scenarios
+ * other row enumeration. Small edge/session summaries are seeded at source
+ * creation and replaced on rescope, never lazily by the first update.
+ * Row enumerations count in `stats.enumerations`, which the scenarios
  * assert is 0 on every non-replace publication.
  *
  * LOCALS-ONLY PUBLICATIONS (selection, drafts, host metrics, a coarse tick
@@ -282,7 +286,7 @@ export function createRowSource(
 
   /** The value last emitted for each slice row that had overlays at the last
    *  flush, keyed `session:id` / `issue:id`. Bounded by pending writes: rows
-   *  without overlays are borrowed from the replica and never held here. */
+   *  without overlays are served by the replica/composition memo instead. */
   const overlaid = new Map<string, RowRecord['value']>()
 
   // Worktree lanes memoized by path signature (path|repoId|repoPath|name|prefix).

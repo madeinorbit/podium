@@ -62,9 +62,9 @@ describe('the declared schema', () => {
     expect(Object.keys(SCHEMA.issue.components).sort()).toEqual(['issue', 'issueProjection'])
     expect(SCHEMA.issue.components.issueProjection?.joinKey).toBe('id')
     expect(SCHEMA.issue.components.issueProjection?.arrivesOn).toBe('replica:issueProjections')
-    // The wire wins when both are present.
-    expect(SCHEMA.issue.components.issue!.precedence).toBeLessThan(
-      SCHEMA.issue.components.issueProjection!.precedence,
+    // The normalized projection owns durable facts; the wire is one temporary input.
+    expect(SCHEMA.issue.components.issueProjection!.precedence).toBeLessThan(
+      SCHEMA.issue.components.issue!.precedence,
     )
   })
 
