@@ -39,7 +39,7 @@ async function main() {
   const metrics = await new Promise<HostMetricsWire[]>((resolve, reject) => {
     // Bun's native client supports cookie headers. This connection sends no
     // command, subscription or write; it reads the host bootstrap frame once.
-    const socket = new WebSocket(parseServerOrigin(origin)!.wsClientUrl, { headers: { Cookie: cookie } } as unknown as string[])
+    const socket = new WebSocket(parseServerOrigin(origin)!.wsClientUrl, { headers: { Cookie: cookie, Origin: origin } } as unknown as string[])
     const timer = setTimeout(() => { socket.close(); reject(new Error('No metric frame')) }, 15000)
     socket.onerror = () => { clearTimeout(timer); socket.close(); reject(new Error('Metric read failed')) }
     socket.onmessage = (event) => {
