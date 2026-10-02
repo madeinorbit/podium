@@ -306,7 +306,7 @@ function PaletteDialogBody({
         handoffEnabled,
         repoViews,
       }),
-    [issues, openIssueId, selectedIssueId, sessions, repos, machines, handoffEnabled],
+    [issues, openIssueId, selectedIssueId, sessions, repos, repoViews, machines, handoffEnabled],
   )
 
   const focused = paneA ? sessions.find((s) => s.sessionId === paneA) : undefined

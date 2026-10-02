@@ -72,6 +72,10 @@ vi.mock('./store', async () => {
       selector({ ...fixture.store, sessions: fixture.sessions, paneA: fixture.paneA }),
   }
 })
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...await original<typeof import('@podium/client-core/react')>(),
+  useStoreHandle: () => ({ getSnapshot: () => fixture.store }),
+}))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),

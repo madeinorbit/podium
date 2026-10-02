@@ -98,6 +98,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
   }
 
   private targets(row: Record<string, unknown> | undefined, relation: typeof COMMAND_RELATIONS[number]): readonly string[] {
+    if ('excludeShell' in relation && row?.agentKind === 'shell') return []
     const key = row?.[relation.key]
     if (typeof key !== 'string' || !key) return []
     if ('match' in relation) {
@@ -131,6 +132,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
 
   read<K extends CommandEntity>(entity: K, id: string): Loaded<CommandLaunchRows[K]> {
     if (this.disposed) return LOADING
+    if (entity === 'commandIssue') return this.pool.row('issue', id, 'summary') as Loaded<CommandLaunchRows[K]>
     return (entity === 'commandCatalog' && id === 'catalog' ? this.catalog.get() : this.tables[entity].get(id)) as Loaded<CommandLaunchRows[K]>
   }
   related(entity: string, id: string, name: string): readonly string[] { return this.members.get(`${entity}:${id}:${name}`) ?? [] }

@@ -6,9 +6,7 @@ import { CommandPaletteBoundary } from './CommandPaletteBoundary'
 
 const fixture = vi.hoisted(() => ({ paletteOpen: false }))
 
-vi.mock('./store', () => ({
-  useStoreSelector: (selector: (state: typeof fixture) => unknown) => selector(fixture),
-}))
+vi.mock('./command-launch-data', () => ({ useCommandPaletteOpen: () => fixture.paletteOpen }))
 
 vi.mock('./CommandPalette', () => ({
   CommandPalette: () => <div data-testid="command-palette-module" />,

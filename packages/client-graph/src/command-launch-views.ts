@@ -2,13 +2,13 @@ import type { SpawnTarget } from '@podium/client-core'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RepoView } from '@podium/client-core/viewmodels'
-import { normalizeOriginUrl, repoNameFromOrigin, isIssueClosed } from '@podium/model/browser'
+import { normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import { computed, compareStructural } from 'mobx'
 import type { MobxPool } from './pool'
 import type { CommandLaunchRows } from './command-launch-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
-export interface CommandLaunchData extends CommandLaunchRows['commandWindow'] {
+export type CommandLaunchData = CommandLaunchRows['commandWindow'] & {
   repos: CommandLaunchRows['commandRepository'][]
   repoViews: RepoView[]
   machines: CommandLaunchRows['commandMachine'][]
@@ -77,7 +77,7 @@ export function createCommandLaunchViews(pool: MobxPool) {
       (a.path.split('/').filter(Boolean).pop() ?? a.path).localeCompare(b.path.split('/').filter(Boolean).pop() ?? b.path, undefined, { sensitivity: 'base' }))
     const issues: IssueViewModel[] = []
     if (palette) for (const id of catalog.issues) {
-      const value = pool.row('issue', id, 'summary')
+      const value = pool.row('commandIssue', id)
       if (value === LOADING) { pending++; continue }
       if (!value) continue
       const row = value as IssueViewModel
@@ -87,17 +87,20 @@ export function createCommandLaunchViews(pool: MobxPool) {
         const full = pool.row('issue', id)
         if (full === LOADING) { pending++; continue }
         if (!full) continue
-        const node = pool.issue(id), children = [...pool.graph.many('issue', id, 'children')]
+        const node = pool.issue(id), children = [...pool.graph.many('issue', id, 'treeChildren')]
         let childDoneCount = 0
         for (const child of children) {
           const detail = pool.row('issue', child, 'summary')
           if (detail === LOADING) pending++
-          else if (detail && isIssueClosed(detail as { stage: string; closedReason?: string | null })) childDoneCount++
+          else if (detail && (detail as { stage: string }).stage === 'done') childDoneCount++
         }
         issues.push({ ...full, displayRef: node?.displayRef ?? row.displayRef ?? `#${row.seq}`,
           readAt: pool.readCursor(id) ?? null, unread: node?.unread ?? false,
-          memberSessionIds: [...(node?.memberIds ?? [])], childCount: children.length, childDoneCount } as unknown as IssueViewModel)
-      } else issues.push({ ...row, displayRef: row.displayRef ?? pool.model('issue', id).displayRef } as IssueViewModel)
+          memberSessionIds: catalog.sessions.filter(sid => pool.sources.related('commandIssue', id, 'sessions').includes(sid) || (!pool.resident('session', sid) && sessions.some(session => session.sessionId === sid && session.issueId === id && session.agentKind !== 'shell'))), childCount: children.length, childDoneCount } as unknown as IssueViewModel)
+      } else {
+        const repoId = pool.graph.one('issue', id, 'repo'), repo = repoId ? pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
+        issues.push({ ...row, displayRef: row.displayRef ?? (repo?.prefix ? `${repo.prefix}-${row.seq}` : `#${row.seq}`) } as IssueViewModel)
+      }
     }
     const trees = repoViews.flatMap(repo => repo.worktrees)
     const current = trees.find(tree => tree.path === window.selectedWorktree)

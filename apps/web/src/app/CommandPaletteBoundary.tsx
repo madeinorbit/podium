@@ -1,7 +1,7 @@
 import type { JSX } from 'react'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { throughRestarts } from '@/lib/chunk-recovery'
-import { useStoreSelector } from './store'
+import { useCommandPaletteOpen } from './command-launch-data'
 
 const CommandPalette = lazy(() =>
   throughRestarts(() => import('./CommandPalette')).then((module) => ({
@@ -15,7 +15,7 @@ const CommandPalette = lazy(() =>
  * the palette while a child flow (new task or repository scan) remains open.
  */
 export function CommandPaletteBoundary(): JSX.Element | null {
-  const paletteOpen = useStoreSelector((state) => state.paletteOpen)
+  const paletteOpen = useCommandPaletteOpen()
   const [activated, setActivated] = useState(paletteOpen)
 
   useEffect(() => {

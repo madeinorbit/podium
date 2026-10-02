@@ -51,6 +51,13 @@ vi.mock('@/app/store', () => {
   }
 })
 
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...await original<typeof import('@podium/client-core/react')>(),
+  useStoreHandle: () => ({ getSnapshot: () => ({ trpc: {
+    settings: { get: { query: async () => ({ sessionDefaults: { agent: 'claude-code' } }) } },
+    issues: { create: { mutate: create }, update: { mutate: update } },
+  } }) }),
+}))
 type CheckboxMockProps = {
   checked?: boolean
   onCheckedChange?: (checked: boolean) => void
