@@ -36,6 +36,7 @@ function scopeOf(pool: LeanPool) {
     one: (from, id, name) => pool.relations.one(from, id, name) ?? summaryForward.get(`${from}.${name}`)?.get(id) ?? null,
     many: (from, id, name) => new Set([...pool.relations.many(from, id, name), ...(summaryGroups.get(`${from}.${name}`)?.get(id) ?? [])]),
     size: (from, id, name) => pool.relations.size(from, id, name) + (summaryGroups.get(`${from}.${name}`)?.get(id)?.size ?? 0),
+    subset: (from, id, name, subset) => pool.relations.subset(from, id, name, subset),
   }
   const issues = [...tables.issue.keys()].map((id) => ({ id }))
   const { coarseNow, selectedIssueId } = pool.locals.get()
