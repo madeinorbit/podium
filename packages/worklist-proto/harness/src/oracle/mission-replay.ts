@@ -1,9 +1,8 @@
-/// <reference types="bun" />
 /** Read-only operator replay, ludovico only. No input is saved or exported;
  * only counts, positions and opaque issue ids are printed. */
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { createRequire } from 'node:module'
 import { dedupeSessions } from '@podium/client-core/engine'
 import type { MissionIssueTopology } from '@podium/client-core/viewmodels'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -26,6 +25,14 @@ import { sidebarReplayStore } from './sidebar-replay'
  * record, credentials, discovery, titles or descriptions are copied. */
 function persistedReplay() {
   step = 'database'
+  // This optional Bun-only mode stays outside the Node harness dependencies.
+  const { Database } = createRequire(import.meta.url)('bun:sqlite') as {
+    Database: new (path: string, options: { readonly: true }) => {
+      exec(sql: string): void
+      query(sql: string): { all(): unknown[] }
+      close(): void
+    }
+  }
   const db = new Database(join(homedir(), '.podium', 'podium.db'), { readonly: true })
   let issues: SliceIssue[], seats: SliceSession[]
   try {
