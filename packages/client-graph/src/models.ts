@@ -162,6 +162,7 @@ import {
   type Members,
   membersOf,
   type Nesting,
+  nestCandidatePartOf,
   nestBelowPartOf,
   nestedPartOf,
   nestingOf,
@@ -480,10 +481,15 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
         ? presenceOf(issue.host.visibleInputs, issue.id, issue)
         : hiddenPresenceOf(issue.host.visibleInputs, issue.id, hidden as HiddenIssue)
     }),
+    /** Independent of nesting: cycle rejection can follow candidates without recursion. */
+    nestCandidate: cachedGroup('nestCandidate', (issue: IssueModel) => {
+      const present = issue.present
+      return nestCandidatePartOf(issue.host.visibleInputs, issue.id, present ? issue.standing : undefined, present)
+    }),
     /** Presence first: a row that is not present (a hidden one among them) reads no standing. */
     nesting: cachedGroup('nesting', (issue: IssueModel) => {
       const present = issue.present
-      return nestingOf(issue.host.visibleInputs, issue.id, present ? issue.standing : undefined, present)
+      return nestingOf(issue.host.visibleInputs, issue.id, present ? issue.standing : undefined, present, issue.nestCandidate)
     }),
     /** The nest candidates down the raw parent edge (read by the parent's `nestBelow` and `nested`). */
     nestBelow: cachedGroup('nestBelow', (issue: IssueModel) =>
@@ -827,6 +833,10 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   get present(): boolean {
     return this.presence.present
+  }
+
+  get nestCandidate(): string | null {
+    return IssueModel.groups.nestCandidate(this)
   }
 
   get nestParent(): string | null {

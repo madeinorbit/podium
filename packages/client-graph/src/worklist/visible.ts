@@ -43,8 +43,10 @@
  * - presence (`presenceOf`): the flat pass (`rows.ts:59-107`), the rescue
  *   read DOWN the children relation (`rows.ts:121-158`: a parent is kept by
  *   a child that is flat or kept), and `present` (flat, or rescued).
- * - nesting (`nestingOf`): the nest parent (the nearest present ancestor by
- *   the raw `parentId`, else the started-by owner, `rows.ts:254-359`),
+ * - nest candidate (`nestCandidatePartOf`): the nearest present ancestor by
+ *   the raw `parentId`, else the started-by owner, without reading nesting.
+ * - nesting (`nestingOf`): the nest parent after rejecting the edge that
+ *   closes a candidate cycle (`rows.ts:254-359`),
  *   `placed` (under a placed nest parent, or top-level and not agent) and
  *   `visible` = present && placed.
  * `unread` (the decay branch of the flat pass) and the children list are
@@ -516,6 +518,8 @@ export interface IssueVisibility extends RollupParts, Members {
   readonly keptBelow: boolean
   readonly keeps: boolean
   readonly present: boolean
+  /** The proposed parent before cycle rejection; reads no issue's nesting. */
+  readonly nestCandidate: string | null
   readonly nestParent: string | null
   readonly placed: boolean
   readonly visible: boolean
@@ -751,7 +755,7 @@ function flatOf(
  * issue owning its `startedBySession` unless that one is a draft vessel
  * (`rows.ts:288-305`, `issueIdOwningSession`, `session-ownership.ts:371-410`).
  */
-export function nestParentPartOf(
+export function nestCandidatePartOf(
   input: VisibleInputs,
   id: string,
   standing: Standing | undefined,
@@ -775,6 +779,31 @@ export function nestParentPartOf(
   const candidate = input.issue(owner)
   if (candidate?.standing?.draftVessel === true && candidate.liveRoster) return null
   return owner
+}
+
+/**
+ * Legacy admits edges in the replica's id order and rejects the one that
+ * closes a cycle (`rows.ts:310-321`): its greatest id stays top-level. Walk
+ * only candidates, never another nesting computation, so placement and the
+ * attention roll-up cannot recurse through the cycle. A greater id rules
+ * this edge out as the break; a repeated id other than self is a downstream
+ * cycle, so incoming branches keep their parent. No whole-collection scan.
+ */
+export function nestParentPartOf(
+  input: VisibleInputs,
+  id: string,
+  candidate: string | null,
+): string | null {
+  if (candidate === null || candidate > id) return candidate
+  const seen = new Set<string>()
+  let walk = candidate
+  while (walk !== null) {
+    if (walk === id) return null
+    if (walk > id || seen.has(walk)) break
+    seen.add(walk)
+    walk = input.issue(walk)?.nestCandidate ?? null
+  }
+  return candidate
 }
 
 /**
@@ -825,9 +854,10 @@ export function nestingOf(
   id: string,
   standing: Standing | undefined,
   present: boolean,
+  candidate: string | null,
 ): Nesting {
   if (!present) return UNPLACED
-  const nestParent = nestParentPartOf(input, id, standing, present)
+  const nestParent = nestParentPartOf(input, id, candidate)
   const placed =
     nestParent !== null ? input.issue(nestParent)?.placed === true : standing?.agent === false
   return { nestParent, placed, visible: placed }
@@ -909,7 +939,7 @@ export function directVisibility(
   // issue (the plain pass: presence and the formal parent), never whole groups.
   const presence = () => once('presence', () => presenceOf(input, id, parts))
   const nesting = () =>
-    once('nesting', () => nestingOf(input, id, parts.standing, parts.present))
+    once('nesting', () => nestingOf(input, id, parts.standing, parts.present, parts.nestCandidate))
   const attention = (): Attention => once('attention', () => attentionOf(rollupInputs, id, parts))
   const progress = (): Progress => once('progress', () => progressOf(rollupInputs, id, parts))
   const parts: IssueVisibility = {
@@ -969,6 +999,9 @@ export function directVisibility(
     },
     get present() {
       return presence().present
+    },
+    get nestCandidate() {
+      return once('nestCandidate', () => nestCandidatePartOf(input, id, parts.present ? parts.standing : undefined, parts.present))
     },
     get nestParent() {
       return nesting().nestParent
