@@ -6,7 +6,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { chromium } from '@playwright/test'
 import { compareSidebarSnapshots, type SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
-import type { UtilityReplay } from './utility-readers.browser'
+import type {} from './utility-readers.browser'
 
 const sources = [
   'apps/web/src/features/usage/UsageView.tsx', 'apps/web/src/features/messages/MessageLedgerView.tsx',
@@ -34,7 +34,7 @@ async function legacyAcquisitions() {
   return async () => { for (const [path, original] of originals) await writeFile(path, original) }
 }
 
-export async function runUtilityReadersProof(options: { countsOnly?: boolean; replay?: UtilityReplay; redControl?: boolean } = {}) {
+export async function runUtilityReadersProof(options: { countsOnly?: boolean; redControl?: boolean } = {}) {
   const output = '.artifacts/utility-readers', origin = 'http://127.0.0.1:45169', clock = Date.now()
   await mkdir(output, { recursive: true })
   const snapshots: SidebarSnapshot[] = [], results: Record<string, unknown> = {}
@@ -55,13 +55,13 @@ export async function runUtilityReadersProof(options: { countsOnly?: boolean; re
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
       let pageErrors = 0
       page.on('pageerror', () => { pageErrors++ })
-      await page.addInitScript(({ clock, replay }) => {
+      await page.addInitScript(({ clock }) => {
         const fixed = new Proxy(Date, {
           construct: (target, args) => Reflect.construct(target, args.length ? args : [clock]),
           get: (target, key) => key === 'now' ? () => clock : Reflect.get(target, key),
         })
-        Object.assign(window, { Date: fixed, __utilityReplay: replay })
-      }, { clock, replay: options.replay })
+        Object.assign(window, { Date: fixed })
+      }, { clock })
       await page.goto(`${origin}/test/utility-readers.browser.html`)
       await page.waitForFunction(() => window.__utilityReaders?.ready(), null, { timeout: 60000 })
       await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
@@ -84,7 +84,7 @@ export async function runUtilityReadersProof(options: { countsOnly?: boolean; re
       if (arm === 'after' && (stats.selectors || stats.wakes || stats.legacyDerivations)) throw new Error('Legacy utility reader executed')
       if (arm === 'before' && stats.selectors < 1200) throw new Error('Six-selector baseline did not execute')
       snapshots.push(await page.evaluate(() => window.__utilityReaders.snapshot()))
-      if (!options.replay) await page.screenshot({ path: `${output}/${arm}.png` })
+      await page.screenshot({ path: `${output}/${arm}.png` })
       await page.evaluate(() => window.__utilityReaders.close())
     } finally {
       await browser?.close()
@@ -100,7 +100,7 @@ export async function runUtilityReadersProof(options: { countsOnly?: boolean; re
   const check = compareSidebarSnapshots(snapshots[0]!, snapshots[1]!)
   results.check = check
   if (check.differences || check.pending || check.sections !== 5) throw new Error(`Utility comparison failed: ${JSON.stringify(check)}`)
-  await writeFile(`${output}/${options.replay ? 'replay' : options.countsOnly ? 'counts' : 'results'}.json`, JSON.stringify(results, null, 2))
+  await writeFile(`${output}/${options.countsOnly ? 'counts' : 'results'}.json`, JSON.stringify(results, null, 2))
   console.log(JSON.stringify(results))
   return results
 }

@@ -15,29 +15,22 @@ import { UsageView } from '../src/features/usage/UsageView'
 import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
 
-/** Replay payloads are injected in memory by the ludovico-only driver. */
-export interface UtilityReplay {
-  issueId: string
-  sessionId: string
-  answers: Record<string, unknown>
-}
-const replay = window.__utilityReplay
 const fixture = createHeaderFixture(5600, 5014)
 const now = Date.now(), stamp = new Date(now).toISOString()
 const issue = {
-  id: asIssueId(replay?.issueId ?? 'utility-root'), seq: 1, title: 'Synthetic review',
+  id: asIssueId('utility-root'), seq: 1, title: 'Synthetic review',
   stage: 'review', updatedAt: stamp, deps: [], parentId: null,
   activityNotes: 'Utility transport proof', notesUpdatedAt: stamp,
 } as unknown as IssueNavigationModel
 const session = {
-  sessionId: asSessionId(replay?.sessionId ?? 'utility-session'), issueId: issue.id,
+  sessionId: asSessionId('utility-session'), issueId: issue.id,
   agentKind: 'codex', cwd: '/synthetic', title: 'Synthetic agent', status: 'live', archived: false,
   createdAt: stamp, lastInputAt: stamp, lastActiveAt: stamp, transcriptAvailable: true,
   agentState: { phase: 'idle', since: stamp },
 } as SessionView
 const models = [{ model: 'claude-opus-5', inputTokens: 2e6, outputTokens: 1e5,
   cacheReadTokens: 0, cacheCreationTokens: 0, cacheCreation1hTokens: 0, messages: 50 }]
-const answers: Record<string, unknown> = replay?.answers ?? {
+const answers: Record<string, unknown> = {
   usage: { hostname: 'synthetic', sampledAt: stamp, buckets: Array.from({ length: 24 }, (_, index) => ({
     ...models[0], hour: new Date(now - index * 3600000).toISOString(),
   })) },
@@ -125,4 +118,4 @@ const driver = {
   close: () => root.unmount(),
 }
 Object.assign(window, { __utilityReaders: driver })
-declare global { interface Window { __utilityReaders: typeof driver; __utilityReplay?: UtilityReplay } }
+declare global { interface Window { __utilityReaders: typeof driver } }
