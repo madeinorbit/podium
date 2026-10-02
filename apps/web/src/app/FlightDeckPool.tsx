@@ -1,5 +1,6 @@
 import { machineViewsFromWire, reposToViews } from '@podium/client-core/viewmodels'
 import { shallowEqual } from '@podium/client-core/store'
+import { useStoreHandle } from '@podium/client-core/react'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missions } from '@podium/client-graph/mission'
 import { missionView, readMissionHandoff, readMissionView, readMissionActionInputs, type MissionHandoffValues, type MissionViewValues } from '@podium/client-graph/mission-view'
@@ -10,6 +11,7 @@ import { MissionSessionMenu } from './mission-session-menu'
 import { FlightDeckContent, SettlingDeck, type FlightDeckPreferences, type FlightDeckProps, type FlightDeckSource } from './FlightDeck'
 import { useStoreSelector } from './store'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
+import { measurePoolMission } from './mission-pane-perf'
 
 interface PaneValues {
   mission: MissionViewValues
@@ -24,10 +26,11 @@ export default function PoolFlightDeck(props: FlightDeckProps & { preferences: F
     selectedIssueId: store.selectedIssueId, paneA: store.paneA, paneB: store.paneB, split: store.split,
   }), shallowEqual)
   const pool = useWorklistPool()
+  const owner = useStoreHandle()
   const { mode, view } = props.preferences
   const read = useCallback((pool: MobxPool): PaneValues | typeof LOADING => {
     const reader = missionView(pool)
-    const mission = readMissionView(reader, selectedIssueId, mode)
+    const mission = measurePoolMission(owner, () => readMissionView(reader, selectedIssueId, mode))
     if (mission === LOADING) return LOADING
     // Displayed names outside the drawn roster still participate in tracking.
     for (const id of new Set([paneA, split ? paneB : null, ...mission.rows.map(row => row.issue.startedBySession)])) {
@@ -45,7 +48,7 @@ export default function PoolFlightDeck(props: FlightDeckProps & { preferences: F
       ? machines.filter(view => view.machine.id === mission.root!.machineId)
       : machines.filter(view => repo?.machines.some(machine => machine.machineId === view.machine.id))
     return { mission, handoff, hosts }
-  }, [selectedIssueId, paneA, paneB, split, mode, view])
+  }, [owner, selectedIssueId, paneA, paneB, split, mode, view])
   const values = useWorklistPoolProjection(read, LOADING)
   const source = useMemo<FlightDeckSource | null>(() => {
     if (!pool || values === LOADING) return null

@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import { missionIndexStats, missionRootFor, sessionOwnershipStats } from '@podium/client-core/viewmodels'
 import { createWorklistPool } from '@podium/client-graph/create'
-import { checkMissionViewFromStore, poolMissionViewSnapshot } from '@podium/client-graph/diagnostics/mission-view-check'
+import { checkMissionViewFromStore, checkWorkspaceMission, poolMissionViewSnapshot } from '@podium/client-graph/diagnostics/mission-view-check'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
-import { missionView, readMissionView } from '@podium/client-graph/mission-view'
+import { missionView, readMissionView, readWorkspaceMission } from '@podium/client-graph/mission-view'
 import { LOADING } from '@podium/client-graph'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -32,7 +32,7 @@ function roots(store: Store<PodiumClientApi>): string[] {
 }
 function settle(pool: MobxPool, ids: readonly string[]) {
   for (let round = 0; round < 64; round++) {
-    for (const id of ids) tracked(() => poolMissionViewSnapshot(pool, id))
+    for (const id of ids) tracked(() => { poolMissionViewSnapshot(pool, id); readWorkspaceMission(missionView(pool), id, null) })
     if (pool.hydrate() === 0) return
   }
   throw new Error('Mission pane batched loads did not settle')
@@ -41,6 +41,12 @@ function compare(pool: MobxPool, store: Store<PodiumClientApi>, label: string, a
   const ids = roots(store)
   const selections = all ? ids : [...new Set([store.selectedIssueId, ...ids.slice(0, 3), ...ids.slice(-3)])]
   settle(pool, selections.filter((id): id is string => id !== null))
+  const issues = allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates)
+  for (const id of selections) {
+    const focused = issues.find(issue => issue.parentId === id)?.id ?? null
+    expect(tracked(() => checkWorkspaceMission(pool, issues, store.sessions, id, focused)), `${label} workspace ${id}`)
+      .toMatchObject({ differences: 0, first: null, pending: 0 })
+  }
   for (const id of selections) for (const mode of ['full', 'working', 'needs-you'] as const) {
     expect(tracked(() => checkMissionViewFromStore(pool, store, id, mode)), `${label} ${id} ${mode}`)
       .toMatchObject({ differences: 0, first: null, pending: 0 })

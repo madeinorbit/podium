@@ -121,13 +121,34 @@ describe('rendered mission pane parity', () => {
     const legacy = mount('full'); await settled()
     fireEvent.click(screen.getByRole('button', { name: /archived session/i })); await settled()
     const expected = renderedOutput(legacy.container)
+    const archivedId = sessions.find(session => session.issueId === root.id && session.archived && !session.headless && session.agentKind !== 'shell')!.sessionId
+    const selector = `[data-flight-session="${archivedId}"] button.deck-agent`
+    fireEvent.keyDown(legacy.container.querySelector(selector)!, { key: 'Enter' }); await settled()
+    const expectedOpen = state.openSessionTab.mock.calls.at(-1)
+    expect(expectedOpen).toEqual([archivedId, { permanent: true }])
+    state.openSessionTab.mockClear()
     cleanup(); state.layer = 'pool'
     const current = mount('full'); await settled()
     fireEvent.click(screen.getByRole('button', { name: /archived session/i })); await settled()
     expect(renderedOutput(current.container)).toEqual(expected)
-    const first = current.container.querySelector<HTMLElement>('[data-flight-session]')!
-    fireEvent.doubleClick(first); await settled()
-    expect(state.openSessionTab).toHaveBeenCalled()
+    fireEvent.keyDown(current.container.querySelector(selector)!, { key: 'Enter' }); await settled()
+    expect(state.openSessionTab.mock.calls.at(-1)).toEqual(expectedOpen)
+  }, 120_000)
+
+  for (const menu of ['issue', 'session'] as const) it(`preserves ${menu} action labels and order`, async () => {
+    state.selectedIssueId = issues.find(issue => !issue.archived && !issue.deletedAt && !issue.parentId && issue.childCount > 1 && issue.childCount < 12 &&
+      sessions.some(session => session.issueId === issue.id && !session.archived && !session.headless && session.agentKind !== 'shell'))!.id
+    const target = menu === 'issue' ? '.deck-header' : 'button.deck-agent'
+    const legacy = mount('full'); await settled()
+    fireEvent.contextMenu(legacy.container.querySelector(target)!, { clientX: 10, clientY: 20 }); await settled()
+    const expected = renderedOutput(screen.getByRole('menu'))
+    cleanup(); state.layer = 'pool'; resetMissionLegacyCounts(owner)
+    const baseline = missionIndexStats(), ownership = sessionOwnershipStats()
+    const current = mount('full'); await settled()
+    fireEvent.contextMenu(current.container.querySelector(target)!, { clientX: 10, clientY: 20 }); await settled()
+    expect(renderedOutput(screen.getByRole('menu'))).toEqual(expected)
+    expect(missionIndexStats()).toEqual(baseline); expect(sessionOwnershipStats()).toEqual(ownership)
+    expect(missionLegacyCountsFor(owner)).toEqual({})
   }, 120_000)
 
   it('preserves folded bar words, labels, tick order and layout', async () => {
