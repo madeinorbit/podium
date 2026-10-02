@@ -21,7 +21,9 @@ legacyUrl.searchParams.set('mobxSidebar', '0')
 history.replaceState(null, '', legacyUrl)
 await import('../test/pool-memory.browser')
 const memory = window.__memory
-while (!memory.ready()) await new Promise((done) => setTimeout(done, 25))
+const originalReady = memory.ready.bind(memory)
+memory.ready = () => false
+while (!originalReady()) await new Promise((done) => setTimeout(done, 25))
 history.replaceState(null, '', originalUrl)
 const originalState = memory.state.bind(memory)
 const originalOwners = memory.owners.bind(memory)
@@ -69,6 +71,7 @@ function fields(prefix: string, value: object, into: Record<string, object>) {
     if (field && typeof field === 'object') into[`${prefix}.${key}`] = field
 }
 Object.assign(memory, {
+  ready: () => true,
   mode: () => (requested === 'hand' ? 'legacy' : 'pool'),
   state: () => ({
     ...originalState(),
