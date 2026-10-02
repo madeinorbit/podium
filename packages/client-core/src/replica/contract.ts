@@ -226,6 +226,8 @@ export type ReplicaAddressedBatch =
   | { readonly type: 'update'; readonly rows: readonly { readonly kind: ReplicaKind; readonly id: string }[] }
 
 export interface Replica {
+  /** Web drops the compatibility issue kind. Omitted/false keeps it for mobile. */
+  readonly dropLegacyIssues?: boolean
   /** False when durable storage is unusable (private mode, quota). The replica
    *  still WORKS — the same collections, live queries, and outbox run over an
    *  in-memory storage adapter behind the same seam — it just forgets on

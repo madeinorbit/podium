@@ -124,6 +124,8 @@ export interface KernelCacheRead {
 }
 
 export interface KernelReplicaInit {
+  /** Defaults off for shared/mobile callers; web supplies its retention switch. */
+  readonly dropLegacyIssues?: boolean
   readonly cache: KernelCacheRead
   readonly side: SideCache
   /**
@@ -216,6 +218,7 @@ interface KindProjection {
 
 export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplica {
   const { cache, side } = init
+  const dropLegacyIssues = init.dropLegacyIssues ?? false
   const listeners = new Map<ReplicaKind, Set<() => void>>()
   const addressedListeners = new Set<(batch: ReplicaAddressedBatch) => void>()
   const pendingAddresses = new Map<ReplicaKind, Set<string>>()
@@ -326,6 +329,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
   }
 
   function project<K extends ReplicaKind>(kind: K): ReplicaRows[K][] {
+    if (dropLegacyIssues && kind === 'issues') return EMPTY as ReplicaRows[K][]
     let state = projected.get(kind)
     if (state === undefined) {
       buildMissingProjections()
@@ -358,7 +362,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       records = EMPTY
     }
     for (const record of records) {
-      const kind = kindForEntity(record.entity)
+      const kind = kindForEntity(record.entity, dropLegacyIssues)
       if (kind === undefined) continue
       const byId = building.get(kind)
       if (byId === undefined) continue
@@ -466,6 +470,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
   }
 
   const facade: KernelBackedReplica = {
+    dropLegacyIssues,
     get persistent(): boolean {
       try {
         return cache.durability() === 'durable'
@@ -554,6 +559,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     },
 
     row<K extends ReplicaKind>(kind: K, id: string): ReplicaRows[K] | undefined {
+      if (dropLegacyIssues && kind === 'issues') return undefined
       try {
         const value = cache.read(entityForKind(kind), id)?.value
         return value !== null && typeof value === 'object' ? (value as ReplicaRows[K]) : undefined
@@ -623,7 +629,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     onKernelEvent(event: ReplicaEvent): void {
       switch (event.type) {
         case 'upserted': {
-          const kind = kindForEntity(event.record.entity)
+          const kind = kindForEntity(event.record.entity, dropLegacyIssues)
           if (kind !== undefined) touchRow(kind, event.record.entityId)
           return
         }
@@ -639,7 +645,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
           // (POD-1510). Collapsing it HERE and preserving it THERE is the whole
           // arrangement — do not "fix" this case by branching, and do not read
           // this comment as licence to collapse the two anywhere else.
-          const kind = kindForEntity(event.entity)
+          const kind = kindForEntity(event.entity, dropLegacyIssues)
           if (kind !== undefined) touchRow(kind, event.entityId)
           return
         }

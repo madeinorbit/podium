@@ -67,7 +67,13 @@ const KIND_TO_ENTITY = Object.fromEntries(
 ) as Record<ReplicaKind, KernelEntity>
 
 /** `undefined` for an entity this read model does not render (D4 leniency). */
-export function kindForEntity(entity: string): ReplicaKind | undefined {
+/** The compatibility record still travels on the feed; web no longer retains it. */
+export function retainReplicaEntity(entity: string, dropLegacyIssues = false): boolean {
+  return !dropLegacyIssues || entity !== 'issue'
+}
+
+export function kindForEntity(entity: string, dropLegacyIssues = false): ReplicaKind | undefined {
+  if (!retainReplicaEntity(entity, dropLegacyIssues)) return undefined
   return (ENTITY_TO_KIND as Record<string, ReplicaKind | undefined>)[entity]
 }
 

@@ -33,6 +33,7 @@ import {
   FeedSink,
   preparePrincipalNamespace,
   parseReplicaNamespaceKey,
+  retainReplicaEntity,
 } from '@podium/client-core/replica'
 import type { FeedServerFrame, FeedSinkPort } from '@podium/client-core/socket-transport'
 import {
@@ -100,6 +101,8 @@ export interface KernelAssembly {
 }
 
 export interface OpenKernelAssemblyOptions {
+  /** Web no longer stores IssueWire. Set false and resync to roll back. */
+  readonly dropLegacyIssues?: boolean
   readonly trpc: Trpc
   readonly httpOrigin?: string
   readonly databaseName?: string
@@ -266,6 +269,7 @@ export async function openKernelAssembly(
   options: OpenKernelAssemblyOptions,
 ): Promise<KernelAssembly> {
   const { trpc } = options
+  const dropLegacyIssues = options.dropLegacyIssues ?? true
   const identity = parseReplicaNamespaceKey(options.principal)
   if (!identity) throw new Error('replica requires a server-authored boundary and member')
   const memberId = identity.memberId
@@ -274,6 +278,7 @@ export async function openKernelAssembly(
   const store = await IndexedDbSyncStore.open({
     factory: options.factory ?? (globalThis.indexedDB as unknown as IdbFactoryLike),
     databaseName,
+    retainEntity: (entity) => retainReplicaEntity(entity, dropLegacyIssues),
     onDegraded: (detail: unknown) => {
       // Recoverable corruption may cold-start in memory. An unavailable store
       // is captured here and rejected below; the supported private replica must
@@ -425,6 +430,7 @@ export async function openKernelAssembly(
     onDegraded: (error) => options.onDegraded?.(error),
   })
   const facade = createKernelReplica({
+    dropLegacyIssues,
     cache: view.cache,
     side,
     // POD-1510: the read model's answer to "was this row DELETED or did it leave

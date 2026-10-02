@@ -1,4 +1,4 @@
-import { IssueWire } from '@podium/model/browser'
+import { IssueProjection } from '@podium/model/browser'
 import { makeIssue } from './test-issue'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { asUserId } from '@podium/model'
@@ -95,7 +95,7 @@ describe('kernel replica cross-tab convergence', () => {
 
     const observer = second.createReplicaFn(asClientPrincipal(asUserId('alice'), 'installation-a'))
     const changed = vi.fn()
-    const unsubscribe = observer.subscribeRows('issues', changed)
+    const unsubscribe = observer.subscribeRows('issueProjections', changed)
 
     const frame = {
       type: 'feedDelta' as const,
@@ -107,7 +107,7 @@ describe('kernel replica cross-tab convergence', () => {
       changes: [
         {
           seq: 1,
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: 'issue-1',
           op: 'upsert' as const,
           value: { id: 'issue-1', title: 'from the first tab' },
@@ -116,7 +116,7 @@ describe('kernel replica cross-tab convergence', () => {
     }
     first.feed.frame(frame)
     await vi.waitFor(() => {
-      expect(observer.rows('issues')).toEqual([
+      expect(observer.rows('issueProjections')).toEqual([
         expect.objectContaining({ id: 'issue-1', title: 'from the first tab' }),
       ])
     })
@@ -151,10 +151,14 @@ describe('kernel replica cross-tab convergence', () => {
     const initiallyVisible = [
       {
         seq: 1,
-        entity: 'issue',
+        entity: 'issueProjection',
         entityId: 'revoked-issue',
         op: 'upsert' as const,
-        value: IssueWire.parse(makeIssue({ id: 'revoked-issue', title: 'visible before rescope' })),
+        value: IssueProjection.parse({
+          ...makeIssue({ id: 'revoked-issue', title: 'visible before rescope' }),
+          repoId: 'repo-a',
+          description: { value: '' },
+        }),
       },
     ]
     let requests = 0
@@ -175,14 +179,14 @@ describe('kernel replica cross-tab convergence', () => {
       asClientPrincipal(asUserId('alice'), 'installation-a'),
     )
     await vi.waitFor(() => {
-      expect(firstObserver.rows('issues')).toHaveLength(1)
-      expect(secondObserver.rows('issues')).toHaveLength(1)
+      expect(firstObserver.rows('issueProjections')).toHaveLength(1)
+      expect(secondObserver.rows('issueProjections')).toHaveLength(1)
       expect(first?.progress.getSnapshot().phase).toBe('ready')
       expect(second?.progress.getSnapshot().phase).toBe('ready')
     })
 
     const changed = vi.fn()
-    const unsubscribe = secondObserver.subscribeRows('issues', changed)
+    const unsubscribe = secondObserver.subscribeRows('issueProjections', changed)
     const frame = {
       type: 'feedRescope' as const,
       feedId: 'feed-1',
@@ -192,8 +196,8 @@ describe('kernel replica cross-tab convergence', () => {
     }
     first.feed.frame(frame)
     await vi.waitFor(() => {
-      expect(firstObserver.rows('issues')).toEqual([])
-      expect(secondObserver.rows('issues')).toEqual([])
+      expect(firstObserver.rows('issueProjections')).toEqual([])
+      expect(secondObserver.rows('issueProjections')).toEqual([])
       expect(requests).toBe(4)
     })
     await Promise.all([first.store.settled(), second.store.settled()])

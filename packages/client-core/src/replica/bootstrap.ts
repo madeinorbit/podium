@@ -48,6 +48,7 @@ import type { MetadataChangeLenient } from '@podium/protocol'
 import { isKnownMetadataChange } from '@podium/protocol'
 import type { FeedCursor } from './feed'
 import type { Replica, ReplicaKind, ReplicaRows } from './replica'
+import { retainReplicaEntity } from './kernel/kinds'
 
 /** Wire entity kind → replica collection kind. The feed says `session`, the
  *  replica says `sessions`; this is the only place the two vocabularies meet. */
@@ -114,6 +115,7 @@ export class BootstrapSession {
   ])
   /** Deltas that landed with `seq > snapshotSeq` while we streamed. */
   private readonly buffered: MetadataChangeLenient[] = []
+  private bufferedSeq = 0
   private done = false
 
   /** @param cursor the `(feedId, epoch, snapshotSeq)` the authority read at. */
@@ -149,7 +151,11 @@ export class BootstrapSession {
   bufferDelta(seq: number, changes: MetadataChangeLenient[]): boolean {
     if (this.done || seq <= this.cursor.seq) return false
     for (const change of changes) {
-      if (change.seq > this.cursor.seq) this.buffered.push(change)
+      if (change.seq <= this.cursor.seq) continue
+      this.bufferedSeq = Math.max(this.bufferedSeq, change.seq)
+      if (retainReplicaEntity(change.entity, this.replica.dropLegacyIssues)) {
+        this.buffered.push(change)
+      }
     }
     return true
   }
@@ -181,7 +187,7 @@ export class BootstrapSession {
       const sorted = [...this.buffered].sort((a, b) => a.seq - b.seq)
       const upserts = new Map<ReplicaKind, unknown[]>()
       const removes = new Map<ReplicaKind, string[]>()
-      let seq = this.cursor.seq
+      let seq = Math.max(this.cursor.seq, this.bufferedSeq)
       for (const change of sorted) {
         seq = Math.max(seq, change.seq)
         const kind = KIND_BY_ENTITY[change.entity]
@@ -218,6 +224,7 @@ export class BootstrapSession {
   }
 
   private stage(change: MetadataChangeLenient): void {
+    if (!retainReplicaEntity(change.entity, this.replica.dropLegacyIssues)) return
     const kind = KIND_BY_ENTITY[change.entity]
     // An unknown entity kind from a newer authority: ignore the row, keep the
     // bootstrap (D4's additive rule — a new kind must not quarantine an older

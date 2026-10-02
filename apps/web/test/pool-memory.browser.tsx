@@ -12,6 +12,8 @@ import {
   createKernelReplica,
   createSideCache,
   replicaNamespaceKey,
+  retainReplicaEntity,
+  allIssueViewModels,
 } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import { asUserId } from '@podium/model/browser'
@@ -39,8 +41,10 @@ import '../src/styles.css'
 
 const params = new URLSearchParams(location.search)
 const scale = Number(params.get('scale') ?? 1) as 1 | 4
-let corpus: ReturnType<typeof buildCorpus> | null =
-  params.get('cell') === 'h10a1'
+const dropLegacyIssues = params.get('dropLegacyIssues') === '1'
+let corpus: ReturnType<typeof buildCorpus> | null = params.has('operator')
+  ? ((await (await fetch('/operator-input.json')).json()) as ReturnType<typeof buildCorpus>)
+  : params.get('cell') === 'h10a1'
     ? buildCorpusCell({ history: 10, active: 1 }, 4443)
     : buildCorpus(scale, 4443)
 const errors: string[] = []
@@ -89,6 +93,7 @@ let seedRecords: ReturnType<ReturnType<typeof seedCacheFromCorpus>['readEntities
 const database = await IndexedDbSyncStore.open({
   factory: indexedDB as unknown as Parameters<typeof IndexedDbSyncStore.open>[0]['factory'],
   databaseName: 'pool-memory-synthetic',
+  retainEntity: (entity) => retainReplicaEntity(entity, dropLegacyIssues),
   onDegraded: (reason) => errors.push(`Synthetic IndexedDB degraded: ${String(reason)}`),
 })
 let owner: ClientRuntime | undefined
@@ -102,6 +107,7 @@ async function assemble(name: string) {
   view.cache.installSnapshot(seedRecords!, { feedId: 'synthetic-fixture', epoch: '1', seq: 1 }, [])
   await database.settled()
   const replica = createKernelReplica({
+    dropLegacyIssues,
     cache: view.cache,
     side: createSideCache({
       storage: localStorage,
@@ -206,6 +212,8 @@ const memory = {
   state: () => ({
     issues: owner?.getSnapshot().issues.length,
     sessions: owner?.getSnapshot().sessions.length,
+    projections: owner?.getSnapshot().issueProjections.length,
+    oldRecords: assembly.view.cache.readEntities().filter((row) => row.entity === 'issue').length,
     pool: graph !== null,
     rows: graph
       ? Object.fromEntries(
@@ -213,6 +221,21 @@ const memory = {
         )
       : null,
   }),
+  /** Only hashes leave the page; operator payloads stay on ludovico. */
+  async fingerprint() {
+    const bytes = new TextEncoder().encode(
+      JSON.stringify({
+        models: allIssueViewModels(assembly.replica),
+        sidebar: document.querySelector('[data-sidebar-shell]')?.textContent,
+        visible: [...document.querySelectorAll('[data-issue-row]')].map((row) =>
+          row.getAttribute('data-issue-row'),
+        ),
+      }),
+    )
+    return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('')
+  },
   /** Ids of the synthetic issue and session rows, read once before capture. */
   ids: () => ({
     issue: (owner!.getSnapshot().issueProjections as { id: string }[]).map((row) => row.id),
