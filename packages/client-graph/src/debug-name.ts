@@ -2,8 +2,8 @@
  * startup, before any pool is built, and never interpolate a disabled name. */
 declare global {
   interface ImportMetaEnv {
-    readonly DEV: boolean
-    readonly MODE: string
+    DEV: boolean
+    MODE: string
   }
   interface ImportMeta { readonly env: ImportMetaEnv }
 }
