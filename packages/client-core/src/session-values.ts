@@ -89,7 +89,7 @@ export function inheritSessionHomes<T extends object>(source: object, target: T)
   return target
 }
 
-/** A borrowed row with computed cells, not another copy of the session record.
+/** One frozen shallow read view per row and companion identity.
  * Personal companions include the optimistic paint before this join. */
 export function sessionView<T extends SessionValueInput>(
   session: T,
@@ -119,25 +119,12 @@ export function sessionView<T extends SessionValueInput>(
   }
   if (memo.value) return memo.value as T & SessionValues
   const values = sessionValues(session, homes)
-  const read = (key: PropertyKey): unknown =>
-    Object.hasOwn(values, key) ? Reflect.get(values, key) : Reflect.get(session, key)
-  const reject = (): never => {
-    throw new TypeError('A session read view is read-only')
-  }
-  memo.value = new Proxy({} as T, {
-    get: (_target, key) => read(key),
-    has: (_target, key) => Object.hasOwn(values, key) || Reflect.has(session, key),
-    ownKeys: () => [...new Set([...Reflect.ownKeys(session), ...Object.keys(values)])],
-    getOwnPropertyDescriptor: (_target, key) =>
-      Object.hasOwn(values, key) || Object.hasOwn(session, key)
-        ? { configurable: true, enumerable: true, get: () => read(key) }
-        : undefined,
-    getPrototypeOf: () => Reflect.getPrototypeOf(session),
-    set: reject,
-    deleteProperty: reject,
-    defineProperty: reject,
-    setPrototypeOf: reject,
-  })
+  // Reads stay ordinary data-property reads; unchanged inputs reuse this copy.
+  // Spread before restoring the prototype so inherited setters cannot intercept
+  // the copied cells. Preserve null prototypes as well as custom prototypes.
+  memo.value = Object.freeze(
+    Object.setPrototypeOf({ ...session, ...values }, Object.getPrototypeOf(session)),
+  )
   viewInputs.set(memo.value, { session, homes })
   return memo.value as T & SessionValues
 }

@@ -2,7 +2,7 @@ import { asSessionId, isSnoozed, returnedFromSnooze } from '@podium/model'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { foldOverlays, foldRowOverlays } from './engine/overlay'
-import { type SessionHomes, sessionValues, sessionView, sessionViews } from './session-values'
+import { type SessionHomes, inheritSessionHomes, sessionValues, sessionView, sessionViews } from './session-values'
 
 const active = '2026-10-01T12:00:00.000Z'
 const earlier = '2026-10-01T11:00:00.000Z'
@@ -151,6 +151,38 @@ describe('session values from their new homes', () => {
       condition: undefined,
     })
   })
+  it('memoizes by the row and each home, rather than the homes wrapper', () => {
+    const view = sessionView(legacy, homes)
+    expect(sessionView(legacy, { ...homes })).toBe(view)
+    expect(sessionView(view)).toBe(view)
+    expect(sessionView({ ...legacy }, homes)).not.toBe(view)
+    for (const changed of [
+      { ...homes, userState: { ...homes.userState! } },
+      { ...homes, repo: { ...homes.repo! } },
+      { ...homes, machine: { ...homes.machine! } },
+      { ...homes, handoffMachine: { ...homes.handoffMachine! } },
+    ]) {
+      expect(sessionView(legacy, changed)).not.toBe(view)
+      expect(sessionView(legacy, changed)).toBe(sessionView(legacy, { ...changed }))
+    }
+    // Loaded status matters only while the personal row is missing.
+    expect(sessionView(legacy, { ...homes, userStatesLoaded: false })).toBe(view)
+  })
+  it('inherits authoritative homes when a view is copied for an own-field edit', () => {
+    const view = sessionView(legacy, homes)
+    const copy = inheritSessionHomes(view, { ...view, title: 'Pending rename' })
+    expect(sessionView(copy)).toMatchObject({
+      title: 'Pending rename', displayRef: 'NEW-42-B', machineName: 'Source',
+      handoffTarget: 'Destination', readAt: active, unread: false,
+    })
+    expect(sessionValues(copy)).toEqual(sessionValues(view))
+    expect(sessionView(copy, { userState: { readAt: null } })).toMatchObject({
+      title: 'Pending rename', displayRef: 'NEW-42-B', machineName: 'Source',
+      handoffTarget: 'Destination', readAt: null, unread: true,
+    })
+    expect(sessionView(copy)).toBe(sessionView(copy))
+    expect(copy).not.toBe(view)
+  })
   it('keeps normalized labels and machine condition when optimism replaces only the personal home', () => {
     const loaded = sessionView(legacy, {
       ...homes,
@@ -200,11 +232,47 @@ describe('session values from their new homes', () => {
     }
     expect(foldOverlays([loaded], [], row => row.sessionId).rows[0]).toBe(loaded)
   })
-  it('borrows frozen cached rows without allowing writes through the view', () => {
-    const raw = Object.freeze({ ...legacy })
+  it('preserves prototype membership, own keys and copies with authoritative undefined cells', () => {
+    const symbol = Symbol('session annotation')
+    const prototype = { inherited: 'from prototype' }
+    const raw = Object.setPrototypeOf({ ...legacy, title: 'Session title', [symbol]: 'annotation' }, prototype)
+    const view = sessionView(raw, homes)
+    expect(Object.getPrototypeOf(view)).toBe(prototype)
+    expect('inherited' in view).toBe(true)
+    expect(Object.hasOwn(view, 'inherited')).toBe(false)
+    expect(Reflect.get(view, 'inherited')).toBe('from prototype')
+    expect(Reflect.ownKeys(view)).toEqual([...new Set([...Reflect.ownKeys(raw), ...Object.keys(sessionValues(raw, homes))])])
+    expect({ ...view }).toMatchObject({ title: 'Session title', displayRef: 'NEW-42-B', [symbol]: 'annotation' })
+    expect(Object.assign({}, view)).toEqual({ ...raw, ...sessionValues(raw, homes) })
+    expect(Object.hasOwn(view, 'condition')).toBe(true)
+    expect('condition' in view).toBe(true)
+    expect(Object.getOwnPropertyDescriptor(view, 'condition')).toEqual({
+      value: undefined, writable: false, enumerable: true, configurable: false,
+    })
+    const nullPrototype = Object.setPrototypeOf({ ...legacy }, null)
+    expect(Object.getPrototypeOf(sessionView(nullPrototype, homes))).toBeNull()
+    expect(Object.hasOwn(sessionView(nullPrototype, homes), 'sessionId')).toBe(true)
+  })
+  it('freezes cached read views without freezing or copying their nested wire facts', () => {
+    const geometry = { cols: 80, rows: 24 }
+    const raw = Object.freeze({ ...legacy, geometry })
     const view = sessionView(raw, homes)
     expect(view.displayRef).toBe('NEW-42-B')
-    expect(() => Reflect.set(view, 'displayRef', 'CHANGED')).toThrow(/read-only/)
+    expect(Object.isFrozen(view)).toBe(true)
+    expect(view.geometry).toBe(geometry)
+    expect(Object.isFrozen(geometry)).toBe(false)
+    expect(() => { view.displayRef = 'CHANGED' }).toThrow(TypeError)
+    expect(() => { Object.assign(view, { title: 'CHANGED' }) }).toThrow(TypeError)
+    expect(() => { delete view.displayRef }).toThrow(TypeError)
+    expect(() => Object.defineProperty(view, 'displayRef', { value: 'CHANGED' })).toThrow(TypeError)
+    expect(() => Object.setPrototypeOf(view, {})).toThrow(TypeError)
+    // Native frozen-object reflection rejects mutations with false.
+    expect(Reflect.set(view, 'displayRef', 'CHANGED')).toBe(false)
+    expect(Reflect.set(view, 'newField', 'CHANGED')).toBe(false)
+    expect(Reflect.deleteProperty(view, 'displayRef')).toBe(false)
+    expect(Reflect.defineProperty(view, 'displayRef', { value: 'CHANGED' })).toBe(false)
+    expect(Reflect.setPrototypeOf(view, {})).toBe(false)
     expect(raw.displayRef).toBe('OLD-42-B')
+    expect(view.displayRef).toBe('NEW-42-B')
   })
 })
