@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { parseMeminfo, sampleHostDisk, sampleHostLoad, sampleHostMemory } from './host-metrics'
+import { describe, expect, it, vi } from 'vitest'
+import { createHostDiskSampler, parseMeminfo, sampleHostDisk, sampleHostLoad, sampleHostMemory } from './host-metrics'
 
 const MEMINFO = `MemTotal:       24608580 kB
 MemFree:         1360324 kB
@@ -82,5 +82,33 @@ describe('sampleHostDisk', () => {
     if (!d) return
     expect(d.path).toBe('/')
     expect(d.totalBytes).toBeGreaterThan(0)
+  })
+})
+
+describe('heartbeat disk sampling budget', () => {
+  it('reuses one reading across heartbeats and refreshes it after a minute', () => {
+    let now = 0
+    const first = { path: '/synthetic', totalBytes: 100, usedBytes: 54, availableBytes: 36 }
+    const second = { ...first, usedBytes: 63, availableBytes: 27 }
+    const sample = vi.fn().mockReturnValueOnce(first).mockReturnValue(second)
+    const read = createHostDiskSampler(sample, () => now)
+    expect(read()).toBe(first)
+    for (now = 5_000; now < 60_000; now += 5_000) expect(read()).toBe(first)
+    expect(sample).toHaveBeenCalledTimes(1)
+    expect(read()).toBe(second)
+    expect(sample).toHaveBeenCalledTimes(2)
+  })
+
+  it('caches an unavailable sample and retries after a minute', () => {
+    let now = 0
+    const sample = vi.fn(() => undefined)
+    const read = createHostDiskSampler(sample, () => now)
+    expect(read()).toBeUndefined()
+    now = 59_999
+    expect(read()).toBeUndefined()
+    expect(sample).toHaveBeenCalledTimes(1)
+    now = 60_000
+    expect(read()).toBeUndefined()
+    expect(sample).toHaveBeenCalledTimes(2)
   })
 })

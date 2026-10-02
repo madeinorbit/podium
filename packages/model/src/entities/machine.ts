@@ -183,6 +183,9 @@ export const HostMetricsWire = z.object({
   memory: HostMemoryWire,
   /** Kernel load averages + core count. Optional for mixed-version fleets. */
   load: HostLoadWire.optional(),
+  /** Volume capacity, sampled at most once a minute. Absent on older daemons
+   * or when the filesystem cannot be measured; never an empty-disk reading. */
+  disk: HostDiskWire.optional(),
   /** Protected/ineligible idle-live sessions above the convergence target.
    *  ON THE §3.1.2 OPEN BOUNDARY: this is a session COUNT, and whether counts
    *  are an existence leak is deliberately undecided. Marked `SEE` because it is

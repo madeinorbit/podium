@@ -3039,6 +3039,9 @@ describe('daemon host metrics', () => {
       expect(m?.memory.totalBytes).toBeGreaterThan(0)
       expect(m?.memory.availableBytes).toBeLessThanOrEqual(m?.memory.totalBytes ?? 0)
       expect(Number.isNaN(Date.parse(m?.sampledAt ?? ''))).toBe(false)
+      expect(m?.disk?.totalBytes).toBeGreaterThan(0)
+      expect(m?.disk?.path).toBeTruthy()
+      expect(metrics()[1]?.disk).toEqual(m?.disk)
     } finally {
       await daemon.close()
       await new Promise<void>((r) => wss.close(() => r()))

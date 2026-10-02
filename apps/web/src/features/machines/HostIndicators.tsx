@@ -8,6 +8,7 @@ import { shallowEqual } from '@podium/client-core/store'
 import {
   createHostSessionAggregatesSelector,
   hostAgentsViewFromCounts,
+  hostDiskView,
   hostLoadView,
   hostMemoryView,
   listReclaimableWorktreesClient,
@@ -365,6 +366,7 @@ interface MachineChipProps {
 const HeaderMachineChip = memo(function HeaderMachineChip({ host, machine, aggregate, lifecycle, serverAppVersion, healthStatus, reclaimCount, onInfo }: MachineChipProps): JSX.Element {
 
         const memory = hostMemoryView(host)
+        const disk = host.disk ? hostDiskView(host.disk) : null
         const load = hostLoadView(host, lifecycle?.hibernation.loadPerCore ?? null)
         // A renamed machine should read by its chosen name everywhere, and this
         // chip was the one surface still showing the raw telemetry hostname.
@@ -381,6 +383,7 @@ const HeaderMachineChip = memo(function HeaderMachineChip({ host, machine, aggre
         )
         const memTone = SEVERITY[memory.severity]
         const loadTone = SEVERITY[load.severity]
+        const diskTone = disk ? SEVERITY[disk.severity] : null
         const agentTone = SEVERITY[agents.severity]
         const needsUpdate = machine != null && machineNeedsUpdate(machine, serverAppVersion)
         const updateTargetVersion =
@@ -399,6 +402,7 @@ const HeaderMachineChip = memo(function HeaderMachineChip({ host, machine, aggre
           machineOffline ? 'offline' : null,
           memory.title,
           load.title,
+          disk?.title ?? 'disk usage unavailable',
           agentTitleParts.join(' — '),
           reclaimablePast ? `${reclaimCount} reclaimable worktrees` : null,
         ]
@@ -451,30 +455,41 @@ const HeaderMachineChip = memo(function HeaderMachineChip({ host, machine, aggre
                   />
                 )}
                 <span className="header-machine-meters">
-                <span className="header-readout">
-                  <span className="header-mark">MEM</span>
-                  <span className="header-meter" role="presentation">
-                    <span
-                      className={cn('block h-full', memTone.fill)}
-                      style={{ width: `${memory.pct}%` }}
-                    />
+                  <span className="header-readout">
+                    <span className="header-mark">MEM</span>
+                    <span className="header-meter" role="presentation">
+                      <span
+                        className={cn('block h-full', memTone.fill)}
+                        style={{ width: `${memory.pct}%` }}
+                      />
+                    </span>
+                    <span className="header-value" data-tone={TONE_KEY[memory.severity]}>
+                      {memory.pct}%
+                    </span>
                   </span>
-                  <span className="header-value" data-tone={TONE_KEY[memory.severity]}>
-                    {memory.pct}%
+                  <span className="header-readout">
+                    <span className="header-mark">LOAD</span>
+                    <span className="header-meter" role="presentation">
+                      <span
+                        className={cn('block h-full', loadTone.fill)}
+                        style={{ width: `${load.meterPct}%` }}
+                      />
+                    </span>
+                    <span className="header-value" data-tone={TONE_KEY[load.severity]}>
+                      {load.label}
+                    </span>
                   </span>
-                </span>
-                <span className="header-readout">
-                  <span className="header-mark">LOAD</span>
-                  <span className="header-meter" role="presentation">
-                    <span
-                      className={cn('block h-full', loadTone.fill)}
-                      style={{ width: `${load.meterPct}%` }}
-                    />
+                  <span className="header-readout">
+                    <span className="header-mark">DISK</span>
+                    <span className="header-meter" role="presentation">
+                      {disk && diskTone && (
+                        <span className={cn('block h-full', diskTone.fill)} style={{ width: `${disk.pct}%` }} />
+                      )}
+                    </span>
+                    <span className="header-value" data-tone={disk ? TONE_KEY[disk.severity] : undefined}>
+                      {disk ? `${disk.pct}%` : 'N/A'}
+                    </span>
                   </span>
-                  <span className="header-value" data-tone={TONE_KEY[load.severity]}>
-                    {load.label}
-                  </span>
-                </span>
                 </span>
                 <span className="header-readout header-agent-readout">
                   <span className="header-mark">AGT</span>

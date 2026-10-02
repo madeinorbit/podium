@@ -130,7 +130,7 @@ import {
   type HeadlessRuntime,
   startHookIngest,
 } from '@podium/harness/driver/host'
-import { sampleHostLoad, sampleHostMemory } from './host-metrics'
+import { createHostDiskSampler, sampleHostLoad, sampleHostMemory } from './host-metrics'
 import { loadIdentity } from './identity'
 import type { DaemonInstanceBootstrap } from './instance-bootstrap'
 import { dumpLoopTotals, reportLongTick, startLoopAttribution } from './loop-attribution'
@@ -1563,6 +1563,7 @@ export async function createDaemonHostRuntime(args: {
   let stopInventoryRefresh: (() => void) | undefined
   let kickedOff = false
   let disposed = false
+  const hostDiskSample = createHostDiskSampler()
   const pushHostMetrics = (): void => {
     void reapBindings().catch((err) => log.warn('quarantined binding cleanup failed', { err }))
     const sessionsMemory = scopeMonitor.sessionsMemory()
@@ -1581,6 +1582,7 @@ export async function createDaemonHostRuntime(args: {
       sampledAt: new Date().toISOString(),
       memory: sampleHostMemory(),
       load: sampleHostLoad(),
+      disk: hostDiskSample(),
       // What this machine can give back WITHOUT parking a session (spec §5).
       // Always sent, including as 0 — which the server treats exactly as an
       // absent field, since both mean "nothing here to reclaim first". A

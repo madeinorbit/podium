@@ -93,3 +93,21 @@ export function sampleHostDisk(path: string = homedir()): HostDiskWire | undefin
   }
   return undefined
 }
+
+/** One filesystem sample per minute, reused by the five-second heartbeat.
+ * Cache absent samples too, so an unsupported filesystem stays cheap. */
+export function createHostDiskSampler(
+  sample: () => HostDiskWire | undefined = sampleHostDisk,
+  now: () => number = Date.now,
+): () => HostDiskWire | undefined {
+  let sampledAt = Number.NEGATIVE_INFINITY
+  let disk: HostDiskWire | undefined
+  return () => {
+    const at = now()
+    if (at < sampledAt || at - sampledAt >= 60_000) {
+      disk = sample()
+      sampledAt = at
+    }
+    return disk
+  }
+}

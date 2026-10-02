@@ -50,6 +50,7 @@ export function createHeaderFixture(count: number, sessionCount = count) {
   function publishMetrics(step: number) {
     metrics = machineIds.map((machineId, index) => ({ machineId, hostname: `host-${index}`,
       sampledAt: new Date(now + (index === 0 ? step * 5000 : 0)).toISOString(),
+      disk: { path: '/synthetic/home', totalBytes: 100e9, usedBytes: 54e9 + index * 9e9, availableBytes: 36e9 - index * 9e9 },
       memory: { totalBytes: 16e9, availableBytes: index === 0 ? 8e9 + (step % 5) * 1e8 : 8e9, swapTotalBytes: 0, swapFreeBytes: 0 },
       load: { one: 0.3 + (index === 0 ? (step % 5) / 10 : 0), five: 0.3, fifteen: 0.2, cpuCount: 4 } }))
     deliver('hostMetrics', metrics)
