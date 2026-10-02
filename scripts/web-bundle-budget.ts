@@ -581,9 +581,16 @@ if (checkBudget) {
   //     gzip             520,000       541,812         560,000            18,188
   //     Brotli           447,000       465,996         482,000            16,004
   //     source         7,000,000     7,206,316       7,450,000           243,684
-  atMost('eager raw bytes', report.eager.raw, 1_740_000)
-  atMost('eager gzip bytes', report.eager.gzip, 560_000)
-  atMost('eager Brotli bytes', report.eager.brotli, 482_000)
+  // TEMPORARY FOLLOW-UP (2026-10-03, operator decision relayed by POD-4286).
+  // The shared accounts candidate, after deduping @trpc/client, measured raw
+  // 1,764,205, gzip 568,677, Brotli 488,775, source 7,370,231. Its unchanged
+  // 0ca7bae9cd base with the same dedupe already exceeds the payload limits:
+  // 1,751,033 / 565,680 / 485,521. The raise admits the accounts layer with
+  // 35,795 / 16,323 / 11,225 bytes of payload headroom; source stays 7,450,000.
+  // POD-5240 still owns restoring all four original limits after pool paydown.
+  atMost('eager raw bytes', report.eager.raw, 1_800_000)
+  atMost('eager gzip bytes', report.eager.gzip, 585_000)
+  atMost('eager Brotli bytes', report.eager.brotli, 500_000)
   // 7_400_000 → 7_450_000 (2026-08-14) → 7_500_000 (2026-08-15) → 7_650_000
   // (2026-08-16; see the measured split above) → 7_700_000 (2026-08-17, on the
   // release line; the first 0.1.0 edge build measured 7,689,167 while every
