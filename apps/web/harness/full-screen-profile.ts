@@ -137,7 +137,32 @@ export async function saveComponentLocations(page: Page, cdp: CDPSession, path: 
       if (!location) throw new Error(`Missing component FunctionLocation ${id}`)
       const name = properties.result.find((entry) => entry.name === 'displayName')?.value?.value ??
         properties.result.find((entry) => entry.name === 'name')?.value?.value
-      components.push({ id, name, ...location, ...scripts.get(location.scriptId) })
+      // Minification can erase an observer wrapper's name. Its closure keeps
+      // the original render function; capture only function coordinates (no
+      // scope values), after all timed samples, for unambiguous source mapping.
+      const wrappedFunctions = []
+      const scopesId = properties.internalProperties?.find(entry => entry.name === '[[Scopes]]')?.value?.objectId
+      if (scopesId) {
+        const scopes = await cdp.send('Runtime.getProperties', { objectId: scopesId })
+        const closures = scopes.result.filter(entry => entry.value?.description?.startsWith('Closure')).slice(0, 2)
+        const seen = new Set<string>()
+        for (const closure of closures) {
+          if (!closure.value?.objectId) continue
+          const variables = await cdp.send('Runtime.getProperties', { objectId: closure.value.objectId })
+          for (const variable of variables.result) {
+            if (variable.value?.type !== 'function' || !variable.value.objectId) continue
+            const fields = await cdp.send('Runtime.getProperties', { objectId: variable.value.objectId })
+            const original = fields.internalProperties?.find(entry => entry.name === '[[FunctionLocation]]')?.value?.value as typeof location
+            if (!original || (original.scriptId === location.scriptId && original.lineNumber === location.lineNumber && original.columnNumber === location.columnNumber)) continue
+            const key = `${original.scriptId}:${original.lineNumber}:${original.columnNumber}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            wrappedFunctions.push({ name: fields.result.find(entry => entry.name === 'name')?.value?.value ?? '', scopeVariable: variable.name,
+              ...original, url: scripts.get(original.scriptId)?.url ?? '' })
+          }
+        }
+      }
+      components.push({ id, name, ...location, ...scripts.get(location.scriptId), wrappedFunctions })
     }
     await writeFile(path, JSON.stringify(components, null, 2) + '\n')
   } finally {

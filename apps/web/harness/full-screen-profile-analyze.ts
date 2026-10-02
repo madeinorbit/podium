@@ -19,6 +19,7 @@ type Source = { ast: ts.SourceFile; functions: { start: number; entryStart: numb
 const arg = (name: string, fallback: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback
 const root = resolve('.artifacts/full-screen-click-profile')
 const directory = resolve(root, 'profiles', arg('profile', 'all'))
+const buildDirectory = resolve(arg('build-dir', resolve(root, 'build')))
 const read = async <T>(path: string): Promise<T> => JSON.parse(await readFile(path, 'utf8'))
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
@@ -86,13 +87,13 @@ class Maps {
     const name = url.split('/').pop()!
     if (!name.endsWith('.js') || this.maps.has(name)) return
     let map: SourceMap
-    try { map = await read<SourceMap>(resolve(root, 'build/assets', name + '.map')) }
+    try { map = await read<SourceMap>(resolve(buildDirectory, 'assets', name + '.map')) }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       // Rolldown's tiny generated interop/preload helpers have no original map.
       // Keep their generated coordinates, explicitly labelled, rather than
       // fabricating an application source location or dropping their samples.
-      const code = await readFile(resolve(root, 'build/assets', name), 'utf8')
+      const code = await readFile(resolve(buildDirectory, 'assets', name), 'utf8')
       this.source(`generated/assets/${name}`, code)
       this.generatedAssets.push(name)
       this.maps.set(name, null)
@@ -193,25 +194,39 @@ function bucket(chain: { frame: Frame; source: Location | null }[]) {
 const manifest = await read<{ sourceSha: string; records: string[]; repetitions: number }>(resolve(directory, 'manifest.json'))
 const maps = new Maps()
 const raw = []
-const generatedNames = new Map<string, Location>()
+const generatedNames = new Map<string, Location | null>()
 for (const file of manifest.records) {
   const profile = await read<Cpu>(resolve(directory, file + '.cpuprofile'))
   for (const node of profile.nodes) if (node.callFrame.url.endsWith('.js')) await maps.prepare(node.callFrame.url)
   for (const node of profile.nodes) {
     const source = maps.locate(node.callFrame)
-    if (source && !source.file.includes('mobx-react-lite') && source.name !== node.callFrame.functionName)
-      generatedNames.set(`${node.callFrame.url}|${node.callFrame.functionName}`, source)
+    if (source && node.callFrame.functionName && !source.file.includes('mobx-react-lite') && source.name !== node.callFrame.functionName) {
+      const key = `${node.callFrame.url}|${node.callFrame.functionName}`
+      const previous = generatedNames.get(key)
+      generatedNames.set(key, previous === null || (previous &&
+        (previous.file !== source.file || previous.line !== source.line)) ? null : source)
+    }
   }
   raw.push({ file, profile })
 }
 const components: Record<number, Map<number, Location & { runtimeName: string }>> = {}
 for (const pilot of [0, 1]) {
-  const entries = await read<(Frame & { id: number; name: string })[]>(resolve(directory, `components-pilot-${pilot ? 'on' : 'off'}.json`))
+  const entries = await read<(Frame & { id: number; name: string; wrappedFunctions?: (Omit<Frame, 'functionName'> & { name: string })[] })[]>(resolve(directory, `components-pilot-${pilot ? 'on' : 'off'}.json`))
   components[pilot] = new Map()
   for (const entry of entries) {
     await maps.prepare(entry.url)
     let source = maps.locate({ ...entry, functionName: entry.name })
-    if (source?.file.includes('mobx-react-lite')) source = generatedNames.get(`${entry.url}|${entry.name}`) ?? source
+    if (source?.file.includes('mobx-react-lite')) {
+      const originals = new Map<string, Location>()
+      for (const original of entry.wrappedFunctions ?? []) {
+        await maps.prepare(original.url)
+        const mapped = maps.locate({ ...original, functionName: original.name })
+        if (mapped?.file.startsWith('apps/') || mapped?.file.startsWith('packages/'))
+          originals.set(`${mapped.file}:${mapped.line}`, mapped)
+      }
+      source = originals.size === 1 ? [...originals.values()][0]!
+        : (entry.name ? generatedNames.get(`${entry.url}|${entry.name}`) : null) ?? source
+    }
     if (!source) throw new Error(`Unmapped component ${entry.id}: ${entry.name}`)
     components[pilot]!.set(entry.id, { ...source, runtimeName: entry.name })
   }

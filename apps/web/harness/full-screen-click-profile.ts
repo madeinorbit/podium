@@ -319,6 +319,7 @@ async function main() {
         iteration: sampleIndex, trigger, expected, paint: result, boundary,
         react, stateBefore, stateAfter: await page.evaluate(() => window.__acceptance.state()),
         loadavg: loadavg(),
+        clockSync: { wallMs: Date.now(), monotonicUs: Number(process.hrtime.bigint() / 1000n) },
       }
       await saveRecording(profileDir, file, profile, events, record)
       profileRecords.push(record)
