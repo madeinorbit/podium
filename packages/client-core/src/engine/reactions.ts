@@ -231,34 +231,41 @@ export class Reactions {
    * follow the selection so the tab lives on the new workspace instead of
    * lingering as a ghost on the origin strip.
    */
-  sessionIssueFollow(): void {
+  sessionIssueFollow(): boolean {
     const st = this.ports.state()
     const prev = this.prevIssueIds
-    this.prevIssueIds = Object.fromEntries(
+    const next = Object.fromEntries(
       st.sessions.map((session) => [session.sessionId, session.issueId ?? '']),
     )
-    if (Object.keys(prev).length === 0) return
+    // Legacy delivery stays synchronous. A cold pool destination must keep
+    // the previous owner until it can move the active tab without a fallback.
+    if (!st.navigation) this.prevIssueIds = next
+    const finish = () => { this.prevIssueIds = next; return true }
+    if (Object.keys(prev).length === 0) return finish()
     const focused = focusedPaneSession(st)
-    if (!focused) return
-    const session = navigationSession(st, focused)
+    if (!focused) return finish()
+    const session = st.navigation ? st.navigation.session(focused) : navigationSession(st, focused)
+    if (session === NAVIGATION_LOADING) return false
     const after = session?.issueId
     const before = prev[focused]
-    if (!after || before === undefined || before === after || before === '') return
+    if (!after || before === undefined || before === after || before === '') return finish()
     if (st.selectedIssueId !== before && st.selectedIssueId !== null) {
       // Looking at a different task — do not yank the operator to the new home.
       // The origin workspace still drops the tab in pruneWorkspaces.
-      return
+      return finish()
     }
     const nextState = { ...st, selectedIssueId: after }
     const key = resolvedWorkspaceKey(nextState)
-    if (key === NAVIGATION_LOADING) return
+    if (key === NAVIGATION_LOADING) return false
     const nextLayout = openTab(st.workspaces[key] ?? emptyWorkspace(key), focused, {
       permanent: true,
     })
+    finish()
     this.ports.publish({
       selectedIssueId: after,
       ...workspaceWritePatch(st, key, nextLayout),
     })
+    return true
   }
 
   /** When a session the user is LOOKING AT (in a visible pane) moves out of the

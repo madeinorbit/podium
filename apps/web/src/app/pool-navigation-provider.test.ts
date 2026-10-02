@@ -7,7 +7,7 @@ import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { asIssueId } from '@podium/model/browser'
 import { computed } from '@podium/client-graph/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { startScenarioEngine } from '../../../../packages/worklist-proto/shared/src/scenarios'
+import { startScenarioEngine, upsert } from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { createPoolNavigationProvider } from './pool-navigation-provider'
 import { panePoolScreen } from './pane-pool-screen'
 import { preparePoolScreens, screenOptions } from './pool-screen-registry'
@@ -176,6 +176,34 @@ describe('web pool navigation', () => {
       runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
       expect(runtime.getSnapshot().issueVisitBaseline?.issueId).toBe(target)
     } finally { detach(); handle.dispose(); runtime.destroy() }
+  })
+
+  it('follows a session rehome after pool delivery and preserves the active tab', async () => {
+    for (const enabled of [false, true]) {
+      const ctx = await startScenarioEngine(1, { ownRows: true })
+      const runtime = ctx.engine
+      const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
+      const handle = enabled ? createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES }) : undefined
+      try {
+        if (handle) runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
+        const st = runtime.getSnapshot()
+        const seat = st.sessions.find(row => !row.archived && row.issueId &&
+          st.issueProjections.some(issue => issue.id === row.issueId && !issue.archived && !issue.deletedAt))!
+        const sourceKey = workspaceKeyForState({ ...st, selectedIssueId: seat.issueId! })
+        const target = st.issueProjections.find(issue => !issue.archived && !issue.deletedAt &&
+          workspaceKeyForState({ ...st, selectedIssueId: issue.id }) !== sourceKey)!
+        runtime.getSnapshot().navigateToSession(seat.sessionId)
+        await vi.waitFor(() => expect(runtime.getSnapshot().paneA).toBe(seat.sessionId))
+        navigationStats.enable(); navigationStats.reset()
+        const raw = ctx.cache.read('session', seat.sessionId)!.value as object
+        upsert(ctx, 'session', seat.sessionId, { ...raw, issueId: target.id })
+        await vi.waitFor(() => expect(runtime.getSnapshot().selectedIssueId).toBe(target.id))
+        expect(runtime.getSnapshot().paneA).toBe(seat.sessionId)
+        expect(runtime.router.current().pane).toBe(seat.sessionId)
+        expect(Object.values(runtime.getSnapshot().workspaces[sourceKey]?.panes ?? {}).flatMap(pane => pane.tabs)).not.toContain(seat.sessionId)
+        if (enabled) expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
+      } finally { runtime.setNavigationProvider(loadingNavigationProvider); handle?.dispose(); runtime.destroy() }
+    }
   })
 
   it('matches navigation plans for every issue in the operator-sized synthetic corpus', async () => {

@@ -104,4 +104,31 @@ describe('navigation with an injected pool provider', () => {
       expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
     } finally { reactions.dispose() }
   })
+
+  it('keeps a rehome pending until its pool mission root is loaded', () => {
+    navigationStats.enable()
+    const target = { ...root, id: asIssueId('destination') }
+    const moved = { ...seat, issueId: target.id }
+    let ready = false
+    const navigation: NavigationProvider = {
+      issue: id => id === target.id ? target : provider.issue(id),
+      missionRoot: id => id === target.id ? ready ? target.id : NAVIGATION_LOADING : root.id,
+      session: () => moved,
+    }
+    const st = { ...state(navigation), sessions: [moved], selectedIssueId: child.id, paneA: seat.sessionId }
+    const reactions = new Reactions({ state: () => st, publish: patch => Object.assign(st, patch),
+      hub: {} as never, notices: {} as never, isVisible: () => true, markSessionRead: vi.fn(), markIssueRead: vi.fn() })
+    reactions.seedIssueIds([seat])
+    try {
+      expect(reactions.sessionIssueFollow()).toBe(false)
+      expect(st.selectedIssueId).toBe(child.id)
+      expect(st.paneA).toBe(seat.sessionId)
+      ready = true
+      expect(reactions.sessionIssueFollow()).toBe(true)
+      expect(st.selectedIssueId).toBe(target.id)
+      expect(st.paneA).toBe(seat.sessionId)
+      expect(workspaceKeyForState(st)).toBe(`mission:${target.id}`)
+      expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
+    } finally { reactions.dispose() }
+  })
 })
