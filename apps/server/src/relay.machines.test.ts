@@ -1,3 +1,4 @@
+import { clientSessionViews } from './test-support/session-views'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -205,7 +206,7 @@ describe('multi-daemon routing', () => {
       cwd: '/x',
       machineId: asMachineId('m2'),
     })
-    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const meta = (await clientSessionViews(reg)).find((s) => s.sessionId === sessionId)
     expect(meta).toBeDefined()
     expect(meta?.machineId).toBe('m2')
     expect(meta?.machineName).toBe('two')
@@ -264,7 +265,7 @@ describe('multi-daemon routing', () => {
     })
 
     expect(
-      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === sessionId)
+      (await clientSessionViews(reg)).find((session) => session.sessionId === sessionId)
         ?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-a' })
     expect(m1).toContainEqual({
@@ -295,7 +296,7 @@ describe('multi-daemon routing', () => {
     })
 
     expect(
-      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === sessionId)
+      (await clientSessionViews(reg)).find((session) => session.sessionId === sessionId)
         ?.resume,
     ).toBeUndefined()
     expect(m1).not.toContainEqual(expect.objectContaining({ type: 'sessionResumeRefAck' }))
@@ -387,7 +388,7 @@ describe('multi-daemon routing', () => {
       geometry: { cols: 80, rows: 24 },
     })
     reg.gateway.detachDaemon('m1')
-    const meta = async (id: string) => (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === id)
+    const meta = async (id: string) => (await clientSessionViews(reg)).find((s) => s.sessionId === id)
     expect((await meta(a))?.status).toBe('reconnecting')
     expect((await meta(b))?.status).toBe('live')
   })
@@ -421,7 +422,7 @@ describe('multi-daemon routing', () => {
     // The spawn must have reached one of the online daemons, not vanished into __local__.
     expect(spawns).toHaveLength(1)
     // Confirm the session's machineId is one of the two online machines.
-    const sessions = await reg.modules.sessions.listSessions(undefined, 'rpc')
+    const sessions = await clientSessionViews(reg)
     expect(sessions).toHaveLength(1)
     expect(['m1', 'm2']).toContain(sessions[0]?.machineId)
   })
@@ -677,7 +678,7 @@ describe('session handoff orchestration', () => {
         { sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       )
-      expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toMatchObject([
+      expect(await clientSessionViews(reg)).toMatchObject([
         { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x', status: 'starting' },
       ])
       // The source process is retired through the driver lifecycle BEFORE the
@@ -714,7 +715,7 @@ describe('session handoff orchestration', () => {
       kind: 'worktree',
       repoRoot: '/source/repo',
     })
-    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toMatchObject([
+    expect(await clientSessionViews(reg)).toMatchObject([
       { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x' },
     ])
 
@@ -725,7 +726,7 @@ describe('session handoff orchestration', () => {
       kind: 'worktree',
       repoRoot: '/target/repo',
     })
-    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toMatchObject([
+    expect(await clientSessionViews(reg)).toMatchObject([
       { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x/apps/web' },
     ])
   })
@@ -753,7 +754,7 @@ describe('session handoff orchestration', () => {
         }),
       }),
     )
-    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toMatchObject([
+    expect(await clientSessionViews(reg)).toMatchObject([
       {
         sessionId,
         machineId: 'm2',
@@ -925,7 +926,7 @@ describe('session handoff orchestration', () => {
         TEST_CALLER,
       ),
     ).rejects.toThrow('export exploded')
-    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toMatchObject([
+    expect(await clientSessionViews(reg)).toMatchObject([
       { sessionId, machineId: 'm1', cwd: '/source/repo/.worktrees/x', status: 'starting' },
     ])
     expect(source.filter((message) => message.type === 'spawn')).toHaveLength(2)

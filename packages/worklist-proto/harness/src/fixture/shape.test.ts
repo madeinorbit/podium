@@ -5,7 +5,8 @@
  * measures differently), and hashing keeps both the oracle snapshot and every
  * lane relation, including the fork trap.
  */
-import type { GitRepositoryWire, SessionMeta } from '@podium/model'
+import type { SessionView } from '@podium/client-core/session-values'
+import type { GitRepositoryWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { expectedSnapshot } from '../oracle/index'
 import { buildCorpus, type FixtureCorpus } from './index'
@@ -116,7 +117,7 @@ const scanRow = (path: string, worktrees: string[] = []): GitRepositoryWire =>
     worktrees: worktrees.map((p) => ({ path: p, branch: 'task' })),
   }) as never
 
-const session = (sessionId: string, cwd: string): SessionMeta =>
+const session = (sessionId: string, cwd: string): SessionView =>
   ({
     sessionId,
     cwd,

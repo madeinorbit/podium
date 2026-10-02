@@ -1,3 +1,4 @@
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 // Cross-harness child grouping (#237) [spec:SP-34d7 web]: sessions spawned by
 // another session nest under their spawner in the sidebar; consumed (exited)
 // children auto-tuck behind a disclosure. M6 also expands for native counts.
@@ -9,10 +10,10 @@ import {
   sessionIssueLinkage,
   sessionsNeedChildRows,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta, SessionMetaInput } from '@podium/model'
+
 import { describe, expect, it } from 'vitest'
 
-function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
+function sess(id: string, over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: id,
     cwd: '/repo',
@@ -24,7 +25,7 @@ function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
     archived: false,
     title: id,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 describe('groupSessionsByParent', () => {
@@ -107,7 +108,7 @@ describe('sessionsNeedChildRows', () => {
 })
 
 describe('nativeSubagentLabel / sessionIssueLinkage', () => {
-  it('labels native counts and surfaces issue linkage from SessionMeta', () => {
+  it('labels native counts and surfaces issue linkage from SessionView', () => {
     expect(nativeSubagentLabel(2)).toBe('2 subagents')
     expect(sessionIssueLinkage(sess('c', { displayRef: 'POD-9-B', issueId: 'iss_x' }))).toBe(
       'POD-9-B',

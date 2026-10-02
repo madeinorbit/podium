@@ -245,6 +245,9 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
   /** Kinds touched since the outermost batch opened. */
   const pending = new Set<ReplicaKind>()
   let batchDepth = 0
+  // Old caches have no per-kind completeness marker. Present personal rows are
+  // usable immediately; absence becomes authoritative after the first catch-up.
+  let sessionMarkersLoaded = false
 
   function touchRow(kind: ReplicaKind, entityId: string): void {
     let dirty = dirtyRows.get(kind)
@@ -519,6 +522,8 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
           ' /* the TanStack live-query seam; the kernel path exposes rows()/subscribeRows() */',
       ),
 
+    sessionUserStatesLoaded: () => sessionMarkersLoaded,
+
     getCursor(): number | null {
       try {
         return cache.readCursor()?.seq ?? null
@@ -642,10 +647,27 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
           return
         }
         case 'bootstrap-installed':
+          sessionMarkersLoaded = true
           touchAllKinds(event.cause === 'rescope' ? 'rescope' : 'bootstrap')
           return
+        case 'posture':
+          if (event.posture === 'live' && !sessionMarkersLoaded) {
+            sessionMarkersLoaded = true
+            // A resumed cache can catch up without a bootstrap. Revisit the
+            // sessions once so missing personal rows acquire their null cursor.
+            // No raw row changes and no work on subsequent live/watermark events.
+            const rows = project('sessions')
+            if (rows.length > 0) {
+              const ids = pendingAddresses.get('sessions') ?? new Set<string>()
+              for (const row of rows) ids.add(row.sessionId)
+              pendingAddresses.set('sessions', ids)
+              pending.add('sessions')
+              if (batchDepth === 0) drain()
+            }
+          }
+          return
         default:
-          // `cursor`, `posture`, `heal`, `bootstrap-failed` do not change the
+          // `cursor`, `heal`, `bootstrap-failed` do not change the
           // rows. A watermark-only stretch must leave the rendered slice
           // BYTE-IDENTICAL (basis matrix case 6), and notifying here is how that
           // property would be lost.

@@ -1,5 +1,6 @@
-import { asSessionId, type MessageRecordWire, type SessionMeta } from '@podium/model'
+import { asSessionId, type MessageRecordWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView } from '../session-values'
 import { messageNoticeLine, messageNotices } from './message-notices'
 
 const record = (id: string, over: Partial<MessageRecordWire> = {}): MessageRecordWire => ({
@@ -22,14 +23,17 @@ describe('messages that did not arrive, anywhere in the app (POD-4764)', () => {
         record('msg_typed', { status: 'typed' }),
         record('msg_confirmed', { status: 'confirmed' }),
       ],
-      [{ sessionId: asSessionId('s1'), name: 'Fix the build', title: 't' } as SessionMeta],
+      [{ sessionId: asSessionId('s1'), name: 'Fix the build', title: 't' } as SessionView],
     )
     expect(notices.map((notice) => notice.messageId)).toEqual([
       'msg_expired',
       'msg_unknown',
       'msg_failed',
     ])
-    expect(notices[0]).toMatchObject({ sessionLabel: 'Fix the build', excerpt: 'words of msg_expired' })
+    expect(notices[0]).toMatchObject({
+      sessionLabel: 'Fix the build',
+      excerpt: 'words of msg_expired',
+    })
   })
 
   // Carried over from the web's dead-letter mapper (POD-2574), which this

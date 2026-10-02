@@ -350,9 +350,7 @@ export class SessionLifecycle {
   async loadFromStore(): Promise<void> {
     await this.repository.loadFromStore()
   }
-  sessionsChangedForMachine(...args: any[]): void {
-    ;(this.sessionClientPlane as any).sessionsChangedForMachine(...args)
-  }
+
   onMachineAttached(principal: MachinePrincipal): Promise<void> {
     return this.sessionClientPlane.onMachineAttached(principal)
   }

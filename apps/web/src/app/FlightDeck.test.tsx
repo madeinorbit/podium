@@ -6,13 +6,14 @@ import {
   createSideCache,
   memoryStorage,
 } from '@podium/client-core/replica'
+import { type SessionView, sessionViews } from '@podium/client-core/session-values'
 import {
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,
   FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
   FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY,
 } from '@podium/client-core/ui-state'
 import { buildFlightDeckRows, missionIssueIds } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
@@ -201,7 +202,7 @@ const issue = (id: string, over: Issue = {}): Issue => ({
 
 /** Fixtures are shaped, not branded: the ids here are plain strings, so the
  *  overrides come in loose and the cast happens once, at the boundary. */
-const session = (id: string, over: Record<string, unknown> = {}): SessionMeta =>
+const session = (id: string, over: Record<string, unknown> = {}): SessionView =>
   ({
     sessionId: id,
     agentKind: 'claude-code',
@@ -214,7 +215,7 @@ const session = (id: string, over: Record<string, unknown> = {}): SessionMeta =>
     lastActiveAt: '2026-01-01T00:00:00.000Z',
     createdAt: '2026-01-01T00:00:00.000Z',
     ...over,
-  }) as unknown as SessionMeta
+  }) as unknown as SessionView
 
 /** An agent mid-turn — what `Working` asks about, once per agent (POD-1452). */
 const WORKING = { phase: 'working', since: '2026-01-01T00:00:00.000Z' } as const
@@ -370,7 +371,14 @@ describe('mission key uniqueness', () => {
       side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
     })
     const models = allIssueViewModels(replica)
-    const sessions = dedupeSessions([...replica.rows('sessions')])
+    const sessions = dedupeSessions(
+      sessionViews([...replica.rows('sessions')], {
+        userId: 'operator',
+        userStates: [...replica.rows('sessionUserStates')],
+        machines: [...replica.rows('machines')],
+        repos: [...replica.rows('repos')],
+      }),
+    )
     expect(corpus.issues).toHaveLength(4867)
     expect(new Set(corpus.issues.map((row) => row.id)).size).toBe(corpus.issues.length)
     expect(corpus.sessions).toHaveLength(4304)
@@ -1017,7 +1025,7 @@ describe('the developer Flight Deck views', () => {
         : candidate,
     )
     harness.sessions = harness.sessions.map((candidate) =>
-      (candidate as SessionMeta).sessionId === 's1'
+      (candidate as SessionView).sessionId === 's1'
         ? session('s1', {
             issueId: 't1',
             displayRef: 'POD-1-A',
@@ -1311,9 +1319,9 @@ describe('flight deck fold state (POD-710 §4.2)', () => {
   })
 
   it('defaults a lone-session task closed and everything else with a payload open', () => {
-    const lone = { descendantIds: [], sessions: [{}] as SessionMeta[] }
-    const pair = { descendantIds: [], sessions: [{}, {}] as SessionMeta[] }
-    const branch = { descendantIds: ['x'], sessions: [{}] as SessionMeta[] }
+    const lone = { descendantIds: [], sessions: [{}] as SessionView[] }
+    const pair = { descendantIds: [], sessions: [{}, {}] as SessionView[] }
+    const branch = { descendantIds: ['x'], sessions: [{}] as SessionView[] }
     expect(defaultFolded(lone)).toBe(true)
     expect(defaultFolded(pair)).toBe(false)
     expect(defaultFolded(branch)).toBe(false)
@@ -1451,7 +1459,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
 
   it('advances active bar geometry with the shared clock while Now stays anchored', () => {
     harness.sessions = harness.sessions.map((raw) => {
-      const candidate = raw as SessionMeta
+      const candidate = raw as SessionView
       return candidate.sessionId === 's2'
         ? { ...candidate, createdAt: '2026-01-01T00:05:00.000Z' }
         : candidate
@@ -1579,7 +1587,7 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
 
   it('uses amber alone for a session that needs attention', () => {
     harness.sessions = harness.sessions.map((raw) => {
-      const item = raw as SessionMeta
+      const item = raw as SessionView
       return item.sessionId === 's2'
         ? session('s2', {
             issueId: 't2',
@@ -2197,7 +2205,7 @@ describe('flight deck task menu (POD-771)', () => {
         : candidate,
     )
     harness.sessions = harness.sessions.map((candidate) => {
-      const meta = candidate as SessionMeta
+      const meta = candidate as SessionView
       return meta.sessionId === 's1'
         ? { ...meta, name: undefined, title: 'Unrelated older conversation' }
         : meta
@@ -2215,7 +2223,7 @@ describe('flight deck task menu (POD-771)', () => {
     // The draft's visible name can move while the uncontrolled editor is open.
     // Its seed and no-op comparison must stay on the title the operator opened.
     harness.sessions = harness.sessions.map((candidate) => {
-      const meta = candidate as SessionMeta
+      const meta = candidate as SessionView
       return meta.sessionId === 's1' ? { ...meta, name: 'Agent renamed while open' } : meta
     })
     view.rerender(<DeckHarness />)
@@ -2255,7 +2263,7 @@ describe('flight deck spine (POD-758)', () => {
   // The ref is the handle the operator types and pastes, so the row prints it.
   it('prints a session’s permanent ref on its agent row', () => {
     harness.sessions = harness.sessions.map((raw) => {
-      const meta = raw as SessionMeta
+      const meta = raw as SessionView
       return meta.sessionId === 's2' ? { ...meta, displayRef: 'POD-2-A' } : meta
     })
     deck()
@@ -2470,7 +2478,7 @@ describe('flight deck spine geometry (POD-1226)', () => {
 
   it('marks an asking agent with a gutter tick, never a rule on the row', () => {
     harness.sessions = harness.sessions.map((raw) => {
-      const meta = raw as SessionMeta
+      const meta = raw as SessionView
       return meta.sessionId === 's1'
         ? { ...meta, agentState: { phase: 'needs_user', since: '2026-01-01T00:00:00.000Z' } }
         : meta

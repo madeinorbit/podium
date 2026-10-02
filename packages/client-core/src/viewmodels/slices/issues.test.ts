@@ -1,6 +1,7 @@
-import { asIssueId, asSessionId, type SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueViewModel } from '../../replica/issue-view-models'
+import type { SessionView } from '../../session-values'
 import type { ReferentExit } from '../session-ownership'
 import {
   branchRollup,
@@ -61,7 +62,7 @@ function navIssue(id: string, over: Partial<IssueNavigationModel> = {}): IssueNa
   return issue(id, over as Partial<IssueViewModel>) as unknown as IssueNavigationModel
 }
 
-function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function session(id: string, over: Partial<SessionView> = {}): SessionView {
   return {
     sessionId: asSessionId(id),
     agentKind: 'claude-code',
@@ -80,7 +81,7 @@ function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 const unmerged = {

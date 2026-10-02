@@ -1,5 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asIssueId, asRepoId, asSessionId, type SessionMeta } from '@podium/model'
+import type { SessionView } from '@podium/client-core/session-values'
+import { asIssueId, asRepoId, asSessionId } from '@podium/model'
 import { act, cleanup, fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useSessions } from '../client/hooks'
@@ -141,15 +142,15 @@ describe('MissionDeck view bar', () => {
       readAt: null,
       unread: false,
       agentState: { phase: 'idle', since: '2026-08-04T20:15:44.230Z' },
-    } as unknown as SessionMeta
+    } as unknown as SessionView
 
     /** The same agent, mid-turn — the one thing `Working` is about (POD-1452). */
     const busy = {
       ...idle,
       agentState: { phase: 'working', since: '2026-08-04T20:15:44.230Z' },
-    } as unknown as SessionMeta
+    } as unknown as SessionView
 
-    const mountSolo = async (session: SessionMeta = idle) =>
+    const mountSolo = async (session: SessionView = idle) =>
       renderWithMobileStore(
         <MissionDeck
           root={solo}
@@ -225,7 +226,7 @@ describe('MissionDeck session homes', () => {
     refSeq: 42,
     refLetter: 'B',
     displayRef: 'STALE-42-B',
-  } as SessionMeta
+  } as SessionView
 
   function LiveDeck() {
     const sessions = useSessions()

@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * PHONE SESSION PAGE NAMES ITS OFFLINE MACHINE (this issue).
  *
@@ -11,7 +12,7 @@
  * the machine; back online -> gone. Both offline shapes count: supervisor
  * loss (online false) and supervised daemon loss (online true, daemon false).
  */
-import type { MachineWire, SessionMeta } from '@podium/model'
+import type { MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import { cleanup, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -64,7 +65,7 @@ const session = {
   title: 'Agent',
   machineId: 'm1',
   machineName: 'desk',
-} as unknown as SessionMeta
+} as unknown as SessionView
 
 function machine(over: Partial<MachineWire>): MachineWire {
   return {

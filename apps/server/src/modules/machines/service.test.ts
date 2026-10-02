@@ -1,3 +1,4 @@
+import { EventBus } from '../bus'
 import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -38,7 +39,7 @@ function makeService(): MachinesService {
       },
     } as unknown as MachinesDeps['store'],
     hostMachineId: asMachineId('host-under-test'),
-    sessionsChangedForMachine: () => {},
+
     clients: () => [],
     machinesForPrincipal: async () => [],
   } satisfies MachinesDeps
@@ -91,7 +92,7 @@ async function storedService(
     store,
     recoveryOnly,
     hostMachineId: store.hostMachineId,
-    sessionsChangedForMachine: () => {},
+
     clients: () => [],
     machinesForPrincipal: async () => [],
   } satisfies MachinesDeps)
@@ -487,7 +488,7 @@ describe('promoted server host identity', () => {
       instanceId: 'default',
       store,
       hostMachineId: target,
-      sessionsChangedForMachine: () => {},
+
       clients: () => [],
       machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
@@ -621,7 +622,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
           return grant
         },
       },
-      sessionsChangedForMachine: () => {},
+
       clients: () => [],
       machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
@@ -726,7 +727,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       instanceId: 'default',
       store,
       hostMachineId: store.hostMachineId,
-      sessionsChangedForMachine: () => {},
+
       clients: () => [],
       machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
@@ -758,16 +759,16 @@ describe('MachinesService inventory persistence (#222)', () => {
     )
   })
 
-  test('recordInventory fans out to sessions only when the report changed (POD-4259)', async () => {
+  test('recordInventory notifies metadata readers only when the report changed (POD-4259)', async () => {
     const store = await openTestStore(':memory:')
     const fanout: string[] = []
+    const bus = new EventBus()
+    bus.on('machine.metadataChanged', ({ machineId }) => { fanout.push(machineId) })
     const svc = new MachinesService({
       instanceId: 'default',
       store,
       hostMachineId: store.hostMachineId,
-      sessionsChangedForMachine: (machineId) => {
-        fanout.push(machineId)
-      },
+      bus,
       clients: () => [],
       machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
@@ -1043,7 +1044,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       store,
       hostMachineId: store.hostMachineId,
       userExists: (id) => known.has(id),
-      sessionsChangedForMachine: () => {},
+
       clients: () => [{ principal: testClientPrincipal('c1'), send: () => {} }],
       // Called once per client on every broadcast. Reading `ownershipRows()`
       // here is the load-bearing part: it goes through the SAME record cache the
@@ -1291,7 +1292,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
         store,
         hostMachineId: store.hostMachineId,
         userExists: (id) => known.has(id),
-        sessionsChangedForMachine: () => {},
+
         clients: () => [],
         machinesForPrincipal: async () => [],
       } satisfies MachinesDeps)
@@ -1529,7 +1530,7 @@ describe('listMachines resolves the fleet channel once per call (POD-3840)', () 
         resolved++
         return 'stable'
       },
-      sessionsChangedForMachine: () => {},
+
       clients: () => [],
       machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
@@ -1568,7 +1569,7 @@ describe('retained revocation and explicit replacement', () => {
         peek: (code) => codes.get(code),
         redeem: (code) => { const grant = codes.get(code); codes.delete(code); return grant },
       },
-      sessionsChangedForMachine: () => {}, clients: () => [], machinesForPrincipal: async () => [],
+       clients: () => [], machinesForPrincipal: async () => [],
     })
     if (!await store.users.get(firstAdminMemberId())) await store.users.create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
     const frame = { type: 'pair' as const, publicKey: publicKeyWire(mintSigningKeyPair()), machineId: MACHINE, hostname: 'revocation.test' }

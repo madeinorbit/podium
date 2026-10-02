@@ -1,9 +1,10 @@
-import { asSessionId, type SessionMeta, type SessionStatus } from '@podium/model'
+import { asSessionId, type SessionStatus } from '@podium/model'
 import { describe, expect, test } from 'vitest'
+import type { SessionView } from '../session-values'
 import { deriveFleetPresence } from './fleet'
 
 let seq = 0
-function sess(over: Partial<SessionMeta> = {}): SessionMeta {
+function sess(over: Partial<SessionView> = {}): SessionView {
   seq += 1
   return {
     sessionId: asSessionId(`s${seq}`),
@@ -15,7 +16,7 @@ function sess(over: Partial<SessionMeta> = {}): SessionMeta {
     archived: false,
     title: 'a session',
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 describe('deriveFleetPresence', () => {
@@ -67,8 +68,8 @@ describe('deriveFleetPresence', () => {
   })
 
   test('native children are counted on awake sessions only', () => {
-    const withKids = (n: number, over: Partial<SessionMeta> = {}) =>
-      sess({ ...over, agentState: { nativeSubagentCount: n } } as Partial<SessionMeta>)
+    const withKids = (n: number, over: Partial<SessionView> = {}) =>
+      sess({ ...over, agentState: { nativeSubagentCount: n } } as Partial<SessionView>)
     const m = deriveFleetPresence([withKids(3), withKids(4, { status: 'hibernated' })])
     // A parked process is not running four subagents; its last agentState says so
     // only because it was frozen mid-turn.
@@ -82,7 +83,7 @@ describe('deriveFleetPresence', () => {
     ).toBe('2 agents · 1 parked')
     expect(
       deriveFleetPresence([
-        sess({ agentState: { nativeSubagentCount: 2 } } as Partial<SessionMeta>),
+        sess({ agentState: { nativeSubagentCount: 2 } } as Partial<SessionView>),
         sess({ status: 'hibernated' }),
       ]).label,
     ).toBe('2 agents · 1 parked · 2 native children')

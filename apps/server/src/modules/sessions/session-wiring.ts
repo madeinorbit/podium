@@ -280,7 +280,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.view = new SessionView({
     sessions: bag.sessions,
     store,
-    machines,
     state: bag.state,
     sessionOccupancyCount: bag.deps.sessionOccupancyCount
       ? (sessionId) => bag.deps.sessionOccupancyCount?.(sessionId)

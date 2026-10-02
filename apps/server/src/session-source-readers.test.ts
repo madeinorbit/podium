@@ -174,7 +174,8 @@ describe('S4 server consumers', () => {
       asThreadId('thread:b'),
     )
     const tool = tools.find((t) => t.spec.name === 'list_sessions')!
-    const rows = async () => JSON.parse(await tool.run({})) as SessionMeta[]
+    const rows = async () =>
+      JSON.parse(await tool.run({})) as (SessionMeta & { snoozedUntil?: string | null })[]
     expect((await rows()).map((s) => s.sessionId)).not.toContain(privateId)
     expect((await rows()).find((s) => s.sessionId === sessionId)).not.toHaveProperty('snoozedUntil')
     await sessions.state.setSnooze(b, sessionId, null)

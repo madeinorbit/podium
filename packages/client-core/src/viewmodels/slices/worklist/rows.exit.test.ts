@@ -1,5 +1,6 @@
-import type { SessionMeta, SessionMetaInput, UnbrandIds } from '@podium/model'
+import type { UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView, SessionViewInput } from '../../../session-values'
 import type { IssueNavigationModel } from '../issues'
 import type { SidebarSections } from './nav'
 import type { UnifiedWorkRow } from './row-types'
@@ -39,7 +40,7 @@ function issue(over: Partial<UnbrandIds<IssueNavigationModel>> = {}): IssueNavig
   } as unknown as IssueNavigationModel
 }
 
-function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
+function session(over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: 's43',
     cwd: '/r/a',
@@ -52,12 +53,12 @@ function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
     title: 'hello',
     unread: true,
     ...over,
-  } as SessionMeta
+  } as SessionView
 }
 
 const emptySections: SidebarSections = { pinnedWorktrees: [], pinnedRepos: [], repos: [] }
 
-const worktreeSections = (worker: SessionMeta): SidebarSections => ({
+const worktreeSections = (worker: SessionView): SidebarSections => ({
   pinnedWorktrees: [{ path: '/r/a', name: 'a', branch: 'main', sessions: [worker] } as never],
   pinnedRepos: [],
   repos: [],
@@ -69,7 +70,7 @@ function rosterIds(row: UnifiedWorkRow): string[] {
   )
 }
 
-const exited = (over: Partial<SessionMetaInput> = {}): SessionMeta =>
+const exited = (over: Partial<SessionViewInput> = {}): SessionView =>
   session({
     status: 'exited',
     stoppedAt: '2026-08-17T11:59:30.000Z',

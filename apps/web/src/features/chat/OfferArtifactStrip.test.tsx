@@ -1,10 +1,10 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   type ArtifactId,
   asArtifactId,
   asSessionId,
   type IssuePanelArtifact,
-  type SessionMeta,
   type SessionOffer,
 } from '@podium/model'
 import { act, Profiler, useRef, useSyncExternalStore } from 'react'
@@ -82,7 +82,7 @@ const makeIssue = (artifacts: IssuePanelArtifact[]): IssueViewModel =>
     sessions: [],
   }) as unknown as IssueViewModel
 
-const session = { sessionId: asSessionId('sess_1'), issueId: 'iss_1' } as unknown as SessionMeta
+const session = { sessionId: asSessionId('sess_1'), issueId: 'iss_1' } as unknown as SessionView
 
 const offerWith = (artifacts: string[]): SessionOffer => ({
   message: 'm',

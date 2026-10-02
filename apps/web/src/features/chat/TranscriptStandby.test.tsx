@@ -1,10 +1,11 @@
-import type { SessionMeta } from '@podium/model'
+import type { SessionView } from '@podium/client-core/session-values'
+
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { shortPath, standbyCopy, TranscriptStandby } from './TranscriptStandby'
 
-const session = (over: Partial<SessionMeta>): SessionMeta =>
-  ({ agentKind: 'claude-code', status: 'live', ...over }) as SessionMeta
+const session = (over: Partial<SessionView>): SessionView =>
+  ({ agentKind: 'claude-code', status: 'live', ...over }) as SessionView
 
 describe('standbyCopy', () => {
   it('asks the operator what to work on, and nothing else', () => {

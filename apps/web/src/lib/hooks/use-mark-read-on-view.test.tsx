@@ -1,7 +1,8 @@
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
 
 import { useMarkReadOnView } from '@podium/client-core/react'
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -10,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // session the user keeps returning to), so this hook marks the focused+visible
 // session read on a trailing debounce keyed on its activity.
 
-function sess(over: Partial<SessionMetaInput>): SessionMeta {
+function sess(over: Partial<SessionViewInput>): SessionView {
   return {
     sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
@@ -28,11 +29,11 @@ function sess(over: Partial<SessionMetaInput>): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  } as SessionMeta
+  } as SessionView
 }
 
 function Harness(props: {
-  session: SessionMeta | undefined
+  session: SessionView | undefined
   mark: (id: string) => void
   visible?: () => boolean
 }) {

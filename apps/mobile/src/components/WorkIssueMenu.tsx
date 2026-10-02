@@ -1,11 +1,11 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { discoveredPlacement, type IssueNavigationModel } from '@podium/client-core/viewmodels'
 import {
   type IssueCloseReason,
   issueStatusMenuEntries,
   issueStatusValueOf,
   parseIssueStatusValue,
-  type SessionMeta,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useMemo, useState } from 'react'
@@ -50,7 +50,7 @@ export function WorkIssueMenu({
 }: {
   target: WorkIssueMenuTarget
   issues: readonly IssueViewModel[]
-  sessions: readonly SessionMeta[]
+  sessions: readonly SessionView[]
   onClose: () => void
 }) {
   // Actions only — identity-stable, so the open menu does not re-render on

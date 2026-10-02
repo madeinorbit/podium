@@ -1,3 +1,4 @@
+import { clientSessionViews } from './test-support/session-views'
 import {
   asMachineId,
   asRepoId,
@@ -147,12 +148,12 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ).not.toHaveProperty(sessionId)
     await sessions.markSessionRead(firstAdminMemberId(), sessionId)
     expect(
-      (await sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+      (await clientSessionViews(registry)).find((s) => s.sessionId === sessionId)
         ?.readAt,
     ).toBeTruthy()
     await sessions.markSessionUnread(firstAdminMemberId(), sessionId)
     expect(
-      (await sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+      (await clientSessionViews(registry)).find((s) => s.sessionId === sessionId)
         ?.readAt,
     ).toBeNull()
   })
@@ -437,58 +438,30 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     })
   })
 
-  it('(i) startup adoption and a machine rename re-capture machineId/machineName; a revoke keeps the name (#247)', async () => {
+  it('(i) enrollment and rename publish machine rows without recapturing sessions; revoke keeps the label', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({
-      agentKind: 'shell',
-      cwd: '/w',
-    })
+    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     await registry.modules.sessions.flushBroadcasts()
-    const cursor = await cursorOf(registry)
-    // The session was created ON this host already (POD-318: no placeholder, no
-    // adoption). What `ensureHostMachine` changes is the machine ROW's name, and the
-    // machine seam captures the derived machineName flip WITHOUT a session persist.
     const host = registry.modules.machines.hostMachineId
-    await registry.modules.machines.ensureHostMachine('adopting-host')
-    await registry.modules.sessions.flushBroadcasts()
-    const afterAdopt = await registry.modules.sessions.syncChangesSince(cursor)
-    expect(afterAdopt.kind).toBe('delta')
-    if (afterAdopt.kind !== 'delta') return
-    const adopted = afterAdopt.changes.find(
-      (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
-    ) as { value?: SessionMeta } | undefined
-    expect(adopted?.value?.machineId).toBe(host)
-    expect(adopted?.value?.machineName).toBe('adopting-host')
-    // Rename: machineName is stamped at wire time, no session row changes.
-    await registry.modules.machines.renameMachine(host, 'renamed-host')
-    await registry.modules.sessions.flushBroadcasts()
-    const afterRename = await registry.modules.sessions.syncChangesSince(afterAdopt.cursor)
-    expect(afterRename.kind).toBe('delta')
-    if (afterRename.kind !== 'delta') return
-    const renamed = afterRename.changes.find(
-      (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
-    ) as { value?: SessionMeta } | undefined
-    expect(renamed?.value?.machineName).toBe('renamed-host')
-    // Revoke: the machine row is RETAINED as a revoked tombstone (23e55a7c2,
-    // POD-4143 — it fences credential replacement), so it keeps its name and
-    // the derived machineName does NOT fall back to the raw id, as it did when
-    // revoke deleted the row. No session change may carry the id fallback, and
-    // the projection still names the machine.
+    let cursor = await cursorOf(registry)
+    for (const name of ['adopting-host', 'renamed-host']) {
+      if (name === 'adopting-host') await registry.modules.machines.ensureHostMachine(name)
+      else await registry.modules.machines.renameMachine(host, name)
+      await registry.modules.sessions.flushBroadcasts()
+      const delta = await registry.modules.sessions.syncChangesSince(cursor)
+      expect(delta.kind).toBe('delta')
+      if (delta.kind !== 'delta') throw new Error('expected delta')
+      expect(delta.changes.filter(row => row.entity === 'session')).toEqual([])
+      expect(delta.changes.filter(row => row.entity === 'machine')).toEqual([
+        expect.objectContaining({ id: host, value: expect.objectContaining({ id: host, name }) }),
+      ])
+      expect((await clientSessionViews(registry)).find(row => row.sessionId === sessionId)?.machineName).toBe(name)
+      cursor = delta.cursor
+    }
     await registry.modules.machines.revokeMachine(host)
     await registry.modules.sessions.flushBroadcasts()
-    expect((await registry.sessionStore.machines.getMachine(host))?.revokedAt).toEqual(
-      expect.any(String),
-    )
-    const afterRevoke = await registry.modules.sessions.syncChangesSince(afterRename.cursor)
-    expect(afterRevoke.kind).toBe('delta')
-    if (afterRevoke.kind !== 'delta') return
-    const revokedNames = afterRevoke.changes
-      .filter((c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert')
-      .map((c) => (c as { value?: SessionMeta }).value?.machineName)
-    expect(revokedNames.filter((name) => name !== 'renamed-host')).toEqual([])
-    expect((await registry.modules.sessions.sessionById(sessionId))?.machineName).toBe(
-      'renamed-host',
-    )
+    expect((await registry.sessionStore.machines.getMachine(host))?.revokedAt).toEqual(expect.any(String))
+    expect((await clientSessionViews(registry)).find(row => row.sessionId === sessionId)?.machineName).toBe('renamed-host')
   })
 
   it('(j) the daemon-disconnect reconnecting flip reaches the durable log (#247)', async () => {
@@ -943,14 +916,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       // First principal still in the room; controller reverts to first connection.
       (value) => expect(value).toMatchObject({ clientCount: 1, controllerId: firstClient }),
     )
-    await failAndHeal(
-      () =>
-        registry.modules.machines.renameMachine(
-          registry.modules.machines.hostMachineId,
-          'healed-host',
-        ),
-      (value) => expect(value.machineName).toBe('healed-host'),
-    )
     off()
   })
 
@@ -1023,7 +988,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ).rejects.toThrow('rename append failed')
     append.mockRestore()
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (await clientSessionViews(registry)).find(
         (s) => s.sessionId === sessionId,
       )?.name,
     ).toBeUndefined()
@@ -1037,7 +1002,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     registry.modules.sessions.broadcastSessions()
     await registry.modules.sessions.flushBroadcasts()
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (await clientSessionViews(registry)).find(
         (s) => s.sessionId === sessionId,
       )?.name,
     ).toBeUndefined()
@@ -1061,8 +1026,6 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     })
     await registry.modules.sessions.flushBroadcasts()
     const cursor = await cursorOf(registry)
-    const events: ProjectionEvent[] = []
-    registry.modules.sessions.onSessionProjection((event) => events.push(event))
     const append = vi
       .spyOn(registry.sessionStore.sync, 'appendChanges')
       .mockImplementationOnce(() => {
@@ -1089,7 +1052,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ).rejects.toThrow('snooze append failed')
     append.mockRestore()
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (await clientSessionViews(registry)).find(
         (s) => s.sessionId === sessionId,
       )?.snoozedUntil,
     ).toBeUndefined()
@@ -1097,12 +1060,12 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       await registry.sessionStore.sessions.listSnoozes(firstAdminMemberId()),
     ).not.toHaveProperty(sessionId)
     expect(await cursorOf(registry)).toBe(cursor)
-    expect(events).toEqual([])
+    expect(await registry.changeLedger.changesSince(cursor)).toEqual([])
 
     registry.modules.sessions.broadcastSessions()
     await registry.modules.sessions.flushBroadcasts()
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (await clientSessionViews(registry)).find(
         (s) => s.sessionId === sessionId,
       )?.snoozedUntil,
     ).toBeUndefined()
@@ -1119,11 +1082,17 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       sessionId,
       until: '2999-07-20T12:00:00.000Z',
     })
-    expect(events).toHaveLength(1)
-    expect(events[0]?.changes).toHaveLength(1)
-    expect((events[0]?.changes[0] as { value?: SessionMeta }).value?.snoozedUntil).toBe(
-      '2999-07-20T12:00:00.000Z',
-    )
+    const delta = await registry.modules.sessions.syncChangesSince(cursor, {
+      kind: 'user', user: firstAdminMemberId(),
+      device: asDeviceId('snooze-reader'), capability: asCapabilityRef('snooze-reader'),
+    })
+    expect(delta.kind).toBe('delta')
+    if (delta.kind !== 'delta') throw new Error('expected personal delta')
+    expect(delta.changes).toHaveLength(1)
+    expect(delta.changes[0]).toMatchObject({
+      entity: 'sessionUserState',
+      value: { snoozedUntil: '2999-07-20T12:00:00.000Z' },
+    })
   })
 
   it.each([
@@ -1177,7 +1146,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // Memory truth survived: the session is still listed; the store rolled the
     // tombstone write back inside the same transact span.
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).some(
+      (await clientSessionViews(registry)).some(
         (s) => s.sessionId === sessionId,
       ),
     ).toBe(true)
@@ -1195,7 +1164,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // And the kill still works once the append path recovers.
     await registry.modules.sessions.killSession({ sessionId })
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).some(
+      (await clientSessionViews(registry)).some(
         (s) => s.sessionId === sessionId,
       ),
     ).toBe(false)
@@ -1266,14 +1235,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // the moment the mapper gains a key, which is exactly the drift being deleted.
     expect(listed).toEqual(broadcast)
 
-    // And pin the stamp the mapper owns, so mutating it inside sessionWire() is a
-    // kill rather than a survivor. Resolved against the session's OWN machineId,
-    // which since POD-318 is this host's minted id from the moment the session is
-    // created — there is no placeholder phase to get wrong.
-    expect(listed?.machineName).toBe(
-      await registry.modules.machines.machineName(listed?.machineId ?? ''),
-    )
-    expect(listed?.machineName).not.toBe(undefined)
+    // The mapper sends source identity; the client joins the display name.
+    expect(listed?.machineId).toBe(registry.sessionStore.hostMachineId)
+    expect(listed).not.toHaveProperty('machineName')
   })
 })
 

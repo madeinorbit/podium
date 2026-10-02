@@ -1,12 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import {
-  asIssueId,
-  asMachineId,
-  asSessionId,
-  type MachineId,
-  type SessionMeta,
-  type SessionMetaInput,
-} from '@podium/model'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { asIssueId, asMachineId, asSessionId, type MachineId } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
@@ -61,7 +55,7 @@ const machine = (id: MachineId) => ({
   availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },
   inventory: { agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }] },
 })
-const session = (over: Partial<SessionMetaInput> & Pick<SessionMeta, 'sessionId'>): SessionMeta =>
+const session = (over: Partial<SessionViewInput> & Pick<SessionView, 'sessionId'>): SessionView =>
   ({
     agentKind: 'claude-code',
     // A real session always carries a title (the harness's, until renamed); the
@@ -80,7 +74,7 @@ const session = (over: Partial<SessionMetaInput> & Pick<SessionMeta, 'sessionId'
     // hands back the parsed side, and since POD-318 branded `machineId` the two
     // shapes no longer overlap structurally. A fixture builder is exactly the
     // construction site `wire-input.ts` describes.
-  }) as unknown as SessionMeta
+  }) as unknown as SessionView
 
 function open(issue: IssueViewModel & { memberSessionIds?: string[] }): void {
   const viewIssue = {
@@ -118,7 +112,7 @@ describe('IssueContextMenu handoff (POD-850)', () => {
   it('hides handoff while the feature is disabled', () => {
     featureEnabled.value = false
     state.sessions = [session({ sessionId: asSessionId('agent') })]
-    open(makeIssue({ sessions: [{ sessionId: asSessionId('agent') } as SessionMeta] }))
+    open(makeIssue({ sessions: [{ sessionId: asSessionId('agent') } as SessionView] }))
     expect(screen.queryByRole('menuitem', { name: /Handoff/ })).toBeNull()
   })
 

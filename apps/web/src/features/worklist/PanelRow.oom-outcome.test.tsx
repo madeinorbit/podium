@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**
@@ -11,7 +12,7 @@ import '@/test-support/mock-core-store-handle'
  * wrong implementation: a chip that is always destructive would satisfy the OOM
  * case, and a chip that is always emerald would satisfy the finished one.
  */
-import type { SessionMeta } from '@podium/model'
+
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PanelRow } from './sidebar-common'
@@ -28,7 +29,7 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
 
-function session(stopReason: 'oom' | 'exited'): SessionMeta {
+function session(stopReason: 'oom' | 'exited'): SessionView {
   return {
     sessionId: 's1',
     agentKind: 'claude-code',
@@ -46,7 +47,7 @@ function session(stopReason: 'oom' | 'exited'): SessionMeta {
     busy: false,
     stoppedAt: '2026-08-20T11:59:00.000Z',
     stopReason,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 const row = (stopReason: 'oom' | 'exited') => (

@@ -1,12 +1,12 @@
+import type { SessionView } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
 
-import type { SessionMeta } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueNow } from './IssueNow'
 
-const session = (id: string, phase = 'working'): SessionMeta =>
+const session = (id: string, phase = 'working'): SessionView =>
   ({
     sessionId: id,
     issueId: 'issue',
@@ -20,7 +20,7 @@ const session = (id: string, phase = 'working'): SessionMeta =>
       since: '2026-08-08T12:00:00.000Z',
       nativeSubagentCount: 0,
     },
-  }) as unknown as SessionMeta
+  }) as unknown as SessionView
 
 afterEach(cleanup)
 

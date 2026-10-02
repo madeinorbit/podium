@@ -1,4 +1,5 @@
 import type { IssueViewModel } from '../replica/issue-view-models'
+import type { SessionView } from '../session-values'
 /**
  * Workspace membership: WHICH tabs a workspace may keep.
  *
@@ -18,7 +19,6 @@ import type { IssueViewModel } from '../replica/issue-view-models'
  *     answer needed was rebuilt inside the loop that consumed it.
  */
 
-import type { SessionMeta } from '@podium/model'
 import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { FileTab, WorkspaceKey } from '../viewmodels'
@@ -77,7 +77,7 @@ function issue(id: string, over: Record<string, unknown> = {}): IssueViewModel {
   } as unknown as IssueViewModel
 }
 
-function sess(id: string, over: Record<string, unknown> = {}): SessionMeta {
+function sess(id: string, over: Record<string, unknown> = {}): SessionView {
   return {
     sessionId: id,
     title: id,
@@ -89,12 +89,12 @@ function sess(id: string, over: Record<string, unknown> = {}): SessionMeta {
     createdAt: '2026-07-01T00:00:00.000Z',
     lastActiveAt: '2026-07-01T01:00:00.000Z',
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function membership(
   issues: IssueViewModel[],
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   over: Partial<MembershipState> = {},
 ): MembershipState {
   return {
@@ -133,7 +133,7 @@ function membership(
 function legacyBelongs(
   st: Pick<MembershipState, 'issueProjections' | 'issueDeps' | 'sessions'>,
   key: WorkspaceKey,
-  session: SessionMeta,
+  session: SessionView,
 ): boolean {
   if (key === 'none') return true
   if (key.startsWith('wt:')) {
@@ -277,7 +277,7 @@ describe('workspace membership budget', () => {
   const ISSUES = 500
   const SESSIONS = 400
 
-  function world(): { rows: IssueViewModel[]; sessions: SessionMeta[] } {
+  function world(): { rows: IssueViewModel[]; sessions: SessionView[] } {
     const rows = [issue('root', { worktreePath: '/wt/root' })]
     for (let i = 0; i < ISSUES - 1; i += 1) {
       rows.push(issue(`iss-${i}`, { parentId: 'root', worktreePath: `/wt/iss-${i}` }))

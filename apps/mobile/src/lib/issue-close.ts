@@ -1,10 +1,10 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   blockingCloseConcerns,
   type IssueCloseConcern,
   type IssueNavigationModel,
   issueCloseConcerns,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
 
 /**
  * THE PHONE'S HALF OF THE CLOSE GUARD [POD-1129] — membership, and nothing else.
@@ -24,7 +24,7 @@ import type { SessionMeta } from '@podium/model'
  */
 export function issueCloseBlockers(
   issue: IssueNavigationModel,
-  sessions: readonly SessionMeta[],
+  sessions: readonly SessionView[],
 ): IssueCloseConcern[] {
   return blockingCloseConcerns(
     issueCloseConcerns(

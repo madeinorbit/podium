@@ -1,4 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE CHAT 3-DOTS, DRAFT VS ACTIVE (2026-08-27 device review).
  *
@@ -9,7 +10,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
  * sheet's standard Cancel. An active session keeps the session-scoped verbs,
  * including transcript search.
  */
-import type { SessionMeta } from '@podium/model'
+
 import { asIssueId, asSessionId, asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -97,7 +98,7 @@ const { useIssues } = await import('../client/hooks')
 
 const vesselId = asIssueId('vessel')
 
-const session = (patch: Partial<SessionMeta> = {}): SessionMeta =>
+const session = (patch: Partial<SessionView> = {}): SessionView =>
   ({
     agentKind: 'claude-code',
     cwd: '/home/dev/podium',
@@ -114,7 +115,7 @@ const session = (patch: Partial<SessionMeta> = {}): SessionMeta =>
     issueId: vesselId,
     sessionId: asSessionId('sess_menu'),
     ...patch,
-  }) as unknown as SessionMeta
+  }) as unknown as SessionView
 
 const vessel = (patch: Partial<IssueViewModel> = {}): IssueViewModel =>
   ({

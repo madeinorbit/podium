@@ -1,5 +1,6 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { portfolioActionableCount } from '@podium/client-core/viewmodels'
-import type { IssueStage, SessionMeta } from '@podium/model'
+import type { IssueStage } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueViewModel } from '@/app/store'
@@ -23,7 +24,7 @@ const waiting = {
   issueId: 'needy',
   archived: false,
   agentState: { phase: 'needs_user' },
-} as unknown as SessionMeta
+} as unknown as SessionView
 
 describe('explorer rows', () => {
   const issues = [
@@ -86,7 +87,10 @@ describe('explorer rows', () => {
   it('never lists the draft vessel a bare agent lives in', () => {
     // POD-1581: the explorer was the one surface that showed these, and it
     // showed them as a row titled `Draft` with nothing under it.
-    const withVessel = [issue('real', 'backlog'), issue('vessel', 'backlog', { isDraftVessel: true })]
+    const withVessel = [
+      issue('real', 'backlog'),
+      issue('vessel', 'backlog', { isDraftVessel: true }),
+    ]
     const rows = explorerRows(withVessel, [], { tab: 'backlog', query: '' })
     expect(rows.map((r) => r.id)).toEqual(['real'])
   })
@@ -170,7 +174,7 @@ describe('explorer counts', () => {
         issue('vessel', 'backlog', { isDraftVessel: true }),
         issue('needy', 'backlog', { isDraftVessel: true }),
       ],
-      [{ ...waiting, issueId: 'needy' } as SessionMeta],
+      [{ ...waiting, issueId: 'needy' } as SessionView],
     )
     expect(counts.backlog).toBe(1)
     expect(counts.needs).toBe(0)

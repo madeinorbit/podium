@@ -231,19 +231,12 @@ describe('the live registry', () => {
     expect(v.filter((x) => x.kind === 'instance-partition')).toEqual([])
   })
 
-  /**
-   * A RATCHET, not a zero. Five per-user singletons ride the two wire
-   * projections today. They are INHERITED — POD-367 §3.5 records that none was
-   * added or blessed by 1.4 — and POD-1076 owns re-keying them to
-   * `(userId, entityId)`. Pinning the exact membership is what makes adding a
-   * sixth a red rather than a slightly larger number.
-   */
-  it('pins remaining session per-user fields', () => {
+  it('permits no per-user markers on shared wire projections', () => {
     const found = representationViolations(RETAINED_REPRESENTATIONS, OWNERSHIP_MATRIX_INDEX)
       .filter((x) => x.kind === 'per-user-state-member')
       .map((x) => `${x.representation.split(' ')[0]}.${/'([^']+)'/.exec(x.detail)?.[1]}`)
       .sort()
-    expect(found).toEqual(['SessionMeta.readAt', 'SessionMeta.snoozedUntil'])
+    expect(found).toEqual([])
   })
 
   it('pins every schema-bearing entry to the schema it claims to document', () => {

@@ -1,6 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { motionPhase, sessionTitle } from '@podium/client-core/viewmodels'
-import type { SessionId, SessionMeta } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { alpha } from '../../theme/mix'
 import { color, font, mono, radius, sans, space } from '../../theme/theme'
@@ -52,7 +53,7 @@ export function IssueNow({
   onOpenSession,
 }: {
   issue: IssueViewModel
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   onOpenSession: (sessionId: SessionId) => void
 }) {
   const ranked = [...sessions]

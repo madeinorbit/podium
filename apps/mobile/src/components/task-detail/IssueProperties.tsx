@@ -1,11 +1,12 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   groupRelations,
   ISSUE_STAGE_LABELS,
   type IssueEdge,
   sessionTitle,
 } from '@podium/client-core/viewmodels'
-import type { SessionId, SessionMeta } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { type ReactNode, useState } from 'react'
 import { Linking, StyleSheet, Text, TextInput, View } from 'react-native'
@@ -55,7 +56,7 @@ export function IssueProperties({
 }: {
   issue: IssueViewModel
   /** This task's member sessions, resolved against the session world. */
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   /** The parent row, when the replica holds it. */
   parent: IssueViewModel | undefined
   /** Shared cross-boundary policy, closed over this replica's exit record. */

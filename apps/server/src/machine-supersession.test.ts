@@ -24,7 +24,7 @@ async function fixture() {
       actorKind: 'user', actorId: member, onBehalfOf: member })
   }
   const service = new MachinesService({ store, hostMachineId: store.hostMachineId, instanceId: 'supersede-test',
-    clients: () => [], machinesForPrincipal: async () => [], sessionsChangedForMachine: () => {} })
+    clients: () => [], machinesForPrincipal: async () => [] })
   const close = vi.fn()
   service.registerCredentialConnection(oldId, close)
   service.toMachine(oldId, queued)

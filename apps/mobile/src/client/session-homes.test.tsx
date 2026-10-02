@@ -1,6 +1,6 @@
 import { type SessionView, sessionValues, sessionViews } from '@podium/client-core/session-values'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
-import { asMachineId, asRepoId, asSessionId, asUserId, type SessionMeta } from '@podium/model'
+import { asMachineId, asRepoId, asSessionId, asUserId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import { act, cleanup, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -17,7 +17,7 @@ afterEach(cleanup)
 
 const id = asSessionId('sess-homes')
 const active = '2026-10-01T12:00:00.000Z'
-const raw: SessionMeta = {
+const raw: SessionView = {
   sessionId: id,
   agentKind: 'claude-code',
   cwd: '/repo',
@@ -93,12 +93,14 @@ describe('mobile session read seam', () => {
     expect(replica.rows('sessions')[0]).toBe(stored)
   })
 
-  it('keeps an older offline row by identity until its homes arrive', async () => {
+  it('keeps the older offline row in storage while ignoring its retired cells', async () => {
     const seen: { rows: SessionView[]; one?: SessionView } = { rows: [] }
     const { replica } = await renderWithMobileStore(<Probe seen={seen} />, { sessions: [raw] })
     const stored = replica.rows('sessions')[0]
-    expect(seen.one).toBe(stored)
-    expect(seen.rows[0]).toBe(stored)
+    expect(seen.one).not.toBe(stored)
+    expect(seen.rows[0]).toBe(seen.one)
+    expect(seen.one).toMatchObject({ readAt: null, unread: true, machineName: '' })
+    expect(replica.rows('sessions')[0]).toBe(stored)
     expect(JSON.parse(screen.getByTestId('values').textContent ?? '{}')).toEqual(sessionValues(raw))
   })
 })

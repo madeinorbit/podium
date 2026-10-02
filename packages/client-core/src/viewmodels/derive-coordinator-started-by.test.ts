@@ -1,12 +1,7 @@
 // M6 coordinator elevate + started-by issue nesting (POD-902).
-import {
-  asIssueId,
-  asSessionId,
-  type SessionMeta,
-  type SessionMetaInput,
-  type UnbrandIds,
-} from '@podium/model'
+import { asIssueId, asSessionId, type UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView, SessionViewInput } from '../session-values'
 import {
   elevateCoordinatorSession,
   type IssueNavigationModel,
@@ -28,7 +23,7 @@ import {
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 const HOUR = 3_600_000
 
-function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
+function sess(id: string, over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: id,
     cwd: '/r/a',
@@ -40,7 +35,7 @@ function sess(id: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
     archived: false,
     title: id,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function issue(over: Partial<UnbrandIds<IssueNavigationModel>> = {}): IssueNavigationModel {
@@ -150,7 +145,7 @@ describe('isDraftAgentVessel', () => {
 })
 
 describe('nestStartedByIssues', () => {
-  const row = (iss: IssueNavigationModel, sessions: SessionMeta[]): UnifiedIssueRow => ({
+  const row = (iss: IssueNavigationModel, sessions: SessionView[]): UnifiedIssueRow => ({
     kind: 'issue',
     issue: iss,
     sessions,

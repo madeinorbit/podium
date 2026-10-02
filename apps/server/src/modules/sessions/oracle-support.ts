@@ -1,3 +1,4 @@
+import { clientSessionViews } from '../../test-support/session-views'
 import { resolvePrincipal } from '../../command-principal'
 import { attachTestClient } from '../../test-support/client-transport'
 /**
@@ -138,10 +139,10 @@ export interface Oracle {
   daemon: ControlMessage[]
   /** tRPC caller with the OPERATOR capability — the human seam. */
   call: ReturnType<typeof appRouter.createCaller>
-  /** Session metadata as the wire sees it. */
+  /** Session facts joined with the actual feed homes, as the client sees them. */
   meta(
     sessionId: SessionId,
-  ): Promise<Awaited<ReturnType<SessionRegistry['modules']['sessions']['listSessions']>>[number]>
+  ): Promise<Awaited<ReturnType<typeof clientSessionViews>>[number]>
   /**
    * Invoke a write the way a RELAYED AGENT does — through the capability seam,
    * with the capability minted from the calling session's cwd. This is the ONLY
@@ -317,7 +318,7 @@ export async function makeOracle(
     daemon,
     call,
     meta: async (sessionId) => {
-      const found = await reg.modules.sessions.sessionById(sessionId)
+      const found = (await clientSessionViews(reg)).find(row => row.sessionId === sessionId)
       if (!found) throw new Error(`no session meta for ${sessionId}`)
       return found
     },

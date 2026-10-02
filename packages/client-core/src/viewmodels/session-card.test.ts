@@ -1,10 +1,11 @@
-import type { SessionId, SessionMeta, SessionMetaInput, UnbrandIds } from '@podium/model'
+import type { SessionId, UnbrandIds } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueViewModel } from '../replica/issue-view-models'
+import type { SessionView, SessionViewInput } from '../session-values'
 import { sessionCardModel, sessionTitle } from './session-card'
 
-function session(overrides: Partial<SessionMetaInput> & { sessionId: SessionId }): SessionMeta {
+function session(overrides: Partial<SessionViewInput> & { sessionId: SessionId }): SessionView {
   const { sessionId, ...rest } = overrides
   return {
     agentKind: 'claude-code',
@@ -23,7 +24,7 @@ function session(overrides: Partial<SessionMetaInput> & { sessionId: SessionId }
     unread: false,
     ...rest,
     sessionId,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function issue(

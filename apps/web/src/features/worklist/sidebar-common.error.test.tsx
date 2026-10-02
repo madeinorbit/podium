@@ -1,6 +1,7 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
-import { asSessionId, type SessionMeta } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PanelRow } from './sidebar-common'
@@ -41,7 +42,7 @@ describe('PanelRow error status', () => {
         nativeSubagentCount: 0,
         error: { class: 'usage_limit', retryable: false },
       },
-    } satisfies SessionMeta
+    } satisfies SessionView
 
     render(<PanelRow session={session} active={false} onSelect={vi.fn()} />)
 

@@ -1,4 +1,5 @@
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionContextMenu } from './SessionContextMenu'
@@ -66,7 +67,7 @@ const machine = (id: string, over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
-function meta(over: Partial<SessionMetaInput> = {}): SessionMeta {
+function meta(over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: asSessionId('s'),
     agentKind: 'claude-code',
@@ -85,10 +86,10 @@ function meta(over: Partial<SessionMetaInput> = {}): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  } as SessionMeta
+  } as SessionView
 }
 
-function open(session: SessionMeta = meta()): void {
+function open(session: SessionView = meta()): void {
   render(
     <SessionContextMenu
       session={session}

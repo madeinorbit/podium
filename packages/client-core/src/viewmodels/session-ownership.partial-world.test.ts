@@ -1,6 +1,7 @@
-import { asIssueId, asSessionId, type SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueViewModel } from '../replica/issue-view-models'
+import type { SessionView } from '../session-values'
 import {
   indexSessionOwnership,
   issueIdOwningSession,
@@ -26,7 +27,7 @@ import {
 //      tombstone and no heal loop.
 // ---------------------------------------------------------------------------
 
-function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function session(id: string, over: Partial<SessionView> = {}): SessionView {
   return {
     sessionId: asSessionId(id),
     agentKind: 'claude-code',
@@ -45,7 +46,7 @@ function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function issue(id: string, over: Partial<IssueViewModel> = {}): IssueViewModel {

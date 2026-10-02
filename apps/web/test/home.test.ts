@@ -6,10 +6,11 @@ import {
   kanbanColumns,
   relativeTime,
 } from '@podium/client-core/focus'
-import type { SessionMeta, SessionMetaInput } from '@podium/model'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+
 import { describe, expect, it } from 'vitest'
 
-const base = (over: Partial<SessionMetaInput> = {}): SessionMeta =>
+const base = (over: Partial<SessionViewInput> = {}): SessionView =>
   ({
     sessionId: 's1',
     agentKind: 'claude-code',
@@ -25,18 +26,18 @@ const base = (over: Partial<SessionMetaInput> = {}): SessionMeta =>
     origin: { kind: 'spawn' },
     archived: false,
     ...over,
-  }) as unknown as SessionMeta
+  }) as unknown as SessionView
 
 const state = (
-  phase: NonNullable<SessionMeta['agentState']>['phase'],
+  phase: NonNullable<SessionView['agentState']>['phase'],
   extra: Record<string, unknown> = {},
 ) =>
   ({ phase, since: '2026-06-12T08:00:00.000Z', nativeSubagentCount: 0, ...extra }) as NonNullable<
-    SessionMeta['agentState']
+    SessionView['agentState']
   >
 
 describe('compareRecency with drafts', () => {
-  const ids = (list: SessionMeta[]) => list.sort(compareRecency).map((s) => s.sessionId)
+  const ids = (list: SessionView[]) => list.sort(compareRecency).map((s) => s.sessionId)
 
   it('a recent draft edit lifts a session above one with a newer lastActiveAt but no draft', () => {
     const draft = base({
@@ -67,7 +68,7 @@ describe('compareRecency with drafts', () => {
 
 describe('compareRecency with a returned (expired) snooze', () => {
   const now = Date.parse('2026-06-12T12:00:00.000Z')
-  const sorted = (list: SessionMeta[]) =>
+  const sorted = (list: SessionView[]) =>
     [...list].sort((a, b) => compareRecency(a, b, now)).map((s) => s.sessionId)
 
   it('a just-expired snooze lifts the session by its snooze-expiry (it just re-entered the queue)', () => {

@@ -53,8 +53,6 @@ const meta = (sessionId: SessionId): SessionMeta => ({
   lastActiveAt: '2026-07-01T00:00:00.000Z',
   origin: { kind: 'spawn' },
   archived: false,
-  readAt: null,
-  unread: false,
 })
 
 // The hub's ServerMessage dispatch is compile-checked total [spec:SP-3fe2]:

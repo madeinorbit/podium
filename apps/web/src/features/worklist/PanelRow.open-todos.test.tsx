@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**
@@ -8,7 +9,7 @@ import '@/test-support/mock-core-store-handle'
  * have deleted "todos open" from the sidebar rather than quietening it. So the
  * two halves are asserted together — the words are there, the amber is not.
  */
-import type { SessionMeta } from '@podium/model'
+
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PanelRow } from './sidebar-common'
@@ -25,7 +26,7 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
 
-function session(idle: { kind: string; summary?: string }): SessionMeta {
+function session(idle: { kind: string; summary?: string }): SessionView {
   return {
     sessionId: 's1',
     agentKind: 'claude-code',
@@ -47,7 +48,7 @@ function session(idle: { kind: string; summary?: string }): SessionMeta {
       nativeSubagentCount: 0,
       idle,
     },
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 const row = (idle: { kind: string; summary?: string }) => (

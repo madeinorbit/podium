@@ -190,6 +190,7 @@ export interface RowSourceRuntime {
  *  are optional on the replica contract; this source refuses to start without
  *  them rather than degrading to kind-grained refreshes. */
 export interface RowSourceReplica {
+  sessionUserStatesLoaded?(): boolean
   subscribeAddressedBatch?(cb: (batch: ReplicaAddressedBatch) => void): () => void
   rows<K extends ReplicaKind>(kind: K): readonly AnyRow[]
   row?<K extends ReplicaKind>(kind: K, id: string): AnyRow | undefined
@@ -428,6 +429,7 @@ export function createRowSource(
       pending?.sessionUserStates.get(id) ?? NO_OVERLAYS,
     )
     return sessionView(value, {
+      userStatesLoaded: replica.sessionUserStatesLoaded?.() ?? true,
       userState,
       repo: value.refRepoId ? authority('repos', value.refRepoId) : undefined,
       machine: value.machineId ? authority('machines', value.machineId) : undefined,

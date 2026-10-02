@@ -86,23 +86,6 @@ export const REACTIONS = [
     scopeInvariant: 'Read-only derived cache; it performs no attributed write.',
   },
   {
-    id: 'sessions.machine-derived-fields',
-    description: 'Recapture session machine-name projections after fleet metadata changes.',
-    trigger: 'machine.metadataChanged',
-    durability: 'in-memory',
-    replay: {
-      mode: 'none',
-      reason: 'Session load derives machine names from current durable rows.',
-    },
-    idempotency: { key: 'machineId + machine row revision', duplicatePolicy: 'coalesce' },
-    ordering: 'Per-machine EventBus order; session publication remains ledger ordered.',
-    retry: 'The next metadata change or client bootstrap rebuilds the projection.',
-    failureOwner: 'sessions derived-field maintainer',
-    observability: { registry: true, events: ['machine.metadataChanged'], metrics: [] },
-    principal: system(),
-    scopeInvariant: 'Projection refresh retains every session owner and visibility.',
-  },
-  {
     id: 'sessions.feed-cursor',
     description: 'Advance the live session publication cursor after the ordered feed publishes.',
     trigger: 'feed.published',

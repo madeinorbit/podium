@@ -18,6 +18,7 @@ import {
 import { asDelegationRef, CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { clientSessionViews } from './test-support/session-views'
 
 /** Every durable session row names a machine (POD-318) — there is no column default. */
 const TEST_MACHINE = asMachineId('machine-under-test')
@@ -6317,25 +6318,23 @@ describe('SessionRegistry read state (#124)', () => {
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
-    const before = (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]
+    const before = (await clientSessionViews(reg))[0]
     expect(before?.readAt).toBeNull()
     expect(before?.unread).toBe(true)
 
     await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
-    const after = (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]
+    const after = (await clientSessionViews(reg))[0]
     expect(after?.readAt).not.toBeNull()
     expect(after?.unread).toBe(false)
 
     // read_at is durable — a fresh registry over the same store reads it back.
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc'))[0]?.readAt).toBe(
-      after?.readAt,
-    )
+    expect((await clientSessionViews(reg2))[0]?.readAt).toBe(after?.readAt)
     await reg.dispose()
     await reg2.dispose()
   })
 
-  it('markSessionRead broadcasts a fresh sessionsChanged marking it read', async () => {
+  it('markSessionRead broadcasts the personal cursor', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
@@ -6351,8 +6350,14 @@ describe('SessionRegistry read state (#124)', () => {
     await reg.modules.sessions.flushBroadcasts()
 
     await expect
-      .poll(() => feedValues(c.sent, 'session'))
-      .toContainEqual(expect.objectContaining({ sessionId, unread: false }))
+      .poll(() => feedValues(c.sent, 'sessionUserState'))
+      .toContainEqual(
+        expect.objectContaining({
+          sessionId,
+          userId: firstAdminMemberId(),
+          readAt: expect.any(String),
+        }),
+      )
     await reg.dispose()
   })
 
@@ -6366,7 +6371,7 @@ describe('SessionRegistry read state (#124)', () => {
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.unread).toBe(false)
+    expect((await clientSessionViews(reg))[0]?.unread).toBe(false)
 
     const c = sink()
     await attachCurrent(reg, c.send)
@@ -6374,16 +6379,18 @@ describe('SessionRegistry read state (#124)', () => {
     await reg.modules.sessions.markSessionUnread(firstAdminMemberId(), sessionId)
     await reg.modules.sessions.flushBroadcasts()
 
-    const after = (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]
+    const after = (await clientSessionViews(reg))[0]
     expect(after?.readAt).toBeNull()
     expect(after?.unread).toBe(true)
     // Durable: a fresh registry over the same store reads readAt back as null.
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc'))[0]?.readAt).toBeNull()
+    expect((await clientSessionViews(reg2))[0]?.readAt).toBeNull()
     // And the scoped-feed change was broadcast to clients.
     await expect
-      .poll(() => feedValues(c.sent, 'session'))
-      .toContainEqual(expect.objectContaining({ sessionId, unread: true }))
+      .poll(() => feedValues(c.sent, 'sessionUserState'))
+      .toContainEqual(
+        expect.objectContaining({ sessionId, userId: firstAdminMemberId(), readAt: null }),
+      )
     await reg.dispose()
     await reg2.dispose()
   })
@@ -6414,13 +6421,11 @@ describe('SessionRegistry snooze', () => {
     expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({
       [sessionId]: null,
     })
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.snoozedUntil).toBeNull()
+    expect((await clientSessionViews(reg))[0]?.snoozedUntil).toBeNull()
 
     await reg.modules.sessions.clearSnooze(firstAdminMemberId(), sessionId)
     expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
-    expect(
-      'snoozedUntil' in ((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0] ?? {}),
-    ).toBe(false)
+    expect((await clientSessionViews(reg))[0]?.snoozedUntil).toBeUndefined()
   })
 
   it('a submitted prompt (sendText) clears the snooze', async () => {
@@ -6495,7 +6500,7 @@ describe('SessionRegistry snooze', () => {
     })
     await store.sessions.setSnooze(firstAdminMemberId(), asSessionId('s1'), null)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.snoozedUntil).toBeNull()
+    expect((await clientSessionViews(reg))[0]?.snoozedUntil).toBeNull()
   })
 })
 

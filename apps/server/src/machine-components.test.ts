@@ -18,7 +18,7 @@ async function fixture(assignment: MachineServiceAssignment) {
     ownerUserId: firstAdminMemberId(), assignment,
     assignmentEvidence: { version: 1, source: 'test-enrollment', requestId: 'enroll-1' } })
   const service = new MachinesService({ store, hostMachineId: store.hostMachineId, instanceId: 'test',
-    clients: () => [], machinesForPrincipal: async () => [], sessionsChangedForMachine: () => {} })
+    clients: () => [], machinesForPrincipal: async () => [] })
   return { store, service }
 }
 
@@ -57,7 +57,7 @@ describe('desired assignment and observed availability', () => {
       const store = await openTestStore(':memory:')
       const service = new MachinesService({ store, hostMachineId: store.hostMachineId, instanceId: 'test',
         pairing: { mint: () => 'valid', redeem: () => ({ ownerUserId: firstAdminMemberId() }) },
-        clients: () => [], machinesForPrincipal: async () => [], sessionsChangedForMachine: () => {} })
+        clients: () => [], machinesForPrincipal: async () => [] })
       try {
         expect((await service.authenticateDaemon({ type: 'pair', code: 'valid', machineId: id,
           hostname: 'host', assignment }, { source: 'supervisor' })).ok).toBe(true)
@@ -95,7 +95,7 @@ describe('desired assignment and observed availability', () => {
     await service.attach(id, () => {})
     service.dispose()
     const fresh = new MachinesService({ store, hostMachineId: store.hostMachineId, instanceId: 'test',
-      clients: () => [], machinesForPrincipal: async () => [], sessionsChangedForMachine: () => {} })
+      clients: () => [], machinesForPrincipal: async () => [] })
     try {
       expect((await store.machines.getMachine(id))?.availability?.daemon).toBe(true)
       expect((await fresh.listMachines())[0]?.availability?.daemon).toBe(false)

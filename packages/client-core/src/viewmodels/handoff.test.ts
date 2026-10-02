@@ -1,11 +1,6 @@
-import {
-  asIssueId,
-  asSessionId,
-  type IssueEventWire,
-  type SessionMeta,
-  type TranscriptItem,
-} from '@podium/model'
+import { asIssueId, asSessionId, type IssueEventWire, type TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView } from '../session-values'
 import {
   deriveHandoffNext,
   deriveHandoffNow,
@@ -35,7 +30,7 @@ const issue = (id: string, over: Partial<IssueNavigationModel> = {}): IssueNavig
     ...over,
   }) as IssueNavigationModel
 
-const session = (id: string, over: Partial<SessionMeta> = {}): SessionMeta =>
+const session = (id: string, over: Partial<SessionView> = {}): SessionView =>
   ({
     sessionId: asSessionId(id),
     agentKind: 'codex',
@@ -47,7 +42,7 @@ const session = (id: string, over: Partial<SessionMeta> = {}): SessionMeta =>
     createdAt: '2026-09-01T09:00:00.000Z',
     transcriptAvailable: true,
     ...over,
-  }) as SessionMeta
+  }) as SessionView
 
 const item = (id: string, over: Partial<TranscriptItem> = {}): TranscriptItem => ({
   id,
@@ -150,7 +145,7 @@ describe('Handoff mission derivations', () => {
       [
         session('s1', {
           issueId: asIssueId('i1'),
-          agentState: { phase: 'working' } as SessionMeta['agentState'],
+          agentState: { phase: 'working' } as SessionView['agentState'],
         }),
       ],
       'root',
@@ -178,7 +173,7 @@ describe('Handoff mission derivations', () => {
       [
         session('s1', {
           issueId: asIssueId('i1'),
-          agentState: { phase: 'needs_user' } as SessionMeta['agentState'],
+          agentState: { phase: 'needs_user' } as SessionView['agentState'],
         }),
       ],
       'root',

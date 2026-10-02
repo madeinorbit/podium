@@ -137,10 +137,9 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     role: 'R4',
     purpose: 'The session as every replica receives it — the shape that rides the change feed.',
     distinctSemantics:
-      'It is the one representation that must be BYTE-STABLE across this rewrite (POD-360 pins ' +
-      'it), so it keeps provenance flat at its historical key position rather than nested, and ' +
-      'it adds the derived reads (`displayRef`, `unread`, `machineName`) that R1 must never ' +
-      'store beside the fields they are computed from (ADR 4 D3.6).',
+      'Session facts and stable reference inputs on the shared feed. Per-user markers live ' +
+      'in sessionUserState; machine names, conditions and repo labels are client joins ' +
+      '(POD-4974 S6). Provenance remains flat at its historical key position.',
     composition: {
       state: 'composed',
       from:

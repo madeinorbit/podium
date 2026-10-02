@@ -1,4 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { fixtureViewModels } from './normalized-issues'
 /**
  * POD-4552 — an anonymised snapshot of a live Podium workspace, and the
@@ -29,7 +30,6 @@ import type {
   IssueProjection,
   MachineWire,
   RepoProjection,
-  SessionMeta,
 } from '@podium/model'
 import { expectedSnapshot } from '../oracle/index'
 import type { CorpusScale, FixtureCorpus } from './index'
@@ -42,7 +42,7 @@ export interface LiveCollections {
   issueGitStates?: import('@podium/model').IssueGitStateProjection[]
   issues: IssueViewModel[]
   issueProjections: IssueProjection[]
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   repoProjections: RepoProjection[]
   issueDeps: IssueDepProjection[]
   /** The machine scan (`GitRepositoryWire`): repo roots and their worktrees. */

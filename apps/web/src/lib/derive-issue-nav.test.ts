@@ -1,4 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import {
   draftIssueLabel,
   pickPaneSession,
@@ -6,13 +7,13 @@ import {
   sessionsForIssueNav,
 } from '@podium/client-core/viewmodels'
 import type { UnbrandIds } from '@podium/model'
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { filterBoardScope } from '@/features/issues/issues-display'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 
-function sess(id: string, cwd: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
+function sess(id: string, cwd: string, over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: id,
     cwd,
@@ -23,7 +24,7 @@ function sess(id: string, cwd: string, over: Partial<SessionMetaInput> = {}): Se
     archived: false,
     title: 'some live title',
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {

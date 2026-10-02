@@ -1,5 +1,5 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { sessionNeedsHuman } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
 
 /**
  * WHO THE MISSION OPENS ON [POD-724].
@@ -18,8 +18,8 @@ import type { SessionMeta } from '@podium/model'
  * ask alone would open the mission on a transcript nobody can reply to while a
  * live agent waited one pull away.
  */
-export function mostRelevantSession(sessions: readonly SessionMeta[]): SessionMeta | undefined {
-  const rank = (s: SessionMeta): number => {
+export function mostRelevantSession(sessions: readonly SessionView[]): SessionView | undefined {
+  const rank = (s: SessionView): number => {
     const open = !s.archived && s.status !== 'exited' && s.status !== 'hibernated'
     if (!open) return 3
     if (sessionNeedsHuman(s)) return 0

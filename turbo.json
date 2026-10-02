@@ -173,7 +173,7 @@
         "$TURBO_ROOT$/apps/daemon/src/**",
         "$TURBO_ROOT$/drizzle.config.ts",
         "$TURBO_ROOT$/packages/client-core/package.json",
-        "$TURBO_ROOT$/packages/client-core/src/socket-transport/bootstrap-zstd.ts"
+        "$TURBO_ROOT$/packages/client-core/src/**"
       ],
       "outputs": ["*.tsbuildinfo"]
     },

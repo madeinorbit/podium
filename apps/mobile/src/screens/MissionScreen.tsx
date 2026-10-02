@@ -1,5 +1,6 @@
 import { useHarnessDescriptors } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   isSessionWorking,
@@ -10,7 +11,7 @@ import {
   missionSessions as missionSessionsOf,
   sessionNeedsHuman,
 } from '@podium/client-core/viewmodels'
-import { asIssueId, type SessionId, type SessionMeta } from '@podium/model'
+import { asIssueId, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -123,7 +124,7 @@ export function MissionScreen() {
   const live = missionSessions.filter((s) => !s.archived && s.status !== 'exited').length
   const working = missionSessions.filter(isSessionWorking).length
 
-  const openSession = useCallback((session: SessionMeta) => {
+  const openSession = useCallback((session: SessionView) => {
     setPinnedSessionId(session.sessionId)
     void Haptics.selectionAsync().catch(() => {})
   }, [])
@@ -304,7 +305,7 @@ function MissionBody({
   findRequest,
   onOpenDetails,
 }: {
-  current: SessionMeta | undefined
+  current: SessionView | undefined
   currentIssue: IssueViewModel | undefined
   progress: MissionProgress
   live: number

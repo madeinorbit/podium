@@ -1,5 +1,6 @@
 import { allIssueViewModels } from '../replica/issue-view-cache'
 import type { IssueViewModel } from '../replica/issue-view-models'
+import type { SessionView, SessionViewInput } from '../session-values'
 // @vitest-environment happy-dom
 // (terminal-client's index pulls xterm addons that need a browser-ish global
 // at import time; the engine itself is DOM-optional.)
@@ -17,8 +18,6 @@ import type {
   IssueProjection,
   IssueUserStateWire,
   SessionId,
-  SessionMeta,
-  SessionMetaInput,
   ShipLaneProjection,
   ShipOrderProjection,
 } from '@podium/model'
@@ -27,9 +26,11 @@ import {
   asIssueId,
   asMachineId,
   asMutationId,
+  asRepoId,
   asSessionId,
   asUserId,
   issueUserStateRowId,
+  sessionUserStateRowId,
   shipLaneId,
   UNADDRESSABLE_SEND_REASON,
 } from '@podium/model'
@@ -140,7 +141,7 @@ const KNOWN_REPO = {
   worktrees: [{ path: '/tmp/known-repo/.worktrees/wt1', branch: 'wt1' }],
 } as unknown as GitRepositoryWire
 
-function session(id: string, cwd: string): SessionMeta {
+function session(id: string, cwd: string): SessionView {
   return {
     sessionId: id,
     agentKind: 'claude-code',
@@ -157,7 +158,7 @@ function session(id: string, cwd: string): SessionMeta {
     archived: false,
     readAt: null,
     unread: false,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: test fixture — shaped per-test, cast once at the boundary
@@ -978,7 +979,7 @@ describe('session pane links open that session (POD-4642)', () => {
     return first && ws ? (ws.panes[first]?.activeTabId ?? null) : null
   }
   /** A reload over storage in which OTHER was the active tab of known-repo. */
-  const restoredWith = async (rows: SessionMeta[]): Promise<StorageApi> => {
+  const restoredWith = async (rows: SessionView[]): Promise<StorageApi> => {
     const storage = memoryStorage()
     const first = makeEngine({ url: '/workspace?wt=%2Ftmp%2Fknown-repo', storage })
     first.engine.start()
@@ -1921,7 +1922,7 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     await settle()
     void engine.getSnapshot().archiveSession(asSessionId('s1'), true)
     await settle()
-    const row = (): SessionMeta | undefined =>
+    const row = (): SessionView | undefined =>
       engine.getSnapshot().sessions.find((s) => s.sessionId === 's1')
     expect(engine.getSnapshot().outboxSize).toBe(0)
     expect(row()?.archived).toBe(true)
@@ -1934,7 +1935,7 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     expect(row()?.workState).toBe('done')
     // The second echo retires everything.
     engine.replica.applySnapshot('sessions', [
-      { ...session('s1', '/w'), archived: true, workState: 'done' } as unknown as SessionMeta,
+      { ...session('s1', '/w'), archived: true, workState: 'done' } as unknown as SessionView,
     ])
     await settle()
     expect(row()?.workState).toBe('done')
@@ -2421,8 +2422,14 @@ describe('navigateToSession (#411)', () => {
     const h = makeEngine({ url })
     h.engine.start()
     await settle()
+    h.engine.replica.applySnapshot('repos', [{ id: asRepoId('repo1'), prefix: 'POD' } as never])
     h.engine.replica.applySnapshot('sessions', [
-      { ...session('s1', '/tmp/known-repo/.worktrees/wt1/sub'), displayRef: 'POD-529-A' },
+      {
+        ...session('s1', '/tmp/known-repo/.worktrees/wt1/sub'),
+        refRepoId: asRepoId('repo1'),
+        refSeq: 529,
+        refLetter: 'A',
+      },
     ])
     await settle()
     return h
@@ -2632,7 +2639,7 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
       {
         ...session('s1', '/tmp/known-repo/.worktrees/wt1'),
         issueId: asIssueId('iss_own'),
-      } as SessionMeta,
+      } as SessionView,
     ])
     await settle()
     engine.getSnapshot().setSelectedIssueId(asIssueId('iss_other'))
@@ -2769,24 +2776,30 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
 // session/issue whose message was already on screen.
 // ---------------------------------------------------------------------------
 describe('eager mark-read-on-view (POD-272)', () => {
-  const active = (id: string, over: Partial<SessionMetaInput> = {}): SessionMeta =>
-    ({ ...session(id, '/tmp/known-repo/.worktrees/wt1'), ...over }) as SessionMeta
+  const active = (id: string, over: Partial<SessionViewInput> = {}): SessionView =>
+    ({ ...session(id, '/tmp/known-repo/.worktrees/wt1'), ...over }) as SessionView
+
+  const publish = (engine: ReturnType<typeof makeEngine>['engine'], rows: SessionView[]) => {
+    engine.replica.batch(() => {
+      engine.replica.applyChanges('sessionUserStates', rows.map(row => ({
+        userId: asUserId('operator'), sessionId: row.sessionId,
+        readAt: row.unread ? row.readAt : row.readAt ?? row.lastActiveAt,
+      })), [])
+      engine.replica.applyChanges('sessions', rows, [])
+    })
+  }
 
   it('marks the session in the OPEN PANE read the moment its activity lands', async () => {
     const api = makeApi()
     const { engine } = makeEngine({ api })
     engine.start()
     await settle(40)
-    engine.replica.applyChanges('sessions', [active('s1')], [])
+    publish(engine, [active('s1')])
     await settle()
     engine.getSnapshot().setPane('A', asSessionId('s1'))
     await settle()
     // A message arrives while s1 IS the visible pane.
-    engine.replica.applyChanges(
-      'sessions',
-      [active('s1', { lastActiveAt: '2026-07-01T00:01:00.000Z', unread: true })],
-      [],
-    )
+    publish(engine, [active('s1', { lastActiveAt: '2026-07-01T00:01:00.000Z', unread: true })])
     await settle() // ~25ms — an order of magnitude under MARK_READ_ON_VIEW_MS
     expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1)
     expect(engine.getSnapshot().sessions[0]?.unread).toBe(false)
@@ -2798,17 +2811,13 @@ describe('eager mark-read-on-view (POD-272)', () => {
     const { engine } = makeEngine({ api })
     engine.start()
     await settle(40)
-    engine.replica.applyChanges(
-      'sessions',
-      [active('s1', { readAt: '2026-07-01T00:00:01.000Z' })],
-      [],
-    )
+    publish(engine, [active('s1', { readAt: '2026-07-01T00:00:01.000Z' })])
     await settle()
     engine.getSnapshot().setPane('A', asSessionId('s1'))
     await settle()
     // Marking THIS open session unread flips the flag without new activity —
     // the trigger is activity, so nothing re-reads it.
-    engine.replica.applyChanges('sessions', [active('s1', { readAt: null, unread: true })], [])
+    publish(engine, [active('s1', { readAt: null, unread: true })])
     await settle(60)
     expect(api.sessions.markRead.mutate).not.toHaveBeenCalled()
     expect(engine.getSnapshot().sessions[0]?.unread).toBe(true)
@@ -2820,15 +2829,11 @@ describe('eager mark-read-on-view (POD-272)', () => {
     const { engine } = makeEngine({ api })
     engine.start()
     await settle(40)
-    engine.replica.applyChanges('sessions', [active('s1')], [])
+    publish(engine, [active('s1')])
     await settle()
     engine.getSnapshot().setPane('A', asSessionId('s1'))
     await settle()
-    engine.replica.applyChanges(
-      'sessions',
-      [active('s1', { lastActiveAt: '2026-07-01T00:01:00.000Z', unread: true })],
-      [],
-    )
+    publish(engine, [active('s1', { lastActiveAt: '2026-07-01T00:01:00.000Z', unread: true })])
     await settle()
     expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1) // leading edge
     // THE SERVER'S ECHO, and the test is wrong without it. `sessions.markRead`
@@ -2838,31 +2843,23 @@ describe('eager mark-read-on-view (POD-272)', () => {
     // it is already covered by the stamp the server has yet to make. A second
     // mutation there would be redundant, which is why the reaction declines to
     // send one, and why the tail below is only meaningful once the read lands.
-    engine.replica.applyChanges(
-      'sessions',
-      [
+    publish(engine, [
         active('s1', {
           lastActiveAt: '2026-07-01T00:01:00.000Z',
           readAt: '2026-07-01T00:01:30.000Z',
           unread: false,
         }),
-      ],
-      [],
-    )
+      ])
     await settle()
     expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1)
     // Fresh activity AFTER that confirmed read, still inside the throttle window.
-    engine.replica.applyChanges(
-      'sessions',
-      [
+    publish(engine, [
         active('s1', {
           lastActiveAt: '2026-07-01T00:02:00.000Z',
           readAt: '2026-07-01T00:01:30.000Z',
           unread: true,
         }),
-      ],
-      [],
-    )
+      ])
     await settle()
     expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1) // still inside the window
     await settle(1400) // …and the tail lands once it closes
@@ -3812,7 +3809,7 @@ describe('atomic navigation publication', () => {
         issueId: issue.id,
         name: 'Navigation',
         unread: false,
-      } as SessionMeta
+      } as SessionView
       applyIssueRecords(engine, [issue])
       engine.replica.applyChanges('sessions', [session], [])
       await settle()
@@ -4100,7 +4097,7 @@ describe('coalesced outbox and reaction publications', () => {
         ...session('b2-session', scenario === 'fallback' ? '/unregistered' : '/tmp/known-repo'),
         issueId: oldId,
         readAt: '2099-01-01T00:00:00Z',
-      } as SessionMeta
+      } as SessionView
       if (scenario !== 'visit-baseline') {
         applyIssueRecords(engine, [issue, { ...issue, id: newId }])
       } else {
@@ -4121,6 +4118,7 @@ describe('coalesced outbox and reaction publications', () => {
           [],
         )
       }
+      engine.replica.applyChanges('sessionUserStates', [{ userId: asUserId('operator'), sessionId: row.sessionId, readAt: row.readAt }], [])
       engine.replica.applyChanges('sessions', [row], [])
       await settle()
       engine.getSnapshot().navigateWorkspace({
@@ -4160,11 +4158,8 @@ describe('coalesced outbox and reaction publications', () => {
             engine.replica.applyChanges('issueProjections', [placeholderProjection(issue)], [])
             break
           case 'session-read':
-            engine.replica.applyChanges(
-              'sessions',
-              [{ ...row, lastActiveAt: '2026-07-01T00:01:00Z', readAt: null, unread: true }],
-              [],
-            )
+            // One activity row moves beyond the already-loaded read cursor.
+            engine.replica.applyChanges('sessions', [{ ...row, lastActiveAt: '2100-07-01T00:01:00Z' }], [])
             break
           case 'issue-read':
             engine.replica.applyChanges(
@@ -4664,11 +4659,11 @@ describe('S5 one publication per click', () => {
       const sessionA = {
         ...session('s5-session-a', '/tmp/known-repo'),
         issueId: issueA.id,
-      } as SessionMeta
+      } as SessionView
       const sessionB = {
         ...session('s5-session-b', '/tmp/known-repo'),
         issueId: issueB.id,
-      } as SessionMeta
+      } as SessionView
       applyIssueRecords(engine, [issueA, issueB])
       engine.replica.applyChanges('sessions', [sessionA, sessionB], [])
       await settle()
@@ -4834,7 +4829,7 @@ describe('S5 one publication per click', () => {
     const row = {
       ...session('s5-gesture-session', '/tmp/known-repo'),
       issueId: issue.id,
-    } as SessionMeta
+    } as SessionView
     applyIssueRecords(engine, [issue])
     engine.replica.applyChanges('sessions', [row], [])
     await settle()
@@ -4955,7 +4950,7 @@ describe('session home reads in the shared runtime', () => {
         snoozedUntil: null,
         machineName: 'Old source',
         condition: 'logged-out',
-      } as SessionMeta,
+      } as SessionView,
     ])
     replica.applySnapshot('sessionUserStates', [{ userId: user, sessionId: id, readAt: read }])
     replica.applySnapshot('machines', [
@@ -4964,6 +4959,40 @@ describe('session home reads in the shared runtime', () => {
     replica.applySnapshot('repos', [{ id: 'repo:one', prefix: 'NEW' } as never])
     return replica
   }
+  it('keeps a slow bootstrap from flashing cached sessions unread before personal rows arrive', async () => {
+    const raw = { ...session(id, '/repo'), unread: false, readAt: read }
+    let records: EntityRecord[] = [{ entity: 'session', entityId: id, value: raw, provenance: { seq: 1 } }]
+    const replica = createKernelReplica({
+      cache: {
+        readCursor: () => ({ seq: 10 }), readEntities: () => records,
+        read: (entity, entityId) => records.find(row => row.entity === entity && row.entityId === entityId),
+        durability: () => 'durable',
+      },
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+    const { engine } = makeEngine({ replica })
+    const seen: boolean[] = [engine.getSnapshot().sessions[0]!.unread]
+    const off = engine.subscribe(() => seen.push(engine.getSnapshot().sessions[0]!.unread))
+    try {
+      engine.start()
+      await settle()
+      expect(seen.every(value => value === false)).toBe(true)
+      records = [...records, {
+        entity: 'sessionUserState', entityId: sessionUserStateRowId(user, id),
+        value: { userId: user, sessionId: id, readAt: read }, provenance: { seq: 11 },
+      }]
+      replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'cold-start', snapshotSeq: 11, entityCount: 2, bufferedFramesApplied: 0 })
+      expect(seen.every(value => value === false)).toBe(true)
+      expect(engine.getSnapshot().sessions[0]?.readAt).toBe(read)
+      records = records.filter(row => row.entity === 'session')
+      replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'rescope', snapshotSeq: 12, entityCount: 1, bufferedFramesApplied: 0 })
+      expect(engine.getSnapshot().sessions[0]?.unread).toBe(true)
+      expect(replica.rows('sessions')[0]).toBe(raw)
+    } finally {
+      off()
+      engine.destroy()
+    }
+  })
   it('hydrates all new values in the first snapshot without changing wire truth', () => {
     const replica = seeded()
     const { engine } = makeEngine({ replica })
@@ -5034,14 +5063,14 @@ describe('session home reads in the shared runtime', () => {
       engine.destroy()
     }
   })
-  it('does not borrow another principal cursor and falls back until its own row arrives', () => {
+  it('ignores stale session markers while another principal owns the only personal row', () => {
     const replica = seeded()
     const { engine } = makeEngine({ replica, principal: 'other' })
     try {
       expect(engine.getSnapshot().sessions[0]).toMatchObject({
         unread: true,
         readAt: null,
-        snoozedUntil: null,
+        snoozedUntil: undefined,
       })
     } finally {
       engine.destroy()
@@ -5066,7 +5095,7 @@ describe('pool shared runtime work', () => {
         'pruneWorkspaces',
       ] as const
       const spies = names.map((name) => vi.spyOn(seam.reactions, name))
-      const row = { ...session('s', '/wt'), issueId: 'before' } as SessionMeta
+      const row = { ...session('s', '/wt'), issueId: 'before' } as SessionView
       try {
         seam.apply({ sessions: [row] })
         spies.forEach((spy) => {
@@ -5086,7 +5115,7 @@ describe('pool shared runtime work', () => {
           spies.forEach((spy) => {
             spy.mockClear()
           })
-          seam.apply({ sessions: rows as SessionMeta[] })
+          seam.apply({ sessions: rows as SessionView[] })
           expect(spies.map((spy) => spy.mock.calls.length)).toEqual([1, 1, 1, 1])
         }
         spies.forEach((spy) => {

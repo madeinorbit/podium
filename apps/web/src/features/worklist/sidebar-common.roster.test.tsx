@@ -1,8 +1,9 @@
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /** Agent roster band grammar (POD-170, POD-100 laws L2/L6): band shell,
  *  terracotta-glyphed roster rows, and carried-over row controls. */
-import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AgentRosterBand, PanelRow } from './sidebar-common'
@@ -18,7 +19,7 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 
 afterEach(cleanup)
 
-const session = (over: Partial<SessionMetaInput> = {}): SessionMeta =>
+const session = (over: Partial<SessionViewInput> = {}): SessionView =>
   ({
     sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
@@ -42,7 +43,7 @@ const session = (over: Partial<SessionMetaInput> = {}): SessionMeta =>
       nativeSubagentCount: 0,
     },
     ...over,
-  }) as SessionMeta
+  }) as SessionView
 
 describe('AgentRosterBand', () => {
   it('renders the mono machine-voice label with the agent count', () => {
@@ -125,7 +126,7 @@ describe('PanelRow roster variant', () => {
             nativeSubagentCount: 0,
             error: { class: 'crash', retryable: true },
           },
-        } as Partial<SessionMetaInput>)}
+        } as Partial<SessionViewInput>)}
         active={false}
         onSelect={vi.fn()}
         roster

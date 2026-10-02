@@ -26,7 +26,14 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import type { PodiumClientApi } from '@podium/client-core/api'
+import { sessionViews } from '@podium/client-core/session-values'
 import { HttpBootstrapSource } from '@podium/client-core/sync-stream'
+import type {
+  MachineProjection,
+  RepoProjection,
+  SessionMeta,
+  SessionUserStateWire,
+} from '@podium/model'
 import { expectedSnapshot } from '../oracle/index'
 import { buildCorpus } from './index'
 import {
@@ -101,7 +108,9 @@ function clientApi(
   }
 }
 
-const EXPORTED_ENTITIES: Record<string, keyof LiveCollections> = {
+const EXPORTED_ENTITIES = {
+  sessionUserState: 'sessionUserStates',
+  machine: 'machineProjections',
   issue: 'issues',
   issueProjection: 'issueProjections',
   issueUserState: 'issueUserStates',
@@ -142,12 +151,19 @@ export async function readLive(origin: string): Promise<{
   const api = clientApi(origin, cookie)
   const scan = await api.discovery.refreshRepos.mutate()
   const pins = await api.pins.list.query()
+  const userStates = rowsOf<SessionUserStateWire>('sessionUserState')
   const raw = {
     issues: [],
     issueProjections: rowsOf('issueProjection'),
     issueUserStates: rowsOf('issueUserState'),
     issueGitStates: rowsOf('issueGitState'),
-    sessions: rowsOf('session'),
+    sessions: sessionViews(rowsOf<SessionMeta>('session'), {
+      // Visibility admits only the authenticated principal's personal rows.
+      userId: userStates[0]?.userId ?? '',
+      userStates,
+      machines: rowsOf<MachineProjection>('machine'),
+      repos: rowsOf<RepoProjection>('repo'),
+    }),
     repoProjections: rowsOf('repo'),
     issueDeps: rowsOf('issueDep'),
     repos: scan.repositories,

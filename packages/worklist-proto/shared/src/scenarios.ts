@@ -97,11 +97,12 @@ import {
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RouterWindow } from '@podium/client-core/ui-state'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
-import { asIssueId, asUserId, issueUserStateRowId, type SessionMeta } from '@podium/model'
+import { asIssueId, asUserId, issueUserStateRowId, sessionUserStateRowId, type SessionMeta } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import type { EntityRecord } from '@podium/sync/replica'
 import { buildCorpus, type CorpusScale, type FixtureCorpus } from '../../harness/src/fixture/index'
 import type { RowSourceEvent } from './stats'
+import { fixtureSessionHomes, stripSessionLegacy } from '../../harness/src/fixture/session-homes'
 
 // ------------------------------------------------------------------ corpus
 
@@ -729,9 +730,11 @@ export async function startEngineOnCorpus(
   opts: EngineOptions = {},
 ): Promise<ScenarioEngine> {
   const principal = opts.principal ?? 'u-bench'
+  const homes = fixtureSessionHomes(corpus, principal)
   const cache = seedCacheFromCorpus(
     {
       ...corpus,
+      sessions: homes.sessions.map(stripSessionLegacy),
       issueUserStates: (corpus.issueUserStates ?? fixtureMarkers(corpus.issues)).map((row) => ({
         ...row,
         userId: asUserId(principal),
@@ -739,6 +742,19 @@ export async function startEngineOnCorpus(
     },
     { ownRows: opts.ownRows === true },
   )
+  // The current server publishes these homes alongside each raw session.
+  // An old corpus without them exercises a cold offline gap, not steady-state work.
+  const own = <T>(value: T): T => opts.ownRows ? structuredClone(value) : value
+  cache.install([
+    ...homes.userStates.map(state => ({
+      entity: 'sessionUserState' as const,
+      entityId: sessionUserStateRowId(state.userId, state.sessionId),
+      value: own(state),
+    })),
+    ...homes.machines.map(machine => ({
+      entity: 'machine' as const, entityId: machine.id, value: own(machine),
+    })),
+  ])
   await opts.stage?.('cache')
   const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
   const newReplica = () => createKernelReplica({ cache, side })

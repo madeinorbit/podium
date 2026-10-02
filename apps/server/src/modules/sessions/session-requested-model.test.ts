@@ -14,7 +14,7 @@ import { firstAdminMemberId } from '@podium/model'
  */
 
 import type { Geometry } from '@podium/model'
-import { asMachineId, asSessionId, NO_SESSION_USER_STATE } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { Session } from './session'
 
@@ -114,7 +114,7 @@ describe('setRequestedModel', () => {
     session.setRequestedModel({ model: 'gpt-5.1-codex-max' })
     session.setObservedModel('gpt-5-codex')
 
-    const meta = session.toMeta(NO_SESSION_USER_STATE) as {
+    const meta = session.toMeta() as {
       requestedModel?: string
       observedModel?: string
     }

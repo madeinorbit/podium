@@ -1,4 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { ActivityComment, IssueEvent } from '@podium/client-core/viewmodels'
 import type { IssueUpdatePatch } from '@podium/commands'
 import {
@@ -6,7 +7,6 @@ import {
   type IssueId,
   type IssueReport,
   parseIssueStatusValue,
-  type SessionMeta,
 } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
 import { issueCloseBlockers } from './issue-close'
@@ -122,7 +122,7 @@ export function issueCommands({
   trpc: MobileTrpc
   issue: IssueViewModel
   /** The session roster, for the close guard's blocker check (POD-1129). */
-  sessions?: readonly SessionMeta[]
+  sessions?: readonly SessionView[]
   run: RunMutation
   actions: IssueWriteActions
   /** Hand a GUARDED close back to the host so it can raise `IssueCloseSheet`

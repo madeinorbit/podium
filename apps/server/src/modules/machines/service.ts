@@ -278,7 +278,6 @@ export interface MachinesDeps {
   /** Awaited derived-state work that must complete before inventory observers run. */
   onInventoryRecorded?(): Promise<void>
   /** Compatibility-only for isolated fixtures without a bus. */
-  sessionsChangedForMachine?(machineId: MachineId): void
   publishMachineProjection?(id: MachineId, value: MachineProjection): Promise<void>
   /** Connected client fan-out (machinesChanged). */
   clients(): Iterable<{ principal: ClientPrincipal; send(msg: ServerMessage): void }>
@@ -1683,18 +1682,9 @@ export class MachinesService {
     inventoryJson: string,
     descriptors: HarnessDescriptorWire[] = [],
   ): Promise<void> {
-    // A REPEATED, IDENTICAL REPORT MUST NOT RE-PROJECT EVERY SESSION ON THE MACHINE.
-    // The daemon re-reports on a timer and the gateway polls it every 10 s for
-    // three minutes after each attach (POD-4259). `machine.metadataChanged` makes
-    // the sessions module re-wire every session it holds for this machine —
-    // thousands on a long-lived instance, hibernated and exited rows included —
-    // and almost all of those captures dedup to nothing. On ludovico that cost
-    // ~3 s of the server's main thread per report; overlapping settle windows
-    // starved the daemon's hello acknowledgement, the link flapped, each attach
-    // opened another window, and the machine read as "(no access)" for as long as
-    // the loop ran. The row write and the waiters still happen — the memo only
-    // gates the fan-out, and it is dropped with the incarnation so the first
-    // report of a new daemon always publishes.
+    // Repeated inventory still settles waiters and persists the source, but
+    // only a changed report republishes the machine and notifies login readers.
+    // Sessions join machine display facts on the client (POD-4974 S6).
     const unchanged = this.lastInventoryJsonByMachine.get(machineId) === inventoryJson
     this.lastInventoryJsonByMachine.set(machineId, inventoryJson)
     this.harnessDescriptorsByMachine.set(machineId, descriptors)
@@ -1705,7 +1695,6 @@ export class MachinesService {
     if (unchanged) return
     await this.publishDisplayProjection(machineId)
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId, inventory: true })
-    else this.deps.sessionsChangedForMachine?.(machineId)
     await this.broadcastMachines()
   }
 
@@ -1747,7 +1736,6 @@ export class MachinesService {
     await this.deps.store.machines.renameMachine(id, name)
     await this.publishDisplayProjection(id)
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
-    else this.deps.sessionsChangedForMachine?.(id)
     await this.broadcastMachines()
   }
 
@@ -1843,7 +1831,6 @@ export class MachinesService {
       this.retireIncarnation(id)
       await this.publishDisplayProjection(id)
       if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
-      else this.deps.sessionsChangedForMachine?.(id)
       await this.broadcastMachines()
     })
   }
@@ -1875,7 +1862,6 @@ export class MachinesService {
     // not one for boot and one for later.
     await this.publishDisplayProjection(id)
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
-    else this.deps.sessionsChangedForMachine?.(id)
     return id
   }
 

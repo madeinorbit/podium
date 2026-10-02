@@ -1,6 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { indexSessionOwnership, sidebarSections } from '@podium/client-core/viewmodels'
-import { type GitRepositoryWire, ISSUE_STAGES, type SessionMeta } from '@podium/model/browser'
+import { type GitRepositoryWire, ISSUE_STAGES } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { flushSync } from 'react-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -100,7 +101,7 @@ function issueAt(index: number): IssueViewModel {
   } as unknown as IssueViewModel
 }
 
-function sessionAt(index: number): SessionMeta {
+function sessionAt(index: number): SessionView {
   const worktree = index % (SCALE.repositories * SCALE.worktreesPerRepository)
   return {
     sessionId: `session-${String(index).padStart(4, '0')}`,
@@ -120,7 +121,7 @@ function sessionAt(index: number): SessionMeta {
     unread: index % 11 === 0,
     issueId: index % 3 === 0 ? `issue-${String(index).padStart(4, '0')}` : undefined,
     agentState: { phase: 'working', since: '2026-07-18T08:00:00.000Z' },
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function repositories(): GitRepositoryWire[] {

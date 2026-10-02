@@ -34,7 +34,7 @@ async function fixture() {
       {
         id: user,
         displayName: user,
-      role: 'member',
+        role: 'member',
         createdAt: '2026-01-01T00:00:00.000Z',
         disabledAt: null,
       },
@@ -119,12 +119,21 @@ describe('S1 session companion records', () => {
         true,
       )
     }
-    // The shared legacy row still carries A's bytes until S6.
+    // Shared sessions are principal-independent; only the personal kind carries markers.
     const shared = await sessions.syncChangesSince(null, wirePrincipal(B))
     if (shared.kind !== 'snapshot') throw new Error('expected snapshot')
-    expect(shared.sessions.find((row) => row.sessionId === sessionId)?.readAt).toBe(
-      new Date(NOW).toISOString(),
-    )
+    const row = shared.sessions.find((row) => row.sessionId === sessionId)
+    expect(row).toBeDefined()
+    for (const key of [
+      'readAt',
+      'unread',
+      'snoozedUntil',
+      'displayRef',
+      'machineName',
+      'condition',
+      'handoffTarget',
+    ])
+      expect(row).not.toHaveProperty(key)
     await sessions.state.markRead(b, sessionId)
     expect((await f.stateRows(B))[0]?.readAt).toBe(new Date(NOW).toISOString())
     await sessions.state.markUnread(b, sessionId)
@@ -190,7 +199,7 @@ describe('S1 session companion records', () => {
     ])
   })
 
-  it('sessions.list and superagent list project the caller instead of the default admin', async () => {
+  it('sessions.list checks caller visibility and superagent snoozes use the caller source', async () => {
     const f = await fixture()
     await f.sessions.state.markRead(f.a, f.sessionId)
     await f.sessions.state.setSnooze(f.a, f.sessionId, null)
@@ -199,10 +208,9 @@ describe('S1 session companion records', () => {
       modules: f.reg.modules,
     } as unknown as FamilyState
     const result = await SESSION_QUERIES.list.run(family, {})
-    expect(result.find((row) => row.sessionId === f.sessionId)).toMatchObject({
-      readAt: null,
-      unread: true,
-    })
+    expect(result.find((row) => row.sessionId === f.sessionId)).toBeDefined()
+    expect(result.find((row) => row.sessionId === f.sessionId)).not.toHaveProperty('readAt')
+    expect(result.find((row) => row.sessionId === f.sessionId)).not.toHaveProperty('unread')
     expect(result.find((row) => row.sessionId === f.sessionId)).not.toHaveProperty('snoozedUntil')
     await f.store.superagent.upsertSuperagentThread({
       id: 'thread:b',
@@ -232,17 +240,51 @@ describe('S1 session companion records', () => {
     expect(await anonymous.find((entry) => entry.spec.name === 'list_sessions')!.run({})).toBe('[]')
   })
 
-  it.each(['rename', 'enroll', 'revoke'] as const)('declares exactly one machine row on %s', async verb => {
+  it.each([
+    'rename',
+    'enroll',
+    'revoke',
+    'inventory',
+  ] as const)('declares one machine and never recaptures sessions on %s', async (verb) => {
     const f = await fixture()
     const id = f.store.hostMachineId
+    await f.sessions.flushBroadcasts()
     const capture = vi.spyOn(f.reg.changeLedger, 'capture')
+    const dirty = vi.spyOn(f.sessions.repository, 'markVolatileSessionDirty')
+    const project = vi.spyOn(f.sessions.view, 'buildProjectionPass')
+    if (verb === 'inventory')
+      await f.reg.modules.machines.recordInventory(id, {
+        os: 'linux',
+        arch: 'x64',
+        agents: [],
+        tools: [],
+      })
     if (verb === 'rename') await f.reg.modules.machines.renameMachine(id, 'Renamed')
     if (verb === 'enroll') await f.reg.modules.machines.ensureHostMachine('Enrolled')
     if (verb === 'revoke') await f.reg.modules.machines.revokeMachine(id)
-    const declarations = capture.mock.calls.flatMap(([changes]) => changes.filter(change => change.entity === 'machine'))
-    expect(declarations).toEqual([{ entity: 'machine', id, op: 'upsert', value: {
-      id, name: verb === 'rename' ? 'Renamed' : verb === 'enroll' ? 'Enrolled' : 'Host', loggedOutHarnesses: [],
-    } }])
+    await f.sessions.flushBroadcasts()
+    expect(dirty).not.toHaveBeenCalled()
+    expect(project).not.toHaveBeenCalled()
+    expect(
+      capture.mock.calls.flatMap(([changes]) =>
+        changes.filter((change) => change.entity === 'session'),
+      ),
+    ).toEqual([])
+    const declarations = capture.mock.calls.flatMap(([changes]) =>
+      changes.filter((change) => change.entity === 'machine'),
+    )
+    expect(declarations).toEqual([
+      {
+        entity: 'machine',
+        id,
+        op: 'upsert',
+        value: {
+          id,
+          name: verb === 'rename' ? 'Renamed' : verb === 'enroll' ? 'Enrolled' : 'Host',
+          loggedOutHarnesses: [],
+        },
+      },
+    ])
   })
 
   it('machine records publish once, remain member-visible, and channel changes do not dirty sessions', async () => {
@@ -259,7 +301,7 @@ describe('S1 session companion records', () => {
       name: 'Renamed',
       loggedOutHarnesses: [],
     })
-    const dirty = vi.spyOn(f.sessions, 'sessionsChangedForMachine')
+    const dirty = vi.spyOn(f.sessions.repository, 'markVolatileSessionDirty')
     dirty.mockClear()
     await f.reg.modules.machines.setUpdateChannel(machine, 'dev')
     expect(dirty).not.toHaveBeenCalled()

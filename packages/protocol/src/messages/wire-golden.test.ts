@@ -11,7 +11,7 @@
  * deliberate, reviewed wire change:  bun --conditions @podium/source scripts/wire-golden-capture.ts
  */
 
-import { HandoffManifest, asSessionId } from '@podium/model'
+import { asSessionId, HandoffManifest, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { WIRE_FIXTURES } from './wire-golden.fixtures'
 import golden from './wire-golden.json'
@@ -23,6 +23,32 @@ function encodedParse(schema: { parse: (v: unknown) => unknown }, value: unknown
 }
 
 describe('golden wire fixtures', () => {
+  it('S6 accepts old cached sessions and strips all seven retired fields without losing session facts', () => {
+    const full = WIRE_FIXTURES.find((f) => f.name === 'sessionMeta.full')!.value as object
+    const extras = {
+      readAt: 'stale',
+      unread: true,
+      snoozedUntil: null,
+      displayRef: 'OLD-1-A',
+      machineName: 'Old',
+      condition: 'logged-out',
+      handoffTarget: 'Old target',
+    }
+    const parsed = SessionMeta.parse({ ...full, ...extras })
+    expect(parsed).toEqual(SessionMeta.parse(full))
+    expect(parsed).toMatchObject({
+      queuedMessageCount: 2,
+      offer: { message: 'Login screen ready to merge' },
+      refRepoId: 'repo-1',
+      refSeq: 300,
+      handoffTargetMachineId: 'machine-2',
+    })
+    for (const key of Object.keys(extras)) {
+      expect(SessionMeta.shape).not.toHaveProperty(key)
+      expect(parsed).not.toHaveProperty(key)
+    }
+  })
+
   it('has exactly the fixtures the golden file records', () => {
     // A dropped fixture is a silently unproven schema, so the sets must match
     // in both directions.
@@ -46,7 +72,9 @@ describe('golden wire fixtures', () => {
   // `format: 1` manifest fixture is itself asserted.
   it('still carries a format 1 manifest fixture, which is the proof old bundles open', () => {
     const v1 = WIRE_FIXTURES.filter(
-      (f) => (f.value as { format?: unknown } | null)?.format === 1 && f.name.startsWith('handoffManifest'),
+      (f) =>
+        (f.value as { format?: unknown } | null)?.format === 1 &&
+        f.name.startsWith('handoffManifest'),
     )
     expect(v1.map((f) => f.name)).toEqual(['handoffManifest.full', 'handoffManifest.minimal'])
     // And their bytes are in the golden — a fixture present but unpinned proves

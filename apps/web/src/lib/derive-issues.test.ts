@@ -1,6 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import { filterIssueNav, issueNavList, subIssuesOf } from '@podium/client-core/viewmodels'
-import type { SessionMeta, SessionMetaInput, UnbrandIds } from '@podium/model'
+import type { UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 const NOW = Date.parse('2026-06-29T12:00:00.000Z')
@@ -9,8 +10,8 @@ function sess(
   id: string,
   cwd: string,
   hoursAgo: number,
-  over: Partial<SessionMetaInput> = {},
-): SessionMeta {
+  over: Partial<SessionViewInput> = {},
+): SessionView {
   return {
     sessionId: id,
     cwd,
@@ -21,7 +22,7 @@ function sess(
     archived: false,
     agentState: { phase: 'idle', since: '', nativeSubagentCount: 0, idle: { kind: 'done' } },
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {

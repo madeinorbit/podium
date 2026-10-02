@@ -1,4 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import {
   artifactKind,
   artifactUrl,
@@ -13,18 +14,11 @@ import {
   worktreeAssetUrl,
 } from '@podium/client-core/viewmodels'
 import type { UnbrandIds } from '@podium/model'
-import {
-  asArtifactId,
-  asIssueId,
-  asMachineId,
-  asSessionId,
-  type SessionMeta,
-  type SessionMetaInput,
-} from '@podium/model'
+import { asArtifactId, asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { FileTab } from '@/app/store'
 
-function sess(id: string, cwd: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
+function sess(id: string, cwd: string, over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: id,
     cwd,
@@ -32,7 +26,7 @@ function sess(id: string, cwd: string, over: Partial<SessionMetaInput> = {}): Se
     machineId: undefined,
     archived: false,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {

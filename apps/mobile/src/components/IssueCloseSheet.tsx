@@ -1,9 +1,12 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueCloseConcern, IssueNavigationModel } from '@podium/client-core/viewmodels'
-import {
-  ISSUE_STATUS_LABELS,
-  type IssueCloseReason,
-  type SessionMeta,
-} from '@podium/model'
+import { ISSUE_STATUS_LABELS, type IssueCloseReason } from '@podium/model'
+import { StyleSheet, Text, View } from 'react-native'
+import { issueCloseBlockers } from '../lib/issue-close'
+import { alpha } from '../theme/mix'
+import { color, font, leading, radius, sans, space } from '../theme/theme'
+import { BottomSheet } from './BottomSheet'
+import { Icon } from './Icon'
 import {
   AlertTriangle,
   type AppIcon,
@@ -12,12 +15,6 @@ import {
   MessageCircleQuestion,
   Users,
 } from './icons'
-import { StyleSheet, Text, View } from 'react-native'
-import { issueCloseBlockers } from '../lib/issue-close'
-import { alpha } from '../theme/mix'
-import { color, font, leading, radius, sans, space } from '../theme/theme'
-import { BottomSheet } from './BottomSheet'
-import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 
 /**
@@ -61,7 +58,7 @@ export function IssueCloseSheet({
 }: {
   issue: IssueNavigationModel
   /** The whole roster; membership is resolved by {@link issueCloseBlockers}. */
-  sessions: readonly SessionMeta[]
+  sessions: readonly SessionView[]
   /** The ending being recorded, or `null` when the sheet is down. */
   reason: IssueCloseReason | null
   busy?: boolean

@@ -1841,9 +1841,6 @@ export class SessionRegistry {
     const headless = sessionsSvc.headless
     this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
     this.store.issues.setSessionRefPublisher((ids) => sessionsSvc.captureReferenceChanges(ids))
-    this.bus.on('machine.metadataChanged', ({ machineId }) => {
-      sessionsSvc.sessionsChangedForMachine(machineId)
-    })
     // Session-bound lock auto-release [spec:SP-85d1]: a finished/exited session
     const notify = new NotifyService(
       {

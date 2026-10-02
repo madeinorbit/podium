@@ -1,4 +1,5 @@
-import type { SessionMeta } from '@podium/model'
+import type { SessionView } from '@podium/client-core/session-values'
+
 import { asSessionId, asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { readStoreStats, storeStats } from '@podium/client-core/perf'
@@ -25,10 +26,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function row(id: string): SessionMeta {
-  return { sessionId: asSessionId(id), name: id } as SessionMeta
+function row(id: string): SessionView {
+  return { sessionId: asSessionId(id), name: id } as SessionView
 }
-function mount(sessions: SessionMeta[], children: ReactNode) {
+function mount(sessions: SessionView[], children: ReactNode) {
   const owner = { start() {}, dispose() {}, destroy() {} }
   const store = createSubscriptionStore({ sessions, coarseNow: 0 } as Store, undefined, owner)
   fixture.handle = Object.assign(owner, store)
@@ -59,8 +60,8 @@ it('A/B: unrelated deltas remove lookup comparisons, not reader fan-out', () => 
     const sessions = Array.from({ length: 256 }, (_, i) => row(`s${i}`))
     // Instrument the COLLECTION, not the legacy selector: reverting useSession
     // to find also moves this counter and fails the new-arm assertion.
-    const watch = (rows: SessionMeta[]) => vi.spyOn(rows, 'find').mockImplementation((predicate, thisArg) =>
-      Array.prototype.find.call(rows, (value: SessionMeta, index: number) => {
+    const watch = (rows: SessionView[]) => vi.spyOn(rows, 'find').mockImplementation((predicate, thisArg) =>
+      Array.prototype.find.call(rows, (value: SessionView, index: number) => {
         comparisons++
         return predicate.call(thisArg, value, index, rows)
       }),
@@ -117,14 +118,14 @@ it('A/B: unrelated deltas remove lookup comparisons, not reader fan-out', () => 
 it('useSession preserves rows across replacement and observes missing/reappearing effective rows', () => {
   const a = row('a')
   const b = row('b')
-  const observed: Array<SessionMeta | undefined> = []
+  const observed: Array<SessionView | undefined> = []
   function Reader() {
     const selected = useSession(asSessionId('a'))
     observed.push(selected)
     return <span>{selected?.name ?? 'missing'}</span>
   }
   const { store, view } = mount([a, b], <Reader />)
-  const publish = (sessions: SessionMeta[]) => act(() => store.publish({ ...store.getSnapshot(), sessions }))
+  const publish = (sessions: SessionView[]) => act(() => store.publish({ ...store.getSnapshot(), sessions }))
   expect(observed).toEqual([a])
   publish([a, { ...b, name: 'changed' }])
   expect(observed).toEqual([a])

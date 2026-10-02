@@ -1,5 +1,6 @@
-import { asSessionId, type SessionMeta } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView } from '../session-values'
 import { mostUrgentSession, sortSessionsForSidebar } from './session-urgency'
 
 // ---------------------------------------------------------------------------
@@ -15,7 +16,7 @@ import { mostUrgentSession, sortSessionsForSidebar } from './session-urgency'
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 const HOUR = 3_600_000
 
-function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function session(id: string, over: Partial<SessionView> = {}): SessionView {
   return {
     sessionId: asSessionId(id),
     agentKind: 'claude-code',
@@ -34,22 +35,22 @@ function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 /** Blocked on the human. */
-const needsYou = (id: string, over: Partial<SessionMeta> = {}) =>
+const needsYou = (id: string, over: Partial<SessionView> = {}) =>
   session(id, {
     agentState: { phase: 'needs_user', since: new Date(NOW - HOUR).toISOString() },
     ...over,
-  } as Partial<SessionMeta>)
+  } as Partial<SessionView>)
 
 /** Running fine without us. */
-const working = (id: string, over: Partial<SessionMeta> = {}) =>
+const working = (id: string, over: Partial<SessionView> = {}) =>
   session(id, {
     agentState: { phase: 'working', since: new Date(NOW - HOUR).toISOString() },
     ...over,
-  } as Partial<SessionMeta>)
+  } as Partial<SessionView>)
 
 describe('sortSessionsForSidebar', () => {
   it('de-emphasises a SNOOZED attention session below an un-snoozed one, even when it is more recent', () => {

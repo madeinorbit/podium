@@ -300,7 +300,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
       machineId: o.store.hostMachineId,
       status: 'starting',
     })
-    expect((await o.meta(sessionId)).handoffTarget).toBeUndefined()
+    expect((await o.meta(sessionId)).handoffTargetMachineId).toBeUndefined()
   })
 
   /**

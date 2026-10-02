@@ -3,11 +3,11 @@ import {
   asSessionId,
   type IssueProjection,
   type IssueUserStateWire,
-  type SessionMeta,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { Store } from '../../../engine/types'
 import { createReplica, memoryStorage } from '../../../replica/replica'
+import type { SessionView } from '../../../session-values'
 import { createSlicePublisher } from '../publish'
 import { worklistSlice } from './published'
 
@@ -38,7 +38,7 @@ import { worklistSlice } from './published'
 const NOON = Date.parse('2026-07-06T12:00:00.000Z')
 const HOUR = 3_600_000
 
-function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function session(id: string, over: Partial<SessionView> = {}): SessionView {
   return {
     sessionId: asSessionId(id),
     agentKind: 'claude-code',
@@ -58,7 +58,7 @@ function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
     unread: false,
     agentState: { phase: 'idle', idle: { kind: 'needs_input' } },
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 /**
@@ -67,7 +67,7 @@ function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
  * which is itself worth pinning, since a slice that reached for more would stop
  * being a pure function of the fields named here.
  */
-function storeAt(coarseNow: number, sessions: SessionMeta[]): Store {
+function storeAt(coarseNow: number, sessions: SessionView[]): Store {
   return {
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
     sessions,
@@ -92,7 +92,7 @@ describe('POD-331 published worklist slice — the clock is an INPUT, not an amb
     session('snoozed', {
       snoozedUntil: new Date(snoozeEnds).toISOString(),
       lastActiveAt: new Date(NOON).toISOString(),
-    } as Partial<SessionMeta>),
+    } as Partial<SessionView>),
     session('awake', { lastActiveAt: new Date(NOON - HOUR).toISOString() }),
   ]
 

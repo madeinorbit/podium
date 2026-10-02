@@ -1,6 +1,6 @@
 import type { IssueViewModel } from '../replica/issue-view-models'
 import { sessionById } from '../session-index'
-import { sessionValues, sessionView } from '../session-values'
+import { type SessionView, sessionValues, sessionView } from '../session-values'
 /**
  * THE OPTIMISTIC LEDGER (POD-404, split out of the old `engine.ts`).
  *
@@ -126,7 +126,7 @@ interface LocalOverlay {
 export interface OptimismBase {
   /** Session views over UNPAINTED per-user truth (`session-values.ts`): the
    *  ledger joins its painted per-user rows over them (POD-4974 S3). */
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   /** The per-user session markers, raw. As for issues, the ledger only ever
    *  paints the rows whose `userId` is {@link OptimismPorts.userId}. */
   sessionUserStates: SessionUserStateWire[]
@@ -289,9 +289,9 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   private sliceIds: { base: readonly IssueProjection[]; ids: ReadonlySet<string> } | null = null
   /** The session list with painted per-user rows joined in, per input pair. */
   private joined: {
-    sessions: readonly SessionMeta[]
+    sessions: readonly SessionView[]
     users: readonly SessionUserStateWire[]
-    rows: SessionMeta[]
+    rows: SessionView[]
   } | null = null
 
   constructor(ports: OptimismPorts<TApi>) {
@@ -456,16 +456,10 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       ? row.sessionId
       : sessionUserStateRowId(row.userId, row.sessionId)
 
-  /**
-   * What an absent `(user, session)` row means for this principal (POD-4974
-   * S3): NOT "nothing set", unlike an issue's. The server publishes a session's
-   * per-user row explicitly, cleared cells included, so absence is "not loaded
-   * yet" (an older server, or before the first sync), and until then the
-   * session row's own legacy cells speak for this user (S2's fallback). The
-   * absent row repeats them, so a patch folded over it changes only what it
-   * patches, and coverage on it is judged against what the reader shows.
-   * Undefined once the session has left the slice: absence is real then.
-   */
+  /** A missing personal source row has a null read cursor and no snooze.
+   * A pending edit can paint that row while it waits for truth. Retired
+   * fields in an old cached session never supply another user's markers.
+   * Undefined once the session itself has left the slice. */
   private absentSessionUserState(sessionId: string): SessionUserStateWire | undefined {
     const session =
       sessionById(this.ports.base().sessions).get(sessionId) ??
@@ -473,7 +467,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
         (o): o is Extract<PendingOverlay, { op: 'insert' }> =>
           o.op === 'insert' && o.entity === 'sessions' && o.id === sessionId,
       )?.insert
-    if (session === undefined) return undefined
+    if (session === undefined || !('sessionId' in session)) return undefined
     const { readAt, snoozedUntil } = sessionValues(session)
     return {
       userId: this.ports.userId,
@@ -516,7 +510,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     const include = (overlay: PendingOverlay): void => {
       if (overlay.entity !== entity) return
       // An absent per-user row is "nothing set" while the issue is in the slice,
-      // and the session's own legacy cells while the session is.
+      // and an explicit neutral personal row while the session is.
       const absent =
         overlay.op !== 'patch'
           ? undefined
@@ -574,7 +568,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
 
   /** {@link foldSeed} for the session list: per-user rows joined, then the
    *  session's own overlays (see {@link paintSessions}). */
-  foldSeedSessions(): { rows: SessionMeta[]; pendingInsertIds: ReadonlySet<string> } {
+  foldSeedSessions(): { rows: SessionView[]; pendingInsertIds: ReadonlySet<string> } {
     return this.paintSessions()
   }
 
@@ -771,7 +765,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
    * list itself is folded. A spawn placeholder is joined the same way, so an
    * edit pressed during its "Starting…" window shows on it too.
    */
-  private paintSessions(): { rows: SessionMeta[]; pendingInsertIds: ReadonlySet<string> } {
+  private paintSessions(): { rows: SessionView[]; pendingInsertIds: ReadonlySet<string> } {
     const { sessions, sessionUserStates } = this.ports.base()
     const users = this.foldStable(
       'sessionUserStates',
@@ -791,11 +785,9 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
         }
       }
     }
-    const join = (session: SessionMeta): SessionMeta => {
+    const join = (session: SessionMeta): SessionView => {
       const userState = painted.get(session.sessionId)
-      return userState === undefined
-        ? session
-        : (sessionView(session, { userState }) as SessionMeta)
+      return sessionView(session, userState === undefined ? {} : { userState })
     }
     if (this.joined?.sessions !== sessions || this.joined.users !== users) {
       this.joined = {
@@ -1276,6 +1268,6 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
 
 /** Collapse duplicate session rows for the same underlying conversation (e.g. a
  *  Codex thread surfaced twice on resume). */
-export function dedupeSessions(rows: SessionMeta[]): SessionMeta[] {
+export function dedupeSessions<T extends SessionMeta>(rows: T[]): T[] {
   return rows.length === 0 ? rows : dedupeSessionsByResume(rows)
 }

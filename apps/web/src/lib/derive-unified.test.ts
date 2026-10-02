@@ -1,3 +1,4 @@
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import {
   archivedSessionsForIssue,
   archivedSessionsForWorktreePath,
@@ -28,8 +29,6 @@ import {
   asRepoId,
   isIssueDeferred,
   issueReturnedFromDefer,
-  type SessionMeta,
-  type SessionMetaInput,
   type UnbrandIds,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -37,7 +36,7 @@ import { describe, expect, it } from 'vitest'
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 const HOUR = 3_600_000
 
-function sess(id: string, cwd: string, over: Partial<SessionMetaInput> = {}): SessionMeta {
+function sess(id: string, cwd: string, over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: id,
     cwd,
@@ -49,18 +48,18 @@ function sess(id: string, cwd: string, over: Partial<SessionMetaInput> = {}): Se
     archived: false,
     title: 't',
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
-const needsYou = (id: string, cwd: string, over: Partial<SessionMetaInput> = {}): SessionMeta =>
-  sess(id, cwd, { agentState: { phase: 'needs_user' }, ...over } as Partial<SessionMetaInput>)
-const working = (id: string, cwd: string): SessionMeta =>
-  sess(id, cwd, { agentState: { phase: 'working' } } as Partial<SessionMetaInput>)
-const idle = (id: string, cwd: string, over: Partial<SessionMetaInput> = {}): SessionMeta =>
+const needsYou = (id: string, cwd: string, over: Partial<SessionViewInput> = {}): SessionView =>
+  sess(id, cwd, { agentState: { phase: 'needs_user' }, ...over } as Partial<SessionViewInput>)
+const working = (id: string, cwd: string): SessionView =>
+  sess(id, cwd, { agentState: { phase: 'working' } } as Partial<SessionViewInput>)
+const idle = (id: string, cwd: string, over: Partial<SessionViewInput> = {}): SessionView =>
   sess(id, cwd, {
     agentState: { phase: 'idle', idle: { kind: 'done' } },
     ...over,
-  } as Partial<SessionMetaInput>)
+  } as Partial<SessionViewInput>)
 
 function navWt(path: string, over: Partial<WorktreeNavView> = {}): WorktreeNavView {
   return {
@@ -346,7 +345,7 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
       }),
       issueId: 'done',
       agentState: { phase: 'idle', since: closedAt, idle: { kind: 'done' } },
-    } as SessionMeta
+    } as SessionView
     const wt = navWt(path, { isMain: false, sessions: [finished] })
     expect(unifiedWorkList(emptySections([wt]), [done], [finished], [], NOW)).toEqual([])
   })
@@ -359,8 +358,8 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
       audience: 'agent' as unknown as IssueNavigationModel['audience'],
       parentId: 'parent',
     })
-    const own = { ...idle('own', path), issueId: 'parent' } as SessionMeta
-    const nested = { ...working('nested', path), issueId: 'child' } as SessionMeta
+    const own = { ...idle('own', path), issueId: 'parent' } as SessionView
+    const nested = { ...working('nested', path), issueId: 'child' } as SessionView
     const wt = navWt(path, { isMain: false, sessions: [own, nested] })
     const rows = unifiedWorkList(emptySections([wt]), [parent, child], [own, nested], [], NOW)
     expect(rows.map((row) => row.kind)).toEqual(['issue'])
@@ -379,12 +378,12 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
       audience: 'agent' as unknown as IssueNavigationModel['audience'],
       parentId: 'child',
     })
-    const own = { ...idle('own-deep', path), issueId: 'root' } as SessionMeta
-    const nested = { ...working('child-deep', path), issueId: 'child' } as SessionMeta
+    const own = { ...idle('own-deep', path), issueId: 'root' } as SessionView
+    const nested = { ...working('child-deep', path), issueId: 'child' } as SessionView
     const deepSession = {
       ...working('grandchild-deep', path),
       issueId: 'grandchild',
-    } as SessionMeta
+    } as SessionView
     const wt = navWt(path, { isMain: false, sessions: [own, nested, deepSession] })
     const rows = unifiedWorkList(
       emptySections([wt]),
@@ -450,7 +449,7 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     const newest = issue({ id: 'newest', seq: 3, createdAt: '2026-06-20T00:00:00.000Z' })
     const sessions = [
       needsYou('sn', '/x', { issueId: 'oldest' }),
-      { ...working('sw', '/x'), issueId: 'middle' } as SessionMeta,
+      { ...working('sw', '/x'), issueId: 'middle' } as SessionView,
       idle('si', '/x', { issueId: 'newest' }),
     ]
     const rows = unifiedWorkList(emptySections([]), [oldest, newest, middle], sessions, [], NOW)
@@ -475,7 +474,7 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     // Agent on the LOWER row starts working and needs the human: order holds.
     const busy = [
       needsYou('sa', '/x', { issueId: 'a', lastActiveAt: new Date(NOW).toISOString() }),
-      quiet[1] as SessionMeta,
+      quiet[1] as SessionView,
     ]
     const after = unifiedWorkList(emptySections([]), [a, b], busy, [], NOW)
     expect(after.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['b', 'a'])
@@ -559,7 +558,7 @@ describe('isRowUnread (sidebar unread emphasis)', () => {
     sessions: [],
     activityAt: NOW,
   })
-  const wtRow = (sessions: SessionMeta[]): Extract<UnifiedWorkRow, { kind: 'worktree' }> => ({
+  const wtRow = (sessions: SessionView[]): Extract<UnifiedWorkRow, { kind: 'worktree' }> => ({
     kind: 'worktree',
     worktree: navWt('/r/a/.worktrees/x', { isMain: false, sessions }),
     activityAt: NOW,
@@ -578,14 +577,14 @@ describe('isRowUnread (sidebar unread emphasis)', () => {
     expect(
       isRowUnread(
         wtRow([
-          idle('a', '/r/a/.worktrees/x', { unread: false } as Partial<SessionMetaInput>),
-          idle('b', '/r/a/.worktrees/x', { unread: true } as Partial<SessionMetaInput>),
+          idle('a', '/r/a/.worktrees/x', { unread: false } as Partial<SessionViewInput>),
+          idle('b', '/r/a/.worktrees/x', { unread: true } as Partial<SessionViewInput>),
         ]),
       ),
     ).toBe(true)
     expect(
       isRowUnread(
-        wtRow([idle('a', '/r/a/.worktrees/x', { unread: false } as Partial<SessionMetaInput>)]),
+        wtRow([idle('a', '/r/a/.worktrees/x', { unread: false } as Partial<SessionViewInput>)]),
       ),
     ).toBe(false)
   })
@@ -607,7 +606,7 @@ describe('isRowUnread (sidebar unread emphasis)', () => {
         idle('kid', '/w', {
           lastActiveAt: '2026-07-06T13:00:00.000Z',
           unread: true,
-        } as Partial<SessionMetaInput>),
+        } as Partial<SessionViewInput>),
       ],
       activityAt: NOW,
     }
@@ -630,14 +629,14 @@ describe('isRowUnread (sidebar unread emphasis)', () => {
 describe('rowUnreadEmphasized (#138: suppress unread while actively working)', () => {
   const issueRow = (
     over: Partial<UnbrandIds<IssueNavigationModel>>,
-    sessions: SessionMeta[] = [],
+    sessions: SessionView[] = [],
   ): Extract<UnifiedWorkRow, { kind: 'issue' }> => ({
     kind: 'issue',
     issue: issue(over),
     sessions,
     activityAt: NOW,
   })
-  const wtRow = (sessions: SessionMeta[]): Extract<UnifiedWorkRow, { kind: 'worktree' }> => ({
+  const wtRow = (sessions: SessionView[]): Extract<UnifiedWorkRow, { kind: 'worktree' }> => ({
     kind: 'worktree',
     worktree: navWt('/r/a/.worktrees/x', { isMain: false, sessions }),
     activityAt: NOW,
@@ -664,7 +663,7 @@ describe('rowUnreadEmphasized (#138: suppress unread while actively working)', (
   it('suppresses an unread worktree row that has a currently-working session', () => {
     expect(
       rowUnreadEmphasized(
-        wtRow([idle('a', '/w', { unread: true } as Partial<SessionMetaInput>), working('b', '/w')]),
+        wtRow([idle('a', '/w', { unread: true } as Partial<SessionViewInput>), working('b', '/w')]),
       ),
     ).toBe(false)
   })
@@ -698,8 +697,8 @@ describe('isIssueDeferred / issueReturnedFromDefer', () => {
 })
 
 describe('partitionUnifiedWork (WORKING move-out)', () => {
-  const owned = (id: string, mk: (i: string, c: string) => SessionMeta, issueId: string) =>
-    ({ ...mk(id, '/x'), issueId }) as SessionMeta
+  const owned = (id: string, mk: (i: string, c: string) => SessionView, issueId: string) =>
+    ({ ...mk(id, '/x'), issueId }) as SessionView
 
   it('moves a fully-working issue to WORKING and out of WORK', () => {
     const s = owned('w', working, 'i')
@@ -739,12 +738,12 @@ describe('partitionUnifiedWork (WORKING move-out)', () => {
       ...owned('second', working, 'i'),
       createdAt: sameTime,
       lastActiveAt: sameTime,
-    } as SessionMeta
+    } as SessionView
     const first = {
       ...owned('first', working, 'i'),
       createdAt: sameTime,
       lastActiveAt: sameTime,
-    } as SessionMeta
+    } as SessionView
 
     const { working: w } = partitionUnifiedWork(
       emptySections([]),
@@ -815,7 +814,7 @@ describe('partitionUnifiedWork (WORKING move-out)', () => {
     const parked = {
       ...owned('h', working, 'i'),
       status: 'hibernated',
-    } as SessionMeta
+    } as SessionView
     const { working: w, work } = partitionUnifiedWork(
       emptySections([]),
       [issue({ id: 'i' })],
@@ -863,7 +862,7 @@ describe('archivedSessionsForIssue / archivedSessionsForWorktreePath', () => {
 describe('groupUnifiedWorkRows', () => {
   const rowsFor = (
     issues: IssueNavigationModel[],
-    sessions: SessionMeta[],
+    sessions: SessionView[],
     worktrees: WorktreeNavView[] = [],
   ) => unifiedWorkList(emptySections(worktrees), issues, sessions, [], NOW)
 
@@ -919,7 +918,7 @@ describe('groupUnifiedWorkRows', () => {
       [
         idle('s1', '/x', { issueId: 'a-new' }),
         needsYou('s2', '/x', { issueId: 'b-mid' }),
-        { ...working('s3', '/x'), issueId: 'a-old' } as SessionMeta,
+        { ...working('s3', '/x'), issueId: 'a-old' } as SessionView,
       ],
     )
     expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual([
@@ -962,7 +961,7 @@ describe('groupUnifiedWorkRows', () => {
     const closedRow = (
       id: string,
       over: Partial<UnbrandIds<IssueNavigationModel>> = {},
-      sessions: SessionMeta[] = [],
+      sessions: SessionView[] = [],
     ): UnifiedWorkRow => ({
       kind: 'issue',
       issue: issue({
@@ -1110,7 +1109,7 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
     const rows = unifiedWorkList(
       emptySections([]),
       [root, mid, leaf],
-      [{ ...working('w', '/x'), issueId: 'leaf' } as SessionMeta],
+      [{ ...working('w', '/x'), issueId: 'leaf' } as SessionView],
       [],
       NOW,
     )
@@ -1132,7 +1131,7 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
     const rows = unifiedWorkList(
       emptySections([]),
       [root, mid, leaf],
-      [{ ...working('w', '/x'), issueId: 'leaf' } as SessionMeta],
+      [{ ...working('w', '/x'), issueId: 'leaf' } as SessionView],
       [],
       NOW,
     )
@@ -1156,7 +1155,7 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
     const rows = unifiedWorkList(
       emptySections([]),
       [doneParent, leaf],
-      [{ ...working('w', '/x'), issueId: 'leaf' } as SessionMeta],
+      [{ ...working('w', '/x'), issueId: 'leaf' } as SessionView],
       [],
       NOW,
     )
@@ -1244,8 +1243,8 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
       audience: 'agent' as unknown as IssueNavigationModel['audience'],
       parentId: 'p',
     })
-    const idleOwn = { ...idle('own', '/x'), issueId: 'p' } as SessionMeta
-    const workingChild = { ...working('cw', '/y'), issueId: 'c' } as SessionMeta
+    const idleOwn = { ...idle('own', '/x'), issueId: 'p' } as SessionView
+    const workingChild = { ...working('cw', '/y'), issueId: 'c' } as SessionView
     const { working: w, work } = partitionUnifiedWork(
       emptySections([]),
       [parent, child],
@@ -1269,8 +1268,8 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
       audience: 'agent' as unknown as IssueNavigationModel['audience'],
       parentId: 'p',
     })
-    const workingOwn = { ...working('own', '/x'), issueId: 'p' } as SessionMeta
-    const workingChild = { ...working('cw', '/y'), issueId: 'c' } as SessionMeta
+    const workingOwn = { ...working('own', '/x'), issueId: 'p' } as SessionView
+    const workingChild = { ...working('cw', '/y'), issueId: 'c' } as SessionView
     const { working: w, work } = partitionUnifiedWork(
       emptySections([]),
       [parent, child],
@@ -1298,7 +1297,7 @@ describe('POD-171: depth roll-up + branch attention (L3/L4/L5)', () => {
     })
     return { root, mid, leaf }
   }
-  const rowsFor = (issues: IssueNavigationModel[], sessions: SessionMeta[]) =>
+  const rowsFor = (issues: IssueNavigationModel[], sessions: SessionView[]) =>
     unifiedWorkList(emptySections([]), issues, sessions, [], NOW)
 
   it('L3: the parent pill counts needs-you across the whole branch, rolled-up depth included', () => {
@@ -1306,8 +1305,8 @@ describe('POD-171: depth roll-up + branch attention (L3/L4/L5)', () => {
     const rows = rowsFor(
       [root, mid, leaf],
       [
-        { ...working('rw', '/x'), issueId: 'root' } as SessionMeta,
-        { ...needsYou('lw', '/y'), issueId: 'leaf' } as SessionMeta,
+        { ...working('rw', '/x'), issueId: 'root' } as SessionView,
+        { ...needsYou('lw', '/y'), issueId: 'leaf' } as SessionView,
       ],
     )
     const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
@@ -1324,8 +1323,8 @@ describe('POD-171: depth roll-up + branch attention (L3/L4/L5)', () => {
     const rows = rowsFor(
       [root, mid, leaf],
       [
-        { ...working('rw', '/x'), issueId: 'root' } as SessionMeta,
-        { ...needsYou('lw', '/y'), issueId: 'leaf' } as SessionMeta,
+        { ...working('rw', '/x'), issueId: 'root' } as SessionView,
+        { ...needsYou('lw', '/y'), issueId: 'leaf' } as SessionView,
       ],
     )
     const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
@@ -1345,8 +1344,8 @@ describe('POD-171: depth roll-up + branch attention (L3/L4/L5)', () => {
     const rows = rowsFor(
       [root, mid],
       [
-        { ...working('rw', '/x'), issueId: 'root' } as SessionMeta,
-        { ...needsYou('mw', '/y'), issueId: 'mid' } as SessionMeta,
+        { ...working('rw', '/x'), issueId: 'root' } as SessionView,
+        { ...needsYou('mw', '/y'), issueId: 'mid' } as SessionView,
       ],
     )
     const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
@@ -1383,7 +1382,7 @@ describe('POD-171: depth roll-up + branch attention (L3/L4/L5)', () => {
         unread: true,
         ...over,
       })
-    const own = { ...working('rw', '/x'), issueId: 'root' } as SessionMeta
+    const own = { ...working('rw', '/x'), issueId: 'root' } as SessionView
     // Inside the 7-day unread window: the sessionless done child keeps its nested row.
     const fresh = rowsFor(
       [root, doneChild({ closedAt: new Date(NOW - 2 * DAY).toISOString() })],

@@ -1,4 +1,4 @@
-import { asIssueId, asMachineId, asSessionId, type SessionMeta } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 // @vitest-environment happy-dom
 import { act, cleanup, render } from '@testing-library/react'
 import { Profiler, useSyncExternalStore } from 'react'
@@ -14,6 +14,7 @@ import {
 import { useSlice } from '../../../react/use-slice'
 import type { IssueViewModel } from '../../../replica'
 import { allIssueViewModels } from '../../../replica'
+import type { SessionView } from '../../../session-values'
 import { normalizedIssueFixture } from '../../../test-support/normalized-issue-fixture'
 import { createSlicePublisher } from '../publish'
 import {
@@ -31,7 +32,7 @@ const context = vi.hoisted(() => ({ handle: undefined as unknown }))
 vi.mock('../../../react/provider', () => ({ useStoreHandle: () => context.handle }))
 const NOW = Date.parse('2026-09-18T12:00:00Z')
 const AT = new Date(NOW).toISOString()
-function session(id = 's1', patch: Partial<SessionMeta> = {}): SessionMeta {
+function session(id = 's1', patch: Partial<SessionView> = {}): SessionView {
   return {
     sessionId: asSessionId(id),
     agentKind: 'codex',
@@ -356,7 +357,7 @@ describe('worklist material inputs', () => {
     ['displayRef', { displayRef: 'POD-1-A' }],
     ['agentColor', { agentColor: 'red' }],
     ['handoffTarget', { handoffTarget: 'other' }],
-  ] satisfies [string, Partial<SessionMeta>][])('keeps %s material', (_name, patch) => {
+  ] satisfies [string, Partial<SessionView>][])('keeps %s material', (_name, patch) => {
     const before = session()
     expect(worklistSessionsEqual([before], [{ ...before, ...patch }])).toBe(false)
   })
@@ -387,7 +388,7 @@ describe('worklist material inputs', () => {
       ),
     ).toBe(true)
     expect(
-      worklistSessionSignature({ ...before, futureVisibleField: 'new' } as SessionMeta),
+      worklistSessionSignature({ ...before, futureVisibleField: 'new' } as SessionView),
     ).not.toBe(worklistSessionSignature(before))
   })
 

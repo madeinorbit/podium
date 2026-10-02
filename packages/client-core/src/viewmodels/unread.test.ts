@@ -1,5 +1,5 @@
-import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView } from '../session-values'
 import {
   activityAfterRead,
   issueOwnContentUnread,
@@ -66,12 +66,12 @@ describe('issueOwnContentUnread', () => {
 })
 
 describe('sessionUnreadEmphasized', () => {
-  const sess = (over: Partial<SessionMeta>): SessionMeta =>
+  const sess = (over: Partial<SessionView>): SessionView =>
     ({
       unread: true,
       agentState: { phase: 'idle', since: BEFORE, nativeSubagentCount: 0 },
       ...over,
-    }) as SessionMeta
+    }) as SessionView
 
   it('hides the mark while a session is working', () => {
     expect(sessionUnreadEmphasized(sess({}))).toBe(true)

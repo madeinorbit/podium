@@ -1,6 +1,7 @@
-import { asSessionId, type SessionMeta } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueViewModel } from '../../replica/issue-view-models'
+import type { SessionView } from '../../session-values'
 // POD-1503: elevateCoordinatorSession moved to F3 (session-urgency) — it is an
 // ordering question, not a terminal one. Its tab-strip behaviour is still this
 // suite's to pin, so the test follows the symbol rather than the other way round.
@@ -28,7 +29,7 @@ import {
 //   3. an eviction is not a RELOCATION: it must not surface as a worktree move.
 // ---------------------------------------------------------------------------
 
-function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
+function session(id: string, over: Partial<SessionView> = {}): SessionView {
   return {
     sessionId: asSessionId(id),
     agentKind: 'claude-code',
@@ -47,10 +48,10 @@ function session(id: string, over: Partial<SessionMeta> = {}): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
-const ids = (list: readonly SessionMeta[]) => list.map((s) => s.sessionId)
+const ids = (list: readonly SessionView[]) => list.map((s) => s.sessionId)
 
 describe('orderTabs', () => {
   const a = session('a')

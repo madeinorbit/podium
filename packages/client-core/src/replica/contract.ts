@@ -236,6 +236,8 @@ export interface Replica {
   applySnapshot<K extends ReplicaKind>(kind: K, rows: ReplicaRows[K][]): void
   /** Delta semantics: upsert + remove by id. Idempotent. */
   applyChanges<K extends ReplicaKind>(kind: K, upserts: ReplicaRows[K][], removeIds: string[]): void
+  /** Sparse personal session rows are complete after this principal catches up. */
+  sessionUserStatesLoaded?(): boolean
   getCursor(): number | null
   /** Persist the cursor AFTER the entity writes issued before this call have
    *  landed (spec invariant 3) — a crash between = idempotent re-apply, never a gap. */

@@ -1,10 +1,6 @@
-import {
-  asSessionId,
-  type SessionMeta,
-  type SessionMetaInput,
-  type UnbrandIds,
-} from '@podium/model'
+import { asSessionId, type UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView, SessionViewInput } from '../session-values'
 import type { IssueNavigationModel } from './slices/issues'
 import { deriveTrayItems as deriveTrayItemsCore, offerKey, workingSessionCount } from './tray'
 
@@ -18,8 +14,8 @@ import { deriveTrayItems as deriveTrayItemsCore, offerKey, workingSessionCount }
  * built locally: only the fields this derivation actually reads are real.
  */
 const makeIssue = (
-  over: Partial<UnbrandIds<IssueNavigationModel>> & { sessions?: SessionMeta[] } = {},
-): IssueNavigationModel & { sessions?: SessionMeta[] } =>
+  over: Partial<UnbrandIds<IssueNavigationModel>> & { sessions?: SessionView[] } = {},
+): IssueNavigationModel & { sessions?: SessionView[] } =>
   ({
     id: 'i',
     repoPath: '/r',
@@ -34,9 +30,9 @@ const makeIssue = (
     needsHuman: false,
     memberSessionIds: [],
     ...over,
-  }) as IssueNavigationModel & { sessions?: SessionMeta[] }
+  }) as IssueNavigationModel & { sessions?: SessionView[] }
 
-const session = (over: Partial<SessionMetaInput>): SessionMeta =>
+const session = (over: Partial<SessionViewInput>): SessionView =>
   ({
     sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
@@ -46,7 +42,7 @@ const session = (over: Partial<SessionMetaInput>): SessionMeta =>
     cwd: '/r/wt',
     agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
     ...over,
-  }) as SessionMeta
+  }) as SessionView
 
 const deriveTrayItems = (
   issues: ReturnType<typeof makeIssue>[],
@@ -115,12 +111,12 @@ describe('deriveTrayItems', () => {
       id: 'closed',
       stage: 'done',
       closedReason: 'done',
-      sessions: [session({ sessionId: asSessionId('delegate'), offer })] as SessionMeta[],
+      sessions: [session({ sessionId: asSessionId('delegate'), offer })] as SessionView[],
     })
     const review = makeIssue({
       id: 'review',
       stage: 'review',
-      sessions: [session({ sessionId: asSessionId('live'), offer })] as SessionMeta[],
+      sessions: [session({ sessionId: asSessionId('live'), offer })] as SessionView[],
       updatedAt: '2026-07-14T13:00:00Z',
     })
     expect(deriveTrayItems([closed, review]).map((i) => `${i.kind}:${i.issue.id}`)).toEqual([
@@ -137,7 +133,7 @@ describe('deriveTrayItems', () => {
     const offered = makeIssue({
       id: 'o',
       stage: 'review',
-      sessions: [session({ sessionId: asSessionId('agent'), offer })] as SessionMeta[],
+      sessions: [session({ sessionId: asSessionId('agent'), offer })] as SessionView[],
     })
     expect(deriveTrayItems([offered]).map((i) => i.kind)).toEqual(['offer'])
     // An optimistically-dismissed offer means the user just acted — the
@@ -168,7 +164,7 @@ describe('deriveTrayItems', () => {
           sessionId: asSessionId('agent'),
           offer: { message: 'Ready.', actions: [], createdAt: '2026-07-14T11:00:00Z' },
         }),
-      ] as SessionMeta[],
+      ] as SessionView[],
     })
     const items = deriveTrayItems([oldQuestion, newOffer])
     expect(items.map((i) => `${i.kind}:${i.issue.id}`)).toEqual(['offer:o-new', 'question:q-old'])
@@ -197,7 +193,7 @@ describe('deriveTrayItems', () => {
         session({ sessionId: asSessionId('hl'), headless: true, offer }),
         session({ sessionId: asSessionId('dead'), archived: true, offer }),
         session({ sessionId: asSessionId('quiet') }),
-      ] as SessionMeta[],
+      ] as SessionView[],
     })
     const items = deriveTrayItems([issue])
     expect(items).toHaveLength(1)
@@ -213,7 +209,7 @@ describe('deriveTrayItems', () => {
     const offer = { message: 'm', actions: [], createdAt: '2026-07-14T12:00:00Z' }
     const issue = makeIssue({
       id: 'o',
-      sessions: [session({ sessionId: asSessionId('agent'), offer })] as SessionMeta[],
+      sessions: [session({ sessionId: asSessionId('agent'), offer })] as SessionView[],
     })
     const dismissed = new Set([offerKey(asSessionId('agent'), offer.createdAt)])
     expect(deriveTrayItems([issue], dismissed)).toHaveLength(0)
@@ -221,7 +217,7 @@ describe('deriveTrayItems', () => {
     const fresh = { ...offer, createdAt: '2026-07-14T13:00:00Z' }
     const again = makeIssue({
       id: 'o',
-      sessions: [session({ sessionId: asSessionId('agent'), offer: fresh })] as SessionMeta[],
+      sessions: [session({ sessionId: asSessionId('agent'), offer: fresh })] as SessionView[],
     })
     expect(deriveTrayItems([again], dismissed)).toHaveLength(1)
   })
@@ -251,7 +247,7 @@ describe('deriveTrayItems', () => {
           sessionId: asSessionId('agent'),
           offer: { message: 'Ready.', actions: [], createdAt: '2026-07-14T12:00:00Z' },
         }),
-      ] as SessionMeta[],
+      ] as SessionView[],
     })
     expect(
       deriveTrayItems([both])
@@ -274,7 +270,7 @@ describe('workingSessionCount', () => {
       session({ sessionId: 'w5', archived: true }),
       session({ sessionId: 'w6' }),
       session({ sessionId: 'w7' }),
-    ] as SessionMeta[]
+    ] as SessionView[]
     const issue = {
       ...makeIssue({ id: 'p' }),
       memberSessionIds: [

@@ -1,4 +1,4 @@
-import { asIssueId, asMachineId, asSessionId, asUserId, NO_SESSION_USER_STATE, type SessionMeta } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
@@ -12,20 +12,25 @@ afterAll(() => {
   if (previousProfile === undefined) delete process.env.PODIUM_LOOP_PROFILE
   else process.env.PODIUM_LOOP_PROFILE = previousProfile
 })
+
 import { queryAttributionSnapshot, resetQueryAttribution } from '@podium/runtime/sqlite'
 import { systemPrincipal } from '../../command-principal'
-import { sessionStatePrincipalFor } from './session-state/registry'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
 import { openTestStore } from '../../test-support/open-test-store'
+import { SessionRepository } from './repository'
 import { Session } from './session'
 import { SessionAuthz } from './session-authz'
-import { SessionRepository } from './repository'
-import { SessionStateService, type SessionStatePrincipal } from './session-state/service'
+import { sessionStatePrincipalFor } from './session-state/registry'
+import { type SessionStatePrincipal, SessionStateService } from './session-state/service'
 import { SessionView } from './view'
 
 const reader = asUserId('projection-reader')
-const principal: SessionStatePrincipal = { userId: reader, humanDirect: true, onBehalfOf: reader,
-  capability: { role: 'worker', scope: { kind: 'none' } } }
+const principal: SessionStatePrincipal = {
+  userId: reader,
+  humanDirect: true,
+  onBehalfOf: reader,
+  capability: { role: 'worker', scope: { kind: 'none' } },
+}
 const machineId = asMachineId('projection-machine')
 
 async function fixture(count: number) {
@@ -80,48 +85,95 @@ async function fixture(count: number) {
   })
   const rows = Array.from({ length: count }, (_, i) => {
     const session = new Session({
-      sessionId: asSessionId(`projection-${i}`), durableLabel: `projection-${i}`,
-      agentKind: 'claude-code', cwd: `/projection/work-${i}`, title: `Session ${i}`,
-      origin: { kind: 'spawn' }, createdAt: '2026-09-10T00:00:00.000Z',
-      geometry: { cols: 80, rows: 24 }, machineId, toDaemon: () => {},
+      sessionId: asSessionId(`projection-${i}`),
+      durableLabel: `projection-${i}`,
+      agentKind: 'claude-code',
+      cwd: `/projection/work-${i}`,
+      title: `Session ${i}`,
+      origin: { kind: 'spawn' },
+      createdAt: '2026-09-10T00:00:00.000Z',
+      geometry: { cols: 80, rows: 24 },
+      machineId,
+      toDaemon: () => {},
       ownerUserId: [1, 3, 4].includes(i % 5) ? asUserId('other') : reader,
     })
     // Unique absent issues exercise negative caching as the corpus grows.
     if (i % 5 === 0) session.issueId = asIssueId(`missing-${i}`)
-    if (i % 5 === 1) { session.refIssueId = asIssueId(`missing-ref-${i}`); session.refLetter = 'a' }
+    if (i % 5 === 1) {
+      session.refIssueId = asIssueId(`missing-ref-${i}`)
+      session.refLetter = 'a'
+    }
     if (i % 5 === 2) session.refDraft = i + 1
-    if (i % 5 === 3) { session.issueId = asIssueId('projection-issue'); session.refIssueId = session.issueId; session.refLetter = 'b' }
+    if (i % 5 === 3) {
+      session.issueId = asIssueId('projection-issue')
+      session.refIssueId = session.issueId
+      session.refLetter = 'b'
+    }
     return session
   })
   for (const [index, row] of rows.entries()) {
-    if (index % 5 === 1) await store.grants.upsert({
-      resourceKind: 'session', resourceId: row.sessionId, grantee: reader, verb: 'read',
-      owner: 'other', visibility: 'private', createdAt: '2026-09-10T00:00:00.000Z',
-      actorKind: 'user', actorId: 'other', onBehalfOf: null,
+    if (index % 5 === 1)
+      await store.grants.upsert({
+        resourceKind: 'session',
+        resourceId: row.sessionId,
+        grantee: reader,
+        verb: 'read',
+        owner: 'other',
+        visibility: 'private',
+        createdAt: '2026-09-10T00:00:00.000Z',
+        actorKind: 'user',
+        actorId: 'other',
+        onBehalfOf: null,
+      })
+    await store.sync.enqueueMessage({
+      id: `queue-${row.sessionId}`,
+      sessionId: row.sessionId,
+      text: 'queued',
+      queuedAt: 1,
     })
-    await store.sync.enqueueMessage({ id: `queue-${row.sessionId}`, sessionId: row.sessionId, text: 'queued', queuedAt: 1 })
   }
   await store.sessions.markSessionRead(reader, rows[0]!.sessionId, '2026-09-11T00:00:00.000Z')
   await store.sessions.setSnooze(reader, rows[1]!.sessionId, null)
-  const sessions = new Map(rows.map(s => [s.sessionId, s]))
+  const sessions = new Map(rows.map((s) => [s.sessionId, s]))
   const authz = new SessionAuthz({ sessions, store } as never)
-  const state = new SessionStateService({ store, getSession: (id: string) => sessions.get(asSessionId(id)),
-    sessionOwner: ({ sessionId, memo }: Parameters<ConstructorParameters<typeof SessionStateService>[0]['sessionOwner']>[0]) => authz.sessionOwner(sessionId, memo),
-    primeOwnerMemo: (memo: Parameters<SessionAuthz['primeOwnerMemo']>[0], ids: Parameters<SessionAuthz['primeOwnerMemo']>[1]) => authz.primeOwnerMemo(memo, ids),
+  const state = new SessionStateService({
+    store,
+    getSession: (id: string) => sessions.get(asSessionId(id)),
+    sessionOwner: ({
+      sessionId,
+      memo,
+    }: Parameters<ConstructorParameters<typeof SessionStateService>[0]['sessionOwner']>[0]) =>
+      authz.sessionOwner(sessionId, memo),
+    primeOwnerMemo: (
+      memo: Parameters<SessionAuthz['primeOwnerMemo']>[0],
+      ids: Parameters<SessionAuthz['primeOwnerMemo']>[1],
+    ) => authz.primeOwnerMemo(memo, ids),
   } as never)
-  const machines = { factsSnapshot: vi.fn(async () => ({ name: () => 'Build box', loginCondition: () => 'logged-out' as const })),
-    machineName: async () => 'Build box', agentLoginCondition: async () => 'logged-out' as const }
-  const view = new SessionView({ sessions, store, state, machines: machines as never, sessionOccupancyCount: () => 3 })
-  // Broadcast still resolves its default principal exactly once.
+  const machines = {
+    factsSnapshot: vi.fn(async () => ({
+      name: () => 'Build box',
+      loginCondition: () => 'logged-out' as const,
+    })),
+    machineName: async () => 'Build box',
+    agentLoginCondition: async () => 'logged-out' as const,
+  }
+  const view = new SessionView({ sessions, store, state, sessionOccupancyCount: () => 3 })
+  // Reader-scoped calls still use their admitted principal; feed projection needs none.
   vi.spyOn(view, 'defaultPrincipal').mockResolvedValue(principal)
   return { store, rows, sessions, authz, state, machines, view }
 }
 
 /** Frozen pre-pass wire algorithm: the oracle deliberately performs row reads. */
-async function legacyWire(s: Session, f: Awaited<ReturnType<typeof fixture>>): Promise<SessionMeta> {
+async function legacyWire(s: Session, f: Awaited<ReturnType<typeof fixture>>) {
   const overlay = await f.state.overlay(reader, s.sessionId)
-  const meta = s.toMeta(overlay ?? NO_SESSION_USER_STATE)
-  const queuedMessageCount = (await f.store.sync.queuedMessageCounts(s.sessionId)).get(s.sessionId) ?? 0
+  const meta = {
+    ...s.toMeta(),
+    readAt: overlay.readAt,
+    unread: overlay.readAt == null || s.lastActiveAt > overlay.readAt,
+    ...(overlay.snoozedUntil !== undefined ? { snoozedUntil: overlay.snoozedUntil } : {}),
+  }
+  const queuedMessageCount =
+    (await f.store.sync.queuedMessageCounts(s.sessionId)).get(s.sessionId) ?? 0
   const loginCondition = await f.machines.agentLoginCondition()
   const capabilities = harnessCapabilitiesFor(s.agentKind)
   let displayRef: string | undefined
@@ -135,11 +187,22 @@ async function legacyWire(s: Session, f: Awaited<ReturnType<typeof fixture>>): P
     const prefix = await f.store.repos.prefixForPath(s.cwd)
     if (prefix) displayRef = formatSessionRef({ prefix, draft: s.refDraft })
   }
-  return { ...meta, ...(queuedMessageCount > 0 ? { queuedMessageCount } : {}), clientCount: 3,
-    machineName: await f.machines.machineName(), ...(loginCondition ? { condition: loginCondition } : {}),
-    ...(capabilities ? { harnessHandoff: capabilities.handoff, harnessPromptModeHints: capabilities.promptModeHints } : {}),
-    ...(s.refIssueId ? { refIssueId: s.refIssueId } : {}), ...(s.refLetter ? { refLetter: s.refLetter } : {}),
-    ...(s.refDraft != null ? { refDraft: s.refDraft } : {}), ...(displayRef ? { displayRef } : {}),
+  return {
+    ...meta,
+    ...(queuedMessageCount > 0 ? { queuedMessageCount } : {}),
+    clientCount: 3,
+    machineName: await f.machines.machineName(),
+    ...(loginCondition ? { condition: loginCondition } : {}),
+    ...(capabilities
+      ? {
+          harnessHandoff: capabilities.handoff,
+          harnessPromptModeHints: capabilities.promptModeHints,
+        }
+      : {}),
+    ...(s.refIssueId ? { refIssueId: s.refIssueId } : {}),
+    ...(s.refLetter ? { refLetter: s.refLetter } : {}),
+    ...(s.refDraft != null ? { refDraft: s.refDraft } : {}),
+    ...(displayRef ? { displayRef } : {}),
   }
 }
 
@@ -148,6 +211,27 @@ function statementCount() {
 }
 
 describe('one projection pass', () => {
+  it('never reads prefixes, personal overlays or machines for a feed projection', async () => {
+    const f = await fixture(5)
+    try {
+      const prefixes = vi.spyOn(f.store.repos, 'prefixResolver')
+      const overlays = vi.spyOn(f.state, 'overlaySnapshot')
+      const machines = vi.spyOn(f.store.machines, 'listMachines')
+      const pass = await f.view.buildProjectionPass(f.rows)
+      const rows = f.rows.map((row) => f.view.wire(row, pass))
+      expect(prefixes).not.toHaveBeenCalled()
+      expect(overlays).not.toHaveBeenCalled()
+      expect(machines).not.toHaveBeenCalled()
+      expect(f.machines.factsSnapshot).not.toHaveBeenCalled()
+      expect(f.view.defaultPrincipal).not.toHaveBeenCalled()
+      expect(rows.every((row) => row.queuedMessageCount === 1)).toBe(true)
+      expect(rows[3]).toMatchObject({ refSeq: 1, refLetter: 'b' })
+      expect(rows[3]?.refRepoId).toBeTruthy()
+    } finally {
+      await f.store.close()
+    }
+  })
+
   it('characterizes visibility without revalidating an already-admitted principal', async () => {
     const f = await fixture(5)
     try {
@@ -155,54 +239,94 @@ describe('one projection pass', () => {
       // owner, issue owner (different from session owner), and unrelated reader.
       // Account status and actor kind are admission concerns: this API consumes
       // an admitted principal and historically consults neither user rows nor roles.
-      await f.store.users.create({ id: reader, displayName: 'Reader', role: 'member',
-        createdAt: '2026-09-10T00:00:00.000Z', disabledAt: null }, 'test-only')
+      await f.store.users.create(
+        {
+          id: reader,
+          displayName: 'Reader',
+          role: 'member',
+          createdAt: '2026-09-10T00:00:00.000Z',
+          disabledAt: null,
+        },
+        'test-only',
+      )
       expect(await f.store.users.get(reader)).toBeDefined()
-      expect(await Promise.all(f.rows.map(s => f.state.canReadSession(principal, s.sessionId))))
-        .toEqual([true, true, true, true, false])
+      expect(
+        await Promise.all(f.rows.map((s) => f.state.canReadSession(principal, s.sessionId))),
+      ).toEqual([true, true, true, true, false])
       // Test-only revocation: no user lifecycle write API exists yet.
       // @ts-expect-error test-only access to the private database connection
-      await f.store.db.prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
+      await f.store.db
+        .prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
         .run('2026-09-11T00:00:00.000Z', reader)
       // A previously admitted principal keeps this method's historical outcome.
       // The transport admission layer, not this visibility method, rejects it.
-      expect(await Promise.all(f.rows.map(s => f.state.canReadSession(principal, s.sessionId))))
-        .toEqual([true, true, true, true, false])
-      expect(() => sessionStatePrincipalFor(systemPrincipal('characterization')))
-        .toThrow('system principal has no per-user session state')
-      const member = { ...principal, userId: asUserId('unrelated'),
-        capability: { role: 'worker', scope: { kind: 'subtree', rootId: asIssueId('projection-issue') } },
+      expect(
+        await Promise.all(f.rows.map((s) => f.state.canReadSession(principal, s.sessionId))),
+      ).toEqual([true, true, true, true, false])
+      expect(() => sessionStatePrincipalFor(systemPrincipal('characterization'))).toThrow(
+        'system principal has no per-user session state',
+      )
+      const member = {
+        ...principal,
+        userId: asUserId('unrelated'),
+        capability: {
+          role: 'worker',
+          scope: { kind: 'subtree', rootId: asIssueId('projection-issue') },
+        },
       } as SessionStatePrincipal
-      expect(await Promise.all(f.rows.map(s => f.state.canReadSession(member, s.sessionId))))
-        .toEqual([false, false, false, false, false])
-      const operator = { ...principal, userId: asUserId('unrelated'),
+      expect(
+        await Promise.all(f.rows.map((s) => f.state.canReadSession(member, s.sessionId))),
+      ).toEqual([false, false, false, false, false])
+      const operator = {
+        ...principal,
+        userId: asUserId('unrelated'),
         capability: { role: 'admin', scope: { kind: 'all' } },
       } as SessionStatePrincipal
-      expect(await Promise.all(f.rows.map(s => f.state.canReadSession(operator, s.sessionId))))
-        .toEqual([true, true, true, true, true])
+      expect(
+        await Promise.all(f.rows.map((s) => f.state.canReadSession(operator, s.sessionId))),
+      ).toEqual([true, true, true, true, true])
       expect(await f.state.canReadSession(operator, asSessionId('absent'))).toBe(false)
-    } finally { await f.store.close() }
+    } finally {
+      await f.store.close()
+    }
   })
 
-  it('preserves legacy SessionMeta deeply apart from S1 additive fields', async () => {
+  it('preserves session facts while retiring exactly the seven joined fields', async () => {
     const f = await fixture(10)
     try {
       const expected = []
-      for (const s of f.rows) if (await f.state.canReadSession(principal, s.sessionId)) expected.push(await legacyWire(s, f))
-      // S1 adds precisely these optional source fields beside the old record.
-      // The frozen oracle continues to compare every legacy key and value.
-      const actual = (await f.view.list(principal, 'rpc')).map(row => {
+      for (const s of f.rows)
+        if (await f.state.canReadSession(principal, s.sessionId))
+          expected.push(await legacyWire(s, f))
+      // Keep the before algorithm as an oracle for all facts that remain.
+      const actual = (await f.view.list(principal, 'rpc')).map((row) => {
         const legacy = { ...row }
         delete legacy.refRepoId
         delete legacy.refSeq
         delete legacy.handoffTargetMachineId
         return legacy
       })
-      expect(actual).toEqual(expected)
+      const retired = [
+        'readAt',
+        'unread',
+        'snoozedUntil',
+        'displayRef',
+        'machineName',
+        'condition',
+        'handoffTarget',
+      ]
+      expect(actual).toEqual(
+        expected.map((row) =>
+          Object.fromEntries(Object.entries(row).filter(([key]) => !retired.includes(key))),
+        ),
+      )
+      for (const row of actual) for (const key of retired) expect(row).not.toHaveProperty(key)
       expect(expected).toHaveLength(8)
-      expect(expected.some(s => s.displayRef)).toBe(true)
-      expect(expected.some(s => s.snoozedUntil === null)).toBe(true)
-    } finally { await f.store.close() }
+      expect(expected.some((s) => s.displayRef)).toBe(true)
+      expect(expected.some((s) => s.snoozedUntil === null)).toBe(true)
+    } finally {
+      await f.store.close()
+    }
   })
 
   it('reads at most three statements for 200 visibility candidates and none for primed ownership', async () => {
@@ -215,10 +339,12 @@ describe('one projection pass', () => {
       const sessionReads = vi.spyOn(f.store.sessions, 'getSession')
       const userReads = vi.spyOn(f.store.users, 'get')
       resetQueryAttribution()
-      const start = performance.now()
-      const visible = await f.state.visibleSessions(principal, f.rows.map(s => s.sessionId))
+      const visible = await f.state.visibleSessions(
+        principal,
+        f.rows.map((s) => s.sessionId),
+      )
       const count = statementCount() / recordingsPerStatement
-      process.stdout.write(`visibility 200: ${count} physical statements, ${(performance.now() - start).toFixed(2)} ms\n`)
+      process.stdout.write(`visibility 200: ${count} physical statements\n`)
       expect(visible.size).toBe(160)
       expect(count).toBe(3)
       expect(sessionReads).not.toHaveBeenCalled()
@@ -226,17 +352,21 @@ describe('one projection pass', () => {
 
       // These registry sessions have no attached live process. Ownership reads
       // the registry, and its issue/grant inputs come from the enclosing pass.
-      const pass = await f.view.buildProjectionPass(f.rows, principal)
+      const pass = await f.view.buildProjectionPass(f.rows)
       resetQueryAttribution()
-      expect(await f.authz.sessionOwner(f.rows[3]!.sessionId, pass))
-        .toEqual({ owner: reader, grants: [] })
+      expect(await f.authz.sessionOwner(f.rows[3]!.sessionId, pass)).toEqual({
+        owner: reader,
+        grants: [],
+      })
       expect(statementCount()).toBe(0)
       expect(sessionReads).not.toHaveBeenCalled()
       process.stdout.write('registered non-live ownership: 0 physical statements\n')
       resetQueryAttribution()
       expect(await f.state.visibleSessions(principal, [], pass)).toEqual(new Set())
       expect(statementCount()).toBe(0)
-    } finally { await f.store.close() }
+    } finally {
+      await f.store.close()
+    }
   })
 
   it('has a constant statement budget for 5, 50 and 200 sessions', async () => {
@@ -249,18 +379,19 @@ describe('one projection pass', () => {
         const recordingsPerStatement = statementCount()
         expect([1, 2]).toContain(recordingsPerStatement)
         resetQueryAttribution()
-        const start = performance.now()
         const result = await f.view.list(principal, 'rpc')
         counts.push(statementCount() / recordingsPerStatement)
-        process.stdout.write(`projection ${size}: ${counts.at(-1)} physical statements, ${(performance.now() - start).toFixed(2)} ms\n`)
-        expect(result).toHaveLength(size * 4 / 5)
-        expect(f.machines.factsSnapshot).toHaveBeenCalledTimes(1)
-      } finally { await f.store.close() }
+        process.stdout.write(`projection ${size}: ${counts.at(-1)} physical statements\n`)
+        expect(result).toHaveLength((size * 4) / 5)
+        expect(f.machines.factsSnapshot).not.toHaveBeenCalled()
+      } finally {
+        await f.store.close()
+      }
     }
-    // Repo registry is warm from fixture creation. Six physical reads: issues,
-    // two grant kinds, queue counts and two overlays. Calibration accounts for
+    // Repo registry is warm from fixture creation. Four physical reads: issues,
+    // two grant kinds and queue counts; no personal overlays. Calibration accounts for
     // POD-3852 double recording, and still works after that fix lands.
-    expect(counts[0]).toBe(6)
+    expect(counts[0]).toBe(4)
     expect(counts).toEqual([counts[0], counts[0], counts[0]])
   })
 
@@ -268,9 +399,16 @@ describe('one projection pass', () => {
     const counts = []
     for (const size of [5, 50, 200]) {
       const f = await fixture(size)
-      const repo = new SessionRepository({ sessions: f.sessions, store: f.store, view: f.view,
-        now: () => Date.now(), runScheduledBroadcast: async () => {},
-        ledger: { capture: async (specs: { entity: string; id: string; op: string; value: unknown }[]) => specs.map((s, i) => ({ ...s, entityId: s.id, seq: i + 1 })) },
+      const repo = new SessionRepository({
+        sessions: f.sessions,
+        store: f.store,
+        view: f.view,
+        now: () => Date.now(),
+        runScheduledBroadcast: async () => {},
+        ledger: {
+          capture: async (specs: { entity: string; id: string; op: string; value: unknown }[]) =>
+            specs.map((s, i) => ({ ...s, entityId: s.id, seq: i + 1 })),
+        },
       } as never)
       try {
         for (const s of f.rows) repo.markVolatileSessionDirty(s.sessionId)
@@ -279,40 +417,50 @@ describe('one projection pass', () => {
         const recordingsPerStatement = statementCount()
         expect([1, 2]).toContain(recordingsPerStatement)
         resetQueryAttribution()
-        const start = performance.now()
         const result = await repo.drainVolatileCaptureSlice({ maxItems: size, maxCpuMs: Infinity })
         counts.push(statementCount() / recordingsPerStatement)
-        process.stdout.write(`broadcast ${size}: ${counts.at(-1)} physical read statements, ${(performance.now() - start).toFixed(2)} ms\n`)
+        process.stdout.write(`broadcast ${size}: ${counts.at(-1)} physical read statements\n`)
         expect(result.changes).toHaveLength(size)
         expect(result.remaining).toBe(0)
-        expect(f.view.defaultPrincipal).toHaveBeenCalledTimes(1)
-        expect(f.machines.factsSnapshot).toHaveBeenCalledTimes(1)
-      } finally { await f.store.close() }
+        expect(f.view.defaultPrincipal).not.toHaveBeenCalled()
+        expect(f.machines.factsSnapshot).not.toHaveBeenCalled()
+      } finally {
+        await f.store.close()
+      }
     }
-    // Repo registry is warm from fixture creation. Six physical reads: issues,
-    // two grant kinds, queue counts and two overlays. Calibration accounts for
+    // Repo registry is warm from fixture creation. Four physical reads: issues,
+    // two grant kinds and queue counts; no personal overlays. Calibration accounts for
     // POD-3852 double recording, and still works after that fix lands.
-    expect(counts[0]).toBe(6)
+    expect(counts[0]).toBe(4)
     expect(counts).toEqual([counts[0], counts[0], counts[0]])
   })
 
   it('restricts queue counts to the requested set without a per-id parameter limit', async () => {
     const f = await fixture(5)
     try {
-      const ids = [f.rows[0]!.sessionId, ...Array.from({ length: 1200 }, (_, i) => asSessionId(`absent-${i}`))]
-      expect(await f.store.sync.queuedMessageCounts(ids)).toEqual(new Map([[f.rows[0]!.sessionId, 1]]))
+      const ids = [
+        f.rows[0]!.sessionId,
+        ...Array.from({ length: 1200 }, (_, i) => asSessionId(`absent-${i}`)),
+      ]
+      expect(await f.store.sync.queuedMessageCounts(ids)).toEqual(
+        new Map([[f.rows[0]!.sessionId, 1]]),
+      )
       expect(await f.store.sync.queuedMessageCounts([])).toEqual(new Map())
-    } finally { await f.store.close() }
+    } finally {
+      await f.store.close()
+    }
   })
 
   it('does no IO once a pass has been built', async () => {
     const f = await fixture(5)
     try {
-      const pass = await f.view.buildProjectionPass(f.rows, principal)
+      const pass = await f.view.buildProjectionPass(f.rows)
       resetQueryAttribution()
-      f.rows.map(s => f.view.wire(s, pass))
+      f.rows.map((s) => f.view.wire(s, pass))
       expect(statementCount()).toBe(0)
-      expect(f.machines.factsSnapshot).toHaveBeenCalledTimes(1)
-    } finally { await f.store.close() }
+      expect(f.machines.factsSnapshot).not.toHaveBeenCalled()
+    } finally {
+      await f.store.close()
+    }
   })
 })

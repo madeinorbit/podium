@@ -1,3 +1,4 @@
+import { inheritSessionHomes } from '../session-values'
 /**
  * ONE optimistic mechanism (#263 [spec:SP-3fe2]): the outbox IS the overlay.
  *
@@ -904,7 +905,7 @@ export function foldOverlays<T extends object>(
     const next = rows.map((row) => {
       const patches = patchesById.get(keyOf(row))
       if (!patches) return row
-      const merged = Object.assign({}, row, ...patches) as T
+      const merged = inheritSessionHomes(row, Object.assign({}, row, ...patches)) as T
       // Judge the COMPOSED result, not each patch: two queued writes to the same
       // cell can land on the value the row already holds, and only the merge
       // knows that.
@@ -957,7 +958,7 @@ export function foldRowOverlays<T extends object>(
   const patches: OverlayPatch[] = []
   for (const o of overlays) if (o.op === 'patch') patches.push(o.patch)
   if (patches.length === 0) return row
-  const merged = Object.assign({}, row, ...patches) as T
+  const merged = inheritSessionHomes(row, Object.assign({}, row, ...patches)) as T
   if (movedAnyCell(row, merged, patches)) return merged
   // An absent row that the patches leave saying "nothing set" stays absent.
   return absent ? undefined : row

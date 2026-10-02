@@ -12,7 +12,7 @@
  * WHO CLEARS THE OVERLAY, AND WHY IT IS WRITTEN TWO DIFFERENT WAYS
  * ---------------------------------------------------------------------------
  *
- * `handoffTarget` is what every client renders a move with (the pane's handover
+ * `handoffTargetMachineId` is what every client renders a move with (the pane's handover
  * state, the sidebar row). It is painted HERE, at the top of the pre-flight, and
  * three different exits take it down — so a reader who finds only one of them
  * will conclude the other paths leak an overlay. They do not:
@@ -77,18 +77,16 @@ export class HandoffPreflight {
     const { session, sourceRepo, issue, targetMachine } = placement
     // Announce the move BEFORE the pre-flight (POD-337): everything from here on
     // can take real time — `ensureTargetRepo` may clone the repo on the target —
-    // and `handoffTarget` is what every client renders the move with (the pane's
+    // and `handoffTargetMachineId` is what every client renders the move with (the pane's
     // handover state, the sidebar row). Set after the synchronous eligibility
     // checks, so a refused move never flashes an overlay; cleared on every exit
     // that doesn't reach the target.
     this.ports.mutateSessionView(session.sessionId, (current) => {
-      current.handoffTarget = targetMachine.name
       current.handoffTargetMachineId = targetMachine.id
     })
     this.ports.broadcastSessions()
     const clearHandoffOverlay = (): void => {
       this.ports.mutateSessionView(session.sessionId, (current) => {
-        current.handoffTarget = undefined
         current.handoffTargetMachineId = undefined
       })
       this.ports.broadcastSessions()

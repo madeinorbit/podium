@@ -17,7 +17,7 @@ import { firstAdminMemberId } from '@podium/model'
  */
 
 import type { Geometry } from '@podium/model'
-import { asMachineId, asSessionId, NO_SESSION_USER_STATE } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { Session } from './session'
 
@@ -39,7 +39,7 @@ const makeSession = (): Session =>
   })
 
 const meta = (session: Session): { configureFields?: readonly string[] } =>
-  session.toMeta(NO_SESSION_USER_STATE) as { configureFields?: readonly string[] }
+  session.toMeta() as { configureFields?: readonly string[] }
 
 describe('configureFields on the wire', () => {
   it('publishes what the daemon reported', () => {

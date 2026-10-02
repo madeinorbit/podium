@@ -1,9 +1,10 @@
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**
  * SESSION ROWS RENDER THE ATTRIBUTION PAIR (POD-1526, closing POD-407 AC 6).
  *
- * `SessionMeta.createdBy` (POD-1516) is the server-stamped pair — ACTOR (who
+ * `SessionView.createdBy` (POD-1516) is the server-stamped pair — ACTOR (who
  * acted) and ON-BEHALF-OF (for whom). This suite protects the two properties
  * that a naive implementation satisfies by accident:
  *
@@ -18,15 +19,7 @@ import '@/test-support/mock-core-store-handle'
  *      exists to distinguish. A row that always printed something would satisfy
  *      every positive assertion here while breaking the actual requirement.
  */
-import {
-  actorAgent,
-  actorMachine,
-  actorSystem,
-  actorUser,
-  asSessionId,
-  type SessionMeta,
-  type SessionMetaInput,
-} from '@podium/model'
+import { actorAgent, actorMachine, actorSystem, actorUser, asSessionId } from '@podium/model'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PanelRow } from './sidebar-common'
@@ -42,7 +35,7 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 
 afterEach(cleanup)
 
-function sess(over: Partial<SessionMetaInput>): SessionMeta {
+function sess(over: Partial<SessionViewInput>): SessionView {
   return {
     sessionId: asSessionId('sess'),
     agentKind: 'claude-code',
@@ -61,10 +54,10 @@ function sess(over: Partial<SessionMetaInput>): SessionMeta {
     archived: false,
     busy: false,
     ...over,
-  } as SessionMeta
+  } as SessionView
 }
 
-const renderRow = (session: SessionMeta): void => {
+const renderRow = (session: SessionView): void => {
   render(<PanelRow session={session} active={false} onSelect={vi.fn()} />)
 }
 

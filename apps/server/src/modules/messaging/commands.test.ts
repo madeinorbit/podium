@@ -42,7 +42,6 @@ function issue(
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     archived: false,
-    readAt: null,
     origin: 'human',
     audience: 'human',
     draft: false,
@@ -164,8 +163,6 @@ describe('issue formatters', () => {
         lastActiveAt: '2026-07-10T00:00:00.000Z',
         origin: { kind: 'spawn' },
         archived: false,
-        readAt: null,
-        unread: false,
       },
       {
         sessionId: asSessionId('live'),
@@ -182,8 +179,6 @@ describe('issue formatters', () => {
         lastActiveAt: '2026-07-16T00:00:00.000Z',
         origin: { kind: 'spawn' },
         archived: false,
-        readAt: null,
-        unread: false,
       },
     ] as SessionMeta[]
     // The held-session list is now a SEPARATE argument: membership moved off the

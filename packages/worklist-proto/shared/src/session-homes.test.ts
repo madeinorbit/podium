@@ -88,6 +88,19 @@ function boot(mode: 'truth' | 'overlaid' = 'overlaid') {
 }
 
 describe('session homes in the graph row source', () => {
+  it.each(['truth', 'overlaid'] as const)('keeps missing personal homes pending until bootstrap in %s mode', mode => {
+    const { handle, replica } = boot(mode)
+    try {
+      expect(handle.source.row!('session', 's1')).toHaveProperty('unread', false)
+      expect(handle.source.row!('session', 's2')).toHaveProperty('unread', false)
+      replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'cold-start', snapshotSeq: 1, entityCount: 7, bufferedFramesApplied: 0 })
+      handle.flush()
+      expect(handle.source.row!('session', 's1')).toHaveProperty('unread', false)
+      expect(handle.source.row!('session', 's2')).toHaveProperty('unread', true)
+    } finally {
+      handle.dispose()
+    }
+  })
   it('joins all values from their rows by id in both source modes', () => {
     for (const mode of ['truth', 'overlaid'] as const) {
       const { handle } = boot(mode)
@@ -164,16 +177,18 @@ describe('session homes in the graph row source', () => {
       handle.dispose()
     }
   })
-  it('missing companions fall back on eviction and readmission restores the new truth', () => {
-    const { handle, push } = boot()
+  it.each(['evict', 'remove'])('ignores stale fields after companion %s and rejoins on readmission', op => {
+    const { handle, replica, push } = boot()
     try {
+      replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'cold-start', snapshotSeq: 1, entityCount: 7, bufferedFramesApplied: 0 })
+      handle.flush()
       for (const [kind, id] of [
         ['sessionUserState', key('b')],
         ['repo', 'r1'],
         ['machine', 'm1'],
         ['machine', 'm2'],
       ]) {
-        push(kind!, id!, undefined, 'evict')
+        push(kind!, id!, undefined, op)
         expect(
           handle
             .flush()
@@ -182,12 +197,13 @@ describe('session homes in the graph row source', () => {
         ).toEqual(['s1'])
       }
       expect(handle.source.row!('session', 's1')).toMatchObject({
-        displayRef: 'OLD-42-A',
+        displayRef: undefined,
+        readAt: null,
         unread: true,
-        snoozedUntil: null,
-        machineName: 'Old source',
-        condition: 'logged-out',
-        handoffTarget: 'Old target',
+        snoozedUntil: undefined,
+        machineName: '',
+        condition: undefined,
+        handoffTarget: undefined,
       })
       push('sessionUserState', key('b'), { userId: 'b', sessionId: 's1', readAt: at })
       handle.flush()

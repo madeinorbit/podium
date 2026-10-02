@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE PHONE HANDS A LIVE-SESSION SEND TO THE SERVER AT ONCE (POD-4688).
  *
@@ -7,7 +8,7 @@
  * message's own id; the live path must still not wake the session
  * (`resumeAndSend`), and the queue must not hold the second tap behind a turn.
  */
-import type { SessionMeta } from '@podium/model'
+
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { act, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -65,7 +66,7 @@ const busy = {
   status: 'live',
   title: 'Agent',
   agentState: { phase: 'working', since: '2026-09-24T10:00:00.000Z' },
-} as unknown as SessionMeta
+} as unknown as SessionView
 
 let transportUp: boolean | null = null
 

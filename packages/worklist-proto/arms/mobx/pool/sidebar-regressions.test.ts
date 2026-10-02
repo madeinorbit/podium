@@ -10,6 +10,7 @@ import {
   memoryStorage,
 } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import { createWorklistPool } from '@podium/client-graph/create'
 import {
@@ -27,7 +28,6 @@ import {
   asUserId,
   type GitRepositoryWire,
   type IssueProjection,
-  type SessionMeta,
 } from '@podium/model'
 import { reaction, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
@@ -79,7 +79,7 @@ function issue(id: string, patch: Partial<IssueViewModel> = {}): IssueViewModel 
     ...patch,
   } as unknown as IssueViewModel
 }
-function session(sessionId: string, owner: string, patch: Partial<SessionMeta> = {}): SessionMeta {
+function session(sessionId: string, owner: string, patch: Partial<SessionView> = {}): SessionView {
   return {
     sessionId,
     issueId: owner,
@@ -94,11 +94,11 @@ function session(sessionId: string, owner: string, patch: Partial<SessionMeta> =
     unread: false,
     agentState: { phase: 'idle', since: STAMP },
     ...patch,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 function collections(
   issues: IssueViewModel[],
-  sessions: SessionMeta[] = [],
+  sessions: SessionView[] = [],
   repos = [REPO],
 ): LiveCollections {
   const repoIds = new Set([...issues.map((row) => row.repoId), ...repos.map((row) => row.repoId)])
@@ -258,14 +258,14 @@ function replay(data: LiveCollections) {
         app.destroy()
       }
     },
-    updateSession: (row: SessionMeta) => {
+    updateSession: (row: SessionView) => {
       cache.put('session', row.sessionId, row)
       replica.onKernelEvent({
         type: 'upserted',
         record: { entity: 'session', entityId: row.sessionId, value: row, provenance: { seq: 1 } },
         readmitted: false,
       })
-      store = { ...store, sessions: dedupeSessions(replica.rows('sessions') as SessionMeta[]) }
+      store = { ...store, sessions: dedupeSessions(replica.rows('sessions') as SessionView[]) }
       publish()
       rows.flush()
       settle()
@@ -321,7 +321,7 @@ describe('POD-5056 fleet resume-twin ties', () => {
     false,
   ])('uses the runtime replica order on an exact tie (export head archived=%s)', (archived) => {
     const task = issue('iss_synthetic_fleet')
-    const resume = { kind: 'codex-thread', value: 'synthetic-twin' } as SessionMeta['resume']
+    const resume = { kind: 'codex-thread', value: 'synthetic-twin' } as SessionView['resume']
     const earlier = session('z-earlier', task.id, { resume, archived })
     const later = session('a-later', task.id, { resume, archived: !archived })
     const ctx = replay(collections([task], [earlier, later]))
@@ -347,7 +347,7 @@ describe('POD-5056 fleet resume-twin ties', () => {
   })
   it('keeps the runtime winner when a twin joins an existing group', () => {
     const task = issue('iss_synthetic_fleet_join')
-    const resume = { kind: 'codex-thread', value: 'synthetic-join' } as SessionMeta['resume']
+    const resume = { kind: 'codex-thread', value: 'synthetic-join' } as SessionView['resume']
     const earlier = session('z-earlier', task.id, { archived: true })
     const later = session('a-later', task.id, { resume })
     const ctx = replay(collections([task], [earlier, later]))
@@ -367,10 +367,10 @@ describe('POD-5057 timing after cross-owner resume collapse', () => {
     const task = issue('iss_synthetic_timer', { stage: 'review' })
     const other = issue('iss_synthetic_timer_other', { seq: 2 })
     const since = new Date(NOW - 3_600_000).toISOString()
-    const resume = { kind: 'codex-thread', value: 'synthetic-timer-twin' } as SessionMeta['resume']
+    const resume = { kind: 'codex-thread', value: 'synthetic-timer-twin' } as SessionView['resume']
     const mine = session('a-timer', task.id, {
       resume,
-      agentState: { phase: 'needs_user', since } as SessionMeta['agentState'],
+      agentState: { phase: 'needs_user', since } as SessionView['agentState'],
     })
     const theirs = session('z-timer', other.id, { resume, agentState: mine.agentState })
     const ctx = replay(collections([task, other], [theirs, mine]))

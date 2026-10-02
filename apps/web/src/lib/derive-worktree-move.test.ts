@@ -1,11 +1,12 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import { planWorktreeMoves } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 const ROOTS = ['/repo', '/repo/.worktrees/feat']
-const at = (id: string, cwd: string): SessionMeta =>
-  ({ sessionId: id, cwd, archived: false }) as unknown as SessionMeta
+const at = (id: string, cwd: string): SessionView =>
+  ({ sessionId: id, cwd, archived: false }) as unknown as SessionView
 
 describe('planWorktreeMoves', () => {
   it('follows when a visible-pane session moves out of the selected worktree', () => {

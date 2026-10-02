@@ -1458,6 +1458,7 @@
       "inputs": [
         "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**",
+        "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -2028,6 +2029,7 @@
         "src/test-support/pre-migrated-store.ts",
         "src/test-support/session-facts.ts",
         "src/test-support/session-state-principal.ts",
+        "src/test-support/session-views.ts",
         "src/test-support/stage-a-seam.ts",
         "src/test-support/statement-budget.ts",
         "src/title-filter.ts",
@@ -2818,6 +2820,7 @@
         "src/test-support/seed-message.ts",
         "src/test-support/session-facts.ts",
         "src/test-support/session-state-principal.ts",
+        "src/test-support/session-views.ts",
         "src/test-support/stage-a-seam.ts",
         "src/test-support/statement-budget.ts",
         "src/title-filter.ts",
@@ -2845,7 +2848,9 @@
     {
       "id": "normalized-wire",
       "title": "normalized-wire and load guards",
-      "testFiles": ["apps/server/src/issues.normalized-wire.test.ts"],
+      "testFiles": [
+        "apps/server/src/issues.normalized-wire.test.ts"
+      ],
       "inputs": [
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",

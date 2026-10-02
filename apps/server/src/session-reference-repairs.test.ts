@@ -98,13 +98,12 @@ describe('S1 rare reference repairs', () => {
     })
     const target = asMachineId('machine:target')
     const preflight = new HandoffPreflight({
-      mutateSessionView: (_id: Session['sessionId'], mutate: (session: Session) => void) => mutate(current),
+      mutateSessionView: (_id: Session['sessionId'], mutate: (session: Session) => void) =>
+        mutate(current),
       broadcastSessions: () => {},
       ensureTargetRepo: async () => {
-        expect(current.handoffTarget).toBe('Target')
         expect(current.handoffTargetMachineId).toBe(target)
-        expect(current.toMeta({ readAt: null, snoozedUntil: undefined })).toMatchObject({
-          handoffTarget: 'Target',
+        expect(current.toMeta()).toMatchObject({
           handoffTargetMachineId: target,
         })
         throw new Error('clone failed')
@@ -122,7 +121,7 @@ describe('S1 rare reference repairs', () => {
         () => {},
       ),
     ).rejects.toThrow('clone failed')
-    expect(current.handoffTarget).toBeUndefined()
+    expect(current.handoffTargetMachineId).toBeUndefined()
     expect(current.handoffTargetMachineId).toBeUndefined()
   })
 })

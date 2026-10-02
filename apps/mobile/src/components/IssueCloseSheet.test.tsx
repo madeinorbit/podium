@@ -1,5 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asIssueId, asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { asIssueId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -61,7 +62,7 @@ const issue = (partial: Partial<IssueViewModel> = {}): IssueViewModel =>
     ...partial,
   }) as IssueViewModel
 
-const session = (partial: Partial<SessionMetaInput> = {}): SessionMeta =>
+const session = (partial: Partial<SessionViewInput> = {}): SessionView =>
   ({
     sessionId: asSessionId('s'),
     issueId: asIssueId('task'),
@@ -80,7 +81,7 @@ const session = (partial: Partial<SessionMetaInput> = {}): SessionMeta =>
     readAt: null,
     unread: false,
     ...partial,
-  }) as SessionMeta
+  }) as SessionView
 
 const dirtyBranch = {
   updatedAt: '2026-07-23T10:00:00.000Z',

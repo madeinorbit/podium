@@ -1,5 +1,6 @@
-import { asIssueId, asMachineId, asSessionId, type SessionMeta } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView } from '../../../session-values'
 import {
   hostAgentsView,
   hostDiskView,
@@ -32,8 +33,8 @@ const host = (over: { one?: number; cpuCount?: number; load?: false } = {}) => (
 })
 
 const session = (
-  over: { sessionId: string } & Partial<Omit<SessionMeta, 'sessionId'>>,
-): SessionMeta =>
+  over: { sessionId: string } & Partial<Omit<SessionView, 'sessionId'>>,
+): SessionView =>
   ({
     agentKind: 'claude-code',
     title: over.sessionId,
@@ -52,7 +53,7 @@ const session = (
     machineId: asMachineId('m1'),
     ...over,
     sessionId: asSessionId(over.sessionId),
-  }) as SessionMeta
+  }) as SessionView
 
 describe('reclaimSpaceLabel', () => {
   it('renders absent and in-flight measurements as unknown, never zero', () => {

@@ -27,7 +27,6 @@ export function sessionReaderFiles(root = process.cwd()): string[] {
   return ROOTS.flatMap((dir) => walk(join(root, dir)))
 }
 export function legacySessionReads(source: string, file = 'apps/web/src/example.ts'): string[] {
-  if (file.endsWith('packages/client-core/src/session-values.ts')) return []
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const reader = !file.includes('packages/client-core/src/') || CORE_READERS.test(file)
   const hits: string[] = []
@@ -107,7 +106,7 @@ export function legacySessionReads(source: string, file = 'apps/web/src/example.
       rawBindings.has(node.initializer.text)
     ) {
       for (const element of node.name.elements) {
-        const field = (element.propertyName ?? element.name).getText(ast).replace(/[\'\"]/g, '')
+        const field = (element.propertyName ?? element.name).getText(ast).replace(/['"]/g, '')
         if (
           [
             'readAt',

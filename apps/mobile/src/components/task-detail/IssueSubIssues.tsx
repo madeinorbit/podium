@@ -1,6 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { confirmedWorkingAgentCountsByIssue, taskStateWord } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+
 import { issueDisplayRef } from '@podium/protocol'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
@@ -47,7 +48,7 @@ export function IssueSubIssues({
   subIssues: IssueViewModel[]
   busy: boolean
   commands: IssueCommands
-  sessions: readonly SessionMeta[]
+  sessions: readonly SessionView[]
   now: number
   onOpen: (id: string) => void
   onStatus: (issue: IssueViewModel) => void

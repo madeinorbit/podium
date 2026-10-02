@@ -1,6 +1,6 @@
 /** Session display joins (POD-4974 S2). The replica keeps only server truth.
  * A present companion wins even when its cell is null, empty or absent. */
-import type { SessionMeta } from '@podium/model'
+import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import { activityAfterRead } from './viewmodels/unread'
 
@@ -13,10 +13,11 @@ export interface SessionValues {
   condition?: 'logged-out'
   handoffTarget?: string
 }
-export type SessionView = Omit<SessionMeta, keyof SessionValues> & SessionValues
+export type SessionView = SessionMeta & SessionValues
+export type SessionViewInput = SessionMetaInput & Partial<SessionValues>
 
 /** Structural inputs also admit cold summaries and unparsed offline rows. */
-export type SessionValueInput = Partial<SessionValues> & {
+export type SessionValueInput = {
   sessionId?: string
   lastActiveAt?: string
   agentKind?: string | null
@@ -28,19 +29,24 @@ export type SessionValueInput = Partial<SessionValues> & {
   handoffTargetMachineId?: string
 }
 export interface SessionHomes {
+  /** False while the principal-bound cache has not yet caught up with the feed. */
+  userStatesLoaded?: boolean
   userState?: { readAt: string | null; snoozedUntil?: string | null }
   repo?: { prefix?: string | null }
   machine?: { name: string; loggedOutHarnesses: readonly string[] }
   handoffMachine?: { name: string }
 }
 
-/** The only legacy-field fallback. Never use ?? to choose a companion cell. */
+/** Companions are authoritative, including on old, unparsed offline rows. */
 export function sessionValues(session: SessionValueInput, homes: SessionHomes = {}): SessionValues {
+  const borrowed = viewInputs.get(session)
+  if (borrowed && borrowed.session !== session)
+    return sessionValues(borrowed.session, { ...borrowed.homes, ...homes })
+  homes = { ...borrowed?.homes, ...homes }
   const { userState, repo, machine, handoffMachine } = homes
-  const readAt = userState ? userState.readAt : (session.readAt ?? null)
+  const readAt = userState?.readAt ?? null
   let displayRef: string | undefined
-  if (!repo) displayRef = session.displayRef
-  else if (repo.prefix) {
+  if (repo?.prefix) {
     if (session.refSeq !== undefined && session.refLetter) {
       displayRef = formatSessionRef({
         prefix: repo.prefix,
@@ -53,18 +59,16 @@ export function sessionValues(session: SessionValueInput, homes: SessionHomes = 
   }
   return {
     readAt,
-    unread: userState
-      ? activityAfterRead(readAt, session.lastActiveAt ?? '')
-      : session.unread === true,
-    snoozedUntil: userState ? userState.snoozedUntil : session.snoozedUntil,
+    // No personal source row means no read cursor, just as an explicit null does.
+    unread: (userState !== undefined || homes.userStatesLoaded !== false)
+      && activityAfterRead(readAt, session.lastActiveAt ?? ''),
+    snoozedUntil: userState?.snoozedUntil,
     displayRef,
-    machineName: machine ? machine.name : (session.machineName ?? ''),
-    condition: machine
-      ? machine.loggedOutHarnesses.includes(session.agentKind ?? '')
-        ? 'logged-out'
-        : undefined
-      : session.condition,
-    handoffTarget: handoffMachine ? handoffMachine.name : session.handoffTarget,
+    machineName: machine?.name ?? '',
+    condition: machine?.loggedOutHarnesses.includes(session.agentKind ?? '')
+      ? 'logged-out'
+      : undefined,
+    handoffTarget: handoffMachine?.name,
   }
 }
 
@@ -74,18 +78,33 @@ interface Memo {
 }
 const views: Memo = { next: new WeakMap() }
 const MISSING = Object.freeze({})
+const LOADING = Object.freeze({})
+const viewInputs = new WeakMap<object, { session: SessionValueInput; homes: SessionHomes }>()
+
+/** Keep the homes of an existing view when optimism copies its own fields.
+ * This metadata stays in memory; neither serialized caches nor raw rows gain it. */
+export function inheritSessionHomes<T extends object>(source: object, target: T): T {
+  const inputs = viewInputs.get(source)
+  if (inputs) viewInputs.set(target, { session: target as SessionValueInput, homes: inputs.homes })
+  return target
+}
 
 /** A borrowed row with computed cells, not another copy of the session record.
- * Compose before the optimistic fold: S3 still owns retargeting those edits. */
+ * Personal companions include the optimistic paint before this join. */
 export function sessionView<T extends SessionValueInput>(
   session: T,
   homes: SessionHomes = {},
 ): T & SessionValues {
-  if (!homes.userState && !homes.repo && !homes.machine && !homes.handoffMachine)
-    return session as T & SessionValues
+  // Optimism may replace just the personal home of an existing read view.
+  // Rejoin its original inputs, never the computed cells or stale cache fields.
+  const borrowed = viewInputs.get(session)
+  if (borrowed && borrowed.session !== session)
+    return sessionView(borrowed.session, { ...borrowed.homes, ...homes }) as T & SessionValues
+  homes = { ...borrowed?.homes, ...homes }
   let memo = views
   for (const key of [
     session,
+    !homes.userState && homes.userStatesLoaded === false ? LOADING : MISSING,
     homes.userState ?? MISSING,
     homes.repo ?? MISSING,
     homes.machine ?? MISSING,
@@ -119,6 +138,7 @@ export function sessionView<T extends SessionValueInput>(
     defineProperty: reject,
     setPrototypeOf: reject,
   })
+  viewInputs.set(memo.value, { session, homes })
   return memo.value as T & SessionValues
 }
 
@@ -127,6 +147,7 @@ export function sessionViews<T extends SessionValueInput>(
   sessions: readonly T[],
   homes: {
     userId: string
+    userStatesLoaded?: boolean
     userStates: readonly {
       userId: string
       sessionId: string
@@ -146,6 +167,7 @@ export function sessionViews<T extends SessionValueInput>(
   const machines = new Map(homes.machines.map((row) => [row.id, row]))
   return sessions.map((session) =>
     sessionView(session, {
+      userStatesLoaded: homes.userStatesLoaded,
       userState: users.get(session.sessionId ?? ''),
       repo: repos.get(session.refRepoId ?? ''),
       machine: machines.get(session.machineId ?? ''),

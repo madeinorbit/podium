@@ -1,5 +1,6 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /** Test-only S1 upgrade for an older-server corpus. No writes or export. */
-import type { MachineProjection, SessionMeta, SessionUserStateWire } from '@podium/model'
+import type { MachineProjection, SessionUserStateWire } from '@podium/model'
 import { asUserId } from '@podium/model'
 import { parseSessionRef } from '@podium/protocol'
 import type { FixtureCorpus } from './corpus'
@@ -13,7 +14,7 @@ export const SESSION_LEGACY_FIELDS = [
   'condition',
   'handoffTarget',
 ] as const
-export function stripSessionLegacy(row: SessionMeta): SessionMeta {
+export function stripSessionLegacy(row: SessionView): SessionView {
   const stripped = { ...row }
   for (const field of SESSION_LEGACY_FIELDS) Reflect.deleteProperty(stripped, field)
   return stripped

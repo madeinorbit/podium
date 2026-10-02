@@ -1427,6 +1427,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     return dedupeSessions(
       sessionViews(snapshot.sessions, {
         userId: this.principal.userId,
+        userStatesLoaded: this.replica.sessionUserStatesLoaded?.() ?? true,
         userStates: snapshot.sessionUserStates,
         repos: snapshot.repos,
         machines: snapshot.machines,

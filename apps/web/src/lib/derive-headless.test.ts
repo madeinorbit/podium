@@ -1,4 +1,5 @@
 import { withoutShells } from '@podium/client-core/focus'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import {
   partitionWorkItems,
   sessionsForWorktree,
@@ -8,13 +9,11 @@ import {
   asSessionId,
   dedupeSessionsByResume,
   isHeadlessSession,
-  type SessionMeta,
-  type SessionMetaInput,
   withoutHeadless,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
-function meta(over: Partial<SessionMetaInput>): SessionMeta {
+function meta(over: Partial<SessionViewInput>): SessionView {
   return {
     sessionId: asSessionId('s1'),
     agentKind: 'claude-code',
@@ -32,7 +31,7 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     readAt: null,
     unread: false,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 const normal = meta({ sessionId: asSessionId('n1') })
@@ -61,7 +60,7 @@ describe('headless session exclusion (concierge unification)', () => {
     const workingHeadless = meta({
       sessionId: asSessionId('h2'),
       headless: true,
-      agentState: { phase: 'working' } as SessionMeta['agentState'],
+      agentState: { phase: 'working' } as SessionView['agentState'],
     })
     const part = partitionWorkItems([normal, headless, workingHeadless], new Set(['h1']))
     const ids = [...part.attention, ...part.working, ...part.pinnedPanels].map((s) => s.sessionId)
@@ -92,7 +91,7 @@ describe('headless session exclusion (concierge unification)', () => {
   })
 
   it('dedupeSessionsByResume never collapses a headless session with its terminal twin', () => {
-    const resume = { kind: 'claude-session', value: 'abc' } as SessionMeta['resume']
+    const resume = { kind: 'claude-session', value: 'abc' } as SessionView['resume']
     const h = meta({ sessionId: asSessionId('h1'), headless: true, resume })
     const pty = meta({ sessionId: asSessionId('p1'), resume })
     expect(dedupeSessionsByResume([h, pty]).map((s) => s.sessionId)).toEqual(['h1', 'p1'])

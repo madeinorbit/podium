@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE PHONE CAN STOP A RUNNING TURN [POD-4645].
  *
@@ -11,7 +12,6 @@
  * than swallowed.
  */
 
-import type { SessionMeta } from '@podium/model'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -56,17 +56,17 @@ const base = {
   cwd: '/repo',
   status: 'live',
   title: 'Agent',
-} as unknown as SessionMeta
+} as unknown as SessionView
 
 const working = {
   ...base,
   agentState: { phase: 'working', since: '2026-09-23T12:00:00.000Z' },
-} as unknown as SessionMeta
+} as unknown as SessionView
 
 const idle = {
   ...base,
   agentState: { phase: 'idle', since: '2026-09-23T12:00:00.000Z' },
-} as unknown as SessionMeta
+} as unknown as SessionView
 
 function api(interrupt: (input: unknown) => Promise<unknown>) {
   return {

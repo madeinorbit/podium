@@ -10,7 +10,7 @@ import { READ_LINE_CAP, SessionReadToolkit } from './read-toolkit'
 import { metasAsFacts } from '../../test-support/session-facts'
 import { readSessionRefs } from './refs'
 
-function session(over: Partial<SessionMetaInput>): SessionMeta {
+function session(over: Partial<SessionMetaInput> & { displayRef?: string; machineName?: string }): SessionMeta {
   return {
     sessionId: asSessionId('s1'),
     cwd: '/wt/a',
@@ -240,7 +240,7 @@ describe('session status (tier 1)', () => {
   it('subagent status and typed refs share source labels with the legacy field absent or stale', async () => {
     const child = session({ sessionId: 'child', spawnedBy: 'session:s1', refIssueId: 'iss_birth', refLetter: 'A' })
     for (const displayRef of [undefined, 'OLD-529-A']) {
-      const { toolkit } = harness({ sessions: [session({}), { ...child, displayRef }] })
+      const { toolkit } = harness({ sessions: [session({}), session({ ...child, displayRef })] })
       expect((await toolkit.status('s1', 'operator')).subagents).toEqual([
         expect.objectContaining({ sessionId: 'child', displayRef: 'POD-529-A' }),
       ])

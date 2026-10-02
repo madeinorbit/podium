@@ -1,4 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { fixtureGitStates, fixtureMarkers, fixtureProjection } from './normalized-issues'
 /**
  * POD-4443 / POD-4635 — deterministic live-shaped corpus at 1x, 2x and 4x.
@@ -47,7 +48,6 @@ import type {
   IssueProjection,
   MachineWire,
   RepoProjection,
-  SessionMeta,
 } from '@podium/model'
 import { spreadSortKeys } from '@podium/model'
 
@@ -225,7 +225,7 @@ export interface FixtureCorpus {
   issueUserStates?: import('@podium/model').IssueUserStateWire[]
   issueGitStates?: import('@podium/model').IssueGitStateProjection[]
   /** Session rows (`store.sessions`, replica `sessions` kind). */
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   /** Logical repos (replica `repos` kind, `displayRef` prefix join). */
   repoProjections: RepoProjection[]
   /** Dependency edges (replica `issueDeps` kind). */
@@ -2463,7 +2463,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
   })
 
   // -- unread rollups (same derivation the replica runs) -------------------------
-  const typedSessions = sessions as unknown as SessionMeta[]
+  const typedSessions = sessions as unknown as SessionView[]
   const sessionInputs = typedSessions.map((s) => ({
     sessionId: s.sessionId,
     issueId: s.issueId,

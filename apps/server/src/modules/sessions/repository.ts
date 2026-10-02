@@ -152,7 +152,7 @@ export class SessionRepository {
    *    while a persist is in flight.
    *  - the LIVE TERMINAL half — frames, the cursor, geometry, the activity
    *    counters, and the four {@link SessionVolatileField}s a rollback preserves
-   *    (`geometry`, `status`, `machineId`, `handoffTarget`) — MAY change while
+   *    (`geometry`, `status`, `machineId`, `handoffTargetMachineId`) — MAY change while
    *    persistence is awaiting, and deliberately does: a pty does not stop
    *    producing output because a metadata row is being written. Those fields
    *    are re-captured by the volatile sweep rather than rolled back, which is
@@ -307,7 +307,7 @@ export class SessionRepository {
 
   markVolatileSessionDirty(
     sessionId: SessionId,
-    preserve: SessionVolatileField[] = ['handoffTarget', 'handoffTargetMachineId'],
+    preserve: SessionVolatileField[] = ['handoffTargetMachineId'],
     issueRelevant = true,
   ): void {
     const previous = this.pendingVolatileSessions.get(sessionId)
@@ -491,14 +491,6 @@ export class SessionRepository {
     )
   }
 
-  /** Machine-owned derived fields changed (machineId and/or machineName). */
-  sessionsChangedForMachine(machineId: MachineId): void {
-    for (const session of this.sessions.values()) {
-      if (session.machineId === machineId)
-        this.markVolatileSessionDirty(session.sessionId, ['machineId'])
-    }
-    this.broadcastSessions()
-  }
 
   /**
    * Queue one session's durable writes so a sibling cannot cut or persist

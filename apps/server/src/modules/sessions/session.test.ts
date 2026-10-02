@@ -1,5 +1,5 @@
-import type { AgentRuntimeState, Geometry, SessionUserOverlay } from '@podium/model'
-import { asMachineId, asSessionId, firstAdminMemberId, NO_SESSION_USER_STATE } from '@podium/model'
+import type { AgentRuntimeState, Geometry } from '@podium/model'
+import { asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import {
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CLIENT_WIRE_VERSION,
@@ -62,45 +62,39 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
   }
 }
 
-describe('Session unread (#124), per VIEWER (POD-1076)', () => {
-  /** The overlay a caller assembles from that user's two per-user tables. */
-  const viewer = (readAt: string | null): SessionUserOverlay => ({
-    readAt,
-    snoozedUntil: undefined,
-  })
-
-  it('toMeta surfaces the VIEWER’s readAt and derives unread against it', () => {
-    const s = makeSession()
-    // Never opened: readAt null, and lastActiveAt (defaults to createdAt) counts as
-    // unseen activity → unread.
-    expect(s.toMeta(NO_SESSION_USER_STATE).readAt).toBeNull()
-    expect(s.toMeta(NO_SESSION_USER_STATE).unread).toBe(true)
-    // Opened AFTER the last activity → read.
-    expect(s.toMeta(viewer('2026-06-03T01:00:00.000Z')).readAt).toBe('2026-06-03T01:00:00.000Z')
-    expect(s.toMeta(viewer('2026-06-03T01:00:00.000Z')).unread).toBe(false)
-    // Opened BEFORE the last activity → unread again.
-    expect(s.toMeta(viewer('2026-06-02T00:00:00.000Z')).unread).toBe(true)
-  })
-
-  it('TWO viewers of ONE session get their OWN read state from the SAME session object', () => {
-    // The property the whole re-key exists for, at the projection. Before
-    // POD-1076 `readAt` was a field on the session, so this was not expressible:
-    // there was one value and every client got it. The session is deliberately
-    // shared between the two calls — a test that built two sessions would pass
-    // against a design that still stored the marker on the session.
-    const s = makeSession()
-    const mine = s.toMeta(viewer('2026-06-03T01:00:00.000Z'))
-    const yours = s.toMeta(NO_SESSION_USER_STATE)
-    expect(mine.unread).toBe(false)
-    expect(yours.unread).toBe(true)
-    expect(mine.readAt).not.toBe(yours.readAt)
-    // …and everything that is genuinely the SESSION's is identical for both.
-    expect(mine.title).toBe(yours.title)
-    expect(mine.lastActiveAt).toBe(yours.lastActiveAt)
+describe('Session shared projection (S6)', () => {
+  it('carries only session facts, never per-user or joined display values', () => {
+    const meta = makeSession().toMeta()
+    expect(meta).toMatchObject({ sessionId: 's1', machineId: TEST_MACHINE, lastActiveAt: CREATED })
+    for (const key of [
+      'readAt',
+      'unread',
+      'snoozedUntil',
+      'displayRef',
+      'machineName',
+      'condition',
+      'handoffTarget',
+    ])
+      expect(meta).not.toHaveProperty(key)
   })
 })
 
 describe('Session', () => {
+  it('restores and clears the handoff target ID, preserving only an explicitly live transfer', () => {
+    const session = makeSession()
+    const idle = session.captureDurableState()
+    const target = asMachineId('handoff-target')
+    session.handoffTargetMachineId = target
+    const transferring = session.captureDurableState()
+
+    session.restoreDurableState(idle, new Set(['handoffTargetMachineId']))
+    expect(session.toMeta().handoffTargetMachineId).toBe(target)
+    session.restoreDurableState(idle)
+    expect(session.toMeta()).not.toHaveProperty('handoffTargetMachineId')
+    session.restoreDurableState(transferring)
+    expect(session.toMeta().handoffTargetMachineId).toBe(target)
+  })
+
   it('first attached client becomes controller and gets an attached snapshot', () => {
     const s = makeSession()
     const a = makeClient('a')
@@ -203,16 +197,16 @@ describe('Session', () => {
     s.terminal.attachClient(a) // becomes controller
     // The shell drawing its prompt (output with no command submitted) is idle.
     s.terminal.onFrame('cHJvbXB0') // "prompt"
-    expect(s.toMeta(NO_SESSION_USER_STATE).busy).toBeUndefined()
+    expect(s.toMeta().busy).toBeUndefined()
     // A keystroke that isn't Enter (and its echo) also stays idle.
     s.terminal.handleInput('a', Buffer.from('l').toString('base64'))
     s.terminal.onFrame('bA==') // echoed "l"
-    expect(s.toMeta(NO_SESSION_USER_STATE).busy).toBeUndefined()
+    expect(s.toMeta().busy).toBeUndefined()
     // Submitting a line (Enter) starts a command → busy, even before output.
     s.terminal.handleInput('a', Buffer.from('s\r').toString('base64'))
-    expect(s.toMeta(NO_SESSION_USER_STATE).busy).toBe(true)
+    expect(s.toMeta().busy).toBe(true)
     s.terminal.onFrame('b3V0cHV0') // command output keeps it busy
-    expect(s.toMeta(NO_SESSION_USER_STATE).busy).toBe(true)
+    expect(s.toMeta().busy).toBe(true)
   })
 
   it('controller resize is forwarded to the agent; spectator resize is stored only', () => {
@@ -723,7 +717,7 @@ describe('Session', () => {
     s.onExit(0)
     expect(s.status).toBe('exited')
     expect(a.sent).toContainEqual({ type: 'agentExit', sessionId: asSessionId('s1'), code: 0 })
-    expect(s.toMeta(NO_SESSION_USER_STATE)).toMatchObject({ status: 'exited', exitCode: 0 })
+    expect(s.toMeta()).toMatchObject({ status: 'exited', exitCode: 0 })
   })
 
   it('keeps the daemon spawn diagnosis in wire and durable state until retry', () => {
@@ -734,19 +728,19 @@ describe('Session', () => {
     s.markSpawnError('codex executable was not found')
     expect(s.attachKinds).toBeUndefined()
 
-    expect(s.toMeta(NO_SESSION_USER_STATE)).toMatchObject({
+    expect(s.toMeta()).toMatchObject({
       status: 'exited',
       exitCode: -1,
       spawnFailure: 'codex executable was not found',
     })
-    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBeUndefined()
+    expect(s.toMeta().driverFamily).toBeUndefined()
     expect(s.toRow()).toMatchObject({
       spawnFailure: 'codex executable was not found',
       selectedDriverId: null,
     })
 
     s.markResumed()
-    expect(s.toMeta(NO_SESSION_USER_STATE).spawnFailure).toBeUndefined()
+    expect(s.toMeta().spawnFailure).toBeUndefined()
     expect(s.toRow().spawnFailure).toBeNull()
     warn.mockRestore()
   })
@@ -766,9 +760,9 @@ describe('Session', () => {
       toDaemon: vi.fn(),
       status: 'reconnecting',
     })
-    expect(s.toMeta(NO_SESSION_USER_STATE).status).toBe('reconnecting')
+    expect(s.toMeta().status).toBe('reconnecting')
     s.markLive('claude', geo)
-    expect(s.toMeta(NO_SESSION_USER_STATE).status).toBe('live')
+    expect(s.toMeta().status).toBe('live')
   })
 
   it('THE BIND IS A FULL STATEMENT: the copy is the daemon’s size, and a box it lost is re-driven', () => {
@@ -936,25 +930,10 @@ describe('Session', () => {
     expect(s.lastActiveAt > CREATED).toBe(true)
   })
 
-  it('toMeta surfaces the VIEWER’s snoozedUntil, and absent ≠ null', () => {
-    // POD-1076 deleted the `snoozedUntil` mirror field; the value arrives in the
-    // overlay. The three-valued distinction is what matters and is asserted here
-    // because collapsing it un-snoozes every open-ended snooze:
-    //   undefined = no snooze row · null = until-next-message · ISO = timed.
-    const s = makeSession()
-    const snoozed = (until: string | null | undefined) =>
-      s.toMeta({ readAt: null, snoozedUntil: until })
-
-    expect('snoozedUntil' in snoozed(undefined)).toBe(false)
-    expect(snoozed(null).snoozedUntil).toBeNull()
-    expect('snoozedUntil' in snoozed(null)).toBe(true)
-    expect(snoozed('2999-01-01T05:00:00.000Z').snoozedUntil).toBe('2999-01-01T05:00:00.000Z')
-  })
-
   // Agent action offer [spec:SP-c7f1].
   it('toMeta surfaces offer only when set; clearOffer reports change', () => {
     const s = makeSession()
-    expect('offer' in s.toMeta(NO_SESSION_USER_STATE)).toBe(false)
+    expect('offer' in s.toMeta()).toBe(false)
     expect(s.clearOffer()).toBe(false)
 
     const offer = {
@@ -963,21 +942,21 @@ describe('Session', () => {
       createdAt: '2026-07-16T00:00:00.000Z',
     }
     s.offer = offer
-    expect(s.toMeta(NO_SESSION_USER_STATE).offer).toEqual(offer)
+    expect(s.toMeta().offer).toEqual(offer)
 
     expect(s.clearOffer()).toBe(true)
-    expect('offer' in s.toMeta(NO_SESSION_USER_STATE)).toBe(false)
+    expect('offer' in s.toMeta()).toBe(false)
   })
 
   it('toMeta surfaces draftUpdatedAt only when a draft exists', () => {
     const s = makeSession()
-    expect('draftUpdatedAt' in s.toMeta(NO_SESSION_USER_STATE)).toBe(false)
+    expect('draftUpdatedAt' in s.toMeta()).toBe(false)
 
     s.draftUpdatedAt = '2026-06-24T12:00:00.000Z'
-    expect(s.toMeta(NO_SESSION_USER_STATE).draftUpdatedAt).toBe('2026-06-24T12:00:00.000Z')
+    expect(s.toMeta().draftUpdatedAt).toBe('2026-06-24T12:00:00.000Z')
 
     s.draftUpdatedAt = undefined
-    expect('draftUpdatedAt' in s.toMeta(NO_SESSION_USER_STATE)).toBe(false)
+    expect('draftUpdatedAt' in s.toMeta()).toBe(false)
   })
 })
 
@@ -1190,12 +1169,12 @@ describe('driver family on the wire (POD-2290)', () => {
   it('projects the family of the driver the daemon actually bound', () => {
     const s = makeSession()
     s.driverId = 'opencode-server'
-    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('server')
+    expect(s.toMeta().driverFamily).toBe('server')
     s.attachKinds = ['client']
-    expect(s.toMeta(NO_SESSION_USER_STATE).attachKinds).toEqual(['client'])
+    expect(s.toMeta().attachKinds).toEqual(['client'])
 
     s.driverId = 'claude-pty'
-    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('terminal')
+    expect(s.toMeta().driverFamily).toBe('terminal')
   })
 
   it('reads the BOUND driver, not the one that was asked for', () => {
@@ -1205,7 +1184,7 @@ describe('driver family on the wire (POD-2290)', () => {
     const s = makeSession()
     s.driverId = 'generic-pty'
     s.requestedDriverId = 'grok-acp'
-    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('terminal')
+    expect(s.toMeta().driverFamily).toBe('terminal')
   })
 
   it('answers from the SELECTED driver before any bind has happened', () => {
@@ -1219,11 +1198,11 @@ describe('driver family on the wire (POD-2290)', () => {
      */
     const s = makeSession()
     s.selectedDriverId = 'opencode-server'
-    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('server')
+    expect(s.toMeta().driverFamily).toBe('server')
     // …and the bind that follows is still what wins, because a launch that
     // failed and fell back must not be described by the plan it abandoned.
     s.driverId = 'generic-pty'
-    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('terminal')
+    expect(s.toMeta().driverFamily).toBe('terminal')
   })
 
   it('is ABSENT rather than guessed when there is nothing to derive it from', () => {
@@ -1232,11 +1211,11 @@ describe('driver family on the wire (POD-2290)', () => {
     // client reads unknown as "assume a terminal", which is what keeps a PTY
     // session behaving exactly as it did before this field existed.
     const s = makeSession()
-    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBeUndefined()
+    expect(s.toMeta().driverFamily).toBeUndefined()
     // …and an id from a newer build that no manifest here claims is unknown too,
     // rather than being forced into whichever family this build defaults to.
     s.driverId = 'some-driver-from-2027'
-    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBeUndefined()
+    expect(s.toMeta().driverFamily).toBeUndefined()
   })
 })
 

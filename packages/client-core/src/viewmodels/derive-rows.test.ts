@@ -1,5 +1,6 @@
-import type { AgentRuntimeState, SessionMeta, SessionMetaInput } from '@podium/model'
+import type { AgentRuntimeState } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { SessionView, SessionViewInput } from '../session-values'
 import {
   isUnstartedSession,
   rowErrorLine,
@@ -14,7 +15,7 @@ import {
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 
-function sess(over: Partial<SessionMetaInput> = {}): SessionMeta {
+function sess(over: Partial<SessionViewInput> = {}): SessionView {
   return {
     sessionId: `s-${Math.random().toString(36).slice(2, 8)}`,
     cwd: '/r/acme',
@@ -25,7 +26,7 @@ function sess(over: Partial<SessionMetaInput> = {}): SessionMeta {
     archived: false,
     title: 'some title',
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 function agentState(over: Partial<AgentRuntimeState>): AgentRuntimeState {
@@ -43,7 +44,7 @@ const waiting = (over: Partial<AgentRuntimeState> = {}) =>
   sess({ agentState: agentState({ phase: 'needs_user', need: { kind: 'question' }, ...over }) })
 const done = (over: Partial<AgentRuntimeState> = {}) =>
   sess({ agentState: agentState({ phase: 'idle', idle: { kind: 'done' }, ...over }) })
-const errored = (cls = 'overloaded', over: Partial<SessionMetaInput> = {}) =>
+const errored = (cls = 'overloaded', over: Partial<SessionViewInput> = {}) =>
   sess({
     agentState: agentState({ phase: 'errored', error: { class: cls, retryable: false } }),
     ...over,
@@ -59,7 +60,7 @@ const offered = () =>
     agentState: agentState({ phase: 'idle', idle: { kind: 'done' } }),
   })
 function issueRow(
-  sessions: SessionMeta[],
+  sessions: SessionView[],
   draft = false,
   issueOver: Record<string, unknown> = {},
 ): Extract<UnifiedWorkRow, { kind: 'issue' }> {

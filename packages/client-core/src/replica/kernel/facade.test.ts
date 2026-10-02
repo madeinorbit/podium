@@ -1,6 +1,7 @@
 import { asIssueId, asMutationId, asUserId, issueUserStateRowId } from '@podium/model'
 import type { EntityRecord, ReplicaEvent } from '@podium/sync/replica'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { sessionViews } from '../../session-values'
 import { FEED_TASK_BUDGET_MS } from '../../socket-transport'
 import { memoryStorage } from '../replica'
 import { createKernelReplica, type KernelCacheRead } from './facade'
@@ -55,6 +56,120 @@ const session = (sessionId: string) => ({ sessionId, name: sessionId }) as never
 const issue = (id: string) => ({ id, title: id }) as never
 
 describe('kind mapping', () => {
+  it('S6 hydrates old sessions but ignores stale extras through evict, delete, readmission and rescope', async () => {
+    const { cache, replica } = build()
+    const old = {
+      sessionId: 's1',
+      lastActiveAt: '2026-10-01T12:00:00Z',
+      machineId: 'm1',
+      agentKind: 'codex',
+      refRepoId: 'r1',
+      refSeq: 1,
+      refLetter: 'A',
+      handoffTargetMachineId: 'm2',
+      readAt: 'stale',
+      unread: false,
+      snoozedUntil: null,
+      displayRef: 'STALE-1-A',
+      machineName: 'Stale',
+      condition: 'logged-out',
+      handoffTarget: 'Stale target',
+      queuedMessageCount: 2,
+      offer: { message: 'Keep the offer', actions: [], createdAt: 't' },
+    }
+    cache.put('session', 's1', old)
+    await replica.hydrate()
+    const read = (userId = 'alice') =>
+      sessionViews(replica.rows('sessions'), {
+        userId,
+        userStatesLoaded: replica.sessionUserStatesLoaded?.(),
+        userStates: replica.rows('sessionUserStates'),
+        repos: replica.rows('repos'),
+        machines: replica.rows('machines'),
+      })[0]!
+    const empty = {
+      readAt: null,
+      unread: true,
+      snoozedUntil: undefined,
+      displayRef: undefined,
+      machineName: '',
+      condition: undefined,
+      handoffTarget: undefined,
+    }
+    expect(read()).toMatchObject({ ...empty, unread: false, queuedMessageCount: 2, offer: old.offer })
+    // Before a slow bootstrap, stale cached read flags cannot flash unread.
+    expect(replica.sessionUserStatesLoaded?.()).toBe(false)
+    expect(replica.rows('sessions')[0]).toBe(old)
+    const personal = { userId: 'alice', sessionId: 's1', readAt: '2026-10-01T13:00:00Z' }
+    const key = rowKey('sessionUserStates', personal as never)
+    const admit = (entity: string, id: string, value: unknown) => {
+      cache.put(entity, id, value)
+      replica.onKernelEvent({ type: 'upserted', record: cache.read(entity, id)!, readmitted: true })
+    }
+    const addHomes = () => {
+      admit('sessionUserState', key, personal)
+      admit('repo', 'r1', { id: 'r1', prefix: 'NEW' })
+      admit('machine', 'm1', { id: 'm1', name: 'Source', loggedOutHarnesses: [] })
+      admit('machine', 'm2', { id: 'm2', name: 'Target', loggedOutHarnesses: [] })
+    }
+    replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'cold-start', snapshotSeq: 1, entityCount: 1, bufferedFramesApplied: 0 })
+    expect(read()).toMatchObject(empty)
+    for (const event of ['evicted', 'removed'] as const) {
+      addHomes()
+      expect(read()).toMatchObject({
+        readAt: personal.readAt,
+        unread: false,
+        displayRef: 'NEW-1-A',
+        machineName: 'Source',
+        handoffTarget: 'Target',
+      })
+      for (const [entity, entityId] of [
+        ['sessionUserState', key],
+        ['repo', 'r1'],
+        ['machine', 'm1'],
+        ['machine', 'm2'],
+      ] as const) {
+        cache.drop(entity, entityId)
+        replica.onKernelEvent({ type: event, entity, entityId })
+      }
+      expect(read()).toMatchObject(empty)
+    }
+    addHomes()
+    expect(read('bob')).toMatchObject({ readAt: null, unread: true, snoozedUntil: undefined })
+    cache.records = cache.records.filter((row) => row.entity === 'session')
+    replica.onKernelEvent({
+      type: 'bootstrap-installed',
+      cause: 'rescope',
+      snapshotSeq: 5,
+      entityCount: 1,
+      bufferedFramesApplied: 0,
+    })
+    expect(read('bob')).toMatchObject(empty)
+    expect(replica.rows('sessions')[0]).toBe(old)
+  })
+
+  it('settles sparse session markers once on resumed catch-up, preserving raw identity and principal isolation', () => {
+    const { cache, replica } = build()
+    const raw = { sessionId: 's1', lastActiveAt: '2026-10-01T12:00:00Z', unread: false }
+    cache.put('session', 's1', raw)
+    cache.cursor = { seq: 10 }
+    const read = () => sessionViews(replica.rows('sessions'), {
+      userId: 'alice', userStatesLoaded: replica.sessionUserStatesLoaded?.(),
+      userStates: replica.rows('sessionUserStates'), repos: [], machines: [],
+    })[0]!
+    const batches = vi.fn()
+    replica.subscribeAddressedBatch!(batches)
+    expect(read().unread).toBe(false)
+    replica.onKernelEvent({ type: 'posture', posture: 'live', previous: 'stale' })
+    expect(read().unread).toBe(true)
+    expect(replica.rows('sessions')[0]).toBe(raw)
+    expect(batches).toHaveBeenCalledWith({ type: 'update', rows: [{ kind: 'sessions', id: 's1' }] })
+    replica.onKernelEvent({ type: 'posture', posture: 'stale', previous: 'live' })
+    replica.onKernelEvent({ type: 'posture', posture: 'live', previous: 'stale' })
+    expect(batches).toHaveBeenCalledTimes(1)
+    expect(build().replica.sessionUserStatesLoaded?.()).toBe(false)
+  })
+
   it('maps and hydrates personal issue markers by their composite key and git observations by issue', async () => {
     const { cache, replica } = build()
     const userId = asUserId('user:alice')

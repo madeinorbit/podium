@@ -66,7 +66,7 @@ function viewOver(sessions: Session[], hidden: Set<string> = new Set()) {
         repoIdResolver: async () => () => undefined,
       },
     } as unknown as SessionViewPorts['store'],
-    machines: { factsSnapshot: async () => ({ name: () => 'box', loginCondition: () => undefined }) } as unknown as SessionViewPorts['machines'],
+
     state: {
       async visibleSessions(principal: SessionStatePrincipal, ids: readonly SessionId[], memo: SessionOwnerMemo) {
         const state = this as unknown as SessionViewPorts['state']
@@ -277,7 +277,7 @@ describe('displayRef implies the parts it is formatted from [POD-3857]', () => {
         issues: { getIssue: async () => ISSUE_ROW, getIssues: async (ids: string[]) => new Map(ids.map(id => [id, ISSUE_ROW])) },
         repos: { repoIdResolver: async () => () => undefined, prefixResolver: async () => () => 'POD', prefixForPath: async () => 'POD', resolveRepoIdForPath: async () => undefined },
       } as unknown as SessionViewPorts['store'],
-      machines: { factsSnapshot: async () => ({ name: () => 'box', loginCondition: () => undefined }) } as unknown as SessionViewPorts['machines'],
+
       state: {
       async visibleSessions(principal: SessionStatePrincipal, ids: readonly SessionId[], memo: SessionOwnerMemo) {
         const state = this as unknown as SessionViewPorts['state']
@@ -291,7 +291,7 @@ describe('displayRef implies the parts it is formatted from [POD-3857]', () => {
       } as unknown as SessionViewPorts['state'],
     }
     const view = new SessionView(ports)
-    return view.wire(row, await view.buildProjectionPass([row], PRINCIPAL))
+    return view.wire(row, await view.buildProjectionPass([row]))
   }
 
   it('an issue-born ref carries refLetter', async () => {
@@ -299,7 +299,7 @@ describe('displayRef implies the parts it is formatted from [POD-3857]', () => {
       s.refIssueId = asIssueId('iss_529')
       s.refLetter = 'A'
     })
-    expect(meta.displayRef).toBe('POD-529-A')
+    expect(meta).not.toHaveProperty('displayRef')
     expect(meta.refLetter).toBe('A')
   })
 
@@ -307,13 +307,13 @@ describe('displayRef implies the parts it is formatted from [POD-3857]', () => {
     const meta = await wireWith((s) => {
       s.refDraft = 3
     })
-    expect(meta.displayRef).toBe('POD-DRAFT-3')
+    expect(meta).not.toHaveProperty('displayRef')
     expect(meta.refDraft).toBe(3)
   })
 
   it('no ref parts, no displayRef — there is no third way to get one', async () => {
     const meta = await wireWith(() => {})
-    expect(meta.displayRef).toBeUndefined()
+    expect(meta).not.toHaveProperty('displayRef')
   })
 })
 
@@ -560,7 +560,7 @@ describe('SessionView visibility is awaited [POD-3534]', () => {
         issues: { getIssue: async () => undefined, getIssues: async () => new Map() },
         repos: { prefixForPath: async () => null, resolveRepoIdForPath: async () => undefined },
       } as unknown as SessionViewPorts['store'],
-      machines: { factsSnapshot: async () => ({ name: () => 'box', loginCondition: () => undefined }) } as unknown as SessionViewPorts['machines'],
+
       state: {
       async visibleSessions(principal: SessionStatePrincipal, ids: readonly SessionId[], memo: SessionOwnerMemo) {
         const state = this as unknown as SessionViewPorts['state']
@@ -667,12 +667,12 @@ describe('SessionView durable queue display', () => {
       expect((await view.byId(current.sessionId, PRINCIPAL))?.queuedMessageCount).toBe(2)
       const draft = current.captureDurableState()
       draft.queuedMessageCount = 45
-      expect((await view.wire(current, await view.buildProjectionPass([{ ...draft, sessionId: current.sessionId }], PRINCIPAL), draft)).queuedMessageCount).toBe(2)
+      expect((await view.wire(current, await view.buildProjectionPass([{ ...draft, sessionId: current.sessionId }]), draft)).queuedMessageCount).toBe(2)
       await store.sync.deleteQueuedMessage('first')
-      expect((await view.wire(current, await view.buildProjectionPass([{ ...draft, sessionId: current.sessionId }], PRINCIPAL), draft)).queuedMessageCount).toBe(1)
+      expect((await view.wire(current, await view.buildProjectionPass([{ ...draft, sessionId: current.sessionId }]), draft)).queuedMessageCount).toBe(1)
       await store.sync.deleteQueuedMessage('second')
       current.queuedMessageCount = 99
-      expect(await view.wire(current, await view.buildProjectionPass([{ ...draft, sessionId: current.sessionId }], PRINCIPAL), draft)).not.toHaveProperty('queuedMessageCount')
+      expect(await view.wire(current, await view.buildProjectionPass([{ ...draft, sessionId: current.sessionId }]), draft)).not.toHaveProperty('queuedMessageCount')
       expect((await view.list(PRINCIPAL, 'rpc'))[0]).not.toHaveProperty('queuedMessageCount')
     } finally {
       await store.close()

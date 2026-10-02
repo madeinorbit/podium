@@ -20,9 +20,9 @@ describe('session reader lint boundary', () => {
       ),
     ).toEqual([])
   })
-  it('allows only the single fallback module to read raw legacy cells', () => {
+  it('has no exemption for raw legacy cells, including in the join module', () => {
     const source = '(row as SessionMeta).readAt'
-    expect(legacySessionReads(source, 'packages/client-core/src/session-values.ts')).toEqual([])
+    expect(legacySessionReads(source, 'packages/client-core/src/session-values.ts')).not.toEqual([])
     expect(legacySessionReads(source, 'packages/client-core/src/engine/overlay.ts')).not.toEqual([])
   })
   it('guards inline imports and typed aliases outside the presentation layers', () => {

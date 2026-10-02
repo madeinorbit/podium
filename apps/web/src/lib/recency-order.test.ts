@@ -1,12 +1,7 @@
 import { compareRecency, groupSessions } from '@podium/client-core/focus'
+import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import { partitionWorkItems, sortSessionsForSidebar } from '@podium/client-core/viewmodels'
-import {
-  type AgentRuntimeState,
-  asSessionId,
-  type SessionId,
-  type SessionMeta,
-  type SessionMetaInput,
-} from '@podium/model'
+import { type AgentRuntimeState, asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 const needsUser = (since: string): AgentRuntimeState => ({
@@ -23,7 +18,7 @@ const working = (since: string): AgentRuntimeState => ({
 
 const SAME = '2026-06-10T00:00:00.000Z'
 
-function meta(over: Partial<SessionMetaInput> & { sessionId: SessionId }): SessionMeta {
+function meta(over: Partial<SessionViewInput> & { sessionId: SessionId }): SessionView {
   return {
     agentKind: 'shell',
     title: 't',
@@ -40,7 +35,7 @@ function meta(over: Partial<SessionMetaInput> & { sessionId: SessionId }): Sessi
     readAt: null,
     unread: false,
     ...over,
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 }
 
 describe('compareRecency', () => {
@@ -87,7 +82,7 @@ describe('partitionWorkItems (sidebar WORK ITEMS) ordering', () => {
   const mid = '2026-06-09T00:00:00.000Z'
   const recent = '2026-06-10T00:00:00.000Z'
 
-  const agent = (over: Partial<SessionMetaInput> & { sessionId: SessionId }): SessionMeta =>
+  const agent = (over: Partial<SessionViewInput> & { sessionId: SessionId }): SessionView =>
     meta({ agentKind: 'claude-code', ...over })
 
   it('orders NEEDS YOUR ATTENTION newest-active first', () => {

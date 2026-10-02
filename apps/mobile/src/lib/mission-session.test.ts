@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/model'
+import type { SessionView } from '@podium/client-core/session-values'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { mostRelevantSession } from './mission-session'
@@ -9,7 +9,7 @@ import { mostRelevantSession } from './mission-session'
  * so picking the wrong one costs them the pull-down and a second choice every
  * single time.
  */
-const session = (partial: Partial<SessionMeta> & { id: string }): SessionMeta =>
+const session = (partial: Partial<SessionView> & { id: string }): SessionView =>
   ({
     sessionId: asSessionId(partial.id),
     agentKind: 'claude-code',
@@ -18,7 +18,7 @@ const session = (partial: Partial<SessionMeta> & { id: string }): SessionMeta =>
     cwd: '/src/podium',
     lastActiveAt: '2026-08-11T00:00:00.000Z',
     ...partial,
-  }) as SessionMeta
+  }) as SessionView
 
 describe('mostRelevantSession', () => {
   it('opens on the agent that is asking, even when a sibling is busier and newer', () => {
@@ -29,7 +29,7 @@ describe('mostRelevantSession', () => {
         message: 'Merge it?',
         actions: [],
         createdAt: '2026-08-11T09:00:00.000Z',
-      } as SessionMeta['offer'],
+      } as SessionView['offer'],
     })
     const working = session({
       id: 'work',
@@ -37,7 +37,7 @@ describe('mostRelevantSession', () => {
       agentState: {
         phase: 'working',
         since: '2026-08-11T10:00:00.000Z',
-      } as SessionMeta['agentState'],
+      } as SessionView['agentState'],
     })
     expect(mostRelevantSession([working, asking])?.sessionId).toBe(asking.sessionId)
   })
@@ -50,7 +50,7 @@ describe('mostRelevantSession', () => {
       agentState: {
         phase: 'working',
         since: '2026-08-11T08:00:00.000Z',
-      } as SessionMeta['agentState'],
+      } as SessionView['agentState'],
     })
     expect(mostRelevantSession([idle, working])?.sessionId).toBe(working.sessionId)
   })

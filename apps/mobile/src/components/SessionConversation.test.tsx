@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * ACCEPTING AN OFFER IS A SEND, AND MUST LOOK LIKE ONE [POD-1354].
  *
@@ -8,7 +9,6 @@
  * just as importantly, pin that a REFUSED send puts every one of them back.
  */
 
-import type { SessionMeta } from '@podium/model'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { act, type ReactNode, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -94,7 +94,7 @@ const session = {
     message: 'Login screen ready to merge',
     actions: [{ label: 'Merge', prompt: 'merge it' }],
   },
-} as unknown as SessionMeta
+} as unknown as SessionView
 
 describe('offer accept is optimistic', () => {
   it('drops the card, paints the prompt, and says working before the server answers', async () => {
@@ -162,7 +162,7 @@ describe('empty transcript mood', () => {
     cwd: '/repo',
     status: 'live',
     title: 'Agent',
-  } as unknown as SessionMeta
+  } as unknown as SessionView
 
   it('hands an idle empty session to the operator, mark at rest', async () => {
     await renderWithMobileStore(<SessionConversation session={bare} issue={undefined} />, {
@@ -181,7 +181,7 @@ describe('empty transcript mood', () => {
     const working = {
       ...bare,
       agentState: { phase: 'working', since: '2026-08-18T12:00:00.000Z' },
-    } as unknown as SessionMeta
+    } as unknown as SessionView
     await renderWithMobileStore(<SessionConversation session={working} issue={undefined} />, {
       sessions: [working],
     })
@@ -193,7 +193,7 @@ describe('empty transcript mood', () => {
   })
 
   it('reads a booting agent as a transcript on its way, before agentState says anything', async () => {
-    const starting = { ...bare, status: 'starting' } as unknown as SessionMeta
+    const starting = { ...bare, status: 'starting' } as unknown as SessionView
     await renderWithMobileStore(<SessionConversation session={starting} issue={undefined} />, {
       sessions: [starting],
     })

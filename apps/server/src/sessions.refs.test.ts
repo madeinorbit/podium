@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { clientSessionViews } from './test-support/session-views'
 
 async function harness() {
   const store = await openTestStore(':memory:')
@@ -18,8 +19,7 @@ async function harness() {
     title: 'T',
     startNow: false,
   })
-  const meta = async (id: string) =>
-    (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === id)
+  const meta = async (id: string) => (await clientSessionViews(reg)).find((s) => s.sessionId === id)
   return { store, reg, issue, meta }
 }
 
@@ -52,8 +52,8 @@ describe('session birth naming (#474)', () => {
       agentKind: 'shell',
       cwd: '/elsewhere',
     })
-    await reg.modules.sessions.listSessions(undefined, 'rpc')
-    await reg.modules.sessions.listSessions(undefined, 'rpc')
+    await clientSessionViews(reg)
+    await clientSessionViews(reg)
     const row = (await store.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(row?.refIssueId).toBeNull()
     expect(row?.refDraft).toBeNull()

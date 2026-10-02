@@ -41,7 +41,7 @@
 
 import { z } from 'zod'
 import { perUserKey } from '../fields/per-user-key'
-import { asSessionId, SessionIdField, type SessionId, type UserId } from '../ids'
+import { asSessionId, type SessionId, SessionIdField, type UserId } from '../ids'
 import { parseUserEntityKey, userEntityKey } from '../ids/keys'
 
 /**
@@ -74,7 +74,7 @@ export const SessionSnoozeState = perUserKey(SessionIdField).extend({
 export type SessionSnoozeState = z.infer<typeof SessionSnoozeState>
 
 /** R4 personal session markers. Absence of snoozedUntil means no snooze;
- * null means until the next message. Legacy SessionMeta fields remain until S6. */
+ * null means until the next message. These markers never ride the shared session. */
 export const SessionUserStateWire = perUserKey(SessionIdField).omit({ entityId: true }).extend({
   sessionId: SessionIdField,
   readAt: SessionReadState.shape.readAt,
