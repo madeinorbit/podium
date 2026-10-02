@@ -77,7 +77,17 @@ Every new test case was subjected to a failing control in the isolated checkout 
 
 The first pool-control invocation had a fixture import typo and is explicitly not sensitivity evidence; corrected controls reached and failed all three intended assertions.
 
-Facade validation and baseline attribution are recorded below when complete.
+The exact facade selection named 68 files / 564 tests. Final evidence covers 514 passing tests (55 wholly passing files) and 50 existing failures across 13 files. The initial candidate run had 64 failures; 14 came from accidentally bridging two real-provider tests. Removing those two imports restored both files to 23/23 passing. No product code changed to accommodate test mocks.
+
+The same 15 failing files were run on the unchanged integration baseline `d4dda28b52`: **50 failures, 79 passes**. All 50 failing test names are identical to the candidate's remaining failures; no baseline-only failures exist. These are tracked in unclaimed Proposed POD-5224:
+
+- `ChatView.test.tsx`: 12 missing `subscribeKnownRefPrefixes` mock exports.
+- `ColdStartComposer.modes.test.tsx`: 2 session-name expectation mismatches.
+- `VpsFirstActivation.test.tsx`: 5 obsolete setup-command text expectations.
+- `IssuePage.activity`, `IssuePage.agent-data`, `IssuePage.subissues`: 8 missing-session fixture failures.
+- `IssuePanelView.subissue-nav`, `PanelRow.oom-outcome`, `PanelRow.open-todos`, and `sidebar-common.attribution`, `.roster`, `.unread-chip`, `.error`: 23 missing-provider fixture failures.
+
+The facade selection is deliberately not reported as green. Raw candidate, baseline, and restored-real-provider logs are attached with the focused controls and typecheck logs. No exhaustive suite or lean gate was run.
 
 ## Test facade inventory
 
