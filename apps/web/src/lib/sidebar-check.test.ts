@@ -56,4 +56,27 @@ describe('periodic sidebar diagnostic', () => {
       expect(JSON.stringify(perf.read())).not.toContain('private title')
     } finally { stop(); close() }
   })
+
+  it('reports settled differences while another row is pending', () => {
+    vi.useFakeTimers()
+    const runtime = { getSnapshot: () => ({}) } as unknown as Parameters<typeof startSidebarCheck>[0]
+    const perf = createSidebarPerf(), close = bindSidebarPerf(runtime, perf)
+    const pool = { clock: { current: 42 } } as MobxPool
+    const report = vi.fn()
+    const stop = startSidebarCheck(runtime, pool, { report })
+    const first = { section: 'pinned', sectionIndex: 0, rowIndex: 1, expectedId: 'settled', actualId: 'settled', field: 'color' }
+    const mixed = { ...result, pending: 1, differences: 1, first }
+    try {
+      vi.mocked(checkSidebar).mockReturnValue(mixed)
+      vi.advanceTimersByTime(5000)
+      expect(perf.read().check).toMatchObject({ state: 'different', differences: 1, first })
+      expect(report).toHaveBeenLastCalledWith(mixed)
+      vi.mocked(checkSidebar).mockReturnValue({ ...result, pending: 1 })
+      vi.advanceTimersByTime(5000)
+      expect(perf.read().check).toMatchObject({ state: 'waiting', differences: 0, first: null })
+      vi.mocked(checkSidebar).mockReturnValue(result)
+      vi.advanceTimersByTime(5000)
+      expect(perf.read().check).toMatchObject({ state: 'match', differences: 0, first: null })
+    } finally { stop(); close() }
+  })
 })

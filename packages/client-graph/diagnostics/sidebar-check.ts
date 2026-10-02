@@ -16,6 +16,9 @@ import { legacySidebarRow, legacySidebarSections, poolStatusLine, sidebarCompara
 
 export interface CheckRow {
   readonly id: string
+  /** Only payload comparisons wait for this row's batched loads. Its ID and
+   * display position, section headers and other settled rows remain strict. */
+  readonly pending?: boolean
   readonly fields: Readonly<Record<string, unknown>>
 }
 export interface CheckSection {
@@ -58,7 +61,8 @@ function differingField(expected: unknown, actual: unknown, path = ''): string |
   return path || 'value'
 }
 
-/** Compare in display order. An extra pool row is as much a failure as a missing row. */
+/** Compare in display order. An extra pool row is as much a failure as a missing
+ * row, even during loading. A global pending count never suppresses a mismatch. */
 export function compareSidebarSnapshots(expected: SidebarSnapshot, actual: SidebarSnapshot, onDifference?: (difference: SidebarDifference) => void): SidebarCheckResult {
   let differences = 0, first: SidebarDifference | null = null
   const flag = (difference: SidebarDifference): void => { differences += 1; first ??= difference; onDifference?.(difference) }
@@ -72,6 +76,7 @@ export function compareSidebarSnapshots(expected: SidebarSnapshot, actual: Sideb
       const er = e.rows[rowIndex], ar = a.rows[rowIndex]
       const rowLocation = { ...location, rowIndex, expectedId: er?.id ?? null, actualId: ar?.id ?? null }
       if (!er || !ar || er.id !== ar.id) { flag({ ...rowLocation, field: 'id' }); continue }
+      if (er.pending || ar.pending) continue
       const rowField = differingField(er.fields, ar.fields)
       if (rowField !== null) flag({ ...rowLocation, field: rowField })
     }
@@ -138,7 +143,7 @@ export function poolSidebarSnapshot(pool: MobxPool, state: SidebarState = {}): S
     if (!value) {
       const row = pool.sidebar.row(id)
       if (row === LOADING) pending += 1
-      value = { id, fields: row === LOADING ? { loading: true } : row === undefined ? { absent: true } : {
+      value = { id, pending: row === LOADING, fields: row === LOADING ? { loading: true } : row === undefined ? { absent: true } : {
         ...sidebarComparable(row), statusLine: poolStatusLine(row, pool.issue(id)?.activityAt ?? 0, pool.clock.current),
       } }
       issues.set(id, value)
@@ -150,7 +155,7 @@ export function poolSidebarSnapshot(pool: MobxPool, state: SidebarState = {}): S
     if (!row) return { id: path, fields: { absent: true } }
     pending += row.pending
     const ownerIds = new Set(row.sessions.flatMap(session => session.issueId ? [session.issueId] : []))
-    return { id: path, fields: { sessions: row.sessions.map(sessionComparable), visible: row.visible.map(sessionComparable), stale: row.stale.map(sessionComparable),
+    return { id: path, pending: row.pending > 0, fields: { sessions: row.sessions.map(sessionComparable), visible: row.visible.map(sessionComparable), stale: row.stale.map(sessionComparable),
       activityAt: row.activityAt, branch: row.worktree.branch ?? null, repoName: row.worktree.repoName, active: row.active,
       owners: [...ownerIds].map(id => ownerComparable(row.issues.find(owner => owner.id === id))),
     } }

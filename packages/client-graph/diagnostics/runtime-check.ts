@@ -29,7 +29,7 @@ export function startSidebarCheck(
         return checkSidebar(pool, store, options.state?.(store))
       })
       checks += 1
-      reportSidebarCheck(runtime, { state: result.pending > 0 ? 'waiting' : result.first ? 'different' : 'match',
+      reportSidebarCheck(runtime, { state: result.differences > 0 ? 'different' : result.pending > 0 ? 'waiting' : 'match',
         differences: result.differences, checkedAt: pool.clock.current, checks, first: result.first })
       options.report?.(result)
       sidebarPerfFor(runtime)?.record({ rows: result.rows, derivations: 1, start, end: performance.now() })
