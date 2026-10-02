@@ -43,7 +43,7 @@ Mount labels describe source composition, not a browser measurement: always moun
 
 Startup choices are currently latched once. Header defaults to legacy unless `mobxHeader=1`; sidebar/chips use their existing default-off setting with startup URL overrides. A grep match in a fallback is still required retirement work even when its enabled pool path is already covered. A pool projection's own `getSnapshot` is not the legacy runtime snapshot.
 
-Two corrections to the initial known list: `viewmodels/slices/superagent.ts:76` is still a legacy published slice, but its `sourceEqual` guard already compares `superThreads/superThreadId` at lines 79–80; it does **not** derive on every unrelated publish at this baseline. `slices/workflows.ts:1–21` is pure RPC-fed derivation code, not a `workflowsSlice` subscriber; its actual legacy readers are the machine and issue/session context hooks. `slices/terminal.ts` is also pure policy over session arrays; the source readers are its pane/workspace consumers.
+Two corrections to the initial known list: `viewmodels/slices/superagent.ts:76` is still a legacy published slice, but its `sourceEqual` guard already compares `superThreads/superThreadId` at lines 79–80; it does **not** derive on every unrelated publish at this baseline. `slices/workflows.ts:1–21` is pure RPC-fed derivation code, not a `workflowsSlice` subscriber; its actual legacy readers are the machine and issue/session context hooks. `slices/terminal.ts` is also pure policy over session arrays; the source readers are its pane/workspace consumers. Pure policy/formatting helpers still need a maintained home when the old viewmodel module is removed.
 
 ## Production reader and access inventory
 
@@ -55,11 +55,11 @@ Mount: Always mounted provider; hooks run with each consumer. Pool coverage: Exi
 | Module | Call sites (line) | Inputs / entities read | Mount |
 | --- | --- | --- | --- |
 | `apps/mobile/src/client/MobileClientProvider.tsx` | `useStoreSelector`:704 | `hub` | Always mounted provider; hooks run with each consumer |
-| `apps/mobile/src/client/hooks.ts` | `useStoreSelector`:54; `useStore`:63; `useStoreSelector`:112; `useStoreSelector`:117; `useStoreSelector`:122; `useStoreSelector`:127; `useStoreSelector`:132; `useStoreSelector`:143; `useStoreSelector`:148; `useStoreSelector`:153; `useStoreSelector`:157; `useStoreSelector`:163; `useStoreSelector`:167; `useMobileStoreSelector`:172; `useIssueSources`:183; `useIssueSources`:197; `useStoreSelector`:203; `useStoreSelector`:209; `useStoreSelector`:225; `useStoreSelector`:234; `useStoreSelector`:242; `useHub`:266; `useStoreSelector`:286 | `coarseNow, drafts, httpOrigin, hub, issueProjections, issueUserStates, machines, outboxSize, pendingSpawnIds, pendingSpawnPrompts, replica, repos, sessions, superThreadId, trpc, uiState`; whole snapshot; replica, issueProjections, issueUserStates; stable hub | Always mounted provider; hooks run with each consumer |
+| `apps/mobile/src/client/hooks.ts` | `useStoreSelector`:54; `useStore`:63; `useStoreSelector`:112; `useStoreSelector`:117; `useStoreSelector`:122; `useStoreSelector`:127; `useStoreSelector`:132; `useStoreSelector`:143; `useStoreSelector`:148; `useStoreSelector`:153; `useStoreSelector`:157; `useStoreSelector`:163; `useStoreSelector`:167; `useMobileStoreSelector`:172; `useIssueSources`:183; `useIssueSources`:197; `useStoreSelector`:203; `useStoreSelector`:209; `useStoreSelector`:225; `useStoreSelector`:234; `useStoreSelector`:242; `useHub`:266; `useStoreSelector`:286 | `coarseNow, drafts, httpOrigin, hub, issueProjections, issueUserStates, machines, outboxSize, pendingSpawnIds, pendingSpawnPrompts, replica, repos, sessions, superThreadId, trpc, uiState`; whole snapshot; replica, issueProjections, issueUserStates; stable hub; pickActions at line 112 selects stable mutation actions | Always mounted provider; hooks run with each consumer |
 | `apps/web/src/app/store-worklist-pool.ts` | `useStoreHandle`:214; `useStoreHandle`:231; `runtime.getSnapshot`:117 | owner handle; inspect downstream ports/imperative reads; getSnapshot picks trpc only; pool projections are independent snapshots | Always mounted provider; hooks run with each consumer |
-| `apps/web/src/app/store.tsx` | `useStoreSelector`:143; `useStoreSelector`:153; `useStoreSelector`:161; `useStoreSelector`:176; `useReplicaIssueSources`:187; `useCoreStore`:128; `useCoreStoreSelector`:133; `useCoreSlice`:169 | `caller selector, drafts, issueProjections, issueUserStates, published slice, replica, sessions, whole snapshot`; replica, issueProjections, issueUserStates | Always mounted provider; hooks run with each consumer |
+| `apps/web/src/app/store.tsx` | `useStoreSelector`:143; `useStoreSelector`:153; `useStoreSelector`:161; `useStoreSelector`:176; `useReplicaIssueSources`:187; `useCoreStore`:129; `useCoreStoreSelector`:137; `useCoreSlice`:170 | `caller selector, drafts, issueProjections, issueUserStates, published slice, replica, sessions, whole snapshot`; replica, issueProjections, issueUserStates | Always mounted provider; hooks run with each consumer |
 
-### Shell, dialogs, dock and global links (10 modules)
+### Shell, dialogs, dock and global links (11 modules)
 
 Mount: Always mounted authenticated shell; dock body on demand. Pool coverage: Core/header partial; approval, prompt, palette, dock/ship-lane/workspace locals missing. Ownership: POD-5162; mission/navigation portions POD-5077.
 
@@ -70,6 +70,7 @@ Mount: Always mounted authenticated shell; dock body on demand. Pool coverage: C
 | `apps/web/src/app/AutoContinueDialog.tsx` | `useStoreSelector`:21 | `autoContinuePromptSessionId, closeAutoContinuePrompt, trpc` | Always mounted authenticated shell; dock body on demand |
 | `apps/web/src/app/BrowserOpenOverlay.tsx` | `useStoreSelector`:60; `useStoreSelector`:61 | `hub, sessions` | Always mounted authenticated shell; dock body on demand |
 | `apps/web/src/app/CommandPaletteBoundary.tsx` | `useStoreSelector`:18 | `paletteOpen` | Always mounted when feature enabled |
+| `apps/web/src/app/MachinesPanel.tsx` | `useStoreSelector`:157 | `machines, setSettingsTab, trpc` | On demand machines panel |
 | `apps/web/src/app/RightDock.tsx` | `useStoreSelector`:124; `useReplicaIssues`:138 | `coarseNow, fileTabs, paneA, repos, sessions, setSelectedIssueId, shipLanes, shipOrders, trpc`; issues (normalized projections/user state and replica-derived models) | On demand open dock |
 | `apps/web/src/app/RightRail.tsx` | `useStoreSelector`:125; `useReplicaIssues`:137 | `fileTabs, paneA, repos, sessions, shipLanes, shipOrders, trpc`; issues (normalized projections/user state and replica-derived models) | Always mounted shell rail |
 | `apps/web/src/app/routes.tsx` | `useStoreSelector`:54 | `view` | Always mounted authenticated shell; dock body on demand |
@@ -102,7 +103,7 @@ Mount: Mounted with consumer; theme/preferences also always mounted. Pool covera
 | `apps/web/src/lib/use-persisted-ui-state.ts` | `useStoreSelector`:36; `useStoreSelector`:58 | `uiState` | Mounted with consumer; theme/preferences also always mounted |
 | `apps/web/src/lib/useConversationSearch.ts` | `useStoreSelector`:25 | `trpc` | Mounted with consumer; theme/preferences also always mounted |
 
-### Workspace, mission, issue page and session panes (24 modules)
+### Workspace, mission, issue page and session panes (23 modules)
 
 Mount: On demand; workspace persists behind Settings/Usage overlays. Pool coverage: Core rows exist; complete mission/pane/page projection still legacy. Ownership: POD-5077, POD-5088–POD-5093.
 
@@ -110,7 +111,6 @@ Mount: On demand; workspace persists behind Settings/Usage overlays. Pool covera
 | --- | --- | --- | --- |
 | `apps/web/src/app/FlightDeck.tsx` | `useStoreSelector`:190; `useStoreSelector`:689; `useStoreSelector`:1076; `useStoreSelector`:1086; `useStoreSelector`:2954; `useReplicaIssues`:2989; `useSessionDraft`:3352 | `closeIssue, coarseNow, focusIssueSession, issueVisitBaseline, machines, markIssueRead, markSessionRead, openSessionAtTranscript, openSessionTab, paneA, paneB, preferPanelMode, renameSession, repos, selectedIssueId, sessions, setIssueTucked, setPanelMode, setSelectedIssueId, setSelectedWorktree, setView, split, trpc, updateIssue`; issues (normalized projections/user state and replica-derived models); drafts | On demand; workspace persists behind Settings/Usage overlays |
 | `apps/web/src/app/FlightDeckWaterfall.tsx` | `useStoreSelector`:251; `useStoreSelector`:608; `useStoreSelector`:1155 | `coarseNow, renameSession, trpc` | On demand; workspace persists behind Settings/Usage overlays |
-| `apps/web/src/app/MachinesPanel.tsx` | `useStoreSelector`:157 | `machines, setSettingsTab, trpc` | On demand; workspace persists behind Settings/Usage overlays |
 | `apps/web/src/app/Workspace.tsx` | `useStoreSelector`:257; `useReplicaIssues`:283; `useStoreSelector`:288; `useStoreSelector`:1570 | `activateWorkspaceTab, archived, closeFileTab, closeWorkspacePane, closeWorkspaceTab, dockShells, fileTabs, focusWorkspacePane, markSessionRead, moveWorkspaceTab, openSessionTab, paneA, promoteWorkspaceTab, renameSession, repos, resizeWorkspaceSplit, selectedIssueId, selectedWorktree, sessionId, sessions, splitWorkspacePane, uiState, workspaceKey, workspaces`; issues (normalized projections/user state and replica-derived models) | On demand; workspace persists behind Settings/Usage overlays |
 | `apps/web/src/app/use-handoff-transcript.ts` | `useStoreSelector`:45 | `replica, trpc` | On demand; workspace persists behind Settings/Usage overlays |
 | `apps/web/src/features/issues/IssueAgentSettings.tsx` | `useStoreSelector`:56 | `updateIssue` | On demand; workspace persists behind Settings/Usage overlays |
