@@ -16,14 +16,22 @@ export function mobileVersionObservers(options: {
   let disposed = false
   let recoveryAttempted = false
   let severe = false
+  let serverBehind: string | null = null
+  const unreadable =
+    'This app build cannot read what the server is sending, so parts of it may be empty or stuck.'
   const check = async (): Promise<void> => {
     const result = await checkWireVersion(options.fetchVersion)
-    if (disposed || !result || result.verdict === 'ok' || severe) return
+    if (disposed || !result) return
+    if (result.verdict === 'ok') {
+      serverBehind = null
+      return
+    }
     if (result.verdict === 'client-too-new') {
-      options.report(
-        `Your server is running an older version of Podium than this app (wire ${result.server.wireVersion} against ${CLIENT_WIRE_VERSION}). Update your server to continue.`,
-      )
+      serverBehind = `Your server is running an older version of Podium than this app (wire ${result.server.wireVersion} against ${CLIENT_WIRE_VERSION}). Update your server to continue.`
+      options.report(severe ? `${unreadable} ${serverBehind}` : serverBehind)
     } else {
+      serverBehind = null
+      if (severe) return
       options.report(
         options.credentials.delivery === 'browser'
           ? 'This app and server are running different builds. Reload to pick up the build the server is serving.'
@@ -35,7 +43,11 @@ export function mobileVersionObservers(options: {
     onWireSkew: (skew) => {
       if (disposed) return
       const notice = describeWireSkew(skew, options.credentials.delivery)
-      if (!severe || notice.severe) options.report(notice.message)
+      const failure = notice.severe
+        ? unreadable
+        : `${skew.quarantined} item${skew.quarantined === 1 ? '' : 's'} from the server could not be read by this app build and are missing from these views.`
+      if (!severe || notice.severe)
+        options.report(serverBehind ? `${failure} ${serverBehind}` : notice.message)
       severe ||= notice.severe
       if (skew.refusedFrames <= 0 || recoveryAttempted) return
       recoveryAttempted = true

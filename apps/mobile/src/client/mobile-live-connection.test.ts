@@ -35,6 +35,25 @@ describe('mobile version remedy over the shared observer', () => {
     expect(report.mock.calls[0]![0]).toContain('Update your server to continue.')
     observer.dispose()
   })
+  it('keeps refusal severity and the older-server remedy across further unreadable frames', async () => {
+    const report = vi.fn(),
+      observer = mobileVersionObservers({
+        credentials: { ...cookieCredentials, delivery: 'native' },
+        fetchVersion: async () => ({ wireVersion: CLIENT_WIRE_VERSION - 1 }),
+        report,
+      })
+    observer.onWireSkew!({ quarantined: 0, refusedFrames: 1, since: 1 })
+    await vi.waitFor(() => expect(report).toHaveBeenCalledTimes(2))
+    const remedy = report.mock.calls[1]![0]
+    expect(remedy).toContain('empty or stuck')
+    expect(remedy).toContain('Update your server to continue.')
+    expect(remedy).not.toContain('Update Podium on this device')
+    observer.onWireSkew!({ quarantined: 0, refusedFrames: 2, since: 1 })
+    expect(report.mock.calls[2]![0]).toBe(remedy)
+    observer.onWireSkew!({ quarantined: 1, refusedFrames: 0, since: 1 })
+    expect(report).toHaveBeenCalledTimes(3)
+    observer.dispose()
+  })
   it.each([
     'browser',
     'native',
