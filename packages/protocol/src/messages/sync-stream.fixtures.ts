@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '../version'
 import { SyncRecord } from './sync-stream'
 import type { WireFixture } from './wire-golden.fixtures'
 
@@ -14,7 +15,7 @@ export const SYNC_WIRE_FIXTURES: WireFixture[] = [
       epoch: 'epoch-1',
       seq: 10,
       minAvailableSeq: 0,
-      wireVersion: 3,
+      wireVersion: CLIENT_WIRE_VERSION,
       wireSchemaDigest: '0123456789abcdef',
       totalRows: 0,
     },
@@ -32,7 +33,7 @@ export const SYNC_WIRE_FIXTURES: WireFixture[] = [
       seq: 10,
       fromSeq: 5,
       minAvailableSeq: 0,
-      wireVersion: 3,
+      wireVersion: CLIENT_WIRE_VERSION,
       wireSchemaDigest: '0123456789abcdef',
     },
   },
