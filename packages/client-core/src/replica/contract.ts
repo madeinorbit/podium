@@ -279,6 +279,9 @@ export interface Replica {
   /** Optional addressed read. Never materialises collection arrays; live until
    * the caller captures it at its commit boundary. Same admission as rows(). */
   row?<K extends ReplicaKind>(kind: K, id: string): ReplicaRows[K] | undefined
+  /** Local display-reference lookup over every issue in the replica, independent
+   * of pool residency. The kernel maintains it as issues and repo prefixes arrive. */
+  issueIdByRef?(ref: string): string | undefined
   /** Optional committed address batch, including explicit whole-scope replacement. */
   subscribeAddressedBatch?(cb: (batch: ReplicaAddressedBatch) => void): () => void
   /** Non-React change seam (#262). Notifications are COALESCED per application:

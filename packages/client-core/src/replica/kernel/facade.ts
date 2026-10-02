@@ -98,6 +98,7 @@ import type {
 } from '../contract'
 import { COLD_CURSOR, type FeedCursor } from '../feed'
 import { entityForKind, kindForEntity, rowKey } from './kinds'
+import { IssueRefIndex } from './issue-ref-index'
 import type { SideCache } from './side-cache'
 
 /**
@@ -153,6 +154,7 @@ export interface KernelReplicaInit {
 
 /** What the composition root drives, beyond the `Replica` interface itself. */
 export interface KernelBackedReplica extends Replica {
+  issueIdByRef(ref: string): string | undefined
   /**
    * Pipe the kernel Replica's `onEvent` here.
    *
@@ -237,6 +239,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
    * identity stability is part of the contract, not an optimisation.
    */
   const projected = new Map<ReplicaKind, KindProjection>()
+  let issueRefs: IssueRefIndex | undefined
   /** entityIds an event touched since the kind was last reconciled. The delta is
    *  RECORDED here and applied on the next read, so a burst that nobody reads —
    *  a rebootstrap's per-row replay — costs a set insert per event, not an array
@@ -250,6 +253,8 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
   let sessionMarkersLoaded = false
 
   function touchRow(kind: ReplicaKind, entityId: string): void {
+    if (kind === 'issueProjections') issueRefs?.issue(entityId, facade.row!(kind, entityId))
+    if (kind === 'repos') issueRefs?.repo(entityId, facade.row!(kind, entityId))
     let dirty = dirtyRows.get(kind)
     if (dirty === undefined) {
       dirty = new Set<string>()
@@ -272,6 +277,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     replacement = reason
     pendingAddresses.clear()
     projected.clear()
+    issueRefs = undefined
     dirtyRows.clear()
     for (const kind of ALL_KINDS) pending.add(kind)
     if (batchDepth === 0) drain()
@@ -367,6 +373,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       if (record.value === null || typeof record.value !== 'object') continue
       byId.set(record.entityId, record.value)
     }
+    issueRefs ??= new IssueRefIndex(records)
     for (const [kind, byId] of building) {
       const rows = [...byId.values()]
       // Deterministic order, by the kernel's own key rather than by store
@@ -563,6 +570,13 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       } catch {
         return undefined
       }
+    },
+
+    issueIdByRef(ref: string): string | undefined {
+      // Hydration seeds this from the same scan as the kind projections. A
+      // lookup before hydration can seed it too; subsequent reads are keyed.
+      if (issueRefs === undefined) buildMissingProjections()
+      return issueRefs?.id(ref)
     },
 
     subscribeAddressedBatch(cb): () => void {

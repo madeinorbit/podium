@@ -70,10 +70,6 @@ export const poolBackedScreens: readonly PoolScreen[] = [
     },
   },
   { optional: true, initialize: initializeChipsDataLayer, enabled: () => chipsDataLayer() === 'pool',
-    options: runtime => ({ resolveReferences: async refs => {
-      recordChipWork(runtime, 'resolveBatches'); recordChipWork(runtime, 'resolveRefs', refs.length)
-      return runtime.getSnapshot().trpc.issues.resolveRefs.query({ refs: [...refs] })
-    } }),
     async attach(runtime, pool) {
       const references = pool.references
       if (!chipsCheckRequested()) return

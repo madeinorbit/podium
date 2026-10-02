@@ -52,6 +52,51 @@ async function ready(page: Page): Promise<void> {
 }
 
 describe('principal pool lifetime in Chromium', () => {
+  it('resolves a cold issue chip with the network disabled and never calls the server resolver', async () => {
+    const page = await browser.newPage()
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    try {
+      await page.goto(`${origin}/__pool_test?mobxSidebar=1&mobxChips=1`)
+      await ready(page)
+      await page.waitForSelector('#offline-reference-host', { state: 'attached' })
+      // Observing the reference itself would warm it; inspect residency only.
+      const before = await page.evaluate(() => {
+        const state = window.__poolFixture.referenceState()
+        return { cold: state.cold, resident: state.resident }
+      })
+      expect(before).toEqual({ cold: true, resident: false })
+      await page.context().setOffline(true)
+      expect(await page.evaluate(() => navigator.onLine)).toBe(false)
+      const requests: string[] = []
+      page.on('request', request => requests.push(request.url()))
+      await page.evaluate(() => window.__poolFixture.mountReference())
+      await page.waitForFunction(() =>
+        document.querySelector('#offline-reference-host a')?.getAttribute('aria-label') ===
+          'Archived Done task POD-1234: Cold offline issue',
+      )
+      const after = await page.evaluate(() => window.__poolFixture.referenceState())
+      expect(after).toEqual({ online: false, cold: false, resident: true,
+        issueId: 'iss_offline_reference', serverCalls: 0 })
+      expect(requests).toEqual([])
+      expect(errors).toEqual([])
+      if (process.env.ISSUE_REFERENCE_OFFLINE_SHOT) {
+        await page.evaluate(({ before, after, requests }) => {
+          const heading = document.createElement('h1')
+          heading.textContent = 'Cold issue chip resolved offline'
+          const evidence = document.createElement('pre')
+          evidence.textContent = JSON.stringify({ before, after, networkRequests: requests,
+            label: document.querySelector('#offline-reference-host a')?.getAttribute('aria-label') }, null, 2)
+          document.body.prepend(heading)
+          document.body.append(evidence)
+        }, { before, after, requests })
+        await page.screenshot({ path: process.env.ISSUE_REFERENCE_OFFLINE_SHOT })
+      }
+    } finally {
+      await page.close()
+    }
+  }, 60_000)
+
   it('releases the old pool and row object after a principal switch, rebuild and sign-out GC', async () => {
     const page = await browser.newPage()
     const errors: string[] = []

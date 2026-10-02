@@ -53,17 +53,10 @@ export class IssueReferences implements IssueReferenceReader {
   private readonly stops = new Map<string, () => void>()
   private readonly values = new Map<string, IComputedValue<Loaded<IssueReferenceModel | null>>>()
   private readonly stopTable: () => void
-  private requestGeneration = 0
-
-  get generation(): number {
-    return this.requestGeneration
-  }
-
   /** A replacement changes the visible scope. Only unresolved demand keys
-   * need a fresh authority answer; resident subscriptions stay untouched. */
+   * need a fresh replica answer; resident subscriptions stay untouched. */
   resetUnresolved(): void {
     runInAction(() => {
-      this.requestGeneration++
       // Preserve the value atoms an already-loading chip observes. Replacing
       // the map entry with another LOADING entry would leave that derivation
       // observing the removed atom until its displayed value changes.
@@ -72,6 +65,15 @@ export class IssueReferences implements IssueReferenceReader {
         this.queue(key)
       }
     })
+  }
+
+  /** An arriving cold row can satisfy a previously missing demand key.
+   * Refresh only that key inside the pool's publication action. */
+  arrived(row: Pick<IssueReferenceSource, 'prefix' | 'displayRef' | 'seq'>): void {
+    const key = issueRefKey(canonicalIssueRef(row))
+    if (!this.requests.has(key)) return
+    this.requests.set(key, LOADING)
+    this.queue(key)
   }
 
   constructor(
@@ -154,8 +156,7 @@ export class IssueReferences implements IssueReferenceReader {
     if (pending !== undefined) {
       if (typeof pending !== 'string') return pending
       const model = this.readById(pending)
-      // A late authority reply may follow a prefix change. It cannot bind
-      // the old token to a row that now has a different canonical identity.
+      // A prefix change cannot bind an old token to the row's new identity.
       return model === LOADING || (model && issueRefKey(model.ref) === key) ? pending : null
     }
     // A read never blocks. Repeated chips of the same token enqueue it once.
@@ -188,8 +189,8 @@ export class IssueReferences implements IssueReferenceReader {
     return value.get()
   }
 
-  /** A batch resolver supplies only opaque ids. The next read goes through
-   * the ONE row reader, which queues known cold rows in the same load window. */
+  /** The local replica supplies opaque ids. Displayed fields still come
+   * through the ONE pool row reader and its cold-row load window. */
   resolved(ref: string, id: string | null): void {
     runInAction(() => this.requests.set(issueRefKey(ref), id))
   }

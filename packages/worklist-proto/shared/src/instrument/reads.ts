@@ -562,6 +562,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
         snapshot(kind) {
           return source.snapshot(kind).map(borrowRecord)
         },
+        ...(source.issueIdByRef ? { issueIdByRef: source.issueIdByRef.bind(source) } : {}),
         // A per-row read (a cold row's hydration, POD-4567) is a keyed read of
         // that row, and its value arrives borrowed like any other.
         ...(row === undefined

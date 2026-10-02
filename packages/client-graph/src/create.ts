@@ -10,7 +10,7 @@ export interface WorklistPoolHandle {
 export function createWorklistPool(
   source: RowSource,
   locals: LocalsSource,
-  loader: Omit<PoolLazyOptions, 'load'> = {},
+  loader: Omit<PoolLazyOptions, 'load' | 'issueIdByRef'> = {},
   writes?: WriteSeam,
 ): WorklistPoolHandle {
   const row = source.row?.bind(source)
@@ -19,7 +19,9 @@ export function createWorklistPool(
       '[pool] the feed has no per-row read (RowSource.row): a lazy pool cannot load a cold row',
     )
   }
-  const pool = new MobxPool(locals.get(), undefined, { ...loader, load: row }, writes)
+  const pool = new MobxPool(locals.get(), undefined, {
+    ...loader, load: row, issueIdByRef: source.issueIdByRef?.bind(source),
+  }, writes)
   pool.apply({
     type: 'replace',
     rows: [

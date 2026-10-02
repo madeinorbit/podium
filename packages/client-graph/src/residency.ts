@@ -102,8 +102,6 @@ export type LoadableEntity = 'issue' | 'session'
 /** A per-row read: the row's current value, or undefined when it is gone. */
 export type LoadRow = (entity: LoadableEntity, id: string) => object | undefined
 
-export type ResolveIssueReferences = (refs: readonly string[]) => Promise<readonly { ref: string; id: string | null }[]>
-
 /** Arms a timer; returns its cancel. Tests pass a manual one. */
 export type Schedule = (run: () => void, ms: number) => () => void
 
@@ -486,16 +484,10 @@ export class Residency {
     }
   }
 
-  /** One bounded identity query per closed window, without walking the rest
-   * of the queue. Remaining references join the next existing load window. */
+  /** Local identity requests share the cold-row window; no transport batch. */
   takeReferences(): string[] {
-    const batch: string[] = []
-    for (const ref of this.referenceQueue) {
-      this.referenceQueue.delete(ref)
-      batch.push(ref)
-      if (batch.length === 200) break
-    }
-    if (this.referenceQueue.size) this.arm()
+    const batch = [...this.referenceQueue]
+    this.referenceQueue.clear()
     return batch
   }
 

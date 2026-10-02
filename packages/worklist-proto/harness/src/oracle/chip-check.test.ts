@@ -2,7 +2,6 @@ import { allIssueViewModels } from '@podium/client-core/replica'
 import { canonicalIssueRef } from '@podium/client-core/viewmodels'
 import { createWorklistPool } from '@podium/client-graph/create'
 import { checkIssueChips } from '@podium/client-graph/diagnostics/chip-check'
-import { issueRefKey } from '@podium/client-graph/issue-reference'
 import { describe, expect, it } from 'vitest'
 import {
   startScenarioEngine,
@@ -20,16 +19,7 @@ describe('chip differential replay', () => {
         const state = ctx.engine.getSnapshot()
         return allIssueViewModels(ctx.replica, state.issueProjections, state.issueUserStates)
       }
-      const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
-        resolveReferences: async (refs) => {
-          // The synthetic authority owns all rows. This map is built in the
-          // mocked authority batch, never in the client lookup or cold index.
-          const byRef = new Map(
-            legacy().map((row) => [issueRefKey(canonicalIssueRef(row)), row.id]),
-          )
-          return refs.map((ref) => ({ ref, id: byRef.get(ref) ?? null }))
-        },
-      })
+      const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
       const check = async (phase: string) => {
         feeds.flush()
         const issues = legacy()

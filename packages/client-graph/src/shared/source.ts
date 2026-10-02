@@ -19,6 +19,8 @@ export interface RowSource {
    * that can be cold. Optional: a source without it cannot back a lazy pool.
    */
   row?(kind: 'issue' | 'session', id: string): RowRecord['value']
+  /** A keyed identity read from the local replica, including cold issues. */
+  issueIdByRef?(ref: string): string | undefined
 }
 
 /**

@@ -55,6 +55,97 @@ function build() {
 const session = (sessionId: string) => ({ sessionId, name: sessionId }) as never
 const issue = (id: string) => ({ id, title: id }) as never
 
+describe('replica-wide issue reference index', () => {
+  it('seeds every stored issue and resolves keyed identities without reads or scans', async () => {
+    const { cache, replica } = build()
+    cache.put('repo', 'r', { id: 'r', prefix: 'POD' })
+    for (const [seq, patch] of [
+      [1, { stage: 'review' }],
+      [2, { archived: true }],
+      [3, { stage: 'done', closedAt: '2026-01-01' }],
+      [4, { deletedAt: '2026-01-01' }],
+    ] as const) cache.put('issueProjection', `i${seq}`, { id: `i${seq}`, seq, repoId: 'r', ...patch })
+    await replica.hydrate()
+    expect(cache.readEntitiesCalls).toBe(1)
+    const read = vi.spyOn(cache, 'read')
+    for (let seq = 1; seq <= 4; seq++) {
+      expect(replica.issueIdByRef(` POD-00${seq} `)).toBe(`i${seq}`)
+    }
+    expect(replica.issueIdByRef('POD-999')).toBeUndefined()
+    expect(replica.issueIdByRef('POD-1-A')).toBeUndefined()
+    expect(replica.issueIdByRef('malformed')).toBeUndefined()
+    expect(cache.readEntitiesCalls).toBe(1)
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('maintains issue moves, sequence changes, prefix changes, removals and readmission before notifying', () => {
+    const { cache, replica } = build()
+    const admit = (entity: string, entityId: string, value: unknown) => {
+      cache.put(entity, entityId, value)
+      replica.onKernelEvent({ type: 'upserted', record: cache.read(entity, entityId)!, readmitted: false })
+    }
+    admit('issueProjection', 'i', { id: 'i', seq: 7, repoId: 'r', archived: true })
+    expect(replica.issueIdByRef('#007')).toBe('i')
+    admit('repo', 'r', { id: 'r', prefix: 'POD' })
+    expect(replica.issueIdByRef('#7')).toBeUndefined()
+    expect(replica.issueIdByRef('POD-7')).toBe('i')
+    const seen = vi.fn(() => replica.issueIdByRef('NEW-7'))
+    replica.subscribeRows('repos', seen)
+    admit('repo', 'r', { id: 'r', prefix: 'NEW' })
+    expect(seen.mock.results.at(-1)?.value).toBe('i')
+    expect(replica.issueIdByRef('POD-7')).toBeUndefined()
+    admit('repo', 'other', { id: 'other', prefix: 'OTH' })
+    admit('issueProjection', 'i', { id: 'i', seq: 8, repoId: 'other', displayRef: 'STALE-7' })
+    expect(replica.issueIdByRef('NEW-7')).toBeUndefined()
+    expect(replica.issueIdByRef('STALE-7')).toBeUndefined()
+    expect(replica.issueIdByRef('OTH-8')).toBe('i')
+    cache.drop('repo', 'other')
+    replica.onKernelEvent({ type: 'evicted', entity: 'repo', entityId: 'other' })
+    expect(replica.issueIdByRef('OTH-8')).toBeUndefined()
+    expect(replica.issueIdByRef('#8')).toBe('i')
+    for (const type of ['removed', 'evicted'] as const) {
+      cache.drop('issueProjection', 'i')
+      replica.onKernelEvent({ type, entity: 'issueProjection', entityId: 'i' })
+      expect(replica.issueIdByRef('#8')).toBeUndefined()
+      admit('issueProjection', 'i', { id: 'i', seq: 8, repoId: 'other', deletedAt: '2026-01-01' })
+      expect(replica.issueIdByRef('#8')).toBe('i')
+    }
+    expect(cache.readEntitiesCalls).toBe(1)
+  })
+
+  it('retains colliding fallback identities until late repo rows disambiguate them', () => {
+    const { cache, replica } = build()
+    cache.put('issueProjection', 'a', { id: 'a', seq: 1, repoId: 'ra' })
+    cache.put('issueProjection', 'b', { id: 'b', seq: 1, repoId: 'rb' })
+    expect(replica.issueIdByRef('#1')).toBeUndefined()
+    cache.put('repo', 'ra', { id: 'ra', prefix: 'POD' })
+    replica.onKernelEvent({ type: 'upserted', record: cache.read('repo', 'ra')!, readmitted: false })
+    expect(replica.issueIdByRef('POD-1')).toBe('a')
+    expect(replica.issueIdByRef('#1')).toBe('b')
+    cache.put('repo', 'rb', { id: 'rb', prefix: 'OTH' })
+    replica.onKernelEvent({ type: 'upserted', record: cache.read('repo', 'rb')!, readmitted: false })
+    expect(replica.issueIdByRef('OTH-1')).toBe('b')
+    expect(replica.issueIdByRef('#1')).toBeUndefined()
+    expect(cache.readEntitiesCalls).toBe(1)
+  })
+
+  it('replaces the full index on rescope and keeps separate replicas isolated', () => {
+    const { cache, replica } = build()
+    cache.put('repo', 'r', { id: 'r', prefix: 'POD' })
+    cache.put('issueProjection', 'old', { id: 'old', seq: 1, repoId: 'r' })
+    expect(replica.issueIdByRef('POD-1')).toBe('old')
+    cache.records = []
+    cache.put('repo', 'r', { id: 'r', prefix: 'NEW' })
+    cache.put('issueProjection', 'new', { id: 'new', seq: 2, repoId: 'r' })
+    replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'rescope', snapshotSeq: 2,
+      entityCount: 2, bufferedFramesApplied: 0 })
+    expect(replica.issueIdByRef('POD-1')).toBeUndefined()
+    expect(replica.issueIdByRef('NEW-2')).toBe('new')
+    expect(build().replica.issueIdByRef('NEW-2')).toBeUndefined()
+    expect(cache.readEntitiesCalls).toBe(2)
+  })
+})
+
 describe('kind mapping', () => {
   it('S6 hydrates old sessions but ignores stale extras through evict, delete, readmission and rescope', async () => {
     const { cache, replica } = build()

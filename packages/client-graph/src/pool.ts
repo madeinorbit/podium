@@ -96,7 +96,7 @@ import {
   type SessionModel,
 } from './models'
 import { PoolRelations, type ReadableTables } from './relations'
-import { type LoadRow, Residency, type ResolveIssueReferences, type Schedule } from './residency'
+import { type LoadRow, Residency, type Schedule } from './residency'
 import { IssueReferences } from './issue-reference'
 import {
   createObservableTables,
@@ -159,7 +159,7 @@ function cursorOnlyChange(previous: object, next: object): boolean {
 /** Residency options: the per-row read, and (tests) the window and timer. */
 export interface PoolLazyOptions {
   readonly load: LoadRow
-  readonly resolveReferences?: ResolveIssueReferences
+  readonly issueIdByRef?: (ref: string) => string | undefined
   /** Add the header's declared cold summaries only for its startup switch. */
   readonly header?: boolean
   readonly settings?: boolean
@@ -265,7 +265,7 @@ export class MobxPool {
    */
   private readonly clearSeats: () => void
   private referenceReader: IssueReferences | undefined
-  private readonly resolveReferences: ResolveIssueReferences | undefined
+  private readonly issueIdByRef: PoolLazyOptions['issueIdByRef']
   private disposed = false
 
   /** Built only for a screen that uses references. Its identity index covers
@@ -282,7 +282,7 @@ export class MobxPool {
     lazy?: PoolLazyOptions,
     writes?: WriteSeam,
   ) {
-    this.resolveReferences = lazy?.resolveReferences
+    this.issueIdByRef = lazy?.issueIdByRef
     this.settingsEnabled = lazy?.settings === true
     this.writes = writes ?? null
     this.tables = createObservableTables()
@@ -511,7 +511,7 @@ export class MobxPool {
       | 'followTable'
       | 'clearSeats'
       | 'referenceReader'
-      | 'resolveReferences'
+      | 'issueIdByRef'
       | 'disposed'
       | 'object'
       | 'release'
@@ -519,7 +519,7 @@ export class MobxPool {
       sidebar: false,
       references: false,
       referenceReader: false,
-      resolveReferences: false,
+      issueIdByRef: false,
       disposed: false,
       sidebarRosters: false,
       tables: false,
@@ -806,24 +806,19 @@ export class MobxPool {
     if (residency === null) return 0
     const batch = residency.take()
     const refs = residency.takeReferences()
-    const referenceGeneration = this.referenceReader?.generation
-    if (refs.length && this.resolveReferences) {
-      try {
-        void this.resolveReferences(refs).then(replies => {
-          if (this.disposed || referenceGeneration !== this.referenceReader?.generation) return
-          runInAction(() => {
-            for (const { ref, id } of replies) this.referenceReader?.resolved(ref, id)
-          })
-        }).catch(() => {
-          // The reference stays LOADING; failure never fabricates an absent
-          // row or falls back to a legacy list/peek.
-        })
-      } catch { /* A synchronous transport failure has the same LOADING answer. */ }
+    const identities = refs.map(ref => [ref, this.issueIdByRef?.(ref) ?? null] as const)
+    const queuedIssues = new Set(batch.filter(([entity]) => entity === 'issue').map(([, id]) => id))
+    for (const [, id] of identities) {
+      if (id !== null && residency.isCold('issue', id) && !queuedIssues.has(id)) {
+        queuedIssues.add(id)
+        batch.push(['issue', id])
+      }
     }
-    if (batch.length === 0) return 0
+    if (batch.length === 0 && identities.length === 0) return 0
     const out = ingestOut()
     this.graph.begin()
     return runInAction(() => {
+      for (const [ref, id] of identities) this.referenceReader?.resolved(ref, id)
       const before = new Map<string, Loaded<boolean>>(batch.filter(([entity]) => entity === 'issue').map(([, id]) => [id, this.firstTaskState(id)]))
       const rows = residency.install(this.target, batch, out)
       for (const [id, previous] of before) this.updateFirstTaskCount(previous, this.firstTaskState(id))
@@ -874,7 +869,11 @@ export class MobxPool {
       this.graph.flush()
       for (const record of event.rows) {
         if (record.kind === 'session') this.sidebarRosters.queueSession(record.id)
-        if (record.kind === 'issue') this.sidebarRosters.queueIssue(record.id)
+        if (record.kind === 'issue') {
+          this.sidebarRosters.queueIssue(record.id)
+          if (record.value && this.residency?.isCold('issue', record.id))
+            this.referenceReader?.arrived(record.value as SliceIssue)
+        }
       }
       this.sidebarRosters.flush()
     })

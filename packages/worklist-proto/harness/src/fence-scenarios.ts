@@ -170,6 +170,8 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: RowSourceMode): FenceF
   // (`work-meter.ts`). No-ops when no work is being measured.
   const source: RowSource = {
     snapshot: (kind) => outsideArm(() => raw.source.snapshot(kind)),
+    ...(raw.source.issueIdByRef ? { issueIdByRef: (ref: string) =>
+      outsideArm(() => raw.source.issueIdByRef!(ref)) } : {}),
     subscribe: (listener) =>
       raw.source.subscribe((event) => {
         for (const record of event.rows) named.add(`${record.kind}:${record.id}`)

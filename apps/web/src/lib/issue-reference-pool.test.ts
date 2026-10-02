@@ -220,19 +220,15 @@ describe('per-issue pool references', () => {
     f.dispose()
   })
 
-  it('batches 50 cold references in one existing load window, never per chip', async () => {
+  it('resolves and loads 50 cold references in one local window, coalescing repeated chips', () => {
     const cold = Array.from({ length: 50 }, (_, i) => issue(i + 1, { archived: true }))
     const load = vi.fn((_entity: string, id: string) => cold.find((row) => row.id === id))
     const due: Array<() => void> = []
-    const resolveReferences = vi.fn(async (refs: readonly string[]) =>
-      refs.map((ref) => ({
-        ref,
-        id: ref === 'POD-999' ? null : `iss_${Number(ref.split('-')[1])}`,
-      })),
-    )
+    const ids = new Map(cold.map(row => [`POD-${row.seq}`, row.id]))
+    const issueIdByRef = vi.fn((ref: string) => ids.get(ref))
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
       load,
-      resolveReferences,
+      issueIdByRef,
       schedule: (run) => {
         due.push(run)
         return () => {}
@@ -248,17 +244,15 @@ describe('per-issue pool references', () => {
     )
     expect(pool.references.read('POD-01')).toBe(LOADING)
     expect(pool.references.read('POD-999')).toBe(LOADING)
-    expect(resolveReferences).not.toHaveBeenCalled()
+    // A relation and a chip can ask for the same row in the same window.
+    expect(pool.row('issue', cold[0]!.id)).toBe(LOADING)
+    expect(issueIdByRef).not.toHaveBeenCalled()
     expect(load).not.toHaveBeenCalled()
     expect(due).toHaveLength(1)
     due.shift()!()
-    await Promise.resolve()
-    expect(resolveReferences).toHaveBeenCalledTimes(1)
-    expect(resolveReferences.mock.calls[0]?.[0]).toHaveLength(51)
-    expect(load).not.toHaveBeenCalled()
+    expect(issueIdByRef).toHaveBeenCalledTimes(51)
     expect(pool.references.read('POD-999')).toBeNull()
-    expect(due).toHaveLength(1)
-    due.shift()!()
+    expect(due).toHaveLength(0)
     expect(load).toHaveBeenCalledTimes(50)
     expect(paints.every((paint) => paint.mock.calls.at(-1)?.[0]?.availability === 'archived')).toBe(
       true,
@@ -267,58 +261,52 @@ describe('per-issue pool references', () => {
     pool.dispose()
   })
 
-  it('refreshes missing refs across scopes and rejects replies from the previous scope', async () => {
+  it('refreshes missing refs when a cold row arrives and across scope replacements', () => {
     const cold = issue(1, { archived: true })
     const due: Array<() => void> = []
-    let finishOld: ((reply: { ref: string; id: null }[]) => void) | undefined
-    const resolveReferences = vi
-      .fn<(refs: readonly string[]) => Promise<{ ref: string; id: string | null }[]>>()
-      .mockResolvedValueOnce([{ ref: 'POD-1', id: null }])
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            finishOld = resolve
-          }),
-      )
-      .mockResolvedValueOnce([{ ref: 'POD-1', id: cold.id }])
-    const load = vi.fn(() => cold)
+    let localRow: typeof cold | undefined
+    const issueIdByRef = vi.fn((ref: string) => ref === 'POD-1' ? localRow?.id : undefined)
+    const load = vi.fn(() => localRow)
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
       load,
-      resolveReferences,
+      issueIdByRef,
       schedule: (run) => {
         due.push(run)
-        return () => {}
+        return () => {
+          const index = due.indexOf(run)
+          if (index >= 0) due.splice(index, 1)
+        }
       },
     })
     const paint = vi.fn()
     const stop = reaction(() => pool.references.read('POD-1'), paint, { fireImmediately: true })
     due.shift()!()
-    await Promise.resolve()
     expect(paint.mock.calls.at(-1)?.[0]).toBeNull()
+    localRow = cold
     const scope = {
       type: 'replace' as const,
       rows: [{ kind: 'issue' as const, id: cold.id, value: cold as never }],
     }
-    pool.apply(scope)
+    pool.apply({ ...scope, type: 'update' })
     expect(paint.mock.calls.at(-1)?.[0]).toBe(LOADING)
     expect(due).toHaveLength(1)
     due.shift()!()
-    pool.apply(scope)
-    finishOld!([{ ref: 'POD-1', id: null }])
-    await Promise.resolve()
-    expect(pool.references.read('POD-1')).toBe(LOADING)
-    expect(due).toHaveLength(1)
-    due.shift()!()
-    await Promise.resolve()
-    expect(load).not.toHaveBeenCalled()
-    await vi.waitFor(() => expect(due).toHaveLength(1))
-    due.shift()!()
     expect(load).toHaveBeenCalledTimes(1)
-    expect(resolveReferences).toHaveBeenCalledTimes(3)
     expect(paint.mock.calls.at(-1)?.[0]).toMatchObject({
       availability: 'archived',
       title: 'Task 1',
     })
+    localRow = undefined
+    pool.apply({ type: 'replace', rows: [] })
+    expect(pool.references.read('POD-1')).toBe(LOADING)
+    due.shift()!()
+    expect(pool.references.read('POD-1')).toBeNull()
+    // The scope changes again while a missing demand is awaiting its window.
+    pool.apply({ type: 'replace', rows: [] })
+    localRow = cold
+    pool.apply(scope)
+    due.shift()!()
+    expect(pool.references.read('POD-1')).toMatchObject({ availability: 'archived' })
     stop()
     pool.dispose()
   })

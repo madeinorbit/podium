@@ -6,7 +6,7 @@ import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import { asUserId } from '@podium/model'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import type { RuntimePoolFixture } from '../../../packages/worklist-proto/harness/browser/runtime-pool-fixture'
@@ -17,6 +17,8 @@ import {
   worklistPoolSurvivors,
 } from '../src/app/store-worklist-pool'
 import { sidebarDataLayer } from '../src/lib/sidebar-data-layer'
+import { chipsDataLayer } from '../src/lib/chips-data-layer'
+import { IssueChipLiveness } from '../src/features/chat/IssueChipLiveness'
 
 const corpus = buildCorpus(1)
 const issue = corpus.issues.find(
@@ -25,9 +27,16 @@ const issue = corpus.issues.find(
 )!
 const projection = corpus.issueProjections.find((row) => row.id === issue.id)!
 const id = issue.id
-const api = {} as PodiumClientApi
+const coldId = 'iss_offline_reference'
+const coldRepo = 'repo_offline_reference'
+let serverCalls = 0
+const api = { issues: { resolveRefs: { query() {
+  serverCalls++
+  throw new Error('A chip called the server reference resolver')
+} } } } as unknown as PodiumClientApi
 let config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
 let current: MobxPool | null = null
+let currentReplica: ReturnType<typeof createKernelReplica> | undefined
 let observed: MobxPool | null = null
 let replicas = 0
 let attachments = 0
@@ -39,6 +48,11 @@ function replica() {
   replicas += 1
   const records = [
     { entity: 'issueProjection', entityId: id, value: projection, provenance: { seq: 1 } },
+    { entity: 'repo', entityId: coldRepo,
+      value: { id: coldRepo, path: '/offline-reference', prefix: 'POD' }, provenance: { seq: 1 } },
+    { entity: 'issueProjection', entityId: coldId,
+      value: { ...projection, id: coldId, repoId: coldRepo, seq: 1234, title: 'Cold offline issue',
+        archived: true, stage: 'done', closedAt: '2026-01-01T00:00:00.000Z' }, provenance: { seq: 1 } },
   ]
   const cache = {
     readCursor: () => null,
@@ -47,7 +61,7 @@ function replica() {
       records.find((row) => row.entity === entity && row.entityId === entityId),
     durability: () => 'durable' as const,
   }
-  return createKernelReplica({
+  return currentReplica = createKernelReplica({
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
@@ -76,6 +90,13 @@ function Probe(): null {
   return null
 }
 
+function ReferenceProbe() {
+  const pool = useWorklistPool()
+  const [host, setHost] = useState<HTMLDivElement | null>(null)
+  if (pool === null || chipsDataLayer() !== 'pool') return null
+  return <><div id="offline-reference-host" ref={setHost} /><IssueChipLiveness root={host} /></>
+}
+
 function show(name: string | null, rebuild = false): void {
   if (current !== null) {
     const model = current.model('issue', id)
@@ -99,6 +120,7 @@ function show(name: string | null, rebuild = false): void {
         }}
       >
         <Probe />
+        <ReferenceProbe />
       </StoreProvider>,
     ),
   )
@@ -113,6 +135,24 @@ const fixture = {
     ...worklistPoolSurvivors(),
     ...models.flatMap((ref, index) => (ref.deref() === undefined ? [] : [`model.${index}`])),
   ],
+  mountReference(): void {
+    const host = document.getElementById('offline-reference-host')
+    if (!host || !current?.residency?.isCold('issue', coldId))
+      throw new Error('offline reference must begin with a cold issue')
+    const anchor = document.createElement('a')
+    anchor.className = 'ref-link--issue'
+    anchor.dataset.ref = 'POD-1234'
+    anchor.href = '#POD-1234'
+    anchor.textContent = 'POD-1234'
+    host.append(anchor)
+  },
+  referenceState: () => ({
+    online: navigator.onLine,
+    cold: current?.residency?.isCold('issue', coldId) ?? false,
+    resident: current?.tables.issue.has(coldId) ?? false,
+    issueId: currentReplica?.issueIdByRef('POD-1234'),
+    serverCalls,
+  }),
 } satisfies RuntimePoolFixture
 Object.assign(window, { __poolFixture: fixture })
 show('fixture-alice')

@@ -54,9 +54,6 @@ async function main(): Promise<void> {
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
   const collisions = [...counts].filter(([, count]) => count > 1)
-  // The replay's authority resolves against the captured bootstrap in memory.
-  // The running server is not restarted to install the additive endpoint.
-  const authority = new Map(legacy.map((row) => [issueRefKey(canonicalIssueRef(row)), row.id]))
   const runtime = {
     getSnapshot: () => store,
     subscribe: () => () => {},
@@ -64,9 +61,7 @@ async function main(): Promise<void> {
   }
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' })
   const locals = createEngineLocals(runtime)
-  const handle = createWorklistPool(rows.source, locals.source, {
-    resolveReferences: async (refs) => refs.map((ref) => ({ ref, id: authority.get(ref) ?? null })),
-  })
+  const handle = createWorklistPool(rows.source, locals.source)
   try {
     for (let round = 0; round < 128; round++) {
       const result = checkIssueChips(handle.pool.references, legacy, tokens)

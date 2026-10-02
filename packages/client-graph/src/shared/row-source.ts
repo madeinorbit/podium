@@ -194,6 +194,7 @@ export interface RowSourceReplica {
   subscribeAddressedBatch?(cb: (batch: ReplicaAddressedBatch) => void): () => void
   rows<K extends ReplicaKind>(kind: K): readonly AnyRow[]
   row?<K extends ReplicaKind>(kind: K, id: string): AnyRow | undefined
+  issueIdByRef?(ref: string): string | undefined
 }
 
 /** Counts-first instrumentation (methodology §5.7). `rowsVisited` counts slice
@@ -1194,6 +1195,10 @@ export function createRowSource(
   const source: RowSource = {
     snapshot,
     row,
+    ...(replica.issueIdByRef ? { issueIdByRef(ref: string): string | undefined {
+      if (disposed) throw new Error('createRowSource: issueIdByRef() on a disposed source')
+      return replica.issueIdByRef!(ref)
+    } } : {}),
     subscribe(listener: (event: RowSourceEvent) => void): () => void {
       listeners.add(listener)
       return () => {
