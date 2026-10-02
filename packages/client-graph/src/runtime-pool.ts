@@ -1,3 +1,4 @@
+import type { SettingsOwner } from './settings-source'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { attachHeaderSource } from './header-source'
 import { compareStructural, computed, reaction } from 'mobx'
@@ -57,7 +58,15 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { p
       if (!runtime.ui) throw new Error('Preferences require the existing runtime UI owner')
       handle.pool.attachPreferences(runtime.ui)
     }
-    if (options.settings) handle.pool.attachSettings(runtime)
+    if (options.settings) {
+      const state = runtime.getSnapshot()
+      if (!Array.isArray(Reflect.get(state, 'machines')) || !Object.hasOwn(state, 'settingsTab')) {
+        throw new Error('Settings require the existing runtime catalog and window owner')
+      }
+      // The shared row-source seam exposes only its repo inputs. The provider
+      // runtime also owns the catalog/window fields checked above.
+      handle.pool.attachSettings(runtime as WorklistRuntime & SettingsOwner)
+    }
     if (options.header) stopHeader = attachHeaderSource(handle.pool, runtime as Parameters<typeof attachHeaderSource>[1])
     stopPerf = observeWorklistPoolPerf(runtime, handle.pool)
   } catch (error) {

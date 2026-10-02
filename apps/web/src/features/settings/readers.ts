@@ -12,7 +12,7 @@ import { useSettingsClient } from './stable-access'
 
 const EMPTY_CATALOG: Pick<Store, 'machines' | 'repos'> = { machines: [], repos: [] }
 const EMPTY_SETUP = { usage: new Map<string, number>() as ReadonlyMap<string, number>, defaultAgent: 'claude-code', pending: 0 }
-const loaded = <T,>(row: T | symbol | undefined): row is T => typeof row === 'object' && row !== null
+const loaded = <T extends object>(row: T | symbol | undefined): row is T => typeof row === 'object' && row !== null
 
 function readCatalog(pool: MobxPool): Pick<Store, 'machines' | 'repos'> {
   const catalog = pool.row('settingsCatalog', 'catalog')
