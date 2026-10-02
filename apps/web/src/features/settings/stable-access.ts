@@ -1,9 +1,17 @@
 import { useStoreHandle } from '@podium/client-core/react'
+import type { Store } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
+
+interface SettingsClient extends Pick<Store,
+  'trpc' | 'uiState' | 'navigateToSession' | 'refreshRepos' | 'setSettingsTab' |
+  'focusIssueSession' | 'spawnDraftAgent' | 'spawnIssueAgent' | 'setSelectedIssueId' |
+  'setSelectedWorktree' | 'setPane' | 'setPanelMode' | 'setView'> {
+  readonly owner: { getSnapshot(): Store }
+}
 
 /** Acquire the existing transport and mutation owner without subscribing to
  * snapshots. Entity and preference reads belong to the declared pool hooks. */
-export function useSettingsClient() {
+export function useSettingsClient(): SettingsClient {
   const owner = useStoreHandle<Trpc>()
   const state = owner.getSnapshot()
   return {
