@@ -22,6 +22,7 @@ export default {
       input: resolve('apps/web/harness/per-row-memory.browser.html'),
       output: {
         manualChunks(id: string) {
+          if (id.endsWith('/client-graph/src/shared/row-source.ts') || id.endsWith('/client-graph/src/shared/engine-locals.ts')) return 'prototype-feed'
           if (id.includes('/worklist-proto/arms/hand/')) return 'hand-pool'
           if (id.includes('/worklist-proto/arms/lean/')) return 'lean-pool'
         },
