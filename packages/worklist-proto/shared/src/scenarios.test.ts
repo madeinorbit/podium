@@ -10,9 +10,9 @@ import { allIssueViewModels } from '@podium/client-core/replica'
  */
 import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { buildCorpus, FIXED_NOW, type FixtureCorpus } from '../../harness/src/fixture/index'
 import { READ_BUDGETS } from '../../harness/src/count-harness'
 import { localsOfEngine } from '../../harness/src/engine-locals'
+import { buildCorpus, FIXED_NOW, type FixtureCorpus } from '../../harness/src/fixture/index'
 import { expectedSnapshot, oracleSnapshot, rowViewsFromStore } from '../../harness/src/oracle/index'
 import { FIRST_WINDOW_ROWS } from '../../harness/web/entrylib'
 import {
@@ -36,20 +36,20 @@ import {
   principalSwitch,
   rescopeGrowth,
   SCENARIOS,
+  type ScenarioResult,
   selectionClick,
-  startScenarioEngine,
   stageMoveAcrossGroups,
+  startScenarioEngine,
   targetRules,
   unrelatedHeartbeat,
   visibleSessionPhaseChange,
   visibleTitleRename,
-  type ScenarioResult,
 } from './scenarios'
 
 function summarize(result: ScenarioResult): string {
-  return `${result.scenario}: ${result.events.length} events, rows [${
-    result.events.map((e) => `${e.type}:${e.rows.length}`).join(', ')
-  }]`
+  return `${result.scenario}: ${result.events.length} events, rows [${result.events
+    .map((e) => `${e.type}:${e.rows.length}`)
+    .join(', ')}]`
 }
 
 describe('scenario registry', () => {
@@ -91,7 +91,18 @@ describe('targets picked by rule, checked against the oracle (1x)', () => {
     issueProjections: base.issueProjections.map((p) =>
       p.id === id ? ({ ...p, ...patch } as typeof p) : p,
     ),
-    issueUserStates: base.issueUserStates?.map(row => row.entityId === id ? { ...row, ...Object.fromEntries(Object.entries(patch).filter(([key]) => ['readAt', 'tuckedAt', 'pinned'].includes(key))) } : row),
+    issueUserStates: base.issueUserStates?.map((row) =>
+      row.entityId === id
+        ? {
+            ...row,
+            ...Object.fromEntries(
+              Object.entries(patch).filter(([key]) =>
+                ['readAt', 'tuckedAt', 'pinned'].includes(key),
+              ),
+            ),
+          }
+        : row,
+    ),
   })
 
   it('is deterministic in the corpus', () => {
@@ -176,19 +187,23 @@ describe('#2 target family is larger than one level of the reads budget (POD-463
     expect(familyOf(corpus, visibleRootId).length).toBeGreaterThan(PHASE_FAMILY_FLOOR)
   })
 
-  it.each([1, 2, 4] as const)(
-    'startEngineOnCorpus boots on the live-shaped fixture at %ix with the rule-picked targets',
-    async (scale) => {
-      const ctx = await startScenarioEngine(scale)
-      try {
-        expect(ctx.targets).toEqual(pickTargets(ctx.corpus))
-        expect(allIssueViewModels(ctx.replica, ctx.engine.getSnapshot().issueProjections, ctx.engine.getSnapshot().issueUserStates)).toHaveLength(ctx.corpus.issues.length)
-      } finally {
-        ctx.engine.destroy()
-      }
-    },
-    120_000,
-  )
+  it.each([
+    1, 2, 4,
+  ] as const)('startEngineOnCorpus boots on the live-shaped fixture at %ix with the rule-picked targets', async (scale) => {
+    const ctx = await startScenarioEngine(scale)
+    try {
+      expect(ctx.targets).toEqual(pickTargets(ctx.corpus))
+      expect(
+        allIssueViewModels(
+          ctx.replica,
+          ctx.engine.getSnapshot().issueProjections,
+          ctx.engine.getSnapshot().issueUserStates,
+        ),
+      ).toHaveLength(ctx.corpus.issues.length)
+    } finally {
+      ctx.engine.destroy()
+    }
+  }, 120_000)
 
   it('control: the same root with its family trimmed to the floor is refused', () => {
     const corpus = buildCorpus(1, FIXTURE_SEED)
@@ -239,7 +254,7 @@ describe('scenarios on the fixture at 1x', () => {
     const result = await unrelatedHeartbeat()
     expect(result.corpus).toEqual({ scale: 1, seed: FIXTURE_SEED, issues: 4867, sessions: 4304 })
     expect(summarize(result)).toBe('#1 unrelatedHeartbeat: 1 events, rows [update:2]')
-    expect(result.events[0]?.rows.find(row => row.kind === 'session')).toMatchObject({
+    expect(result.events[0]?.rows.find((row) => row.kind === 'session')).toMatchObject({
       kind: 'session',
       id: result.targets.heartbeatSessionId,
     })
@@ -254,7 +269,10 @@ describe('scenarios on the fixture at 1x', () => {
     const result = await visibleSessionPhaseChange()
     expect(summarize(result)).toBe('#2 visibleSessionPhaseChange: 1 events, rows [update:2]')
     const id = result.targets.phaseSessionId
-    expect(result.events[0]?.rows.find(row => row.kind === 'session')).toMatchObject({ kind: 'session', id })
+    expect(result.events[0]?.rows.find((row) => row.kind === 'session')).toMatchObject({
+      kind: 'session',
+      id,
+    })
     expect(result.after.sessions.find((s) => s.sessionId === id)?.phase).toBe('idle')
     expect(result.before.sessions.find((s) => s.sessionId === id)?.phase).toBe('working')
   }, 60_000)
@@ -338,10 +356,13 @@ describe('scenarios on the fixture at 1x', () => {
   it('#7 parentReassignment: one update, one row', async () => {
     const result = await parentReassignment()
     expect(summarize(result)).toBe('#7 parentReassignment: 1 events, rows [update:1]')
-    expect(result.events[0]?.rows[0]).toMatchObject({ kind: 'issue', id: result.targets.reparentId })
-    expect(
-      (result.events[0]?.rows[0]?.value as { parentId?: unknown } | undefined)?.parentId,
-    ).toBe(result.targets.reparentToId)
+    expect(result.events[0]?.rows[0]).toMatchObject({
+      kind: 'issue',
+      id: result.targets.reparentId,
+    })
+    expect((result.events[0]?.rows[0]?.value as { parentId?: unknown } | undefined)?.parentId).toBe(
+      result.targets.reparentToId,
+    )
   }, 60_000)
 
   it('#8 clockTick: the runtime publishes the new coarse clock; zero row events', async () => {
@@ -447,20 +468,28 @@ describe('scenario server writes build on server truth (POD-4551)', () => {
   it('a server write on another field of a row with a pending edit keeps the server value', async () => {
     // A server that never answers keeps the title edit pending, so the
     // runtime snapshot paints it while the server cache does not have it.
-    const ctx = await startScenarioEngine(1, { server: { issueUpdate: () => new Promise(() => {}) } })
+    const ctx = await startScenarioEngine(1, {
+      server: { issueUpdate: () => new Promise(() => {}) },
+    })
     try {
       const id = ctx.targets.stageMoveId
       const serverTitle = (ctx.cache.read('issueProjection', id)?.value as { title: string }).title
       void ctx.engine.getSnapshot().updateIssue(asIssueId(id), { title: 'Pending title' } as never)
       await new Promise((r) => setTimeout(r, ctx.settleMs))
-      const painted = allIssueViewModels(ctx.replica, ctx.engine.getSnapshot().issueProjections, ctx.engine.getSnapshot().issueUserStates).find((i) => i.id === id) as { title: string }
+      const painted = allIssueViewModels(
+        ctx.replica,
+        ctx.engine.getSnapshot().issueProjections,
+        ctx.engine.getSnapshot().issueUserStates,
+      ).find((i) => i.id === id) as { title: string }
       expect(painted.title, 'the edit is pending and painted').toBe('Pending title')
 
       applyStageMove(ctx, id)
 
       const wire = ctx.cache.read('issueProjection', id)?.value as { title: string; stage: string }
       expect(wire.stage).toBe('done')
-      expect(wire.title, 'the server write carries the server title, not the painted one').toBe(serverTitle)
+      expect(wire.title, 'the server write carries the server title, not the painted one').toBe(
+        serverTitle,
+      )
     } finally {
       ctx.engine.destroy()
     }

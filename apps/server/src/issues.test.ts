@@ -63,7 +63,10 @@ async function harness(sessions: SessionMeta[] = [], opts: { originUrl?: string 
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({
+      sessionId: asSessionId('s1'),
+      machine: 'machine-under-test',
+    })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     resolveMachine: vi.fn(async () => store.hostMachineId),
     broadcast,
@@ -161,23 +164,17 @@ describe('IssueService repo_id scoping (#140)', () => {
     await store.repos.addRepo('/home/alice/app', asMachineId('m-alice'), origin)
     await store.repos.addRepo('/home/bob/app', asMachineId('m-bob'), origin) // same origin ⇒ same repo_id
     const svc = await IssueService.create(deps)
-    const a = await svc.create({ repoPath: '/home/alice/app', title: 'from alice', startNow: false })
+    const a = await svc.create({
+      repoPath: '/home/alice/app',
+      title: 'from alice',
+      startNow: false,
+    })
     const b = await svc.create({ repoPath: '/home/bob/app', title: 'from bob', startNow: false })
     expect(a.seq).toBe(1)
     expect(b.seq).toBe(2) // shared sequence — NOT two colliding #1s
     // list from either checkout returns the unified set
-    expect(
-      (await svc
-        .list('/home/alice/app'))
-        .map((i) => i.id)
-        .sort(),
-    ).toEqual([a.id, b.id].sort())
-    expect(
-      (await svc
-        .list('/home/bob/app'))
-        .map((i) => i.id)
-        .sort(),
-    ).toEqual([a.id, b.id].sort())
+    expect((await svc.list('/home/alice/app')).map((i) => i.id).sort()).toEqual([a.id, b.id].sort())
+    expect((await svc.list('/home/bob/app')).map((i) => i.id).sort()).toEqual([a.id, b.id].sort())
   })
 
   it('resolveRef scopes a shared #N to the caller repo; unscoped stays ambiguous', async () => {
@@ -285,7 +282,13 @@ describe('IssueService CRUD', () => {
   it('refuses a client-provided id collision without changing or starting the issue', async () => {
     const { svc, deps } = await harness()
     const id = asIssueId('iss_client-supplied')
-    await svc.create({ repoPath: '/r', title: 'Original', description: 'Keep me', startNow: false, id })
+    await svc.create({
+      repoPath: '/r',
+      title: 'Original',
+      description: 'Keep me',
+      startNow: false,
+      id,
+    })
     const before = await svc.get(id)
 
     await expect(
@@ -494,7 +497,10 @@ describe('IssueService unread (#124)', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+      spawnSession: vi.fn(async () => ({
+        sessionId: asSessionId('s1'),
+        machine: 'machine-under-test',
+      })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
       broadcast,
       ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -548,7 +554,9 @@ describe('IssueService tuck-away (POD-333)', () => {
     )
     // …so a cold service over the same store — the "different browser / after a
     // restart" case — serves the same fold instead of an un-tucked live row.
-    expect((await (await IssueService.create(deps)).get(w.id))!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect((await (await IssueService.create(deps)).get(w.id))!.tuckedAt).toBe(
+      '2026-06-30T00:00:00.000Z',
+    )
   })
 
   it('broadcasts the change so every OTHER connected client folds the same row', async () => {
@@ -560,8 +568,18 @@ describe('IssueService tuck-away (POD-333)', () => {
 
     // The principal's marker is independently replicated to its other clients.
     const sent = deps.broadcast.mock.calls
-      .map((c) => c[0] as { entity: string; op: string; value?: { entityId: string; tuckedAt?: string | null } })
-      .filter(row => row.entity === 'issueUserState' && row.op === 'upsert' && row.value?.entityId === w.id)
+      .map(
+        (c) =>
+          c[0] as {
+            entity: string
+            op: string
+            value?: { entityId: string; tuckedAt?: string | null }
+          },
+      )
+      .filter(
+        (row) =>
+          row.entity === 'issueUserState' && row.op === 'upsert' && row.value?.entityId === w.id,
+      )
     expect(sent).toHaveLength(1)
     expect(sent[0]?.value?.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
   })
@@ -585,7 +603,10 @@ describe('IssueService tuck-away (POD-333)', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+      spawnSession: vi.fn(async () => ({
+        sessionId: asSessionId('s1'),
+        machine: 'machine-under-test',
+      })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
       broadcast,
       ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -596,17 +617,23 @@ describe('IssueService tuck-away (POD-333)', () => {
     }
     const svc = await IssueService.create(deps)
     const w = await closedIssue(svc)
-    expect((await svc.commandResult((await svc.setIssueTucked(w.id, true)))).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect((await svc.commandResult(await svc.setIssueTucked(w.id, true))).tuckedAt).toBe(
+      '2026-06-30T00:00:00.000Z',
+    )
 
     clock = '2026-06-30T00:01:00.000Z'
     // Idempotent re-tuck (a retried outbox entry, or a second client pressing the
     // same control) must not move the stamp.
-    expect((await svc.commandResult((await svc.setIssueTucked(w.id, true)))).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect((await svc.commandResult(await svc.setIssueTucked(w.id, true))).tuckedAt).toBe(
+      '2026-06-30T00:00:00.000Z',
+    )
 
-    expect((await svc.commandResult((await svc.setIssueTucked(w.id, false)))).tuckedAt).toBeNull()
+    expect((await svc.commandResult(await svc.setIssueTucked(w.id, false))).tuckedAt).toBeNull()
     expect((await svc.get(w.id))!.tuckedAt).toBeNull()
     // A fresh tuck after an untuck takes the NEW clock.
-    expect((await svc.commandResult((await svc.setIssueTucked(w.id, true)))).tuckedAt).toBe('2026-06-30T00:01:00.000Z')
+    expect((await svc.commandResult(await svc.setIssueTucked(w.id, true))).tuckedAt).toBe(
+      '2026-06-30T00:01:00.000Z',
+    )
   })
 
   it('refuses to tuck work that is not finished', async () => {
@@ -615,7 +642,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     await expect(svc.setIssueTucked(open.id, true)).rejects.toThrow(/not finished/)
     expect((await svc.get(open.id))!.tuckedAt).toBeNull()
     // Untuck stays legal on anything — it only clears.
-    expect((await svc.commandResult((await svc.setIssueTucked(open.id, false)))).tuckedAt).toBeNull()
+    expect((await svc.commandResult(await svc.setIssueTucked(open.id, false))).tuckedAt).toBeNull()
   })
 
   it('reopening clears the tuck, so the next close offers Tuck away again', async () => {
@@ -630,7 +657,7 @@ describe('IssueService tuck-away (POD-333)', () => {
 
     // Closing again leaves it untucked — the row comes back as a live "done" row
     // carrying the control, rather than auto-folding on a stale dismissal.
-    expect((await svc.commandResult((await svc.close(w.id)))).tuckedAt).toBeNull()
+    expect((await svc.commandResult(await svc.close(w.id))).tuckedAt).toBeNull()
   })
 
   it('reopening by STARTING a closed issue clears the tuck too (#24 reopen path)', async () => {
@@ -683,7 +710,9 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     expect(archived[0]!.archived).toBe(true)
     expect((await svc.get(id))!.archived).toBe(true)
     // The distinct auto-archive event is logged; the manual archive event is NOT.
-    expect((await store.events.listEventsSince(0, { kinds: ['issue.auto_archived'] })).length).toBe(1)
+    expect((await store.events.listEventsSince(0, { kinds: ['issue.auto_archived'] })).length).toBe(
+      1,
+    )
     expect((await store.events.listEventsSince(0, { kinds: ['issue.archived'] })).length).toBe(0)
     expect(deps.broadcast).toHaveBeenCalled()
   })
@@ -693,7 +722,9 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     const archived = await svc.sweepAutoArchive(readAtMs + 6 * DAY_MS) // only six days later
     expect(archived).toEqual([])
     expect((await svc.get(id))!.archived).toBe(false)
-    expect((await store.events.listEventsSince(0, { kinds: ['issue.auto_archived'] })).length).toBe(0)
+    expect((await store.events.listEventsSince(0, { kinds: ['issue.auto_archived'] })).length).toBe(
+      0,
+    )
   })
 
   it('leaves a done-but-unread issue alone even long after it was closed', async () => {
@@ -720,7 +751,9 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     expect((await svc.sweepAutoArchive(readAtMs + 8 * DAY_MS)).map((w) => w.id)).toEqual([id])
     // A second sweep touches nothing and emits no further event.
     expect(await svc.sweepAutoArchive(readAtMs + 9 * DAY_MS)).toEqual([])
-    expect((await store.events.listEventsSince(0, { kinds: ['issue.auto_archived'] })).length).toBe(1)
+    expect((await store.events.listEventsSince(0, { kinds: ['issue.auto_archived'] })).length).toBe(
+      1,
+    )
   })
 
   it('treats a closed-by-reason top-level issue (not stage done) as archivable when read > 7d ago', async () => {
@@ -818,7 +851,9 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
     // Says YES first. Every refusal below is measured against this exact
     // fixture, so none of them can pass by failing for an unrelated reason.
     const { svc, id } = await doneAndRead()
-    expect(await svc.tryAutoArchiveObserved(observation(id, firstAdminMemberId()), DUE)).toBe('applied')
+    expect(await svc.tryAutoArchiveObserved(observation(id, firstAdminMemberId()), DUE)).toBe(
+      'applied',
+    )
     expect((await svc.get(id))!.archived).toBe(true)
   })
 
@@ -854,9 +889,9 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
     // is inside the seven-day window.
     const { svc, id } = await doneAndRead()
     await svc.markIssueRead(id) // re-read at the harness clock, long after the observation
-    expect(await svc.tryAutoArchiveObserved(observation(id, firstAdminMemberId()), readAtMs + 1000)).toBe(
-      'not-due',
-    )
+    expect(
+      await svc.tryAutoArchiveObserved(observation(id, firstAdminMemberId()), readAtMs + 1000),
+    ).toBe('not-due')
     expect((await svc.get(id))!.archived).toBe(false)
   })
 
@@ -1140,7 +1175,9 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     const remove = ops.find((o) => o.op === 'worktreeRemove')
     expect(remove?.cwd).toBe('/r') // the repo, with the worktree path as an arg
     expect(remove?.args).toEqual({ path: '/r/.worktrees/issue-x' }) // NO force, ever
-    expect((await h.store.events.listEventsSince(0, { kinds: ['issue.worktree_freed'] })).length).toBe(1)
+    expect(
+      (await h.store.events.listEventsSince(0, { kinds: ['issue.worktree_freed'] })).length,
+    ).toBe(1)
   })
 
   it('signs the audit comment as the archive, not as a stop (POD-1294)', async () => {
@@ -1156,9 +1193,9 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     await h.svc.archive(id)
     await settle()
 
-    const audit = (await h.store.issues
-      .listIssueComments(id))
-      .find((c) => c.body.includes('freed worktree'))
+    const audit = (await h.store.issues.listIssueComments(id)).find((c) =>
+      c.body.includes('freed worktree'),
+    )
     expect(audit?.author).toBe('system:archive')
     expect(audit?.body).toMatch(/^archive: freed worktree/)
     expect(audit?.actor).toBe('system:archive')
@@ -1172,7 +1209,9 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     await h.svc.markIssueRead(id)
 
     const readAtMs = Date.parse('2026-06-30T00:00:00.000Z')
-    expect((await h.svc.sweepAutoArchive(readAtMs + 8 * 24 * 3600_000)).map((w) => w.id)).toEqual([id])
+    expect((await h.svc.sweepAutoArchive(readAtMs + 8 * 24 * 3600_000)).map((w) => w.id)).toEqual([
+      id,
+    ])
     await settle()
 
     expect((await h.svc.get(id))!.worktreePath).toBeNull()
@@ -1203,7 +1242,9 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
 
     expect((await h.svc.get(id))!.worktreePath).toBe('/r/.worktrees/issue-x')
     expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
-    const refused = await h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] })
+    const refused = await h.store.events.listEventsSince(0, {
+      kinds: ['issue.worktree_free_refused'],
+    })
     expect(refused.length).toBe(1)
     // The reason travels with it — "why is this directory still here" is answerable.
     expect(JSON.stringify(refused[0]!.payload)).toContain('unsaved.ts')
@@ -2007,14 +2048,22 @@ describe('IssueService.start', () => {
 
   it('starting a closed issue reopens it explicitly: closed markers clear + issue.reopened (#24)', async () => {
     const { svc, store } = await harness()
-    const created = await svc.create({ repoPath: '/r', title: 'Closed then started', startNow: false })
+    const created = await svc.create({
+      repoPath: '/r',
+      title: 'Closed then started',
+      startNow: false,
+    })
     await svc.close(created.id, 'wontfix')
     const started = await svc.start(created.id)
     expect(started.stage).toBe('in_progress')
     expect(started.closedReason).toBeUndefined()
     expect((await svc.commandResult(started)).ready).toBe(true)
-    expect((await svc.search({ repoPath: '/r', status: 'open' })).map((i) => i.id)).toEqual([created.id])
-    const reopened = (await store.events.listEventsSince(0)).filter((e) => e.kind === 'issue.reopened')
+    expect((await svc.search({ repoPath: '/r', status: 'open' })).map((i) => i.id)).toEqual([
+      created.id,
+    ])
+    const reopened = (await store.events.listEventsSince(0)).filter(
+      (e) => e.kind === 'issue.reopened',
+    )
     expect(reopened).toHaveLength(1)
   })
 
@@ -2757,7 +2806,9 @@ describe('IssueService assistant', () => {
       llmClient(backend, apiKey, fetch, {
         codexTransport: {
           complete: async () => {
-            throw new Error('must not reach the Codex transport: unset role runs managed:openrouter')
+            throw new Error(
+              'must not reach the Codex transport: unset role runs managed:openrouter',
+            )
           },
         },
       })) as never
@@ -2916,7 +2967,7 @@ describe('IssueService field mutations (P1)', () => {
     const { svc } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
-    expect((await svc.commandResult((await svc.addDep(a.id, b.id)))).blocked).toBe(true)
+    expect((await svc.commandResult(await svc.addDep(a.id, b.id))).blocked).toBe(true)
     await expect(svc.addDep(a.id, a.id)).rejects.toThrow(/self/)
     await expect(svc.addDep(b.id, a.id)).rejects.toThrow(/cycle/) // a->b already; b->a closes the loop
   })
@@ -3011,8 +3062,18 @@ describe('IssueService field mutations (P1)', () => {
   it('ancestorIds walks the parent chain nearest-first', async () => {
     const { svc } = await harness()
     const epic = await svc.create({ repoPath: '/r', title: 'epic', startNow: false })
-    const mid = await svc.create({ repoPath: '/r', title: 'mid', startNow: false, parentId: epic.id })
-    const leaf = await svc.create({ repoPath: '/r', title: 'leaf', startNow: false, parentId: mid.id })
+    const mid = await svc.create({
+      repoPath: '/r',
+      title: 'mid',
+      startNow: false,
+      parentId: epic.id,
+    })
+    const leaf = await svc.create({
+      repoPath: '/r',
+      title: 'leaf',
+      startNow: false,
+      parentId: mid.id,
+    })
     expect(await svc.ancestorIds(leaf.id)).toEqual([mid.id, epic.id])
     expect(await svc.ancestorIds(epic.id)).toEqual([])
   })
@@ -3063,9 +3124,19 @@ describe('issue colour belongs to top-level tasks (POD-697)', () => {
   it('gives up the colour when a top-level task becomes a sub-task', async () => {
     const { svc } = await harness()
     const epic = await svc.create({ repoPath: '/r', title: 'E', startNow: false })
-    const viaReparent = await svc.create({ repoPath: '/r', title: 'R', startNow: false, color: 'lime' })
+    const viaReparent = await svc.create({
+      repoPath: '/r',
+      title: 'R',
+      startNow: false,
+      color: 'lime',
+    })
     expect((await svc.reparent(viaReparent.id, epic.id)).color).toBeUndefined()
-    const viaUpdate = await svc.create({ repoPath: '/r', title: 'U', startNow: false, color: 'cyan' })
+    const viaUpdate = await svc.create({
+      repoPath: '/r',
+      title: 'U',
+      startNow: false,
+      color: 'cyan',
+    })
     expect((await svc.update(viaUpdate.id, { parentId: epic.id })).color).toBeUndefined()
     // Promotion back to top level is a fresh choice, not a restore.
     expect((await svc.reparent(viaReparent.id, null)).color).toBeUndefined()
@@ -3077,7 +3148,12 @@ describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
   it('create({parentId}) sets parent_id; wire deps/dependents synthesize the edge (#164)', async () => {
     const { svc, store } = await harness()
     const epic = await svc.create({ repoPath: '/r', title: 'E', startNow: false })
-    const child = await svc.create({ repoPath: '/r', title: 'C', parentId: epic.id, startNow: false })
+    const child = await svc.create({
+      repoPath: '/r',
+      title: 'C',
+      parentId: epic.id,
+      startNow: false,
+    })
     expect(await store.issues.listIssueDeps(child.id)).toEqual([]) // single storage: no dep row
     expect((await svc.get(child.id))!.deps).toEqual([{ id: epic.id, type: 'parent-child' }])
     expect((await svc.get(epic.id))!.dependents).toEqual([{ id: child.id, type: 'parent-child' }])
@@ -3387,7 +3463,9 @@ describe('IssueService supersede/duplicate (P2b)', () => {
     expect(w.stage).toBe('done')
     expect(w.closedReason).toBe('superseded')
     expect(w.supersededBy).toBe(newI.id)
-    expect(await store.issues.listIssueDeps(oldI.id)).toEqual([{ toId: newI.id, type: 'supersedes' }])
+    expect(await store.issues.listIssueDeps(oldI.id)).toEqual([
+      { toId: newI.id, type: 'supersedes' },
+    ])
   })
 
   it('duplicate closes id with reason + duplicateOf + related dep', async () => {
@@ -3449,7 +3527,13 @@ describe('IssueService stale/lint (P2b)', () => {
 
   it('lint flags a feature with no acceptance', async () => {
     const { svc } = await harness()
-    await svc.create({ repoPath: '/r', title: 'F', description: 'd', type: 'feature', startNow: false })
+    await svc.create({
+      repoPath: '/r',
+      title: 'F',
+      description: 'd',
+      type: 'feature',
+      startNow: false,
+    })
     const findings = await svc.lint('/r')
     expect(findings.length).toBe(1)
     expect(findings[0]!.findings).toEqual(['missing acceptance criteria'])
@@ -3464,15 +3548,14 @@ describe('IssueService search/count/stats (P2b)', () => {
     const done = await svc.create({ repoPath: '/r', title: 'Login done', startNow: false })
     await svc.close(done.id)
     expect(
-      (await svc
-        .search({ repoPath: '/r', text: 'login' }))
-        .map((w) => w.title)
-        .sort(),
+      (await svc.search({ repoPath: '/r', text: 'login' })).map((w) => w.title).sort(),
     ).toEqual(['Login done', 'Login fails'])
     expect(
       (await svc.search({ repoPath: '/r', text: 'login', status: 'open' })).map((w) => w.title),
     ).toEqual(['Login fails'])
-    expect((await svc.search({ repoPath: '/r', priority: 0 })).map((w) => w.title)).toEqual(['Login fails'])
+    expect((await svc.search({ repoPath: '/r', priority: 0 })).map((w) => w.title)).toEqual([
+      'Login fails',
+    ])
   })
 
   it('count groups and stats totals', async () => {
@@ -3540,7 +3623,12 @@ describe('IssueService.prime (P1a)', () => {
   it('prime renders a bound issue with its children and blockers', async () => {
     const { svc } = await harness()
     const epic = await svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
-    const child = await svc.create({ repoPath: '/r', title: 'Child', startNow: false, parentId: epic.id })
+    const child = await svc.create({
+      repoPath: '/r',
+      title: 'Child',
+      startNow: false,
+      parentId: epic.id,
+    })
     const out = await svc.prime({ repoPath: '/r', boundIssueId: epic.id })
     // Structural: the bound issue and its child both surface. Instructional
     // copy-string pins (reparent / --outside-scope / operator-only prose) dropped
@@ -3678,7 +3766,12 @@ describe('IssueService.purgeEmptyDraft (internal hard-delete seam)', () => {
   it('deleting an issue clears scalar back-references on other issues', async () => {
     const { svc, store } = await harness()
     const parent = await svc.create({ repoPath: '/r', title: 'P', startNow: false })
-    const child = await svc.create({ repoPath: '/r', title: 'C', parentId: parent.id, startNow: false })
+    const child = await svc.create({
+      repoPath: '/r',
+      title: 'C',
+      parentId: parent.id,
+      startNow: false,
+    })
     await svc.purgeEmptyDraft(parent.id)
     expect((await svc.get(child.id))!.parentId).toBeUndefined() // wire omits null parentId
     expect((await store.issues.getIssue(child.id))!.parentId).toBeNull()
@@ -3740,7 +3833,11 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
 
   it('resolves a human-facing nice id PREFIX-seq (#474)', async () => {
     const { svc, store } = await harness()
-    await store.repos.addRepo('/home/u/podium', asMachineId('__local__'), 'git@github.com:o/podium.git')
+    await store.repos.addRepo(
+      '/home/u/podium',
+      asMachineId('__local__'),
+      'git@github.com:o/podium.git',
+    )
     const prefix = (await store.repos.prefixForPath('/home/u/podium'))!
     const w = await svc.create({ repoPath: '/home/u/podium', title: 'A', startNow: false })
     expect((await svc.commandResult(w)).displayRef).toBe(`${prefix}-${w.seq}`)
@@ -3759,7 +3856,8 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
 
   it('resolves repo-qualified refs — the exact form the ambiguity error prints', async () => {
     const { svc, store } = await harness()
-    for (const path of ['/home/u/r1', '/home/u/r2']) await store.repos.addRepo(path, store.hostMachineId)
+    for (const path of ['/home/u/r1', '/home/u/r2'])
+      await store.repos.addRepo(path, store.hostMachineId)
     const a = await svc.create({ repoPath: '/home/u/r1', title: 'A', startNow: false })
     const b = await svc.create({ repoPath: '/home/u/r2', title: 'B', startNow: false })
     // full repoPath#seq (copy-pasted from the ambiguity error) resolves
@@ -3773,7 +3871,8 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
 
   it('the ambiguity error is copy-paste actionable: its printed refs resolve', async () => {
     const { svc, store } = await harness()
-    for (const path of ['/home/u/r1', '/home/u/r2']) await store.repos.addRepo(path, store.hostMachineId)
+    for (const path of ['/home/u/r1', '/home/u/r2'])
+      await store.repos.addRepo(path, store.hostMachineId)
     const a = await svc.create({ repoPath: '/home/u/r1', title: 'A', startNow: false })
     await svc.create({ repoPath: '/home/u/r2', title: 'B', startNow: false })
     let message = ''
@@ -3790,7 +3889,8 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
 
   it('a suffix ref matching several repos throws instead of guessing', async () => {
     const { svc, store } = await harness()
-    for (const path of ['/a/podium', '/b/podium']) await store.repos.addRepo(path, store.hostMachineId)
+    for (const path of ['/a/podium', '/b/podium'])
+      await store.repos.addRepo(path, store.hostMachineId)
     await svc.create({ repoPath: '/a/podium', title: 'A', startNow: false })
     await svc.create({ repoPath: '/b/podium', title: 'B', startNow: false })
     await expect(svc.resolveRef('podium#1')).rejects.toThrow(/ambiguous issue ref podium#1/)
@@ -4018,8 +4118,16 @@ describe('IssueService.cleanup (issue #71)', () => {
   const CLEAN_STATUS = '## issue/1-x'
 
   /** Create a started issue (worktree+branch recorded) and optionally close it. */
-  async function prepared(h: Awaited<ReturnType<typeof harness>>, opts: { closed?: boolean } = { closed: true }) {
-    const w = await h.svc.create({ repoPath: '/r', title: 'X', parentBranch: 'main', startNow: false })
+  async function prepared(
+    h: Awaited<ReturnType<typeof harness>>,
+    opts: { closed?: boolean } = { closed: true },
+  ) {
+    const w = await h.svc.create({
+      repoPath: '/r',
+      title: 'X',
+      parentBranch: 'main',
+      startNow: false,
+    })
     await h.svc.update(w.id, { worktreePath: WT, branch: BR })
     if (opts.closed !== false) await h.svc.close(w.id)
     return w
@@ -4184,9 +4292,9 @@ describe('IssueService.cleanup (issue #71)', () => {
 
     const r = await h.svc.cleanup(w.id, userCommandPrincipal(alice, 'member'))
     expect(r.ok).toBe(true)
-    const audit = (await h.store.issues
-      .listIssueComments(w.id))
-      .find((c) => c.author === 'system:cleanup' && c.body.includes(WT))
+    const audit = (await h.store.issues.listIssueComments(w.id)).find(
+      (c) => c.author === 'system:cleanup' && c.body.includes(WT),
+    )
     expect(audit?.actor).toBe(alice)
     expect(audit?.onBehalfOf).toBe(alice)
   })
@@ -4241,7 +4349,12 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
   const CLEAN_STATUS = '## issue/1-x'
 
   async function prepared(h: Awaited<ReturnType<typeof harness>>) {
-    const w = await h.svc.create({ repoPath: '/r', title: 'X', parentBranch: 'main', startNow: false })
+    const w = await h.svc.create({
+      repoPath: '/r',
+      title: 'X',
+      parentBranch: 'main',
+      startNow: false,
+    })
     await h.svc.update(w.id, { worktreePath: WT, branch: BR })
     await h.svc.close(w.id)
     return w
@@ -4463,7 +4576,10 @@ describe('IssueService.integrate (issue #70)', () => {
       { op: 'revParseVerify', cwd: INT_WT, args: { ref: INT_BR } },
     ])
     expect(
-      await h.store.shipping.rootIntegrationReceipt(epic.id, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+      await h.store.shipping.rootIntegrationReceipt(
+        epic.id,
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      ),
     ).toEqual({
       rootIssueId: epic.id,
       approvedHeadSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -4694,9 +4810,9 @@ describe('IssueService.integrate (issue #70)', () => {
     )
     expect(await h.store.shipping.rootIntegrationReceipt(epic.id, rootSha)).toBeNull()
     expect(
-      (await h.store.issues
-        .listIssueComments(epic.id))
-        .filter((comment) => comment.author === 'system:integrate'),
+      (await h.store.issues.listIssueComments(epic.id)).filter(
+        (comment) => comment.author === 'system:integrate',
+      ),
     ).toEqual([])
     expect(await h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })).toEqual([])
   })
@@ -4714,9 +4830,9 @@ describe('IssueService.integrate (issue #70)', () => {
     expect(result).toMatchObject({ ok: false })
     expect(result.output).toMatch(/receipt persistence failed: receipt store unavailable/)
     expect(
-      (await h.store.issues
-        .listIssueComments(epic.id))
-        .filter((comment) => comment.author === 'system:integrate'),
+      (await h.store.issues.listIssueComments(epic.id)).filter(
+        (comment) => comment.author === 'system:integrate',
+      ),
     ).toEqual([])
     expect(await h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })).toEqual([])
   })
@@ -4730,9 +4846,9 @@ describe('IssueService.integrate (issue #70)', () => {
 
     const r = await h.svc.integrate(epic.id, userCommandPrincipal(alice, 'member'))
     expect(r.ok).toBe(true)
-    const audit = (await h.store.issues
-      .listIssueComments(epic.id))
-      .find((c) => c.author === 'system:integrate')
+    const audit = (await h.store.issues.listIssueComments(epic.id)).find(
+      (c) => c.author === 'system:integrate',
+    )
     expect(audit?.actor).toBe(alice)
     expect(audit?.onBehalfOf).toBe(alice)
   })
@@ -4928,16 +5044,19 @@ describe('IssueService.integrate (issue #70)', () => {
     expect(row.needsHuman).toBe(true)
     expect(row.humanQuestion).toMatch(new RegExp(`integration blocked at #${bad!.seq}: CONFLICT`))
     // one summary comment: what landed vs what blocked
-    const comments = (await h.store.issues
-      .listIssueComments(epic.id))
-      .filter((c) => c.author === 'system:integrate')
+    const comments = (await h.store.issues.listIssueComments(epic.id)).filter(
+      (c) => c.author === 'system:integrate',
+    )
     expect(comments.length).toBe(1)
     expect(comments[0]!.body).toContain(`integrated #${ok1!.seq}`)
     expect(comments[0]!.body).toContain(`blocked at #${bad!.seq}`)
     const ev = await h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })
     expect(ev[0]!.payload).toEqual({ epicSeq: 1, integrated: [ok1!.seq], blockedAt: bad!.seq })
     expect(
-      await h.store.shipping.rootIntegrationReceipt(epic.id, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+      await h.store.shipping.rootIntegrationReceipt(
+        epic.id,
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      ),
     ).toBeNull()
   })
 
@@ -4961,20 +5080,26 @@ describe('IssueService.integrate (issue #70)', () => {
     expect(r1.ok).toBe(true)
     expect(r2.ok).toBe(true)
     expect(r2.output).toBe(r1.output)
-    const comments = (await h.store.issues
-      .listIssueComments(epic.id))
-      .filter((c) => c.author === 'system:integrate')
+    const comments = (await h.store.issues.listIssueComments(epic.id)).filter(
+      (c) => c.author === 'system:integrate',
+    )
     expect(comments.length).toBe(1)
     const ev = await h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })
     expect(ev.length).toBe(2)
     // a CHANGED outcome (new child closes) does comment again
-    const extra = await h.svc.create({ repoPath: '/r', title: 'K2', parentId: epic.id, startNow: false })
+    const extra = await h.svc.create({
+      repoPath: '/r',
+      title: 'K2',
+      parentId: epic.id,
+      startNow: false,
+    })
     await h.svc.update(extra.id, { branch: 'issue/4-k2' })
     await h.svc.close(extra.id)
     await h.svc.integrate(epic.id, AS_OPERATOR)
     expect(
-      (await h.store.issues.listIssueComments(epic.id)).filter((c) => c.author === 'system:integrate')
-        .length,
+      (await h.store.issues.listIssueComments(epic.id)).filter(
+        (c) => c.author === 'system:integrate',
+      ).length,
     ).toBe(2)
   })
 
@@ -5051,8 +5176,12 @@ describe('IssueService panelApply (agent-published human panel)', () => {
       { text: 'first', done: false },
       { text: 'second', done: false },
     ])
-    expect((await svc.panelApply(w.id, { op: 'todo-done', index: 2 })).panel?.todos[1]?.done).toBe(true)
-    expect((await svc.panelApply(w.id, { op: 'todo-undone', index: 2 })).panel?.todos[1]?.done).toBe(false)
+    expect((await svc.panelApply(w.id, { op: 'todo-done', index: 2 })).panel?.todos[1]?.done).toBe(
+      true,
+    )
+    expect(
+      (await svc.panelApply(w.id, { op: 'todo-undone', index: 2 })).panel?.todos[1]?.done,
+    ).toBe(false)
     expect((await svc.panelApply(w.id, { op: 'todo-remove', index: 1 })).panel?.todos).toEqual([
       { text: 'second', done: false },
     ])
@@ -5310,7 +5439,9 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(w.id, { worktreePath: '/wt/issue-1' })
     await svc.panelApply(w.id, { op: 'artifact-add', path: '/tmp/review.png' })
-    await expect(svc.update(w.id, { stage: 'review' })).rejects.toThrow(/outside the owning issue worktree/)
+    await expect(svc.update(w.id, { stage: 'review' })).rejects.toThrow(
+      /outside the owning issue worktree/,
+    )
   })
 
   it('remove deletes the panel entry AND its store directory', async () => {
@@ -5791,7 +5922,11 @@ describe('IssueService agent mail (#103)', () => {
     const { svc, store } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await seedIssueMail(store, a.id, 'msg_pushed', { fromSession: asSessionId('sSender') })
-    await store.messages.markDispatched('msg_pushed', asSessionId('sPushed'), '2026-08-02T14:44:17.283Z')
+    await store.messages.markDispatched(
+      'msg_pushed',
+      asSessionId('sPushed'),
+      '2026-08-02T14:44:17.283Z',
+    )
     expect(await store.messages.getMessage('msg_pushed')).toMatchObject({
       deliveryStatus: 'dispatched',
       deliveredTo: 'sPushed',
@@ -5841,9 +5976,9 @@ describe('IssueService agent mail (#103)', () => {
     await seedIssueMail(store, a.id, 'msg_claimed', { fromSession: asSessionId('sSender') })
     // Claim is the OPT-IN "I will act on this" signal; delivery must not depend
     // on it, so it retires the claimer's nag and nobody else's.
-    expect((await svc.mailClaim('msg_claimed', 'issue:#1', { sessionId: asSessionId('sA') })).claimed).toBe(
-      true,
-    )
+    expect(
+      (await svc.mailClaim('msg_claimed', 'issue:#1', { sessionId: asSessionId('sA') })).claimed,
+    ).toBe(true)
     expect((await svc.mailPending(a.id, { sessionId: asSessionId('sA') })).unread).toBe(0)
     expect((await svc.mailPending(a.id, { sessionId: asSessionId('sB') })).unread).toBe(1)
   })
@@ -6016,9 +6151,13 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     expect(result).toEqual({ outcome: 'proposed' })
     expect((await h.svc.get(id))!.worktreePath).not.toBeNull()
     expect(ops.some((o) => o.op === 'worktreeRemove')).toBe(false)
-    const proposed = await h.store.events.listEventsSince(0, { kinds: ['issue.worktree_gc_proposed'] })
+    const proposed = await h.store.events.listEventsSince(0, {
+      kinds: ['issue.worktree_gc_proposed'],
+    })
     expect(proposed.length).toBe(1)
-    expect(proposed[0]!.payload).toMatchObject({ worktreePath: (await h.svc.get(id))!.worktreePath })
+    expect(proposed[0]!.payload).toMatchObject({
+      worktreePath: (await h.svc.get(id))!.worktreePath,
+    })
   })
 
   it('under `auto` it frees the checkout, keeps the branch, and never forces', async () => {
@@ -6241,7 +6380,8 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
  */
 describe('POD-3500 — async guards behind void ports', () => {
   /** The refusal the relay's `machines.requireMachineForRepo` actually raises. */
-  const OFFLINE = "machine 'laptop' is offline — bring its daemon online or clear the issue's machine pin"
+  const OFFLINE =
+    "machine 'laptop' is offline — bring its daemon online or clear the issue's machine pin"
   /** The refusal `machines.requireRepoHostStructure` actually raises. */
   const NO_DAEMON = "machine 'phone' runs no Podium daemon and can never hold a worktree"
 
@@ -6400,7 +6540,12 @@ describe('POD-3504 — promise-only issue ports', () => {
   it('listSessionsForIssue: start reuses resolved members without spawning', async () => {
     const { svc, deps } = await harness()
     const issue = await svc.create({ repoPath: '/r', title: 'Existing', startNow: false })
-    const member = { ...sess('/r'), issueId: issue.id, machineId: asMachineId('existing-id'), machineName: 'stale-machine' }
+    const member = {
+      ...sess('/r'),
+      issueId: issue.id,
+      machineId: asMachineId('existing-id'),
+      machineName: 'stale-machine',
+    }
     deps.listSessionsForIssue = vi.fn(async () => [member])
     deps.machineName = vi.fn(async () => 'existing-machine')
 
@@ -6459,11 +6604,17 @@ describe('POD-3504 — promise-only issue ports', () => {
     expect(deps.resolveMachine).toHaveBeenCalledWith(undefined, '/r/wt')
   })
 
-  it.each([null, '/remote/repo'])('findRepoOnMachine: resolved %s selects the guard path', async (found) => {
+  it.each([
+    null,
+    '/remote/repo',
+  ])('findRepoOnMachine: resolved %s selects the guard path', async (found) => {
     const { svc, deps } = await harness()
     const machine = asMachineId('remote-machine')
     const issue = await svc.create({
-      repoPath: '/r', title: 'Repository', startNow: false, machineId: machine,
+      repoPath: '/r',
+      title: 'Repository',
+      startNow: false,
+      machineId: machine,
     })
     await svc.start(issue.id)
     deps.findRepoOnMachine = vi.fn(async () => found)

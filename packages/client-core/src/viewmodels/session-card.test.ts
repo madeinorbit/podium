@@ -1,8 +1,7 @@
-import type { UnbrandIds } from '@podium/model'
-import type { IssueViewModel } from '../replica/issue-view-models'
+import type { SessionId, SessionMeta, SessionMetaInput, UnbrandIds } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import type { SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { IssueViewModel } from '../replica/issue-view-models'
 import { sessionCardModel, sessionTitle } from './session-card'
 
 function session(overrides: Partial<SessionMetaInput> & { sessionId: SessionId }): SessionMeta {
@@ -103,10 +102,14 @@ describe('session card view model', () => {
   })
 
   it('prefers the user-set name, then title, then the cwd basename', () => {
-    expect(sessionTitle(session({ sessionId: asSessionId('a'), name: 'My rename', title: 'live title' }))).toBe(
-      'My rename',
+    expect(
+      sessionTitle(
+        session({ sessionId: asSessionId('a'), name: 'My rename', title: 'live title' }),
+      ),
+    ).toBe('My rename')
+    expect(sessionTitle(session({ sessionId: asSessionId('b'), title: 'live title' }))).toBe(
+      'live title',
     )
-    expect(sessionTitle(session({ sessionId: asSessionId('b'), title: 'live title' }))).toBe('live title')
     expect(sessionTitle(session({ sessionId: asSessionId('c'), title: '  ' }))).toBe('podium')
   })
 })

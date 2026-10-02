@@ -1,6 +1,6 @@
-import type { IssueViewModel } from '../replica/issue-view-models'
-import { ISSUE_STATUS_LABELS, type IssueId, type IssueStage, } from '@podium/model'
+import { ISSUE_STATUS_LABELS, type IssueId, type IssueStage } from '@podium/model'
 import { issueDisplayRef, parseAnyRef } from '@podium/protocol'
+import type { IssueViewModel } from '../replica/issue-view-models'
 
 /** Human labels for the workflow glyph family. Kept with the reference model so
  * every adapter (web, terminal, native) announces the same state.
@@ -50,7 +50,9 @@ export interface IssueReferenceModel {
  * label on the resolvers' own matching rule. A real displayRef still wins over
  * a stale legacy prefix (prefix-change case: view says `NEW-17`, legacy still
  * says `POD`), because only the fallback shape (`#…` or absent) defers. */
-export function canonicalIssueRef(issue: Pick<IssueReferenceSource, 'prefix' | 'displayRef' | 'seq'>): string {
+export function canonicalIssueRef(
+  issue: Pick<IssueReferenceSource, 'prefix' | 'displayRef' | 'seq'>,
+): string {
   if (issue.displayRef && !issue.displayRef.startsWith('#')) return issue.displayRef
   if (issue.prefix) return `${issue.prefix}-${issue.seq}`
   return issueDisplayRef(issue)

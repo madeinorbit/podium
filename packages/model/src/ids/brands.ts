@@ -1,5 +1,3 @@
-
-
 import { z } from 'zod'
 import type { Instant } from '../clock'
 import { brandedIdSchema, ID_PREFIXES, mintBrandedId } from './branded-ksuid'

@@ -61,10 +61,10 @@ import {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
-  SessionUserStateWire,
   MachineProjection,
   RepoProjection,
   SessionMeta,
+  SessionUserStateWire,
 } from '@podium/model'
 import { ShipLaneProjection, ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'

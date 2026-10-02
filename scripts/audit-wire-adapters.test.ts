@@ -14,8 +14,8 @@
  */
 
 import {
-  MIN_CLIENT_WIRE_VERSION,
   CLIENT_WIRE_VERSION,
+  MIN_CLIENT_WIRE_VERSION,
   WireVersionAdapterRegistry,
   WireVersionError,
 } from '@podium/protocol'
@@ -23,15 +23,13 @@ import { describe, expect, it } from 'vitest'
 import { WireFeedEdge } from '../apps/server/src/gateway/wire-feed-edge'
 import { outcomesOf, PROBES, runChecks } from './audit-wire-adapters'
 
-const edge = () =>
-  new WireFeedEdge({ visibilityGrade: () => 'device-unscoped' })
+const edge = () => new WireFeedEdge({ visibilityGrade: () => 'device-unscoped' })
 
 describe('the shipped edge, as a running object', () => {
   it('covers the whole advertised window — it would refuse to boot otherwise', () => {
     expect(() => edge()).not.toThrow()
     expect(edge().support()).toEqual({ wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION })
   })
-
 
   it('reports nothing expired at the shipped floor', () => {
     expect(edge().expiredAdapters()).toEqual([])
@@ -100,7 +98,10 @@ function realTreeInput() {
   return {
     read: (path: string) => {
       try {
-        return require('node:fs').readFileSync(`${import.meta.dirname}/../${path}`, 'utf8') as string
+        return require('node:fs').readFileSync(
+          `${import.meta.dirname}/../${path}`,
+          'utf8',
+        ) as string
       } catch {
         return null
       }

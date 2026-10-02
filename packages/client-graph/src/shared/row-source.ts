@@ -1,4 +1,8 @@
-import { sessionView, type SessionValueInput, type SessionHomes } from '@podium/client-core/session-values'
+import {
+  type SessionHomes,
+  type SessionValueInput,
+  sessionView,
+} from '@podium/client-core/session-values'
 import { ISSUE_SESSION_FACTS_SUMMARY } from './schema'
 /**
  * POD-4444, rewritten per-row by POD-4553 — the kernel's effective per-row
@@ -141,12 +145,21 @@ import {
   type PendingOverlay,
 } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
-import { issueInput } from './issue-input'
 import { shallowEqual } from '@podium/client-core/store'
-import { normalizeOriginUrl, repoNameFromOrigin, parseIssueUserStateRowId, issueUserStateRowId, asUserId, asIssueId, asSessionId, parseSessionUserStateRowId, sessionUserStateRowId } from '@podium/model'
-import type { RowSource } from './source'
+import {
+  asIssueId,
+  asSessionId,
+  asUserId,
+  issueUserStateRowId,
+  normalizeOriginUrl,
+  parseIssueUserStateRowId,
+  parseSessionUserStateRowId,
+  repoNameFromOrigin,
+  sessionUserStateRowId,
+} from '@podium/model'
+import { issueInput } from './issue-input'
 import type { SliceIssue, SliceSession, SliceWorktree } from './slice-types'
-import type { RowRecord, RowSourceEvent } from './source'
+import type { RowRecord, RowSource, RowSourceEvent } from './source'
 
 type AnyRow = { [k: string]: unknown }
 
@@ -229,7 +242,7 @@ type PendingByRow = Record<OverlayTarget, ReadonlyMap<string, readonly PendingOv
 const NO_PENDING: PendingByRow = {
   sessions: new Map(),
   sessionUserStates: new Map(),
-    issueUserStates: new Map(),
+  issueUserStates: new Map(),
   issueProjections: new Map(),
 }
 
@@ -298,7 +311,10 @@ export function createRowSource(
     if (typeof row?.repoId === 'string') {
       issueRepos.set(id, row.repoId)
       let members = repoIssues.get(row.repoId)
-      if (!members) { members = new Set(); repoIssues.set(row.repoId, members) }
+      if (!members) {
+        members = new Set()
+        repoIssues.set(row.repoId, members)
+      }
       members.add(id)
     }
   }
@@ -309,11 +325,16 @@ export function createRowSource(
     return entityId
   }
   function seedIssueJoins(): void {
-    userStateKeys.clear(); issueRepos.clear(); repoIssues.clear()
+    userStateKeys.clear()
+    issueRepos.clear()
+    repoIssues.clear()
     for (const row of replica.rows('issueUserStates')) {
       if (typeof row.userId === 'string' && typeof row.entityId === 'string') {
         // Composite keys use the same encoding as the facade, including removals.
-        userStateKeys.set(row.entityId, issueUserStateRowId(asUserId(row.userId), asIssueId(row.entityId)))
+        userStateKeys.set(
+          row.entityId,
+          issueUserStateRowId(asUserId(row.userId), asIssueId(row.entityId)),
+        )
       }
     }
     for (const row of replica.rows('issueProjections')) {
@@ -335,10 +356,30 @@ export function createRowSource(
     sessionJoins.delete(id)
     if (!row) return
     const repo = typeof row.refRepoId === 'string' ? row.refRepoId : undefined
-    const machines = [...new Set([row.machineId, row.handoffTargetMachineId].filter((id): id is string => typeof id === 'string'))]
+    const machines = [
+      ...new Set(
+        [row.machineId, row.handoffTargetMachineId].filter(
+          (id): id is string => typeof id === 'string',
+        ),
+      ),
+    ]
     sessionJoins.set(id, { repo, machines })
-    if (repo) { let ids = repoSessions.get(repo); if (!ids) { ids = new Set(); repoSessions.set(repo, ids) }; ids.add(id) }
-    for (const machine of machines) { let ids = machineSessions.get(machine); if (!ids) { ids = new Set(); machineSessions.set(machine, ids) }; ids.add(id) }
+    if (repo) {
+      let ids = repoSessions.get(repo)
+      if (!ids) {
+        ids = new Set()
+        repoSessions.set(repo, ids)
+      }
+      ids.add(id)
+    }
+    for (const machine of machines) {
+      let ids = machineSessions.get(machine)
+      if (!ids) {
+        ids = new Set()
+        machineSessions.set(machine, ids)
+      }
+      ids.add(id)
+    }
   }
   function installSessionUserKey(key: string): string | undefined {
     const parsed = parseSessionUserStateRowId(key)
@@ -349,10 +390,15 @@ export function createRowSource(
     return id
   }
   function seedSessionJoins(): void {
-    sessionUserKeys.clear(); sessionJoins.clear(); repoSessions.clear(); machineSessions.clear()
+    sessionUserKeys.clear()
+    sessionJoins.clear()
+    repoSessions.clear()
+    machineSessions.clear()
     for (const row of replica.rows('sessionUserStates')) {
       if (typeof row.userId === 'string' && typeof row.sessionId === 'string') {
-        installSessionUserKey(sessionUserStateRowId(asUserId(row.userId), asSessionId(row.sessionId)))
+        installSessionUserKey(
+          sessionUserStateRowId(asUserId(row.userId), asSessionId(row.sessionId)),
+        )
       }
     }
     for (const row of replica.rows('sessions')) {
@@ -368,19 +414,26 @@ export function createRowSource(
     const overlays = pending?.sessions.get(id) ?? NO_OVERLAYS
     const raw =
       authority('sessions', id) ??
-      (overlays.find((o) => o.op === 'insert') as Extract<PendingOverlay, { op: 'insert' }> | undefined)
-        ?.insert
+      (
+        overlays.find((o) => o.op === 'insert') as
+          | Extract<PendingOverlay, { op: 'insert' }>
+          | undefined
+      )?.insert
     if (!raw) return undefined
     const value = raw as AnyRow & SessionValueInput
     const userState = foldRowOverlays(
-      sessionUserKeys.has(id) ? authority('sessionUserStates', sessionUserKeys.get(id)!) : undefined,
+      sessionUserKeys.has(id)
+        ? authority('sessionUserStates', sessionUserKeys.get(id)!)
+        : undefined,
       pending?.sessionUserStates.get(id) ?? NO_OVERLAYS,
     )
     return sessionView(value, {
       userState,
       repo: value.refRepoId ? authority('repos', value.refRepoId) : undefined,
       machine: value.machineId ? authority('machines', value.machineId) : undefined,
-      handoffMachine: value.handoffTargetMachineId ? authority('machines', value.handoffTargetMachineId) : undefined,
+      handoffMachine: value.handoffTargetMachineId
+        ? authority('machines', value.handoffTargetMachineId)
+        : undefined,
     } as SessionHomes) as AnyRow
   }
 
@@ -462,7 +515,7 @@ export function createRowSource(
     return {
       sessions: runtime.pendingOverlaysByRow('sessions'),
       sessionUserStates: runtime.pendingOverlaysByRow('sessionUserStates'),
-            issueUserStates: runtime.pendingOverlaysByRow('issueUserStates'),
+      issueUserStates: runtime.pendingOverlaysByRow('issueUserStates'),
       issueProjections: runtime.pendingOverlaysByRow('issueProjections'),
     }
   }
@@ -495,41 +548,78 @@ export function createRowSource(
   // Two timestamps and a staffing bit, never retained session records.
   // Supplement the retained R2 roster with headless seats (which never take
   // part in resume collapse). Normal/shell staffing uses the existing roster.
-  const rawSessionFacts = new Map<string, { owner: string; replica?: string; tip?: string; headlessStaffed: boolean; headlessOccupied: boolean }>()
-  const sessionsByOwner = new Map<string, Map<string, { replica?: string; tip?: string; headlessStaffed: boolean; headlessOccupied: boolean }>>()
+  const rawSessionFacts = new Map<
+    string,
+    {
+      owner: string
+      replica?: string
+      tip?: string
+      headlessStaffed: boolean
+      headlessOccupied: boolean
+    }
+  >()
+  const sessionsByOwner = new Map<
+    string,
+    Map<
+      string,
+      { replica?: string; tip?: string; headlessStaffed: boolean; headlessOccupied: boolean }
+    >
+  >()
   const issueSessionFacts = new Map<string, NonNullable<SliceIssue['sessionFacts']>>()
   let sessionFactsReady = false
 
   function installSessionFacts(id: string, row: AnyRow | undefined): string[] {
     const owners = new Set<string>()
     const before = rawSessionFacts.get(id)
-    if (before) { owners.add(before.owner); sessionsByOwner.get(before.owner)?.delete(id) }
+    if (before) {
+      owners.add(before.owner)
+      sessionsByOwner.get(before.owner)?.delete(id)
+    }
     rawSessionFacts.delete(id)
     if (row && typeof row.issueId === 'string') {
-      const facts = { owner: row.issueId,
-        replica: row.agentKind === 'shell' ? undefined : row.lastActiveAt as string | undefined,
-        tip: row.archived === true ? undefined : row.lastActiveAt as string | undefined,
+      const facts = {
+        owner: row.issueId,
+        replica: row.agentKind === 'shell' ? undefined : (row.lastActiveAt as string | undefined),
+        tip: row.archived === true ? undefined : (row.lastActiveAt as string | undefined),
         headlessStaffed: row.headless === true && row.archived !== true && row.status !== 'exited',
-        headlessOccupied: ISSUE_SESSION_FACTS_SUMMARY.headlessOccupied.test(row) }
+        headlessOccupied: ISSUE_SESSION_FACTS_SUMMARY.headlessOccupied.test(row),
+      }
       owners.add(facts.owner)
       rawSessionFacts.set(id, facts)
       let members = sessionsByOwner.get(facts.owner)
-      if (!members) { members = new Map(); sessionsByOwner.set(facts.owner, members) }
+      if (!members) {
+        members = new Map()
+        sessionsByOwner.set(facts.owner, members)
+      }
       members.set(id, facts)
     }
     const moved: string[] = []
     for (const owner of owners) {
       let replicaActivityAt: string | undefined, tipActivityAt: string | undefined
-      let headlessStaffed = false, headlessOccupied = false
+      let headlessStaffed = false,
+        headlessOccupied = false
       for (const facts of sessionsByOwner.get(owner)?.values() ?? EMPTY) {
-        if (facts.replica && (!replicaActivityAt || facts.replica > replicaActivityAt)) replicaActivityAt = facts.replica
+        if (facts.replica && (!replicaActivityAt || facts.replica > replicaActivityAt))
+          replicaActivityAt = facts.replica
         if (facts.tip && (!tipActivityAt || facts.tip > tipActivityAt)) tipActivityAt = facts.tip
         headlessStaffed ||= facts.headlessStaffed
         headlessOccupied ||= facts.headlessOccupied
       }
       const previous = issueSessionFacts.get(owner)
-      if (!previous || previous.replicaActivityAt !== replicaActivityAt || previous.tipActivityAt !== tipActivityAt || previous.headlessStaffed !== headlessStaffed || previous.headlessOccupied !== headlessOccupied) {
-        issueSessionFacts.set(owner, { replicaActivityAt, tipActivityAt, headlessStaffed, headlessOccupied }); moved.push(owner)
+      if (
+        !previous ||
+        previous.replicaActivityAt !== replicaActivityAt ||
+        previous.tipActivityAt !== tipActivityAt ||
+        previous.headlessStaffed !== headlessStaffed ||
+        previous.headlessOccupied !== headlessOccupied
+      ) {
+        issueSessionFacts.set(owner, {
+          replicaActivityAt,
+          tipActivityAt,
+          headlessStaffed,
+          headlessOccupied,
+        })
+        moved.push(owner)
       }
       if (sessionsByOwner.get(owner)?.size === 0) sessionsByOwner.delete(owner)
     }
@@ -547,24 +637,39 @@ export function createRowSource(
 
   function installEdge(id: string, raw: AnyRow | undefined): string[] {
     const before = edgeRows.get(id)
-    const after = raw === undefined ? undefined : {
-      from: String(raw.fromId ?? raw.from ?? ''),
-      to: String(raw.toId ?? raw.to ?? ''), type: String(raw.type ?? ''),
-    }
+    const after =
+      raw === undefined
+        ? undefined
+        : {
+            from: String(raw.fromId ?? raw.from ?? ''),
+            to: String(raw.toId ?? raw.to ?? ''),
+            type: String(raw.type ?? ''),
+          }
     const owners = new Set<string>()
     if (before !== undefined) {
       owners.add(before.from)
-      outgoing.set(before.from, (outgoing.get(before.from) ?? []).filter(e => !(e.id === before.to && e.type === before.type)))
+      outgoing.set(
+        before.from,
+        (outgoing.get(before.from) ?? []).filter(
+          (e) => !(e.id === before.to && e.type === before.type),
+        ),
+      )
       if (before.type === 'blocks') incoming.get(before.to)?.delete(before.from)
     }
     edgeRows.delete(id)
     if (after !== undefined && after.from && after.to) {
       edgeRows.set(id, after)
       owners.add(after.from)
-      outgoing.set(after.from, [...(outgoing.get(after.from) ?? []), { id: after.to, type: after.type }])
+      outgoing.set(after.from, [
+        ...(outgoing.get(after.from) ?? []),
+        { id: after.to, type: after.type },
+      ])
       if (after.type === 'blocks') {
         let ownersOf = incoming.get(after.to)
-        if (ownersOf === undefined) { ownersOf = new Set(); incoming.set(after.to, ownersOf) }
+        if (ownersOf === undefined) {
+          ownersOf = new Set()
+          incoming.set(after.to, ownersOf)
+        }
         ownersOf.add(after.from)
       }
     }
@@ -592,16 +697,31 @@ export function createRowSource(
     id: string,
     pending: PendingByRow | null,
   ): RowRecord['value'] {
-    if (kind === 'session') return foldRowOverlays(sessionInput(id, pending), pending?.sessions.get(id) ?? NO_OVERLAYS) as SliceSession | undefined
+    if (kind === 'session')
+      return foldRowOverlays(sessionInput(id, pending), pending?.sessions.get(id) ?? NO_OVERLAYS) as
+        | SliceSession
+        | undefined
     ensureEdges()
     ensureSessionFacts()
     const projection = folded('issueProjections', id, pending)
-    const userState = foldRowOverlays(authority('issueUserStates', userStateKeys.get(id) ?? ''), pending?.issueUserStates.get(id) ?? NO_OVERLAYS)
+    const userState = foldRowOverlays(
+      authority('issueUserStates', userStateKeys.get(id) ?? ''),
+      pending?.issueUserStates.get(id) ?? NO_OVERLAYS,
+    )
     const gitState = authority('issueGitStates', id)
-    const repo = typeof projection?.repoId === 'string' ? authority('repos', projection.repoId) : undefined
+    const repo =
+      typeof projection?.repoId === 'string' ? authority('repos', projection.repoId) : undefined
     const deps = outgoing.get(id) ?? EMPTY
-    const blocked = deps.some(edge => edge.type === 'blocks' && closedInput(edge.id) === false)
-    return issueInput(projection, userState, gitState, repo, deps, blocked, issueSessionFacts.get(id) ?? NO_SESSION_FACTS)
+    const blocked = deps.some((edge) => edge.type === 'blocks' && closedInput(edge.id) === false)
+    return issueInput(
+      projection,
+      userState,
+      gitState,
+      repo,
+      deps,
+      blocked,
+      issueSessionFacts.get(id) ?? NO_SESSION_FACTS,
+    )
   }
 
   function hasOverlays(kind: 'session' | 'issue', id: string, pending: PendingByRow): boolean {
@@ -619,7 +739,17 @@ export function createRowSource(
     return typeof row?.prefix === 'string' ? (row.prefix as string) : null
   }
 
-  function laneFor(path: string, repoId: string | null, repoPath: string, branch?: string, isMain?: boolean, projectIndex?: number, projectAliases?: readonly string[], name?: string, projectRoot?: boolean): SliceWorktree {
+  function laneFor(
+    path: string,
+    repoId: string | null,
+    repoPath: string,
+    branch?: string,
+    isMain?: boolean,
+    projectIndex?: number,
+    projectAliases?: readonly string[],
+    name?: string,
+    projectRoot?: boolean,
+  ): SliceWorktree {
     const repoName = name ?? repoNameOf(repoPath)
     const prefix = repoId !== null ? prefixOf(repoId) : null
     const sig = `${path}|${repoId ?? ''}|${repoPath}|${repoName}|${prefix ?? ''}|${branch ?? ''}|${isMain ?? ''}|${projectIndex ?? ''}|${projectAliases?.join(',') ?? ''}|${projectRoot ?? ''}`
@@ -629,7 +759,12 @@ export function createRowSource(
       path,
       ...(repoId !== null ? { repoId } : {}),
       repoPath,
-      repoName, branch, isMain, projectIndex, projectAliases, projectRoot,
+      repoName,
+      branch,
+      isMain,
+      projectIndex,
+      projectAliases,
+      projectRoot,
       ...(prefix !== null ? { prefix } : {}),
     }
     laneCache.set(path, { sig, lane })
@@ -642,8 +777,33 @@ export function createRowSource(
 
   function lanesOf(repo: RepoEntry, project: RepoProject): SliceWorktree[] {
     const repoId = repoIdOf(repo)
-    const lanes = [laneFor(repo.path, repoId, repo.path, repo.branch, true, project.index, project.aliases, project.name, project.path === repo.path)]
-    for (const wt of repo.worktrees ?? []) lanes.push(laneFor(wt.path, repoId, repo.path, wt.branch, false, project.index, project.aliases, project.name, false))
+    const lanes = [
+      laneFor(
+        repo.path,
+        repoId,
+        repo.path,
+        repo.branch,
+        true,
+        project.index,
+        project.aliases,
+        project.name,
+        project.path === repo.path,
+      ),
+    ]
+    for (const wt of repo.worktrees ?? [])
+      lanes.push(
+        laneFor(
+          wt.path,
+          repoId,
+          repo.path,
+          wt.branch,
+          false,
+          project.index,
+          project.aliases,
+          project.name,
+          false,
+        ),
+      )
     return lanes
   }
 
@@ -685,9 +845,18 @@ export function createRowSource(
     let index = 0
     for (const group of groups.values()) {
       const first = group[0]!
-      const origin = group.map(repo => normalizeOriginUrl(repo.originUrl)).find(Boolean)
-      const aliases = [repoIdOf(first), first.path, ...group.filter(repo => repo.machineId !== undefined).map(repo => repo.path)].filter((key): key is string => key !== null)
-      const project = { index: index++, path: first.path, aliases, name: repoNameFromOrigin(origin) ?? repoNameOf(first.path) }
+      const origin = group.map((repo) => normalizeOriginUrl(repo.originUrl)).find(Boolean)
+      const aliases = [
+        repoIdOf(first),
+        first.path,
+        ...group.filter((repo) => repo.machineId !== undefined).map((repo) => repo.path),
+      ].filter((key): key is string => key !== null)
+      const project = {
+        index: index++,
+        path: first.path,
+        aliases,
+        name: repoNameFromOrigin(origin) ?? repoNameOf(first.path),
+      }
       for (const repo of group) projects.set(repo, project)
     }
     repoIndex = { from: repos, roots, byId, projects }
@@ -745,7 +914,8 @@ export function createRowSource(
     const before = held ?? lanesByPath(heldFrom)
     const after = lanesByPath(repos)
     for (const [path, lane] of after) {
-      if (before.get(path) !== lane) into.set(`worktree:${path}`, { kind: 'worktree', id: path, value: lane })
+      if (before.get(path) !== lane)
+        into.set(`worktree:${path}`, { kind: 'worktree', id: path, value: lane })
     }
     for (const path of before.keys()) {
       if (after.has(path)) continue
@@ -791,7 +961,10 @@ export function createRowSource(
     for (const id of ids) {
       stats.rowsVisited += 1
       const value = resolve(kind, id, pending)
-      if (kind === 'issue') { const closed = closedInput(id); if (closed !== undefined) closure.set(id, closed) }
+      if (kind === 'issue') {
+        const closed = closedInput(id)
+        if (closed !== undefined) closure.set(id, closed)
+      }
       if (hasOverlays(kind, id, pending)) overlaid.set(`${kind}:${id}`, value)
       // An insert a server row already covers, or a patch on a row that is
       // gone, resolves to nothing: not a row.
@@ -845,10 +1018,15 @@ export function createRowSource(
       seedIssueJoins()
       seedSessionJoins()
       edgesReady = false
-      edgeRows.clear(); outgoing.clear(); incoming.clear(); closure.clear()
+      edgeRows.clear()
+      outgoing.clear()
+      incoming.clear()
+      closure.clear()
       ensureEdges()
       sessionFactsReady = false
-      rawSessionFacts.clear(); sessionsByOwner.clear(); issueSessionFacts.clear()
+      rawSessionFacts.clear()
+      sessionsByOwner.clear()
+      issueSessionFacts.clear()
       ensureSessionFacts()
       stats.enumerations += 1
       const lanes = allLanes()
@@ -858,8 +1036,10 @@ export function createRowSource(
       const event: RowSourceEvent = {
         type: 'replace',
         rows: [
-          ...enumerate('session', pending), ...enumerate('issue', pending),
-          ...lanes, ...unscannedRepos(),
+          ...enumerate('session', pending),
+          ...enumerate('issue', pending),
+          ...lanes,
+          ...unscannedRepos(),
         ],
       }
       emit(event)
@@ -874,8 +1054,10 @@ export function createRowSource(
     for (const address of addresses) {
       if (address.kind === 'repos') {
         for (const row of resolveReposFanout(address.id)) byKey.set(`${row.kind}:${row.id}`, row)
-        for (const session of repoSessions.get(address.id) ?? EMPTY) addressed.set(`session:${session}`, { kind: 'session', id: session })
-        for (const owner of repoIssues.get(address.id) ?? EMPTY) addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
+        for (const session of repoSessions.get(address.id) ?? EMPTY)
+          addressed.set(`session:${session}`, { kind: 'session', id: session })
+        for (const owner of repoIssues.get(address.id) ?? EMPTY)
+          addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
         continue
       }
       if (address.kind === 'sessionUserStates') {
@@ -884,7 +1066,8 @@ export function createRowSource(
         continue
       }
       if (address.kind === 'machines') {
-        for (const id of machineSessions.get(address.id) ?? EMPTY) addressed.set(`session:${id}`, { kind: 'session', id })
+        for (const id of machineSessions.get(address.id) ?? EMPTY)
+          addressed.set(`session:${id}`, { kind: 'session', id })
         continue
       }
       if (address.kind === 'issueUserStates') {
@@ -915,7 +1098,8 @@ export function createRowSource(
         installIssueRepo(address.id, authority('issueProjections', address.id))
         const closed = closedInput(address.id)
         if (closure.get(address.id) !== closed) {
-          for (const owner of incoming.get(address.id) ?? EMPTY) addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
+          for (const owner of incoming.get(address.id) ?? EMPTY)
+            addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
         }
         if (closed === undefined) closure.delete(address.id)
         else closure.set(address.id, closed)
@@ -936,7 +1120,8 @@ export function createRowSource(
       ledgerRows.set(`session:${id}`, { kind: 'session', id })
     for (const id of pending.sessionUserStates.keys())
       ledgerRows.set(`session:${id}`, { kind: 'session', id })
-    for (const id of pending.issueUserStates.keys()) ledgerRows.set(`issue:${id}`, { kind: 'issue', id })
+    for (const id of pending.issueUserStates.keys())
+      ledgerRows.set(`issue:${id}`, { kind: 'issue', id })
     for (const id of pending.issueProjections.keys())
       ledgerRows.set(`issue:${id}`, { kind: 'issue', id })
     for (const key of overlaid.keys()) {

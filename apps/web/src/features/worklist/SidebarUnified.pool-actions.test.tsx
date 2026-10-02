@@ -217,9 +217,11 @@ async function parity() {
     result.first,
     JSON.stringify({
       target: pool!.sidebar.row(TARGET),
-      legacy: allIssueViewModels(runtime.replica, store.issueProjections, store.issueUserStates).find(
-        (i) => i.id === TARGET,
-      ),
+      legacy: allIssueViewModels(
+        runtime.replica,
+        store.issueProjections,
+        store.issueUserStates,
+      ).find((i) => i.id === TARGET),
     }),
   ).toBeNull()
   expect(result.differences).toBe(0)
@@ -457,7 +459,11 @@ describe('pool navigation uses the existing gesture semantics', () => {
       }
     })
     const store = runtime.getSnapshot()
-    const models = allIssueViewModels(runtime.replica, store.issueProjections, store.issueUserStates)
+    const models = allIssueViewModels(
+      runtime.replica,
+      store.issueProjections,
+      store.issueUserStates,
+    )
     const clicked = models.find((issue) => issue.id === 'synthetic-3')!
     const root = missionRootFor(models, clicked.id)!
     const mission = missionIssueIds(models, root.id, store.sessions)
@@ -1159,9 +1165,7 @@ describe('real pool row mutations and receipts', () => {
       runtime.getSnapshot().setSelectedIssueId(asIssueId(TARGET))
     })
     expect(runtime.getSnapshot().selectedIssueId).toBe(TARGET)
-    const records = ['issueProjection'].map(
-      (entity) => fixture.records.get(`${entity}:${TARGET}`)!,
-    )
+    const records = ['issueProjection'].map((entity) => fixture.records.get(`${entity}:${TARGET}`)!)
     await act(async () => {
       for (const entity of ['issueProjection']) {
         fixture.records.delete(`${entity}:${TARGET}`)

@@ -30,6 +30,7 @@
 import { IssueAggregate, type IssueProjection, restoreNullValues } from '@podium/model'
 
 const issueDurableShape = IssueAggregate.shape
+
 import { describe, expect, it } from 'vitest'
 import { createReplica, memoryStorage } from './replica'
 

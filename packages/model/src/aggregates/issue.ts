@@ -1,8 +1,5 @@
-
-
 import { z } from 'zod'
 import { Attribution } from '../fields/attribution'
-import { Ownership } from '../fields/ownership'
 import {
   IssueAgentDefaults,
   IssueConcurrency,
@@ -19,6 +16,7 @@ import {
   IssueWorkspace,
   NeedsHuman,
 } from '../fields/issue'
+import { Ownership } from '../fields/ownership'
 
 /**
  * The canonical durable issue — inventory §6.4's `Issue` R1 row.

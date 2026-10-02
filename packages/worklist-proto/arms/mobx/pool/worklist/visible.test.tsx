@@ -1,5 +1,6 @@
 import { allIssueViewModels } from '@podium/client-core/replica'
 import { upsertIssue } from '../../../../shared/src/scenarios'
+
 // @vitest-environment happy-dom
 /**
  * POD-4569 (Mb1) — the visible collection and its order on the live engine,
@@ -22,10 +23,19 @@ import { upsertIssue } from '../../../../shared/src/scenarios'
  * (#4's own corpus target has no spin-off since POD-4635's reshape).
  */
 
+import { rowViewOf } from '@podium/client-graph/models'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { observer } from 'mobx-react-lite'
 import { act, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { describe, expect, it } from 'vitest'
+import {
+  type HarnessMobxPoolHandle,
+  harnessMobxPoolArm,
+  poolPendingLoads,
+  tracked,
+  visibleOrderOf,
+} from '../../../../harness/src/adapters/mobx-pool'
 import {
   assertCommits,
   assertReads,
@@ -38,6 +48,7 @@ import {
   parityLocals,
   runFenceStep,
 } from '../../../../harness/src/fence-scenarios'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import {
   legacyDerivationFromStore,
   rowViewsFromStore,
@@ -53,11 +64,7 @@ import {
   upsert,
   writeTitleRename,
 } from '../../../../shared/src/scenarios'
-import { harnessMobxPoolArm, poolPendingLoads, tracked, visibleOrderOf, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import type { MobxPool } from '@podium/client-graph/pool'
 import { PoolRow } from '../react/row'
-import { rowViewOf } from '@podium/client-graph/models'
 
 installMobxWarnTrap()
 
@@ -384,7 +391,11 @@ async function runHiddenSpinOffRename(
   const visible = rowViewsFromStore(store, engineLocals(ctx))
   let origin: string | undefined
   let spinOff: string | undefined
-  for (const issue of allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates)) {
+  for (const issue of allIssueViewModels(
+    store.replica,
+    store.issueProjections,
+    store.issueUserStates,
+  )) {
     const from = issue.deps?.find((dep) => dep.type === 'discovered-from')?.id
     if (from === undefined || visible[from] === undefined) continue
     if (issue.closedAt != null || visible[issue.id] !== undefined) continue

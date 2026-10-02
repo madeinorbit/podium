@@ -1,6 +1,5 @@
-import { issueViewModelsFromReplica, type Replica } from '@podium/client-core/replica'
-import type { LiveCollections } from './live-snapshot'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { issueViewModelsFromReplica, type Replica } from '@podium/client-core/replica'
 /** Synthetic/old-export fixture upgrade. Product readers never use this adapter.
  * Real exports carrying the new kinds keep those rows verbatim. */
 import {
@@ -8,7 +7,8 @@ import {
   type IssueGitStateProjection,
   IssueProjection,
   type IssueUserStateWire,
-  } from '@podium/model'
+} from '@podium/model'
+import type { LiveCollections } from './live-snapshot'
 
 export function fixtureMarkers(issues: readonly IssueViewModel[]): IssueUserStateWire[] {
   return issues.map((issue) => ({
@@ -22,9 +22,14 @@ export function fixtureMarkers(issues: readonly IssueViewModel[]): IssueUserStat
 export function fixtureGitStates(issues: readonly IssueViewModel[]): IssueGitStateProjection[] {
   return issues.flatMap((issue) => (issue.gitState ? [{ id: issue.id, ...issue.gitState }] : []))
 }
-export function fixtureProjection(issue: IssueViewModel, projection?: IssueProjection): IssueProjection {
+export function fixtureProjection(
+  issue: IssueViewModel,
+  projection?: IssueProjection,
+): IssueProjection {
   const row = { ...issue, ...projection } as unknown as Record<string, unknown>
-  const own = Object.fromEntries(Object.entries(row).filter(([key]) => Object.hasOwn(IssueProjection.shape, key)))
+  const own = Object.fromEntries(
+    Object.entries(row).filter(([key]) => Object.hasOwn(IssueProjection.shape, key)),
+  )
   return {
     ...own,
     description: projection?.description ?? { value: issue.description },
@@ -45,5 +50,7 @@ export function fixtureViewModels(input: Omit<LiveCollections, 'issues'>): Issue
     sessions: input.sessions,
     repos: input.repoProjections,
   }
-  return [...issueViewModelsFromReplica({ rows: (kind: string) => rows[kind] ?? [] } as Replica).values()]
+  return [
+    ...issueViewModelsFromReplica({ rows: (kind: string) => rows[kind] ?? [] } as Replica).values(),
+  ]
 }

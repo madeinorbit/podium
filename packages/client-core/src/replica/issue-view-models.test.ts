@@ -75,10 +75,17 @@ describe('normalized issue render models', () => {
     replica.batch(() => {
       replica.applySnapshot('issueUserStates', [markers])
       replica.applySnapshot('issueGitStates', [git])
-      replica.applySnapshot('repos', [{ id: 'repo', repoPath: '/normalized-repo', prefix: 'POD' } as never])
+      replica.applySnapshot('repos', [
+        { id: 'repo', repoPath: '/normalized-repo', prefix: 'POD' } as never,
+      ])
     })
-    expect(allIssueViewModels(replica)[0]).toMatchObject({ readAt: markers.readAt,
-      tuckedAt: markers.tuckedAt, pinned: true, gitState: { ahead: 3 }, repoPath: '/normalized-repo' })
+    expect(allIssueViewModels(replica)[0]).toMatchObject({
+      readAt: markers.readAt,
+      tuckedAt: markers.tuckedAt,
+      pinned: true,
+      gitState: { ahead: 3 },
+      repoPath: '/normalized-repo',
+    })
   })
 
   it('joins each issue field from its normalized kind', () => {

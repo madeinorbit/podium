@@ -3,6 +3,7 @@ export * from '../replica/react'
 // issues from the replica (membership + rollups derived locally) instead of the
 export * from '../replica/use-issue-views'
 export * from './provider'
+export * from './store-stats-profiler'
 export * from './use-harness-descriptors'
 export * from './use-mark-read-on-view'
 export * from './use-merge-lock'
@@ -11,4 +12,3 @@ export * from './use-model-catalog'
 // `hub.subscribeRoom` directly.
 export * from './use-presence-room'
 export * from './use-slice'
-export * from './store-stats-profiler'

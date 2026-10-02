@@ -32,22 +32,22 @@
  *    scope" is asserted against an agent whose HUMAN can see the target.
  */
 
-import { describe, expect, it, afterAll, beforeEach } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { normalizeRefusal, recoveryPlanFor } from '../outbox/reasons'
 import { isDelegated } from '../outbox/records'
 import type { Cursor, ServerFrame } from '../replica/types'
 import {
+  attributionOf,
   ConformanceAuthority,
   type ConformancePrincipal,
   conformanceAgent,
   conformanceUser,
   FIRST_EPOCH,
-  attributionOf,
   humanOf,
-  requireHuman,
   keyOf,
+  requireHuman,
 } from './authority'
-import { GateLedger, assertGatesCovered } from './gates'
+import { assertGatesCovered, GateLedger } from './gates'
 import {
   type Client,
   Clock,
@@ -67,11 +67,7 @@ const GRACE: ConformancePrincipal = conformanceUser('grace')
 const ADAS_DELEGATION = 'del_ada_agent'
 
 /** ADA's agent, scoped to ONE issue. Its human can see more — that is A2's whole point. */
-const ADAS_AGENT: ConformancePrincipal = conformanceAgent(
-  'ses_ada_agent',
-  'ada',
-  ADAS_DELEGATION,
-)
+const ADAS_AGENT: ConformancePrincipal = conformanceAgent('ses_ada_agent', 'ada', ADAS_DELEGATION)
 
 /**
  * What that delegation was minted for — registered on the TABLES, not carried on
@@ -116,10 +112,30 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
 
     /** ADA sees ADA-1 and ADA-2; GRACE sees GRACE-1 and the SHARED row. Two real slices. */
     const seedTwoSlices = (): void => {
-      authority.append({ entity: 'issueProjection', entityId: 'ADA-1', op: 'upsert', payload: { n: 1 } })
-      authority.append({ entity: 'issueProjection', entityId: 'ADA-2', op: 'upsert', payload: { n: 2 } })
-      authority.append({ entity: 'issueProjection', entityId: 'GRACE-1', op: 'upsert', payload: { n: 3 } })
-      authority.append({ entity: 'issueProjection', entityId: 'SHARED', op: 'upsert', payload: { n: 4 } })
+      authority.append({
+        entity: 'issueProjection',
+        entityId: 'ADA-1',
+        op: 'upsert',
+        payload: { n: 1 },
+      })
+      authority.append({
+        entity: 'issueProjection',
+        entityId: 'ADA-2',
+        op: 'upsert',
+        payload: { n: 2 },
+      })
+      authority.append({
+        entity: 'issueProjection',
+        entityId: 'GRACE-1',
+        op: 'upsert',
+        payload: { n: 3 },
+      })
+      authority.append({
+        entity: 'issueProjection',
+        entityId: 'SHARED',
+        op: 'upsert',
+        payload: { n: 4 },
+      })
       authority.policy.grant('ada', 'issueProjection', 'ADA-1')
       authority.policy.grant('ada', 'issueProjection', 'ADA-2')
       authority.policy.grant('grace', 'issueProjection', 'GRACE-1')
@@ -201,7 +217,12 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
 
         // Two more visible changes, then hand the replica ONLY the later frame: its
         // `fromSeq` is above the cursor, so it is a gap and must not be applied.
-        authority.append({ entity: 'issueProjection', entityId: 'ADA-1', op: 'upsert', payload: { n: 10 } })
+        authority.append({
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          op: 'upsert',
+          payload: { n: 10 },
+        })
         const secondSeq = authority.append({
           entity: 'issueProjection',
           entityId: 'ADA-2',
@@ -233,7 +254,10 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
           value: { closed: true },
         })
         // Durably queued and locally acked — nothing has been told to anyone yet.
-        expect(ada.outboxEvents).toContainEqual({ type: 'local-ack', mutationId: queued.mutationId })
+        expect(ada.outboxEvents).toContainEqual({
+          type: 'local-ack',
+          mutationId: queued.mutationId,
+        })
         expect(await ada.view.outbox.read()).toHaveLength(1)
 
         transport.offline = false
@@ -374,9 +398,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // runs them.
         expect(ada.replicaEvents.slice(eventsBefore)).toEqual([])
         expect(
-          ada.outboxEvents
-            .slice(outboxEventsBefore)
-            .filter((event) => event.type === 'retired'),
+          ada.outboxEvents.slice(outboxEventsBefore).filter((event) => event.type === 'retired'),
         ).toEqual([])
 
         // Recreate BOTH kernels from the store. Whatever they see is what committed.
@@ -402,7 +424,9 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         await recovered.replica.receive(nextFrame(authority, recovered))
         await recovered.settle()
         expect(recovered.view.cache.readCursor()?.seq).toBe(frame.seq)
-        expect(recovered.view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ closed: true })
+        expect(recovered.view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({
+          closed: true,
+        })
         expect(await recovered.view.outbox.read()).toEqual([])
       })
 
@@ -649,7 +673,11 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // ADR 6 D4.4 — the denial must SURFACE and must not partially apply.
         storage.setWritesDenied(true)
         await expect(
-          enqueueWrite(ada, { entity: 'issueProjection', entityId: 'ADA-2', value: { second: true } }),
+          enqueueWrite(ada, {
+            entity: 'issueProjection',
+            entityId: 'ADA-2',
+            value: { second: true },
+          }),
         ).rejects.toThrow(/quota/i)
 
         // Nothing half-landed: the store holds exactly what it held before.
@@ -674,7 +702,11 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
       it('an unreadable outbox store is LOUD — the one case where user work is lost', async () => {
         seedTwoSlices()
         const ada = await connected(ADA)
-        await enqueueWrite(ada, { entity: 'issueProjection', entityId: 'ADA-1', value: { closed: true } })
+        await enqueueWrite(ada, {
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          value: { closed: true },
+        })
 
         storage.setCorrupt(true)
         const reopened = (await ada.recover()) as Client
@@ -701,7 +733,12 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // handed it and proving an authority can produce a fresh generation id.
         const restoredEpoch = await authority.bumpEpoch('restore')
         expect(restoredEpoch).not.toBe(cursorBefore.epoch)
-        authority.append({ entity: 'issueProjection', entityId: 'ADA-1', op: 'upsert', payload: { post: 1 } })
+        authority.append({
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          op: 'upsert',
+          payload: { post: 1 },
+        })
 
         // The stale client's cursor seq is still valid-looking. Only the epoch differs.
         const divergent = authority.frameFor(ADA, cursorBefore.seq)
@@ -737,7 +774,12 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         const humans = ['p0', 'p1', 'p2', 'p3', 'p4', 'p5']
         for (const who of humans) {
           for (let n = 0; n < 3; n += 1) {
-            authority.append({ entity: 'issueProjection', entityId: `${who}-${n}`, op: 'upsert', payload: { n } })
+            authority.append({
+              entity: 'issueProjection',
+              entityId: `${who}-${n}`,
+              op: 'upsert',
+              payload: { n },
+            })
             authority.policy.grant(who, 'issueProjection', `${who}-${n}`)
           }
         }
@@ -754,7 +796,11 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         for (const [i, c] of clients.entries()) {
           const who = humans[i] as string
           expect(c.replica.posture).toBe('live')
-          expect(sliceOf(c)).toEqual([`issueProjection:${who}-0`, `issueProjection:${who}-1`, `issueProjection:${who}-2`])
+          expect(sliceOf(c)).toEqual([
+            `issueProjection:${who}-0`,
+            `issueProjection:${who}-1`,
+            `issueProjection:${who}-2`,
+          ])
         }
         // They genuinely overlapped, so "did not starve" is not "ran one at a time".
         expect(authority.peakConcurrentBootstraps).toBeGreaterThan(1)
@@ -813,8 +859,18 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         const ada = await connected(ADA)
         // The authority sheds load while ADA is behind: more visible truth exists than
         // ADA's cursor has seen.
-        authority.append({ entity: 'issueProjection', entityId: 'ADA-1', op: 'upsert', payload: { n: 11 } })
-        authority.append({ entity: 'issueProjection', entityId: 'ADA-2', op: 'upsert', payload: { n: 22 } })
+        authority.append({
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          op: 'upsert',
+          payload: { n: 11 },
+        })
+        authority.append({
+          entity: 'issueProjection',
+          entityId: 'ADA-2',
+          op: 'upsert',
+          payload: { n: 22 },
+        })
         const behind = ada.replica.cursor?.seq as number
         expect(behind).toBeLessThan(authority.head())
 
@@ -864,7 +920,11 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         const grantSeq = authority.grant('ada', 'issueProjection', 'SHARED')
         await pumpUntilCaughtUp(authority, ada)
 
-        expect(sliceOf(ada)).toEqual(['issueProjection:ADA-1', 'issueProjection:ADA-2', 'issueProjection:SHARED'])
+        expect(sliceOf(ada)).toEqual([
+          'issueProjection:ADA-1',
+          'issueProjection:ADA-2',
+          'issueProjection:SHARED',
+        ])
         expect(ada.replica.view('issueProjection', 'SHARED')).toEqual({ n: 4 })
         // CONTIGUITY INTACT: it arrived as an ordinary frame, not through the ladder.
         expect(ada.replica.cursor?.seq).toBe(grantSeq)
@@ -886,7 +946,11 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
 
         // POSITIVE CONTROL FIRST: a real tombstone DOES render as a deletion, on the
         // same replica, through the same pipe. Without it "not a deletion" is unfalsifiable.
-        const removeSeq = authority.append({ entity: 'issueProjection', entityId: 'ADA-2', op: 'remove' })
+        const removeSeq = authority.append({
+          entity: 'issueProjection',
+          entityId: 'ADA-2',
+          op: 'remove',
+        })
         await ada.replica.receive(authority.frameFor(ADA, removeSeq - 1, removeSeq))
         await ada.settle()
         expect(ada.replicaEvents.some((e) => e.type === 'removed' && e.entityId === 'ADA-2')).toBe(
@@ -940,9 +1004,24 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // Truth ADA missed: some of it hers, some of it emphatically not. The
         // counterfactual is IN the range being healed — an unscoped heal would
         // over-deliver here and the upper bound would catch it.
-        authority.append({ entity: 'issueProjection', entityId: 'ADA-1', op: 'upsert', payload: { n: 100 } })
-        authority.append({ entity: 'issueProjection', entityId: 'GRACE-1', op: 'upsert', payload: { n: 200 } })
-        authority.append({ entity: 'issueProjection', entityId: 'SHARED', op: 'upsert', payload: { n: 300 } })
+        authority.append({
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          op: 'upsert',
+          payload: { n: 100 },
+        })
+        authority.append({
+          entity: 'issueProjection',
+          entityId: 'GRACE-1',
+          op: 'upsert',
+          payload: { n: 200 },
+        })
+        authority.append({
+          entity: 'issueProjection',
+          entityId: 'SHARED',
+          op: 'upsert',
+          payload: { n: 300 },
+        })
         const last = authority.append({
           entity: 'issueProjection',
           entityId: 'ADA-2',
@@ -1033,9 +1112,24 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         seedTwoSlices()
         const ada = await connected(ADA)
         // Truth accumulates for BOTH principals while ADA is behind.
-        authority.append({ entity: 'issueProjection', entityId: 'ADA-1', op: 'upsert', payload: { v: 'a' } })
-        authority.append({ entity: 'issueProjection', entityId: 'GRACE-1', op: 'upsert', payload: { v: 'g' } })
-        authority.append({ entity: 'issueProjection', entityId: 'ADA-2', op: 'upsert', payload: { v: 'b' } })
+        authority.append({
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          op: 'upsert',
+          payload: { v: 'a' },
+        })
+        authority.append({
+          entity: 'issueProjection',
+          entityId: 'GRACE-1',
+          op: 'upsert',
+          payload: { v: 'g' },
+        })
+        authority.append({
+          entity: 'issueProjection',
+          entityId: 'ADA-2',
+          op: 'upsert',
+          payload: { v: 'b' },
+        })
 
         await ada.replica.receive({
           kind: 'resync-required',
@@ -1064,8 +1158,18 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
 
         // GRACE's traffic, invisible to ADA: the range between ADA's cursor and her own
         // confirming change is a genuine suppressed stretch, not an empty literal.
-        authority.append({ entity: 'issueProjection', entityId: 'GRACE-1', op: 'upsert', payload: { g: 1 } })
-        authority.append({ entity: 'issueProjection', entityId: 'GRACE-1', op: 'upsert', payload: { g: 2 } })
+        authority.append({
+          entity: 'issueProjection',
+          entityId: 'GRACE-1',
+          op: 'upsert',
+          payload: { g: 1 },
+        })
+        authority.append({
+          entity: 'issueProjection',
+          entityId: 'GRACE-1',
+          op: 'upsert',
+          payload: { g: 2 },
+        })
         const frame = nextFrame(authority, ada)
         expect(frame.seq).toBeGreaterThan((frame.changes.at(-1)?.seq ?? 0) - 1)
         // The frame certifies a range WIDER than the changes it carries. That is the
@@ -1130,7 +1234,11 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // Cache discarded and re-bootstrapped, scoped to the NEW slice.
         const installed = ada.replicaEvents.filter((e) => e.type === 'bootstrap-installed')
         expect(installed.at(-1)).toMatchObject({ cause: 'rescope' })
-        expect(sliceOf(ada)).toEqual(['issueProjection:ADA-1', 'issueProjection:ADA-2', 'issueProjection:SHARED'])
+        expect(sliceOf(ada)).toEqual([
+          'issueProjection:ADA-1',
+          'issueProjection:ADA-2',
+          'issueProjection:SHARED',
+        ])
 
         // THE OUTBOX SURVIVED — byte for byte, both entries, nothing retired.
         expect(await ada.view.outbox.read()).toEqual(durableBefore)
@@ -1179,7 +1287,9 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         await ada.outbox.drain()
         await ada.outbox.drain()
 
-        const forInvisible = ada.outbox.deadLetters().find((d) => d.mutationId === invisible.mutationId)
+        const forInvisible = ada.outbox
+          .deadLetters()
+          .find((d) => d.mutationId === invisible.mutationId)
         const forNonexistent = ada.outbox
           .deadLetters()
           .find((d) => d.mutationId === nonexistent.mutationId)
@@ -1212,8 +1322,18 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
 
         // POSITIVE CONTROL FIRST, on this very replica: a real gap DOES heal. An
         // absence from an instrument that cannot say yes is worth nothing.
-        const a = authority.append({ entity: 'issueProjection', entityId: 'ADA-1', op: 'upsert', payload: { g: 1 } })
-        const b = authority.append({ entity: 'issueProjection', entityId: 'ADA-1', op: 'upsert', payload: { g: 2 } })
+        const a = authority.append({
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          op: 'upsert',
+          payload: { g: 1 },
+        })
+        const b = authority.append({
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          op: 'upsert',
+          payload: { g: 2 },
+        })
         expect(b).toBe(a + 1)
         await ada.replica.receive(authority.frameFor(ADA, b - 1, b))
         await ada.settle()
@@ -1224,7 +1344,12 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         // Now 300 seqs of GRACE's traffic — genuinely suppressed for ADA, not empty
         // frames a fixture handed over.
         for (let i = 0; i < 300; i += 1) {
-          authority.append({ entity: 'issueProjection', entityId: 'GRACE-1', op: 'upsert', payload: { i } })
+          authority.append({
+            entity: 'issueProjection',
+            entityId: 'GRACE-1',
+            op: 'upsert',
+            payload: { i },
+          })
         }
         let from = ada.replica.cursor?.seq as number
         while (from < authority.head()) {
@@ -1290,14 +1415,14 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         await ada.outbox.drain()
         await ada.outbox.drain()
         await ada.outbox.drain()
-        expect(authority.receiptFor(agentWork.mutationId)?.attribution).toEqual(
-          attributionOf(ADA),
-        )
+        expect(authority.receiptFor(agentWork.mutationId)?.attribution).toEqual(attributionOf(ADA))
         // The AUTHORITY stamped from ITS transport principal (D7), which for this
         // client is ADA — proof the pair is never taken from the client's payload.
 
         // 2. DEAD-LETTERING — the parked record keeps the pair the user authored under.
-        const parked = ada.outbox.deadLetters().find((d) => d.mutationId === doomedAgentWork.mutationId)
+        const parked = ada.outbox
+          .deadLetters()
+          .find((d) => d.mutationId === doomedAgentWork.mutationId)
         expect(parked?.attribution).toEqual(agentAttribution)
 
         // 3. CRASH RECOVERY — rebuild both kernels from the store.
@@ -1331,9 +1456,7 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         await recovered.replica.receive(frame)
         await recovered.replica.receive(frame)
         await recovered.settle()
-        expect(recovered.outbox.find(stillQueued.mutationId)?.attribution).toEqual(
-          agentAttribution,
-        )
+        expect(recovered.outbox.find(stillQueued.mutationId)?.attribution).toEqual(agentAttribution)
       })
 
       it(`${ledger.cover('cross/two-principals-one-authority')} — two principals with DIFFERENT slices against ONE authority, and an agent bounded by BOTH its scope and its human`, async () => {
@@ -1370,16 +1493,18 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
         await agentClient.outbox.drain()
         await agentClient.outbox.drain()
         await agentClient.outbox.drain()
-        expect(agentClient.outbox.deadLetters().map((d) => d.mutationId)).toEqual([
-          work.mutationId,
-        ])
+        expect(agentClient.outbox.deadLetters().map((d) => d.mutationId)).toEqual([work.mutationId])
         expect(authority.receiptFor(work.mutationId)).toBeUndefined()
       })
 
       it(`${ledger.cover('cross/no-instance-id')} — multi-user is not multi-tenancy: no instance_id in any fixture or wire shape`, async () => {
         seedTwoSlices()
         const ada = await connected(ADA)
-        await enqueueWrite(ada, { entity: 'issueProjection', entityId: 'ADA-1', value: { closed: true } })
+        await enqueueWrite(ada, {
+          entity: 'issueProjection',
+          entityId: 'ADA-1',
+          value: { closed: true },
+        })
         const transport = authority.transportFor(ADA)
         await ada.outbox.drain()
         await pumpUntilCaughtUp(authority, ada)
@@ -1481,4 +1606,4 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
 }
 
 /** Re-exported so a hop's own test file needs one import. */
-export { FIRST_EPOCH, DAY_MS }
+export { DAY_MS, FIRST_EPOCH }

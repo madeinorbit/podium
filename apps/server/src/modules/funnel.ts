@@ -1,8 +1,5 @@
 import { createLogger } from '@podium/logger'
-import type {
-  MetadataChange,
-  Principal,
-} from '@podium/protocol'
+import type { MetadataChange, Principal } from '@podium/protocol'
 import {
   type AuthorityPort,
   DEVICE_GRADE_PRINCIPAL,
@@ -57,7 +54,6 @@ export interface FeedServingPort {
   /** ADR 2 D5's floor, from the SAME source every published frame reads it from. */
   retentionFloor(): number | Promise<number>
 }
-
 
 export class WriteFunnel {
   constructor(private readonly deps: WriteFunnelDeps) {

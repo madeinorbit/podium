@@ -45,7 +45,12 @@ describe('SessionStore changes table', () => {
     )
     const rows = await store.sync.changesSince(1)
     expect(rows.map((r) => r.seq)).toEqual([2, 3])
-    expect(rows[1]).toMatchObject({ entity: 'issueProjection', entityId: 'i1', op: 'remove', payload: null })
+    expect(rows[1]).toMatchObject({
+      entity: 'issueProjection',
+      entityId: 'i1',
+      op: 'remove',
+      payload: null,
+    })
     expect(await store.sync.changesSince(3)).toEqual([])
   })
 
@@ -78,9 +83,13 @@ describe('SessionStore changes table', () => {
       )
     }
 
-    expect(await pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 })).toBe(2)
+    expect(await pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 })).toBe(
+      2,
+    )
     expect(await store.sync.minChangeSeq()).toBe(3)
-    expect(await pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 })).toBe(2)
+    expect(await pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 })).toBe(
+      2,
+    )
     expect(await store.sync.minChangeSeq()).toBe(5)
   })
 

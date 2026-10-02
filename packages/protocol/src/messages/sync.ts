@@ -11,14 +11,14 @@ import {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
-  SessionUserStateWire,
-  MachineProjection,
   LayoutWire,
+  MachineProjection,
   MessageRecordWire,
   ReadPositionWire,
   RepoProjection,
   type SessionId,
   SessionMeta,
+  SessionUserStateWire,
 } from '@podium/model'
 import { ShipLaneProjection, ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
@@ -42,9 +42,9 @@ export {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
-  SessionUserStateWire,
   MachineProjection,
   RepoProjection,
+  SessionUserStateWire,
   ShipLaneProjection,
   ShipOrderProjection,
 }
@@ -140,7 +140,7 @@ const FeedIdShape = {
 
 export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('session'), SessionMeta),
-  
+
   metadataChangeArm(z.literal('issueProjection'), IssueProjection),
   /** An issue dependency EDGE [POD-822, ADR 4 D7.1] — `issue_deps` rows as
    *  first-class entities, keyed by their own primary key (`issueDepId`).

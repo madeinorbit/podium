@@ -17,7 +17,25 @@
  *     thing under test cannot notice its own coverage shrinking.
  */
 
-import { IssueAgentDefaults, IssueCoordination, IssueGraphRefs, IssueIdentity, IssueIntent, IssueLifecycle, IssueLinear, IssuePanelGroup, IssueText, IssueTriage, IssueWorkspace, NeedsHuman, asIssueId, asRepoId, asSessionId, asUserId, asMachineId} from '@podium/model'
+import {
+  asIssueId,
+  asMachineId,
+  asRepoId,
+  asSessionId,
+  asUserId,
+  IssueAgentDefaults,
+  IssueCoordination,
+  IssueGraphRefs,
+  IssueIdentity,
+  IssueIntent,
+  IssueLifecycle,
+  IssueLinear,
+  IssuePanelGroup,
+  IssueText,
+  IssueTriage,
+  IssueWorkspace,
+  NeedsHuman,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   fromStorage,
@@ -261,7 +279,10 @@ describe('the storage gap is named, not invented', () => {
 
   it('stores the canonical optional asker without inventing an attribution', () => {
     expect(StoredIssue.shape.asked.unwrap()).toBe(NeedsHuman.shape.asked.unwrap())
-    expect(StoredIssue.shape.asked.unwrap().parse({ question: 'q', at: 't' })).toEqual({ question: 'q', at: 't' })
+    expect(StoredIssue.shape.asked.unwrap().parse({ question: 'q', at: 't' })).toEqual({
+      question: 'q',
+      at: 't',
+    })
   })
 
   it('keeps the per-user and derived columns OFF R1', () => {

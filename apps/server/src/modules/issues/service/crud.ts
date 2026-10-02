@@ -1,19 +1,17 @@
-import { readIssue } from '../../world-index/issue-reader'
 import { randomUUID } from 'node:crypto'
-import { afterCommit } from '../../../store/executor/executor'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import {
   type ArtifactId,
+  type Attribution,
   asIssueId,
   asRepoId,
   asSessionId,
   asUserId,
-  firstAdminMemberId,
   canonicalIssueCloseReason,
+  firstAdminMemberId,
   type GrantVerb,
   type IssueId,
   type IssueProjection,
-  type Attribution,
   isIssueStage,
   isSortKey,
   isSystemOwnedIssueStage,
@@ -29,10 +27,11 @@ import {
 import { resolveSpawnDefaults } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'
-import { followUpAfterCommit } from '../../../store/executor/executor'
+import { afterCommit, followUpAfterCommit } from '../../../store/executor/executor'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
-import type { IssueStore } from './core'
 import type { SessionFacts } from '../../sessions/facts'
+import { readIssue } from '../../world-index/issue-reader'
+import type { IssueStore } from './core'
 import { IssueNotFound } from './not-found'
 import type { CreateIssueInput, IssueDeps, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
@@ -156,7 +155,9 @@ export interface ShippingIssueMutation {
     | ((result: unknown) => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>)
   event?:
     | { kind: string; payload: Record<string, unknown> }
-    | ((result: unknown) =>
+    | ((
+        result: unknown,
+      ) =>
         | { kind: string; payload: Record<string, unknown> }
         | undefined
         | Promise<{ kind: string; payload: Record<string, unknown> } | undefined>)
@@ -296,7 +297,7 @@ export class IssueCrudModule {
       row.humanQuestionOptions = null
       row.humanQuestionAskedBy = null
       row.humanQuestionAskedAt = null
-          row.humanQuestionAttribution = null
+      row.humanQuestionAttribution = null
     }
     const committed = await this.store.persistManyWith(
       rows,
@@ -315,29 +316,33 @@ export class IssueCrudModule {
         ]
       },
       async (result) =>
-        (await Promise.all(entries.map(async ({ mutation }, index) => {
-          const row = rows[index]!
-          const event =
-            typeof mutation.event === 'function' ? await mutation.event(result) : mutation.event
-          const attention =
-            !needsHumanBefore.get(row.id) && mutation.needsHuman === true
-              ? {
-                  kind: 'issue.needs_human',
-                  subject: row.id,
-                  payload: { seq: row.seq, kind: 'ship-hold' },
-                }
-              : needsHumanBefore.get(row.id) && mutation.needsHuman === false
-                ? {
-                    kind: 'issue.needs_human_cleared',
-                    subject: row.id,
-                    payload: { seq: row.seq, kind: 'ship-hold' },
-                  }
-                : undefined
-          return [
-            ...(event ? [{ ...event, subject: row.id }] : []),
-            ...(attention ? [attention] : []),
-          ]
-        }))).flat(),
+        (
+          await Promise.all(
+            entries.map(async ({ mutation }, index) => {
+              const row = rows[index]!
+              const event =
+                typeof mutation.event === 'function' ? await mutation.event(result) : mutation.event
+              const attention =
+                !needsHumanBefore.get(row.id) && mutation.needsHuman === true
+                  ? {
+                      kind: 'issue.needs_human',
+                      subject: row.id,
+                      payload: { seq: row.seq, kind: 'ship-hold' },
+                    }
+                  : needsHumanBefore.get(row.id) && mutation.needsHuman === false
+                    ? {
+                        kind: 'issue.needs_human_cleared',
+                        subject: row.id,
+                        payload: { seq: row.seq, kind: 'ship-hold' },
+                      }
+                    : undefined
+              return [
+                ...(event ? [{ ...event, subject: row.id }] : []),
+                ...(attention ? [attention] : []),
+              ]
+            }),
+          )
+        ).flat(),
     )
     return committed
   }
@@ -702,7 +707,7 @@ export class IssueCrudModule {
       for (const dep of dependents) {
         if (dep.type !== 'blocks') continue
         const row = this.store.rows.get(dep.fromId)
-        if (row && inScope(row) && await this.store.isReady(row)) ready.push(row)
+        if (row && inScope(row) && (await this.store.isReady(row))) ready.push(row)
       }
       if (ready.length === 0) return
 
@@ -730,7 +735,10 @@ export class IssueCrudModule {
    *  work, unread results, and running agents are skipped (and surfaced via a
    *  single issue.cascade_skipped event on the parent) instead of vanishing
    *  from the live views out from under the operator. */
-  private async archiveClosedSubtree(parentId: string, sessionList?: SessionFacts[]): Promise<void> {
+  private async archiveClosedSubtree(
+    parentId: string,
+    sessionList?: SessionFacts[],
+  ): Promise<void> {
     sessionList ??= this.store.deps.sessionFacts()
     const skipped: Array<{ seq: number; why: string }> = []
     for (const child of this.store.rows.values()) {
@@ -902,7 +910,11 @@ export class IssueCrudModule {
    *  head-insert would push it toward the wire cap (POD-1102) — see
    *  {@link compactSortKeys} for why an ever-growing key breaks the DRAG rather
    *  than the create that grew it. */
-  private async mintSortKey(repoId: RepoId, repoPath: string, parentId: string | null): Promise<string> {
+  private async mintSortKey(
+    repoId: RepoId,
+    repoPath: string,
+    parentId: string | null,
+  ): Promise<string> {
     // Measured over the unpinned rows, renumbered over the whole key space —
     // see `sortScopeRows` for why those two sets differ.
     let min = this.minSortKey(this.sortScopeRows(repoId, repoPath, parentId))
@@ -926,12 +938,15 @@ export class IssueCrudModule {
     // insert is not. Refuse it before allocating a sequence or touching storage:
     // IssuesRepository upserts by id for ordinary updates, so allowing create to
     // reach that seam would turn an additive command into an overwrite.
-    if (input.id && await readIssue(this.store.deps.store.issues, input.id) !== null) {
+    if (input.id && (await readIssue(this.store.deps.store.issues, input.id)) !== null) {
       throw new Error(`refusing to reuse an existing issue id: ${input.id}`)
     }
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a
     // single sequence (#140) — resolve the path to its repo_id first, then allocate.
-    const repoId = await this.store.deps.store.repos.resolveIssueRepoId(input.repoPath, input.machineId)
+    const repoId = await this.store.deps.store.repos.resolveIssueRepoId(
+      input.repoPath,
+      input.machineId,
+    )
     const seq = await this.store.deps.store.issues.nextIssueSeq(repoId)
     const ts = this.store.now()
     const settings = await this.store.deps.getSettings()
@@ -1011,7 +1026,9 @@ export class IssueCrudModule {
     // A CREATE IS A DRAFT WITH NO PREDECESSOR [POD-3259]: pinning it to `null`
     // makes `upsertIssue` refuse rather than overwrite if a row with this id
     // somehow already exists by the time the write reaches the database.
-    const row: IssueRow = this.store.registerNewDraft(toStorage(issue, { repoPath: input.repoPath }))
+    const row: IssueRow = this.store.registerNewDraft(
+      toStorage(issue, { repoPath: input.repoPath }),
+    )
     // THE OWNER, WHEN THE CALLER DID NOT NAME ONE. It spelled the raw literal
     // `'user:sole'` until A2 — a string this build compiled in, which after the
     // migration names no member, so a row created without an owner would be
@@ -1148,9 +1165,9 @@ export class IssueCrudModule {
     }
     if (
       rowPatch.worktreePath &&
-      (await this.store.d.store.repos
-        .listRepos(rowPatch.machineId ?? row.machineId ?? undefined))
-        .some((repo) => sameWorktreePath(repo.path, rowPatch.worktreePath as string))
+      (
+        await this.store.d.store.repos.listRepos(rowPatch.machineId ?? row.machineId ?? undefined)
+      ).some((repo) => sameWorktreePath(repo.path, rowPatch.worktreePath as string))
     ) {
       throw new Error(
         `refusing worktree path ${rowPatch.worktreePath}: a repository root cannot be recorded as an issue worktree`,
@@ -1178,7 +1195,7 @@ export class IssueCrudModule {
     // supplied by an operator. Only a patch that actually supplies a worktree can
     // establish placement; unrelated updates must not guess for historical NULL rows.
     if ('worktreePath' in rowPatch && row.worktreePath !== null && row.machineId === null) {
-      row.machineId = (await this.store.resolveWorktreeMachine(undefined, row.worktreePath))
+      row.machineId = await this.store.resolveWorktreeMachine(undefined, row.worktreePath)
     }
     // parentBranch is an INPUT to derived gitState. Mutating it without
     // re-probing leaves the old snapshot (computed against the old base)
@@ -1385,7 +1402,7 @@ export class IssueCrudModule {
     for (const other of this.store.rows.values()) {
       if (!ids.has(other.id)) continue
       if (other.updatedAt > latest) latest = other.updatedAt
-      for (const session of (await this.store.sessionsFor(other))) {
+      for (const session of await this.store.sessionsFor(other)) {
         if (session.lastActiveAt > latest) latest = session.lastActiveAt
       }
     }
@@ -1424,7 +1441,9 @@ export class IssueCrudModule {
     // client pressing the same control) must not move the dismissal moment.
     // PER-USER (POD-1076): my fold is mine — tucking never hides your copy.
     const prev = this.store.issueOverlay(row.id).tuckedAt
-    await this.store.writeIssueUserState(row.id, { tuckedAt: tucked ? (prev ?? this.store.now()) : null })
+    await this.store.writeIssueUserState(row.id, {
+      tuckedAt: tucked ? (prev ?? this.store.now()) : null,
+    })
     return await this.store.persist(row, { touch: false })
   }
 
@@ -1621,8 +1640,9 @@ export class IssueCrudModule {
   async setLabels(id: string, labels: string[]): Promise<IssueProjection> {
     id = await this.store.resolveRef(id)
     const row = await this.store.draftOrThrow(id)
-    return await this.store.persistWith(row, async () =>
-      await this.store.deps.store.issues.setIssueLabels(asIssueId(id), labels),
+    return await this.store.persistWith(
+      row,
+      async () => await this.store.deps.store.issues.setIssueLabels(asIssueId(id), labels),
     )
   }
 
@@ -1643,20 +1663,22 @@ export class IssueCrudModule {
     const actorId = attribution.actor.includes(':')
       ? attribution.actor.slice(attribution.actor.indexOf(':') + 1)
       : attribution.actor
-    const wire = await this.store.persistWith(row, async () =>
-      await this.store.deps.store.grants.upsert({
-        resourceKind: 'issue',
-        resourceId: row.id,
-        grantee,
-        verb,
-        owner,
-        visibility: 'personal',
-        createdAt: this.store.now(),
-        ...(attribution ? { actor: attribution.actor, onBehalfOf: attribution.onBehalfOf } : {}),
-        actorKind,
-        actorId,
-        onBehalfOf: attribution.onBehalfOf,
-      }),
+    const wire = await this.store.persistWith(
+      row,
+      async () =>
+        await this.store.deps.store.grants.upsert({
+          resourceKind: 'issue',
+          resourceId: row.id,
+          grantee,
+          verb,
+          owner,
+          visibility: 'personal',
+          createdAt: this.store.now(),
+          ...(attribution ? { actor: attribution.actor, onBehalfOf: attribution.onBehalfOf } : {}),
+          actorKind,
+          actorId,
+          onBehalfOf: attribution.onBehalfOf,
+        }),
     )
     await this.store.emitEvent('issue.shared', row.id, { grantee, verb, actor: attribution.actor })
     return wire
@@ -1664,8 +1686,9 @@ export class IssueCrudModule {
 
   async unshare(id: string, grantee: UserId, verb: GrantVerb): Promise<IssueProjection> {
     const row = await this.store.draftOrThrow(await this.store.resolveRef(id))
-    const wire = await this.store.persistWith(row, async () =>
-      await this.store.deps.store.grants.remove('issue', row.id, grantee, verb),
+    const wire = await this.store.persistWith(
+      row,
+      async () => await this.store.deps.store.grants.remove('issue', row.id, grantee, verb),
     )
     await this.store.emitEvent('issue.unshared', row.id, { grantee, verb })
     return wire
@@ -1736,7 +1759,8 @@ export class IssueCrudModule {
       humanQuestionAskedAt: null,
       humanQuestionAttribution: null,
     })
-    if (wasFlagged) await this.store.emitEvent('issue.needs_human_cleared', wire.id, { seq: wire.seq })
+    if (wasFlagged)
+      await this.store.emitEvent('issue.needs_human_cleared', wire.id, { seq: wire.seq })
     return wire
   }
 
@@ -1745,13 +1769,17 @@ export class IssueCrudModule {
    * among an existing team; an explicit issue claim may name its bound caller.
    * Existing values — including intentional handoffs and dangling historical
    * ids — are never replaced here. */
-  async ensureCoordinator(id: string, sessionId: SessionId, opts?: { onlyMember?: boolean }): Promise<IssueProjection> {
+  async ensureCoordinator(
+    id: string,
+    sessionId: SessionId,
+    opts?: { onlyMember?: boolean },
+  ): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
     if (row.coordinatorSessionId) return await this.store.projection(row)
     const eligible = (await this.store.sessionsFor(row)).filter(
-        (session) =>
-          session.agentKind !== 'shell' && !session.archived && session.status !== 'exited',
-      )
+      (session) =>
+        session.agentKind !== 'shell' && !session.archived && session.status !== 'exited',
+    )
     const candidate = eligible.find((session) => session.sessionId === sessionId)
     if (!candidate || (opts?.onlyMember && eligible.length !== 1)) {
       return await this.store.projection(row)
@@ -1759,9 +1787,15 @@ export class IssueCrudModule {
     return await this.update(row.id, { coordinatorSessionId: candidate.sessionId })
   }
 
-  async claim(id: string, assignee: UserId, opts?: { actorSessionId?: SessionId }): Promise<IssueProjection> {
+  async claim(
+    id: string,
+    assignee: UserId,
+    opts?: { actorSessionId?: SessionId },
+  ): Promise<IssueProjection> {
     const claimed = await this.update(id, { assignee, stage: 'in_progress' }, opts)
-    return opts?.actorSessionId ? await this.ensureCoordinator(claimed.id, opts.actorSessionId) : claimed
+    return opts?.actorSessionId
+      ? await this.ensureCoordinator(claimed.id, opts.actorSessionId)
+      : claimed
   }
 
   /** Claim / set / clear the issue's designated coordinator session
@@ -1772,7 +1806,11 @@ export class IssueCrudModule {
     return await this.update(id, { coordinatorSessionId: sessionId })
   }
 
-  async close(id: string, reason = 'done', opts?: { actorSessionId?: SessionId }): Promise<IssueProjection> {
+  async close(
+    id: string,
+    reason = 'done',
+    opts?: { actorSessionId?: SessionId },
+  ): Promise<IssueProjection> {
     // update() emits issue.closed; actorSessionId rides through so the steward
     // can skip nudging the session that requested the close.
     //

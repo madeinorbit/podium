@@ -8,11 +8,7 @@ import {
 import type { z } from 'zod'
 import { ApprovalWire } from './approvals'
 import { ClientMessage } from './client'
-import {
-  FeedChangeLenient,
-  type FeedDeltaMessage,
-  FeedDeltaMessageLenient,
-} from './feed'
+import { FeedChangeLenient, type FeedDeltaMessage, FeedDeltaMessageLenient } from './feed'
 import { ServerMessage } from './server'
 import {
   MetadataChangeLenient,
@@ -82,7 +78,6 @@ const QUARANTINABLE: Record<
     envelope: MetadataDeltaMessageLenient,
   },
   feedDelta: { key: 'changes', element: FeedChangeLenient, envelope: FeedDeltaMessageLenient },
-
 }
 
 /** What {@link parseServerMessageLenient} yields: the strict union, except the

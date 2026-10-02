@@ -1,8 +1,8 @@
-import type { IssueRow } from '../../store/types'
-import { issueRowFixture as row } from '../../test-support/issue-row'
 import { asRepoId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import type { IssueRow } from '../../store/types'
 import { captureLogs } from '../../test-support/capture-logs'
+import { issueRowFixture as row } from '../../test-support/issue-row'
 import {
   issueDepProjectionRows,
   issueDepToProjection,
@@ -33,15 +33,24 @@ import {
 const NO_LABELS: string[] = []
 
 describe('issueRowToProjection [POD-796]', () => {
-  it.each([null, '2026-07-02T00:00:00.000Z'])('preserves a stored question with no asker and timestamp %s', at => {
-    const projected = issueRowToProjection(row({
-      needsHuman: true, humanQuestion: 'Keep this unanswered question?',
-      humanQuestionAskedBy: null, humanQuestionAskedAt: at,
-      humanQuestionAttribution: null,
-    }), NO_LABELS)
+  it.each([
+    null,
+    '2026-07-02T00:00:00.000Z',
+  ])('preserves a stored question with no asker and timestamp %s', (at) => {
+    const projected = issueRowToProjection(
+      row({
+        needsHuman: true,
+        humanQuestion: 'Keep this unanswered question?',
+        humanQuestionAskedBy: null,
+        humanQuestionAskedAt: at,
+        humanQuestionAttribution: null,
+      }),
+      NO_LABELS,
+    )
     expect(projected.needsHuman).toBe(true)
     expect(projected.asked).toEqual({
-      question: 'Keep this unanswered question?', options: ['left', 'right'],
+      question: 'Keep this unanswered question?',
+      options: ['left', 'right'],
       ...(at ? { at } : {}),
     })
     expect(projected.asked).not.toHaveProperty('by')

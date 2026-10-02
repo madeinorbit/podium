@@ -1,10 +1,8 @@
-import { issueRowFixture } from '../../../server/src/test-support/issue-row'
-import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
-import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { allIssueViewModels, type IssueViewModel } from '@podium/client-core/replica'
 import { asUserId, ISSUE_STAGES, issueUserStateRowId } from '@podium/model/browser'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
+import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { cleanup, render } from '@testing-library/react'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,6 +10,8 @@ import { IssueListView } from '@/features/issues/IssueListView'
 import { IssuesKanban } from '@/features/issues/IssuesKanban'
 import { DEFAULT_DISPLAY } from '@/features/issues/issues-display'
 import { normalizedFixtureStore } from '@/test-support/normalized-issues'
+import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
+import { issueRowFixture } from '../../../server/src/test-support/issue-row'
 import { KERNEL_REPLICA_DB, type KernelAssembly, openKernelAssembly } from './kernelReplica'
 import { makeIssue } from './test-issue'
 
@@ -94,7 +94,13 @@ function screenOutput(models: IssueViewModel[]) {
 describe('web legacy issue retention', () => {
   it('retires unsupported cache rows while preserving issue list and board screens', async () => {
     const factory = new IDBFactory()
-    const before = await IndexedDbSyncStore.open({ factory: factory as never, databaseName: KERNEL_REPLICA_DB, onDegraded: error => { throw error } })
+    const before = await IndexedDbSyncStore.open({
+      factory: factory as never,
+      databaseName: KERNEL_REPLICA_DB,
+      onDegraded: (error) => {
+        throw error
+      },
+    })
     const wires = [
       makeIssue({
         id: 'i1',
@@ -110,10 +116,17 @@ describe('web legacy issue retention', () => {
         title: 'Waiting to merge',
         stage: 'review',
         needsHuman: true,
-        asked: issueRowToProjection(issueRowFixture({
-          needsHuman: true, humanQuestion: 'Approve?', humanQuestionOptions: ['Yes', 'No'],
-          humanQuestionAskedBy: null, humanQuestionAskedAt: null, humanQuestionAttribution: null,
-        }), []).asked,
+        asked: issueRowToProjection(
+          issueRowFixture({
+            needsHuman: true,
+            humanQuestion: 'Approve?',
+            humanQuestionOptions: ['Yes', 'No'],
+            humanQuestionAskedBy: null,
+            humanQuestionAskedAt: null,
+            humanQuestionAttribution: null,
+          }),
+          [],
+        ).asked,
         gitState: {
           updatedAt: 'probe',
           branch: 'feature',
@@ -152,7 +165,10 @@ describe('web legacy issue retention', () => {
     await before.settled()
     expect(cache.readEntities().filter((row) => row.entity === 'issue')).toHaveLength(2)
     const beforeModels = allIssueViewModels(fixture.replica)
-    expect(beforeModels.find(issue => issue.id === 'i2')).toMatchObject({ needsHuman: true, asked: { question: 'Approve?' } })
+    expect(beforeModels.find((issue) => issue.id === 'i2')).toMatchObject({
+      needsHuman: true,
+      asked: { question: 'Approve?' },
+    })
     expect(beforeModels).toHaveLength(2)
     const screens = screenOutput(beforeModels)
     expect(screens.listRows).toEqual(['i1', 'i2'])
@@ -163,7 +179,7 @@ describe('web legacy issue retention', () => {
     const hydrated = await after.replica.hydrate()
     expect(hydrated).not.toHaveProperty('issues')
     expect(hydrated.schemaReset).toBe(false)
-    const question = allIssueViewModels(after.replica).find(issue => issue.id === 'i2')
+    const question = allIssueViewModels(after.replica).find((issue) => issue.id === 'i2')
     expect(question?.needsHuman).toBe(true)
     expect(question?.asked).toEqual({ question: 'Approve?', options: ['Yes', 'No'] })
     expect(after.replica.getCursor()).toBe(10)

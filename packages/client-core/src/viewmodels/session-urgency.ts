@@ -1,4 +1,3 @@
-import type { SessionView } from '../session-values'
 /**
  * F3 — *what order sessions are presented in.*
  *
@@ -47,6 +46,7 @@ import type { SessionView } from '../session-values'
  */
 import { isSnoozed, type SessionId } from '@podium/model'
 import { attentionGroup, compareRecency } from '../focus'
+import type { SessionView } from '../session-values'
 
 /** How long a session may sit quiet before the unified list calls it stale. */
 export const STALE_INACTIVE_MS = 16 * 60 * 60 * 1000

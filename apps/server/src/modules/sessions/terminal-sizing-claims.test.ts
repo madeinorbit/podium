@@ -129,7 +129,8 @@ describe('C3: attach keeps the screen and never automatically redraws (SPEC v4 B
     const client = makeClient('c-fresh')
     terminal.attachClient(client)
     expect(client.sent.find((m) => m.type === 'attached')).toMatchObject({
-      geometry: { cols: 120, rows: 40 }, resumed: true,
+      geometry: { cols: 120, rows: 40 },
+      resumed: true,
     })
     expect(redraws(toDaemon)).toEqual([])
   })
@@ -491,10 +492,15 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
   it('DEFAULT_GEOMETRY is 80x24 and is what a spawn frame and the published row both carry', async () => {
     expect(DEFAULT_GEOMETRY).toEqual({ cols: 80, rows: 24 })
     const { reg, daemon } = await registryFor()
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
 
     expect(spawns(daemon).at(-1)?.geometry).toEqual({ cols: 80, rows: 24 })
-    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     expect(row?.geometry).toEqual({ cols: 80, rows: 24 })
   })
 
@@ -508,7 +514,9 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
     const { sessionId } = await reg.modules.sessions.createSession(input)
 
     expect(spawns(daemon).at(-1)?.geometry).toEqual({ cols: 80, rows: 24 })
-    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     expect(row?.geometry).toEqual({ cols: 80, rows: 24 })
   })
 
@@ -559,8 +567,13 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
 describe('C10: SessionMeta.geometry is a required field carrying the server value to the client row', () => {
   it('the schema REFUSES a session row without geometry', async () => {
     const { reg } = await registryFor()
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
+    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     expect(row).toBeDefined()
     expect(SessionMeta.safeParse(row).success).toBe(true)
 
@@ -587,11 +600,12 @@ describe('C10: SessionMeta.geometry is a required field carrying the server valu
     const session = (reg as unknown as InternalRegistry).modules.sessions.sessions.get(sessionId)
     session?.terminal.applyDaemonGeometry({ cols: 132, rows: 43 })
 
-    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     expect(row?.geometry).toEqual({ cols: 132, rows: 43 })
   })
 })
-
 
 // ---------------------------------------------------------------------------
 // POD-3279: a bind that carries NO geometry
@@ -643,7 +657,9 @@ describe('POD-3279: a bind without geometry keeps the copy and announces nothing
     return { reg, daemon, sessionId, session, watcher }
   }
 
-  const bareBind = (sessionId: SessionId): Extract<import('@podium/protocol/daemon').DaemonMessage, { type: 'bind' }> => ({
+  const bareBind = (
+    sessionId: SessionId,
+  ): Extract<import('@podium/protocol/daemon').DaemonMessage, { type: 'bind' }> => ({
     type: 'bind',
     sessionId,
     cmd: `podium-host attach /run/hosts/podium-${sessionId}.sock`,

@@ -1,5 +1,5 @@
 /** Convert older test inputs at the fixture boundary, then exercise real joins. */
-import { actorUser, asUserId } from '@podium/model'
+
 import { allIssueViewModels, createReplica, memoryStorage } from '@podium/client-core/replica'
 import type {
   IssueGitStateProjection,
@@ -8,6 +8,7 @@ import type {
   RepoProjection,
   SessionMeta,
 } from '@podium/model'
+import { actorUser, asUserId } from '@podium/model'
 
 type FixtureStore = {
   issues?: readonly unknown[]
@@ -78,7 +79,10 @@ function make(store: FixtureStore) {
       ...durable,
       owner: durable.owner ?? asUserId('fixture-user'),
       visibility: durable.visibility ?? 'personal',
-      createdBy: durable.createdBy ?? { actor: actorUser(asUserId('fixture-user')), onBehalfOf: asUserId('fixture-user') },
+      createdBy: durable.createdBy ?? {
+        actor: actorUser(asUserId('fixture-user')),
+        onBehalfOf: asUserId('fixture-user'),
+      },
       repoId,
       description:
         typeof input.description === 'string'

@@ -10,8 +10,8 @@ import { CommittedRows } from './committed-rows'
 
 import { createLogger } from '@podium/logger'
 import {
-  asIssueId,
   Attribution,
+  asIssueId,
   type IssueId,
   IssueStage,
   IssueUserState,
@@ -48,13 +48,13 @@ import {
   issueMessageUserState,
   issueRefLetters,
   issues,
+  issueUserState,
   machines,
   meta,
-  issueUserState,
   sessions,
 } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
 import { parseStringArray, requireUserId } from './helpers'
 import { StaleIssueRevisionError } from './issue-revision'
@@ -67,7 +67,10 @@ const log = createLogger('server:store')
 /** RETAINED EXTERNAL-INPUT BRAND CASTS: compatibility methods accept raw issue
  * ids and repo-path resolution still returns a string. Query/write casts decode
  * those inputs; selected issue fields are schema-branded. */
-export type IssueWorktreeRow = Pick<IssueRow, 'id' | 'repoPath' | 'seq' | 'worktreePath' | 'deletedAt'>
+export type IssueWorktreeRow = Pick<
+  IssueRow,
+  'id' | 'repoPath' | 'seq' | 'worktreePath' | 'deletedAt'
+>
 
 export class IssuesRepository {
   readonly committed: CommittedRows<typeof issues.$inferSelect>
@@ -123,7 +126,10 @@ export class IssuesRepository {
   constructor(
     queries: StoreQueries,
     /** Repos-aggregate lookup: stable repo_id for an issue's repoPath. */
-    private readonly resolveRepoIdForPath: (repoPath: string, machineId?: MachineId | null) => string | Promise<string>,
+    private readonly resolveRepoIdForPath: (
+      repoPath: string,
+      machineId?: MachineId | null,
+    ) => string | Promise<string>,
   ) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'issues')
     this.rootDb = queries.rootDb
@@ -257,7 +263,8 @@ export class IssuesRepository {
       createdByActor: row.createdByActor ?? row.ownerUserId,
       createdByOnBehalfOf: row.createdByOnBehalfOf,
       repoPath: row.repoPath,
-      repoId: row.repoId ?? ((await this.resolveRepoIdForPath(row.repoPath, row.machineId)) as RepoId),
+      repoId:
+        row.repoId ?? ((await this.resolveRepoIdForPath(row.repoPath, row.machineId)) as RepoId),
       seq: row.seq,
       title: row.title,
       description: row.description,
@@ -305,7 +312,9 @@ export class IssuesRepository {
         : null,
       humanQuestionAskedBy: row.humanQuestionAskedBy ?? null,
       humanQuestionAskedAt: row.humanQuestionAskedAt ?? null,
-      humanQuestionAttribution: row.humanQuestionAttribution ? JSON.stringify(row.humanQuestionAttribution) : null,
+      humanQuestionAttribution: row.humanQuestionAttribution
+        ? JSON.stringify(row.humanQuestionAttribution)
+        : null,
       panel: row.panel ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -318,70 +327,76 @@ export class IssuesRepository {
       coordinatorSessionId: row.coordinatorSessionId ?? null,
       startedBySession: row.startedBySession ?? null,
     }
-    await this.committed.write(async () => this.db
-      .insert(issues)
-      .values(values)
-      .onConflictDoUpdate({
-        target: issues.id,
-        set: {
-          repoId: values.repoId,
-          title: values.title,
-          description: values.description,
-          brief: values.brief,
-          stage: values.stage,
-          worktreePath: values.worktreePath,
-          branch: values.branch,
-          parentBranch: values.parentBranch,
-          defaultAgent: values.defaultAgent,
-          defaultModel: values.defaultModel,
-          defaultEffort: values.defaultEffort,
-          machineId: values.machineId,
-          linearId: values.linearId,
-          linearIdentifier: values.linearIdentifier,
-          linearUrl: values.linearUrl,
-          activityNotes: values.activityNotes,
-          notesUpdatedAt: values.notesUpdatedAt,
-          suggestedStage: values.suggestedStage,
-          suggestedReason: values.suggestedReason,
-          blockedBy: values.blockedBy,
-          dependencyNote: values.dependencyNote,
-          prUrl: values.prUrl,
-          priority: values.priority,
-          type: values.type,
-          assignee: values.assignee,
-          parentId: values.parentId,
-          design: values.design,
-          acceptance: values.acceptance,
-          notes: values.notes,
-          dueAt: values.dueAt,
-          deferUntil: values.deferUntil,
-          closedReason: values.closedReason,
-          closedAt: values.closedAt,
-          landedAt: values.landedAt,
-          landedSha: values.landedSha,
-          supersededBy: values.supersededBy,
-          duplicateOf: values.duplicateOf,
-          sortKey: values.sortKey,
-          color: values.color,
-          estimateMin: values.estimateMin,
-          needsHuman: values.needsHuman,
-          humanQuestion: values.humanQuestion,
-          humanQuestionOptions: values.humanQuestionOptions,
-          humanQuestionAskedBy: values.humanQuestionAskedBy,
-          humanQuestionAskedAt: values.humanQuestionAskedAt,
-          humanQuestionAttribution: values.humanQuestionAttribution,
-          panel: values.panel,
-          updatedAt: values.updatedAt,
-          archived: values.archived,
-          origin: values.origin,
-          audience: values.audience,
-          draft: values.draft,
-          deletedAt: values.deletedAt,
-          revision: values.revision,
-          coordinatorSessionId: values.coordinatorSessionId,
-          startedBySession: values.startedBySession,
-        },
-      }).returning().all(), 'upsert')
+    await this.committed.write(
+      async () =>
+        this.db
+          .insert(issues)
+          .values(values)
+          .onConflictDoUpdate({
+            target: issues.id,
+            set: {
+              repoId: values.repoId,
+              title: values.title,
+              description: values.description,
+              brief: values.brief,
+              stage: values.stage,
+              worktreePath: values.worktreePath,
+              branch: values.branch,
+              parentBranch: values.parentBranch,
+              defaultAgent: values.defaultAgent,
+              defaultModel: values.defaultModel,
+              defaultEffort: values.defaultEffort,
+              machineId: values.machineId,
+              linearId: values.linearId,
+              linearIdentifier: values.linearIdentifier,
+              linearUrl: values.linearUrl,
+              activityNotes: values.activityNotes,
+              notesUpdatedAt: values.notesUpdatedAt,
+              suggestedStage: values.suggestedStage,
+              suggestedReason: values.suggestedReason,
+              blockedBy: values.blockedBy,
+              dependencyNote: values.dependencyNote,
+              prUrl: values.prUrl,
+              priority: values.priority,
+              type: values.type,
+              assignee: values.assignee,
+              parentId: values.parentId,
+              design: values.design,
+              acceptance: values.acceptance,
+              notes: values.notes,
+              dueAt: values.dueAt,
+              deferUntil: values.deferUntil,
+              closedReason: values.closedReason,
+              closedAt: values.closedAt,
+              landedAt: values.landedAt,
+              landedSha: values.landedSha,
+              supersededBy: values.supersededBy,
+              duplicateOf: values.duplicateOf,
+              sortKey: values.sortKey,
+              color: values.color,
+              estimateMin: values.estimateMin,
+              needsHuman: values.needsHuman,
+              humanQuestion: values.humanQuestion,
+              humanQuestionOptions: values.humanQuestionOptions,
+              humanQuestionAskedBy: values.humanQuestionAskedBy,
+              humanQuestionAskedAt: values.humanQuestionAskedAt,
+              humanQuestionAttribution: values.humanQuestionAttribution,
+              panel: values.panel,
+              updatedAt: values.updatedAt,
+              archived: values.archived,
+              origin: values.origin,
+              audience: values.audience,
+              draft: values.draft,
+              deletedAt: values.deletedAt,
+              revision: values.revision,
+              coordinatorSessionId: values.coordinatorSessionId,
+              startedBySession: values.startedBySession,
+            },
+          })
+          .returning()
+          .all(),
+      'upsert',
+    )
   }
 
   /** Internal Shipping custody seam. Ordinary issue CRUD never calls this.
@@ -405,14 +420,20 @@ export class IssuesRepository {
     // read out would turn the CAS into a race. `revision` is bumped from its own
     // stored value, so the expression references the column rather than a bound
     // parameter.
-    const result = await this.committed.write(async () => this.db
-      .update(issues)
-      .set({
-        stage: nextStage,
-        updatedAt,
-        revision: sql`COALESCE(${issues.revision}, 0) + 1`,
-      })
-      .where(and(eq(issues.id, id), eq(issues.stage, expectedStage), isNull(issues.deletedAt))).returning().all(), 'upsert')
+    const result = await this.committed.write(
+      async () =>
+        this.db
+          .update(issues)
+          .set({
+            stage: nextStage,
+            updatedAt,
+            revision: sql`COALESCE(${issues.revision}, 0) + 1`,
+          })
+          .where(and(eq(issues.id, id), eq(issues.stage, expectedStage), isNull(issues.deletedAt)))
+          .returning()
+          .all(),
+      'upsert',
+    )
     if (result.changes !== 1) {
       throw new Error(`issue ${id} shipping stage fence failed: expected ${expectedStage}`)
     }
@@ -420,7 +441,6 @@ export class IssuesRepository {
     if (!row) throw new Error(`issue ${id} disappeared after shipping transition`)
     return row
   }
-
 
   async getIssue(id: string): Promise<IssueRow | null> {
     const cache = await this.frameRows()
@@ -667,7 +687,13 @@ export class IssuesRepository {
    * This one statement loads only the additional worktree lookup keys. */
   async loadWorldIssuePaths(): Promise<IssueWorktreeRow[]> {
     return this.db
-      .select({ id: issues.id, repoPath: issues.repoPath, seq: issues.seq, worktreePath: issues.worktreePath, deletedAt: issues.deletedAt })
+      .select({
+        id: issues.id,
+        repoPath: issues.repoPath,
+        seq: issues.seq,
+        worktreePath: issues.worktreePath,
+        deletedAt: issues.deletedAt,
+      })
       .from(issues)
       .all()
   }
@@ -692,9 +718,15 @@ export class IssuesRepository {
       .where(eq(issueRefLetters.issueId, asIssueId(id)))
       .run()
     await this.invalidateRowCache()
-    await this.committed.write(async () => this.db
-      .delete(issues)
-      .where(eq(issues.id, asIssueId(id))).returning().all(), 'delete')
+    await this.committed.write(
+      async () =>
+        this.db
+          .delete(issues)
+          .where(eq(issues.id, asIssueId(id)))
+          .returning()
+          .all(),
+      'delete',
+    )
   }
 
   /** Per-boot heal (POD-1926): drop letter counters whose issue is already gone —
@@ -787,7 +819,11 @@ export class IssuesRepository {
     // conversion must not widen the span to cover them.
     await this.createOrJoinTransaction(async () => {
       for (const u of updates) {
-        await this.committed.write(async () => this.db.update(issues).set({ seq: u.seq }).where(eq(issues.id, u.id)).returning().all(), 'upsert')
+        await this.committed.write(
+          async () =>
+            this.db.update(issues).set({ seq: u.seq }).where(eq(issues.id, u.id)).returning().all(),
+          'upsert',
+        )
       }
       await this.sessionRefPublisher?.(updates.map((update) => update.id))
     })
@@ -906,10 +942,19 @@ export class IssuesRepository {
     candidateHostId: MachineId,
   ): Promise<{ hostMachineId: MachineId; backfilled: number; skipped: number } | undefined> {
     return await this.createOrJoinTransaction(async () => {
-      if (await this.db.select({ value: meta.value }).from(meta)
-        .where(eq(meta.key, LEGACY_WORKTREE_MIGRATION)).get()) return undefined
-      const host = await this.db.select({ id: machines.id }).from(machines)
-        .where(and(eq(machines.id, candidateHostId), isNull(machines.revokedAt))).get()
+      if (
+        await this.db
+          .select({ value: meta.value })
+          .from(meta)
+          .where(eq(meta.key, LEGACY_WORKTREE_MIGRATION))
+          .get()
+      )
+        return undefined
+      const host = await this.db
+        .select({ id: machines.id })
+        .from(machines)
+        .where(and(eq(machines.id, candidateHostId), isNull(machines.revokedAt)))
+        .get()
       if (!host) return undefined
       const hostMachineId = host.id
       const { legacyWorktreeRow, contradictorySession } = this.legacyWorktreeTerms(hostMachineId)
@@ -920,16 +965,25 @@ export class IssuesRepository {
       await this.invalidateRowCache()
       const backfilled = Number(
         (
-          await this.committed.write(async () => this.db
-            .update(issues)
-            .set({ machineId: hostMachineId })
-            .where(and(legacyWorktreeRow, not(contradictorySession))).returning().all(), 'upsert')
+          await this.committed.write(
+            async () =>
+              this.db
+                .update(issues)
+                .set({ machineId: hostMachineId })
+                .where(and(legacyWorktreeRow, not(contradictorySession)))
+                .returning()
+                .all(),
+            'upsert',
+          )
         ).changes,
       )
-      await this.db.insert(meta).values({
-        key: LEGACY_WORKTREE_MIGRATION,
-        value: JSON.stringify({ hostMachineId, backfilled, skipped }),
-      }).run()
+      await this.db
+        .insert(meta)
+        .values({
+          key: LEGACY_WORKTREE_MIGRATION,
+          value: JSON.stringify({ hostMachineId, backfilled, skipped }),
+        })
+        .run()
       return { hostMachineId, backfilled, skipped }
     })
   }
@@ -1452,95 +1506,95 @@ export class IssuesRepository {
   }
 }
 
-  /** Map the schema-inferred row into the domain row. Branded ids arrive from
-   * the schema; the remaining mapping is semantic validation and quarantine. */
+/** Map the schema-inferred row into the domain row. Branded ids arrive from
+ * the schema; the remaining mapping is semantic validation and quarantine. */
 export function issueFromRow(r: typeof issues.$inferSelect): IssueRow {
-    return {
-      id: r.id,
-      ownerUserId: r.ownerUserId,
-      visibility:
-        r.visibility === 'deployment-substrate' ||
-        r.visibility === 'owned-compute' ||
-        r.visibility === 'per-user-state' ||
-        r.visibility === 'secret'
-          ? r.visibility
-          : 'personal',
-      createdByActor: r.createdByActor,
-      createdByOnBehalfOf: r.createdByOnBehalfOf ?? null,
-      repoPath: r.repoPath,
-      repoId: r.repoId,
-      seq: r.seq,
-      title: r.title,
-      description: r.description,
-      brief: r.brief,
-      stage: r.stage,
-      worktreePath: r.worktreePath,
-      branch: r.branch,
-      parentBranch: r.parentBranch,
-      defaultAgent: r.defaultAgent,
-      defaultModel: r.defaultModel,
-      defaultEffort: r.defaultEffort,
-      machineId: r.machineId,
-      linearId: r.linearId,
-      linearIdentifier: r.linearIdentifier,
-      linearUrl: r.linearUrl,
-      activityNotes: r.activityNotes,
-      notesUpdatedAt: r.notesUpdatedAt,
-      suggestedStage: r.suggestedStage,
-      suggestedReason: r.suggestedReason,
-      blockedBy: parseStringArray(r.blockedBy, `issue ${String(r.id)} blocked_by`),
-      dependencyNote: r.dependencyNote,
-      prUrl: r.prUrl,
-      priority: r.priority,
-      type: r.type,
-      assignee: r.assignee ?? null,
-      parentId: r.parentId,
-      design: r.design,
-      acceptance: r.acceptance,
-      notes: r.notes,
-      dueAt: r.dueAt,
-      deferUntil: r.deferUntil,
-      closedReason: r.closedReason,
-      closedAt: r.closedAt,
-      landedAt: r.landedAt,
-      landedSha: r.landedSha,
-      supersededBy: r.supersededBy,
-      duplicateOf: r.duplicateOf,
-      sortKey: r.sortKey,
-      color: isIssueColorSlot(r.color) ? r.color : null,
-      estimateMin: r.estimateMin,
-      needsHuman: r.needsHuman,
-      humanQuestion: r.humanQuestion,
-      // Options self-quarantine like blocked_by, but to null (= no chips) so a
-      // corrupt blob degrades to the free-form question rather than [] chips.
-      humanQuestionOptions: r.humanQuestionOptions
-        ? (() => {
-            const v = parseStringArray(
-              r.humanQuestionOptions,
-              `issue ${String(r.id)} human_question_options`,
-            )
-            return v.length > 0 ? v : null
-          })()
-        : null,
-      humanQuestionAskedBy: r.humanQuestionAskedBy ?? null,
-      humanQuestionAskedAt: r.humanQuestionAskedAt,
-      humanQuestionAttribution: questionAttribution(r.humanQuestionAttribution),
-      panel: r.panel,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-      archived: r.archived,
-      deletedAt: r.deletedAt,
-      origin: r.origin,
-      audience: r.audience,
-      draft: r.draft,
-      // ADR 2 D3. `?? 1` is defence in depth, not an expected path: the column
-      // is `DEFAULT 1 NOT NULL` and the migration materialized 1 into every
-      // pre-existing row, so a null here would mean a hand-mangled database.
-      revision: r.revision ?? 1,
-      coordinatorSessionId: r.coordinatorSessionId,
-      startedBySession: r.startedBySession ?? null,
-    }
+  return {
+    id: r.id,
+    ownerUserId: r.ownerUserId,
+    visibility:
+      r.visibility === 'deployment-substrate' ||
+      r.visibility === 'owned-compute' ||
+      r.visibility === 'per-user-state' ||
+      r.visibility === 'secret'
+        ? r.visibility
+        : 'personal',
+    createdByActor: r.createdByActor,
+    createdByOnBehalfOf: r.createdByOnBehalfOf ?? null,
+    repoPath: r.repoPath,
+    repoId: r.repoId,
+    seq: r.seq,
+    title: r.title,
+    description: r.description,
+    brief: r.brief,
+    stage: r.stage,
+    worktreePath: r.worktreePath,
+    branch: r.branch,
+    parentBranch: r.parentBranch,
+    defaultAgent: r.defaultAgent,
+    defaultModel: r.defaultModel,
+    defaultEffort: r.defaultEffort,
+    machineId: r.machineId,
+    linearId: r.linearId,
+    linearIdentifier: r.linearIdentifier,
+    linearUrl: r.linearUrl,
+    activityNotes: r.activityNotes,
+    notesUpdatedAt: r.notesUpdatedAt,
+    suggestedStage: r.suggestedStage,
+    suggestedReason: r.suggestedReason,
+    blockedBy: parseStringArray(r.blockedBy, `issue ${String(r.id)} blocked_by`),
+    dependencyNote: r.dependencyNote,
+    prUrl: r.prUrl,
+    priority: r.priority,
+    type: r.type,
+    assignee: r.assignee ?? null,
+    parentId: r.parentId,
+    design: r.design,
+    acceptance: r.acceptance,
+    notes: r.notes,
+    dueAt: r.dueAt,
+    deferUntil: r.deferUntil,
+    closedReason: r.closedReason,
+    closedAt: r.closedAt,
+    landedAt: r.landedAt,
+    landedSha: r.landedSha,
+    supersededBy: r.supersededBy,
+    duplicateOf: r.duplicateOf,
+    sortKey: r.sortKey,
+    color: isIssueColorSlot(r.color) ? r.color : null,
+    estimateMin: r.estimateMin,
+    needsHuman: r.needsHuman,
+    humanQuestion: r.humanQuestion,
+    // Options self-quarantine like blocked_by, but to null (= no chips) so a
+    // corrupt blob degrades to the free-form question rather than [] chips.
+    humanQuestionOptions: r.humanQuestionOptions
+      ? (() => {
+          const v = parseStringArray(
+            r.humanQuestionOptions,
+            `issue ${String(r.id)} human_question_options`,
+          )
+          return v.length > 0 ? v : null
+        })()
+      : null,
+    humanQuestionAskedBy: r.humanQuestionAskedBy ?? null,
+    humanQuestionAskedAt: r.humanQuestionAskedAt,
+    humanQuestionAttribution: questionAttribution(r.humanQuestionAttribution),
+    panel: r.panel,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    archived: r.archived,
+    deletedAt: r.deletedAt,
+    origin: r.origin,
+    audience: r.audience,
+    draft: r.draft,
+    // ADR 2 D3. `?? 1` is defence in depth, not an expected path: the column
+    // is `DEFAULT 1 NOT NULL` and the migration materialized 1 into every
+    // pre-existing row, so a null here would mean a hand-mangled database.
+    revision: r.revision ?? 1,
+    coordinatorSessionId: r.coordinatorSessionId,
+    startedBySession: r.startedBySession ?? null,
   }
+}
 
 /** Corrupt optional provenance does not hide the question or invent an actor. */
 function questionAttribution(raw: string | null): Attribution | null {
@@ -1548,6 +1602,8 @@ function questionAttribution(raw: string | null): Attribution | null {
   try {
     const parsed = Attribution.safeParse(JSON.parse(raw))
     if (parsed.success) return parsed.data
-  } catch { /* Unattributed historical or corrupt row. */ }
+  } catch {
+    /* Unattributed historical or corrupt row. */
+  }
   return null
 }

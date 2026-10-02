@@ -51,16 +51,21 @@ describe('the placement rule: replica provenance, not authorship', () => {
     // the one that must carry them — and it does, provenance-free.
     const entityKeys = Object.keys(IssueProjection.shape)
     expect(entityKeys).toContain('asked')
-    expect(Object.keys(IssueProjection.shape.asked.unwrap().shape)).toEqual(expect.arrayContaining(['by', 'at']))
+    expect(Object.keys(IssueProjection.shape.asked.unwrap().shape)).toEqual(
+      expect.arrayContaining(['by', 'at']),
+    )
     expect(Object.keys(ReplicatedProvenance.shape)).not.toContain('humanQuestionAskedBy')
   })
 
   it('keeps the entity schemas provenance-free', () => {
     for (const key of FLAT_PROVENANCE_KEYS) {
-      expect(Object.keys(SessionMetaEntity.shape), `SessionMetaEntity carries ${key}`).not.toContain(
+      expect(
+        Object.keys(SessionMetaEntity.shape),
+        `SessionMetaEntity carries ${key}`,
+      ).not.toContain(key)
+      expect(Object.keys(IssueProjection.shape), `IssueProjection carries ${key}`).not.toContain(
         key,
       )
-      expect(Object.keys(IssueProjection.shape), `IssueProjection carries ${key}`).not.toContain(key)
     }
     // The counterfactual: today's WIRE projections still carry them flat, which
     // is what keeps the golden fixtures byte-identical until POD-308.

@@ -1,5 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { fixtureMarkers, fixtureGitStates } from '../fixture/normalized-issues'
+import { fixtureGitStates, fixtureMarkers } from '../fixture/normalized-issues'
 /**
  * POD-4443 — parity oracle: the exact rows, order and groups the current app
  * would show for a fixture corpus.
@@ -33,7 +33,11 @@ import {
   type WorklistSlice,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { SessionMeta, } from '@podium/model'
+import {
+  type LegacyDerivation,
+  legacyDerivationFromStore,
+  visibleIssueRows,
+} from '@podium/client-graph/diagnostics/legacy'
 import type {
   SliceGroup,
   SliceLocals,
@@ -41,10 +45,14 @@ import type {
   SliceRow,
   SliceSnapshot,
 } from '@podium/client-graph/shared/slice-types'
+import type { SessionMeta } from '@podium/model'
 import type { FixtureCorpus } from '../fixture/index'
 
-import { legacyDerivationFromStore, visibleIssueRows, type LegacyDerivation } from '@podium/client-graph/diagnostics/legacy'
-export { legacyDerivationFromStore, visibleIssueRows, type LegacyDerivation } from '@podium/client-graph/diagnostics/legacy'
+export {
+  type LegacyDerivation,
+  legacyDerivationFromStore,
+  visibleIssueRows,
+} from '@podium/client-graph/diagnostics/legacy'
 
 function stubReplica(corpus: FixtureCorpus): Replica {
   const byKind = {
@@ -93,7 +101,11 @@ export function runLegacyDerivation(corpus: FixtureCorpus, locals: SliceLocals):
   const slice = worklistSlice.derive(store)
   // The same shared model cache the slice derived from: identical inputs, so
   // the progress fallback below reads the same objects, never a rebuild.
-  const models = allIssueViewModels(replica, corpus.issueProjections, replica.rows('issueUserStates'))
+  const models = allIssueViewModels(
+    replica,
+    corpus.issueProjections,
+    replica.rows('issueUserStates'),
+  )
   return { slice, models, sessions, allWorktreePaths: slice.allWorktreePaths }
 }
 

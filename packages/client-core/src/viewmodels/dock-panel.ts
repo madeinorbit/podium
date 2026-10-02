@@ -1,11 +1,7 @@
+import type { ArtifactId, IssueId, MachineId, SessionId } from '@podium/model'
 import type { IssueViewModel } from '../replica/issue-view-models'
-import type { SessionView } from '../session-values'
 import { sessionById } from '../session-index'
-import type {
-  ArtifactId,
-  IssueId,
-  MachineId,
-  SessionId} from '@podium/model'
+import type { SessionView } from '../session-values'
 import type { FileScope } from './file-scope'
 
 /** An open file-editor tab. `id` is `file:<scopeKey>:<path>`; `worktreePath` (the
@@ -94,7 +90,10 @@ export function resolveActiveWorktree(args: {
  *  match, the deepest containing worktreePath wins (a repo-root worktree must
  *  not swallow `.worktrees/*` checkouts), and equal depths tie-break on lowest
  *  seq — never on broadcast array order (#243). */
-type IssuePanelLike = Pick<IssueViewModel, 'id' | 'worktreePath' | 'archived' | 'deletedAt' | 'seq' | 'parentId' | 'panel'>
+type IssuePanelLike = Pick<
+  IssueViewModel,
+  'id' | 'worktreePath' | 'archived' | 'deletedAt' | 'seq' | 'parentId' | 'panel'
+>
 
 export function issueForCwd<T extends IssuePanelLike>(issues: T[], cwd: string): T | null {
   let best: T | null = null
@@ -141,9 +140,7 @@ export function issueForPanel<T extends IssuePanelLike>(args: {
     const explicit = args.issues.find((i) => i.id === args.issueId && !i.deletedAt)
     if (explicit) return explicit
   }
-  const session = args.sessionId
-    ? sessionById(args.sessions).get(args.sessionId)
-    : undefined
+  const session = args.sessionId ? sessionById(args.sessions).get(args.sessionId) : undefined
   if (session) {
     const id = session.issueId
     if (id === undefined) return null

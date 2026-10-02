@@ -57,21 +57,21 @@
  */
 
 import {
-  asAgentIdentityId,
-  asCapabilityRef,
-  asDelegationRef,
-  asDeviceId,
-  type Principal,
-  principalRoutingId,
-} from '@podium/protocol'
-import {
   actorUser,
   asSessionId,
   asUserId,
   type MutationId,
   type VisibilityClass,
 } from '@podium/model'
-import { MetadataEntityKind } from '@podium/protocol'
+import {
+  asAgentIdentityId,
+  asCapabilityRef,
+  asDelegationRef,
+  asDeviceId,
+  MetadataEntityKind,
+  type Principal,
+  principalRoutingId,
+} from '@podium/protocol'
 import {
   BoundedSendQueue,
   type DelegatedScope,
@@ -84,8 +84,8 @@ import {
   GrantEdgeVisibilityPolicy,
   type VisibilityStatePort,
 } from '../feed'
-import type { OutboxEnvelope, OutboxSubmitOutcome, OutboxSubmitPort } from '../outbox/ports'
 import { humanOf as kernelHumanOf } from '../feed/visibility'
+import type { OutboxEnvelope, OutboxSubmitOutcome, OutboxSubmitPort } from '../outbox/ports'
 import { agentActorOfSession, type OutboxAttribution, type UserRef } from '../outbox/records'
 import type { AuthorityReadPort } from '../replica/ports'
 import type {
@@ -213,11 +213,11 @@ export const attributionOf = (principal: ConformancePrincipal): OutboxAttributio
           throw new Error(`no attribution for a ${principal.kind} principal`)
         })()
       : {
-        // `Principal` still carries raw strings (POD-1075 owns that flip), so
-        // this fixture is where they enter the branded space. `asSessionId` then
-        // `agentActorOfSession` rather than a cast to the actor brand: POD-1164's
-        // rule is that the reclassification is always NAMED, so no call site can
-        // invent a second agent id space by accident.
+          // `Principal` still carries raw strings (POD-1075 owns that flip), so
+          // this fixture is where they enter the branded space. `asSessionId` then
+          // `agentActorOfSession` rather than a cast to the actor brand: POD-1164's
+          // rule is that the reclassification is always NAMED, so no call site can
+          // invent a second agent id space by accident.
           actor: agentActorOfSession(asSessionId(principal.agentIdentity)),
           onBehalfOf: asUserId(principal.onBehalfOf),
         }
@@ -633,7 +633,9 @@ export class ConformanceAuthority {
             : Math.min(this.changesSinceCeiling, this.head())
         const frame = this.frameFor(principal, cursor.seq, upTo)
         onTarget?.({ feedId: frame.feedId, epoch: frame.epoch, seq: frame.seq })
-        return (async function* () { yield frame })()
+        return (async function* () {
+          yield frame
+        })()
       },
       bootstrap: (): AsyncIterable<BootstrapChunk> => {
         this.bootstrapCalls += 1

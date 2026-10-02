@@ -1,6 +1,3 @@
-import type { IssueViewModel } from '../replica/issue-view-models'
-import type { SessionView } from '../session-values'
-import { sessionById } from '../session-index'
 /**
  * F2 — WHICH SESSIONS BELONG TO WHAT, and how to read a reference into a world
  * you can only partially see (POD-330).
@@ -26,7 +23,11 @@ import {
   type IssueId,
   isHeadlessSession,
   type SessionId,
-  worktreeForCwdIndexed} from '@podium/model'
+  worktreeForCwdIndexed,
+} from '@podium/model'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import { sessionById } from '../session-index'
+import type { SessionView } from '../session-values'
 
 // ---------------------------------------------------------------------------
 // Referent resolution over a partial world.
@@ -138,7 +139,10 @@ export function indexSessionOwnership(
     ...allWorktreePaths,
     ...issues.flatMap((issue) => (issue.worktreePath ? [issue.worktreePath] : [])),
   ])
-  const issuesByWorktree = new Map<string, Pick<IssueViewModel, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[]>()
+  const issuesByWorktree = new Map<
+    string,
+    Pick<IssueViewModel, 'id' | 'worktreePath' | 'archived' | 'deletedAt'>[]
+  >()
   for (const issue of issues) {
     if (issue.archived || issue.deletedAt || !issue.worktreePath) continue
     const existing = issuesByWorktree.get(issue.worktreePath)
@@ -314,7 +318,11 @@ export function sessionsForIssueNav(
   const roots = buildWorktreeRootIndex(wt ? [...allWorktreePaths, wt] : allWorktreePaths)
   return sessions.filter((s) => {
     if (!opts.includeShells && s.agentKind === 'shell') return false
-    return sessionBelongsToIssue(s, issue, s.issueId === undefined ? worktreeForCwdIndexed(s.cwd, roots) : null)
+    return sessionBelongsToIssue(
+      s,
+      issue,
+      s.issueId === undefined ? worktreeForCwdIndexed(s.cwd, roots) : null,
+    )
   })
 }
 

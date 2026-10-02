@@ -4,7 +4,7 @@
  * client-reported "what's on screen" block prepended to every turn.
  */
 import type { IssueReport } from '@podium/model'
-import { eventLine, type ConciergeEvent, type ConciergeSessionInfo } from './concierge'
+import { type ConciergeEvent, type ConciergeSessionInfo, eventLine } from './concierge'
 
 // ---- global-thread seeding ------------------------------------------------------
 

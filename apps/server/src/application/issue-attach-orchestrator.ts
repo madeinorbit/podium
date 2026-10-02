@@ -23,11 +23,12 @@ export class IssueAttachOrchestrator {
 
   async execute(caller: IssueCaller, input: IssueAttachInput): Promise<IssueProjection> {
     const principal = this.transportPrincipal(caller)
-    return await this.ports.transact(async () =>
-      await this.ports.attention.attachSession({
-        ...input,
-        principal,
-      }),
+    return await this.ports.transact(
+      async () =>
+        await this.ports.attention.attachSession({
+          ...input,
+          principal,
+        }),
     )
   }
 

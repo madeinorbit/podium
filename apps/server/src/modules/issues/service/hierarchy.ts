@@ -71,8 +71,7 @@ export class IssueHierarchyModule {
     const fromId = await this.store.resolveRef(fromRef)
     const toId = await this.store.resolveRef(toRef)
     const row = await this.store.draftOrThrow(fromId)
-    const removed = (await this.store.deps.store.issues
-      .listIssueDeps(fromId))
+    const removed = (await this.store.deps.store.issues.listIssueDeps(fromId))
       .filter((d) => d.toId === toId && (type === undefined || d.type === type))
       .map((d) => ({ fromId, toId, type: d.type }))
     const wire = await this.store.persistWith(
@@ -112,7 +111,10 @@ export class IssueHierarchyModule {
    */
   async reparent(id: string, parentId: string | null): Promise<IssueProjection> {
     const row = await this.store.draftOrThrow(id)
-    await this.setParentForUpdate(row, parentId == null ? null : await this.store.resolveRef(parentId))
+    await this.setParentForUpdate(
+      row,
+      parentId == null ? null : await this.store.resolveRef(parentId),
+    )
     const wire = await this.store.persist(row)
 
     return wire

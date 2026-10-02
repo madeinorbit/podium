@@ -33,7 +33,9 @@ describe('bootstrap visibility prefetch gate', () => {
       ...base,
       forBootstrap: async (refs: readonly EntityRef[]) => {
         batches.push([
-          ...new Set(refs.filter((ref) => ref.entity === 'issueProjection').map((ref) => ref.entityId)),
+          ...new Set(
+            refs.filter((ref) => ref.entity === 'issueProjection').map((ref) => ref.entityId),
+          ),
         ])
         return { ...base, mayRead: () => true }
       },

@@ -351,8 +351,12 @@ describe('mobile SQLite adapter — store obligations', () => {
     // Same entity id, two rows, no interference — which a shared keyspace with a
     // `principal` column would not give: the second write would have replaced the
     // first.
-    expect(store.viewFor(ADA).cache.read('issueProjection', 'SHARED-1')?.value).toEqual({ v: 'ada' })
-    expect(store.viewFor(GRACE).cache.read('issueProjection', 'SHARED-1')?.value).toEqual({ v: 'grace' })
+    expect(store.viewFor(ADA).cache.read('issueProjection', 'SHARED-1')?.value).toEqual({
+      v: 'ada',
+    })
+    expect(store.viewFor(GRACE).cache.read('issueProjection', 'SHARED-1')?.value).toEqual({
+      v: 'grace',
+    })
 
     store.viewFor(ADA).cache.discardCache()
     const durable = readDurable(file)

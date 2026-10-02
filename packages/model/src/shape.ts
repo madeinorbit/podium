@@ -29,7 +29,6 @@ import { z } from 'zod'
  * compilation".
  */
 
-
 type WireField<F> = F extends z.ZodNullable<infer Inner> ? z.ZodOptional<Inner> : F
 export type WireShape<S extends z.ZodRawShape> = { [K in keyof S]: WireField<S[K]> }
 

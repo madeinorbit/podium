@@ -25,7 +25,8 @@ import type {
   MutationId,
   SessionId,
   ThreadId,
-  WorkState} from '@podium/model'
+  WorkState,
+} from '@podium/model'
 import type { ApprovalWire, PendingInteractionWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { RetrySatisfaction } from '@podium/sync/outbox'

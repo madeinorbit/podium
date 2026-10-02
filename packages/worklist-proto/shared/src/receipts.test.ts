@@ -1,4 +1,3 @@
-import { upsertIssue } from './scenarios'
 // @vitest-environment happy-dom
 /**
  * POD-4554 (L3b) — the receipts stream over the REAL runtime and both queues
@@ -10,25 +9,26 @@ import { upsertIssue } from './scenarios'
  */
 import type { OutboxOutcome } from '@podium/client-core/engine'
 import type { OutboxEntry } from '@podium/client-core/outbox'
-import { asMutationId, type MutationId } from '@podium/model'
-import { Outbox as KernelOutbox } from '@podium/sync/outbox'
-import { describe, expect, it, vi } from 'vitest'
 import {
   createWriteTransport,
   type ReceiptEvent,
   type ReceiptsRuntime,
   subscribeReceipts,
 } from '@podium/client-graph/shared/receipts'
+import type { WriteTransport } from '@podium/client-graph/shared/write-contract'
+import { asMutationId, type MutationId } from '@podium/model'
+import { Outbox as KernelOutbox } from '@podium/sync/outbox'
+import { describe, expect, it, vi } from 'vitest'
 import {
   armMarkReadRejection,
   type ScenarioEngine,
   type ScenarioServer,
   startScenarioEngine,
   upsert,
+  upsertIssue,
   writeOptimisticEcho,
   writeOptimisticPress,
 } from './scenarios'
-import type { WriteTransport } from '@podium/client-graph/shared/write-contract'
 
 const tick = (ms = 80): Promise<void> => new Promise((r) => setTimeout(r, ms))
 const tx = (n: string): MutationId => asMutationId(`00000000-0000-4000-8000-${n.padStart(12, '0')}`)

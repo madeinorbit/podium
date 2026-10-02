@@ -132,7 +132,10 @@ export function useIssueActivity(issue: IssueViewModel): IssueActivity {
       // write; stacking them is how a busy board turned this page into a
       // request storm.
       if (cancelled) return
-      if (draining) { pending = true; return }
+      if (draining) {
+        pending = true
+        return
+      }
       draining = true
       pending = false
       pages = 0
@@ -179,7 +182,9 @@ export function useIssueActivity(issue: IssueViewModel): IssueActivity {
     }
   }, [issueId, repoPath])
 
-  useEffect(() => { drainEvents.current?.() }, [issueId, repoPath, updatedAt])
+  useEffect(() => {
+    drainEvents.current?.()
+  }, [issueId, repoPath, updatedAt])
 
   return {
     feed: buildActivityFeed(comments, events),

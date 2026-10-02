@@ -8,14 +8,24 @@ import { SqliteSyncStore } from './store'
 import { freshDatabaseFile, readDurable, sqliteEngine } from './test-support'
 
 const cleanup: Array<() => void> = []
-afterEach(() => { for (const remove of cleanup.splice(0)) remove() })
+afterEach(() => {
+  for (const remove of cleanup.splice(0)) remove()
+})
 const freshFactory = () => {
   const fresh = freshDatabaseFile()
   cleanup.push(fresh.cleanup)
   return fresh.file
 }
-const open = (options: { factory: string; retainEntity?: (entity: string) => boolean; onDegraded: (reason: unknown) => void }) =>
-  SqliteSyncStore.open({ ...options, openDatabase: () => sqliteEngine.open(options.factory), deleteDatabase: () => rmSync(options.factory, { force: true }) })
+const open = (options: {
+  factory: string
+  retainEntity?: (entity: string) => boolean
+  onDegraded: (reason: unknown) => void
+}) =>
+  SqliteSyncStore.open({
+    ...options,
+    openDatabase: () => sqliteEngine.open(options.factory),
+    deleteDatabase: () => rmSync(options.factory, { force: true }),
+  })
 
 const cursor = (seq: number) => ({ feedId: 'f', epoch: 'e', seq })
 const row = (entity: string, id = 'i'): EntityRecord => ({
@@ -89,9 +99,7 @@ describe('native SQLite optional entity retention', () => {
     expect(await web.viewFor('alice').outbox.read()).toEqual([queued])
     expect(degraded).toEqual([])
     const after = await readDurable(factory)
-    expect(after.entities).toEqual(
-      before.entities.filter((r) => r.entity !== 'issue'),
-    )
+    expect(after.entities).toEqual(before.entities.filter((r) => r.entity !== 'issue'))
     expect(after.cursors).toEqual(before.cursors)
     expect(after.outbox).toEqual(before.outbox)
     web.close()
@@ -134,11 +142,7 @@ describe('native SQLite optional entity retention', () => {
         .sort(),
     ).toEqual(['future', 'issueProjection'])
     expect(cache.readCursor()).toEqual(cursor(7))
-    expect(
-      (await readDurable(factory)).entities.some(
-        (r) => r.entity === 'issue',
-      ),
-    ).toBe(false)
+    expect((await readDurable(factory)).entities.some((r) => r.entity === 'issue')).toBe(false)
     await store.rehydrate()
     expect(cache.readEntities()).toHaveLength(2)
     store.close()

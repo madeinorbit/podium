@@ -157,7 +157,9 @@ describe('POD-4810: outbox writes during a large replica apply (IndexedDB)', () 
     expect(records.map((r) => [r.mutationId, r.state])).toEqual([['m-layout', 'queued']])
     const view = reopened.viewFor(ADA).cache
     expect(view.readEntities()).toHaveLength(ROWS)
-    expect((view.read('issueProjection', 'POD-7')?.value as { title: string }).title).toBe('issue 7 v2')
+    expect((view.read('issueProjection', 'POD-7')?.value as { title: string }).title).toBe(
+      'issue 7 v2',
+    )
     expect(view.readCursor()).toEqual(cursor(2))
   }, 120_000)
 

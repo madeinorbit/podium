@@ -1,4 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+
 /**
  * POD-4546 (L1a) — the runtime bridge from a field citation in `schema.ts` to
  * the real definition in `@podium/model`.
@@ -15,25 +16,30 @@ import type { IssueViewModel } from '@podium/client-core/replica'
  * directly.
  */
 
+import type { ReplicaKind } from '@podium/client-core/replica'
+import {
+  type ModelSchema,
+  type ModelSchemaName,
+  type RowArrival,
+  SCHEMA,
+} from '@podium/client-graph/shared/schema'
 import {
   AgentRuntimeState,
   GitRepositoryWire,
   GitWorktreeWire,
-  IssueDepWire,
   IssueDepProjection,
+  IssueDepWire,
+  IssueDerived,
   IssueGitState,
+  IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
-  IssueGitStateProjection,
-  IssueDerived,
   RepoProjection,
   ResumeRef,
   SessionMeta,
   SessionOffer,
   SessionUserStateWire,
 } from '@podium/model'
-import type { ReplicaKind } from '@podium/client-core/replica'
-import { SCHEMA, type ModelSchema, type ModelSchemaName, type RowArrival } from '@podium/client-graph/shared/schema'
 
 /** The minimum a zod object exposes that the validator needs. */
 export interface ShapeCarrier {

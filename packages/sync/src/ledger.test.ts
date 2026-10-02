@@ -30,7 +30,11 @@ const issueSpec = (id: string, v: number): EntityChangeSpec => ({
   op: 'upsert',
   value: { id, title: `t${v}` },
 })
-const removeSpec = (id: string): EntityChangeSpec => ({ entity: 'issueProjection', id, op: 'remove' })
+const removeSpec = (id: string): EntityChangeSpec => ({
+  entity: 'issueProjection',
+  id,
+  op: 'remove',
+})
 
 /** commit() a batch of specs with a throwaway write. */
 async function commit(ledger: Ledger, specs: EntityChangeSpec[]) {
@@ -99,7 +103,10 @@ describe('Ledger', () => {
       ['a', 'upsert'],
       ['b', 'remove'],
     ])
-    expect(second.changes[0]).toMatchObject({ entity: 'issueProjection', value: { id: 'a', title: 't2' } })
+    expect(second.changes[0]).toMatchObject({
+      entity: 'issueProjection',
+      value: { id: 'a', title: 't2' },
+    })
     expect(await ledger.cursor()).toBe(4)
     // Removing an id the log never recorded (or already removed) is a no-op.
     expect((await commit(ledger, [removeSpec('b')])).changes).toEqual([])
@@ -116,7 +123,9 @@ describe('Ledger', () => {
     const third = await commit(ledger, [issueSpec('a', 2)])
     expect(third.changes.map((c) => [c.id, c.op])).toEqual([['a', 'upsert']])
     // b is still in the baseline: reconciling the full truth without it removes it.
-    const rec = await ledger.reconcile('issueProjection', [{ id: 'a', value: { id: 'a', title: 't2' } }])
+    const rec = await ledger.reconcile('issueProjection', [
+      { id: 'a', value: { id: 'a', title: 't2' } },
+    ])
     expect(rec.map((c) => [c.id, c.op])).toEqual([['b', 'remove']])
   })
 
@@ -133,13 +142,17 @@ describe('Ledger', () => {
     const repo = createTestSyncRepository()
     const ledger = new Ledger({ repo, now: Date.now, transact: passthrough })
     await commit(ledger, [issueSpec('a', 1), issueSpec('b', 1)])
-    const rec = await ledger.reconcile('issueProjection', [{ id: 'a', value: { id: 'a', title: 't2' } }])
+    const rec = await ledger.reconcile('issueProjection', [
+      { id: 'a', value: { id: 'a', title: 't2' } },
+    ])
     expect(rec.map((c) => [c.id, c.op])).toEqual([
       ['a', 'upsert'],
       ['b', 'remove'],
     ])
     // Unchanged truth reconciles to nothing.
-    expect(await ledger.reconcile('issueProjection', [{ id: 'a', value: { id: 'a', title: 't2' } }])).toEqual([])
+    expect(
+      await ledger.reconcile('issueProjection', [{ id: 'a', value: { id: 'a', title: 't2' } }]),
+    ).toEqual([])
   })
 
   it('capture() appends explicitly owned non-row changes without a full-list diff', async () => {
@@ -196,9 +209,15 @@ describe('Ledger', () => {
   it('prunes a bloated log before construction (boot self-heal)', async () => {
     const repo = createTestSyncRepository()
     const t0 = 1_000_000
-    await repo.appendChanges([{ entity: 'issueProjection', entityId: 'a', op: 'upsert', payload: '{}' }], t0)
+    await repo.appendChanges(
+      [{ entity: 'issueProjection', entityId: 'a', op: 'upsert', payload: '{}' }],
+      t0,
+    )
     const young = t0 + CHANGE_MAX_AGE_MS + 60_000
-    await repo.appendChanges([{ entity: 'issueProjection', entityId: 'b', op: 'upsert', payload: '{}' }], young)
+    await repo.appendChanges(
+      [{ entity: 'issueProjection', entityId: 'b', op: 'upsert', payload: '{}' }],
+      young,
+    )
     // Boot with "now" past row 1's age budget but within row 2's: readiness
     // waits for the full sliced prune before the constructor folds the baseline.
     await prepareLedgerBoot({ repo, now: () => young + 1 })
@@ -207,7 +226,11 @@ describe('Ledger', () => {
     expect(await repo.maxChangeSeq()).toBe(2)
     // The surviving row still seeds the dedup baseline: re-committing it is a no-op.
     expect(
-      (await commit(ledger, [{ entity: 'issueProjection', id: 'b', op: 'upsert', value: JSON.parse('{}') }])).changes,
+      (
+        await commit(ledger, [
+          { entity: 'issueProjection', id: 'b', op: 'upsert', value: JSON.parse('{}') },
+        ])
+      ).changes,
     ).toEqual([])
   })
 
@@ -217,9 +240,13 @@ describe('Ledger', () => {
     let monotonicMs = 0
     let batches = 0
     let firstDeleteStarted!: () => void
-    const firstDelete = new Promise<void>((resolve) => { firstDeleteStarted = resolve })
+    const firstDelete = new Promise<void>((resolve) => {
+      firstDeleteStarted = resolve
+    })
     let releaseDelete!: () => void
-    const deleteBarrier = new Promise<void>((resolve) => { releaseDelete = resolve })
+    const deleteBarrier = new Promise<void>((resolve) => {
+      releaseDelete = resolve
+    })
     const repo = new Proxy(inner, {
       get(target, prop, receiver) {
         if (prop === 'planChangePrune') {
@@ -331,13 +358,16 @@ describe('Ledger', () => {
     // Scan-driven activity bumps (updatedAt / messageCount / statusHint) changed
     // no stable field -> nothing recorded (the 81MB/day churn fix).
     expect(
-      (await commit(ledger, [conv({ updatedAt: 'T2', messageCount: 5, statusHint: 'idle' })])).changes,
+      (await commit(ledger, [conv({ updatedAt: 'T2', messageCount: 5, statusHint: 'idle' })]))
+        .changes,
     ).toEqual([])
     // A stable-field change records — and the durable payload is the FULL current
     // wire value, volatile fields included.
-    const changed = (await commit(ledger, [
-      conv({ title: 'renamed', updatedAt: 'T3', messageCount: 9, statusHint: 'idle' }),
-    ])).changes
+    const changed = (
+      await commit(ledger, [
+        conv({ title: 'renamed', updatedAt: 'T3', messageCount: 9, statusHint: 'idle' }),
+      ])
+    ).changes
     expect(changed).toHaveLength(1)
     expect(changed[0]).toMatchObject({
       op: 'upsert',
@@ -345,7 +375,9 @@ describe('Ledger', () => {
     })
     // Explicit remove still records; reconcile-driven disappearance too.
     expect(
-      (await commit(ledger, [{ entity: 'conversation', id: 'c1', op: 'remove' }])).changes.map((c) => c.op),
+      (await commit(ledger, [{ entity: 'conversation', id: 'c1', op: 'remove' }])).changes.map(
+        (c) => c.op,
+      ),
     ).toEqual(['remove'])
     // And re-appearance after a remove is a fresh upsert.
     expect((await commit(ledger, [conv()])).changes.map((c) => c.op)).toEqual(['upsert'])
@@ -354,12 +386,23 @@ describe('Ledger', () => {
 
   it('deduplicates identical issue projections and records each own-field change', async () => {
     const ledger = makeLedger()
-    const row: EntityChangeSpec = { entity: 'issueProjection', id: 'i1', op: 'upsert', value: { id: 'i1', title: 'Task', stage: 'in_progress' } }
+    const row: EntityChangeSpec = {
+      entity: 'issueProjection',
+      id: 'i1',
+      op: 'upsert',
+      value: { id: 'i1', title: 'Task', stage: 'in_progress' },
+    }
     expect((await commit(ledger, [row])).changes).toHaveLength(1)
     expect((await commit(ledger, [row])).changes).toEqual([])
     const changed = { ...row, value: { id: 'i1', title: 'Task', stage: 'review' } }
-    expect((await commit(ledger, [changed])).changes).toMatchObject([{ entity: 'issueProjection', id: 'i1', value: changed.value }])
-    expect((await commit(ledger, [{ entity: 'issueProjection', id: 'i1', op: 'remove' }])).changes.map(c => c.op)).toEqual(['remove'])
+    expect((await commit(ledger, [changed])).changes).toMatchObject([
+      { entity: 'issueProjection', id: 'i1', value: changed.value },
+    ])
+    expect(
+      (await commit(ledger, [{ entity: 'issueProjection', id: 'i1', op: 'remove' }])).changes.map(
+        (c) => c.op,
+      ),
+    ).toEqual(['remove'])
   })
 
   it('the issue projection baseline survives a restart', async () => {
@@ -375,14 +418,16 @@ describe('Ledger', () => {
     ])
     const after = new Ledger({ repo, now: Date.now, transact: passthrough })
     expect(
-      (await commit(after, [
-        {
-          entity: 'issueProjection',
-          id: 'i1',
-          op: 'upsert',
-          value: { id: 'i1', title: 't' },
-        },
-      ])).changes,
+      (
+        await commit(after, [
+          {
+            entity: 'issueProjection',
+            id: 'i1',
+            op: 'upsert',
+            value: { id: 'i1', title: 't' },
+          },
+        ])
+      ).changes,
     ).toEqual([]) // unchanged normalized truth across the restart must not re-record
   })
 
@@ -400,25 +445,31 @@ describe('Ledger', () => {
     const after = new Ledger({ repo, now: Date.now, transact: passthrough })
     // Volatile-only drift across the restart must not re-record.
     expect(
-      (await commit(after, [
-        {
-          entity: 'conversation',
-          id: 'c1',
-          op: 'upsert',
-          value: { id: 'c1', title: 'hi', updatedAt: 'T9', messageCount: 42 },
-        },
-      ])).changes,
+      (
+        await commit(after, [
+          {
+            entity: 'conversation',
+            id: 'c1',
+            op: 'upsert',
+            value: { id: 'c1', title: 'hi', updatedAt: 'T9', messageCount: 42 },
+          },
+        ])
+      ).changes,
     ).toEqual([])
     // Sessions/issues are unaffected by the projection: byte-level dedup as before.
     expect(
-      (await commit(after, [
-        { entity: 'session', id: 's1', op: 'upsert', value: { id: 's1', updatedAt: 'T1' } },
-      ])).changes,
+      (
+        await commit(after, [
+          { entity: 'session', id: 's1', op: 'upsert', value: { id: 's1', updatedAt: 'T1' } },
+        ])
+      ).changes,
     ).toHaveLength(1)
     expect(
-      (await commit(after, [
-        { entity: 'session', id: 's1', op: 'upsert', value: { id: 's1', updatedAt: 'T2' } },
-      ])).changes,
+      (
+        await commit(after, [
+          { entity: 'session', id: 's1', op: 'upsert', value: { id: 's1', updatedAt: 'T2' } },
+        ])
+      ).changes,
     ).toHaveLength(1)
   })
 
@@ -432,13 +483,17 @@ describe('Ledger', () => {
     // post-restart truth (a edited, b gone) must emit exactly that difference —
     // not re-upsert the unchanged world, and not silently rebase past the gap.
     const after = new Ledger({ repo, now: Date.now, transact: passthrough })
-    const changes = await after.reconcile('issueProjection', [{ id: 'a', value: { id: 'a', title: 't2' } }])
+    const changes = await after.reconcile('issueProjection', [
+      { id: 'a', value: { id: 'a', title: 't2' } },
+    ])
     expect(changes.map((c) => [c.id, c.op])).toEqual([
       ['a', 'upsert'],
       ['b', 'remove'],
     ])
     // An unchanged truth emits nothing — via reconcile AND via commit dedup.
-    expect(await after.reconcile('issueProjection', [{ id: 'a', value: { id: 'a', title: 't2' } }])).toEqual([])
+    expect(
+      await after.reconcile('issueProjection', [{ id: 'a', value: { id: 'a', title: 't2' } }]),
+    ).toEqual([])
     expect((await commit(after, [issueSpec('a', 2)])).changes).toEqual([])
     expect((await after.changesSince(cursor))?.map((c) => [c.id, c.op])).toEqual([
       ['a', 'upsert'],

@@ -21,8 +21,8 @@ import {
   asSessionId,
   asUserId,
   IssueGitStateProjection,
-  IssueUserStateWire,
   type IssueProjection,
+  IssueUserStateWire,
   issueUserStateRowId,
   type LayoutWire,
   layoutRowId,
@@ -83,18 +83,38 @@ const automationRun = (id: AutomationRunId, automationId: AutomationId): Automat
 })
 
 const shipOrder = (id: string, over: Partial<ShipOrderProjection> = {}): ShipOrderProjection => ({
-  id: id as ShipOrderProjection['id'], issueId: 'issue_01J' as ShipOrderProjection['issueId'],
-  repoId: 'repo_01J' as ShipOrderProjection['repoId'], targetBranch: 'main', destination: 'origin/main',
-  state: 'queued', humanState: 'waiting', activity: 'waiting', queuedAt: '2026-08-13T00:00:00.000Z',
-  stateChangedAt: '2026-08-13T00:00:00.000Z', ...over,
+  id: id as ShipOrderProjection['id'],
+  issueId: 'issue_01J' as ShipOrderProjection['issueId'],
+  repoId: 'repo_01J' as ShipOrderProjection['repoId'],
+  targetBranch: 'main',
+  destination: 'origin/main',
+  state: 'queued',
+  humanState: 'waiting',
+  activity: 'waiting',
+  queuedAt: '2026-08-13T00:00:00.000Z',
+  stateChangedAt: '2026-08-13T00:00:00.000Z',
+  ...over,
 })
 
 describe('ship-order replica collection', () => {
   it('hydrates snapshots and applies live upsert, update, remove, and visibility eviction', () => {
     const replica = createReplica({ storage: memoryStorage() })
-    replica.applySnapshot('shipOrders', [shipOrder('ship_a'), shipOrder('ship_b', { issueId: 'issue_02J' as never })])
+    replica.applySnapshot('shipOrders', [
+      shipOrder('ship_a'),
+      shipOrder('ship_b', { issueId: 'issue_02J' as never }),
+    ])
     expect(replica.rows('shipOrders')).toHaveLength(2)
-    replica.applyChanges('shipOrders', [shipOrder('ship_a', { state: 'composing', humanState: 'in_progress', activity: 'composing' })], [])
+    replica.applyChanges(
+      'shipOrders',
+      [
+        shipOrder('ship_a', {
+          state: 'composing',
+          humanState: 'in_progress',
+          activity: 'composing',
+        }),
+      ],
+      [],
+    )
     expect(replica.rows('shipOrders').find((row) => row.id === 'ship_a')?.state).toBe('composing')
     replica.applyChanges('shipOrders', [], ['ship_b'])
     expect(replica.rows('shipOrders').map((row) => row.id)).toEqual(['ship_a'])
@@ -338,7 +358,9 @@ describe('replica row-notification coalescing (#262 review)', () => {
       // restart the writer after the drop (the regression behind this test).
       await new Promise((r) => setTimeout(r, 0))
       expect(calls).toBeLessThanOrEqual(5000)
-      expect(captured.filter((r) => String(r.msg).includes('dropping the remainder'))).toHaveLength(1)
+      expect(captured.filter((r) => String(r.msg).includes('dropping the remainder'))).toHaveLength(
+        1,
+      )
       // …and it stays terminated (no self-rescheduling ghost flushes).
       const settled = calls
       await new Promise((r) => setTimeout(r, 0))

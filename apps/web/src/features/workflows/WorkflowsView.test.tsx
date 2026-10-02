@@ -1,5 +1,3 @@
-import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
-import { makeIssue } from '@/lib/test-issue'
 /**
  * POD-647 — the seams the OLD WorkflowsView had NO test for, and which a
  * refactor therefore does not inherit coverage of.
@@ -19,6 +17,8 @@ import { makeIssue } from '@/lib/test-issue'
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { makeIssue } from '@/lib/test-issue'
+import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 
 let subjects: ReturnType<typeof makeIssue>[] = []
 const list = vi.fn()
@@ -57,21 +57,22 @@ const detailOf = (id: string) => ({
 })
 
 vi.mock('@/app/store', () => {
-  const useStore = () => normalizedFixtureStore({
-    machines: [],
-    issues: subjects,
-    sessions: [],
-    trpc: {
-      workflows: {
-        list: { query: list },
-        get: { query: get },
-        bindings: { query: bindings },
-        profiles: { query: profiles },
-        runs: { query: runs },
-        publish: { mutate: publish },
+  const useStore = () =>
+    normalizedFixtureStore({
+      machines: [],
+      issues: subjects,
+      sessions: [],
+      trpc: {
+        workflows: {
+          list: { query: list },
+          get: { query: get },
+          bindings: { query: bindings },
+          profiles: { query: profiles },
+          runs: { query: runs },
+          publish: { mutate: publish },
+        },
       },
-    },
-  })
+    })
   return {
     useStore,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),

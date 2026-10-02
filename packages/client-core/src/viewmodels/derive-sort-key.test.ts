@@ -1,11 +1,10 @@
-import type { UnbrandIds } from '@podium/model'
-import type { IssueViewModel } from '../replica/issue-view-models'
 // POD-168 — manual order via persisted sortKey (POD-100 §4, R1/R2):
 // keyed rows sort ascending by key within their band; unkeyed legacy rows keep
 // newest-first creation order below keyed rows; snoozed still sinks and nothing
 // else (urgency/activity) sorts; a parent's children sort by their own keys.
-import type { SessionMeta, SessionMetaInput } from '@podium/model'
+import type { SessionMeta, SessionMetaInput, UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { IssueViewModel } from '../replica/issue-view-models'
 import {
   partitionUnifiedWork,
   type SidebarSections,

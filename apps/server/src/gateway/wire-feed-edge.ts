@@ -11,13 +11,13 @@ import type {
   ServerMessage,
 } from '@podium/protocol'
 import {
+  CLIENT_WIRE_VERSION,
   isUpgradeRequired,
   MIN_CLIENT_WIRE_VERSION,
   PeerVersionTelemetry,
   type UpgradeRequired,
   upgradeRequired,
   upgradeRequiredForScoping,
-  CLIENT_WIRE_VERSION,
   type WireVersionAdapter,
   WireVersionAdapterRegistry,
 } from '@podium/protocol'

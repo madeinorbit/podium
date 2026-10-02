@@ -1,3 +1,4 @@
+import { resetLevels, resetLogging, setProcessContext } from '@podium/logger'
 import { asSessionId, type SessionId, type SessionMeta } from '@podium/model'
 import {
   createDispatcher,
@@ -5,7 +6,6 @@ import {
   encode,
   type ServerMessage,
 } from '@podium/protocol'
-import { resetLevels, resetLogging, setProcessContext } from '@podium/logger'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLevelController, setActiveLevelController } from '../logging/level-command'
 import { type SessionScopedServerMessage, SocketHub, type WebSocketLike } from './socket-hub'

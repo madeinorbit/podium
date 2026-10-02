@@ -1,4 +1,5 @@
 import { upsertIssue } from '../../../../shared/src/scenarios'
+
 // @vitest-environment happy-dom
 /**
  * POD-4574 (Mc2) — receipts, remote updates and rebuild with pending edits.
@@ -22,13 +23,6 @@ import { upsertIssue } from '../../../../shared/src/scenarios'
  * `gen/run.ts` does), so the feed emits them like any other server row.
  */
 
-import { describe, expect, it } from 'vitest'
-import { act } from 'react'
-import { asMutationId } from '@podium/model'
-import { mountArmForCounts, runCountScenario } from '../../../../harness/src/count-harness'
-import { engineLocals, openFenceFeeds } from '../../../../harness/src/fence-scenarios'
-import { snapshotFromStore } from '../../../../harness/src/oracle/index'
-import { startScenarioEngine, upsert, type ScenarioEngine } from '../../../../shared/src/scenarios'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type {
   EditableStage,
@@ -39,10 +33,23 @@ import type {
   WriteTransport,
 } from '@podium/client-graph/shared/write-contract'
 import { ECHO_TTL_MS } from '@podium/client-graph/shared/write-contract'
-import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import { harnessMobxPoolArm, harnessWritableMobxPoolArm, tracked, type HarnessMobxPoolHandle, type HarnessWritableMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { createMobxWriteApi, type MobxWriteApi } from '@podium/client-graph/write/edit'
 import { PendingOverlay } from '@podium/client-graph/write/overlay'
+import { asMutationId } from '@podium/model'
+import { act } from 'react'
+import { describe, expect, it } from 'vitest'
+import {
+  type HarnessMobxPoolHandle,
+  type HarnessWritableMobxPoolHandle,
+  harnessMobxPoolArm,
+  harnessWritableMobxPoolArm,
+  tracked,
+} from '../../../../harness/src/adapters/mobx-pool'
+import { mountArmForCounts, runCountScenario } from '../../../../harness/src/count-harness'
+import { engineLocals, openFenceFeeds } from '../../../../harness/src/fence-scenarios'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
+import { snapshotFromStore } from '../../../../harness/src/oracle/index'
+import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../../shared/src/scenarios'
 
 installMobxWarnTrap()
 
@@ -103,7 +110,9 @@ function titleOf(handle: HarnessWritableMobxPoolHandle, id: string): string | un
 }
 
 function stageOf(handle: HarnessWritableMobxPoolHandle, id: string): string | undefined {
-  return tracked(() => (handle.pool.inputs.issue(id) as SliceIssue | undefined)?.stage as string | undefined)
+  return tracked(
+    () => (handle.pool.inputs.issue(id) as SliceIssue | undefined)?.stage as string | undefined,
+  )
 }
 
 describe('Mc2 MobX receipts and remote updates', () => {
@@ -356,7 +365,9 @@ describe('Mc2 MobX receipts and remote updates', () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'truth')
     const id = ctx.targets.visibleRootId
-    const serverTitle = ctx.cache.read('issueProjection', id)?.value as Record<string, unknown> | undefined
+    const serverTitle = ctx.cache.read('issueProjection', id)?.value as
+      | Record<string, unknown>
+      | undefined
     expect(typeof serverTitle?.['title']).toBe('string')
 
     // The outbox still holds the queued rename under its mutation id; the

@@ -1,4 +1,3 @@
-import type { IssueViewModel } from '../../../replica/issue-view-models'
 import {
   asIssueId,
   asSessionId,
@@ -8,6 +7,7 @@ import {
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { Store } from '../../../engine/types'
+import type { IssueViewModel } from '../../../replica/issue-view-models'
 import { createReplica, memoryStorage } from '../../../replica/replica'
 import { createSlicePublisher } from '../publish'
 import { worklistSlice } from './published'
@@ -131,20 +131,19 @@ describe('published project order', () => {
     undefined,
     { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
     { repoSort: 'custom', repoOrder: [], groupByRepo: false },
-  ] satisfies Array<Store['sidebarSettings'] | undefined>)(
-    'keeps the published value when defaults hydrate over %j',
-    (initial) => {
-      let store = projectStore(initial)
-      const publisher = createSlicePublisher<Store>(() => store)
-      const before = publisher.read(worklistSlice)
-      store = {
-        ...store,
-        sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
-      }
-      expect(publisher.read(worklistSlice)).toBe(before)
-      expect(publisher.derivations().worklist).toBe(1)
-    },
-  )
+  ] satisfies Array<
+    Store['sidebarSettings'] | undefined
+  >)('keeps the published value when defaults hydrate over %j', (initial) => {
+    let store = projectStore(initial)
+    const publisher = createSlicePublisher<Store>(() => store)
+    const before = publisher.read(worklistSlice)
+    store = {
+      ...store,
+      sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
+    }
+    expect(publisher.read(worklistSlice)).toBe(before)
+    expect(publisher.derivations().worklist).toBe(1)
+  })
 
   it('ignores grouping and saved orders until custom ordering is active', () => {
     let store = projectStore({ repoSort: 'lastUsed', repoOrder: [], groupByRepo: false })
@@ -176,20 +175,17 @@ describe('published project order', () => {
     { repoSort: 'custom', repoOrder: ['/a', '/b'], groupByRepo: false },
     { repoSort: 'custom', repoOrder: ['/a'], groupByRepo: false },
     { repoSort: 'lastUsed', repoOrder: ['/b', '/a'], groupByRepo: false },
-  ] satisfies Store['sidebarSettings'][])(
-    'updates visible project order when the active order changes to %j',
-    (next) => {
-      let store = projectStore({ repoSort: 'custom', repoOrder: ['/b', '/a'], groupByRepo: false })
-      const publisher = createSlicePublisher<Store>(() => store)
-      const before = publisher.read(worklistSlice)
-      expect(before.projects.map((project) => project.key)).toEqual(['/b', '/a'])
-      store = { ...store, sidebarSettings: next }
-      const after = publisher.read(worklistSlice)
-      expect(after).not.toBe(before)
-      expect(after.projects.map((project) => project.key)).toEqual(['/a', '/b'])
-      expect(publisher.derivations().worklist).toBe(2)
-    },
-  )
+  ] satisfies Store['sidebarSettings'][])('updates visible project order when the active order changes to %j', (next) => {
+    let store = projectStore({ repoSort: 'custom', repoOrder: ['/b', '/a'], groupByRepo: false })
+    const publisher = createSlicePublisher<Store>(() => store)
+    const before = publisher.read(worklistSlice)
+    expect(before.projects.map((project) => project.key)).toEqual(['/b', '/a'])
+    store = { ...store, sidebarSettings: next }
+    const after = publisher.read(worklistSlice)
+    expect(after).not.toBe(before)
+    expect(after.projects.map((project) => project.key)).toEqual(['/a', '/b'])
+    expect(publisher.derivations().worklist).toBe(2)
+  })
 
   it('re-derives when the personal project order changes', () => {
     let store = projectStore({ repoSort: 'lastUsed', repoOrder: [], groupByRepo: false })
@@ -244,7 +240,13 @@ function projection(over: { id: string; title: string; updatedAt: string }): Iss
 }
 
 function marker(id: string, readAt: string | null = READ_AT): IssueUserStateWire {
-  return { userId: 'operator', entityId: id, readAt, tuckedAt: null, pinned: false } as IssueUserStateWire
+  return {
+    userId: 'operator',
+    entityId: id,
+    readAt,
+    tuckedAt: null,
+    pinned: false,
+  } as IssueUserStateWire
 }
 
 function worklistFromProjection(args: {
@@ -433,7 +435,10 @@ function tuckWorld(): {
 describe('POD-1053 published worklist re-derives on movement, not on array churn', () => {
   it('derives once for the press and NOT again for the echo that paints the same values', () => {
     const { replica, storeWith } = tuckWorld()
-    let store = storeWith([...replica.rows('issueUserStates')], [...replica.rows('issueProjections')])
+    let store = storeWith(
+      [...replica.rows('issueUserStates')],
+      [...replica.rows('issueProjections')],
+    )
     const publisher = createSlicePublisher<Store>(() => store)
 
     publisher.read(worklistSlice)
@@ -461,7 +466,10 @@ describe('POD-1053 published worklist re-derives on movement, not on array churn
 
   it('still re-derives when a row genuinely moves', () => {
     const { replica, storeWith } = tuckWorld()
-    let store = storeWith([...replica.rows('issueUserStates')], [...replica.rows('issueProjections')])
+    let store = storeWith(
+      [...replica.rows('issueUserStates')],
+      [...replica.rows('issueProjections')],
+    )
     const publisher = createSlicePublisher<Store>(() => store)
     publisher.read(worklistSlice)
 
@@ -485,7 +493,10 @@ describe('POD-1053 published worklist re-derives on movement, not on array churn
     // The evict case `slices/publish.ts` exists to protect: a shrink that moves
     // no revision. A shorter model array is never an equal one.
     const { replica, storeWith } = tuckWorld()
-    let store = storeWith([...replica.rows('issueUserStates')], [...replica.rows('issueProjections')])
+    let store = storeWith(
+      [...replica.rows('issueUserStates')],
+      [...replica.rows('issueProjections')],
+    )
     const publisher = createSlicePublisher<Store>(() => store)
     publisher.read(worklistSlice)
 

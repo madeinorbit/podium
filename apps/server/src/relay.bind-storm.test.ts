@@ -1,7 +1,7 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol'
-import { firstAdminMemberId, asUserId, asMachineId } from '@podium/model'
 import type { SessionId, SessionMeta } from '@podium/model'
+import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
@@ -65,7 +65,7 @@ describe('bind-storm regression', () => {
     const clientId = attachTestClient(registry.clientGateway, (m) => inbox.push(m))
     await registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
-    caps: ['sync.http.v1'],
+      caps: ['sync.http.v1'],
       wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -87,18 +87,29 @@ describe('bind-storm regression', () => {
     const listMachines = vi.spyOn(store.machines, 'listMachines')
     const listSessions = vi.spyOn(registry.modules.sessions, 'listSessions')
 
-    await Promise.all(bound.map((s) => registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))))
+    await Promise.all(
+      bound.map((s) => registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))),
+    )
     await registry.modules.sessions.flushBroadcasts()
 
-    await expect.poll(() => new Set(sessionChanges(inbox)
-      .filter((change) => (change.value as SessionMeta).status === 'live')
-      .map((change) => change.entityId)).size).toBe(50)
+    await expect
+      .poll(
+        () =>
+          new Set(
+            sessionChanges(inbox)
+              .filter((change) => (change.value as SessionMeta).status === 'live')
+              .map((change) => change.entityId),
+          ).size,
+      )
+      .toBe(50)
 
     // (c) Pipeline runs ≪ bind count: leading run + one coalesced trailing flush.
     const pipelineRuns = inbox.filter((m) => m.type === 'feedDelta').length
     expect(pipelineRuns).toBeGreaterThanOrEqual(1)
     expect(pipelineRuns).toBeLessThanOrEqual(3)
-    expect(sessionChanges(inbox).filter((change) => change.entity === 'issueProjection').length).toBe(0)
+    expect(
+      sessionChanges(inbox).filter((change) => change.entity === 'issueProjection').length,
+    ).toBe(0)
 
     // (a) Machine names never hit SQLite during the storm (cache built in setup,
     // nothing invalidated it). Pre-fix this was issues x sessions x binds calls.
@@ -125,7 +136,9 @@ describe('bind-storm regression', () => {
 
   it('the coalesced trailing broadcast fires on its own next tick (no flush needed)', async () => {
     const { registry, bound, inbox } = await makeStorm({ sessions: 3, issues: 1 })
-    await Promise.all(bound.map((s) => registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))))
+    await Promise.all(
+      bound.map((s) => registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))),
+    )
     // Leading run only so far — the follow-ups are pending on the cooldown timer.
     await new Promise((r) => setTimeout(r, 10))
     const changes = sessionChanges(inbox)
@@ -137,14 +150,20 @@ describe('bind-storm regression', () => {
 
   it('a machine rename invalidates the cache: the next broadcast shows the new name', async () => {
     const { registry, bound, inbox } = await makeStorm({ sessions: 2, issues: 0 })
-    await Promise.all(bound.map((s) => registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))))
+    await Promise.all(
+      bound.map((s) => registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))),
+    )
     await registry.modules.sessions.flushBroadcasts()
     await registry.modules.machines.renameMachine(asMachineId('m1'), 'renamed-one')
     await registry.modules.sessions.flushBroadcasts()
-    await expect.poll(() =>
-      sessionChanges(inbox).findLast((change) => (change.value as SessionMeta).machineId === 'm1')
-        ?.value,
-    ).toMatchObject({ machineName: 'renamed-one' })
+    await expect
+      .poll(
+        () =>
+          sessionChanges(inbox).findLast(
+            (change) => (change.value as SessionMeta).machineId === 'm1',
+          )?.value,
+      )
+      .toMatchObject({ machineName: 'renamed-one' })
     expect((await registry.modules.machines.listMachines()).find((m) => m.id === 'm1')?.name).toBe(
       'renamed-one',
     )

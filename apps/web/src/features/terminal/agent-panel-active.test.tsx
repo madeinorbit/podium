@@ -1,10 +1,10 @@
-import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
-import { makeIssue } from '@/lib/test-issue'
 // @vitest-environment happy-dom
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { makeIssue } from '@/lib/test-issue'
+import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 
 // ---------------------------------------------------------------------------
 // Capture the latest MountedSession handed back by mountSession so we can assert
@@ -120,24 +120,26 @@ const stableStoreFns = {
 }
 
 vi.mock('@/app/store', () => {
-  const useStore = () => normalizedFixtureStore({
-    hub: fakeHub,
-    sessions: storeSessions,
-    machines: [],
-    pendingSpawnIds: new Set<string>(),
-    pendingSpawnPrompts: new Map<string, string>(),
-    repos: [],
-    trpc: fakeTrpc,
-    drafts: {},
-    panelMode: storePanelMode,
-    issues: storeIssues,
-    selectedIssueId,
-    ...stableStoreFns,
-  })
+  const useStore = () =>
+    normalizedFixtureStore({
+      hub: fakeHub,
+      sessions: storeSessions,
+      machines: [],
+      pendingSpawnIds: new Set<string>(),
+      pendingSpawnPrompts: new Map<string, string>(),
+      repos: [],
+      trpc: fakeTrpc,
+      drafts: {},
+      panelMode: storePanelMode,
+      issues: storeIssues,
+      selectedIssueId,
+      ...stableStoreFns,
+    })
   // The selector-store hook reads slices off the same store shape.
   return {
     useStore,
-    useReplicaIssues: () => normalizedFixtureIssues({ issues: storeIssues, sessions: storeSessions }),
+    useReplicaIssues: () =>
+      normalizedFixtureIssues({ issues: storeIssues, sessions: storeSessions }),
     useSession: (id: string | undefined) =>
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: () => '',
@@ -208,9 +210,24 @@ async function flush(): Promise<void> {
 
 describe('AgentPanel active wiring', () => {
   it('renders issue git chrome from a normalized-only replica', async () => {
-    storeIssues = [makeIssue({ id: 'iss-normalized', title: 'Normalized terminal owner', branch: 'issue/1',
-      worktreePath: '/w', repoPath: '/w', color: 'blue',
-      gitState: { branch: 'issue/1', ahead: 3, dirtyFiles: 2, shared: false, merged: false, updatedAt: '2026-09-30T12:00:00Z' } })]
+    storeIssues = [
+      makeIssue({
+        id: 'iss-normalized',
+        title: 'Normalized terminal owner',
+        branch: 'issue/1',
+        worktreePath: '/w',
+        repoPath: '/w',
+        color: 'blue',
+        gitState: {
+          branch: 'issue/1',
+          ahead: 3,
+          dirtyFiles: 2,
+          shared: false,
+          merged: false,
+          updatedAt: '2026-09-30T12:00:00Z',
+        },
+      }),
+    ]
     selectedIssueId = 'iss-normalized'
     storeSessions = [meta({ issueId: storeIssues[0]!.id })]
     const world = normalizedFixtureStore({ issues: storeIssues, sessions: storeSessions })

@@ -2845,9 +2845,7 @@
     {
       "id": "normalized-wire",
       "title": "normalized-wire and load guards",
-      "testFiles": [
-        "apps/server/src/issues.normalized-wire.test.ts"
-      ],
+      "testFiles": ["apps/server/src/issues.normalized-wire.test.ts"],
       "inputs": [
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",

@@ -43,7 +43,14 @@ function projectionAt(index: number): IssueProjection {
 }
 
 function markerAt(index: number, over: Partial<IssueUserStateWire> = {}): IssueUserStateWire {
-  return { userId: 'u-test', entityId: `iss_${index}`, readAt: null, tuckedAt: null, pinned: false, ...over } as IssueUserStateWire
+  return {
+    userId: 'u-test',
+    entityId: `iss_${index}`,
+    readAt: null,
+    tuckedAt: null,
+    pinned: false,
+    ...over,
+  } as IssueUserStateWire
 }
 
 function sessionAt(index: number, issueId: string): Record<string, unknown> {
@@ -147,12 +154,19 @@ describe('shared issue view-model cache — incremental rebuild', () => {
     allIssueViewModels(replica, projections, legacy)
     const before = issueViewModelProjectionStats(replica)
 
-    replica.applySnapshot('issueProjections', projections.map((row, index) => index === 3 ? { ...row, title: 'Renamed by the server' } : row))
+    replica.applySnapshot(
+      'issueProjections',
+      projections.map((row, index) =>
+        index === 3 ? { ...row, title: 'Renamed by the server' } : row,
+      ),
+    )
     const rows = replica.rows('issueUserStates')
     allIssueViewModels(replica, replica.rows('issueProjections'), rows)
 
     expect(issueViewModelProjectionStats(replica).rowBuilds - before.rowBuilds).toBe(1)
-    expect(replica.rows('issueProjections').find((row) => row.id === legacy[3]?.entityId)?.title).toBe('Renamed by the server')
+    expect(
+      replica.rows('issueProjections').find((row) => row.id === legacy[3]?.entityId)?.title,
+    ).toBe('Renamed by the server')
   })
 
   it('rebuilds the models of an issue whose member session changed, and no others', () => {
@@ -262,7 +276,9 @@ it('reports actual row builds through the opt-in runtime counter, including cach
     allIssueViewModels(
       replica,
       projections,
-      foldedLike(legacy, 7, { tuckedAt: '2026-08-14T11:00:00.000Z' } as Partial<IssueUserStateWire>),
+      foldedLike(legacy, 7, {
+        tuckedAt: '2026-08-14T11:00:00.000Z',
+      } as Partial<IssueUserStateWire>),
     )
     expect(readStoreStats().runtimes[0]?.rowBuilds).toBe(COUNT + 1)
     expect(readStoreStats().runtimes[0]?.rowBuilds).toBe(
@@ -278,13 +294,18 @@ it('paints a provisional projection and structural edits, then rolls them back w
   const { replica, projections, legacy: markers } = world()
   const truth = allIssueViewModels(replica, projections, markers)
   const draft = { ...projectionAt(COUNT), parentId: projections[0]!.id }
-  const pending = [...projections.map((row, index) => index === 1 ? { ...row, stage: 'done' } as IssueProjection : row), draft]
+  const pending = [
+    ...projections.map((row, index) =>
+      index === 1 ? ({ ...row, stage: 'done' } as IssueProjection) : row,
+    ),
+    draft,
+  ]
   const painted = allIssueViewModels(replica, pending, markers)
-  expect(painted.find(row => row.id === draft.id)).toMatchObject({ parentId: projections[0]!.id })
-  expect(painted.find(row => row.id === projections[0]!.id)?.childCount).toBe(1)
-  expect(painted.find(row => row.id === projections[1]!.id)?.stage).toBe('done')
+  expect(painted.find((row) => row.id === draft.id)).toMatchObject({ parentId: projections[0]!.id })
+  expect(painted.find((row) => row.id === projections[0]!.id)?.childCount).toBe(1)
+  expect(painted.find((row) => row.id === projections[1]!.id)?.stage).toBe('done')
   expect(allIssueViewModels(replica, pending, markers)).toBe(painted)
   const rolledBack = allIssueViewModels(replica, projections, markers)
   expect(rolledBack).toEqual(truth)
-  expect(rolledBack.some(row => row.id === draft.id)).toBe(false)
+  expect(rolledBack.some((row) => row.id === draft.id)).toBe(false)
 })

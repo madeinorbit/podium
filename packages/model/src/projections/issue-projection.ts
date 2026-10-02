@@ -1,5 +1,3 @@
-
-
 import { z } from 'zod'
 import { IssueAggregate } from '../aggregates/issue'
 import { dropNullValues, wireShape } from '../shape'

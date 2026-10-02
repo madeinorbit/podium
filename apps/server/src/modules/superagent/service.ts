@@ -11,8 +11,8 @@
 
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { describeError } from '@podium/logger'
 import type { SuperagentUserFocus } from '@podium/commands'
+import { describeError } from '@podium/logger'
 import {
   type AccountId,
   asIssueId,
@@ -29,7 +29,7 @@ import {
   type ThreadId,
   type UserId,
 } from '@podium/model'
-import { resolveRole, nativeAccountId, superagentHarnessAgent } from '@podium/runtime'
+import { nativeAccountId, resolveRole, superagentHarnessAgent } from '@podium/runtime'
 import { TRPCError } from '@trpc/server'
 import {
   harnessPremintsHeadlessResumeId,
@@ -45,6 +45,7 @@ import type {
   SuperagentMessageRow,
   SuperagentThreadRow,
 } from '../../store'
+import { selectHarnessAccountId } from '../sessions/harness-account'
 import { buildBtwDelta, buildBtwSeed, buildHandoffSeed, transcriptDelta } from './btw'
 import {
   buildConciergeDelta,
@@ -64,7 +65,6 @@ import {
   type GlobalRepoDigest,
 } from './global'
 import { classifyHarnessError, type HarnessErrorKind } from './harness-error'
-import { selectHarnessAccountId } from '../sessions/harness-account'
 import type { HeadlessTurnResult } from './headless'
 import {
   type Args,
@@ -351,7 +351,7 @@ export class SuperagentService {
     // Existing personal history stays with its recorded owner after admin removal.
     const ownsBase = legacy
       ? legacy.ownerUserId === ownerUserId
-      : ownerUserId === await firstAdminMemberId(this.store)
+      : ownerUserId === (await firstAdminMemberId(this.store))
     return ownsBase ? base : asThreadId(`${base}:${ownerUserId}`)
   }
 
@@ -361,7 +361,7 @@ export class SuperagentService {
 
   private async ensureGlobalThread(ownerUserId: UserId): Promise<ThreadId> {
     const threadId = await this.personalThreadId(ownerUserId, asThreadId('global'))
-    if (!await this.store.superagent.getSuperagentThread(threadId, ownerUserId)) {
+    if (!(await this.store.superagent.getSuperagentThread(threadId, ownerUserId))) {
       await this.store.superagent.upsertSuperagentThread({
         id: threadId,
         ownerUserId,
@@ -371,7 +371,10 @@ export class SuperagentService {
     return threadId
   }
 
-  private async ownedThread(ownerUserId: UserId, requested: ThreadId): Promise<SuperagentThreadRow> {
+  private async ownedThread(
+    ownerUserId: UserId,
+    requested: ThreadId,
+  ): Promise<SuperagentThreadRow> {
     const threadId = await this.resolveThreadId(ownerUserId, requested)
     const thread = await this.store.superagent.getSuperagentThread(threadId, ownerUserId)
     if (!thread) throw new Error(`unknown thread: ${requested}`)
@@ -462,7 +465,10 @@ export class SuperagentService {
 
   /** Legacy buffered thread history (superagent_messages) — frozen for new
    *  turns; still read so old conversations stay visible. */
-  async history(ownerUserId: UserId, requested: ThreadId = asThreadId('global')): Promise<SuperagentMessageRow[]> {
+  async history(
+    ownerUserId: UserId,
+    requested: ThreadId = asThreadId('global'),
+  ): Promise<SuperagentMessageRow[]> {
     const thread =
       requested === 'global'
         ? await this.ownedThread(ownerUserId, await this.ensureGlobalThread(ownerUserId))
@@ -490,7 +496,8 @@ export class SuperagentService {
     const rows = await this.store.superagent.loadSuperagentMessages(thread.id)
     for (let i = rows.length - 1; i >= 0; i--) {
       const row = rows[i]!
-      if (row.role !== 'assistant' || row.toolName !== TURN_FAILURE_TOOL || !row.toolCallId) continue
+      if (row.role !== 'assistant' || row.toolName !== TURN_FAILURE_TOOL || !row.toolCallId)
+        continue
       const user = [...rows.slice(0, i)]
         .reverse()
         .find((r) => r.role === 'user' && r.toolCallId === row.toolCallId)
@@ -550,15 +557,18 @@ export class SuperagentService {
     }
   }
 
-  async listThreads(ownerUserId: UserId): Promise<(SuperagentThreadRow & { turnRunning: boolean })[]> {
+  async listThreads(
+    ownerUserId: UserId,
+  ): Promise<(SuperagentThreadRow & { turnRunning: boolean })[]> {
     await this.ensureGlobalThread(ownerUserId)
     // headlessActivity is intentionally ephemeral, but the composer must still
     // know that a turn is running after a browser reload/reconnect. The durable
     // pending rows repopulate turnInFlight at boot, so this query-backed flag is
     // the late-joiner/reload source of truth while live events keep it current.
-    return (await this.store.superagent
-      .listSuperagentThreads(ownerUserId))
-      .map((thread) => ({ ...thread, turnRunning: this.turnInFlight.has(thread.id) }))
+    return (await this.store.superagent.listSuperagentThreads(ownerUserId)).map((thread) => ({
+      ...thread,
+      turnRunning: this.turnInFlight.has(thread.id),
+    }))
   }
 
   /**
@@ -713,8 +723,16 @@ export class SuperagentService {
    *  dispatched, so the user row is always kept. */
   private async failQueuedInput(queued: QueuedSuperagentInputRow, error: unknown): Promise<void> {
     this.queuedHarness.delete(queued.inputId)
-    const sessionId = (await this.store.superagent.getSuperagentThread(queued.threadId))?.podiumSessionId
-    await this.persistTurnFailure(queued.threadId, queued.ownerUserId, queued.inputId, queued.text, error, sessionId)
+    const sessionId = (await this.store.superagent.getSuperagentThread(queued.threadId))
+      ?.podiumSessionId
+    await this.persistTurnFailure(
+      queued.threadId,
+      queued.ownerUserId,
+      queued.inputId,
+      queued.text,
+      error,
+      sessionId,
+    )
   }
 
   /**
@@ -749,7 +767,7 @@ export class SuperagentService {
    *  client needs one to keep rendering the thread's transcript. */
   private async ensureHeadlessSession(thread: SuperagentThreadRow): Promise<SessionId> {
     const bound = thread.podiumSessionId
-    if (bound && await this.sessionById(bound)) return bound
+    if (bound && (await this.sessionById(bound))) return bound
     const agent = HarnessAgent.safeParse(thread.agentKind)
     const settings = await this.store.settings.getSettingsFor(thread.ownerUserId)
     const harness = agent.success ? agent.data : superagentHarnessAgent(settings)
@@ -773,7 +791,9 @@ export class SuperagentService {
       spawnedBy: spawnedByTag({ kind: 'superagent', threadId: asThreadId(thread.id) }),
       accountId,
     })
-    await this.store.superagent.updateSuperagentThreadBinding(thread.id, { podiumSessionId: sessionId })
+    await this.store.superagent.updateSuperagentThreadBinding(thread.id, {
+      podiumSessionId: sessionId,
+    })
     return sessionId
   }
 
@@ -805,7 +825,11 @@ export class SuperagentService {
           ? superBackend.accountId
           : resolveRole(settings, 'coding').accountId
       const selected = selectHarnessAccountId(agent, roleAccount)
-      const resolved = await this.modules.machines.nativeAccountIdForMachine(machineId, agent, selected)
+      const resolved = await this.modules.machines.nativeAccountIdForMachine(
+        machineId,
+        agent,
+        selected,
+      )
       return resolved || nativeAccountId(agent)
     } catch {
       return nativeAccountId(agent)
@@ -972,7 +996,10 @@ export class SuperagentService {
     for (const threadId of threads) await this.pump(threadId)
   }
 
-  private async dispatchPendingTurn(pending: PendingSuperagentTurnRow, allowWithoutMcp = false): Promise<void> {
+  private async dispatchPendingTurn(
+    pending: PendingSuperagentTurnRow,
+    allowWithoutMcp = false,
+  ): Promise<void> {
     if (this.dispatchedTurnIds.has(pending.turnId)) return
     const agent = HarnessAgent.safeParse(pending.payload.agent)
     if (!agent.success) {
@@ -1030,9 +1057,9 @@ export class SuperagentService {
           return
         }
         const retry = setTimeout(async () => {
-          const current = (await this.store.superagent
-            .listPendingTurns())
-            .find((row) => row.turnId === pending.turnId)
+          const current = (await this.store.superagent.listPendingTurns()).find(
+            (row) => row.turnId === pending.turnId,
+          )
           if (current) await this.dispatchPendingTurn(current)
         }, dispatchBackoffMs(attempt))
         retry.unref?.()
@@ -1085,7 +1112,8 @@ export class SuperagentService {
       await this.finishPendingTurn(pending, {
         ok: false,
         deliveryStatus: 'unknown',
-        error: "The turn's outcome is unknown — no result was reported within its time budget. The agent may have received the message and may still answer.",
+        error:
+          "The turn's outcome is unknown — no result was reported within its time budget. The agent may have received the message and may still answer.",
       })
     }
   }
@@ -1139,8 +1167,8 @@ export class SuperagentService {
             kind: 'turn-end',
           })
         } else if (result.deliveryStatus === 'unknown') {
-          const error = result.error ??
-            'Delivery could not be proven; the message may have reached the agent.'
+          const error =
+            result.error ?? 'Delivery could not be proven; the message may have reached the agent.'
           await this.store.superagent.appendSuperagentMessage(pending.threadId, {
             ownerUserId: pending.ownerUserId,
             role: 'assistant',
@@ -1277,9 +1305,9 @@ export class SuperagentService {
       if (this.interruptFallbacks.has(pending.turnId)) continue
       const timer = setTimeout(async () => {
         this.interruptFallbacks.delete(pending.turnId)
-        const still = (await this.store.superagent
-          .listPendingTurns())
-          .find((row) => row.turnId === pending.turnId)
+        const still = (await this.store.superagent.listPendingTurns()).find(
+          (row) => row.turnId === pending.turnId,
+        )
         if (still) await this.finishPendingTurn(still, { ok: false, error: 'stopped' })
       }, INTERRUPT_FORCE_AFTER_MS)
       timer.unref?.()
@@ -1352,7 +1380,9 @@ export class SuperagentService {
       ...(thread.title ? { title: thread.title } : {}),
       spawnedBy: spawnedByTag({ kind: 'superagent', threadId }),
     })
-    await this.store.superagent.updateSuperagentThreadBinding(threadId, { terminalSessionId: sessionId })
+    await this.store.superagent.updateSuperagentThreadBinding(threadId, {
+      terminalSessionId: sessionId,
+    })
     return { sessionId }
   }
 
@@ -1393,7 +1423,13 @@ export class SuperagentService {
    * thread) or origin-transcript delta (re-open) is prepended to the user's
    * next sendTurn by composeContext, so the harness gets it exactly once.
    */
-  async startBtwTurn({ ownerUserId, sessionId }: { ownerUserId: UserId; sessionId: SessionId }): Promise<{
+  async startBtwTurn({
+    ownerUserId,
+    sessionId,
+  }: {
+    ownerUserId: UserId
+    sessionId: SessionId
+  }): Promise<{
     threadId: ThreadId
     isNew: boolean
   }> {
@@ -1412,7 +1448,13 @@ export class SuperagentService {
   }
 
   /** Ensure the repo's concierge intake thread exists (no turn). */
-  async ensureConciergeThread({ ownerUserId, repoPath }: { ownerUserId: UserId; repoPath: string }): Promise<{
+  async ensureConciergeThread({
+    ownerUserId,
+    repoPath,
+  }: {
+    ownerUserId: UserId
+    repoPath: string
+  }): Promise<{
     threadId: ThreadId
     isNew: boolean
   }> {
@@ -1465,7 +1507,9 @@ export class SuperagentService {
     if (s && (s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting')) {
       return 'this thread is open in a terminal session — close it to chat here'
     }
-    await this.store.superagent.updateSuperagentThreadBinding(thread.id, { terminalSessionId: null })
+    await this.store.superagent.updateSuperagentThreadBinding(thread.id, {
+      terminalSessionId: null,
+    })
     return undefined
   }
 
@@ -1597,7 +1641,7 @@ export class SuperagentService {
       const maxEventId = await this.store.events.maxEventId()
       if (firstTurn) {
         const seed = buildConciergeSeed({
-          ...await this.conciergeDigest(repoPath, maxEventId),
+          ...(await this.conciergeDigest(repoPath, maxEventId)),
           maxEventId,
         })
         await this.store.superagent.setThreadWatermark(thread.id, String(maxEventId), now())
@@ -1667,7 +1711,7 @@ export class SuperagentService {
     // orchestrator's tools cover anything else it wants to know.
     if (thread.kind === 'global' && firstTurn) {
       const maxEventId = await this.store.events.maxEventId()
-      const seed = buildGlobalSeed({ ...await this.globalDigest(maxEventId), maxEventId })
+      const seed = buildGlobalSeed({ ...(await this.globalDigest(maxEventId)), maxEventId })
       await this.store.superagent.setThreadWatermark(thread.id, String(maxEventId), now())
       return seed
     }
@@ -1830,7 +1874,9 @@ export class SuperagentService {
     }
     const issue = await issueInfo(focus.issueId)
     const openIssue = await issueInfo(focus.openIssueId)
-    const focused = focus.focusedSessionId ? await this.sessionInfo(focus.focusedSessionId) : undefined
+    const focused = focus.focusedSessionId
+      ? await this.sessionInfo(focus.focusedSessionId)
+      : undefined
     const alsoVisible = (
       await Promise.all(
         (focus.visibleSessionIds ?? [])
@@ -1886,7 +1932,8 @@ export class SuperagentService {
       sessions,
       // The seed wants the NEWEST events; the log reads ascending, so anchor the
       // cursor a window back from the head instead of at 0.
-      events: (await this.issueEventsSince(Math.max(0, maxEventId - this.eventReadLimit), repoPath)).events,
+      events: (await this.issueEventsSince(Math.max(0, maxEventId - this.eventReadLimit), repoPath))
+        .events,
     }
   }
 
@@ -1914,7 +1961,9 @@ export class SuperagentService {
 
   /** The MCP mount for a headless turn. Empty when the server hasn't published
    *  its MCP endpoint yet. */
-  private async harnessMcp(threadId: ThreadId): Promise<{ mcpConfig?: string; allowedTools?: string[] }> {
+  private async harnessMcp(
+    threadId: ThreadId,
+  ): Promise<{ mcpConfig?: string; allowedTools?: string[] }> {
     if (!this.mcpEndpoint) return {}
     return {
       mcpConfig: JSON.stringify({

@@ -1,9 +1,8 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol'
-import { firstAdminMemberId } from '@podium/model'
 import type { AgentRuntimeState, Geometry, SessionUserOverlay } from '@podium/model'
-import { asMachineId, asSessionId, NO_SESSION_USER_STATE } from '@podium/model'
+import { asMachineId, asSessionId, firstAdminMemberId, NO_SESSION_USER_STATE } from '@podium/model'
 import {
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  CLIENT_WIRE_VERSION,
   decodeBinaryEnvelope,
   PtyOutputBinaryMetadata,
   type ServerMessage,
@@ -188,7 +187,7 @@ describe('Session', () => {
 
   it('shell is busy only while a submitted command runs, not on prompt-draw/echo', () => {
     const s = new Session({
-    ownerUserId: firstAdminMemberId(),
+      ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('sh'),
       durableLabel: 'podium-sh',
       agentKind: 'shell',
@@ -754,7 +753,7 @@ describe('Session', () => {
 
   it('markLive promotes a reconnecting session to live', () => {
     const s = new Session({
-    ownerUserId: firstAdminMemberId(),
+      ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('s1'),
       durableLabel: 'podium-s1',
       agentKind: 'claude-code',
@@ -857,7 +856,7 @@ describe('Session', () => {
 
   it('preserves a persisted compute total when a reloaded old daemon omits it', () => {
     const s = new Session({
-    ownerUserId: firstAdminMemberId(),
+      ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('s1'),
       durableLabel: 'podium-s1',
       agentKind: 'claude-code',
@@ -893,7 +892,7 @@ describe('Session', () => {
 
   it('markLive (daemon reattach/bind) does NOT restamp lastActiveAt', () => {
     const s = new Session({
-    ownerUserId: firstAdminMemberId(),
+      ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('s1'),
       durableLabel: 'podium-s1',
       agentKind: 'claude-code',
@@ -920,7 +919,7 @@ describe('Session', () => {
 
   it('a running shell command advances lastActiveAt (output is its only signal)', () => {
     const s = new Session({
-    ownerUserId: firstAdminMemberId(),
+      ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('sh'),
       durableLabel: 'podium-sh',
       agentKind: 'shell',
@@ -1023,9 +1022,7 @@ describe('Session transcript cache (recent-delta window)', () => {
 
     const reload = makeClient('grok-reload')
     s.terminal.subscribeTranscript(reload)
-    expect(reload.sent).toEqual([
-      { type: 'transcriptDelta', sessionId: asSessionId('s1'), items },
-    ])
+    expect(reload.sent).toEqual([{ type: 'transcriptDelta', sessionId: asSessionId('s1'), items }])
   })
 
   it('replaces a re-emitted cursor in the cache instead of recording it twice', () => {
@@ -1105,7 +1102,7 @@ describe('Session transcript cache (recent-delta window)', () => {
 
   it('markResumed bumps lastResumedAt and marks dirty without touching lastActiveAt', () => {
     const s = new Session({
-    ownerUserId: firstAdminMemberId(),
+      ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('s1'),
       durableLabel: 'podium-s1',
       agentKind: 'claude-code',
@@ -1135,7 +1132,7 @@ describe('Session transcript cache (recent-delta window)', () => {
 
   it('seeds counters from SessionInit ISO values', () => {
     const s = new Session({
-    ownerUserId: firstAdminMemberId(),
+      ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('s1'),
       durableLabel: 'podium-s1',
       agentKind: 'claude-code',
@@ -1156,7 +1153,7 @@ describe('Session transcript cache (recent-delta window)', () => {
 
   it('seeds a malformed activity ISO as 0 (never NaN — would freeze hibernation)', () => {
     const s = new Session({
-    ownerUserId: firstAdminMemberId(),
+      ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('s1'),
       durableLabel: 'podium-s1',
       agentKind: 'claude-code',
@@ -1294,7 +1291,6 @@ describe('OOM truth on the row (POD-2413)', () => {
   })
 })
 
-
 /**
  * THE PREVIEW PLANE ON THE TERMINAL (POD-2293).
  *
@@ -1303,15 +1299,14 @@ describe('OOM truth on the row (POD-2413)', () => {
  * need, and catching a late subscriber up on the turn already in progress.
  */
 describe('Session turn preview', () => {
-  const frame = (turnEpoch: number, text: string, done?: boolean) =>
-    ({
-      type: 'turnPreview' as const,
-      sessionId: asSessionId('s1'),
-      turnEpoch,
-      seq: 1,
-      items: [{ kind: 'text' as const, itemId: 'a', text }],
-      ...(done ? { done: true } : {}),
-    })
+  const frame = (turnEpoch: number, text: string, done?: boolean) => ({
+    type: 'turnPreview' as const,
+    sessionId: asSessionId('s1'),
+    turnEpoch,
+    seq: 1,
+    items: [{ kind: 'text' as const, itemId: 'a', text }],
+    ...(done ? { done: true } : {}),
+  })
 
   it('asks for fine on the FIRST subscriber and coarse on the last unsubscribe', () => {
     const toDaemon = vi.fn()
@@ -1423,10 +1418,9 @@ describe('Session turn preview', () => {
 
   it('replays the preview AFTER the durable items it follows', () => {
     const s = makeSession(vi.fn(), { turnPreviewEnabled: true })
-    s.terminal.applyDelta(
-      [{ id: 'u1', role: 'user' as const, text: 'hi', cursor: 'c1' }],
-      { tail: 'c1' },
-    )
+    s.terminal.applyDelta([{ id: 'u1', role: 'user' as const, text: 'hi', cursor: 'c1' }], {
+      tail: 'c1',
+    })
     s.terminal.applyTurnPreview(frame(1, 'repl'))
     const late = makeClient('late')
     s.terminal.subscribeTranscript(late)
@@ -1463,7 +1457,6 @@ describe('Session turn preview', () => {
   })
 })
 
-
 describe('persisted lifecycle driver intent', () => {
   it.each([
     { selected: undefined, requested: undefined, expected: undefined },
@@ -1472,11 +1465,36 @@ describe('persisted lifecycle driver intent', () => {
     { selected: 'codex-app-server', requested: undefined, expected: 'codex-app-server' },
     { selected: 'claude-sdk', requested: undefined, expected: 'claude-sdk' },
     { selected: 'headless', requested: undefined, expected: 'headless' },
-    { selected: 'generic-pty', requested: 'claude-pty', expected: 'claude-pty', reattach: 'generic-pty' },
-    { selected: 'generic-pty', requested: 'codex-app-server', expected: 'codex-app-server', reattach: 'generic-pty' },
-    { selected: 'codex-app-server', requested: 'opencode-server', expected: 'opencode-server', reattach: 'codex-app-server' },
-    { selected: 'headless', requested: 'opencode-server', expected: 'opencode-server', reattach: 'headless' },
-  ])('preserves old-row and explicit intent: $selected / $requested', ({ selected, requested, expected, ...recovery }) => {
+    {
+      selected: 'generic-pty',
+      requested: 'claude-pty',
+      expected: 'claude-pty',
+      reattach: 'generic-pty',
+    },
+    {
+      selected: 'generic-pty',
+      requested: 'codex-app-server',
+      expected: 'codex-app-server',
+      reattach: 'generic-pty',
+    },
+    {
+      selected: 'codex-app-server',
+      requested: 'opencode-server',
+      expected: 'opencode-server',
+      reattach: 'codex-app-server',
+    },
+    {
+      selected: 'headless',
+      requested: 'opencode-server',
+      expected: 'opencode-server',
+      reattach: 'headless',
+    },
+  ])('preserves old-row and explicit intent: $selected / $requested', ({
+    selected,
+    requested,
+    expected,
+    ...recovery
+  }) => {
     const s = makeSession()
     s.selectedDriverId = selected
     s.requestedDriverId = requested
@@ -1485,7 +1503,8 @@ describe('persisted lifecycle driver intent', () => {
     // Reattach recovers the selected engine; wake honors requested intent. Omission remains headed;
     // mandatory daemon admission must not reinterpret it as manifest policy.
     expect(s.toRow()).toMatchObject({
-      selectedDriverId: selected ?? null, requestedDriverId: requested ?? null,
+      selectedDriverId: selected ?? null,
+      requestedDriverId: requested ?? null,
     })
   })
 })

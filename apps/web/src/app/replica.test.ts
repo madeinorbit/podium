@@ -1,5 +1,3 @@
-import type { IssueProjection } from '@podium/model'
-import { asMutationId } from '@podium/model'
 import {
   COLD_CURSOR,
   createReplica,
@@ -7,8 +5,8 @@ import {
   REPLICA_TRANSCRIPT_ITEM_CAP,
   type ReplicaInit,
 } from '@podium/client-core/replica'
-import type { SessionId, SessionMeta, TranscriptItem } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import type { IssueProjection, SessionId, SessionMeta, TranscriptItem } from '@podium/model'
+import { asMutationId, asSessionId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { OUTBOX_LS_KEY, Outbox, type OutboxEntry } from './outbox'
 
@@ -52,7 +50,8 @@ function makeQuotaStorage(): {
   const data = new Map<string, string>()
   let failing = false
   let failed = 0
-  const isEntityBlob = (k: string) => /\.(sessions|issueProjections|conversations|transcripts)\.v1$/.test(k)
+  const isEntityBlob = (k: string) =>
+    /\.(sessions|issueProjections|conversations|transcripts)\.v1$/.test(k)
   return {
     data,
     failedAttempts: () => failed,
@@ -208,7 +207,9 @@ describe('replica adapter', () => {
   it('applyChanges (optimistic) also drops a removed field', async () => {
     const { storage } = makeStorage()
     const a = createReplica({ storage, keyPrefix: prefix })
-    a.applySnapshot('issueProjections', [{ ...issue('i1'), deferUntil: '2026-07-07T00:00:00.000Z' }])
+    a.applySnapshot('issueProjections', [
+      { ...issue('i1'), deferUntil: '2026-07-07T00:00:00.000Z' },
+    ])
     await settle()
     a.applyChanges('issueProjections', [issue('i1')], [])
     await settle()

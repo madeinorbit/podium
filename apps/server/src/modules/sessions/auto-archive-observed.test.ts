@@ -30,9 +30,7 @@ afterEach(async () => {
 })
 
 /** A stopped session the broadcast viewer has read — the archivable fixture. */
-async function stoppedAndRead(
-  bindTo?: (reg: SessionRegistry) => Promise<IssueId>,
-): Promise<{
+async function stoppedAndRead(bindTo?: (reg: SessionRegistry) => Promise<IssueId>): Promise<{
   reg: SessionRegistry
   sessionId: SessionId
   stoppedMs: number
@@ -42,17 +40,21 @@ async function stoppedAndRead(
   registries.push(reg)
   // Sessions are placed only on an assigned machine with a daemon (34aa06cf2).
   // The stop asks that daemon whether the tree is clean; a clean tree answers.
-  await attachHostDaemon(reg, (msg) => {
-    if (msg.type !== 'repoOpRequest') return
-    queueMicrotask(() =>
-      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-        type: 'repoOpResult',
-        requestId: msg.requestId,
-        ok: true,
-        output: '',
-      }),
-    )
-  }, bindTo ? { repos: ['/r'] } : {})
+  await attachHostDaemon(
+    reg,
+    (msg) => {
+      if (msg.type !== 'repoOpRequest') return
+      queueMicrotask(() =>
+        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+          type: 'repoOpResult',
+          requestId: msg.requestId,
+          ok: true,
+          output: '',
+        }),
+      )
+    },
+    bindTo ? { repos: ['/r'] } : {},
+  )
   const issueId = bindTo ? await bindTo(reg) : null
   const { sessionId } = await reg.modules.sessions.createSession({
     agentKind: 'shell',
@@ -63,7 +65,9 @@ async function stoppedAndRead(
   // Read AFTER the stop: `readAt >= stoppedAt` is one of the preconditions, so a
   // fixture read before stopping would fail for a reason these tests do not name.
   await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
-  const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+  const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+    (s) => s.sessionId === sessionId,
+  )
   return { reg, sessionId, stoppedMs: Date.parse(meta?.stoppedAt ?? ''), issueId }
 }
 
@@ -79,7 +83,9 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
   it('APPLIES an observation naming the viewer it archives for', async () => {
     // Says YES first, on the same fixture every refusal below uses.
     const { reg, sessionId, stoppedMs } = await stoppedAndRead()
-    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     expect(
       await reg.modules.sessions.tryAutoArchiveStoppedObserved(
         { ...observation(sessionId, firstAdminMemberId()), stoppedAt: meta?.stoppedAt ?? '' },
@@ -87,7 +93,9 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
       ),
     ).toBe('applied')
     expect(
-      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.archived,
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )?.archived,
     ).toBe(true)
   })
 
@@ -96,7 +104,9 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     // the viewer's own, so a janitor sweeping someone else's read state would
     // have archived the session off everyone's board undetectably.
     const { reg, sessionId, stoppedMs } = await stoppedAndRead()
-    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     expect(
       await reg.modules.sessions.tryAutoArchiveStoppedObserved(
         {
@@ -107,7 +117,9 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
       ),
     ).toBe('precondition')
     expect(
-      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.archived,
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )?.archived,
     ).toBe(false)
   })
 
@@ -116,7 +128,9 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     // `readAt`: a proposal naming nobody must fail CLOSED, never default to the
     // operator.
     const { reg, sessionId, stoppedMs } = await stoppedAndRead()
-    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     expect(
       await reg.modules.sessions.tryAutoArchiveStoppedObserved(
         { ...observation(sessionId, ''), stoppedAt: meta?.stoppedAt ?? '' },
@@ -124,7 +138,9 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
       ),
     ).toBe('precondition')
     expect(
-      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.archived,
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )?.archived,
     ).toBe(false)
   })
 
@@ -133,7 +149,9 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     // moves the marker forward into the seven-day window, and the freshness
     // check below already refuses that — which is why the CAS was redundant.
     const { reg, sessionId, stoppedMs } = await stoppedAndRead()
-    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId) // re-read, "now"
     expect(
       await reg.modules.sessions.tryAutoArchiveStoppedObserved(
@@ -142,13 +160,17 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
       ),
     ).toBe('not-due')
     expect(
-      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.archived,
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )?.archived,
     ).toBe(false)
   })
 
   it('REFUSES once the viewer marked it unread — the other half of the removed CAS', async () => {
     const { reg, sessionId, stoppedMs } = await stoppedAndRead()
-    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     await reg.modules.sessions.markSessionUnread(firstAdminMemberId(), sessionId) // deletes the marker
     expect(
       await reg.modules.sessions.tryAutoArchiveStoppedObserved(
@@ -157,7 +179,9 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
       ),
     ).toBe('precondition')
     expect(
-      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.archived,
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )?.archived,
     ).toBe(false)
   })
 
@@ -173,7 +197,9 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
       ),
     ).toBe('precondition')
     expect(
-      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.archived,
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )?.archived,
     ).toBe(false)
   })
 })
@@ -191,13 +217,19 @@ describe('SessionService.tryAutoArchiveStoppedObserved — the issue record it r
   const topLevel = async (reg: SessionRegistry) =>
     (await reg.modules.issues.create({ repoPath: '/r', title: 'Top level', startNow: false })).id
   const child = async (reg: SessionRegistry) => {
-    const parent = await reg.modules.issues.create({ repoPath: '/r', title: 'Parent', startNow: false })
-    return (await reg.modules.issues.create({
+    const parent = await reg.modules.issues.create({
       repoPath: '/r',
-      title: 'Child',
-      parentId: parent.id,
+      title: 'Parent',
       startNow: false,
-    })).id
+    })
+    return (
+      await reg.modules.issues.create({
+        repoPath: '/r',
+        title: 'Child',
+        parentId: parent.id,
+        startNow: false,
+      })
+    ).id
   }
   /** Empty one kind in the snapshot the check reads; every other kind passes. */
   const withoutKind = (reg: SessionRegistry, entity: 'issue' | 'issueProjection') => {
@@ -211,9 +243,15 @@ describe('SessionService.tryAutoArchiveStoppedObserved — the issue record it r
   }
   const attempt = async (fixture: Awaited<ReturnType<typeof stoppedAndRead>>) => {
     const { reg, sessionId, stoppedMs, issueId } = fixture
-    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     const result = await reg.modules.sessions.tryAutoArchiveStoppedObserved(
-      { ...observation(sessionId, firstAdminMemberId()), issueId, stoppedAt: meta?.stoppedAt ?? '' },
+      {
+        ...observation(sessionId, firstAdminMemberId()),
+        issueId,
+        stoppedAt: meta?.stoppedAt ?? '',
+      },
       stoppedMs + 8 * DAY_MS,
     )
     const archived = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(

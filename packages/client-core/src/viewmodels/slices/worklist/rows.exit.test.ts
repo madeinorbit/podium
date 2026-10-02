@@ -58,9 +58,7 @@ function session(over: Partial<SessionMetaInput> = {}): SessionMeta {
 const emptySections: SidebarSections = { pinnedWorktrees: [], pinnedRepos: [], repos: [] }
 
 const worktreeSections = (worker: SessionMeta): SidebarSections => ({
-  pinnedWorktrees: [
-    { path: '/r/a', name: 'a', branch: 'main', sessions: [worker] } as never,
-  ],
+  pinnedWorktrees: [{ path: '/r/a', name: 'a', branch: 'main', sessions: [worker] } as never],
   pinnedRepos: [],
   repos: [],
 })
@@ -84,32 +82,28 @@ const exited = (over: Partial<SessionMetaInput> = {}): SessionMeta =>
   })
 
 describe('unified work-list row retention after agent exit', () => {
-  it.each(['live', 'hibernated'] as const)(
-    'keeps a %s agent in both the issue row and its live roster',
-    (status) => {
-      const worker = session({ status })
-      const rows = unifiedWorkList(emptySections, [issue()], [worker], ['/r/a'], NOW)
-      expect(rows).toHaveLength(1)
-      expect(rosterIds(rows[0] as UnifiedWorkRow)).toEqual(['s43'])
-    },
-  )
+  it.each([
+    'live',
+    'hibernated',
+  ] as const)('keeps a %s agent in both the issue row and its live roster', (status) => {
+    const worker = session({ status })
+    const rows = unifiedWorkList(emptySections, [issue()], [worker], ['/r/a'], NOW)
+    expect(rows).toHaveLength(1)
+    expect(rosterIds(rows[0] as UnifiedWorkRow)).toEqual(['s43'])
+  })
 
-  it.each(['in_progress', 'planning', 'backlog', 'done'] as const)(
-    'keeps an %s issue row after exit but removes the agent from its live roster',
-    (stage) => {
-      const worker = exited()
-      const rows = unifiedWorkList(
-        emptySections,
-        [issue({ stage })],
-        [worker],
-        ['/r/a'],
-        NOW,
-      )
-      expect(rows).toHaveLength(1)
-      expect(rows[0]?.kind).toBe('issue')
-      expect(rosterIds(rows[0] as UnifiedWorkRow)).toEqual([])
-    },
-  )
+  it.each([
+    'in_progress',
+    'planning',
+    'backlog',
+    'done',
+  ] as const)('keeps an %s issue row after exit but removes the agent from its live roster', (stage) => {
+    const worker = exited()
+    const rows = unifiedWorkList(emptySections, [issue({ stage })], [worker], ['/r/a'], NOW)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.kind).toBe('issue')
+    expect(rosterIds(rows[0] as UnifiedWorkRow)).toEqual([])
+  })
 
   it('keeps a repo-scoped worktree row after exit but removes the agent from its live roster', () => {
     const repoWorker = exited({ sessionId: 'repo1', issueId: undefined })

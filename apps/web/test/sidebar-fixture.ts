@@ -5,7 +5,12 @@ import { createKernelReplica, createSideCache, memoryStorage } from '@podium/cli
 import { asIssueId, asUserId, issueUserStateRowId } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
 
-export function createSidebarFixture(count = 18, now = Date.now(), simple = false, userId = 'operator') {
+export function createSidebarFixture(
+  count = 18,
+  now = Date.now(),
+  simple = false,
+  userId = 'operator',
+) {
   const iso = (offset: number) => new Date(now + offset).toISOString()
   const records = new Map<string, EntityRecord>()
   const put = (entity: string, entityId: string, value: unknown) => {
@@ -74,7 +79,13 @@ export function createSidebarFixture(count = 18, now = Date.now(), simple = fals
       ...(!simple && (i === 3 || i === 4) ? { parentId: 'synthetic-1' } : {}),
     }
     const { readAt, tuckedAt, pinned, repoPath, ...normalized } = issue
-    put('issueUserState', issueUserStateRowId(asUserId(userId), asIssueId(id)), { userId, entityId: id, readAt, tuckedAt: tuckedAt ?? null, pinned })
+    put('issueUserState', issueUserStateRowId(asUserId(userId), asIssueId(id)), {
+      userId,
+      entityId: id,
+      readAt,
+      tuckedAt: tuckedAt ?? null,
+      pinned,
+    })
     put('issueProjection', id, {
       ...normalized,
       description: { value: '' },

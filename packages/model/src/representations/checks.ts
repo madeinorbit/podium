@@ -1,15 +1,9 @@
-
-
 import type { z } from 'zod'
-import { findCapabilitySnapshotKeys } from '../annotations/capability-snapshot'
-import {
-  type MatrixRow,
-  type MatrixRowId,
-  type VisibilityClass,
-} from '../annotations/ownership'
-import { OWNERSHIP_MATRIX_INDEX } from '../annotations/matrix'
-import { visibilityClassOf } from '../annotations/resolution'
 import { PER_USER_STATE_KEYS } from '../aggregates/registry'
+import { findCapabilitySnapshotKeys } from '../annotations/capability-snapshot'
+import { OWNERSHIP_MATRIX_INDEX } from '../annotations/matrix'
+import type { MatrixRow, MatrixRowId, VisibilityClass } from '../annotations/ownership'
+import { visibilityClassOf } from '../annotations/resolution'
 
 /**
  * ADR 4 D2's six roles. A representation declares EXACTLY ONE — that is the
@@ -205,7 +199,10 @@ export function representationViolations(
     }
     if (rep.composition.state === 'declared-legitimate-restatement') {
       const { reason, enforcedBy } = rep.composition
-      if (reason.trim().length < MIN_JUSTIFICATION || enforcedBy.trim().length < MIN_JUSTIFICATION) {
+      if (
+        reason.trim().length < MIN_JUSTIFICATION ||
+        enforcedBy.trim().length < MIN_JUSTIFICATION
+      ) {
         out.push({
           representation: at,
           kind: 'undocumented',
@@ -311,10 +308,7 @@ function topLevelKeys(schema: z.ZodTypeAny): string[] | null {
       options?: z.ZodTypeAny[]
     }
     if (def.typeName === 'ZodObject') return Object.keys((cur as unknown as z.AnyZodObject).shape)
-    if (
-      (def.typeName === 'ZodUnion' || def.typeName === 'ZodDiscriminatedUnion') &&
-      def.options
-    ) {
+    if ((def.typeName === 'ZodUnion' || def.typeName === 'ZodDiscriminatedUnion') && def.options) {
       const keys = new Set<string>()
       for (const option of def.options) {
         const armKeys = topLevelKeys(option)

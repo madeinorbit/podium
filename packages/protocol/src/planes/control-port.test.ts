@@ -24,6 +24,7 @@ import {
 
 const issueRef = (id: string): EntityRef => ({ kind: 'issue', id: asIssueId(id) })
 const sessionRef = (id: string): EntityRef => ({ kind: 'session', id: asSessionId(id) })
+
 import { type FeedDeltaMessage, isFeedWatermark } from '../messages/feed'
 import {
   CHANGE_OP_SEMANTICS,
@@ -124,9 +125,9 @@ describe('the port carries a principal and evaluates no policy', () => {
 
     const allowed = setup(allowAll)
     expect(allowed.port.admitEntity(target('alice'), issueRef('i1'))).toBe(true)
-    expect(
-      allowed.registry.has(entityRoutingKey(issueRef('i1')), asSubscriberId('alice')),
-    ).toBe(true)
+    expect(allowed.registry.has(entityRoutingKey(issueRef('i1')), asSubscriberId('alice'))).toBe(
+      true,
+    )
   })
 
   it('never reads the capability: only the resolver decides', () => {
@@ -215,7 +216,9 @@ describe('watermarks — ADR 2 Amendment 1 D13 on the control port', () => {
   it('refuses to send a frame that does not certify a well-formed range', () => {
     expect(() => assertCertified(frame(10, 9))).toThrow(/below fromSeq/)
     expect(() =>
-      assertCertified(frame(10, 20, [{ seq: 21, entity: 'issueProjection', entityId: 'i', op: 'upsert' }])),
+      assertCertified(
+        frame(10, 20, [{ seq: 21, entity: 'issueProjection', entityId: 'i', op: 'upsert' }]),
+      ),
     ).toThrow(/outside covered range/)
     expect(() =>
       assertCertified(

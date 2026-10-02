@@ -1,11 +1,4 @@
-
-
-import type {
-  DeltaFrame,
-  RescopeFrame,
-  ResyncRequiredFrame,
-  ServerFrame,
-} from '../replica/types'
+import type { DeltaFrame, RescopeFrame, ResyncRequiredFrame, ServerFrame } from '../replica/types'
 
 /** How big is this frame on the wire? Injected — see the file header. */
 export type FrameSizer = (frame: ServerFrame) => number
@@ -87,7 +80,10 @@ export class BoundedSendQueue {
     const size = this.config.sizeOf(frame)
     if (this.bytes + size > this.config.maxBytes) {
       this.overflows += 1
-      return { kind: 'demoted', frame: this.demote(frame.feedId, frame.epoch, 'send-queue-overflow') }
+      return {
+        kind: 'demoted',
+        frame: this.demote(frame.feedId, frame.epoch, 'send-queue-overflow'),
+      }
     }
 
     this.frames.push(frame)

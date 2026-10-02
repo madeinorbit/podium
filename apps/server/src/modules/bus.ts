@@ -1,3 +1,4 @@
+import type { LogOrigin } from '@podium/commands'
 import { createLogger } from '@podium/logger'
 import type {
   AgentKind,
@@ -5,23 +6,21 @@ import type {
   ConversationSummaryWire,
   HarnessAgent,
   HostMetricsWire,
+  IssueId,
   IssueProjection,
+  MachineId,
   SessionId,
   SessionMeta,
+  ThreadId,
   TranscriptItem,
   UserId,
-  IssueId,
-  MachineId,
-  ThreadId,
 } from '@podium/model'
-import type { LogOrigin } from '@podium/commands'
 import type { AgentObservation, MetadataChange, SessionOpenUrlMessage } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import type { InboxPrincipalReference } from './sessions/inbox'
-import type { HarnessErrorKind } from './superagent/harness-error'
-
 import { runAtRoot } from '../store/executor/context'
 import { afterCommit } from '../store/executor/executor'
+import type { InboxPrincipalReference } from './sessions/inbox'
+import type { HarnessErrorKind } from './superagent/harness-error'
 
 const log = createLogger('server:bus')
 

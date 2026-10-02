@@ -245,8 +245,11 @@ describe('wall-clock independence of the #9 steps', () => {
         })
         views.push(rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)))
         readAts.push(
-          allIssueViewModels(ctx.replica, ctx.engine.getSnapshot().issueProjections, ctx.engine.getSnapshot().issueUserStates).find((issue) => issue.id === ctx.targets.markReadId)
-            ?.readAt,
+          allIssueViewModels(
+            ctx.replica,
+            ctx.engine.getSnapshot().issueProjections,
+            ctx.engine.getSnapshot().issueUserStates,
+          ).find((issue) => issue.id === ctx.targets.markReadId)?.readAt,
         )
       }
       return { cells, views, readAts }

@@ -1,5 +1,5 @@
-import type { IssueUserStateWire } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueUserStateWire } from '@podium/model'
 /**
  * TUCK FAN-OUT PROBE (POD-1053) — throwaway diagnostic, not a CI gate.
  *
@@ -31,11 +31,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 // belong to the working tree it is run in.
 
 import type { IssueProjection } from '@podium/model'
-import {
-  type GitRepositoryWire,
-  ISSUE_STAGES,
-  type SessionMeta,
-} from '@podium/model/browser'
+import { type GitRepositoryWire, ISSUE_STAGES, type SessionMeta } from '@podium/model/browser'
 import { describe, it } from 'vitest'
 import {
   foldOverlays,
@@ -184,12 +180,28 @@ describe('tuck fan-out probe', () => {
     const issues = Array.from({ length: SCALE.issues }, (_, index) => issueAt(index))
     const sessions = Array.from({ length: SCALE.sessions }, (_, index) => sessionAt(index))
     const repos = repositories()
-    replica.applySnapshot('issueUserStates', issues.map(issue => ({ userId: 'operator', entityId: issue.id, readAt: issue.readAt ?? null, tuckedAt: issue.tuckedAt ?? null, pinned: issue.pinned } as IssueUserStateWire)))
+    replica.applySnapshot(
+      'issueUserStates',
+      issues.map(
+        (issue) =>
+          ({
+            userId: 'operator',
+            entityId: issue.id,
+            readAt: issue.readAt ?? null,
+            tuckedAt: issue.tuckedAt ?? null,
+            pinned: issue.pinned,
+          }) as IssueUserStateWire,
+      ),
+    )
     replica.applySnapshot('issueProjections', issues.map(projectionOf))
     replica.applySnapshot('sessions', sessions)
     replica.applySnapshot(
       'repos',
-      repos.map((repo) => ({ id: `repo_${repo.path}`, repoPath: repo.path, prefix: 'POD' })) as never[],
+      repos.map((repo) => ({
+        id: `repo_${repo.path}`,
+        repoPath: repo.path,
+        prefix: 'POD',
+      })) as never[],
     )
 
     const machines: never[] = []
@@ -197,7 +209,10 @@ describe('tuck fan-out probe', () => {
     const baseIssues = replica.rows('issueUserStates')
     const baseProjections = replica.rows('issueProjections')
     // biome-ignore lint/suspicious/noExplicitAny: probe fixture — the slice reads a documented subset
-    const storeWith = (rows: readonly IssueUserStateWire[], projections = baseProjections): any => ({
+    const storeWith = (
+      rows: readonly IssueUserStateWire[],
+      projections = baseProjections,
+    ): any => ({
       repos,
       machines,
       sessions,
@@ -240,7 +255,11 @@ describe('tuck fan-out probe', () => {
       const target = 500 + press
       const pressBase = replica.rows('issueUserStates')
       const projections = replica.rows('issueProjections')
-      const { rows } = foldOverlays(pressBase as IssueUserStateWire[], tuckOverlay(target), (r) => r.entityId)
+      const { rows } = foldOverlays(
+        pressBase as IssueUserStateWire[],
+        tuckOverlay(target),
+        (r) => r.entityId,
+      )
 
       // THE OPTIMISTIC PAINT. The overlay fold hands the store a new array with
       // one new row; a row genuinely moved, so the worklist genuinely re-derives.

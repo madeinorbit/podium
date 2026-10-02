@@ -1,8 +1,8 @@
-import { firstAdminMemberId } from '@podium/model'
-import { userClientPrincipal } from './gateway/client-principal'
 import type { IssueProjection, IssueUserStateWire, SessionMeta } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type MetadataChange, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { userClientPrincipal } from './gateway/client-principal'
 import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
 import { attachHostDaemon } from './test-support/host-daemon'
@@ -41,14 +41,19 @@ describe('SessionRegistry metadata deltas', () => {
   }
 
   async function makeLegacyRegistry(): Promise<SessionRegistry> {
-    const registry = await SessionRegistry.create(await openTestStore(':memory:'), undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(await openTestStore(':memory:'), undefined, {
+      instanceId: 'default',
+    })
     registries.push(registry)
     // The host runs the sessions and reports `/r`, before any client connects (2b803efb5).
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
     return registry
   }
 
-  async function client(registry: SessionRegistry, caps?: string[]): Promise<{ inbox: ServerMessage[] }> {
+  async function client(
+    registry: SessionRegistry,
+    caps?: string[],
+  ): Promise<{ inbox: ServerMessage[] }> {
     const inbox: ServerMessage[] = []
     const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
     await registry.clientGateway.routeClientFrame(id, {
@@ -101,10 +106,7 @@ describe('SessionRegistry metadata deltas', () => {
     // that event is a feed row now (POD-1772) rather than something the pane
     // re-asks for on a timer. The `issues.update` case below is unchanged on
     // purpose: its kind is not one the feed carries.
-    expect(changes.map((change) => change.entity).sort()).toEqual([
-      'issueEvent',
-      'issueProjection',
-    ])
+    expect(changes.map((change) => change.entity).sort()).toEqual(['issueEvent', 'issueProjection'])
     const residue = changes.find((change) => change.entity === 'issueProjection')
     expect(residue).toMatchObject({ entity: 'issueProjection', op: 'upsert' })
     expect((residue?.value as IssueProjection).title).toBe('first')
@@ -131,9 +133,7 @@ describe('SessionRegistry metadata deltas', () => {
     const legacyNew = legacy.inbox.slice(legacyBefore)
     expect(legacyNew.map((m) => m.type)).toEqual(['feedDelta'])
     const legacyChanges = deltas(legacyNew)
-    expect(legacyChanges.map((change) => change.entity).sort()).toEqual([
-      'issueProjection',
-    ])
+    expect(legacyChanges.map((change) => change.entity).sort()).toEqual(['issueProjection'])
     expect(legacyChanges.every((change) => change.id === w.id)).toBe(true)
     // The cap-advertising peer observes the same canonical rows.
     const changes = deltas(delta.inbox.slice(deltaBefore))
@@ -147,10 +147,15 @@ describe('SessionRegistry metadata deltas', () => {
     const registry = await makeRegistry()
     const delta = await readyClient(registry, ['metadataDelta'])
     const before = delta.inbox.length
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
     flush(registry)
     await vi.waitFor(() => {
-      expect(deltas(delta.inbox.slice(before)).some((c) => c.entity === 'session' && c.id === sessionId)).toBe(true)
+      expect(
+        deltas(delta.inbox.slice(before)).some((c) => c.entity === 'session' && c.id === sessionId),
+      ).toBe(true)
     })
     const changes = deltas(delta.inbox.slice(before)).filter((c) => c.entity === 'session')
     expect(changes.length).toBeGreaterThanOrEqual(1)
@@ -164,7 +169,9 @@ describe('SessionRegistry metadata deltas', () => {
     await registry.issues.create({ repoPath: '/r', title: 'a', startNow: false })
     await registry.issues.create({ repoPath: '/r', title: 'b', startNow: false })
     flush(registry)
-    await expect.poll(() => deltas(delta.inbox).filter((c) => c.entity === 'issueEvent').length).toBe(2)
+    await expect
+      .poll(() => deltas(delta.inbox).filter((c) => c.entity === 'issueEvent').length)
+      .toBe(2)
     const batches = delta.inbox.filter((m) => m.type === 'feedDelta')
     expect(batches.length).toBeGreaterThan(0)
     let prev = 0
@@ -246,7 +253,11 @@ describe('SessionRegistry metadata deltas', () => {
     await registry.issues.setIssueTucked(w.id, true)
     flush(registry)
 
-    await expect.poll(() => deltas(other.inbox.slice(before)).filter((c) => c.entity === 'issueUserState').length).toBe(1)
+    await expect
+      .poll(
+        () => deltas(other.inbox.slice(before)).filter((c) => c.entity === 'issueUserState').length,
+      )
+      .toBe(1)
     const seen = deltas(other.inbox.slice(before)).filter((c) => c.entity === 'issueUserState')
     expect(seen).toHaveLength(1)
     expect((seen[0] as { value: IssueUserStateWire }).value.tuckedAt).toBeTruthy()
@@ -265,8 +276,13 @@ describe('SessionRegistry metadata deltas', () => {
     const inbox: ServerMessage[] = []
     attachTestClient(registry.clientGateway, (msg) => inbox.push(msg)) // no hello at all
     // Attachment still sends control-plane snapshots asynchronously.
-    await expect.poll(() => inbox.some((m) => m.type === 'approvalsChanged')
-      && inbox.some((m) => m.type === 'machinesChanged')).toBe(true)
+    await expect
+      .poll(
+        () =>
+          inbox.some((m) => m.type === 'approvalsChanged') &&
+          inbox.some((m) => m.type === 'machinesChanged'),
+      )
+      .toBe(true)
     expect(inbox.some((message) => message.type === 'feedResume')).toBe(false)
     const before = inbox.length
     await registry.issues.create({ repoPath: '/r', title: 'x', startNow: false })

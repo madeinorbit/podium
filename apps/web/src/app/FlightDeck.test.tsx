@@ -15,12 +15,11 @@ import { buildFlightDeckRows, missionIssueIds } from '@podium/client-core/viewmo
 import type { SessionMeta } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture/corpus'
-import { seedCacheFromCorpus } from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture/corpus'
+import { seedCacheFromCorpus } from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { DOUBLE_CLICK_MS } from './click-intent'
-import { defaultWaterfallRowZoom, defaultWaterfallTaskWidth } from './FlightDeckWaterfall'
 import {
   briefCutoffLayout,
   continuationPresenceLine,
@@ -33,6 +32,7 @@ import {
   writeBriefCutoff,
   writeFolds,
 } from './FlightDeck'
+import { defaultWaterfallRowZoom, defaultWaterfallTaskWidth } from './FlightDeckWaterfall'
 import { OperatorFocusProvider } from './operator-focus'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { REVEAL_IN_DECK_EVENT, RIGHT_PANEL_KEY } from './shell-state'
@@ -389,8 +389,14 @@ describe('mission key uniqueness', () => {
       expect(new Set(members).size, rootId).toBe(members.length)
       expect(new Set(rowIds).size, rootId).toBe(rowIds.length)
       expect(rows, rootId).toHaveLength(rowCount)
-      expect(rows.filter((row) => row.issue.id === rootId), rootId).toHaveLength(1)
-      expect(rowIds.every((id) => members.includes(id)), rootId).toBe(true)
+      expect(
+        rows.filter((row) => row.issue.id === rootId),
+        rootId,
+      ).toHaveLength(1)
+      expect(
+        rowIds.every((id) => members.includes(id)),
+        rootId,
+      ).toBe(true)
     }
   })
 })
@@ -712,7 +718,10 @@ describe('mission brief measurement after layout', () => {
 
   const twoMissions = (): void => {
     harness.issues = [
-      issue('m1', { title: 'Alpha', description: `Alpha brief. ${'Long enough to bind the cap. '.repeat(20)}` }),
+      issue('m1', {
+        title: 'Alpha',
+        description: `Alpha brief. ${'Long enough to bind the cap. '.repeat(20)}`,
+      }),
       issue('m2', { title: 'Beta', description: 'Beta brief.' }),
     ]
     harness.sessions = []

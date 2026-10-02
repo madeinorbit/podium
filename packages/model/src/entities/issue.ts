@@ -1,8 +1,15 @@
 /** On-demand graph and diagnostic projections over issues. */
 import { z } from 'zod'
+import {
+  IssueDerived,
+  IssueIdentity,
+  IssueLifecycle,
+  IssueText,
+  IssueTriage,
+} from '../fields/issue'
 import { IssueIdField, UserIdField } from '../ids'
-import { IssueDerived, IssueIdentity, IssueLifecycle, IssueText, IssueTriage } from '../fields/issue'
 import { IssueStage, IssueType } from './issue-vocabulary'
+
 export * from './issue-vocabulary'
 
 export const DuplicateCandidate = z.object({
@@ -12,7 +19,9 @@ export const DuplicateCandidate = z.object({
 })
 export type DuplicateCandidate = z.infer<typeof DuplicateCandidate>
 
-const IssueRefHead = IssueIdentity.pick({ id: true, seq: true }).extend({ title: IssueText.shape.title })
+const IssueRefHead = IssueIdentity.pick({ id: true, seq: true }).extend({
+  title: IssueText.shape.title,
+})
 
 export const LintFinding = IssueRefHead.omit({ title: true }).extend({
   findings: z.array(z.string()),
@@ -56,7 +65,10 @@ export const IssueGraph = z.object({
 export type IssueGraph = z.infer<typeof IssueGraph>
 
 export const EpicStatus = IssueRefHead.pick({ id: true })
-  .extend({ childCount: IssueDerived.shape.childCount.unwrap(), childDoneCount: IssueDerived.shape.childDoneCount.unwrap() })
+  .extend({
+    childCount: IssueDerived.shape.childCount.unwrap(),
+    childDoneCount: IssueDerived.shape.childDoneCount.unwrap(),
+  })
   .extend({ complete: z.boolean() })
 export type EpicStatus = z.infer<typeof EpicStatus>
 

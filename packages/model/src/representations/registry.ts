@@ -1,5 +1,3 @@
-
-
 import { ROW } from '../annotations/matrix'
 import { HandoffManifest } from '../entities/handoff'
 import { IssueGraphNode, OrphanIssue } from '../entities/issue'
@@ -784,8 +782,12 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     site: 'packages/model/src/projections/issue-read.ts',
     role: 'R4',
     purpose: 'The on-demand CLI and RPC response for a reader without a local replica.',
-    distinctSemantics: 'Preserves the command response fields, including graph and personal joins. Never stored or published as a feed entity.',
-    composition: { state: 'composed', from: 'IssueProjection own facts plus IssueUserOverlay and query-only graph/count fields' },
+    distinctSemantics:
+      'Preserves the command response fields, including graph and personal joins. Never stored or published as a feed entity.',
+    composition: {
+      state: 'composed',
+      from: 'IssueProjection own facts plus IssueUserOverlay and query-only graph/count fields',
+    },
     matrixRow: ROW.issueCore,
     visibility: 'personal',
   },

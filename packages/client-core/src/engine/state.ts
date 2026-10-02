@@ -23,19 +23,20 @@ import type {
   ConversationSummaryWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
+  IssueDepProjection,
   IssueEventWire,
+  IssueGitStateProjection,
   IssueId,
   IssueProjection,
   IssueUserStateWire,
-  IssueGitStateProjection,
-  IssueDepProjection,
-  RepoProjection,
   MachineWire,
   MessageRecordWire,
+  RepoProjection,
   SessionId,
   ShipLaneProjection,
   ShipOrderProjection,
-  ThreadId} from '@podium/model'
+  ThreadId,
+} from '@podium/model'
 import { asIssueId, asThreadId } from '@podium/model'
 import type { ApprovalWire, PendingInteractionWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
@@ -295,12 +296,15 @@ export type WorkspaceSelection = Pick<
  * here so the engine and the view cannot disagree about which task's tabs they
  * are writing.
  */
-const workspaceKeys = new WeakMap<WorkspaceSelection, {
-  source?: WorkspaceSelection['issueProjections']
-  issue?: WorkspaceSelection['selectedIssueId']
-  worktree?: WorkspaceSelection['selectedWorktree']
-  value?: WorkspaceKey
-}>()
+const workspaceKeys = new WeakMap<
+  WorkspaceSelection,
+  {
+    source?: WorkspaceSelection['issueProjections']
+    issue?: WorkspaceSelection['selectedIssueId']
+    worktree?: WorkspaceSelection['selectedWorktree']
+    value?: WorkspaceKey
+  }
+>()
 
 /** The existing runtime opts in at startup. Cache one scalar answer, never
  * rows or relations; a replaced issue array (including evict/rescope) misses. */
@@ -310,8 +314,13 @@ export function enableWorkspaceKeyCache(st: WorkspaceSelection): void {
 
 export function workspaceKeyForState(st: WorkspaceSelection): WorkspaceKey {
   const cached = workspaceKeys.get(st)
-  if (cached?.value !== undefined && cached.source === st.issueProjections &&
-    cached.issue === st.selectedIssueId && cached.worktree === st.selectedWorktree) return cached.value
+  if (
+    cached?.value !== undefined &&
+    cached.source === st.issueProjections &&
+    cached.issue === st.selectedIssueId &&
+    cached.worktree === st.selectedWorktree
+  )
+    return cached.value
   const selected = st.selectedIssueId
     ? st.issueProjections.find((i) => i.id === st.selectedIssueId && !i.archived && !i.deletedAt)
     : undefined
@@ -321,8 +330,13 @@ export function workspaceKeyForState(st: WorkspaceSelection): WorkspaceKey {
     issueId: st.selectedIssueId,
     worktreePath: st.selectedWorktree,
   })
-  if (cached) Object.assign(cached, { source: st.issueProjections, issue: st.selectedIssueId,
-    worktree: st.selectedWorktree, value })
+  if (cached)
+    Object.assign(cached, {
+      source: st.issueProjections,
+      issue: st.selectedIssueId,
+      worktree: st.selectedWorktree,
+      value,
+    })
   return value
 }
 
@@ -478,7 +492,10 @@ function resolvableFileTabIds(st: Pick<EngineState, 'sessions' | 'fileTabs'>): s
  * it is foreign, and the origin strip must drop it immediately.
  */
 export function knownTabIdsForWorkspace(
-  st: Pick<EngineState, 'issueProjections' | 'issueDeps' | 'sessions' | 'pendingSpawnIds' | 'fileTabs'>,
+  st: Pick<
+    EngineState,
+    'issueProjections' | 'issueDeps' | 'sessions' | 'pendingSpawnIds' | 'fileTabs'
+  >,
   key: WorkspaceKey,
 ): Set<string> {
   const ids = new Set<string>()
@@ -773,19 +790,32 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
   }
 }
 
-const topologyJoins = new WeakMap<readonly IssueProjection[], WeakMap<readonly IssueDepProjection[], Array<IssueProjection & { deps: Array<{ id: string; type: string }> }>>>()
+const topologyJoins = new WeakMap<
+  readonly IssueProjection[],
+  WeakMap<
+    readonly IssueDepProjection[],
+    Array<IssueProjection & { deps: Array<{ id: string; type: string }> }>
+  >
+>()
 function issueTopology(st: Pick<EngineState, 'issueProjections' | 'issueDeps'>) {
   let byEdges = topologyJoins.get(st.issueProjections)
-  if (!byEdges) { byEdges = new WeakMap(); topologyJoins.set(st.issueProjections, byEdges) }
+  if (!byEdges) {
+    byEdges = new WeakMap()
+    topologyJoins.set(st.issueProjections, byEdges)
+  }
   const edges = st.issueDeps
   const previous = byEdges.get(edges)
   if (previous) return previous
   const outgoing = new Map<string, Array<{ id: string; type: string }>>()
   for (const dep of edges) {
     const values = outgoing.get(dep.fromId) ?? []
-    values.push({ id: dep.toId, type: dep.type }); outgoing.set(dep.fromId, values)
+    values.push({ id: dep.toId, type: dep.type })
+    outgoing.set(dep.fromId, values)
   }
-  const joined = st.issueProjections.map(issue => ({ ...issue, deps: outgoing.get(issue.id) ?? [] }))
+  const joined = st.issueProjections.map((issue) => ({
+    ...issue,
+    deps: outgoing.get(issue.id) ?? [],
+  }))
   byEdges.set(edges, joined)
   return joined
 }

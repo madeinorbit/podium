@@ -1,10 +1,10 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import {
-  firstAdminMemberId,
   type ConversationSummaryWire,
   type ConversationSummaryWireInput,
+  firstAdminMemberId,
 } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
@@ -60,7 +60,7 @@ describe('SessionRegistry conversation registry', () => {
     const clientId = attachTestClient(registry.clientGateway, (m) => inbox.push(m))
     await registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
-    caps: ['sync.http.v1'],
+      caps: ['sync.http.v1'],
       wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -76,8 +76,14 @@ describe('SessionRegistry conversation registry', () => {
     // deterministic seam. Without it the last `conversationsChanged` in the inbox
     // is still the one the ATTACH produced, before the scan committed anything.
     registry.modules.funnel.flushDeltas()
-    await expect.poll(() => inbox.flatMap((m) => m.type === 'feedDelta' ? m.changes : [])
-      .filter((c) => c.entity === 'conversation' && c.op === 'upsert').length).toBe(2)
+    await expect
+      .poll(
+        () =>
+          inbox
+            .flatMap((m) => (m.type === 'feedDelta' ? m.changes : []))
+            .filter((c) => c.entity === 'conversation' && c.op === 'upsert').length,
+      )
+      .toBe(2)
     const byId = new Map(
       inbox
         .flatMap((message) => (message.type === 'feedDelta' ? message.changes : []))
@@ -112,8 +118,11 @@ describe('SessionRegistry conversation registry', () => {
       daemon.push(m)
       if (m.type === 'transcriptRead') {
         void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
-          type: 'transcriptReadResult', requestId: m.requestId, sessionId: m.sessionId,
-          items: [], hasMore: false,
+          type: 'transcriptReadResult',
+          requestId: m.requestId,
+          sessionId: m.sessionId,
+          items: [],
+          hasMore: false,
         })
       }
     })
@@ -159,7 +168,9 @@ describe('SessionRegistry conversation registry', () => {
       sessionId,
       resume: { kind: 'claude-session', value: 'native-first' },
     })
-    const meta1 = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const meta1 = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     const podiumId = meta1?.conversationPodiumId
     expect(podiumId).toMatch(/^conv_/)
 
@@ -169,7 +180,9 @@ describe('SessionRegistry conversation registry', () => {
       sessionId,
       resume: { kind: 'claude-session', value: 'native-rolled' },
     })
-    const meta2 = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const meta2 = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     expect(meta2?.conversationPodiumId).toBe(podiumId)
     expect(meta2?.resume?.value).toBe('native-rolled')
   })

@@ -54,7 +54,13 @@ export type IssueHierarchyCapability = Pick<
 /** Public comments and tracker-mail contract. */
 export type IssueCommentsMailCapability = Pick<
   IssueCommentsMailModule,
-  'comments' | 'addComment' | 'addCallerComment' | 'mailInbox' | 'mailClaim' | 'mailPending' | 'mailMessage'
+  | 'comments'
+  | 'addComment'
+  | 'addCallerComment'
+  | 'mailInbox'
+  | 'mailClaim'
+  | 'mailPending'
+  | 'mailMessage'
 >
 
 /** Public attention, per-user markers and subscription contract. */
@@ -328,7 +334,9 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
       const depProjections = await store.allDepProjections()
       if (depProjections) await store.deps.ledger.reconcile('issueDep', depProjections)
       await store.publishRepos()
-      await store.emitEvent('issue.boot_reconciled', 'system', { attribution: attributionOf(principal) })
+      await store.emitEvent('issue.boot_reconciled', 'system', {
+        attribution: attributionOf(principal),
+      })
     } catch (err) {
       log.warn('boot reconciliation record failed', { err })
     }

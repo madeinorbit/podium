@@ -1,16 +1,8 @@
-import { normalizedIssueFixture } from '../../../test-support/normalized-issue-fixture'
-import { allIssueViewModels } from '../../../replica'
-import type { IssueViewModel } from '../../../replica'
+import { asIssueId, asMachineId, asSessionId, type SessionMeta } from '@podium/model'
 // @vitest-environment happy-dom
 import { act, cleanup, render } from '@testing-library/react'
 import { Profiler, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  asIssueId,
-  asMachineId,
-  asSessionId,
-  type SessionMeta,
-} from '@podium/model'
 import type { Store } from '../../../engine/types'
 import {
   readRuntimeStoreStats,
@@ -20,9 +12,10 @@ import {
   storeStats,
 } from '../../../perf/store-stats'
 import { useSlice } from '../../../react/use-slice'
+import type { IssueViewModel } from '../../../replica'
+import { allIssueViewModels } from '../../../replica'
+import { normalizedIssueFixture } from '../../../test-support/normalized-issue-fixture'
 import { createSlicePublisher } from '../publish'
-import { worklistSlice, type WorklistSlice } from './published'
-import { rowMotionPhase, rowMotionTiming, rowStatusLine } from './row-attention'
 import {
   worklistIssuesEqual,
   worklistMachinesEqual,
@@ -31,6 +24,8 @@ import {
   worklistSessionSignature,
   worklistSessionsEqual,
 } from './material'
+import { type WorklistSlice, worklistSlice } from './published'
+import { rowMotionPhase, rowMotionTiming, rowStatusLine } from './row-attention'
 
 const context = vi.hoisted(() => ({ handle: undefined as unknown }))
 vi.mock('../../../react/provider', () => ({ useStoreHandle: () => context.handle }))
@@ -114,8 +109,10 @@ function handleFor(initial: Store) {
     publish: (patch: Partial<Store>) => {
       snapshot = { ...snapshot, ...patch }
       if (patch.sessions) snapshot.replica.applySnapshot('sessions', patch.sessions)
-      if (patch.issueProjections) snapshot.replica.applySnapshot('issueProjections', patch.issueProjections)
-      if (patch.issueUserStates) snapshot.replica.applySnapshot('issueUserStates', patch.issueUserStates)
+      if (patch.issueProjections)
+        snapshot.replica.applySnapshot('issueProjections', patch.issueProjections)
+      if (patch.issueUserStates)
+        snapshot.replica.applySnapshot('issueUserStates', patch.issueUserStates)
       const publication = recordStorePublish(handle, new Set(Object.keys(patch)))
       for (const listener of listeners) {
         recordStoreSubscriber(handle, publication)
@@ -163,7 +160,8 @@ const legacySlice = {
     a.machines === b.machines &&
     a.sessions === b.sessions &&
     a.pins === b.pins &&
-    a.issueProjections === b.issueProjections && a.issueUserStates === b.issueUserStates &&
+    a.issueProjections === b.issueProjections &&
+    a.issueUserStates === b.issueUserStates &&
     a.coarseNow === b.coarseNow &&
     a.selectedIssueId === b.selectedIssueId,
 }
@@ -395,7 +393,11 @@ describe('worklist material inputs', () => {
 
   it('compares ordered membership for every collection and retains no evicted rows', () => {
     const store = world()
-    const issueModels = allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates)
+    const issueModels = allIssueViewModels(
+      store.replica,
+      store.issueProjections,
+      store.issueUserStates,
+    )
     expect(worklistSessionsEqual(store.sessions, [...store.sessions].reverse())).toBe(false)
     expect(worklistSessionsEqual(store.sessions, store.sessions.slice(1))).toBe(false)
     expect(worklistIssuesEqual(issueModels, [...issueModels].reverse())).toBe(false)

@@ -84,11 +84,7 @@ export type OverlayTarget = OverlayEntity | 'issueUserStates' | 'sessionUserStat
 type OverlayPatch = Record<string, unknown>
 
 /** The rows a `coveredBy` judges. */
-export type OverlayRow =
-  | SessionMeta
-  | IssueProjection
-  | IssueUserStateWire
-  | SessionUserStateWire
+export type OverlayRow = SessionMeta | IssueProjection | IssueUserStateWire | SessionUserStateWire
 
 export type PendingOverlay =
   | {

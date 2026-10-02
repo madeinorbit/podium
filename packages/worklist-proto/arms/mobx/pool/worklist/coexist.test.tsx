@@ -14,31 +14,39 @@
  * is armed by the run itself (`soloControlHeartbeat.rows > 0`).
  */
 
+import type { MobxPool } from '@podium/client-graph/pool'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { act } from 'react'
 import { flushSync } from 'react-dom'
 import { describe, expect, it } from 'vitest'
 import {
+  type HarnessMobxPoolHandle,
+  harnessMobxPoolArm,
+  tracked,
+} from '../../../../harness/src/adapters/mobx-pool'
+import {
   assertReads,
+  type CountStats,
   mountArmForCounts,
   runCountScenario,
-  type CountStats,
 } from '../../../../harness/src/count-harness'
-import { openFenceFeeds, parityLocals, runFenceStep } from '../../../../harness/src/fence-scenarios'
-import { FENCE_SCENARIOS } from '../../../../harness/src/fence-scenarios'
+import {
+  FENCE_SCENARIOS,
+  openFenceFeeds,
+  parityLocals,
+  runFenceStep,
+} from '../../../../harness/src/fence-scenarios'
 import { legacyControlArmFor } from '../../../../harness/src/legacy-control/arm'
 import { snapshotFromStore } from '../../../../harness/src/oracle/index'
 import { writeResult } from '../../../../harness/src/results'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
 import {
-  startScenarioEngine,
   type FixtureScale,
+  startScenarioEngine,
   upsert,
   writeHeartbeat,
   writeSelectionClick,
 } from '../../../../shared/src/scenarios'
-import { harnessMobxPoolArm, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
-import type { MobxPool } from '@podium/client-graph/pool'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
 
 interface SoloCounts {
   rows: number
@@ -79,17 +87,26 @@ async function soloArm(scenario: 'heartbeat' | 'click', scale: FixtureScale): Pr
   }
 }
 
-async function soloControl(scenario: 'heartbeat' | 'click', scale: FixtureScale): Promise<SoloCounts> {
+async function soloControl(
+  scenario: 'heartbeat' | 'click',
+  scale: FixtureScale,
+): Promise<SoloCounts> {
   const ctx = await startScenarioEngine(scale)
   // Match coRun's row and engine-locals feeds, including their drain.
   const feeds = openFenceFeeds(ctx, 'overlaid')
-  const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), feeds.rows.source, feeds.locals)
+  const mounted = mountArmForCounts(
+    legacyControlArmFor(ctx.engine),
+    feeds.rows.source,
+    feeds.locals,
+  )
   try {
     // coRun's pre-step load settle flushes every mounted root. Give this
     // eager solo control the same async React boundary before the counters
     // reset: otherwise the click's three publications commit three times
     // solo and twice beside the already-settled pool.
-    await act(async () => { flushSync(() => {}) })
+    await act(async () => {
+      flushSync(() => {})
+    })
     const result = await runCountScenario(mounted, {
       scenario: scenario === 'heartbeat' ? 'unrelatedHeartbeat' : 'selectionClick',
       methodology: scenario === 'heartbeat' ? '#1' : '#3',
@@ -102,7 +119,9 @@ async function soloControl(scenario: 'heartbeat' | 'click', scale: FixtureScale)
     })
     expect(result.parity, `solo control ${scenario}: parity`).toBe(true)
     expect(result.readsPerChange).not.toBeNull()
-    console.info(`[control-counts] ${scenario} ${scale}x solo: ${JSON.stringify({ rows: result.rowsCommitted, stats: result.stats, reads: result.readsPerChange, locals: result.locals })}`)
+    console.info(
+      `[control-counts] ${scenario} ${scale}x solo: ${JSON.stringify({ rows: result.rowsCommitted, stats: result.stats, reads: result.readsPerChange, locals: result.locals })}`,
+    )
     return { rows: result.rowsCommitted, stats: result.stats, reads: result.readsPerChange! }
   } finally {
     mounted.unmount()
@@ -124,8 +143,11 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
       })
       const id = ctx.targets.visibleRootId
       const before = tracked(() => pool.issue(id)!.sidebar)
-      if (before === undefined || before === LOADING) throw new Error('roster head fixture did not load')
-      const next = before.sessions.find(session => session.sessionId !== before.firstSessionId)?.sessionId
+      if (before === undefined || before === LOADING)
+        throw new Error('roster head fixture did not load')
+      const next = before.sessions.find(
+        (session) => session.sessionId !== before.firstSessionId,
+      )?.sessionId
       expect(next, 'fixture has a different own session to promote').toBeDefined()
       const projection = ctx.cache.read('issueProjection', id)!.value as object
       const moved = await runCountScenario(mounted, {
@@ -141,12 +163,13 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
       })
       expect(moved.parity).toBe(true)
       assertReads(moved, { readsPerChange: 3 })
-      const readHead = () => tracked(() => {
-        const row = pool.issue(id)!.sidebar
-        return row === undefined || row === LOADING ? null : row.firstSessionId
-      })
+      const readHead = () =>
+        tracked(() => {
+          const row = pool.issue(id)!.sidebar
+          return row === undefined || row === LOADING ? null : row.firstSessionId
+        })
       expect(readHead(), 'cached ID follows the promoted roster head').toBe(next)
-      const entry = FENCE_SCENARIOS.find(candidate => candidate.methodology === '#3')!
+      const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === '#3')!
       const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry)
       assertReads(result, { readsPerChange: readsBudget })
       expect(result.parity).toBe(true)
@@ -159,7 +182,9 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
     }
   }, 60_000)
 
-  it.each([1, 4] as const)('heartbeat and click count the same solo and co-mounted, on both sides (%ix corpus)', async (scale) => {
+  it.each([
+    1, 4,
+  ] as const)('heartbeat and click count the same solo and co-mounted, on both sides (%ix corpus)', async (scale) => {
     const soloArmHeartbeat = await soloArm('heartbeat', scale)
     const soloControlHeartbeat = await soloControl('heartbeat', scale)
     const soloArmClick = await soloArm('click', scale)
@@ -215,8 +240,12 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         // Take the fence cells before either whole-output parity projection.
         const armReads = armMounted.reads.stats()
         const controlReads = controlMounted.reads.stats()
-        console.info(`[sidebar-reads] ${scenario} ${scale}x co-mounted: ${JSON.stringify(armReads)}`)
-        console.info(`[control-counts] ${scenario} ${scale}x co-mounted: ${JSON.stringify({ rows: controlRows, stats: controlMounted.handle.stats, reads: controlReads.rows, locals: feeds.locals.stats })}`)
+        console.info(
+          `[sidebar-reads] ${scenario} ${scale}x co-mounted: ${JSON.stringify(armReads)}`,
+        )
+        console.info(
+          `[control-counts] ${scenario} ${scale}x co-mounted: ${JSON.stringify({ rows: controlRows, stats: controlMounted.handle.stats, reads: controlReads.rows, locals: feeds.locals.stats })}`,
+        )
         const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))
         expect(
           diffSnapshots(armMounted.handle.snapshot(), oracle),
@@ -231,9 +260,16 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         expect(armRows, `${scenario}: arm rows co == solo`).toBe(soloArmCounts.rows)
         expect(controlRows, `${scenario}: control rows co == solo`).toBe(soloControlCounts.rows)
         expect(armReads.rows, `${scenario}: arm reads co == solo`).toBe(soloArmCounts.reads)
-        expect(controlReads.rows, `${scenario}: control reads co == solo`).toBe(soloControlCounts.reads)
-        expect(countStats(armMounted.handle.stats), `${scenario}: arm work co == solo`).toEqual(soloArmCounts.stats)
-        expect(countStats(controlMounted.handle.stats), `${scenario}: control work co == solo`).toEqual(soloControlCounts.stats)
+        expect(controlReads.rows, `${scenario}: control reads co == solo`).toBe(
+          soloControlCounts.reads,
+        )
+        expect(countStats(armMounted.handle.stats), `${scenario}: arm work co == solo`).toEqual(
+          soloArmCounts.stats,
+        )
+        expect(
+          countStats(controlMounted.handle.stats),
+          `${scenario}: control work co == solo`,
+        ).toEqual(soloControlCounts.stats)
         co[scenario] = {
           armRows,
           controlRows,

@@ -1,9 +1,9 @@
-import { feedPrincipalOf } from './gateway/client-principal'
 import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
-import { type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
+import { feedPrincipalOf } from './gateway/client-principal'
 import { SessionRegistry } from './relay'
 import type { IssueRow, SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
@@ -230,14 +230,20 @@ async function client(registry: SessionRegistry, caps: string[] | undefined): Pr
  * legacy — so creating a client inside the window measured the bootstrap AND
  * suppressed the very bypass under test.
  */
-async function issueWorkForOneFieldSessionChange(registry: SessionRegistry, sessionId: string): Promise<number> {
+async function issueWorkForOneFieldSessionChange(
+  registry: SessionRegistry,
+  sessionId: string,
+): Promise<number> {
   await registry.modules.sessions.flushBroadcasts()
   const before = await registry.modules.sessions.syncChangesSince(null)
-  await registry.modules.sessions.setWorkState({ sessionId: asSessionId(sessionId), workState: 'testing' })
+  await registry.modules.sessions.setWorkState({
+    sessionId: asSessionId(sessionId),
+    workState: 'testing',
+  })
   await registry.modules.sessions.flushBroadcasts()
   const after = await registry.modules.sessions.syncChangesSince(before.cursor)
   if (after.kind !== 'delta') throw new Error('fresh fixture unexpectedly required a snapshot')
-  return after.changes.filter(change => change.entity === 'issueProjection').length
+  return after.changes.filter((change) => change.entity === 'issueProjection').length
 }
 
 describe('issueProjection is the only issue record', () => {
@@ -339,7 +345,12 @@ describe('issueProjection is the only issue record', () => {
     const { registry } = await world({ issues: 1, sessions: 0 })
     const before = (await registry.modules.issues.get('iss_0'))?.updatedAt
 
-    await registry.modules.issues.addComment('iss_0', 'agent', 'projection revision premise', AS_OPERATOR)
+    await registry.modules.issues.addComment(
+      'iss_0',
+      'agent',
+      'projection revision premise',
+      AS_OPERATOR,
+    )
 
     const projections = await changesOf(registry, 'issueProjection')
     const appended = projections.filter((change) => change.id === 'iss_0').at(-1)
@@ -376,15 +387,23 @@ describe('current scoped attach paints session-free issue projections [POD-797]'
     await registry.modules.sessions.flushBroadcasts()
     // Feed admission is independent of the hello handler; observe its delivered outcome.
     await expect.poll(() => inbox.some((message) => message.type === 'feedResume')).toBe(true)
-    expect(inbox.filter(message => ['feedBootstrap', 'issuesChanged'].includes(message.type))).toEqual([])
+    expect(
+      inbox.filter((message) => ['feedBootstrap', 'issuesChanged'].includes(message.type)),
+    ).toEqual([])
     const principal = registry.clientGateway.principalOf(id)
     if (!principal) throw new Error('missing authenticated principal')
     const authority = registry.syncDelta.authority
     const rows = new Map<string, Record<string, unknown>>()
-    for await (const page of authority.changesRange(feedPrincipalOf(principal), 0, await authority.captureHead(), 100)) {
+    for await (const page of authority.changesRange(
+      feedPrincipalOf(principal),
+      0,
+      await authority.captureHead(),
+      100,
+    )) {
       if (page.kind !== 'batch') throw new Error('fresh fixture unexpectedly requires recovery')
       for (const change of page.changes) {
-        if (change.entity === 'issueProjection' && change.op === 'upsert') rows.set(change.entityId, change.value as Record<string, unknown>)
+        if (change.entity === 'issueProjection' && change.op === 'upsert')
+          rows.set(change.entityId, change.value as Record<string, unknown>)
       }
     }
     const issues = [...rows.values()]

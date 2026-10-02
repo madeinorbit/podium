@@ -28,7 +28,7 @@ import { z } from 'zod'
 import { ScopedChangeOp } from '../planes/scoped-feed'
 import { changeRowArm } from './change-row'
 import { parseServerMessageLenient } from './codec'
-import { FEED_ENTITY_KINDS, FeedDeltaMessageLenient, FeedChange } from './feed'
+import { FEED_ENTITY_KINDS, FeedChange, FeedDeltaMessageLenient } from './feed'
 import { ServerMessage } from './server'
 import { MetadataEntityKind } from './sync'
 
@@ -111,7 +111,13 @@ describe('a known kind whose payload this build cannot read', () => {
   // The `blockedBy` → `blockedByNotes` half. An `issue` row whose value fails
   // `IssueProjection` is unparseable by construction on the old build; what must not
   // happen is the other rows going down with it.
-  const unreadable = { seq: 9, entity: 'issueProjection', entityId: 'iss_2', op: 'upsert', value: { no: 1 } }
+  const unreadable = {
+    seq: 9,
+    entity: 'issueProjection',
+    entityId: 'iss_2',
+    op: 'upsert',
+    value: { no: 1 },
+  }
 
   it('REPRODUCES the outage under the old rule: the strict envelope takes it all', () => {
     // What the codec used to do with a feed frame — `ServerMessage.parse`, no

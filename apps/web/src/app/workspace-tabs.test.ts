@@ -1,6 +1,6 @@
-import type { UnbrandIds } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asArtifactId, asIssueId, asSessionId, } from '@podium/model'
+import type { UnbrandIds } from '@podium/model'
+import { asArtifactId, asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { FileTab } from './store'
 import { fileTabsForWorkspace } from './workspace-tabs'

@@ -10,15 +10,15 @@ import {
   type IssueReport,
   type MachineId,
 } from '@podium/model'
-import { shippingJobRequestFingerprint, type ControlMessage } from '@podium/protocol/daemon'
+import { type ControlMessage, shippingJobRequestFingerprint } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
-import { DaemonRpcService } from '../../../../server/src/modules/machines/rpc'
 import { IssueService } from '../../../../server/src/modules/issues/service'
+import { DaemonRpcService } from '../../../../server/src/modules/machines/rpc'
 import {
   CompatibilityShippingPolicyResolver,
-  ShippingService,
   type ShippingEvidencePort,
+  ShippingService,
 } from '../../../../server/src/modules/shipping'
 import { SessionStore } from '../../../../server/src/store'
 
@@ -51,7 +51,6 @@ const issues = await IssueService.create({
   repoOp: async () => ({ ok: true, output: '' }),
   funnel: { run: (op) => op.write() },
   ledger,
-
 })
 await issues.boot()
 

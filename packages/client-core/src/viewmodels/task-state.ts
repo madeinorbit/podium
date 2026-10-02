@@ -1,6 +1,6 @@
-import type { SessionView } from '../session-values'
-import { isAgentConfirmedComputing} from '@podium/model'
+import { isAgentConfirmedComputing } from '@podium/model'
 import { withoutShells } from '../focus'
+import type { SessionView } from '../session-values'
 
 export interface RankedTaskIssue {
   deletedAt?: string

@@ -16,14 +16,18 @@ describe('current entity retention', () => {
     const snapshot = vi.spyOn(replica, 'applySnapshot')
     const delta = vi.spyOn(replica, 'applyChanges')
     const bootstrap = new BootstrapSession(replica, { feedId: 'f', epoch: 'e', seq: 10 })
-    await bootstrap.install({ changes: [
-      { seq: 1, entity: 'issue', id: 'i', op: 'upsert', value: { id: 'i' } },
-      { seq: 2, entity: 'issueProjection', id: 'i', op: 'upsert', value: { id: 'i' } },
-    ] as never })
-    expect(bootstrap.bufferDelta(12, [
-      { seq: 11, entity: 'issue', id: 'i', op: 'remove' },
-      { seq: 12, entity: 'issue', id: 'i', op: 'upsert', value: { id: 'i' } },
-    ] as never)).toBe(true)
+    await bootstrap.install({
+      changes: [
+        { seq: 1, entity: 'issue', id: 'i', op: 'upsert', value: { id: 'i' } },
+        { seq: 2, entity: 'issueProjection', id: 'i', op: 'upsert', value: { id: 'i' } },
+      ] as never,
+    })
+    expect(
+      bootstrap.bufferDelta(12, [
+        { seq: 11, entity: 'issue', id: 'i', op: 'remove' },
+        { seq: 12, entity: 'issue', id: 'i', op: 'upsert', value: { id: 'i' } },
+      ] as never),
+    ).toBe(true)
     bootstrap.commit()
     expect(snapshot.mock.calls.map(([kind]) => kind)).not.toContain('issues')
     expect(delta).not.toHaveBeenCalled()
@@ -38,10 +42,13 @@ describe('current entity retention', () => {
     const cache = {
       readCursor: () => ({ seq: 1 }),
       readEntities: () => [unknown, projection],
-      read: (entity: string) => entity === 'issueProjection' ? projection : unknown,
+      read: (entity: string) => (entity === 'issueProjection' ? projection : unknown),
       durability: () => 'durable' as const,
     }
-    const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage() }) })
+    const replica = createKernelReplica({
+      cache,
+      side: createSideCache({ storage: memoryStorage() }),
+    })
     const notified = vi.fn()
     replica.subscribeRowBatch?.(notified)
     expect(await replica.hydrate()).not.toHaveProperty('issues')

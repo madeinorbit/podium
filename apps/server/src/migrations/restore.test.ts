@@ -14,12 +14,7 @@ import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import {
-  type FeedIdentity,
-  FeedIdentityRegistry,
-  Ledger,
-  SyncRepository,
-} from '@podium/sync'
+import { type FeedIdentity, FeedIdentityRegistry, Ledger, SyncRepository } from '@podium/sync'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { syncQueriesOver } from '../store/executor/sync-drizzle'
 import { backupDatabase } from './backup'
@@ -39,7 +34,11 @@ afterEach(() => {
 })
 
 /** A file-backed database on the real drizzle schema. */
-function database(migrations = DRIZZLE_MIGRATIONS): { db: SqlDatabase; dbPath: string; dir: string } {
+function database(migrations = DRIZZLE_MIGRATIONS): {
+  db: SqlDatabase
+  dbPath: string
+  dir: string
+} {
   const dir = mkdtempSync(join(tmpdir(), 'podium-restore-'))
   dirs.push(dir)
   const dbPath = join(dir, 'podium.sqlite')
@@ -122,7 +121,9 @@ describe('the migration creates the feed-identity table', () => {
     const identity = ledger.feedIdentity()
     expect(identity.feedId).toBeTruthy()
     expect(identity.epoch).toBeTruthy()
-    expect(await new SyncRepository(syncQueriesOver(db), syncServerTables).readFeedIdentity()).toEqual(identity)
+    expect(
+      await new SyncRepository(syncQueriesOver(db), syncServerTables).readFeedIdentity(),
+    ).toEqual(identity)
   })
 
   it('preserves the existing identity while adding the singleton constraint', () => {
@@ -273,7 +274,9 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
 
     const r = await restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
     const db2 = openDatabase(dbPath)
-    expect(await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity()).toEqual({
+    expect(
+      await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity(),
+    ).toEqual({
       feedId: r.feedId,
       epoch: r.epoch,
     })
@@ -293,9 +296,10 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     // The re-mint happens on the COPY. A backup mutated in place would be
     // single-use, and the second rollback attempt would find a lie.
     const backupDb = openDatabase(backupPath)
-    expect((await new SyncRepository(syncQueriesOver(backupDb), syncServerTables).readFeedIdentity())?.epoch).toBe(
-      backupEpoch,
-    )
+    expect(
+      (await new SyncRepository(syncQueriesOver(backupDb), syncServerTables).readFeedIdentity())
+        ?.epoch,
+    ).toBe(backupEpoch)
     backupDb.close()
   })
 
@@ -334,7 +338,9 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
 
     const db2 = openDatabase(dbPath)
     expect(await (await ledgerOver(db2)).cursor()).toBe(cursorBefore)
-    expect((await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity())?.epoch).toBe(epochBefore)
+    expect(
+      (await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity())?.epoch,
+    ).toBe(epochBefore)
     db2.close()
   })
 
@@ -343,9 +349,9 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     await expect(
       restoreDatabase({ backupPath: `${dbPath}.nope`, dbPath, freeBytes: PLENTY }),
     ).rejects.toThrow(/backup not found/)
-    await expect(restoreDatabase({ backupPath: dbPath, dbPath, freeBytes: PLENTY })).rejects.toThrow(
-      /same file/,
-    )
+    await expect(
+      restoreDatabase({ backupPath: dbPath, dbPath, freeBytes: PLENTY }),
+    ).rejects.toThrow(/same file/)
   })
 
   it('never consumes the backup pool: the backup being restored, and the pre-migration backups, all survive', async () => {
@@ -368,7 +374,8 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     db.close()
 
     // Restore the OLDEST backup, three times over.
-    for (let i = 0; i < 3; i++) await restoreDatabase({ backupPath: target, dbPath, freeBytes: PLENTY })
+    for (let i = 0; i < 3; i++)
+      await restoreDatabase({ backupPath: target, dbPath, freeBytes: PLENTY })
 
     const present = readdirSync(dir)
     for (const b of migrationBackups) {
@@ -410,7 +417,9 @@ describe('restoreCliMain (the command-shaped entry)', () => {
     // the only feedback that the guarantee actually fired.
     expect(out).toContain(before)
     const db2 = openDatabase(dbPath)
-    const after = (await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity())?.epoch as string
+    const after = (
+      await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity()
+    )?.epoch as string
     db2.close()
     expect(after).not.toBe(before)
     expect(out).toContain(after)
@@ -467,7 +476,9 @@ describe('restoreCliMain (the command-shaped entry)', () => {
 /** A pre-migration backup for the migration that creates `feed_identity`. */
 describe('restoring a backup from before feed identity existed', () => {
   function feedIdentityCut(): number {
-    const cut = DRIZZLE_MIGRATIONS.findIndex((migration) => migration.name === FEED_IDENTITY_MIGRATION)
+    const cut = DRIZZLE_MIGRATIONS.findIndex(
+      (migration) => migration.name === FEED_IDENTITY_MIGRATION,
+    )
     expect(cut).toBeGreaterThan(0)
     return cut
   }
@@ -481,9 +492,13 @@ describe('restoring a backup from before feed identity existed', () => {
   function expectSingletonConstraints(db: SqlDatabase): void {
     const before = db.prepare('SELECT * FROM feed_identity').all()
     for (const singleton of [0, 2]) {
-      expect(() => db.prepare(
-        'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (?, ?, ?, ?)',
-      ).run(singleton, 'invalid_feed', 'invalid_epoch', 1)).toThrow(/feed_identity_singleton/)
+      expect(() =>
+        db
+          .prepare(
+            'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (?, ?, ?, ?)',
+          )
+          .run(singleton, 'invalid_feed', 'invalid_epoch', 1),
+      ).toThrow(/feed_identity_singleton/)
     }
     expect(db.prepare('SELECT * FROM feed_identity').all()).toEqual(before)
   }
@@ -495,12 +510,16 @@ describe('restoring a backup from before feed identity existed', () => {
     const { db, dbPath } = preFeedIdentityAuthority()
     expect(hasTable(db, 'feed_identity')).toBe(false)
     expect([...appliedDrizzleNames(db)].sort()).toEqual(
-      DRIZZLE_MIGRATIONS.slice(0, feedIdentityCut()).map((migration) => migration.name).sort(),
+      DRIZZLE_MIGRATIONS.slice(0, feedIdentityCut())
+        .map((migration) => migration.name)
+        .sort(),
     )
     db.close()
     const reopened = openDatabase(dbPath)
     expect(applyBaselineSchema(reopened)).toEqual(
-      DRIZZLE_MIGRATIONS.slice(feedIdentityCut()).map((migration) => migration.name).sort(),
+      DRIZZLE_MIGRATIONS.slice(feedIdentityCut())
+        .map((migration) => migration.name)
+        .sort(),
     )
     expect(hasTable(reopened, 'feed_identity')).toBe(true)
     expectSingletonConstraints(reopened)
@@ -542,10 +561,16 @@ describe('restoring a backup from before feed identity existed', () => {
     expect(identity.feedId).toBeTruthy()
     expect(identity.epoch).toBeTruthy()
     expectSingletonConstraints(booted)
-    expect(() => booted.prepare(
-      'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (1, ?, ?, ?)',
-    ).run('duplicate_feed', 'duplicate_epoch', 1)).toThrow(/UNIQUE constraint failed/)
-    expect(await new SyncRepository(syncQueriesOver(booted), syncServerTables).readFeedIdentity()).toEqual(identity)
+    expect(() =>
+      booted
+        .prepare(
+          'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (1, ?, ?, ?)',
+        )
+        .run('duplicate_feed', 'duplicate_epoch', 1),
+    ).toThrow(/UNIQUE constraint failed/)
+    expect(
+      await new SyncRepository(syncQueriesOver(booted), syncServerTables).readFeedIdentity(),
+    ).toEqual(identity)
     booted.close()
   })
 
@@ -573,7 +598,9 @@ describe('restoring a backup from before feed identity existed', () => {
     // field. Mismatch -> discard the replica -> re-bootstrap (ADR 2 D7 rung 4).
     expect(fresh.feedId).toBeTruthy()
     expect(fresh.epoch).toBeTruthy()
-    expect(await new SyncRepository(syncQueriesOver(booted), syncServerTables).readFeedIdentity()).toEqual(fresh)
+    expect(
+      await new SyncRepository(syncQueriesOver(booted), syncServerTables).readFeedIdentity(),
+    ).toEqual(fresh)
     expect(fresh.feedId).not.toBe(staleFeedId)
     expect(fresh.epoch).not.toBe(staleEpoch)
     booted.close()

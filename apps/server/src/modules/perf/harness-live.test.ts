@@ -1,10 +1,10 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import {
   asAgentIdentityId,
   asCapabilityRef,
   asDelegationRef,
   asDeviceId,
   asUserId,
+  CLIENT_WIRE_VERSION,
 } from '@podium/protocol'
 import { attachTestClient } from '../../test-support/client-transport'
 

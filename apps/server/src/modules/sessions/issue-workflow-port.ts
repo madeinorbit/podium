@@ -1,4 +1,10 @@
-import type { IssueRehomeTarget, IssueProjection, SessionId, IssueId, MachineId } from '@podium/model'
+import type {
+  IssueId,
+  IssueProjection,
+  IssueRehomeTarget,
+  MachineId,
+  SessionId,
+} from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 
 /**

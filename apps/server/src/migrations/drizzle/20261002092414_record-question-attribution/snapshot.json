@@ -2,9 +2,7 @@
   "version": "7",
   "dialect": "sqlite",
   "id": "2b932e3e-11f8-4447-8972-ae345603ed70",
-  "prevIds": [
-    "84602af5-5bc9-4a17-ac56-138b34c7b6cd"
-  ],
+  "prevIds": ["84602af5-5bc9-4a17-ac56-138b34c7b6cd"],
   "ddl": [
     {
       "name": "accounts",
@@ -9387,13 +9385,9 @@
       "table": "feed_identity"
     },
     {
-      "columns": [
-        "automation_id"
-      ],
+      "columns": ["automation_id"],
       "tableTo": "automations",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -9402,13 +9396,9 @@
       "table": "automation_runs"
     },
     {
-      "columns": [
-        "order_id"
-      ],
+      "columns": ["order_id"],
       "tableTo": "ship_orders",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9417,13 +9407,9 @@
       "table": "delivery_receipts"
     },
     {
-      "columns": [
-        "issue_id"
-      ],
+      "columns": ["issue_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -9432,13 +9418,9 @@
       "table": "issue_comments"
     },
     {
-      "columns": [
-        "from_id"
-      ],
+      "columns": ["from_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -9447,13 +9429,9 @@
       "table": "issue_deps"
     },
     {
-      "columns": [
-        "to_id"
-      ],
+      "columns": ["to_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -9462,13 +9440,9 @@
       "table": "issue_deps"
     },
     {
-      "columns": [
-        "issue_id"
-      ],
+      "columns": ["issue_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -9477,13 +9451,9 @@
       "table": "issue_labels"
     },
     {
-      "columns": [
-        "issue_id"
-      ],
+      "columns": ["issue_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -9492,13 +9462,9 @@
       "table": "issue_messages"
     },
     {
-      "columns": [
-        "parent_id"
-      ],
+      "columns": ["parent_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "nameExplicit": false,
@@ -9507,13 +9473,9 @@
       "table": "issues"
     },
     {
-      "columns": [
-        "superseded_by"
-      ],
+      "columns": ["superseded_by"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "nameExplicit": false,
@@ -9522,13 +9484,9 @@
       "table": "issues"
     },
     {
-      "columns": [
-        "duplicate_of"
-      ],
+      "columns": ["duplicate_of"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "nameExplicit": false,
@@ -9537,13 +9495,9 @@
       "table": "issues"
     },
     {
-      "columns": [
-        "root_issue_id"
-      ],
+      "columns": ["root_issue_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9552,13 +9506,9 @@
       "table": "root_integration_receipts"
     },
     {
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "tableTo": "session_observation_checkpoints",
-      "columnsTo": [
-        "session_id"
-      ],
+      "columnsTo": ["session_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -9567,13 +9517,9 @@
       "table": "session_observation_rebinds"
     },
     {
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "tableTo": "session_observation_checkpoints",
-      "columnsTo": [
-        "session_id"
-      ],
+      "columnsTo": ["session_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -9582,13 +9528,9 @@
       "table": "session_terminal_candidates"
     },
     {
-      "columns": [
-        "order_id"
-      ],
+      "columns": ["order_id"],
       "tableTo": "ship_orders",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9597,13 +9539,9 @@
       "table": "ship_attempts"
     },
     {
-      "columns": [
-        "train_id"
-      ],
+      "columns": ["train_id"],
       "tableTo": "ship_train_manifests",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9612,13 +9550,9 @@
       "table": "ship_effect_envelopes"
     },
     {
-      "columns": [
-        "attempt_id"
-      ],
+      "columns": ["attempt_id"],
       "tableTo": "ship_attempts",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9627,13 +9561,9 @@
       "table": "ship_effect_envelopes"
     },
     {
-      "columns": [
-        "order_id"
-      ],
+      "columns": ["order_id"],
       "tableTo": "ship_orders",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9642,13 +9572,9 @@
       "table": "ship_holds"
     },
     {
-      "columns": [
-        "upper_order_id"
-      ],
+      "columns": ["upper_order_id"],
       "tableTo": "ship_orders",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9657,13 +9583,9 @@
       "table": "ship_order_stack_edges"
     },
     {
-      "columns": [
-        "lower_order_id"
-      ],
+      "columns": ["lower_order_id"],
       "tableTo": "ship_orders",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9672,13 +9594,9 @@
       "table": "ship_order_stack_edges"
     },
     {
-      "columns": [
-        "issue_id"
-      ],
+      "columns": ["issue_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9687,13 +9605,9 @@
       "table": "ship_orders"
     },
     {
-      "columns": [
-        "order_id"
-      ],
+      "columns": ["order_id"],
       "tableTo": "ship_orders",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9702,13 +9616,9 @@
       "table": "ship_repair_candidates"
     },
     {
-      "columns": [
-        "attempt_id"
-      ],
+      "columns": ["attempt_id"],
       "tableTo": "ship_attempts",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9717,15 +9627,9 @@
       "table": "ship_repair_candidates"
     },
     {
-      "columns": [
-        "attempt_id",
-        "order_id"
-      ],
+      "columns": ["attempt_id", "order_id"],
       "tableTo": "ship_attempts",
-      "columnsTo": [
-        "id",
-        "order_id"
-      ],
+      "columnsTo": ["id", "order_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": true,
@@ -9734,13 +9638,9 @@
       "table": "ship_repair_candidates"
     },
     {
-      "columns": [
-        "order_id"
-      ],
+      "columns": ["order_id"],
       "tableTo": "ship_orders",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9749,13 +9649,9 @@
       "table": "ship_steps"
     },
     {
-      "columns": [
-        "attempt_id"
-      ],
+      "columns": ["attempt_id"],
       "tableTo": "ship_attempts",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9764,13 +9660,9 @@
       "table": "ship_steps"
     },
     {
-      "columns": [
-        "train_id"
-      ],
+      "columns": ["train_id"],
       "tableTo": "ship_train_manifests",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9779,15 +9671,9 @@
       "table": "ship_train_active_claims"
     },
     {
-      "columns": [
-        "train_id",
-        "order_id"
-      ],
+      "columns": ["train_id", "order_id"],
       "tableTo": "ship_train_members",
-      "columnsTo": [
-        "train_id",
-        "order_id"
-      ],
+      "columnsTo": ["train_id", "order_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": true,
@@ -9796,15 +9682,9 @@
       "table": "ship_train_active_claims"
     },
     {
-      "columns": [
-        "train_id",
-        "attempt_id"
-      ],
+      "columns": ["train_id", "attempt_id"],
       "tableTo": "ship_train_members",
-      "columnsTo": [
-        "train_id",
-        "attempt_id"
-      ],
+      "columnsTo": ["train_id", "attempt_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": true,
@@ -9813,13 +9693,9 @@
       "table": "ship_train_active_claims"
     },
     {
-      "columns": [
-        "leader_order_id"
-      ],
+      "columns": ["leader_order_id"],
       "tableTo": "ship_orders",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9828,13 +9704,9 @@
       "table": "ship_train_manifests"
     },
     {
-      "columns": [
-        "leader_attempt_id"
-      ],
+      "columns": ["leader_attempt_id"],
       "tableTo": "ship_attempts",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9843,13 +9715,9 @@
       "table": "ship_train_manifests"
     },
     {
-      "columns": [
-        "train_id"
-      ],
+      "columns": ["train_id"],
       "tableTo": "ship_train_manifests",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9858,13 +9726,9 @@
       "table": "ship_train_members"
     },
     {
-      "columns": [
-        "issue_id"
-      ],
+      "columns": ["issue_id"],
       "tableTo": "issues",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9873,13 +9737,9 @@
       "table": "ship_train_members"
     },
     {
-      "columns": [
-        "order_id"
-      ],
+      "columns": ["order_id"],
       "tableTo": "ship_orders",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9888,13 +9748,9 @@
       "table": "ship_train_members"
     },
     {
-      "columns": [
-        "attempt_id"
-      ],
+      "columns": ["attempt_id"],
       "tableTo": "ship_attempts",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9903,15 +9759,9 @@
       "table": "ship_train_members"
     },
     {
-      "columns": [
-        "attempt_id",
-        "order_id"
-      ],
+      "columns": ["attempt_id", "order_id"],
       "tableTo": "ship_attempts",
-      "columnsTo": [
-        "id",
-        "order_id"
-      ],
+      "columnsTo": ["id", "order_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": true,
@@ -9920,15 +9770,9 @@
       "table": "ship_train_members"
     },
     {
-      "columns": [
-        "order_id",
-        "issue_id"
-      ],
+      "columns": ["order_id", "issue_id"],
       "tableTo": "ship_orders",
-      "columnsTo": [
-        "id",
-        "issue_id"
-      ],
+      "columnsTo": ["id", "issue_id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": true,
@@ -9937,13 +9781,9 @@
       "table": "ship_train_members"
     },
     {
-      "columns": [
-        "revision_id"
-      ],
+      "columns": ["revision_id"],
       "tableTo": "workflow_revisions",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9952,13 +9792,9 @@
       "table": "workflow_bindings"
     },
     {
-      "columns": [
-        "workflow_id"
-      ],
+      "columns": ["workflow_id"],
       "tableTo": "workflows",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -9967,13 +9803,9 @@
       "table": "workflow_revisions"
     },
     {
-      "columns": [
-        "run_id"
-      ],
+      "columns": ["run_id"],
       "tableTo": "workflow_runs",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -9982,13 +9814,9 @@
       "table": "workflow_run_steps"
     },
     {
-      "columns": [
-        "revision_id"
-      ],
+      "columns": ["revision_id"],
       "tableTo": "workflow_revisions",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "nameExplicit": false,
@@ -9997,13 +9825,9 @@
       "table": "workflow_runs"
     },
     {
-      "columns": [
-        "supersedes_run_id"
-      ],
+      "columns": ["supersedes_run_id"],
       "tableTo": "workflow_runs",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "nameExplicit": false,
@@ -10012,896 +9836,665 @@
       "table": "workflow_runs"
     },
     {
-      "columns": [
-        "machine_id",
-        "native_id",
-        "sequence"
-      ],
+      "columns": ["machine_id", "native_id", "sequence"],
       "nameExplicit": true,
       "name": "conversation_segment_incarnations_pk",
       "entityType": "pks",
       "table": "conversation_segment_incarnations"
     },
     {
-      "columns": [
-        "machine_id",
-        "native_id"
-      ],
+      "columns": ["machine_id", "native_id"],
       "nameExplicit": true,
       "name": "conversation_segments_pk",
       "entityType": "pks",
       "table": "conversation_segments"
     },
     {
-      "columns": [
-        "resource_kind",
-        "resource_id",
-        "grantee"
-      ],
+      "columns": ["resource_kind", "resource_id", "grantee"],
       "nameExplicit": true,
       "name": "grant_audiences_pk",
       "entityType": "pks",
       "table": "grant_audiences"
     },
     {
-      "columns": [
-        "resource_kind",
-        "resource_id",
-        "grantee",
-        "verb"
-      ],
+      "columns": ["resource_kind", "resource_id", "grantee", "verb"],
       "nameExplicit": true,
       "name": "grants_pk",
       "entityType": "pks",
       "table": "grants"
     },
     {
-      "columns": [
-        "from_id",
-        "to_id",
-        "type"
-      ],
+      "columns": ["from_id", "to_id", "type"],
       "nameExplicit": true,
       "name": "issue_deps_pk",
       "entityType": "pks",
       "table": "issue_deps"
     },
     {
-      "columns": [
-        "issue_id",
-        "label"
-      ],
+      "columns": ["issue_id", "label"],
       "nameExplicit": true,
       "name": "issue_labels_pk",
       "entityType": "pks",
       "table": "issue_labels"
     },
     {
-      "columns": [
-        "user_id",
-        "issue_message_id"
-      ],
+      "columns": ["user_id", "issue_message_id"],
       "nameExplicit": true,
       "name": "issue_message_user_state_pk",
       "entityType": "pks",
       "table": "issue_message_user_state"
     },
     {
-      "columns": [
-        "user_id",
-        "issue_id"
-      ],
+      "columns": ["user_id", "issue_id"],
       "nameExplicit": true,
       "name": "issue_user_state_pk",
       "entityType": "pks",
       "table": "issue_user_state"
     },
     {
-      "columns": [
-        "repo_id",
-        "name"
-      ],
+      "columns": ["repo_id", "name"],
       "nameExplicit": true,
       "name": "locks_pk",
       "entityType": "pks",
       "table": "locks"
     },
     {
-      "columns": [
-        "job_kind",
-        "run_key"
-      ],
+      "columns": ["job_kind", "run_key"],
       "nameExplicit": true,
       "name": "maintenance_commands_pk",
       "entityType": "pks",
       "table": "maintenance_commands"
     },
     {
-      "columns": [
-        "message_id",
-        "session_id"
-      ],
+      "columns": ["message_id", "session_id"],
       "nameExplicit": true,
       "name": "message_reads_pk",
       "entityType": "pks",
       "table": "message_reads"
     },
     {
-      "columns": [
-        "issue_id",
-        "chat_id"
-      ],
+      "columns": ["issue_id", "chat_id"],
       "nameExplicit": true,
       "name": "messaging_issue_topics_pk",
       "entityType": "pks",
       "table": "messaging_issue_topics"
     },
     {
-      "columns": [
-        "fact_key",
-        "target"
-      ],
+      "columns": ["fact_key", "target"],
       "nameExplicit": true,
       "name": "notification_facts_pk",
       "entityType": "pks",
       "table": "notification_facts"
     },
     {
-      "columns": [
-        "user_id",
-        "kind",
-        "id"
-      ],
+      "columns": ["user_id", "kind", "id"],
       "nameExplicit": true,
       "name": "pins_pk",
       "entityType": "pks",
       "table": "pins"
     },
     {
-      "columns": [
-        "account_key",
-        "window_key",
-        "resets_at_bucket"
-      ],
+      "columns": ["account_key", "window_key", "resets_at_bucket"],
       "nameExplicit": true,
       "name": "quota_windows_pk",
       "entityType": "pks",
       "table": "quota_windows"
     },
     {
-      "columns": [
-        "reader",
-        "session_id"
-      ],
+      "columns": ["reader", "session_id"],
       "nameExplicit": true,
       "name": "recap_watermarks_pk",
       "entityType": "pks",
       "table": "recap_watermarks"
     },
     {
-      "columns": [
-        "machine_id",
-        "path"
-      ],
+      "columns": ["machine_id", "path"],
       "nameExplicit": true,
       "name": "repos_pk",
       "entityType": "pks",
       "table": "repos"
     },
     {
-      "columns": [
-        "root_issue_id",
-        "approved_head_sha"
-      ],
+      "columns": ["root_issue_id", "approved_head_sha"],
       "nameExplicit": true,
       "name": "root_integration_receipts_pk",
       "entityType": "pks",
       "table": "root_integration_receipts"
     },
     {
-      "columns": [
-        "user_id",
-        "session_id"
-      ],
+      "columns": ["user_id", "session_id"],
       "nameExplicit": true,
       "name": "session_user_state_pk",
       "entityType": "pks",
       "table": "session_user_state"
     },
     {
-      "columns": [
-        "upper_order_id",
-        "lower_order_id"
-      ],
+      "columns": ["upper_order_id", "lower_order_id"],
       "nameExplicit": true,
       "name": "ship_order_stack_edges_pk",
       "entityType": "pks",
       "table": "ship_order_stack_edges"
     },
     {
-      "columns": [
-        "attempt_id",
-        "sequence"
-      ],
+      "columns": ["attempt_id", "sequence"],
       "nameExplicit": true,
       "name": "ship_repair_candidates_pk",
       "entityType": "pks",
       "table": "ship_repair_candidates"
     },
     {
-      "columns": [
-        "train_id",
-        "order_id"
-      ],
+      "columns": ["train_id", "order_id"],
       "nameExplicit": true,
       "name": "ship_train_active_claims_pk",
       "entityType": "pks",
       "table": "ship_train_active_claims"
     },
     {
-      "columns": [
-        "train_id",
-        "ordinal"
-      ],
+      "columns": ["train_id", "ordinal"],
       "nameExplicit": true,
       "name": "ship_train_members_pk",
       "entityType": "pks",
       "table": "ship_train_members"
     },
     {
-      "columns": [
-        "user_id",
-        "session_id"
-      ],
+      "columns": ["user_id", "session_id"],
       "nameExplicit": true,
       "name": "snoozes_pk",
       "entityType": "pks",
       "table": "snoozes"
     },
     {
-      "columns": [
-        "subscription_id",
-        "event_id"
-      ],
+      "columns": ["subscription_id", "event_id"],
       "nameExplicit": true,
       "name": "subscription_deliveries_pk",
       "entityType": "pks",
       "table": "subscription_deliveries"
     },
     {
-      "columns": [
-        "user_id",
-        "worktree"
-      ],
+      "columns": ["user_id", "worktree"],
       "nameExplicit": true,
       "name": "tab_order_pk",
       "entityType": "pks",
       "table": "tab_order"
     },
     {
-      "columns": [
-        "machine_id",
-        "native_id"
-      ],
+      "columns": ["machine_id", "native_id"],
       "nameExplicit": true,
       "name": "transcript_costs_pk",
       "entityType": "pks",
       "table": "transcript_costs"
     },
     {
-      "columns": [
-        "user_id",
-        "worktree_key"
-      ],
+      "columns": ["user_id", "worktree_key"],
       "nameExplicit": true,
       "name": "user_dock_shell_pk",
       "entityType": "pks",
       "table": "user_dock_shell"
     },
     {
-      "columns": [
-        "user_id",
-        "key"
-      ],
+      "columns": ["user_id", "key"],
       "nameExplicit": true,
       "name": "user_layout_pk",
       "entityType": "pks",
       "table": "user_layout"
     },
     {
-      "columns": [
-        "user_id",
-        "key"
-      ],
+      "columns": ["user_id", "key"],
       "nameExplicit": true,
       "name": "user_preferences_pk",
       "entityType": "pks",
       "table": "user_preferences"
     },
     {
-      "columns": [
-        "user_id",
-        "stream_id"
-      ],
+      "columns": ["user_id", "stream_id"],
       "nameExplicit": true,
       "name": "user_read_position_pk",
       "entityType": "pks",
       "table": "user_read_position"
     },
     {
-      "columns": [
-        "target_kind",
-        "target_id"
-      ],
+      "columns": ["target_kind", "target_id"],
       "nameExplicit": true,
       "name": "workflow_bindings_pk",
       "entityType": "pks",
       "table": "workflow_bindings"
     },
     {
-      "columns": [
-        "run_id",
-        "step_id"
-      ],
+      "columns": ["run_id", "step_id"],
       "nameExplicit": true,
       "name": "workflow_run_steps_pk",
       "entityType": "pks",
       "table": "workflow_run_steps"
     },
     {
-      "columns": [
-        "entity",
-        "entity_id"
-      ],
+      "columns": ["entity", "entity_id"],
       "nameExplicit": false,
       "name": "change_latest_pk",
       "entityType": "pks",
       "table": "change_latest"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "accounts_pk",
       "table": "accounts",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "approval_requests_pk",
       "table": "approval_requests",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "automation_runs_pk",
       "table": "automation_runs",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "automations_pk",
       "table": "automations",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "token_hash"
-      ],
+      "columns": ["token_hash"],
       "nameExplicit": false,
       "name": "client_sessions_pk",
       "table": "client_sessions",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "podium_id"
-      ],
+      "columns": ["podium_id"],
       "nameExplicit": false,
       "name": "conversation_identities_pk",
       "table": "conversation_identities",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "conversations_pk",
       "table": "conversations",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "delivery_receipts_pk",
       "table": "delivery_receipts",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "execution_profiles_pk",
       "table": "execution_profiles",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "issue_comments_pk",
       "table": "issue_comments",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "issue_messages_pk",
       "table": "issue_messages",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "issue_id"
-      ],
+      "columns": ["issue_id"],
       "nameExplicit": false,
       "name": "issue_ref_letters_pk",
       "table": "issue_ref_letters",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "issues_pk",
       "table": "issues",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "lock_waiters_pk",
       "table": "lock_waiters",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "machines_pk",
       "table": "machines",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "name"
-      ],
+      "columns": ["name"],
       "nameExplicit": false,
       "name": "maintenance_leases_pk",
       "table": "maintenance_leases",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "member_invites_pk",
       "table": "member_invites",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "key"
-      ],
+      "columns": ["key"],
       "nameExplicit": false,
       "name": "message_wake_cooldowns_pk",
       "table": "message_wake_cooldowns",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "messages_pk",
       "table": "messages",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "key"
-      ],
+      "columns": ["key"],
       "nameExplicit": false,
       "name": "meta_pk",
       "table": "meta",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "nameExplicit": false,
       "name": "offers_pk",
       "table": "offers",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "operations_pk",
       "table": "operations",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "pending_interactions_pk",
       "table": "pending_interactions",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "podium_events_pk",
       "table": "podium_events",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "queued_messages_pk",
       "table": "queued_messages",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "repo_id"
-      ],
+      "columns": ["repo_id"],
       "nameExplicit": false,
       "name": "repo_draft_seq_pk",
       "table": "repo_draft_seq",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "repo_id"
-      ],
+      "columns": ["repo_id"],
       "nameExplicit": false,
       "name": "repo_prefixes_pk",
       "table": "repo_prefixes",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "nameExplicit": false,
       "name": "runtime_event_checkpoints_pk",
       "table": "runtime_event_checkpoints",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "projector"
-      ],
+      "columns": ["projector"],
       "nameExplicit": false,
       "name": "runtime_event_projection_cursors_pk",
       "table": "runtime_event_projection_cursors",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "key"
-      ],
+      "columns": ["key"],
       "nameExplicit": false,
       "name": "server_secrets_pk",
       "table": "server_secrets",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "nameExplicit": false,
       "name": "session_drafts_pk",
       "table": "session_drafts",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "nameExplicit": false,
       "name": "session_observation_checkpoints_pk",
       "table": "session_observation_checkpoints",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "nameExplicit": false,
       "name": "session_observation_rebinds_pk",
       "table": "session_observation_rebinds",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "session_id"
-      ],
+      "columns": ["session_id"],
       "nameExplicit": false,
       "name": "session_terminal_candidates_pk",
       "table": "session_terminal_candidates",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "sessions_pk",
       "table": "sessions",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "settings_audit_events_pk",
       "table": "settings_audit_events",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "ship_attempts_pk",
       "table": "ship_attempts",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "effect_key"
-      ],
+      "columns": ["effect_key"],
       "nameExplicit": false,
       "name": "ship_effect_envelopes_pk",
       "table": "ship_effect_envelopes",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "ref"
-      ],
+      "columns": ["ref"],
       "nameExplicit": false,
       "name": "ship_evidence_pk",
       "table": "ship_evidence",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "ship_holds_pk",
       "table": "ship_holds",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "lane_key"
-      ],
+      "columns": ["lane_key"],
       "nameExplicit": false,
       "name": "ship_lane_revisions_pk",
       "table": "ship_lane_revisions",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "ship_orders_pk",
       "table": "ship_orders",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "ship_steps_pk",
       "table": "ship_steps",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "ship_train_manifests_pk",
       "table": "ship_train_manifests",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "key"
-      ],
+      "columns": ["key"],
       "nameExplicit": false,
       "name": "steward_state_pk",
       "table": "steward_state",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "subscriptions_pk",
       "table": "subscriptions",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "superagent_messages_pk",
       "table": "superagent_messages",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "turn_id"
-      ],
+      "columns": ["turn_id"],
       "nameExplicit": false,
       "name": "superagent_pending_turns_pk",
       "table": "superagent_pending_turns",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "input_id"
-      ],
+      "columns": ["input_id"],
       "nameExplicit": false,
       "name": "superagent_queued_inputs_pk",
       "table": "superagent_queued_inputs",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "superagent_threads_pk",
       "table": "superagent_threads",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "chat_id"
-      ],
+      "columns": ["chat_id"],
       "nameExplicit": false,
       "name": "telegram_chat_bindings_pk",
       "table": "telegram_chat_bindings",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "mutation_id"
-      ],
+      "columns": ["mutation_id"],
       "nameExplicit": false,
       "name": "upstream_outbox_pk",
       "table": "upstream_outbox",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "nameExplicit": false,
       "name": "user_credentials_pk",
       "table": "user_credentials",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "users_pk",
       "table": "users",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "workflow_events_pk",
       "table": "workflow_events",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "workflow_revisions_pk",
       "table": "workflow_revisions",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "workflow_runs_pk",
       "table": "workflow_runs",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "workflows_pk",
       "table": "workflows",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "mutation_id"
-      ],
+      "columns": ["mutation_id"],
       "nameExplicit": false,
       "name": "applied_mutations_pk",
       "table": "applied_mutations",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "seq"
-      ],
+      "columns": ["seq"],
       "nameExplicit": false,
       "name": "changes_pk",
       "table": "changes",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "singleton"
-      ],
+      "columns": ["singleton"],
       "nameExplicit": false,
       "name": "feed_identity_pk",
       "table": "feed_identity",
@@ -12420,127 +12013,91 @@
       "table": "changes"
     },
     {
-      "columns": [
-        "name"
-      ],
+      "columns": ["name"],
       "nameExplicit": true,
       "name": "execution_profiles_name_unique",
       "entityType": "uniques",
       "table": "execution_profiles"
     },
     {
-      "columns": [
-        "repo_id",
-        "name",
-        "session_id"
-      ],
+      "columns": ["repo_id", "name", "session_id"],
       "nameExplicit": false,
       "name": "lock_waiters_repo_id_name_session_id_unique",
       "entityType": "uniques",
       "table": "lock_waiters"
     },
     {
-      "columns": [
-        "id",
-        "order_id"
-      ],
+      "columns": ["id", "order_id"],
       "nameExplicit": true,
       "name": "idx_ship_attempts_id_order",
       "entityType": "uniques",
       "table": "ship_attempts"
     },
     {
-      "columns": [
-        "id",
-        "issue_id"
-      ],
+      "columns": ["id", "issue_id"],
       "nameExplicit": true,
       "name": "idx_ship_orders_id_issue",
       "entityType": "uniques",
       "table": "ship_orders"
     },
     {
-      "columns": [
-        "train_id",
-        "order_id"
-      ],
+      "columns": ["train_id", "order_id"],
       "nameExplicit": true,
       "name": "idx_ship_train_members_order",
       "entityType": "uniques",
       "table": "ship_train_members"
     },
     {
-      "columns": [
-        "train_id",
-        "issue_id"
-      ],
+      "columns": ["train_id", "issue_id"],
       "nameExplicit": true,
       "name": "idx_ship_train_members_issue",
       "entityType": "uniques",
       "table": "ship_train_members"
     },
     {
-      "columns": [
-        "train_id",
-        "attempt_id"
-      ],
+      "columns": ["train_id", "attempt_id"],
       "nameExplicit": true,
       "name": "idx_ship_train_members_attempt",
       "entityType": "uniques",
       "table": "ship_train_members"
     },
     {
-      "columns": [
-        "train_id",
-        "source_branch"
-      ],
+      "columns": ["train_id", "source_branch"],
       "nameExplicit": true,
       "name": "idx_ship_train_members_source",
       "entityType": "uniques",
       "table": "ship_train_members"
     },
     {
-      "columns": [
-        "thread_id"
-      ],
+      "columns": ["thread_id"],
       "nameExplicit": true,
       "name": "superagent_pending_turns_thread_id_unique",
       "entityType": "uniques",
       "table": "superagent_pending_turns"
     },
     {
-      "columns": [
-        "workflow_id",
-        "version"
-      ],
+      "columns": ["workflow_id", "version"],
       "nameExplicit": false,
       "name": "workflow_revisions_workflow_id_version_unique",
       "entityType": "uniques",
       "table": "workflow_revisions"
     },
     {
-      "columns": [
-        "run_id",
-        "position"
-      ],
+      "columns": ["run_id", "position"],
       "nameExplicit": false,
       "name": "workflow_run_steps_run_id_position_unique",
       "entityType": "uniques",
       "table": "workflow_run_steps"
     },
     {
-      "columns": [
-        "token_hash"
-      ],
+      "columns": ["token_hash"],
       "nameExplicit": false,
       "name": "member_invites_token_hash_unique",
       "entityType": "uniques",
       "table": "member_invites"
     },
     {
-      "columns": [
-        "prefix"
-      ],
+      "columns": ["prefix"],
       "nameExplicit": false,
       "name": "repo_prefixes_prefix_unique",
       "entityType": "uniques",

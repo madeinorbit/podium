@@ -23,7 +23,6 @@ export interface HandoffSession {
   agentKind: string
 }
 
-
 export type HandoffIssue = {
   [K in 'branch' | 'worktreePath']?: z.infer<typeof IssueWorkspace>[K] | null
 }

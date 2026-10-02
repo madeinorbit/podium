@@ -801,11 +801,13 @@ export class SqliteSyncStore {
     this.cursors.clear()
     this.outboxRows.clear()
     this.nextOrdinal = 0
-    const excluded = entities.filter(row => !this.retainsEntity(row.entity))
+    const excluded = entities.filter((row) => !this.retainsEntity(row.entity))
     if (excluded.length > 0) {
       this.db.exec('BEGIN IMMEDIATE')
       try {
-        const remove = this.db.prepare(`DELETE FROM ${ENTITY_TABLE} WHERE principal = ? AND entity = ? AND entity_id = ?`)
+        const remove = this.db.prepare(
+          `DELETE FROM ${ENTITY_TABLE} WHERE principal = ? AND entity = ? AND entity_id = ?`,
+        )
         for (const row of excluded) remove.run(row.principal, row.entity, row.entity_id)
         this.db.exec('COMMIT')
       } catch (error) {

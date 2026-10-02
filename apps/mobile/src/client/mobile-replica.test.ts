@@ -559,7 +559,9 @@ describe('the mobile replica composition root', () => {
     // and entity rows must NOT land on AsyncStorage (ADR 6 D1).
     expect(device.keys()).toContain('podium.replica.principal.default.namespace.v1')
     expect(device.keys().some((k) => k.includes('outbox'))).toBe(false)
-    expect(device.keys().some((k) => k.includes('sessions') || k.includes('issueProjections'))).toBe(false)
+    expect(
+      device.keys().some((k) => k.includes('sessions') || k.includes('issueProjections')),
+    ).toBe(false)
   })
 
   for (const arm of UNATTRIBUTABLE) {
@@ -815,8 +817,10 @@ function bootstrapFrame(args: {
               repoPath: '/fixture',
               seq: c.seq,
               description: { value: '' },
-              intentOrigin: 'human', isDraftVessel: false,
-              owner: 'viewer', visibility: 'personal',
+              intentOrigin: 'human',
+              isDraftVessel: false,
+              owner: 'viewer',
+              visibility: 'personal',
               createdBy: { actor: { kind: 'user', id: 'viewer' }, onBehalfOf: 'viewer' },
               blockedByNotes: [],
               stage: 'backlog',
@@ -1017,7 +1021,9 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
       storage: legacyDevice({}),
     })
     const hydrated = await cold.replica.hydrate()
-    expect(hydrated.issueProjections).toMatchObject([{ id: 'i-offline', title: 'must survive reload' }])
+    expect(hydrated.issueProjections).toMatchObject([
+      { id: 'i-offline', title: 'must survive reload' },
+    ])
     expect(cold.replica.rows('issueProjections').map((r) => r.id)).toEqual(['i-offline'])
     expect(hydrated.cursor).toBe(2)
   })
@@ -1148,7 +1154,12 @@ describe('HTTP sync through the mobile assembly', () => {
             seq: 1,
             entity: 'issueProjection',
             entityId: 'http-issue',
-            value: { ...DEMO_ISSUES[0]!, description: { value: DEMO_ISSUES[0]!.description }, id: 'http-issue', title: 'HTTP world' },
+            value: {
+              ...DEMO_ISSUES[0]!,
+              description: { value: DEMO_ISSUES[0]!.description },
+              id: 'http-issue',
+              title: 'HTTP world',
+            },
           },
         ],
       }),
@@ -1200,7 +1211,12 @@ describe('HTTP sync through the mobile assembly', () => {
           entity: 'issueProjection',
           entityId: 'http-issue',
           op: 'upsert',
-          value: { ...DEMO_ISSUES[0]!, description: { value: DEMO_ISSUES[0]!.description }, id: 'http-issue', title: 'Healed over HTTP' },
+          value: {
+            ...DEMO_ISSUES[0]!,
+            description: { value: DEMO_ISSUES[0]!.description },
+            id: 'http-issue',
+            title: 'Healed over HTTP',
+          },
         },
       ],
     })

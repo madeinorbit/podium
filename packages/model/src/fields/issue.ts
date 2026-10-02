@@ -1,5 +1,3 @@
-
-
 import { z } from 'zod'
 // The shared vocabulary layer (POD-1141). Imported from the LEAF module, never
 // from `../entities/issue`: that import is what made the two files mutually
@@ -34,7 +32,6 @@ export const IssueIdentity = z.object({
   seq: z.number().int(),
 })
 export type IssueIdentity = z.infer<typeof IssueIdentity>
-
 
 export const IssueConcurrency = z.object({
   revision: Revision.optional(),
@@ -191,16 +188,18 @@ export type IssueAgentDefaults = z.infer<typeof IssueAgentDefaults>
  * address, so a user-authored question has attribution without that address. */
 export const NeedsHuman = z.object({
   needsHuman: z.boolean(),
-  asked: z.object({
-    question: z.string(),
-    options: z.array(z.string()).optional(),
-    /** Historical rows may have no recorded timestamp. */
-    at: z.string().optional(),
-    /** Absent means there is no recorded asking session to route an answer to. */
-    by: SessionIdField.optional(),
-    /** Absent means unattributed; do not substitute the issue's creator. */
-    attribution: Attribution.optional(),
-  }).optional(),
+  asked: z
+    .object({
+      question: z.string(),
+      options: z.array(z.string()).optional(),
+      /** Historical rows may have no recorded timestamp. */
+      at: z.string().optional(),
+      /** Absent means there is no recorded asking session to route an answer to. */
+      by: SessionIdField.optional(),
+      /** Absent means unattributed; do not substitute the issue's creator. */
+      attribution: Attribution.optional(),
+    })
+    .optional(),
 })
 export type NeedsHuman = z.infer<typeof NeedsHuman>
 

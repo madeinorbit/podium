@@ -90,7 +90,7 @@ export interface IssueView {
   ready: boolean
   /** Snoozed into the future. */
   deferred: boolean
-  
+
   dependents: Array<{ id: IssueId; type: string }>
 }
 
@@ -100,7 +100,6 @@ export interface IssueSessionRollups {
   unread: boolean
   sessionSummary: { total: number; byPhase: Record<string, number> }
 }
-
 
 export interface IssueViewInput {
   id: string
@@ -140,9 +139,7 @@ export interface SessionViewInput {
  * `'unknown'` (the same bucket `AgentPhase` names for that state).
  */
 export function sessionRollupPhase(
-  row:
-    | { agentState?: { phase?: string | null } | undefined; phase?: string | null }
-    | undefined,
+  row: { agentState?: { phase?: string | null } | undefined; phase?: string | null } | undefined,
 ): string | null {
   if (!row) return null
   return row.agentState?.phase ?? row.phase ?? null
@@ -454,7 +451,6 @@ export function buildIssueBoard(
   return board
 }
 
-
 export function readViewInputs(
   replica: Replica,
   projections: readonly IssueProjection[] = replica.rows('issueProjections'),
@@ -463,7 +459,7 @@ export function readViewInputs(
   issues: IssueViewInput[]
   sessions: SessionViewInput[]
 } {
-  const readAtByIssueId = new Map(userStates.map(state => [state.entityId, state.readAt]))
+  const readAtByIssueId = new Map(userStates.map((state) => [state.entityId, state.readAt]))
   const prefixByRepoId = new Map<string, string | null>()
   for (const repo of replica.rows('repos')) prefixByRepoId.set(repo.id, repo.prefix ?? null)
   const depsByFrom = new Map<string, { id: string; type: string }[]>()

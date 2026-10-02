@@ -1,4 +1,5 @@
 import type { SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId, type IssueReport, type UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildIssuesMessage,
@@ -11,7 +12,6 @@ import {
   parseSlashCommand,
   pickIssueSession,
 } from './commands'
-import { asIssueId, asSessionId, type IssueReport, type UnbrandIds } from '@podium/model'
 
 function issue(
   partial: Partial<UnbrandIds<IssueReport>> & Pick<IssueReport, 'id' | 'seq' | 'title'>,

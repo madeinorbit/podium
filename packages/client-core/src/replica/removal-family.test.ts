@@ -71,12 +71,6 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  ConformanceAuthority,
-  type ConformancePrincipal,
-  conformanceUser,
-  requireHuman,
-} from '@podium/sync/testing'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
   type SqlDatabaseLike,
@@ -89,6 +83,12 @@ import {
   Replica,
   type ReplicaEvent,
 } from '@podium/sync/replica'
+import {
+  ConformanceAuthority,
+  type ConformancePrincipal,
+  conformanceUser,
+  requireHuman,
+} from '@podium/sync/testing'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FeedServerFrame } from '../socket-transport'
@@ -171,7 +171,6 @@ function asWireDelta(frame: DeltaFrame): FeedServerFrame {
     ),
   } as FeedServerFrame
 }
-
 
 /**
  * The two shipped client storage backends, behind one seam.
@@ -325,7 +324,7 @@ describe.each(
   async function openClient(principal: ConformancePrincipal, id: string): Promise<Client> {
     const opened = await backend.open(id)
     const events: ReplicaEvent[] = []
-  const port = authority.portFor(principal)
+    const port = authority.portFor(principal)
     // Assembled in the SAME ORDER as the two shipped composition roots
     // (`apps/web/src/lib/kernelReplica.ts`, `apps/mobile`): the facade comes
     // first because the kernel Replica needs its `onKernelEvent`, so the facade
@@ -342,7 +341,6 @@ describe.each(
       authority: {
         changesRange: (cursor, signal, target) => port.changesRange(cursor, signal, target),
         bootstrap: (signal) => {
-
           return port.bootstrap(signal)
         },
       },

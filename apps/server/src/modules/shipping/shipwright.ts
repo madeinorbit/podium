@@ -1,33 +1,33 @@
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import {
-  DEFAULT_SHIPWRIGHT_BUDGET,
   type AccountId,
   type AgentQuotaWire,
+  asSessionId,
+  asThreadId,
+  DEFAULT_SHIPWRIGHT_BUDGET,
   type IssueReport,
-  ShipwrightEvidenceRef,
-  type ShipwrightEvidenceRef as ShipwrightEvidenceRefValue,
-  ShipwrightInspectionContract,
   type ShipAttempt,
   type ShipHoldAction,
   type ShipHoldCode,
   type ShipOrder,
   type ShipwrightAttemptResult,
   ShipwrightBudget,
+  ShipwrightEvidenceRef,
+  type ShipwrightEvidenceRef as ShipwrightEvidenceRefValue,
   type ShipwrightFailureKind,
+  ShipwrightInspectionContract,
   type ShipwrightLevel,
-  type ShipwrightRoute,
-  ShipwrightPatchContract,
   type ShipwrightPatchContract as ShipwrightPatch,
-  type UserId,
-  asSessionId,
-  asThreadId,
+  ShipwrightPatchContract,
+  type ShipwrightRoute,
   shipRepairRef,
+  type UserId,
 } from '@podium/model'
-import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import type { ShippingJobClassification, ShippingValidationProfile } from '@podium/protocol/daemon'
-import type { ModelCatalogSnapshot } from '../../model-catalog'
+import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import { jsonSchema } from '../../llm-roles'
+import type { ModelCatalogSnapshot } from '../../model-catalog'
 import type { HeadlessService } from '../superagent/headless'
 import { routeShipwright, shipwrightModelFamily } from './shipwright-router'
 
@@ -45,16 +45,18 @@ export interface ShipwrightDeps {
     'createHeadlessSession' | 'headlessSession' | 'headlessTurn' | 'headlessTurnAck'
   >
   settingsFor(userId: UserId): PodiumSettings | Promise<PodiumSettings>
-  modelCatalog(machineId: ShipAttempt['machineId']):
-    | ModelCatalogSnapshot
-    | Promise<ModelCatalogSnapshot>
+  modelCatalog(
+    machineId: ShipAttempt['machineId'],
+  ): ModelCatalogSnapshot | Promise<ModelCatalogSnapshot>
   quota(machineId: ShipAttempt['machineId']): Promise<AgentQuotaWire[]>
   nativeAccountId(
     machineId: ShipAttempt['machineId'],
     agent: ShipwrightRoute['agent'],
     requested: AccountId,
   ): AccountId | null | Promise<AccountId | null>
-  validationProfile(issue: IssueReport): ShippingValidationProfile | Promise<ShippingValidationProfile>
+  validationProfile(
+    issue: IssueReport,
+  ): ShippingValidationProfile | Promise<ShippingValidationProfile>
   /** Future stable-port seam: copy/register only authorized executor artifacts
    * and return repository-canonical opaque artifact:// references. */
   evidence: ShipwrightEvidenceMaterializer
@@ -204,7 +206,10 @@ export interface MaterializedEvidence {
 
 export interface ShippingEvidenceStore {
   shippingEvidence(ref: string): Promise<MaterializedEvidence | null>
-  shippingEvidenceForSource(custodyDigest: string, sourceRef: string): Promise<MaterializedEvidence | null>
+  shippingEvidenceForSource(
+    custodyDigest: string,
+    sourceRef: string,
+  ): Promise<MaterializedEvidence | null>
   recordShippingEvidence(input: MaterializedEvidence): Promise<MaterializedEvidence>
 }
 

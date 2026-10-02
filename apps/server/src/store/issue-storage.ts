@@ -137,8 +137,6 @@ export const LegacyAsked = z.object({
 })
 export type LegacyAsked = z.infer<typeof LegacyAsked>
 
-
-
 /**
  * THE IN-MEMORY ISSUE AS STORAGE CAN CARRY IT — the canonical aggregate minus
  * what no column exists for. The R3-only members are NOT here; `toStorage` takes
@@ -160,13 +158,12 @@ export const StoredIssue = IssueAggregate.omit({
   labels: true,
   // Re-added below, minus its `attribution` half.
   asked: true,
+}).extend({
+  asked: StoredAsked.optional(),
+  /** Present only for a pre-#53 row — see {@link LegacyAsked}. Mutually
+   *  exclusive with `asked` by construction of {@link fromStorage}. */
+  askedLegacy: LegacyAsked.optional(),
 })
-  .extend({
-    asked: StoredAsked.optional(),
-    /** Present only for a pre-#53 row — see {@link LegacyAsked}. Mutually
-     *  exclusive with `asked` by construction of {@link fromStorage}. */
-    askedLegacy: LegacyAsked.optional(),
-  })
 export type StoredIssue = z.infer<typeof StoredIssue>
 
 // ---------------------------------------------------------------------------
@@ -271,9 +268,7 @@ export function fromStorage(row: IssueRow): StoredIssue {
     isDraftVessel: row.draft ?? false,
 
     // --- IssueCoordination -----------------------------------------------
-    ...(row.coordinatorSessionId
-      ? { coordinatorSessionId: row.coordinatorSessionId }
-      : {}),
+    ...(row.coordinatorSessionId ? { coordinatorSessionId: row.coordinatorSessionId } : {}),
     ...(row.startedBySession ? { startedBySession: row.startedBySession } : {}),
 
     // --- IssueLinear ------------------------------------------------------
@@ -412,7 +407,6 @@ export function toStorage(
     // --- timestamps ---------------------------------------------------------
     createdAt: issue.createdAt,
     updatedAt: issue.updatedAt,
-
   }
 }
 

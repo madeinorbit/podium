@@ -211,7 +211,9 @@ const memory = {
     issues: owner?.getSnapshot().issueProjections.length,
     sessions: owner?.getSnapshot().sessions.length,
     projections: owner?.getSnapshot().issueProjections.length,
-    unknownEntityRows: assembly.view.cache.readEntities().filter((row) => !retainReplicaEntity(row.entity)).length,
+    unknownEntityRows: assembly.view.cache
+      .readEntities()
+      .filter((row) => !retainReplicaEntity(row.entity)).length,
     pool: graph !== null,
     rows: graph
       ? Object.fromEntries(

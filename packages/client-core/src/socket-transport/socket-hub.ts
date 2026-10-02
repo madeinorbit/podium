@@ -35,6 +35,7 @@ import {
   CAP_SYNC_HTTP_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  CLIENT_WIRE_VERSION,
   ClientOutputBinaryMetadata,
   type ClientPtyInputMetadata,
   createDispatcher,
@@ -42,10 +43,11 @@ import {
   encode,
   encodeBinaryEnvelope,
   type HeadlessActivityEvent,
-  type TurnPreviewMessage,
   isKnownMetadataChange,
   type MetadataChange,
   type MetadataChangeLenient,
+  MIN_CLIENT_WIRE_VERSION,
+  type PendingInteractionWire,
   type PresenceIdentity,
   type PresencePayload,
   type PresenceRoomClientMessage,
@@ -58,9 +60,7 @@ import {
   type ServerMessageLenient,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
-  CLIENT_WIRE_VERSION,
-  MIN_CLIENT_WIRE_VERSION,
-  type PendingInteractionWire,
+  type TurnPreviewMessage,
 } from '@podium/protocol'
 import { applyServerLogLevel } from '../logging/level-command'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
@@ -318,9 +318,7 @@ export interface FeedBudgetSnapshot {
  */
 function feedFrameTypeHint(raw: string): FeedServerFrame['type'] | null {
   const match =
-    /^\s*\{\s*"type"\s*:\s*"(feedDelta|feedRescope|feedResyncRequired|feedResume)"/.exec(
-      raw,
-    )
+    /^\s*\{\s*"type"\s*:\s*"(feedDelta|feedRescope|feedResyncRequired|feedResume)"/.exec(raw)
   return (match?.[1] as FeedServerFrame['type'] | undefined) ?? null
 }
 
@@ -871,7 +869,9 @@ export class SocketHub {
         // cannot be made to send a field it was never built with"), so a hub
         // with no feed sink must keep saying nothing rather than announcing a
         // version it has nowhere to put.
-        ...(this.opts.feed ? { wireVersion: CLIENT_WIRE_VERSION, wireVersionMin: MIN_CLIENT_WIRE_VERSION } : {}),
+        ...(this.opts.feed
+          ? { wireVersion: CLIENT_WIRE_VERSION, wireVersionMin: MIN_CLIENT_WIRE_VERSION }
+          : {}),
         // WHERE THIS REPLICA STANDS (POD-2061), filled by the sink and spread
         // unread — see `FeedSinkPort.helloFields`. Present, and the server may
         // answer with a resume grant and no world; absent, and this is exactly
@@ -2552,5 +2552,4 @@ export class SessionConnection {
   private emit(): void {
     this.cb.onState?.(this.state())
   }
-
 }

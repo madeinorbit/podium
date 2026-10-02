@@ -28,10 +28,10 @@ import {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
+  MachineProjection,
   RepoProjection,
   SessionMeta,
   SessionUserStateWire,
-  MachineProjection,
   ShipLaneProjection,
   ShipOrderProjection,
 } from '@podium/model'
@@ -152,14 +152,40 @@ describe('the v2 change row composes the shared vocabulary', () => {
 
   it('accepts a structurally valid ship-order upsert and rejects malformed projections', () => {
     const value = {
-      id: 'ship_01J', issueId: 'issue_01J', repoId: 'repo_01J', targetBranch: 'main',
-      destination: 'origin/main', state: 'queued', humanState: 'waiting', activity: 'waiting',
-      queuedAt: '2026-08-13T00:00:00.000Z', stateChangedAt: '2026-08-13T00:00:00.000Z',
+      id: 'ship_01J',
+      issueId: 'issue_01J',
+      repoId: 'repo_01J',
+      targetBranch: 'main',
+      destination: 'origin/main',
+      state: 'queued',
+      humanState: 'waiting',
+      activity: 'waiting',
+      queuedAt: '2026-08-13T00:00:00.000Z',
+      stateChangedAt: '2026-08-13T00:00:00.000Z',
     }
-    expect(FeedChange.safeParse({ seq: 1, entity: 'shipOrder', entityId: value.id, op: 'upsert', value }).success).toBe(true)
-    expect(FeedChange.safeParse({ seq: 1, entity: 'shipOrder', entityId: value.id, op: 'upsert', value: { ...value, state: 'cancelled' } }).success).toBe(false)
+    expect(
+      FeedChange.safeParse({ seq: 1, entity: 'shipOrder', entityId: value.id, op: 'upsert', value })
+        .success,
+    ).toBe(true)
+    expect(
+      FeedChange.safeParse({
+        seq: 1,
+        entity: 'shipOrder',
+        entityId: value.id,
+        op: 'upsert',
+        value: { ...value, state: 'cancelled' },
+      }).success,
+    ).toBe(false)
     const { issueId: _issueId, ...missingIssue } = value
-    expect(FeedChange.safeParse({ seq: 1, entity: 'shipOrder', entityId: value.id, op: 'upsert', value: missingIssue }).success).toBe(false)
+    expect(
+      FeedChange.safeParse({
+        seq: 1,
+        entity: 'shipOrder',
+        entityId: value.id,
+        op: 'upsert',
+        value: missingIssue,
+      }).success,
+    ).toBe(false)
   })
 })
 

@@ -7,7 +7,6 @@
 
 import { type Instant, toInstant } from '../clock'
 
-
 export interface IssueClosedFields {
   stage: string
   closedReason?: string | null

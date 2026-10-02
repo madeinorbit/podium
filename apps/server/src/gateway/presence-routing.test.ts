@@ -1,9 +1,9 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import {
   asSubscriberId,
-  principalRoutingKey,
+  CLIENT_WIRE_VERSION,
   type Principal,
+  principalRoutingKey,
   type RoomRef,
   SubscriptionRegistry,
 } from '@podium/protocol'
@@ -61,10 +61,12 @@ function setup(
   const presence = new PresenceRouting({
     subscriptions,
     clients,
-    prepareVisibility: opts.prepareVisibility ?? (async () => ({
-      canSee: (principal) =>
-        typeof opts.visible === 'function' ? opts.visible(principal) : (opts.visible ?? true),
-    })),
+    prepareVisibility:
+      opts.prepareVisibility ??
+      (async () => ({
+        canSee: (principal) =>
+          typeof opts.visible === 'function' ? opts.visible(principal) : (opts.visible ?? true),
+      })),
     ...(opts.now ? { now: opts.now } : {}),
   })
   return { subscriptions, clients, presence }
@@ -96,7 +98,11 @@ describe('production presence routing', () => {
 
   it('waits for preparation and does not revive a connection closed during the read', async () => {
     let resolve!: (value: Awaited<ReturnType<PresenceRoutingDeps['prepareVisibility']>>) => void
-    const prepared = new Promise<Awaited<ReturnType<PresenceRoutingDeps['prepareVisibility']>>>((done) => { resolve = done })
+    const prepared = new Promise<Awaited<ReturnType<PresenceRoutingDeps['prepareVisibility']>>>(
+      (done) => {
+        resolve = done
+      },
+    )
     const prepareVisibility = vi.fn(() => prepared)
     const { clients, presence } = setup({ prepareVisibility })
     const alice = connection('alice')
@@ -115,7 +121,9 @@ describe('production presence routing', () => {
 
   it('admits nobody when snapshot preparation fails', async () => {
     const { clients, presence } = setup({
-      prepareVisibility: async () => { throw new Error('snapshot unavailable') },
+      prepareVisibility: async () => {
+        throw new Error('snapshot unavailable')
+      },
     })
     const alice = connection('alice')
     clients.add(alice.conn)

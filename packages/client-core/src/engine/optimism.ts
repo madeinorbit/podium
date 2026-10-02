@@ -54,7 +54,6 @@ import {
 } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
-import { shallowEqual } from '../store'
 import type { OutboxEntry } from '../outbox'
 import {
   assertSpawnPlacement,
@@ -64,6 +63,7 @@ import {
   type SpawnTarget,
   type TaskSpawnOutcome,
 } from '../spawn-agent'
+import { shallowEqual } from '../store'
 import {
   optimisticDraftIssue,
   optimisticDraftSortKey,
@@ -177,14 +177,25 @@ export interface OptimismPorts<TApi extends PodiumClientApi> {
 
 export class OptimismLedger<TApi extends PodiumClientApi> {
   private keyedFolds = false
-  private readonly basePositions = new Map<OverlayTarget, {
-    base: object[]; positions: Map<string, number>; unique: boolean
-  }>()
+  private readonly basePositions = new Map<
+    OverlayTarget,
+    {
+      base: object[]
+      positions: Map<string, number>
+      unique: boolean
+    }
+  >()
 
-  enableKeyedFolds(): void { this.keyedFolds = true }
+  enableKeyedFolds(): void {
+    this.keyedFolds = true
+  }
 
   /** An index of the writer's current base array, not a second row store. */
-  private positionsFor<T extends object>(entity: OverlayTarget, base: T[], keyOf: (row: T) => string) {
+  private positionsFor<T extends object>(
+    entity: OverlayTarget,
+    base: T[],
+    keyOf: (row: T) => string,
+  ) {
     const previous = this.basePositions.get(entity)
     if (previous?.base === base) return previous
     const positions = new Map<string, number>()
@@ -201,17 +212,28 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
 
   /** Fold only addressed bases, then copy the legacy snapshot array if a cell
    * moved. Inserts and absent-user markers still use the original fold rules. */
-  private foldKeyed<T extends object>(entity: OverlayTarget, base: T[], overlays: PendingOverlay[], keyOf: (row: T) => string) {
+  private foldKeyed<T extends object>(
+    entity: OverlayTarget,
+    base: T[],
+    overlays: PendingOverlay[],
+    keyOf: (row: T) => string,
+  ) {
     if (!overlays.length) return foldOverlays(base, overlays, keyOf)
     const index = this.positionsFor(entity, base, keyOf)
     if (!index.unique) return foldOverlays(base, overlays, keyOf)
-    const positions = [...new Set(overlays.flatMap(o => {
-      const position = index.positions.get(o.id)
-      return position === undefined ? [] : [position]
-    }))].sort((a, b) => a - b)
-    const subset = positions.map(position => base[position]!)
+    const positions = [
+      ...new Set(
+        overlays.flatMap((o) => {
+          const position = index.positions.get(o.id)
+          return position === undefined ? [] : [position]
+        }),
+      ),
+    ].sort((a, b) => a - b)
+    const subset = positions.map((position) => base[position]!)
     const folded = foldOverlays(subset, overlays, keyOf)
-    const moved = folded.rows.length > subset.length || positions.some((position, i) => base[position] !== folded.rows[i])
+    const moved =
+      folded.rows.length > subset.length ||
+      positions.some((position, i) => base[position] !== folded.rows[i])
     if (!moved) return { rows: base, pendingInsertIds: folded.pendingInsertIds }
     const rows = base.slice()
     for (let i = 0; i < positions.length; i++) rows[positions[i]!] = folded.rows[i]!
@@ -564,7 +586,8 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   ): { rows: T[]; pendingInsertIds: ReadonlySet<string> } {
     // A scope replacement must release the former base even when the new
     // slice has no pending overlay that would ask for an index.
-    if (this.keyedFolds && this.basePositions.get(entity)?.base !== base) this.basePositions.delete(entity)
+    if (this.keyedFolds && this.basePositions.get(entity)?.base !== base)
+      this.basePositions.delete(entity)
     const previous = this.folds.get(entity)
     // Membership/stage and coverage predicates do not affect the pure fold.
     // Compare the ordered paint, including edits to an existing queued entry.
@@ -584,14 +607,24 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     ) {
       return previous.result as { rows: T[]; pendingInsertIds: ReadonlySet<string> }
     }
-    const result = this.keyedFolds ? this.foldKeyed(entity, base, overlays, keyOf) : foldOverlays(base, overlays, keyOf)
+    const result = this.keyedFolds
+      ? this.foldKeyed(entity, base, overlays, keyOf)
+      : foldOverlays(base, overlays, keyOf)
     // Changed inputs can still compose to the same effective rows. Retain
     // their identity without comparing serialized data or hiding new cells.
     if (
       previous &&
       previous.result.rows.length === result.rows.length &&
       (this.keyedFolds && previous.base === base
-        ? this.samePaint(entity, base, keyOf, previous.overlays, overlays, result.rows, previous.result.rows)
+        ? this.samePaint(
+            entity,
+            base,
+            keyOf,
+            previous.overlays,
+            overlays,
+            result.rows,
+            previous.result.rows,
+          )
         : result.rows.every((row, i) => shallowEqual(row, previous.result.rows[i])))
     ) {
       result.rows = previous.result.rows as T[]
@@ -607,15 +640,23 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     return result
   }
 
-  private samePaint<T extends object>(entity: OverlayTarget, base: T[], keyOf: (row: T) => string,
-    before: PendingOverlay[], after: PendingOverlay[], rows: T[], previous: object[]): boolean {
+  private samePaint<T extends object>(
+    entity: OverlayTarget,
+    base: T[],
+    keyOf: (row: T) => string,
+    before: PendingOverlay[],
+    after: PendingOverlay[],
+    rows: T[],
+    previous: object[],
+  ): boolean {
     const index = this.positionsFor(entity, base, keyOf)
     if (!index.unique) return rows.every((row, i) => shallowEqual(row, previous[i]))
     for (const overlay of [...before, ...after]) {
       const position = index.positions.get(overlay.id)
       if (position !== undefined && !shallowEqual(rows[position], previous[position])) return false
     }
-    for (let i = base.length; i < rows.length; i++) if (!shallowEqual(rows[i], previous[i])) return false
+    for (let i = base.length; i < rows.length; i++)
+      if (!shallowEqual(rows[i], previous[i])) return false
     return true
   }
 
@@ -676,16 +717,24 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       })
       if (keep.length !== this.spawnOverlays.length) this.spawnOverlays = keep
     }
-    const awaiting = this.keyedFolds ? this.awaitingTruth.filter(a => a.overlay.entity === entity) : []
-    const checkedBase = awaiting.length > 0
-      ? (() => {
-        const index = this.positionsFor(entity, base, keyOf)
-        if (!index.unique) return base
-        return [...new Set(awaiting.flatMap(a => {
-          const position = index.positions.get(a.overlay.id)
-          return position === undefined ? [] : [position]
-        }))].map(position => base[position]!)
-      })() : base
+    const awaiting = this.keyedFolds
+      ? this.awaitingTruth.filter((a) => a.overlay.entity === entity)
+      : []
+    const checkedBase =
+      awaiting.length > 0
+        ? (() => {
+            const index = this.positionsFor(entity, base, keyOf)
+            if (!index.unique) return base
+            return [
+              ...new Set(
+                awaiting.flatMap((a) => {
+                  const position = index.positions.get(a.overlay.id)
+                  return position === undefined ? [] : [position]
+                }),
+              ),
+            ].map((position) => base[position]!)
+          })()
+        : base
     const pruned = pruneAwaiting(
       this.awaitingTruth,
       entity,
@@ -744,7 +793,9 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     }
     const join = (session: SessionMeta): SessionMeta => {
       const userState = painted.get(session.sessionId)
-      return userState === undefined ? session : (sessionView(session, { userState }) as SessionMeta)
+      return userState === undefined
+        ? session
+        : (sessionView(session, { userState }) as SessionMeta)
     }
     if (this.joined?.sessions !== sessions || this.joined.users !== users) {
       this.joined = {
@@ -754,9 +805,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       }
     }
     const overlays = this.overlaysFor('sessions').map((o) =>
-      o.op === 'insert' && painted.has(o.id)
-        ? { ...o, insert: join(o.insert as SessionMeta) }
-        : o,
+      o.op === 'insert' && painted.has(o.id) ? { ...o, insert: join(o.insert as SessionMeta) } : o,
     )
     return this.foldStable('sessions', this.joined.rows, (s) => s.sessionId, overlays)
   }

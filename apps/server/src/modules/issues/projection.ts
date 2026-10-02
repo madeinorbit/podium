@@ -8,18 +8,18 @@ import {
   IssueDep,
   type IssueDepId,
   type IssueDepProjection,
+  type IssueId,
   type IssueProjection,
   issueDepId,
   issueDepToWire,
   Repo,
+  type RepoId,
   type RepoProjection,
   repoToWire,
   toWire,
-  type IssueId,
-  type RepoId,
 } from '@podium/model'
-import type { IssueRow } from '../../store/types'
 import { fromStorage } from '../../store/issue-storage'
+import type { IssueRow } from '../../store/types'
 
 const log = createLogger('server:issues')
 
@@ -51,7 +51,9 @@ export function issueRowToProjection(row: IssueRow, labels: string[]): IssueProj
     createdBy: { actor, onBehalfOf: row.createdByOnBehalfOf },
   }
   const { askedLegacy, asked, ...issue } = stored
-  const question = asked ?? (askedLegacy?.question ? { ...askedLegacy, question: askedLegacy.question } : undefined)
+  const question =
+    asked ??
+    (askedLegacy?.question ? { ...askedLegacy, question: askedLegacy.question } : undefined)
   return toWire({
     ...issue,
     ...ownership,

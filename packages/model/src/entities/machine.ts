@@ -1,5 +1,3 @@
-
-
 import { z } from 'zod'
 import { MachineIdField, RepoIdField, SessionIdField } from '../ids'
 import { AgentKind, DriverFamilyWire, HarnessAgent, USAGE_HARNESS_KINDS } from './agent'
@@ -109,7 +107,8 @@ export function terminalRuntimeDriver(
   harness?: AgentKind,
 ): NonNullable<Inventory['runtimeDrivers']>[number] | undefined {
   return machine?.inventory?.runtimeDrivers?.find(
-    (driver) => driver.family === 'terminal' && (harness === undefined || driver.harness === harness),
+    (driver) =>
+      driver.family === 'terminal' && (harness === undefined || driver.harness === harness),
   )
 }
 
@@ -404,7 +403,14 @@ export const MachineWire = z.object({
   services: MachineServiceReport.optional(),
   /** Server intent, distinct from what the current boot is actually running. */
   serviceAssignment: MachineServiceAssignment.optional(),
-  availability: z.object({ epoch: z.string(), server: z.boolean(), daemon: z.boolean(), supervisor: z.boolean() }).optional(),
+  availability: z
+    .object({
+      epoch: z.string(),
+      server: z.boolean(),
+      daemon: z.boolean(),
+      supervisor: z.boolean(),
+    })
+    .optional(),
   /** The authenticated viewer's live `USE` decision. Absent only on unscoped internal lists. */
   use: MachineUseDecision.optional(),
   /** SEE: whether the authenticated viewer is the personal grantee; never an owner id. */

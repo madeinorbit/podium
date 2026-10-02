@@ -70,7 +70,8 @@ const loops: MeasuredLoop[] = [
     name: 'ConversationIndexRepository.upsert',
     targetSql: 'insert into "conversations"',
     repository: (store) => store.conversations.index,
-    run: async (store, n) => await store.conversations.index.upsert(conversationRows(n, store.hostMachineId)),
+    run: async (store, n) =>
+      await store.conversations.index.upsert(conversationRows(n, store.hostMachineId)),
   },
   {
     name: 'SyncRepository.applyLatestChangeStates',

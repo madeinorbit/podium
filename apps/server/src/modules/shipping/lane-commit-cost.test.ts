@@ -62,7 +62,6 @@ async function world(outside: number, laneSize: number) {
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: { run: (op) => op.write() },
     ledger,
-
   })
   const service = new ShippingService({
     repository: store.shipping,

@@ -14,15 +14,15 @@
  * in a file nothing imported yet.
  */
 
-import { describe, expect, it } from 'vitest'
-import { CLIENT_WIRE_VERSION } from '@podium/protocol'
-import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
-import { WriteFunnel } from '../apps/server/src/modules/funnel'
-import { SessionLifecycle } from '../apps/server/src/modules/sessions/lifecycle'
-import { feedTestPlumbing } from '../apps/server/src/gateway/feed-test-plumbing'
-import { outcomesOf, PROBES, runChecks } from './audit-serving-path'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
+import { describe, expect, it } from 'vitest'
+import { feedTestPlumbing } from '../apps/server/src/gateway/feed-test-plumbing'
+import { WriteFunnel } from '../apps/server/src/modules/funnel'
+import { SessionLifecycle } from '../apps/server/src/modules/sessions/lifecycle'
+import { outcomesOf, PROBES, runChecks } from './audit-serving-path'
 
 const ROOT = join(import.meta.dirname, '..')
 

@@ -112,13 +112,19 @@ describe('a subscriber that commits from inside its own notification', () => {
         for (const change of changes) seen.push(`${name}:${change.id}`)
         if (name === 'A' && !reentered) {
           reentered = true
-          reentrantCommit = ledger.commit({ write: async () => 'ok', changes: () => [...upsert('second', { v: 1 })] })
+          reentrantCommit = ledger.commit({
+            write: async () => 'ok',
+            changes: () => [...upsert('second', { v: 1 })],
+          })
         }
       })
     }
 
     await store.transact(async () => {
-      await ledger.commit({ write: async () => 'ok', changes: () => [...upsert('first', { v: 1 })] })
+      await ledger.commit({
+        write: async () => 'ok',
+        changes: () => [...upsert('first', { v: 1 })],
+      })
     })
 
     // Notification listeners are synchronous; the test owns the async commit

@@ -1,11 +1,10 @@
-import { asUserId } from '@podium/model'
 import {
   mergeOptimistic,
   optimisticDraftIssue,
   optimisticDraftSortKey,
   optimisticStartingSession,
 } from '@podium/client-core/viewmodels'
-import { asIssueId, asRepoId, asSessionId, SessionMeta } from '@podium/model'
+import { asIssueId, asRepoId, asSessionId, asUserId, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 describe('optimisticStartingSession', () => {
@@ -56,7 +55,14 @@ describe('optimisticDraftIssue', () => {
   }
 
   it('carries the canonical issue fields for optimistic rendering', () => {
-    expect(optimisticDraftIssue(base)).toMatchObject({ intentOrigin: 'human', isDraftVessel: true, description: '', tuckedAt: null, memberSessionIds: [], childIds: [] })
+    expect(optimisticDraftIssue(base)).toMatchObject({
+      intentOrigin: 'human',
+      isDraftVessel: true,
+      description: '',
+      tuckedAt: null,
+      memberSessionIds: [],
+      childIds: [],
+    })
   })
 
   it('is a draft vessel with no worktree, carrying the caller id and repo', () => {

@@ -1,4 +1,4 @@
-import { upsertIssue } from '../../../shared/src/scenarios'
+import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 /**
  * POD-4559 — the store helpers run on ONE clock: the caller's.
  *
@@ -21,8 +21,12 @@ import { upsertIssue } from '../../../shared/src/scenarios'
  * decides whether it is a row at all, so two clocks keep it and one drops it.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { type ScenarioEngine, startScenarioEngine, upsert } from '../../../shared/src/scenarios'
-import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
+import {
+  type ScenarioEngine,
+  startScenarioEngine,
+  upsert,
+  upsertIssue,
+} from '../../../shared/src/scenarios'
 import {
   legacyDerivationFromStore,
   oracleSnapshot,

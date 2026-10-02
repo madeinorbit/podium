@@ -193,7 +193,11 @@ const projectionOf = (engine: Engine): IssueProjection | undefined =>
 const userRowOf = (engine: Engine, userId = ME): IssueUserStateWire | undefined =>
   engine.getSnapshot().issueUserStates.find((row) => row.entityId === ID && row.userId === userId)
 const viewOf = (engine: Engine): IssueViewModel | undefined =>
-  allIssueViewModels(engine.replica, engine.getSnapshot().issueProjections, engine.getSnapshot().issueUserStates).find((row) => row.id === ID)
+  allIssueViewModels(
+    engine.replica,
+    engine.getSnapshot().issueProjections,
+    engine.getSnapshot().issueUserStates,
+  ).find((row) => row.id === ID)
 
 interface Case {
   /** The edit, as the operator presses it. */
@@ -501,7 +505,11 @@ describe('optimistic issue edits land on the normalized rows (POD-4969)', () => 
     await settle()
     expect(viewOf(engine)?.readAt).toEqual(expect.any(String))
     expect(engine.outbox.awaiting()).toHaveLength(1)
-    engine.replica.applyChanges('issueUserStates', [userStateOf(baseIssue({ readAt: '2026-07-09T00:00:00.000Z' }))], [])
+    engine.replica.applyChanges(
+      'issueUserStates',
+      [userStateOf(baseIssue({ readAt: '2026-07-09T00:00:00.000Z' }))],
+      [],
+    )
     await settle()
     expect(viewOf(engine)?.readAt).toBe('2026-07-09T00:00:00.000Z')
     expect(projectionOf(engine)).toBe(projection)
@@ -583,7 +591,13 @@ describe('the spawn placeholder (POD-4969)', () => {
     expect(engine.getSnapshot().issueUserStates).toContainEqual(
       expect.objectContaining({ userId: ME, entityId: made.issueId, readAt: expect.any(String) }),
     )
-    expect(allIssueViewModels(engine.replica, engine.getSnapshot().issueProjections, engine.getSnapshot().issueUserStates).some((row) => row.id === made.issueId)).toBe(true)
+    expect(
+      allIssueViewModels(
+        engine.replica,
+        engine.getSnapshot().issueProjections,
+        engine.getSnapshot().issueUserStates,
+      ).some((row) => row.id === made.issueId),
+    ).toBe(true)
 
     // Truth for the issue lands: no duplicate row, and the per-user placeholder
     // retires with the issue's (the server writes no marker on create).
@@ -618,7 +632,13 @@ describe('the spawn placeholder (POD-4969)', () => {
     expect(engine.getSnapshot().issueUserStates.some((row) => row.entityId === made.issueId)).toBe(
       false,
     )
-    expect(allIssueViewModels(engine.replica, engine.getSnapshot().issueProjections, engine.getSnapshot().issueUserStates).some((row) => row.id === made.issueId)).toBe(false)
+    expect(
+      allIssueViewModels(
+        engine.replica,
+        engine.getSnapshot().issueProjections,
+        engine.getSnapshot().issueUserStates,
+      ).some((row) => row.id === made.issueId),
+    ).toBe(false)
     expect(errors.some((m) => m.includes('spawn refused'))).toBe(true)
     engine.dispose()
   })
@@ -672,7 +692,13 @@ describe('principal isolation of per-user overlays (POD-4969)', () => {
     expect(userRowOf(a.engine, 'alice')?.tuckedAt).toEqual(expect.any(String))
     // Bob's view of Alice's row is whatever the server says, and Bob has no row.
     expect(b.engine.getSnapshot().issueUserStates.filter((row) => row.entityId === ID)).toEqual([])
-    expect(allIssueViewModels(b.engine.replica, b.engine.getSnapshot().issueProjections, b.engine.getSnapshot().issueUserStates).find((row) => row.id === ID)?.tuckedAt ?? null).toBeNull()
+    expect(
+      allIssueViewModels(
+        b.engine.replica,
+        b.engine.getSnapshot().issueProjections,
+        b.engine.getSnapshot().issueUserStates,
+      ).find((row) => row.id === ID)?.tuckedAt ?? null,
+    ).toBeNull()
     a.engine.dispose()
     b.engine.dispose()
   })

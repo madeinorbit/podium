@@ -1,6 +1,6 @@
-import type { IssueViewModel } from '../replica/issue-view-models'
-import type { } from '@podium/model'
+import type {} from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { IssueViewModel } from '../replica/issue-view-models'
 import { groupRelations } from './issue-relations'
 
 /** Minimal IssueViewModel stub — groupRelations only reads `deps` and `dependents`. */

@@ -22,15 +22,20 @@
  * writes before either direction is believed.
  */
 
-import { asMutationId, type IssueProjection, type SessionMeta, type TranscriptItem } from '@podium/model'
 import {
+  asMutationId,
+  type IssueProjection,
+  type SessionMeta,
+  type TranscriptItem,
+} from '@podium/model'
+import {
+  isLegacyReplicaStateKey,
   LEGACY_CURSOR_KEY,
   LEGACY_ENTITY_KEYS,
   LEGACY_OUTBOX_KEY,
   LEGACY_REPLICA_PREFIX,
   LEGACY_REPLICA_STATE_KEYS,
   LEGACY_UI_STATE_KEY,
-  isLegacyReplicaStateKey,
   readLegacyReplica,
 } from '@podium/sync/adapters/legacy-replica'
 import { describe, expect, it } from 'vitest'
@@ -116,7 +121,11 @@ describe('ADR 6 D6 — the legacy key inventory matches the writer', () => {
     // The other direction. A subset assertion alone is satisfied by a writer
     // that wrote one key; this names the ones that must be there.
     const { keys } = await exerciseLegacyReplica()
-    for (const key of [...LEGACY_ENTITY_KEYS.filter(key => !key.endsWith('.issues.v1')), LEGACY_CURSOR_KEY, LEGACY_OUTBOX_KEY]) {
+    for (const key of [
+      ...LEGACY_ENTITY_KEYS.filter((key) => !key.endsWith('.issues.v1')),
+      LEGACY_CURSOR_KEY,
+      LEGACY_OUTBOX_KEY,
+    ]) {
       expect(keys, `writer did not produce ${key}`).toContain(key)
     }
   })

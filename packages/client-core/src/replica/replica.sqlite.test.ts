@@ -20,8 +20,8 @@
  */
 
 import { createRequire } from 'node:module'
-import { asMutationId } from '@podium/model'
 import type { IssueProjection, SessionMeta } from '@podium/model'
+import { asMutationId } from '@podium/model'
 import type {
   PersistedCollectionPersistence,
   SQLiteDriver,

@@ -193,7 +193,10 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     }
     const drain = (): void => {
       if (cancelled) return
-      if (draining) { pending = true; return }
+      if (draining) {
+        pending = true
+        return
+      }
       draining = true
       pending = false
       const step = async (): Promise<void> => {
@@ -203,7 +206,10 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
           do {
             previous = since
             rows = await loadIssueEventsPage(trpc, {
-              since, repoPath: issue.repoPath, subject: issue.id, limit: EVENTS_PAGE,
+              since,
+              repoPath: issue.repoPath,
+              subject: issue.id,
+              limit: EVENTS_PAGE,
             })
             if (cancelled) return
             absorb(rows)
@@ -225,7 +231,9 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     }
   }, [issue.id, issue.repoPath])
 
-  useEffect(() => { drainEvents.current?.() }, [issue.id, issue.repoPath, issue.updatedAt])
+  useEffect(() => {
+    drainEvents.current?.()
+  }, [issue.id, issue.repoPath, issue.updatedAt])
 
   // A REFUSED WRITE IS AN ALERT, NOT A FOOTNOTE (POD-1266). This used to set a
   // string that IssuePage drew as a muted strip pinned under the whole page —

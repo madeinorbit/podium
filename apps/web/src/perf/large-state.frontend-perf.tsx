@@ -1,12 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { kernelFixture } from './kernel-fixture'
 import { indexSessionOwnership, sidebarSections } from '@podium/client-core/viewmodels'
-import {
-  type GitRepositoryWire,
-  ISSUE_STAGES,
-
-  type SessionMeta,
-} from '@podium/model/browser'
+import { type GitRepositoryWire, ISSUE_STAGES, type SessionMeta } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { flushSync } from 'react-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -16,6 +10,7 @@ import {
   ISSUE_VIRTUAL_MAX_ITEMS,
   ISSUE_VIRTUAL_SIZE_CACHE,
 } from '@/features/issues/use-bounded-virtual-list'
+import { kernelFixture } from './kernel-fixture'
 
 /** Generated/anonymized Ludovico cardinalities captured in POD-981/POD-991. */
 const SCALE = {
@@ -338,7 +333,17 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
     expect(replica.rows('issueProjections')[0]).toBe(before[0])
     expect(cache.scans).toBe(scans)
     expect(cache.reads).toBe(1)
-    expect(() => replica.applySnapshot('issueProjections', initial.map(issue => ({ ...issue, notes: issue.notes === undefined ? undefined : { value: issue.notes }, worktreePath: issue.worktreePath ?? undefined, branch: issue.branch ?? undefined })))).toThrow('wire-v1')
+    expect(() =>
+      replica.applySnapshot(
+        'issueProjections',
+        initial.map((issue) => ({
+          ...issue,
+          notes: issue.notes === undefined ? undefined : { value: issue.notes },
+          worktreePath: issue.worktreePath ?? undefined,
+          branch: issue.branch ?? undefined,
+        })),
+      ),
+    ).toThrow('wire-v1')
     off()
     metric('kernel-replica', {
       issues: SCALE.issues,

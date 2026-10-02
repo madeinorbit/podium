@@ -28,7 +28,7 @@ import { describe, expect, it } from 'vitest'
 import { openTestStore } from '../test-support/open-test-store'
 
 describe('memoized change_latest statements across spans', () => {
-  it('serves a second append after the first append\'s transaction has closed', async () => {
+  it("serves a second append after the first append's transaction has closed", async () => {
     const store = await openTestStore(':memory:')
 
     await store.sync.appendChanges(
@@ -42,9 +42,10 @@ describe('memoized change_latest statements across spans', () => {
       2,
     )
 
-    expect(
-      (await store.sync.latestChangeStates()).map((row) => row.entityId),
-    ).toEqual(['issue-1', 'issue-2'])
+    expect((await store.sync.latestChangeStates()).map((row) => row.entityId)).toEqual([
+      'issue-1',
+      'issue-2',
+    ])
   })
 
   it('serves the delete arm from a later span too', async () => {
@@ -67,8 +68,6 @@ describe('memoized change_latest statements across spans', () => {
 
     // The removal the second span issued took effect, and the row it upserted
     // beside it is installed: both memoized statements ran on the open span.
-    expect(
-      (await store.sync.latestChangeStates()).map((row) => row.entityId),
-    ).toEqual(['issue-3'])
+    expect((await store.sync.latestChangeStates()).map((row) => row.entityId)).toEqual(['issue-3'])
   })
 })

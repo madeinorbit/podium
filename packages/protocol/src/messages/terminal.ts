@@ -1,5 +1,3 @@
-import { NativeBindingReceipt } from './native-binding'
-import { SessionDelegation } from '@podium/model'
 import {
   AgentKind,
   Attribution,
@@ -10,6 +8,7 @@ import {
   IssueIdField,
   MachineIdField,
   ResumeRef,
+  SessionDelegation,
   SessionIdField,
   UserIdField,
 } from '@podium/model'
@@ -17,6 +16,7 @@ import { z } from 'zod'
 import { PresenceIdentity } from '../planes/presence-rooms'
 import { FeedCursorField } from './feed'
 import { ClientLogOrigin } from './logs'
+import { NativeBindingReceipt } from './native-binding'
 
 const positiveInt = z.number().int().positive()
 
@@ -140,7 +140,10 @@ export const DetachMessage = z.object({ type: z.literal('detach'), sessionId: Se
  * stays. Explicit only: a dropped WebSocket sends nothing, so a network blip
  * is never a release (and a release never replays on reconnect).
  */
-export const TabReleaseMessage = z.object({ type: z.literal('tabRelease'), sessionId: SessionIdField })
+export const TabReleaseMessage = z.object({
+  type: z.literal('tabRelease'),
+  sessionId: SessionIdField,
+})
 export const InputMessage = z.object({
   type: z.literal('input'),
   sessionId: SessionIdField,
@@ -915,7 +918,8 @@ export const AgentModelMessage = z.object({
   type: z.literal('agentModel'),
   /** Native record time when available; absent means the source supplied none. */
   at: z.string().datetime().optional(),
-  source: z.enum(['transcript', 'native']).optional(),  sessionId: SessionIdField,
+  source: z.enum(['transcript', 'native']).optional(),
+  sessionId: SessionIdField,
   model: z.string(),
   /** The observed reasoning-effort tier (assistant records' top-level `effort`),
    *  when the transcript reports one. Optional for wire-compat with older daemons. */

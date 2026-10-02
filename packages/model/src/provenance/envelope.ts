@@ -1,5 +1,3 @@
-
-
 import { z } from 'zod'
 
 // ---------------------------------------------------------------------------
@@ -119,8 +117,7 @@ export function toEnvelope<T extends object>(row: MaybeEnveloped<T>): Replicated
  * field reads so the staleness indicators do not have to change again when the
  * carrier does.
  */
-export const isViaHub = (row: MaybeEnveloped<unknown>): boolean =>
-  provenanceOf(row).viaHub === true
+export const isViaHub = (row: MaybeEnveloped<unknown>): boolean => provenanceOf(row).viaHub === true
 export const isUpstreamStale = (row: MaybeEnveloped<unknown>): boolean =>
   provenanceOf(row).upstreamStale === true
 export const isPendingSync = (row: MaybeEnveloped<unknown>): boolean =>

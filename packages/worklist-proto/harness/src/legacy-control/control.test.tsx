@@ -1,4 +1,5 @@
 import { allIssueViewModels } from '@podium/client-core/replica'
+
 // @vitest-environment happy-dom
 /**
  * POD-4445 — the ARMED control. This test must FAIL its isolation assertion
@@ -29,10 +30,11 @@ import { allIssueViewModels } from '@podium/client-core/replica'
  * shows — also an emergency.
  */
 
-import { describe, expect, it } from 'vitest'
-import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
 import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
+import { describe, expect, it } from 'vitest'
+import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
 import {
   type ScenarioEngine,
   startScenarioEngine,
@@ -42,7 +44,6 @@ import {
   writeStageMove,
   writeTitleRename,
 } from '../../../shared/src/scenarios'
-import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import {
   assertCommits,
   assertIsolation,
@@ -119,7 +120,9 @@ describe('legacy control (armed)', () => {
       // row the store holds (wire and projection twins count once).
       const store = ctx.engine.getSnapshot()
       const issueIds = new Set([
-        ...allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates).map((issue) => issue.id),
+        ...allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates).map(
+          (issue) => issue.id,
+        ),
         ...store.issueProjections.map((issue) => issue.id),
       ])
       console.info(

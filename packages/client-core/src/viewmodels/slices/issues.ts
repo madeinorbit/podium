@@ -1,5 +1,3 @@
-import type { IssueViewModel } from '../../replica/issue-view-models'
-import type { SessionView } from '../../session-values'
 /**
  * ISSUES SLICE (POD-330) — the issue as an entity: its nav model, its sub-issue
  * tree, and what the human is being asked to DECIDE about it.
@@ -33,7 +31,10 @@ import {
   type IssueProjection,
   isHeadlessSession,
   issueStatusOf,
-  issueStatusOutcome} from '@podium/model'
+  issueStatusOutcome,
+} from '@podium/model'
+import type { IssueViewModel } from '../../replica/issue-view-models'
+import type { SessionView } from '../../session-values'
 import {
   type ReferentExit,
   type ReferentResolution,
@@ -76,7 +77,10 @@ export function subIssuesOf<T extends Pick<IssueViewModel, 'parentId' | 'deleted
  *  see" is an existence fact and therefore a §3.1.2 policy question, not a
  *  default this function may take. */
 export function branchRollup(
-  issues: readonly Pick<IssueNavigationModel, 'id' | 'parentId' | 'archived' | 'deletedAt' | 'stage' | 'closedReason'>[],
+  issues: readonly Pick<
+    IssueNavigationModel,
+    'id' | 'parentId' | 'archived' | 'deletedAt' | 'stage' | 'closedReason'
+  >[],
   rootId: string,
 ): { total: number; done: number } {
   const childrenOf = new Map<string, (typeof issues)[number][]>()
@@ -269,7 +273,10 @@ function isUnnamedDraft(issue: IssueNavigationModel): boolean {
  *  IS the agent (clicking opens the session, nothing folds out beneath it), so
  *  it can never parent real work either. Both the nesting decision and the row
  *  rendering read this one predicate so they cannot drift apart (POD-282). */
-export function isDraftAgentVessel(issue: IssueNavigationModel, sessions: readonly SessionView[]): boolean {
+export function isDraftAgentVessel(
+  issue: IssueNavigationModel,
+  sessions: readonly SessionView[],
+): boolean {
   return issueDraftVessel(issue) && !issue.worktreePath && sessions.length > 0
 }
 

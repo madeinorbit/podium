@@ -1,7 +1,6 @@
-import type { UnbrandIds } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { filterIssueNav, issueNavList, subIssuesOf } from '@podium/client-core/viewmodels'
-import type { SessionMeta, SessionMetaInput } from '@podium/model'
+import type { SessionMeta, SessionMetaInput, UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 const NOW = Date.parse('2026-06-29T12:00:00.000Z')

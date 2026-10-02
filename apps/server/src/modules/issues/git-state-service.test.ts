@@ -4,9 +4,9 @@ import { normalizeSettings } from '@podium/runtime'
 import type { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
+import { sessionReadPorts } from '../../test-support/session-facts'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
-import { sessionReadPorts } from '../../test-support/session-facts'
 
 // POD-98: the git-state service wiring end-to-end at the service layer —
 // turn-end trigger → coalesced probe (via repoOp) → targeted gitState update,
@@ -48,7 +48,10 @@ async function harness(
         sessionDefaults: { agent: 'claude-code' },
       })
     },
-    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({
+      sessionId: asSessionId('s1'),
+      machine: 'machine-under-test',
+    })),
     repoOp: repoOp as IssueDeps['repoOp'],
     ...plumbing,
     setSessionArchived: vi.fn(),
@@ -91,7 +94,8 @@ describe('POD-98 git-state service wiring', () => {
       logHead: 'sha-bound\t2026-07-20T11:30:00Z',
       logIssueCommits: 'sha-bound',
     })
-    const id = (await svc.create({ repoPath: '/repo', title: 'bound receiver', startNow: false })).id
+    const id = (await svc.create({ repoPath: '/repo', title: 'bound receiver', startNow: false }))
+      .id
     sessions.push(member(asSessionId('sess-bound'), id))
 
     const { recordSessionGitActivity, refreshGitState, onSessionRemovedOrArchived } =
@@ -256,7 +260,7 @@ describe('POD-98 git-state service wiring', () => {
     // a full-truth reconcile of a single row journals a remove for every other
     // issue (the boot-adjacent ledger flapping — thousands of remove+upsert
     // pairs per probe wave).
-    const appended = await ledger.changesSince(cursor) ?? []
+    const appended = (await ledger.changesSince(cursor)) ?? []
     expect(appended.filter((c) => c.op === 'remove')).toEqual([])
     expect(appended.map((c) => [c.entity, c.id, c.op])).toEqual([
       ['issueGitState', probed, 'upsert'],
@@ -328,7 +332,10 @@ describe('POD-98 git-state service wiring', () => {
 
     await svc.onSessionRemovedOrArchived(asSessionId('sess-1'))
     await svc.refreshGitState(id, '/repo')
-    expect((await svc.get(id))?.gitState).toMatchObject({ commits: ['sha-1', 'sha-2'], dirtyOwn: 1 })
+    expect((await svc.get(id))?.gitState).toMatchObject({
+      commits: ['sha-1', 'sha-2'],
+      dirtyOwn: 1,
+    })
 
     await svc.onSessionRemovedOrArchived(asSessionId('sess-2'))
     await svc.refreshGitState(id, '/repo')
@@ -475,7 +482,9 @@ describe('POD-384 parent-branch movement watch', () => {
     const { svc, repoOp } = await harness([], script)
     // Shared: no worktree of its own, so no merge axis to keep fresh.
     await svc.create({ repoPath: '/repo', title: 'shared', startNow: false })
-    const branchless = (await svc.create({ repoPath: '/repo', title: 'branchless', startNow: false })).id
+    const branchless = (
+      await svc.create({ repoPath: '/repo', title: 'branchless', startNow: false })
+    ).id
     giveWorktree(svc, branchless)
     ;(svc as unknown as { rows: Map<string, { branch: string | null }> }).rows.get(
       branchless,

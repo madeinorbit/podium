@@ -2,9 +2,9 @@ import type { MetadataChange } from '@podium/protocol'
 import type { AuthorityPort, ScopedChange, ScopedDelivery } from '@podium/sync'
 import { ChangeRangeBootstrapRequired, DEVICE_GRADE_PRINCIPAL, Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
+import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
 import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/executor'
 import { openTestStore } from '../test-support/open-test-store'
-import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
 import { EventBus } from './bus'
 import { WriteFunnel } from './funnel'
 
@@ -191,7 +191,9 @@ describe('the funnel has ONE output, and it is the feed', () => {
       onPublished: vi.fn(),
       authority: fake.authority,
     })
-    const changes = [{ seq: 1, entity: 'issueProjection', id: 'iss_1', op: 'remove' }] as MetadataChange[]
+    const changes = [
+      { seq: 1, entity: 'issueProjection', id: 'iss_1', op: 'remove' },
+    ] as MetadataChange[]
     fake.emit(changes)
     expect(appended).toHaveBeenCalledWith({ changes })
     funnel.flushDeltas()
@@ -318,7 +320,9 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
       const listeners = new Set<() => void>()
       const { serving, appended } = pipedFunnel((listener) => {
         listeners.add(listener)
-        return () => { listeners.delete(listener) }
+        return () => {
+          listeners.delete(listener)
+        }
       })
       appended([up(1, 'session', 's1')])
       await vi.advanceTimersByTimeAsync(1)
@@ -394,12 +398,16 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
       rowsAtBusEmit = serving.rows().map((change) => change.entityId)
       innerCommit = ledger.commit({
         write: async () => {},
-        changes: () => [{ entity: 'issueProjection', id: 'inner', op: 'upsert', value: { id: 'inner' } }],
+        changes: () => [
+          { entity: 'issueProjection', id: 'inner', op: 'upsert', value: { id: 'inner' } },
+        ],
       })
     })
     await ledger.commit({
       write: async () => {},
-      changes: () => [{ entity: 'issueProjection', id: 'outer', op: 'upsert', value: { id: 'outer' } }],
+      changes: () => [
+        { entity: 'issueProjection', id: 'outer', op: 'upsert', value: { id: 'outer' } },
+      ],
     })
     await innerCommit
     funnel.flushDeltas()

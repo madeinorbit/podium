@@ -30,8 +30,8 @@ import {
   foldRowOverlays,
   insertOverlay,
   issueUpdateRoute,
-  overlaysForOutboxEntry,
   type OverlayRow,
+  overlaysForOutboxEntry,
   type PendingOverlay,
   PRESENCE_REDUCER_KINDS,
   pruneAwaiting,
@@ -110,7 +110,9 @@ describe('overlayForOutboxEntry projection', () => {
     if (snooze?.op !== 'patch') throw new Error('expected patch')
     expect(snooze.entity).toBe('sessionUserStates')
     expect(snooze.patch).toEqual({ snoozedUntil: '2026-07-10T00:00:00.000Z' })
-    expect(snooze.coveredBy(sessionUserState({ snoozedUntil: '2026-07-10T00:00:00.000Z' }))).toBe(true)
+    expect(snooze.coveredBy(sessionUserState({ snoozedUntil: '2026-07-10T00:00:00.000Z' }))).toBe(
+      true,
+    )
 
     const clear = overlayForOutboxEntry(entry('snoozeClear', { sessionId: 's1' }))
     if (clear?.op !== 'patch') throw new Error('expected patch')
@@ -480,7 +482,9 @@ describe('foldOverlays', () => {
   it('composes multiple patches on one row in queue order (later fields win)', () => {
     const base = [sess()]
     const first = overlayForOutboxEntry(entry('rename', { sessionId: 's1', name: 'first' }))
-    const archived = overlayForOutboxEntry(entry('setArchived', { sessionId: 's1', archived: true }))
+    const archived = overlayForOutboxEntry(
+      entry('setArchived', { sessionId: 's1', archived: true }),
+    )
     const second = overlayForOutboxEntry(entry('rename', { sessionId: 's1', name: 'second' }))
     const { rows } = foldOverlays(base, [first, archived, second] as PendingOverlay[], keyOf)
     expect(rows[0]?.name).toBe('second')
@@ -792,9 +796,9 @@ describe('pruneAwaiting (retirement rule (a))', () => {
     const awaiting = [awaitRename(sess())]
     const removed = new Set([sess().sessionId])
     expect(pruneAwaiting(awaiting, 'sessions', [], keyOf, NOW, removed)).toEqual([])
-    expect(pruneAwaiting(awaiting, 'issueProjections', [], (i: IssueProjection) => i.id, NOW, removed)).toBe(
-      awaiting,
-    )
+    expect(
+      pruneAwaiting(awaiting, 'issueProjections', [], (i: IssueProjection) => i.id, NOW, removed),
+    ).toBe(awaiting)
   })
 
   it('an absent row retires the overlay so rescope or evict cannot fabricate visibility', () => {

@@ -1,5 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { fixtureMarkers, fixtureGitStates, fixtureProjection } from './normalized-issues'
+import { fixtureGitStates, fixtureMarkers, fixtureProjection } from './normalized-issues'
 /**
  * POD-4443 / POD-4635 — deterministic live-shaped corpus at 1x, 2x and 4x.
  *
@@ -37,6 +37,11 @@ import { fixtureMarkers, fixtureGitStates, fixtureProjection } from './normalize
 import { deriveIssueRollups, indexSessionsByIssue } from '@podium/client-core/replica'
 import type { PinState } from '@podium/client-core/viewmodels'
 import type {
+  SliceIssue,
+  SliceSession,
+  SliceWorktree,
+} from '@podium/client-graph/shared/slice-types'
+import type {
   GitRepositoryWire,
   IssueDepProjection,
   IssueProjection,
@@ -45,7 +50,6 @@ import type {
   SessionMeta,
 } from '@podium/model'
 import { spreadSortKeys } from '@podium/model'
-import type { SliceIssue, SliceSession, SliceWorktree } from '@podium/client-graph/shared/slice-types'
 
 /** The corpus clock. Sits inside the defer band thresholds (spec §3 R-ORDER):
  *  `deferUntil` values are minted ±45 d around it, so bands 0/1/2 are all live.
@@ -2289,7 +2293,16 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
       worktreePath: m.worktree,
       branch: null,
       needsHuman: needsHuman.has(i),
-      ...(needsHuman.has(i) ? { asked: { question: `Question ${i}`, options: ['Ship', 'Hold'], at: iso(FIXED_NOW), by: `s-asker-${i}` } } : {}),
+      ...(needsHuman.has(i)
+        ? {
+            asked: {
+              question: `Question ${i}`,
+              options: ['Ship', 'Hold'],
+              at: iso(FIXED_NOW),
+              by: `s-asker-${i}`,
+            },
+          }
+        : {}),
       priority: 2,
       type: 'task',
       labels: [],
@@ -2592,16 +2605,26 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
     units: spans,
     fixedNow: FIXED_NOW,
     issues,
-    issueProjections: issueProjections.map((projection, index) => fixtureProjection(issues[index]!, projection)),
+    issueProjections: issueProjections.map((projection, index) =>
+      fixtureProjection(issues[index]!, projection),
+    ),
     issueUserStates: fixtureMarkers(issues),
     issueGitStates: fixtureGitStates(issues),
     sessions: typedSessions,
-    repoProjections: repoProjections.map(repo => ({ ...repo, repoPath: units[0]!.primaryRoot.get(repo.id) ?? '' })),
+    repoProjections: repoProjections.map((repo) => ({
+      ...repo,
+      repoPath: units[0]!.primaryRoot.get(repo.id) ?? '',
+    })),
     issueDeps,
     repos,
     machines,
     pins: { panels: [], worktrees: [], repos: [] },
-    sliceIssues: sliceIssues.map((issue, index) => ({ ...issue, isDraftVessel: issues[index]?.isDraftVessel ?? false, intentOrigin: issues[index]?.intentOrigin, asked: issueProjections[index]?.asked })),
+    sliceIssues: sliceIssues.map((issue, index) => ({
+      ...issue,
+      isDraftVessel: issues[index]?.isDraftVessel ?? false,
+      intentOrigin: issues[index]?.intentOrigin,
+      asked: issueProjections[index]?.asked,
+    })),
     sliceSessions,
     sliceWorktrees,
     unscannedWorktree: {

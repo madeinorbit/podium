@@ -5,8 +5,8 @@ import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/pri
 import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
-import * as runtimePool from '@podium/client-graph/runtime-pool'
 import { startSidebarCheck } from '@podium/client-graph/diagnostics/runtime-check'
+import * as runtimePool from '@podium/client-graph/runtime-pool'
 import { asUserId } from '@podium/model'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -19,7 +19,9 @@ import {
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 
 const choice = vi.hoisted(() => ({ mode: 'pool', check: false }))
-vi.mock('@podium/client-graph/diagnostics/runtime-check', () => ({ startSidebarCheck: vi.fn(() => vi.fn()) }))
+vi.mock('@podium/client-graph/diagnostics/runtime-check', () => ({
+  startSidebarCheck: vi.fn(() => vi.fn()),
+}))
 vi.mock('@/lib/sidebar-data-layer', () => ({
   initializeSidebarDataLayer: () => {},
   sidebarDataLayer: () => choice.mode,
@@ -121,7 +123,10 @@ describe('StoreProvider owns the sidebar pool', () => {
     expect(vi.mocked(startSidebarCheck).mock.calls[0]![2]).toMatchObject({ startup: true })
     const stop = vi.mocked(startSidebarCheck).mock.results[0]!.value
     const original = pool.dispose.bind(pool)
-    vi.spyOn(pool, 'dispose').mockImplementation(() => { expect(stop).toHaveBeenCalledTimes(1); original() })
+    vi.spyOn(pool, 'dispose').mockImplementation(() => {
+      expect(stop).toHaveBeenCalledTimes(1)
+      original()
+    })
     render(null)
     expect(stop).toHaveBeenCalledTimes(1)
   })

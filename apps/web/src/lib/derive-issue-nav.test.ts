@@ -1,4 +1,3 @@
-import type { UnbrandIds } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   draftIssueLabel,
@@ -6,11 +5,8 @@ import {
   resolveDefaultAgent,
   sessionsForIssueNav,
 } from '@podium/client-core/viewmodels'
-import {
-  asSessionId,
-  type SessionMeta,
-  type SessionMetaInput,
-} from '@podium/model'
+import type { UnbrandIds } from '@podium/model'
+import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { filterBoardScope } from '@/features/issues/issues-display'
 
@@ -119,7 +115,9 @@ describe('draftIssueLabel', () => {
     // Claude Code seeds its terminal title from its GLOBAL history, so an
     // un-summarized session can advertise an unrelated older conversation.
     const sessions = [sess('a', WT, { issueId: 'i1', title: '✻ Fixing the bug' })]
-    expect(draftIssueLabel(issue({ isDraftVessel: true }), sessions, ROOTS)).toBe('New Claude session')
+    expect(draftIssueLabel(issue({ isDraftVessel: true }), sessions, ROOTS)).toBe(
+      'New Claude session',
+    )
   })
 
   it("falls back to 'New agent' when there is no session at all", () => {
@@ -128,9 +126,13 @@ describe('draftIssueLabel', () => {
 
   it('labels a still-unstarted session (boot-noise or empty title) by its kind', () => {
     const untitled = [sess('a', WT, { issueId: 'i1', title: '' })]
-    expect(draftIssueLabel(issue({ isDraftVessel: true }), untitled, ROOTS)).toBe('New Claude session')
+    expect(draftIssueLabel(issue({ isDraftVessel: true }), untitled, ROOTS)).toBe(
+      'New Claude session',
+    )
     const bootTitle = [sess('a', WT, { issueId: 'i1', title: '✳ Claude Code' })]
-    expect(draftIssueLabel(issue({ isDraftVessel: true }), bootTitle, ROOTS)).toBe('New Claude session')
+    expect(draftIssueLabel(issue({ isDraftVessel: true }), bootTitle, ROOTS)).toBe(
+      'New Claude session',
+    )
   })
 })
 

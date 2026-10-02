@@ -28,6 +28,11 @@ import { act, type ReactElement, useCallback, useState, useSyncExternalStore } f
 import { createRoot } from 'react-dom/client'
 import { describe, expect, it } from 'vitest'
 import {
+  type HarnessHandPoolHandle,
+  harnessHandPoolArm,
+  poolPendingLoads,
+} from '../../../../harness/src/adapters/hand-pool'
+import {
   assertCommits,
   assertReads,
   mountArmForCounts,
@@ -54,7 +59,6 @@ import {
   upsert,
   writeTitleRename,
 } from '../../../../shared/src/scenarios'
-import { harnessHandPoolArm, poolPendingLoads, type HarnessHandPoolHandle } from '../../../../harness/src/adapters/hand-pool'
 import type { HandPool } from '../pool'
 import { PoolRow } from '../react/row'
 
@@ -415,7 +419,11 @@ async function runHiddenSpinOffRename(
   const visible = rowViewsFromStore(store, engineLocals(ctx))
   let origin: string | undefined
   let spinOff: string | undefined
-  for (const issue of allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates)) {
+  for (const issue of allIssueViewModels(
+    store.replica,
+    store.issueProjections,
+    store.issueUserStates,
+  )) {
     const from = issue.deps?.find((dep) => dep.type === 'discovered-from')?.id
     if (from === undefined || visible[from] === undefined) continue
     if (issue.closedAt != null || visible[issue.id] !== undefined) continue

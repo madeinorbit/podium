@@ -5,8 +5,8 @@
  * the outbox survives a discard. These tests pin identity replacement and durable-outbox preservation at the Replica seam.
  */
 
-import { asMutationId } from '@podium/model'
 import { addSink } from '@podium/logger'
+import { asMutationId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
 import { COLD_CURSOR } from './feed'
@@ -121,7 +121,9 @@ describe('onMetadataApplied — rung 4 is wired, not just implemented', () => {
       })
 
       const seen: number[] = []
-      replica.subscribeRows('issueProjections', () => seen.push(replica.rows('issueProjections').length))
+      replica.subscribeRows('issueProjections', () =>
+        seen.push(replica.rows('issueProjections').length),
+      )
       apply({
         cursor: 3,
         ...lists([{ id: 'new', title: 'new' }]),

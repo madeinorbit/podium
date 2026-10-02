@@ -47,7 +47,10 @@ describe('the sync adapter query port', () => {
 
     await expect(
       queries.createOrJoinTransaction(async () => {
-        await repo.appendChanges([{ entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{}' }], 1)
+        await repo.appendChanges(
+          [{ entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{}' }],
+          1,
+        )
         expect(await repo.maxChangeSeq()).toBe(1)
         throw new Error("roll the caller's span back")
       }),

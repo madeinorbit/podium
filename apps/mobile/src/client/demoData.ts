@@ -1,12 +1,11 @@
-import type { UnbrandIds } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { SessionId } from '@podium/model'
+import type { SessionId, UnbrandIds } from '@podium/model'
 import {
   actorUser,
-  asUserId,
   asIssueId,
   asMachineId,
   asSessionId,
+  asUserId,
   type HostMetricsWire,
   type MachineQuotaWire,
   type MachineWire,
@@ -206,7 +205,8 @@ export const DEMO_SESSIONS: SessionMeta[] = [
 
 /** Shared scaffolding for the demo proposals (POD-277's screening deck). */
 function proposal(
-  partial: Partial<UnbrandIds<IssueViewModel>> & Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'description'>,
+  partial: Partial<UnbrandIds<IssueViewModel>> &
+    Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'description'>,
 ): IssueViewModel {
   return {
     repoPath: '/home/dev/src/podium',
@@ -255,7 +255,8 @@ function proposal(
  * proposal nobody has accepted, and one done.
  */
 function missionTask(
-  partial: Partial<UnbrandIds<IssueViewModel>> & Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'description'>,
+  partial: Partial<UnbrandIds<IssueViewModel>> &
+    Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'description'>,
 ): IssueViewModel {
   return {
     ...proposal(partial),
@@ -475,8 +476,10 @@ export const DEMO_ISSUES: IssueViewModel[] = [
     type: 'bug',
     pinned: false,
     needsHuman: true,
-    asked: { question: 'Should refresh tokens rotate on every use, or only on expiry?',
-      options: ['Rotate every use', 'Rotate on expiry only'] },
+    asked: {
+      question: 'Should refresh tokens rotate on every use, or only on expiry?',
+      options: ['Rotate every use', 'Rotate on expiry only'],
+    },
     color: 'teal',
     labels: [],
     deps: [],

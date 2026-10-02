@@ -87,6 +87,4 @@ describe('mail eligibility triggers on the normalized issue record (POD-4971)', 
       expect(durableSends(daemon, sessionId).map((send) => send.rowId)).toEqual([sent.message.id])
     })
   })
-
-
 })

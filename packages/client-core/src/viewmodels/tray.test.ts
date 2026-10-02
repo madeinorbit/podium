@@ -1,4 +1,3 @@
-import type { IssueViewModel } from '../replica/issue-view-models'
 import {
   asSessionId,
   type SessionMeta,
@@ -6,6 +5,7 @@ import {
   type UnbrandIds,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { IssueViewModel } from '../replica/issue-view-models'
 import type { IssueNavigationModel } from './slices/issues'
 import { deriveTrayItems as deriveTrayItemsCore, offerKey, workingSessionCount } from './tray'
 
@@ -276,8 +276,20 @@ describe('workingSessionCount', () => {
       session({ sessionId: 'w6' }),
       session({ sessionId: 'w7' }),
     ] as SessionMeta[]
-    const issue = { ...makeIssue({ id: 'p' }), memberSessionIds: [asSessionId('w1'), asSessionId('w2'), asSessionId('w3'), asSessionId('w4'), asSessionId('w5')] }
-    const child = { ...makeIssue({ id: 'c', parentId: 'p' }), memberSessionIds: [asSessionId('w6')] }
+    const issue = {
+      ...makeIssue({ id: 'p' }),
+      memberSessionIds: [
+        asSessionId('w1'),
+        asSessionId('w2'),
+        asSessionId('w3'),
+        asSessionId('w4'),
+        asSessionId('w5'),
+      ],
+    }
+    const child = {
+      ...makeIssue({ id: 'c', parentId: 'p' }),
+      memberSessionIds: [asSessionId('w6')],
+    }
     const outside = { ...makeIssue({ id: 'x' }), memberSessionIds: [asSessionId('w7')] }
     expect(workingSessionCount([issue, child, outside], sessions)).toBe(3)
   })

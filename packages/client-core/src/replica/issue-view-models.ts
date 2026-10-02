@@ -6,7 +6,16 @@
  * React into a platform-neutral slice, and it must not restate unread
  * derivation (POD-843).
  */
-import { asIssueId, type IssueGitState, IssueGitStateProjection, IssueId, IssueProjection, IssueUserStateWire, RepoProjection, SessionId } from '@podium/model'
+import {
+  asIssueId,
+  type IssueGitState,
+  type IssueGitStateProjection,
+  type IssueId,
+  type IssueProjection,
+  type IssueUserStateWire,
+  type RepoProjection,
+  type SessionId,
+} from '@podium/model'
 import {
   buildIssueTree,
   deriveIssueRollups,
@@ -46,8 +55,12 @@ const EMPTY_ROLLUPS: IssueSessionRollups = {
 /** Replica-side render model. Durable facts retain the normalized spellings;
  * personal markers, git observations and repo facts come from their own kinds.
  * Description is materialized for rendering, and unset checkout paths are null. */
-export type IssueViewModel = Omit<IssueProjection, 'description' | 'notes' | 'worktreePath' | 'branch'> &
-  Omit<IssueView, 'id'> & Partial<IssueSessionRollups> & {
+export type IssueViewModel = Omit<
+  IssueProjection,
+  'description' | 'notes' | 'worktreePath' | 'branch'
+> &
+  Omit<IssueView, 'id'> &
+  Partial<IssueSessionRollups> & {
     description: string
     notes?: string
     worktreePath: string | null
@@ -89,9 +102,9 @@ export function deriveIssueViewsSnapshot(
     sessionById: sessionIndex,
     issueInputById: issueIndex,
     issueUserStates,
-    userStateByIssueId: new Map(issueUserStates.map(row => [row.entityId, row])),
-    gitStateByIssueId: new Map(replica.rows('issueGitStates').map(row => [row.id, row])),
-    repoById: new Map(replica.rows('repos').map(row => [row.id, row])),
+    userStateByIssueId: new Map(issueUserStates.map((row) => [row.entityId, row])),
+    gitStateByIssueId: new Map(replica.rows('issueGitStates').map((row) => [row.id, row])),
+    repoById: new Map(replica.rows('repos').map((row) => [row.id, row])),
     rollupsFor: (issueId) => {
       const hit = rollupCache.get(issueId)
       if (hit) return hit
@@ -133,11 +146,14 @@ export function buildIssueViewModel(
     gitState,
     repoPath: repo?.repoPath ?? '',
     prefix: repo?.prefix ?? undefined,
-    deps: (snapshot.issueInputById.get(projection.id)?.deps ?? []).map(dep => ({ ...dep, id: asIssueId(dep.id) })),
+    deps: (snapshot.issueInputById.get(projection.id)?.deps ?? []).map((dep) => ({
+      ...dep,
+      id: asIssueId(dep.id),
+    })),
     ...deriveIssueRollups(
       { readAt, updatedAt: projection.updatedAt, deletedAt: projection.deletedAt },
       view.memberSessionIds,
-      id => snapshot.sessionById.get(id),
+      (id) => snapshot.sessionById.get(id),
     ),
   }
 }
@@ -150,7 +166,7 @@ export function buildIssueViewModels(
   userStateRows: readonly IssueUserStateWire[] = snapshot.issueUserStates,
 ): Map<string, IssueViewModel> {
   const models = new Map<string, IssueViewModel>()
-  const userStateById = new Map(userStateRows.map(row => [row.entityId, row]))
+  const userStateById = new Map(userStateRows.map((row) => [row.entityId, row]))
   for (const projection of projectionRows) {
     const model = buildIssueViewModel(snapshot, projection, userStateById.get(projection.id))
     if (model) models.set(projection.id, model)
@@ -163,5 +179,9 @@ export function issueViewModelsFromReplica(
   projectionRows: readonly IssueProjection[] = replica.rows('issueProjections'),
   userStateRows: readonly IssueUserStateWire[] = replica.rows('issueUserStates'),
 ): Map<string, IssueViewModel> {
-  return buildIssueViewModels(deriveIssueViewsSnapshot(replica, undefined, projectionRows, userStateRows), projectionRows, userStateRows)
+  return buildIssueViewModels(
+    deriveIssueViewsSnapshot(replica, undefined, projectionRows, userStateRows),
+    projectionRows,
+    userStateRows,
+  )
 }

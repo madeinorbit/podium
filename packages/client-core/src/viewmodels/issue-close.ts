@@ -1,7 +1,6 @@
 import type { SessionView } from '../session-values'
-import type { IssueNavigationModel } from './slices/issues'
-
 import { isSessionWorking } from './session-status'
+import type { IssueNavigationModel } from './slices/issues'
 
 /**
  * WHAT A CLOSE WOULD COST, DERIVED ONCE FOR EVERY SURFACE [POD-1129].

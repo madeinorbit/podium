@@ -22,6 +22,7 @@ import { fixtureViewModels } from './normalized-issues'
 
 import { createHmac, randomBytes } from 'node:crypto'
 import type { PinState } from '@podium/client-core/viewmodels'
+import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type {
   GitRepositoryWire,
   IssueDepProjection,
@@ -30,7 +31,6 @@ import type {
   RepoProjection,
   SessionMeta,
 } from '@podium/model'
-import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { expectedSnapshot } from '../oracle/index'
 import type { CorpusScale, FixtureCorpus } from './index'
 

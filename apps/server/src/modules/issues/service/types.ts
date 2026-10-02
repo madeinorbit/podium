@@ -1,4 +1,3 @@
-import type { WorldIndexReader } from '../../world-index'
 import type {
   AccountId,
   ArtifactId,
@@ -20,9 +19,10 @@ import type {
   LedgerCommitResult,
 } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'
-import type { SessionFacts } from '../../sessions/facts'
 import type { llmClient } from '../../../llm'
 import type { IssueRow, SessionStore } from '../../../store'
+import type { SessionFacts } from '../../sessions/facts'
+import type { WorldIndexReader } from '../../world-index'
 
 /**
  * The write-funnel face IssueService mutations run through (issue #190): the
@@ -171,10 +171,7 @@ export interface IssueDeps {
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** The member sessions of ONE issue, WIRED [POD-1639] — for the two reads
    *  whose output carries the sessions to a client (`issues.get`, the tree). */
-  listSessionsForIssue(
-    worktreePath: string | null,
-    issueId: IssueId,
-  ): Promise<SessionMeta[]>
+  listSessionsForIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionMeta[]>
   /** A KNOWN SET of sessions, wired [POD-2322]. The issue tree selects member
    *  ids across the whole subtree from facts, then projects only those. */
   sessionsById(sessionIds: Iterable<SessionId>): Promise<SessionMeta[]>

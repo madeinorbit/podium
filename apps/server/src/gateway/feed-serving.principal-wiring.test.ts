@@ -57,9 +57,9 @@
 import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
+  CLIENT_WIRE_VERSION,
   type ClientMessage,
   type ServerMessage,
-  CLIENT_WIRE_VERSION,
 } from '@podium/protocol'
 import {
   GrantEdgeVisibilityPolicy,
@@ -170,7 +170,10 @@ async function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]
   }
 }
 
-const helloFrom = (clientId: string, caps: string[] = [CAP_METADATA_DELTA, 'sync.http.v1']): ClientMessage => ({
+const helloFrom = (
+  clientId: string,
+  caps: string[] = [CAP_METADATA_DELTA, 'sync.http.v1'],
+): ClientMessage => ({
   type: 'hello',
   clientId,
   viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -200,7 +203,12 @@ async function settle(g: Awaited<ReturnType<typeof gateway>>) {
   await vi.waitFor(() => {
     for (const socket of g.sockets) {
       if (!g.registry.get(socket.id)) continue
-      expect(socket.received.some((frame) => (frame.type === 'feedDelta' || frame.type === 'feedResume') && frame.seq >= head)).toBe(true)
+      expect(
+        socket.received.some(
+          (frame) =>
+            (frame.type === 'feedDelta' || frame.type === 'feedResume') && frame.seq >= head,
+        ),
+      ).toBe(true)
     }
   })
 }
@@ -213,7 +221,6 @@ function changesOn(socket: Socket): { seq: number; entityId: string; op: string 
       : [],
   )
 }
-
 
 const leakedTo = (socket: Socket, entityId: string): boolean =>
   socket.received.some((msg) => JSON.stringify(msg).includes(entityId))
@@ -315,14 +322,16 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
       g.changeVisibility(() => grants.set('issue-shared', visible ? [BOB] : []))
       expect(await g.plumbing.authority.cursor()).toBe(head)
       const socket = await g.signIn(BOB)
-      expect(socket.received.filter(m => m.type === 'feedResume')).toHaveLength(1)
-      expect(socket.received.filter(m => ['feedBootstrap', 'issuesChanged'].includes(m.type))).toEqual([])
+      expect(socket.received.filter((m) => m.type === 'feedResume')).toHaveLength(1)
+      expect(
+        socket.received.filter((m) => ['feedBootstrap', 'issuesChanged'].includes(m.type)),
+      ).toEqual([])
       expect(bootstrap).not.toHaveBeenCalled()
       const principal = g.mux.principalOf(socket.id)
       if (!principal) throw new Error('missing authenticated principal')
       // A fresh authority read (the HTTP producer's source) evaluates current grants.
       const world = await g.plumbing.authority.bootstrap(feedPrincipalOf(principal))
-      expect(world.changes.some(c => c.entityId === 'issue-shared')).toBe(visible)
+      expect(world.changes.some((c) => c.entityId === 'issue-shared')).toBe(visible)
       bootstrap.mockClear()
       g.mux.detachClient(socket.id)
     }

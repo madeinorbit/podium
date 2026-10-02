@@ -34,8 +34,7 @@ export interface GitProbeIo {
  * harness-supplied attribution inputs this module never guesses from checkout
  * state.
  */
-export interface GitProbeTarget
-  extends Pick<IssueProjection, 'parentBranch' | 'machineId'> {
+export interface GitProbeTarget extends Pick<IssueProjection, 'parentBranch' | 'machineId'> {
   branch: string | null
   /** Checkout to probe: the issue worktree, or the session cwd on shared work. */
   cwd: string

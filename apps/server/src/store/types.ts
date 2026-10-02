@@ -197,7 +197,7 @@ export interface SessionRow {
    *
    * `null` = a row from before this column, or one whose daemon never reported
    * a selection. Never backfilled.
-  */
+   */
   selectedDriverId?: string | null
   /** Concrete per-session driver preference, preserved independently of fallback. */
   requestedDriverId?: string | null

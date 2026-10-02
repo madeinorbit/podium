@@ -1,7 +1,12 @@
-import { IssueProjection as IssueProjectionSchema } from '@podium/model'
-import { allIssueViewModels } from '@podium/client-core/replica'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { fixtureMarkers, fixtureGitStates, fixtureProjection } from '../../harness/src/fixture/normalized-issues'
+import { allIssueViewModels } from '@podium/client-core/replica'
+import { IssueProjection as IssueProjectionSchema } from '@podium/model'
+import {
+  fixtureGitStates,
+  fixtureMarkers,
+  fixtureProjection,
+} from '../../harness/src/fixture/normalized-issues'
+
 /**
  * POD-4444 / POD-4550 — the scenario replay library (methodology §5.8), over
  * the ONE corpus.
@@ -79,24 +84,28 @@ import { fixtureMarkers, fixtureGitStates, fixtureProjection } from '../../harne
  * silent afterwards.
  */
 
-import type { EntityRecord } from '@podium/sync/replica'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { type CoarseClock, createClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
+import {
+  type CoarseClock,
+  createClientRuntime,
+  openKernelEngineOutbox,
+} from '@podium/client-core/engine'
 import type { OnlineEvents } from '@podium/client-core/outbox'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {
   createKernelReplica,
   createSideCache,
-  memoryStorage,
   type KernelCacheRead,
   type KernelEntity,
+  memoryStorage,
 } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RouterWindow } from '@podium/client-core/ui-state'
+import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { asIssueId, asUserId, issueUserStateRowId, type SessionMeta } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
+import type { EntityRecord } from '@podium/sync/replica'
 import { buildCorpus, type CorpusScale, type FixtureCorpus } from '../../harness/src/fixture/index'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
 import type { RowSourceEvent } from './stats'
 
 // ------------------------------------------------------------------ corpus
@@ -173,7 +182,11 @@ export function seedCacheFromCorpus(
   for (const projection of corpus.issueProjections)
     rows.push({ entity: 'issueProjection', entityId: projection.id, value: own(projection) })
   for (const state of corpus.issueUserStates ?? fixtureMarkers(corpus.issues))
-    rows.push({ entity: 'issueUserState', entityId: issueUserStateRowId(state.userId, state.entityId), value: own(state) })
+    rows.push({
+      entity: 'issueUserState',
+      entityId: issueUserStateRowId(state.userId, state.entityId),
+      value: own(state),
+    })
   for (const git of corpus.issueGitStates ?? fixtureGitStates(corpus.issues))
     rows.push({ entity: 'issueGitState', entityId: git.id, value: own(git) })
   for (const session of corpus.sessions)
@@ -235,7 +248,11 @@ function fakeRouterWindow(): RouterWindow {
  * `rejectNextMarkRead`).
  */
 export interface ScenarioServer {
-  issueUpdate?: (input: { id: string; patch: Record<string, unknown>; mutationId: string }) => Promise<unknown>
+  issueUpdate?: (input: {
+    id: string
+    patch: Record<string, unknown>
+    mutationId: string
+  }) => Promise<unknown>
   issueMarkRead?: (input: { id: string; mutationId: string }) => Promise<unknown>
 }
 
@@ -469,8 +486,7 @@ export function targetRules(corpus: FixtureCorpus): {
   // The family is every session bound to the issue (`issue.sessions`, the
   // schema's R2 membership: headless sessions excepted).
   const familyOf = (id: string): number =>
-    (sessionsOf.get(id) ?? []).filter((s) => (s as { headless?: boolean }).headless !== true)
-      .length
+    (sessionsOf.get(id) ?? []).filter((s) => (s as { headless?: boolean }).headless !== true).length
   const openRoot = (id: string): boolean => {
     const i = byId.get(id)
     return i !== undefined && isOpenHuman(i) && !i.parentId && !i.pinned
@@ -616,7 +632,10 @@ export function pickTargets(corpus: FixtureCorpus): ScenarioTargets {
       })
       .sort((a, b) => numericId(a.sessionId) - numericId(b.sessionId))[0] ??
     fail('session on a closed agent root')
-  const burstIssueIds = issues.filter((i) => openHuman(i)).slice(0, 50).map((i) => i.id)
+  const burstIssueIds = issues
+    .filter((i) => openHuman(i))
+    .slice(0, 50)
+    .map((i) => i.id)
   if (burstIssueIds.length < 50) fail('50 open human issues for the burst')
   const repo = corpus.repos[0] ?? fail('repo for the new issue')
 
@@ -715,7 +734,16 @@ export async function startEngineOnCorpus(
   opts: EngineOptions = {},
 ): Promise<ScenarioEngine> {
   const principal = opts.principal ?? 'u-bench'
-  const cache = seedCacheFromCorpus({ ...corpus, issueUserStates: (corpus.issueUserStates ?? fixtureMarkers(corpus.issues)).map(row => ({ ...row, userId: asUserId(principal) })) }, { ownRows: opts.ownRows === true })
+  const cache = seedCacheFromCorpus(
+    {
+      ...corpus,
+      issueUserStates: (corpus.issueUserStates ?? fixtureMarkers(corpus.issues)).map((row) => ({
+        ...row,
+        userId: asUserId(principal),
+      })),
+    },
+    { ownRows: opts.ownRows === true },
+  )
   await opts.stage?.('cache')
   const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
   const newReplica = () => createKernelReplica({ cache, side })
@@ -758,7 +786,9 @@ export async function startEngineOnCorpus(
       createHub: () => hub as unknown as SocketHub,
       coarseClock: clock,
       ...(createOutboxFn ? { createOutboxFn } : {}),
-      ...(opts.network ? { isOnline: opts.network.isOnline, onlineEvents: opts.network.onlineEvents } : {}),
+      ...(opts.network
+        ? { isOnline: opts.network.isOnline, onlineEvents: opts.network.onlineEvents }
+        : {}),
     })
     return { engine, hub }
   }
@@ -832,13 +862,15 @@ export interface ScenarioSnapshot {
 export function captureSnapshot(engine: ScenarioEngine['engine']): ScenarioSnapshot {
   const snap = engine.getSnapshot()
   return {
-    issues: allIssueViewModels(engine.replica, snap.issueProjections, snap.issueUserStates).map((i) => ({
-      id: i.id,
-      title: (i as { title?: unknown }).title as string,
-      stage: (i as { stage?: unknown }).stage as string,
-      archived: Boolean((i as { archived?: unknown }).archived),
-      readAt: (i as { readAt?: unknown }).readAt ?? null,
-    })),
+    issues: allIssueViewModels(engine.replica, snap.issueProjections, snap.issueUserStates).map(
+      (i) => ({
+        id: i.id,
+        title: (i as { title?: unknown }).title as string,
+        stage: (i as { stage?: unknown }).stage as string,
+        archived: Boolean((i as { archived?: unknown }).archived),
+        readAt: (i as { readAt?: unknown }).readAt ?? null,
+      }),
+    ),
     sessions: snap.sessions.map((s) => ({
       sessionId: s.sessionId,
       lastActiveAt: s.lastActiveAt,
@@ -991,25 +1023,51 @@ export function upsert(
   readmitted = false,
 ): void {
   ctx.cache.put(entity, entityId, value)
-  ctx.replica.onKernelEvent({ type: 'upserted', record: { entity, entityId, value, provenance: { seq } }, readmitted } as never)
+  ctx.replica.onKernelEvent({
+    type: 'upserted',
+    record: { entity, entityId, value, provenance: { seq } },
+    readmitted,
+  } as never)
 }
 
 /** Fixture authority write: facts, personal markers, and git observations have
  * independent homes, just as they do on the server. No materialized view is cached. */
-export function upsertIssue(ctx: ScenarioEngine, id: string, input: unknown, seq = 2, readmitted = false): void {
+export function upsertIssue(
+  ctx: ScenarioEngine,
+  id: string,
+  input: unknown,
+  seq = 2,
+  readmitted = false,
+): void {
   const value = input as Record<string, unknown>
   const previous = ctx.cache.read('issueProjection', id)?.value as object | undefined
-  const facts = Object.fromEntries(Object.entries(value).filter(([key]) => Object.hasOwn(IssueProjectionSchema.shape, key)))
+  const facts = Object.fromEntries(
+    Object.entries(value).filter(([key]) => Object.hasOwn(IssueProjectionSchema.shape, key)),
+  )
   if (typeof facts.description === 'string') facts.description = { value: facts.description }
   if (typeof facts.notes === 'string') facts.notes = { value: facts.notes }
   ctx.replica.batch(() => {
-    upsert(ctx, 'issueProjection', id, {
-      description: { value: '' }, intentOrigin: 'human', isDraftVessel: false,
-      ...previous, ...facts, id,
-    }, seq, readmitted)
-    const markers = Object.fromEntries(Object.entries(value).filter(([key]) => ['readAt', 'tuckedAt', 'pinned'].includes(key)))
+    upsert(
+      ctx,
+      'issueProjection',
+      id,
+      {
+        description: { value: '' },
+        intentOrigin: 'human',
+        isDraftVessel: false,
+        ...previous,
+        ...facts,
+        id,
+      },
+      seq,
+      readmitted,
+    )
+    const markers = Object.fromEntries(
+      Object.entries(value).filter(([key]) => ['readAt', 'tuckedAt', 'pinned'].includes(key)),
+    )
     if (Object.keys(markers).length) patchIssueMarkers(ctx, id, markers, seq)
-    if (value.gitState) upsert(ctx, 'issueGitState', id, { ...value.gitState as object, id }, seq, readmitted)
+    if (value.gitState)
+      upsert(ctx, 'issueGitState', id, { ...(value.gitState as object), id }, seq, readmitted)
   })
 }
 
@@ -1032,26 +1090,56 @@ export function remove(ctx: ScenarioEngine, entity: KernelEntity, entityId: stri
 // generator does, gen/run.ts). The cache also keeps every resume twin the
 // snapshot's session list collapses.
 
-function patchSession(ctx: ScenarioEngine, sessionId: string, patch: Record<string, unknown>): void {
+function patchSession(
+  ctx: ScenarioEngine,
+  sessionId: string,
+  patch: Record<string, unknown>,
+): void {
   const current = ctx.cache.read('session', sessionId)?.value as object | undefined
   if (!current) throw new Error(`session ${sessionId} missing from the server cache`)
   upsert(ctx, 'session', sessionId, { ...current, ...patch })
 }
 
 /** Apply own facts and personal markers through their independent feed rows. */
-function patchIssue(ctx: ScenarioEngine, id: string, modelPatch: Record<string, unknown>, projectionPatch: Record<string, unknown> = {}): void {
+function patchIssue(
+  ctx: ScenarioEngine,
+  id: string,
+  modelPatch: Record<string, unknown>,
+  projectionPatch: Record<string, unknown> = {},
+): void {
   const projection = ctx.cache.read('issueProjection', id)?.value as object | undefined
   if (!projection) throw new Error(`issue ${id} missing from the server cache`)
   ctx.replica.batch(() => {
     upsert(ctx, 'issueProjection', id, { ...projection, ...projectionPatch })
-    const markers = Object.fromEntries(Object.entries(modelPatch).filter(([key]) => ['readAt', 'tuckedAt', 'pinned'].includes(key)))
+    const markers = Object.fromEntries(
+      Object.entries(modelPatch).filter(([key]) => ['readAt', 'tuckedAt', 'pinned'].includes(key)),
+    )
     if (Object.keys(markers).length) patchIssueMarkers(ctx, id, markers)
   })
 }
-function patchIssueMarkers(ctx: ScenarioEngine, id: string, patch: Record<string, unknown>, seq = 2): void {
+function patchIssueMarkers(
+  ctx: ScenarioEngine,
+  id: string,
+  patch: Record<string, unknown>,
+  seq = 2,
+): void {
   const rowId = issueUserStateRowId(ctx.engine.principal.userId, asIssueId(id))
   const state = ctx.cache.read('issueUserState', rowId)?.value as object | undefined
-  upsert(ctx, 'issueUserState', rowId, { userId: ctx.engine.principal.userId, entityId: id, readAt: null, tuckedAt: null, pinned: false, ...state, ...patch }, seq)
+  upsert(
+    ctx,
+    'issueUserState',
+    rowId,
+    {
+      userId: ctx.engine.principal.userId,
+      entityId: id,
+      readAt: null,
+      tuckedAt: null,
+      pinned: false,
+      ...state,
+      ...patch,
+    },
+    seq,
+  )
 }
 function evictIssueRows(ctx: ScenarioEngine, id: string): void {
   evict(ctx, 'issueProjection', id)
@@ -1132,7 +1220,10 @@ function freshIssue(
 // awaits). One body per write.
 
 /** #1 — heartbeat on a session of a row the worklist never shows. */
-export function applyHeartbeat(ctx: ScenarioEngine, sessionId = ctx.targets.heartbeatSessionId): string {
+export function applyHeartbeat(
+  ctx: ScenarioEngine,
+  sessionId = ctx.targets.heartbeatSessionId,
+): string {
   patchSession(ctx, sessionId, { lastActiveAt: ctx.stamp() })
   return sessionId
 }
@@ -1153,7 +1244,12 @@ export async function writePhaseChange(ctx: ScenarioEngine): Promise<string> {
 }
 
 /** The ledger entities an optimistic write can paint. */
-const OVERLAY_ENTITIES = ['sessions', 'sessionUserStates', 'issueUserStates', 'issueProjections'] as const
+const OVERLAY_ENTITIES = [
+  'sessions',
+  'sessionUserStates',
+  'issueUserStates',
+  'issueProjections',
+] as const
 
 /**
  * The rows the runtime's optimism ledger still holds a write for — queued,
@@ -1221,7 +1317,10 @@ export function applyStageMove(ctx: ScenarioEngine, id = ctx.targets.stageMoveId
   return id
 }
 
-export async function writeStageMove(ctx: ScenarioEngine, id = ctx.targets.stageMoveId): Promise<string> {
+export async function writeStageMove(
+  ctx: ScenarioEngine,
+  id = ctx.targets.stageMoveId,
+): Promise<string> {
   applyStageMove(ctx, id)
   await settled(ctx)
   return id
@@ -1246,14 +1345,20 @@ export async function writeNewIssue(ctx: ScenarioEngine, id = 'i-new'): Promise<
 }
 
 /** #6b — an issue is archived. */
-export async function writeArchiveIssue(ctx: ScenarioEngine, id = ctx.targets.archiveId): Promise<string> {
+export async function writeArchiveIssue(
+  ctx: ScenarioEngine,
+  id = ctx.targets.archiveId,
+): Promise<string> {
   patchIssue(ctx, id, { archived: true }, { archived: true })
   await settled(ctx)
   return id
 }
 
 /** #6c — the authority snapshot omits a row (`evicted`, not `removed`). */
-export async function writeEvictIssue(ctx: ScenarioEngine, id = ctx.targets.evictId): Promise<string> {
+export async function writeEvictIssue(
+  ctx: ScenarioEngine,
+  id = ctx.targets.evictId,
+): Promise<string> {
   evictIssueRows(ctx, id)
   await settled(ctx)
   return id
@@ -1291,7 +1396,10 @@ export async function writeClockTick(ctx: ScenarioEngine, ms = 60_000): Promise<
 
 /** #9 press — optimistic mark-read through the engine. Resolves after the
  *  server confirms (or the kernel rolls back on rejection). */
-export async function writeOptimisticPress(ctx: ScenarioEngine, id = ctx.targets.markReadId): Promise<void> {
+export async function writeOptimisticPress(
+  ctx: ScenarioEngine,
+  id = ctx.targets.markReadId,
+): Promise<void> {
   await ctx.engine.getSnapshot().markIssueRead(asIssueId(id))
   // Not `settled`: the press stays awaiting truth; #9b is its echo.
   await settle(ctx.settleMs)
@@ -1301,7 +1409,10 @@ export async function writeOptimisticPress(ctx: ScenarioEngine, id = ctx.targets
 /** #9 echo — the server confirms the mark-read with its own timestamp. */
 export const OPTIMISTIC_ECHO_READ_AT = '2026-07-09T00:00:00.000Z'
 
-export async function writeOptimisticEcho(ctx: ScenarioEngine, id = ctx.targets.markReadId): Promise<void> {
+export async function writeOptimisticEcho(
+  ctx: ScenarioEngine,
+  id = ctx.targets.markReadId,
+): Promise<void> {
   echoIssueRead(ctx, id, OPTIMISTIC_ECHO_READ_AT, 3)
   await settled(ctx)
 }
@@ -1351,7 +1462,10 @@ export async function writeRescopeGrow(ctx: ScenarioEngine): Promise<void> {
 export async function writeRescopeBack(ctx: ScenarioEngine): Promise<void> {
   ctx.replica.batch(() => {
     for (let n = 0; n < 10; n += 1) {
-      ctx.cache.drop('issueUserState', issueUserStateRowId(asUserId('u-bench'), asIssueId(`i-grow-${n}`)))
+      ctx.cache.drop(
+        'issueUserState',
+        issueUserStateRowId(asUserId('u-bench'), asIssueId(`i-grow-${n}`)),
+      )
       ctx.cache.drop('issueProjection', `i-grow-${n}`)
     }
   })
@@ -1425,7 +1539,9 @@ export function evictWithoutRevision(scale: FixtureScale = 1): Promise<ScenarioR
  *  so the parent must leave the visible set with it. A missing keeper-seat
  *  cleanup keeps a ghost parent and fails parity; #6c cannot fail that way. */
 export function evictKeeperWithoutRevision(scale: FixtureScale = 1): Promise<ScenarioResult> {
-  return scenario('#6d evictKeeperWithoutRevision', '#6d', scale, (ctx) => writeEvictKeeperIssue(ctx))
+  return scenario('#6d evictKeeperWithoutRevision', '#6d', scale, (ctx) =>
+    writeEvictKeeperIssue(ctx),
+  )
 }
 
 /** #7 — a parent reassignment moves a subtree between chains. */

@@ -1,8 +1,7 @@
-import type { UnbrandIds } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { UnbrandIds } from '@podium/model'
 // @vitest-environment happy-dom
-import {
-  } from '@podium/model'
+import {} from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IdSquare, idSquareLabel } from './IdSquare'
@@ -107,7 +106,14 @@ describe('IdSquare identity', () => {
     // POD-783: the prefix used to be two thirds of the number — 6.5px on a 30px
     // square, below anything the shell can legibly render. Both marks now sit on
     // the floor and prefixColor is what separates them.
-    render(<IdSquare issue={issue({ linearIdentifier: 'POD-9' })} state="working" size={30} onColorChange={vi.fn()} />)
+    render(
+      <IdSquare
+        issue={issue({ linearIdentifier: 'POD-9' })}
+        state="working"
+        size={30}
+        onColorChange={vi.fn()}
+      />,
+    )
     expect(square().style.fontSize).toBe('10.5px')
     expect((square().firstElementChild as HTMLElement).style.fontSize).toBe('10.5px')
   })
@@ -273,7 +279,11 @@ describe('IdSquare colour picker', () => {
   it('is identity only on a sub-task — no picker to open', () => {
     const onColorChange = vi.fn()
     render(
-      <IdSquare issue={issue({ parentId: 'iss_root' })} state="working" onColorChange={onColorChange} />,
+      <IdSquare
+        issue={issue({ parentId: 'iss_root' })}
+        state="working"
+        onColorChange={onColorChange}
+      />,
     )
     const el = screen.getByRole('button', { name: 'Task #39' })
     expect(el.getAttribute('aria-haspopup')).toBeNull()

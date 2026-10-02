@@ -1,4 +1,4 @@
-import type { IssueReport, SessionMeta, IssueId, SessionId } from '@podium/model'
+import type { IssueId, IssueReport, SessionId, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import type { InlineButton } from './types'
 

@@ -32,7 +32,16 @@ describe('normalized-only corpus acceptance', () => {
     const expectedById = new Map(corpus.issues.map((row) => [row.id, row]))
     for (const row of after) {
       const expected = expectedById.get(row.id)!
-      for (const field of ['isDraftVessel', 'intentOrigin', 'asked', 'readAt', 'tuckedAt', 'pinned', 'gitState', 'description'] as const) {
+      for (const field of [
+        'isDraftVessel',
+        'intentOrigin',
+        'asked',
+        'readAt',
+        'tuckedAt',
+        'pinned',
+        'gitState',
+        'description',
+      ] as const) {
         expect(row[field], `${row.id}.${field}`).toEqual(expected[field])
       }
     }

@@ -331,12 +331,7 @@ describe('issue/session lifecycle in the unified sidebar', () => {
       closedAt: '2026-07-21T09:00:00.000Z',
       tuckedAt: null,
     })
-    const [group] = groupUnifiedWorkRows([
-      row(oldest),
-      row(newest),
-      row(neverTucked),
-      row(middle),
-    ])
+    const [group] = groupUnifiedWorkRows([row(oldest), row(newest), row(neverTucked), row(middle)])
     expect(group?.closedRows.map((candidate) => candidate.issue.id)).toEqual([
       'newest',
       'middle',

@@ -16,9 +16,8 @@
  * the current store, adapted to the `Arm` interface for measurement.
  */
 
-import { useMemo, useState, useSyncExternalStore, type ReactElement } from 'react'
-import type { SessionMeta } from '@podium/model'
-import { asIssueId } from '@podium/model'
+import type { PodiumClientApi } from '@podium/client-core/api'
+import type { Store } from '@podium/client-core/engine'
 import {
   createSlicePublisher,
   type SliceDefinition,
@@ -26,8 +25,9 @@ import {
   type UnifiedWorkRow,
   type WorklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { Store } from '@podium/client-core/engine'
-import type { PodiumClientApi } from '@podium/client-core/api'
+import type { SessionMeta } from '@podium/model'
+import { asIssueId } from '@podium/model'
+import { type ReactElement, useMemo, useState, useSyncExternalStore } from 'react'
 import { CommitBoundary } from '../../../shared/src/row-shell'
 import type { LegacyControlEngine } from './arm'
 

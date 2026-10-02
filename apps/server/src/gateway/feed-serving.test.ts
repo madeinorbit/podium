@@ -1,6 +1,6 @@
 /** HTTP-only admission over the real Authority, ledger and publisher. */
 import type { ServerMessage } from '@podium/protocol'
-import { MIN_CLIENT_WIRE_VERSION, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { feedTestPlumbing } from './feed-test-plumbing'
@@ -38,13 +38,15 @@ const commit = (
   })
 
 /** Publish whatever the Authority has appended, exactly as the funnel does. */
-async function publishPending(plumbing: Awaited<ReturnType<typeof feedTestPlumbing>>, fromSeq: number): Promise<number> {
+async function publishPending(
+  plumbing: Awaited<ReturnType<typeof feedTestPlumbing>>,
+  fromSeq: number,
+): Promise<number> {
   const delivery = await plumbing.authority.changesSince(fromSeq, DEVICE_GRADE_PRINCIPAL)
   if (delivery === null) throw new Error('the log could not serve from that cursor')
   await plumbing.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
   return delivery.throughSeq
 }
-
 
 describe('HTTP-only feed admission', () => {
   it('grants a populated cold peer the head without reading or pushing a world', async () => {
@@ -68,8 +70,11 @@ describe('HTTP-only feed admission', () => {
     await p.serving.admissionSettled()
     await commit(p, 'session', 's2', { sessionId: 's2' })
     await publishPending(p, 1)
-    expect(peer.last('feedDelta')).toMatchObject({ fromSeq: 1, seq: 2,
-      changes: [{ entityId: 's2', op: 'upsert' }] })
+    expect(peer.last('feedDelta')).toMatchObject({
+      fromSeq: 1,
+      seq: 2,
+      changes: [{ entityId: 's2', op: 'upsert' }],
+    })
     expect(peer.types()).not.toContain('feedBootstrap')
   })
 
@@ -77,7 +82,9 @@ describe('HTTP-only feed admission', () => {
     const p = await feedTestPlumbing()
     for (const version of [MIN_CLIENT_WIRE_VERSION - 1, CLIENT_WIRE_VERSION + 1]) {
       const peer = new Peer(`bad-${version}`, version)
-      expect(p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))?.status).toBe(426)
+      expect(
+        p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))?.status,
+      ).toBe(426)
       await p.serving.admissionSettled()
       expect(peer.received).toEqual([])
     }
@@ -86,7 +93,9 @@ describe('HTTP-only feed admission', () => {
   it('coalesces repeated admission while a cursor read is pending', async () => {
     const p = await feedTestPlumbing()
     let release!: () => void
-    const pending = new Promise<void>(resolve => { release = resolve })
+    const pending = new Promise<void>((resolve) => {
+      release = resolve
+    })
     const read = p.authority.cursor.bind(p.authority)
     const cursor = vi.spyOn(p.authority, 'cursor').mockImplementationOnce(async () => {
       await pending
@@ -105,7 +114,9 @@ describe('HTTP-only feed admission', () => {
   it('does not revive a peer detached while its admission read was pending', async () => {
     const p = await feedTestPlumbing()
     let release!: () => void
-    const pending = new Promise<void>(resolve => { release = resolve })
+    const pending = new Promise<void>((resolve) => {
+      release = resolve
+    })
     const read = p.authority.cursor.bind(p.authority)
     const cursor = vi.spyOn(p.authority, 'cursor').mockImplementationOnce(async () => {
       await pending
@@ -121,7 +132,10 @@ describe('HTTP-only feed admission', () => {
     expect(p.serving.connectionCount()).toBe(0)
   })
 
-  it.each(['attach', 'renegotiate'] as const)('terminates a failed %s admission and releases the slot', async entry => {
+  it.each([
+    'attach',
+    'renegotiate',
+  ] as const)('terminates a failed %s admission and releases the slot', async (entry) => {
     const p = await feedTestPlumbing()
     vi.spyOn(p.authority, 'cursor').mockRejectedValueOnce(new Error('cursor read failed'))
     const peer = new Peer(entry, CLIENT_WIRE_VERSION, true)

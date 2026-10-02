@@ -97,10 +97,12 @@ export const SUPPORTED_CLIENT_WIRE_VERSIONS: readonly number[] = Array.from(
 )
 
 /** Inclusive support window. A bare legacy version offers only that dialect. */
-export const WireVersionRange = z.object({
-  min: z.number().int().positive(),
-  max: z.number().int().positive(),
-}).refine((range) => range.min <= range.max, 'inverted wire version range')
+export const WireVersionRange = z
+  .object({
+    min: z.number().int().positive(),
+    max: z.number().int().positive(),
+  })
+  .refine((range) => range.min <= range.max, 'inverted wire version range')
 
 export const WireVersionOffer = z.union([z.number().int(), WireVersionRange])
 
@@ -117,8 +119,14 @@ export function versionSupport(
   min: number = MIN_CLIENT_WIRE_VERSION,
 ): 'ok' | 'too-old' | 'too-new' {
   const range = typeof offered === 'number' ? { min: offered, max: offered } : offered
-  if (!Number.isInteger(range.min) || !Number.isInteger(range.max) ||
-      range.min < 1 || range.min > range.max || range.max < min) return 'too-old'
+  if (
+    !Number.isInteger(range.min) ||
+    !Number.isInteger(range.max) ||
+    range.min < 1 ||
+    range.min > range.max ||
+    range.max < min
+  )
+    return 'too-old'
   if (range.min > wire) return 'too-new'
   return 'ok'
 }

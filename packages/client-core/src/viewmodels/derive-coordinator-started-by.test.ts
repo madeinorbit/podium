@@ -9,6 +9,7 @@ import {
 import { describe, expect, it } from 'vitest'
 import {
   elevateCoordinatorSession,
+  type IssueNavigationModel,
   isCoordinatorSession,
   isDraftAgentVessel,
   issueIdOwningSession,
@@ -18,9 +19,8 @@ import {
   rowMotionPhase,
   rowStatusLine,
   rowWaitingCount,
-  sessionVisibleInLiveRoster,
-  type IssueNavigationModel,
   type SidebarSections,
+  sessionVisibleInLiveRoster,
   type UnifiedIssueRow,
   unifiedWorkList,
 } from './index'
@@ -345,7 +345,9 @@ describe('nestStartedByIssues', () => {
 
   it('never leaves an internal issue at top level', () => {
     const worker = sess('worker', { issueId: 'internal' })
-    const internal = row(issue({ id: 'internal', audience: 'agent', intentOrigin: 'agent' }), [worker])
+    const internal = row(issue({ id: 'internal', audience: 'agent', intentOrigin: 'agent' }), [
+      worker,
+    ])
     expect(nestStartedByIssues([internal], [worker], [])).toEqual([])
   })
 })
@@ -420,12 +422,12 @@ describe('sidebar completion decay [spec:SP-6144]', () => {
       unread: true,
       readAt: null,
     }
-    expect(
-      sessionVisibleInLiveRoster(sess('exited', { ...unread, status: 'exited' }), NOW),
-    ).toBe(false)
-    expect(
-      sessionVisibleInLiveRoster(sess('archived', { ...unread, archived: true }), NOW),
-    ).toBe(false)
+    expect(sessionVisibleInLiveRoster(sess('exited', { ...unread, status: 'exited' }), NOW)).toBe(
+      false,
+    )
+    expect(sessionVisibleInLiveRoster(sess('archived', { ...unread, archived: true }), NOW)).toBe(
+      false,
+    )
   })
 
   it('keeps a sessionless completed MILESTONE CHILD until seen plus 24h; top-level stays out', () => {
@@ -462,7 +464,10 @@ describe('sidebar completion decay [spec:SP-6144]', () => {
     const parent: UnifiedIssueRow = {
       kind: 'issue',
       issue: issue({ childCount: 6, childDoneCount: 4 }),
-      missionRollup: { fromChildren: true, progress: { total: 6, done: 4, run: 0, review: 0, stall: 0, block: 0, wait: 2 } },
+      missionRollup: {
+        fromChildren: true,
+        progress: { total: 6, done: 4, run: 0, review: 0, stall: 0, block: 0, wait: 2 },
+      },
       sessions: [worker],
       activityAt: NOW,
     }

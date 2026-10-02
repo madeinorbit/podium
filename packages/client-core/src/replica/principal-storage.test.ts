@@ -1,15 +1,15 @@
-import { asUserId } from '@podium/model'
-import { asClientPrincipal, samePrincipal, principalKey } from '../principal'
 import { addSink } from '@podium/logger'
+import { asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { asClientPrincipal, principalKey, samePrincipal } from '../principal'
 import type { StorageApi, StorageEventApi } from './contract'
 import { createSideCache } from './kernel/side-cache'
 import {
   type PrincipalNamespacePolicy,
+  parseReplicaNamespaceKey,
   preparePrincipalNamespace,
   principalKeyPrefix,
   replicaNamespaceKey,
-  parseReplicaNamespaceKey,
 } from './principal-storage'
 import { createReplica } from './replica'
 

@@ -1,9 +1,9 @@
-import { normalizedFixtureStore } from '@/test-support/normalized-issues'
-import { makeIssue } from './test-issue'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { type KernelAssembly, openKernelAssembly } from './kernelReplica'
+import { makeIssue } from './test-issue'
 
 let assembly: KernelAssembly | undefined
 const postMessage = vi.fn()
@@ -33,7 +33,9 @@ const row = {
   entity: 'issueProjection',
   entityId: 'i',
   op: 'upsert',
-  value: normalizedFixtureStore({ issues: [makeIssue({ id: 'i', title: 'HTTP' })] }).replica.rows('issueProjections')[0],
+  value: normalizedFixtureStore({ issues: [makeIssue({ id: 'i', title: 'HTTP' })] }).replica.rows(
+    'issueProjections',
+  )[0],
 }
 const chunk = {
   type: 'feedBootstrap',

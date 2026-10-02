@@ -1,4 +1,5 @@
 import { allIssueViewModels } from '@podium/client-core/replica'
+
 /**
  * POD-4574 (Mc2, coordinator ruling F4) — the oracle for a writable arm:
  * server truth plus the shared reference log.
@@ -40,22 +41,22 @@ import { allIssueViewModels } from '@podium/client-core/replica'
  * now, the hand arm's Hc2 later.
  */
 
-import type { RowSource } from '../arm'
-import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
-import type { ScenarioEngine } from '../scenarios'
-import { snapshotFromStore } from '../../../harness/src/oracle/index'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
 import type { Replica } from '@podium/client-core/replica'
 import { baseOf, subscribeReceipts } from '@podium/client-graph/shared/receipts'
+import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import {
   createPendingLog,
-  editForPendingWrite,
   type EditPatch,
+  editForPendingWrite,
   type OutboxPendingWrite,
   type PendingLog,
   type TxId,
 } from '@podium/client-graph/shared/write-contract'
+import { snapshotFromStore } from '../../../harness/src/oracle/index'
+import type { RowSource } from '../arm'
+import type { ScenarioEngine } from '../scenarios'
 import type { GenRun, StepResult } from './run'
 
 /** The editable fields of one server issue row, as the feed spells them. */
@@ -143,7 +144,10 @@ export class WriteOracle {
         if (row.kind !== 'issue' || row.value === undefined) continue
         const values = editableOf(row.value as unknown as Record<string, unknown>)
         this.log.remote('issue', row.id, { ...values })
-        this.record(row.id, `remote t=${short(values.title)} s=${short(values.stage)} r=${short(values.readAt)}`)
+        this.record(
+          row.id,
+          `remote t=${short(values.title)} s=${short(values.stage)} r=${short(values.readAt)}`,
+        )
       }
     })
     const offReceipts = subscribeReceipts(ctx.engine, (event) => {
@@ -178,7 +182,10 @@ export class WriteOracle {
   }
 
   /** The oracle's current display for one row (pending over server). */
-  private display(source: RowSource, id: string): { title: string; stage: string; readAt: string | null } | null {
+  private display(
+    source: RowSource,
+    id: string,
+  ): { title: string; stage: string; readAt: string | null } | null {
     const server = this.serverRows(source).get(id)
     if (server === undefined) return null
     return displayOf(this.log, id, server)
@@ -189,12 +196,7 @@ export class WriteOracle {
    * `prior` from the oracle's current display (older pending or server,
    * W1.3). Skipped when the row is gone (the runner skips the change too).
    */
-  editApplied(
-    source: RowSource,
-    kernelId: TxId,
-    id: string,
-    patch: EditPatch<'issue'>,
-  ): void {
+  editApplied(source: RowSource, kernelId: TxId, id: string, patch: EditPatch<'issue'>): void {
     const shown = this.display(source, id)
     if (shown === null) return
     const prior: Record<string, unknown> = {}
@@ -206,8 +208,12 @@ export class WriteOracle {
     const patchRecord = patch as { title?: string; stage?: string; readAt?: string }
     const shownPatch = [
       patchRecord.title !== undefined ? `t=${short(patchRecord.title)}` : null,
-      (patch as { stage?: string }).stage !== undefined ? `s=${short((patch as { stage?: string }).stage)}` : null,
-      (patch as { readAt?: string }).readAt !== undefined ? `r=${short((patch as { readAt?: string }).readAt)}` : null,
+      (patch as { stage?: string }).stage !== undefined
+        ? `s=${short((patch as { stage?: string }).stage)}`
+        : null,
+      (patch as { readAt?: string }).readAt !== undefined
+        ? `r=${short((patch as { readAt?: string }).readAt)}`
+        : null,
     ]
       .filter((part) => part !== null)
       .join(' ')
@@ -340,7 +346,11 @@ export class WriteOracle {
    */
   expectedSnapshot(store: Store<PodiumClientApi>, source: RowSource): SliceSnapshot {
     const feed = this.serverRows(source)
-    const storeIssues = allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates) as unknown as readonly Record<string, unknown>[]
+    const storeIssues = allIssueViewModels(
+      store.replica,
+      store.issueProjections,
+      store.issueUserStates,
+    ) as unknown as readonly Record<string, unknown>[]
     // The pending display per row with pending edits (fresh objects), plus
     // the chained-hold repair against feed truth where the log is empty.
     const displayById = new Map<string, { title: string; stage: string; readAt: string | null }>()
@@ -405,9 +415,7 @@ export class WriteOracle {
     // no previous generation gets wholly new views, the correct answer).
     const live = store.replica as Replica | undefined | null
     const liveRows = (kind: string): readonly unknown[] | undefined =>
-      (
-        live?.rows as ((k: string) => readonly unknown[] | undefined) | undefined
-      )?.call(live, kind)
+      (live?.rows as ((k: string) => readonly unknown[] | undefined) | undefined)?.call(live, kind)
     const stub = {
       rows: (kind: string) => {
         if (kind === 'issues') return issues
@@ -419,10 +427,13 @@ export class WriteOracle {
       persistent: true,
     } as unknown as Replica
     const overlaid = { ...store, replica: stub, issues, issueProjections: projections }
-    return snapshotFromStore(overlaid as never, {
-      selectedIssueId: null,
-      coarseNow: (store as unknown as { coarseNow: number }).coarseNow,
-    } as never)
+    return snapshotFromStore(
+      overlaid as never,
+      {
+        selectedIssueId: null,
+        coarseNow: (store as unknown as { coarseNow: number }).coarseNow,
+      } as never,
+    )
   }
 }
 

@@ -1,4 +1,5 @@
 import { allIssueViewModels } from '@podium/client-core/replica'
+
 // @vitest-environment happy-dom
 /**
  * POD-4583 (Hb2) — groups, closed folds and the windowed list on the live
@@ -39,9 +40,16 @@ import { allIssueViewModels } from '@podium/client-core/replica'
  * visible count); a fold oldest-first (group parity).
  */
 
-import { act, createElement, useCallback, useSyncExternalStore, type ReactElement } from 'react'
+import { compareRank } from '@podium/client-graph/shared/row-view'
+import type { SliceIssue, SliceOrder } from '@podium/client-graph/shared/slice-types'
+import { act, createElement, type ReactElement, useCallback, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  type HarnessHandPoolHandle,
+  harnessHandPoolArm,
+  poolPendingLoads,
+} from '../../../../harness/src/adapters/hand-pool'
 import {
   assertCommits,
   assertReads,
@@ -63,10 +71,7 @@ import {
 import { writeResult } from '../../../../harness/src/results'
 import type { CheckableArm } from '../../../../shared/src/arm'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
-import { compareRank } from '@podium/client-graph/shared/row-view'
-import type { SliceIssue, SliceOrder } from '@podium/client-graph/shared/slice-types'
 import { type ScenarioEngine, startScenarioEngine } from '../../../../shared/src/scenarios'
-import { harnessHandPoolArm, poolPendingLoads, type HarnessHandPoolHandle } from '../../../../harness/src/adapters/hand-pool'
 import type { HandPool } from '../pool'
 import { HEADER_HEIGHT, PoolList, ROW_HEIGHT } from '../react/list'
 import { layoutOf, placementRuleOf, sliceOrderOf } from './groups'
@@ -114,16 +119,16 @@ function orderDiff(actual: SliceOrder, expected: SliceOrder): string | null {
  * ask. Derived from the oracle, so a regression to the stub shows by name —
  * and since Hb3 wires the waiting conjunct, the set must be empty.
  */
-function waitingKept(
-  ctx: ScenarioEngine,
-  pool: HandPool,
-  expected: SliceOrder,
-): Set<string> {
+function waitingKept(ctx: ScenarioEngine, pool: HandPool, expected: SliceOrder): Set<string> {
   const store = ctx.engine.getSnapshot()
   const views = rowViewsFromStore(store, { ...engineLocals(ctx), selectedIssueId: null })
   const open = new Set(expected.groups.flatMap((group) => group.rowIds))
   const kept = new Set<string>()
-  for (const issue of allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates) as unknown as SliceIssue[]) {
+  for (const issue of allIssueViewModels(
+    store.replica,
+    store.issueProjections,
+    store.issueUserStates,
+  ) as unknown as SliceIssue[]) {
     if (!open.has(issue.id)) continue
     const view = views[issue.id]
     if (view === undefined || view.closed) continue
@@ -153,7 +158,10 @@ function checkParity(ctx: ScenarioEngine, handle: HarnessHandPoolHandle, at: str
   const oracle = expected.order
   const kept = waitingKept(ctx, pool, oracle)
   expect([...kept].sort(), `${at}: the waiting conjunct holds nothing open`).toEqual([])
-  expect(orderDiff(sliceOrderOf(pool.groups.snapshot()), oracle), `${at}: groups against the oracle`).toBeNull()
+  expect(
+    orderDiff(sliceOrderOf(pool.groups.snapshot()), oracle),
+    `${at}: groups against the oracle`,
+  ).toBeNull()
   const flat = visibleIssueRows(legacyDerivationFromStore(store, locals.coarseNow), locals).map(
     (row) => row.issue.id,
   )
@@ -231,9 +239,11 @@ describe('groups and closed folds (Hb2)', () => {
         const lanesBefore = lanes(pool)
         // One test listener per group, as each header holds one.
         const notices = new Map<string, number>()
-        const offs = pool.groupsView().keys.map((key) =>
-          pool.subscribeGroup(key, () => notices.set(key, (notices.get(key) ?? 0) + 1)),
-        )
+        const offs = pool
+          .groupsView()
+          .keys.map((key) =>
+            pool.subscribeGroup(key, () => notices.set(key, (notices.get(key) ?? 0) + 1)),
+          )
         const viewNotices: number[] = []
         const offView = pool.subscribeGroups(() => viewNotices.push(1))
         const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
@@ -243,15 +253,17 @@ describe('groups and closed folds (Hb2)', () => {
         assertReads(result, { readsPerChange: readsBudget })
         mounted.reads.assertNoCopies(mounted.handle)
         const counters = { ...pool.stats.counters }
-        const orderMoved =
-          JSON.stringify(orderBefore) !== JSON.stringify([...pool.order()])
+        const orderMoved = JSON.stringify(orderBefore) !== JSON.stringify([...pool.order()])
         const lanesAfter = lanes(pool)
         const addedKeys = [...lanesAfter.keys()].filter((key) => !lanesBefore.has(key))
         const groupsChanged = changedGroups(lanesBefore, lanesAfter)
         // A header is notified exactly for its own group's lane change (a
         // group added by the step has no header yet; the list covers it).
         expect(
-          [...notices.entries()].filter(([, n]) => n > 0).map(([key]) => key).sort(),
+          [...notices.entries()]
+            .filter(([, n]) => n > 0)
+            .map(([key]) => key)
+            .sort(),
           `${methodology}: notified headers`,
         ).toEqual(groupsChanged.filter((key) => !addedKeys.includes(key)))
         // The list is notified exactly when the lanes moved.
@@ -552,7 +564,9 @@ describe('the windowed web list (Hb2)', () => {
         list.dispatchEvent(new Event('scroll'))
         await new Promise((resolve) => setTimeout(resolve, 0))
       })
-      const folding = pool.groupsView().keys.find((key) => pool.groupLanes(key).closedIds.length > 0)
+      const folding = pool
+        .groupsView()
+        .keys.find((key) => pool.groupLanes(key).closedIds.length > 0)
       expect(folding).toBeDefined()
       const header = el.querySelector(`[data-group="${folding}"] button`) as HTMLButtonElement
       expect(header).not.toBeNull()
@@ -603,7 +617,7 @@ describe('plants that must fail (Hb2)', () => {
       const root = createRoot(plant)
       await act(async () => {
         root.render(
-          createElement(PlantHeader, { pool, groupKey: key, onRender: () => renders += 1 }),
+          createElement(PlantHeader, { pool, groupKey: key, onRender: () => (renders += 1) }),
         )
       })
       const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === '#5')
@@ -648,9 +662,9 @@ describe('plants that must fail (Hb2)', () => {
         handle.stats.reset()
         mounted.reads.reset()
         let notices = 0
-        const offs = pool.groupsView().keys.map((key) =>
-          pool.subscribeGroup(key, () => notices += 1),
-        )
+        const offs = pool
+          .groupsView()
+          .keys.map((key) => pool.subscribeGroup(key, () => (notices += 1)))
         const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
         for (const off of offs) off()
         assertCommits(result)
@@ -684,9 +698,9 @@ describe('plants that must fail (Hb2)', () => {
         }
         let notices = 0
         try {
-          const offs = pool.groupsView().keys.map((key) =>
-            pool.subscribeGroup(key, () => notices += 1),
-          )
+          const offs = pool
+            .groupsView()
+            .keys.map((key) => pool.subscribeGroup(key, () => (notices += 1)))
           mounted.log.reset()
           handle.stats.reset()
           mounted.reads.reset()
@@ -720,7 +734,10 @@ describe('plants that must fail (Hb2)', () => {
       // touches the known count per run, and reads hidden rows to do it.
       mounted.reads.reset()
       const plantElements = layoutOf(known, (id) =>
-        placementRuleOf({ ...pool.visibleInputs, waiting: (rowId) => pool.rollup.waitingOf(rowId) }, id),
+        placementRuleOf(
+          { ...pool.visibleInputs, waiting: (rowId) => pool.rollup.waitingOf(rowId) },
+          id,
+        ),
       )
       void plantElements
       const plantReads = mounted.reads.stats().rows

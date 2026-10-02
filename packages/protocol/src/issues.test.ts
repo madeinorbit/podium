@@ -17,8 +17,6 @@ describe('issue protocol types', () => {
     expect(IssueStage.safeParse('verifying').success).toBe(false)
   })
 
-
-
   it('carries additive artifact ownership and Git tracking evidence', () => {
     const legacy = IssuePanelArtifact.parse({ path: 'shots/a.png', addedAt: 't' })
     expect(legacy.tracking).toBeUndefined()
@@ -36,7 +34,6 @@ describe('issue protocol types', () => {
       untrackedPaths: ['shots/a.png'],
     })
   })
-
 
   // POD-797: readAt remains durable, while replica-derived unread is stripped.
 
@@ -64,5 +61,4 @@ describe('issue protocol types', () => {
   it('accepts worktreeAddExisting for stop→resume [spec:SP-9904]', () => {
     expect(RepoOp.parse('worktreeAddExisting')).toBe('worktreeAddExisting')
   })
-
 })

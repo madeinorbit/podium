@@ -1,9 +1,14 @@
-import { recordIssueRowBuild } from '../perf/store-stats'
 /** Incremental normalized issue models. Reuse is keyed by current projection,
  * user markers, git observation, repo row, derived view and member sessions.
  * Every pass visits only current projections, so evict and rescope cannot
  * resurrect a cached row. */
-import type { IssueProjection, IssueUserStateWire, IssueGitStateProjection, RepoProjection } from '@podium/model'
+import type {
+  IssueGitStateProjection,
+  IssueProjection,
+  IssueUserStateWire,
+  RepoProjection,
+} from '@podium/model'
+import { recordIssueRowBuild } from '../perf/store-stats'
 import {
   buildIssueViewModel,
   deriveIssueViewsSnapshot,
@@ -79,7 +84,14 @@ function storeFor(replica: Replica): IssueViewsStore {
   // The view joins all of these kinds. Prefer the kernel's one batch seam so a
   // multi-kind delta wakes the projection once; older replicas fall back to
   // their already-coalesced per-kind subscriptions.
-  const relevantKinds = new Set(['issueUserStates', 'issueGitStates', 'issueProjections', 'issueDeps', 'repos', 'sessions'])
+  const relevantKinds = new Set([
+    'issueUserStates',
+    'issueGitStates',
+    'issueProjections',
+    'issueDeps',
+    'repos',
+    'sessions',
+  ])
   if (replica.subscribeRowBatch) {
     replica.subscribeRowBatch((changed) => {
       for (const kind of changed) {
@@ -208,15 +220,17 @@ export function modelsFor(
 
   // Derive structural state from the optimistic projections too: a new draft
   // has no truth row yet, and a close/reparent must paint before its echo.
-  const snapshot: CachedIssueViewsSnapshot = projectionRows === sourceSnapshot.projectionRows && userStateRows === sourceSnapshot.userStateRows
-    ? sourceSnapshot
-    : {
-        ...deriveIssueViewsSnapshot(replica, current?.snapshot, projectionRows, userStateRows),
-        projectionRows,
-        userStateRows,
-      }
+  const snapshot: CachedIssueViewsSnapshot =
+    projectionRows === sourceSnapshot.projectionRows &&
+    userStateRows === sourceSnapshot.userStateRows
+      ? sourceSnapshot
+      : {
+          ...deriveIssueViewsSnapshot(replica, current?.snapshot, projectionRows, userStateRows),
+          projectionRows,
+          userStateRows,
+        }
   store.modelBuilds++
-  const userStateById = new Map(userStateRows.map(row => [row.entityId, row]))
+  const userStateById = new Map(userStateRows.map((row) => [row.entityId, row]))
   const models = new Map<string, IssueViewModel>()
   const inputs = new Map<string, ModelInputs>()
   for (const projection of projectionRows) {

@@ -16,6 +16,7 @@ import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
+import { sessionReadPorts } from '../../test-support/session-facts'
 import { IssueService } from '../issues/service'
 import type { ShippingPolicyResolver } from './policy'
 import { CompatibilityShippingPolicyResolver } from './policy'
@@ -30,7 +31,6 @@ import {
   shippingResourceHolderId,
 } from './service'
 import { ShippingEvidenceRegistry } from './shipwright'
-import { sessionReadPorts } from '../../test-support/session-facts'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -99,7 +99,6 @@ async function harness(
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: { run: (op) => op.write() },
     ledger,
-
   })
   const createIssue = issues.create.bind(issues)
   issues.create = (async (input) =>
@@ -276,7 +275,11 @@ describe('ShippingService enqueue transaction', () => {
 
   it('O1 commits and reads queue ranks without scanning attempt history', async () => {
     const { store, ledger, issues, service } = await harness()
-    const issue = await issues.create({ repoPath: '/repo', title: 'compact order', startNow: false })
+    const issue = await issues.create({
+      repoPath: '/repo',
+      title: 'compact order',
+      startNow: false,
+    })
     await issues.update(issue.id, { stage: 'review' })
     const attempts = vi.spyOn(store.shipping, 'listAttempts')
     try {
@@ -418,18 +421,19 @@ describe('ShippingService enqueue transaction', () => {
       approvedHeadSha: 'head-sha',
       descendants: [],
     })
-    const changes = await ledger.changesSince(cursor) ?? []
-    expect(changes.some((change) => change.entity === 'issueProjection' && change.id === issue.id)).toBe(true)
+    const changes = (await ledger.changesSince(cursor)) ?? []
+    expect(
+      changes.some((change) => change.entity === 'issueProjection' && change.id === issue.id),
+    ).toBe(true)
     expect(
       changes.some(
         (change) =>
-          change.entity === 'shipOrder' &&
-          change.id === receipt.order.id &&
-          change.op === 'upsert',
+          change.entity === 'shipOrder' && change.id === receipt.order.id && change.op === 'upsert',
       ),
     ).toBe(true)
     expect(
-      changes.find((change) => change.entity === 'shipOrder' && change.id === receipt.order.id)?.value,
+      changes.find((change) => change.entity === 'shipOrder' && change.id === receipt.order.id)
+        ?.value,
     ).not.toHaveProperty('queueRank')
 
     await expect(service.enqueue({ issueId: issue.id, ...approval })).resolves.toMatchObject({
@@ -437,7 +441,9 @@ describe('ShippingService enqueue transaction', () => {
       order: { id: receipt.order.id },
     })
     expect(receipt.order.id).toMatch(/^ship_[0-9a-f-]{36}$/)
-    expect(await store.events.listEventsSince(0, { kinds: ['issue.shipping_enqueued'] })).toHaveLength(1)
+    expect(
+      await store.events.listEventsSince(0, { kinds: ['issue.shipping_enqueued'] }),
+    ).toHaveLength(1)
     service.dispose()
   })
 
@@ -911,7 +917,7 @@ describe('ShippingService enqueue transaction', () => {
     })
     expect((await store.shipping.getOrder(order.id))?.state).toBe('queued')
     expect((await store.issues.getIssue(issue.id))?.needsHuman).toBe(false)
-    const projected = await ledger.authority.snapshot('shipOrder') as {
+    const projected = (await ledger.authority.snapshot('shipOrder')) as {
       id: string
       hold?: unknown
     }[]
@@ -997,14 +1003,19 @@ describe('ShippingService enqueue transaction', () => {
   })
 
   it('refuses daemon-native evidence paths before hold persistence', async () => {
-    const { store, issues, service } = await harness(async (input, machineId) =>
-      await provedShippingJob(input, machineId, {
-        state: 'held',
-        classification: 'validation-failed',
-        artifactRefs: ['/native/daemon/validation.log'],
-      }),
+    const { store, issues, service } = await harness(
+      async (input, machineId) =>
+        await provedShippingJob(input, machineId, {
+          state: 'held',
+          classification: 'validation-failed',
+          artifactRefs: ['/native/daemon/validation.log'],
+        }),
     )
-    const issue = await issues.create({ repoPath: '/repo', title: 'opaque evidence', startNow: false })
+    const issue = await issues.create({
+      repoPath: '/repo',
+      title: 'opaque evidence',
+      startNow: false,
+    })
     await issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
@@ -1505,7 +1516,11 @@ describe('ShippingService enqueue transaction', () => {
 
   it('rolls back cancellation state when its durable issue event cannot commit', async () => {
     const { store, issues, service } = await harness(provedShippingJob)
-    const issue = await issues.create({ repoPath: '/repo', title: 'atomic cancel', startNow: false })
+    const issue = await issues.create({
+      repoPath: '/repo',
+      title: 'atomic cancel',
+      startNow: false,
+    })
     await issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     const db = (store as unknown as { db: { exec(sql: string): void } }).db
@@ -1606,7 +1621,8 @@ describe('ShippingService enqueue transaction', () => {
       startedAt: '2026-08-13T10:00:01.000Z',
     })
     expect(claimed.attempt.leaseGeneration).toBe(2)
-    await expect(store.shipping.claimAttempt({
+    await expect(
+      store.shipping.claimAttempt({
         orderId: order.id,
         expectedState: 'preflight',
         expectedAttemptId: first.id,
@@ -1619,12 +1635,14 @@ describe('ShippingService enqueue transaction', () => {
       finishedAt: '2026-08-13T10:00:02.000Z',
       outcome: 'failed',
     })
-    await expect(store.shipping.finishAttempt(claimed.attempt.id, 2, {
+    await expect(
+      store.shipping.finishAttempt(claimed.attempt.id, 2, {
         finishedAt: '2026-08-13T10:00:03.000Z',
         outcome: 'failed',
       }),
     ).rejects.toThrow(/immutable/)
-    await expect(store.shipping.finishAttempt(claimed.attempt.id, 1, {
+    await expect(
+      store.shipping.finishAttempt(claimed.attempt.id, 1, {
         finishedAt: '2026-08-13T10:00:02.000Z',
         outcome: 'failed',
       }),
@@ -1705,7 +1723,8 @@ describe('ShippingService enqueue transaction', () => {
     expect(await store.shipping.latestStepForEffect(first.id, effectKey)).toMatchObject({
       state: 'running',
     })
-    await expect(store.shipping.claimAttempt({
+    await expect(
+      store.shipping.claimAttempt({
         orderId: order.id,
         expectedState: 'preflight',
         expectedAttemptId: first.id,
@@ -1778,7 +1797,9 @@ describe('ShippingService enqueue transaction', () => {
       outcome: 'authorization-refused',
       summary: 'delegation revoked',
     })
-    expect(await store.shipping.hasCancellationIntent(attempt.id, attempt.leaseGeneration)).toBe(false)
+    expect(await store.shipping.hasCancellationIntent(attempt.id, attempt.leaseGeneration)).toBe(
+      false,
+    )
     service.dispose()
   })
 
@@ -1831,7 +1852,9 @@ describe('ShippingService enqueue transaction', () => {
       outcome: 'cancel-error',
       summary: 'daemon disconnected',
     })
-    expect(await store.shipping.hasCancellationIntent(attempt.id, attempt.leaseGeneration)).toBe(false)
+    expect(await store.shipping.hasCancellationIntent(attempt.id, attempt.leaseGeneration)).toBe(
+      false,
+    )
     service.dispose()
   })
 
@@ -2005,7 +2028,9 @@ describe('ShippingService enqueue transaction', () => {
   it('reopens a released train repair from its persisted context after restart and daemon loss', async () => {
     let daemonEvidenceRef: string | undefined
     let evidenceRegistry: ShippingEvidenceRegistry | undefined
-    let persistedEvidenceRef: Awaited<ReturnType<ShippingEvidenceRegistry['materialize']>> | undefined
+    let persistedEvidenceRef:
+      | Awaited<ReturnType<ShippingEvidenceRegistry['materialize']>>
+      | undefined
     let originalContext: ShippingRepairContext | undefined
     let reopenedContext: ShippingRepairContext | undefined
     const consider = vi.fn(async (input: ShippingRepairContext) => {
@@ -2077,10 +2102,21 @@ describe('ShippingService enqueue transaction', () => {
     }
     // The train is claimed straight through the store below, which no commit
     // publishes, so the order-plane cross-check would only report that shortcut.
-    const { store, issues, service, deps } = await harness(daemon, { repair, checkOrderPlane: false })
+    const { store, issues, service, deps } = await harness(daemon, {
+      repair,
+      checkOrderPlane: false,
+    })
     evidenceRegistry = new ShippingEvidenceRegistry(store.shipping)
-    const issueA = await issues.create({ repoPath: '/repo', title: 'repair train a', startNow: false })
-    const issueB = await issues.create({ repoPath: '/repo', title: 'repair train b', startNow: false })
+    const issueA = await issues.create({
+      repoPath: '/repo',
+      title: 'repair train a',
+      startNow: false,
+    })
+    const issueB = await issues.create({
+      repoPath: '/repo',
+      title: 'repair train b',
+      startNow: false,
+    })
     await issues.update(issueA.id, {
       branch: 'issue/repair-train-a',
       machineId: asMachineId('machine-1'),
@@ -2261,7 +2297,11 @@ describe('ShippingService enqueue transaction', () => {
     await service.runOrder(landed.order.id)
     expect((await store.shipping.getOrder(landed.order.id))?.state).toBe('shipped')
 
-    const blockerIssue = await issues.create({ repoPath: '/repo', title: 'D2 blocker', startNow: false })
+    const blockerIssue = await issues.create({
+      repoPath: '/repo',
+      title: 'D2 blocker',
+      startNow: false,
+    })
     await issues.update(blockerIssue.id, { stage: 'review' })
     await service.enqueue({
       issueId: blockerIssue.id,
@@ -2359,9 +2399,9 @@ describe('ShippingService enqueue transaction', () => {
     expect((await store.shipping.getOrder(sibling.receipt.order.id))?.state).toBe('queued')
     expect((await store.issues.getIssue(sibling.issue.id))?.needsHuman).toBe(false)
     expect(
-      (await store.events
-        .listEventsSince(0, { kinds: ['issue.shipping_train_reset'] }))
-        .some((event) => event.subject === sibling.issue.id),
+      (await store.events.listEventsSince(0, { kinds: ['issue.shipping_train_reset'] })).some(
+        (event) => event.subject === sibling.issue.id,
+      ),
     ).toBe(true)
     service.dispose()
   })
@@ -2871,7 +2911,9 @@ describe('POD-4974 O2 ship lanes', () => {
       orders: (await ledger.authority.snapshot('shipOrder')) as ShipOrderProjection[],
       ranks: new Map(
         lanes.flatMap((lane) =>
-          lane.trains.flatMap((train, index) => train.orderIds.map((id) => [id, index + 1] as const)),
+          lane.trains.flatMap((train, index) =>
+            train.orderIds.map((id) => [id, index + 1] as const),
+          ),
         ),
       ),
       lanes,
@@ -2973,20 +3015,29 @@ describe('POD-4974 O2 ship lanes', () => {
     try {
       // The upper half of a stack is admitted FIRST; an unrelated order sits
       // between them. FIFO alone would run upper before lower.
-      const upper = await seedOrder(issues, store, { title: 'upper', minute: 1, headSha: 'upper-head' })
+      const upper = await seedOrder(issues, store, {
+        title: 'upper',
+        minute: 1,
+        headSha: 'upper-head',
+      })
       const unrelated = await seedOrder(issues, store, {
         title: 'unrelated',
         minute: 2,
         baseSha: 'other-base',
       })
-      const lower = await seedOrder(issues, store, { title: 'lower', minute: 3, headSha: 'lower-head' })
+      const lower = await seedOrder(issues, store, {
+        title: 'lower',
+        minute: 3,
+        headSha: 'lower-head',
+      })
       await publishSeeded(service, ledger)
 
       // The scheduler's own pass: it records the native-stack edge it infers
       // and schedules over it, exactly as `runTick` does.
       const orders = await service['ordersWithNativeStackEdges']()
       const schedule = shippingSchedule(orders)
-      const rank = (id: string) => schedule.entries.find((entry) => entry.order.id === id)?.queueRank
+      const rank = (id: string) =>
+        schedule.entries.find((entry) => entry.order.id === id)?.queueRank
       expect([rank(upper.id), rank(unrelated.id), rank(lower.id)]).toEqual([2, 1, 2])
 
       const after = await published(ledger)
@@ -3002,7 +3053,9 @@ describe('POD-4974 O2 ship lanes', () => {
           id: shipLaneIdOf(upper),
           repoId: upper.repoId,
           destination: 'local:main',
-          trains: schedule.trains.map((train) => ({ orderIds: train.orders.map((order) => order.id) })),
+          trains: schedule.trains.map((train) => ({
+            orderIds: train.orders.map((order) => order.id),
+          })),
           blockedOrderIds: [],
         },
       ])
@@ -3024,7 +3077,11 @@ describe('POD-4974 O2 ship lanes', () => {
         minute: 2,
         deliveryDependsOn: [asShipOrderId('order-first')],
       })
-      const elsewhere = await seedOrder(issues, store, { title: 'elsewhere', minute: 3, repoPath: '/other' })
+      const elsewhere = await seedOrder(issues, store, {
+        title: 'elsewhere',
+        minute: 3,
+        repoPath: '/other',
+      })
       await publishSeeded(service, ledger)
       const scans = [
         vi.spyOn(store.shipping, 'listOrders'),
@@ -3032,7 +3089,10 @@ describe('POD-4974 O2 ship lanes', () => {
         vi.spyOn(store.shipping, 'listReceipts'),
         vi.spyOn(store.shipping, 'listNativeStackEdges'),
       ]
-      const projection = vi.spyOn(service as never as { projectionFor: () => unknown }, 'projectionFor')
+      const projection = vi.spyOn(
+        service as never as { projectionFor: () => unknown },
+        'projectionFor',
+      )
       await service['transition'](first, 'preflight')
       for (const scan of scans) expect(scan).not.toHaveBeenCalled()
       expect(projection).toHaveBeenCalledTimes(1)
@@ -3043,7 +3103,11 @@ describe('POD-4974 O2 ship lanes', () => {
         value?: { trains: unknown[]; blockedOrderIds: string[] }
       }[]
       expect(specs.map((spec) => `${spec.entity}:${spec.id}`).sort()).toEqual(
-        [`shipLane:${shipLaneIdOf(first)}`, `shipOrder:${first.id}`, `shipOrder:${second.id}`].sort(),
+        [
+          `shipLane:${shipLaneIdOf(first)}`,
+          `shipOrder:${first.id}`,
+          `shipOrder:${second.id}`,
+        ].sort(),
       )
       expect(specs.find((spec) => spec.entity === 'shipLane')?.value).toMatchObject({
         trains: [],
@@ -3071,7 +3135,9 @@ describe('POD-4974 O2 ship lanes', () => {
         deliveryDependsOn: [dependency.id],
       })
       await publishSeeded(service, ledger)
-      expect((await published(ledger)).lanes.find((lane) => lane.id === shipLaneIdOf(dependent))).toMatchObject({
+      expect(
+        (await published(ledger)).lanes.find((lane) => lane.id === shipLaneIdOf(dependent)),
+      ).toMatchObject({
         trains: [],
         blockedOrderIds: [dependent.id],
       })
@@ -3099,7 +3165,10 @@ describe('POD-4974 O2 ship lanes', () => {
         await seedOrder(issues, store, { title: 'two', minute: 2 }),
         await seedOrder(issues, store, { title: 'three', minute: 3, repoPath: '/other' }),
       ]
-      const projection = vi.spyOn(service as never as { projectionFor: () => unknown }, 'projectionFor')
+      const projection = vi.spyOn(
+        service as never as { projectionFor: () => unknown },
+        'projectionFor',
+      )
       const many = vi.spyOn(deps.issues, 'shippingCommitMany')
       await service['commitMany'](
         orders.map((order) => ({

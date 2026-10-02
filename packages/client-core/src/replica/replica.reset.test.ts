@@ -10,8 +10,8 @@
  * satisfied. The cursor assertion below is the one that catches it.
  */
 
-import { asMutationId } from '@podium/model'
 import type { IssueProjection, SessionMeta } from '@podium/model'
+import { asMutationId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
 import { COLD_CURSOR } from './feed'

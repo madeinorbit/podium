@@ -213,7 +213,6 @@ describe.each(
   })
 })
 
-
 /**
  * THE MachineId REFUSAL — ADR 1 Amendment 2 D16.2, discharged by POD-318.
  *
@@ -337,7 +336,8 @@ describe('MachineId is adopted at EVERY entity field (POD-318)', () => {
     )
 
   it('distinguishes helper parameters and type annotations from value fields', () => {
-    expect(machineIdProperties(`
+    expect(
+      machineIdProperties(`
       function quotaAccountKey(
         machineId: string,
       ) { return machineId }
@@ -345,7 +345,8 @@ describe('MachineId is adopted at EVERY entity field (POD-318)', () => {
       type Input = { machineId: MachineId }
       interface Context { machineId: string }
       // machineId: z.string(),
-    `)).toEqual([])
+    `),
+    ).toEqual([])
   })
 
   it('still rejects unbranded fields regardless of layout or spelling', () => {

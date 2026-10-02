@@ -1,6 +1,6 @@
-import type { IssueViewModel } from '../../replica/issue-view-models'
 import { asIssueId, asSessionId, type SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { IssueViewModel } from '../../replica/issue-view-models'
 import type { ReferentExit } from '../session-ownership'
 import {
   branchRollup,
@@ -197,7 +197,10 @@ describe('sub-issues and roll-up', () => {
   })
 
   it('leaves ARCHIVED descendants out of the k/m — history is the count, not the archive', () => {
-    const withArchived = [...tree, issue('POD-14', { parentId: asIssueId('POD-10'), archived: true })]
+    const withArchived = [
+      ...tree,
+      issue('POD-14', { parentId: asIssueId('POD-10'), archived: true }),
+    ]
     expect(branchRollup(withArchived, 'POD-10')).toEqual({ total: 3, done: 1 })
   })
 
@@ -301,7 +304,9 @@ describe('issue nav list', () => {
   })
 
   it('leaves an evicted member session out with no tombstone row', () => {
-    const i = navIssue('POD-47', { memberSessionIds: [asSessionId('s-kept'), asSessionId('s-evicted')] })
+    const i = navIssue('POD-47', {
+      memberSessionIds: [asSessionId('s-kept'), asSessionId('s-evicted')],
+    })
     const view = issueNavList([i], [session('s-kept')], now)[0]
     expect(view?.sessions.map((s) => s.sessionId)).toEqual(['s-kept'])
     // Nothing stands in for the evicted row — the issue simply has one session.

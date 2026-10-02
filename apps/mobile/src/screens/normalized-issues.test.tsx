@@ -1,5 +1,3 @@
-import { issueRowFixture } from '../../../server/src/test-support/issue-row'
-import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   asIssueId,
@@ -13,6 +11,8 @@ import {
 import { act, cleanup, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
+import { issueRowFixture } from '../../../server/src/test-support/issue-row'
 import type { StoreActions } from '../client/hooks'
 import { useBooting, useIssue, useIssues, useStoreActions } from '../client/hooks'
 
@@ -227,12 +227,27 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
   })
 
   it('renders an outstanding question whose historical asker is unknown', async () => {
-    const question = issueRowToProjection(issueRowFixture({
-      id: projection.id, repoId: projection.repoId, title: projection.title,
-      needsHuman: true, humanQuestion: 'Keep this unanswered question?',
-      humanQuestionAskedBy: null, humanQuestionAskedAt: null, humanQuestionAttribution: null, humanQuestionOptions: null,
-    }), [])
-    await renderWithMobileStore(<><IssueScreen /><Probe /></>, { ...fixture, issueProjections: [question] })
+    const question = issueRowToProjection(
+      issueRowFixture({
+        id: projection.id,
+        repoId: projection.repoId,
+        title: projection.title,
+        needsHuman: true,
+        humanQuestion: 'Keep this unanswered question?',
+        humanQuestionAskedBy: null,
+        humanQuestionAskedAt: null,
+        humanQuestionAttribution: null,
+        humanQuestionOptions: null,
+      }),
+      [],
+    )
+    await renderWithMobileStore(
+      <>
+        <IssueScreen />
+        <Probe />
+      </>,
+      { ...fixture, issueProjections: [question] },
+    )
     await waitFor(() => expect(screen.getByText('Keep this unanswered question?')).toBeTruthy())
     expect(latest?.needsHuman).toBe(true)
     expect(latest?.asked).toEqual({ question: 'Keep this unanswered question?' })

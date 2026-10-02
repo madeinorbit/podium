@@ -1423,7 +1423,6 @@ export const CHECKS: AuditCheck[] = [
       ),
   },
   {
-    
     id: 'issue-wire-dirty-scoping-shims',
     title: 'Interim dirty-scoping shims on the issue wire rebuild (POD-722/723)',
     phase: 'POD-337',

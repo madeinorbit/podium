@@ -1,4 +1,5 @@
 import { upsertIssue } from '../../shared/src/scenarios'
+
 // @vitest-environment happy-dom
 /**
  * POD-4825 (item 5) — the exact-commit oracle expects a row to redraw only
@@ -24,8 +25,12 @@ import { upsertIssue } from '../../shared/src/scenarios'
  * sees it.
  */
 
+import {
+  displayChanged,
+  ROW_DISPLAYED_FIELDS,
+  ROW_VIEW_FIELDS,
+} from '@podium/client-graph/shared/row-view'
 import { describe, expect, it } from 'vitest'
-import { displayChanged, ROW_DISPLAYED_FIELDS, ROW_VIEW_FIELDS } from '@podium/client-graph/shared/row-view'
 import { type ScenarioEngine, startScenarioEngine, upsert } from '../../shared/src/scenarios'
 import { assertCommits, type CountResult, mountArmForCounts } from './count-harness'
 import {
@@ -45,7 +50,9 @@ function sortKeyOnly(id: (ctx: ScenarioEngine) => string): FenceScenario {
     methodology: 'P1',
     async write(ctx) {
       const target = id(ctx)
-      const wire = ctx.cache.read('issueProjection', target)?.value as Record<string, unknown> | undefined
+      const wire = ctx.cache.read('issueProjection', target)?.value as
+        | Record<string, unknown>
+        | undefined
       if (wire === undefined) throw new Error(`issue ${target} missing from the server cache`)
       const projection = (ctx.cache.read('issueProjection', target)?.value ?? {}) as Record<
         string,
@@ -84,9 +91,7 @@ describe('the rows an arm must redraw are the rows whose DRAWN fields changed (P
         try {
           assertCommits(result)
         } catch (error) {
-          console.info(
-            `[drawn-fields] ${entry.name} ${at}: REPORTS ${(error as Error).message}`,
-          )
+          console.info(`[drawn-fields] ${entry.name} ${at}: REPORTS ${(error as Error).message}`)
           return
         }
         console.info(

@@ -12,7 +12,6 @@ import { z } from 'zod'
  * expected-revision token the issues concurrency contract is written against.
  */
 
-
 export const Timestamp = z.string()
 export type Timestamp = z.infer<typeof Timestamp>
 

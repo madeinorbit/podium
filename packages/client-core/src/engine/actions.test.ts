@@ -1,5 +1,3 @@
-import { planNavigation, type NavigationIntent } from './navigation'
-import type { EngineState } from './state'
 import type { IssueProjection, LayoutSnapshot, SessionId, SessionMeta } from '@podium/model'
 import { asIssueId, asMutationId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
@@ -14,6 +12,8 @@ import {
   type EngineActionRuntime,
   UI_LOCAL_ACTIONS,
 } from './actions'
+import { type NavigationIntent, planNavigation } from './navigation'
+import type { EngineState } from './state'
 import type { StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 
@@ -129,7 +129,8 @@ function harness(
     state: () => state,
     navigate: (intent: NavigationIntent) => {
       const plan = planNavigation(state as unknown as EngineState, router.current(), intent, {
-        visible: true, now: '2026-09-18T00:00:00.000Z',
+        visible: true,
+        now: '2026-09-18T00:00:00.000Z',
       })
       state = { ...state, ...plan.patch } as typeof state
       router.navigate(plan.route)

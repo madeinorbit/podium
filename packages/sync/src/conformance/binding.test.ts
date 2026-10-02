@@ -52,13 +52,13 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  assertOpaqueEpoch,
   BoundedSendQueue,
   FeedIdentityRegistry,
   GrantEdgeVisibilityPolicy,
-  assertOpaqueEpoch,
 } from '../feed'
-import { ConformanceAuthority, conformanceUser, FIRST_EPOCH, requireHuman } from './authority'
 import type { ConformancePrincipal } from './authority'
+import { ConformanceAuthority, conformanceUser, FIRST_EPOCH, requireHuman } from './authority'
 
 const ADA: ConformancePrincipal = conformanceUser('ada')
 const GRACE: ConformancePrincipal = conformanceUser('grace')
@@ -119,8 +119,7 @@ describe('feed identity is produced by the SHIPPED registry (ADR 2 D1)', () => {
 })
 
 /** The feedId must not move across a bump — same feed, new generation (D1). */
-const FEED_ID_OF = (authority: ConformanceAuthority): string =>
-  authority.identity.current().feedId
+const FEED_ID_OF = (authority: ConformanceAuthority): string => authority.identity.current().feedId
 
 describe('backpressure is produced by the SHIPPED queue (ADR 2 D9)', () => {
   it('the fixture DELEGATES to BoundedSendQueue', async () => {
@@ -130,13 +129,20 @@ describe('backpressure is produced by the SHIPPED queue (ADR 2 D9)', () => {
     // Stable per principal, or a case could never overflow one: a fresh queue per
     // call is empty every time, and the demotion would be unreachable while every
     // assertion about it still passed.
-    expect(authority.sendQueueFor(requireHuman(ADA))).toBe(authority.sendQueueFor(requireHuman(ADA)))
+    expect(authority.sendQueueFor(requireHuman(ADA))).toBe(
+      authority.sendQueueFor(requireHuman(ADA)),
+    )
   })
 
   it('a demotion is REACHED by overflowing, and the frame comes from the queue', async () => {
     const authority = new ConformanceAuthority()
     await authority.resolveIdentity()
-    authority.append({ entity: 'issueProjection', entityId: 'ADA-1', op: 'upsert', payload: { n: 1 } })
+    authority.append({
+      entity: 'issueProjection',
+      entityId: 'ADA-1',
+      op: 'upsert',
+      payload: { n: 1 },
+    })
     authority.policy.grant('ada', 'issueProjection', 'ADA-1')
 
     let demotion = null
@@ -159,7 +165,12 @@ describe('backpressure is produced by the SHIPPED queue (ADR 2 D9)', () => {
     // way D9 exists to avoid ("one slow phone takes down everyone's server").
     const authority = new ConformanceAuthority()
     await authority.resolveIdentity()
-    authority.append({ entity: 'issueProjection', entityId: 'ADA-1', op: 'upsert', payload: { n: 1 } })
+    authority.append({
+      entity: 'issueProjection',
+      entityId: 'ADA-1',
+      op: 'upsert',
+      payload: { n: 1 },
+    })
     authority.policy.grant('ada', 'issueProjection', 'ADA-1')
     const queue = authority.sendQueueFor(requireHuman(ADA))
 
@@ -183,7 +194,8 @@ describe('visibility is DECIDED by the shipped policy (POD-1077, ADR 9 D2/D3/D4)
     // this whole file exists to catch.
     authority.policy.grant('ada', 'issueProjection', 'ADA-1')
     expect(authority.policy.canSee(ADA, 'issueProjection', 'ADA-1')).toBe(
-      authority.policy.evaluator.decide(ADA, { entity: 'issueProjection', entityId: 'ADA-1' }).visible,
+      authority.policy.evaluator.decide(ADA, { entity: 'issueProjection', entityId: 'ADA-1' })
+        .visible,
     )
   })
 
@@ -219,8 +231,18 @@ describe('the retention floor is published on every frame (ADR 2 D5)', () => {
   it('the frame carries the authority’s own floor, and follows it when it moves', async () => {
     const authority = new ConformanceAuthority()
     await authority.resolveIdentity()
-    authority.append({ entity: 'issueProjection', entityId: 'ADA-1', op: 'upsert', payload: { n: 1 } })
-    authority.append({ entity: 'issueProjection', entityId: 'ADA-2', op: 'upsert', payload: { n: 2 } })
+    authority.append({
+      entity: 'issueProjection',
+      entityId: 'ADA-1',
+      op: 'upsert',
+      payload: { n: 1 },
+    })
+    authority.append({
+      entity: 'issueProjection',
+      entityId: 'ADA-2',
+      op: 'upsert',
+      payload: { n: 2 },
+    })
     authority.policy.grant('ada', 'issueProjection', 'ADA-1')
 
     expect(authority.frameFor(ADA, 0).minAvailableSeq).toBe(0)

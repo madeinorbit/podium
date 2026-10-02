@@ -363,9 +363,7 @@ describe('missionRootFor', () => {
     const builds = missionIndexStats().builds
     // Archiving c1 (g2's parent) must surface g2 itself, not the archived root
     // path — and the flip must be visible, i.e. a rebuild.
-    const archived = issues.map((row) =>
-      row.id === 'c1' ? { ...row, archived: true } : row,
-    )
+    const archived = issues.map((row) => (row.id === 'c1' ? { ...row, archived: true } : row))
     expect(missionRootFor(archived, asIssueId('g2'))?.id).toBe('g2')
     expect(missionIndexStats().builds - builds).toBe(1)
     const builds2 = missionIndexStats().builds

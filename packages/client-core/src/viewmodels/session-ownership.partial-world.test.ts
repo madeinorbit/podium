@@ -1,13 +1,13 @@
-import type { IssueViewModel } from '../replica/issue-view-models'
 import { asIssueId, asSessionId, type SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { IssueViewModel } from '../replica/issue-view-models'
 import {
   indexSessionOwnership,
   issueIdOwningSession,
+  type ReferentExit,
   referentSettled,
   resolveReferent,
   sessionsForIssueNav,
-  type ReferentExit,
 } from './session-ownership'
 
 // ---------------------------------------------------------------------------
@@ -124,7 +124,10 @@ describe('eviction leaves the ownership derivations clean', () => {
 
   it('an evicted session simply leaves membership — no tombstone, no residue', () => {
     const before = indexSessionOwnership(
-      [session('s-1', { issueId: asIssueId('i-1') }), session('s-2', { issueId: asIssueId('i-1') })],
+      [
+        session('s-1', { issueId: asIssueId('i-1') }),
+        session('s-2', { issueId: asIssueId('i-1') }),
+      ],
       issues,
       worktrees,
     )
@@ -161,9 +164,7 @@ describe('eviction leaves the ownership derivations clean', () => {
     // The session is visible; its issue is not. Today this is indistinguishable
     // from "no owner" — issueIdOwningSession returns null for both.
     const orphan = session('s-9', { issueId: asIssueId('i-invisible') })
-    expect(
-      issueIdOwningSession(asSessionId('s-9'), [orphan], issues, worktrees),
-    ).toBeNull()
+    expect(issueIdOwningSession(asSessionId('s-9'), [orphan], issues, worktrees)).toBeNull()
 
     // resolveReferent is what recovers the distinction for the consumer.
     const byId = new Map(issues.map((i) => [String(i.id), i]))

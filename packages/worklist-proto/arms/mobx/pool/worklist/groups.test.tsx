@@ -1,4 +1,5 @@
 import { allIssueViewModels } from '@podium/client-core/replica'
+
 // @vitest-environment happy-dom
 /**
  * POD-4570 (Mb2) — groups, closed folds and the windowed list on the live
@@ -29,14 +30,22 @@ import { allIssueViewModels } from '@podium/client-core/replica'
  * redraws exactly when its own lanes changed, never on a row-internal change.
  */
 
+import type { MobxPool } from '@podium/client-graph/pool'
+import type { SliceIssue, SliceOrder } from '@podium/client-graph/shared/slice-types'
+import { closedOf } from '@podium/client-graph/views'
+import { sliceOrderOf } from '@podium/client-graph/worklist/groups'
 import { Reaction, reaction } from 'mobx'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  assertCommits,
-  mountArmForCounts,
-} from '../../../../harness/src/count-harness'
+  type HarnessMobxPoolHandle,
+  harnessMobxPoolArm,
+  poolPendingLoads,
+  tracked,
+  visibleOrderOf,
+} from '../../../../harness/src/adapters/mobx-pool'
+import { assertCommits, mountArmForCounts } from '../../../../harness/src/count-harness'
 import {
   engineLocals,
   FENCE_SCENARIOS,
@@ -44,6 +53,7 @@ import {
   parityLocals,
   runFenceStep,
 } from '../../../../harness/src/fence-scenarios'
+import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import {
   legacyDerivationFromStore,
   rowViewsFromStore,
@@ -55,13 +65,7 @@ import type { CheckableArm } from '../../../../shared/src/arm'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
 import { CommitLogContext, currentCommitLog } from '../../../../shared/src/row-shell'
 import { type ScenarioEngine, startScenarioEngine } from '../../../../shared/src/scenarios'
-import type { SliceIssue, SliceOrder } from '@podium/client-graph/shared/slice-types'
-import { harnessMobxPoolArm, poolPendingLoads, tracked, visibleOrderOf, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
-import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import type { MobxPool } from '@podium/client-graph/pool'
 import { HEADER_HEIGHT, PoolList, ROW_HEIGHT } from '../react/list'
-import { closedOf } from '@podium/client-graph/views'
-import { sliceOrderOf } from '@podium/client-graph/worklist/groups'
 
 installMobxWarnTrap()
 
@@ -101,7 +105,11 @@ function waitingKept(ctx: ScenarioEngine, expected: SliceOrder): Set<string> {
   const views = rowViewsFromStore(store, { ...engineLocals(ctx), selectedIssueId: null })
   const open = new Set(expected.groups.flatMap((group) => group.rowIds))
   const kept = new Set<string>()
-  for (const issue of allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates) as unknown as SliceIssue[]) {
+  for (const issue of allIssueViewModels(
+    store.replica,
+    store.issueProjections,
+    store.issueUserStates,
+  ) as unknown as SliceIssue[]) {
     if (!open.has(issue.id)) continue
     const view = views[issue.id]
     if (view === undefined || view.closed) continue

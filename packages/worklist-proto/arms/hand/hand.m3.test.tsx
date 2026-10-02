@@ -14,21 +14,20 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
-import {
-  startScenarioEngine,
-  type FixtureScale,
-} from '../../shared/src/scenarios'
 import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
+import { describe, expect, it } from 'vitest'
 import {
+  type MountedArm,
   mountArmForCounts,
   runCountScenario,
-  type MountedArm,
 } from '../../harness/src/count-harness'
-import { snapshotFromStore } from '../../harness/src/oracle/index'
 import { legacyControlArmFor } from '../../harness/src/legacy-control/arm'
+import { snapshotFromStore } from '../../harness/src/oracle/index'
 import {
+  type FixtureScale,
+  startScenarioEngine,
   writeHeartbeat,
   writePhaseChange,
   writeSelectionClick,
@@ -37,7 +36,6 @@ import {
 import { handArm } from './arm'
 import { rebuildFromScratch } from './rebuild'
 import type { HandStore } from './store'
-import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 
 function storeOf(mounted: MountedArm): HandStore {
   return (mounted.handle as unknown as { store: HandStore }).store
@@ -197,9 +195,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       const grownVisible = Object.keys(mounted.handle.snapshot().rowsById).length
       const issuesGrown = store.issues.rows.size
       const sessionsGrown = store.sessions.rows.size
-      expect(mounted.handle.snapshot()).toEqual(
-        snapshotFromStore(ctx.engine.getSnapshot(), locals),
-      )
+      expect(mounted.handle.snapshot()).toEqual(snapshotFromStore(ctx.engine.getSnapshot(), locals))
       checkOracle(mounted)
       ctx.replica.batch(() => {
         for (let n = 0; n < 10; n += 1) {
@@ -349,7 +345,11 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       byScale.set(name, perStep)
     }
     // Counts for 1–3 must not grow with scale (the flatness gate).
-    for (const step of ['#1 unrelatedHeartbeat', '#2 visibleSessionPhaseChange', '#3 selectionClick']) {
+    for (const step of [
+      '#1 unrelatedHeartbeat',
+      '#2 visibleSessionPhaseChange',
+      '#3 selectionClick',
+    ]) {
       const at1 = byScale.get('1x')?.[step]
       const at2 = byScale.get('2x')?.[step]
       const at4 = byScale.get('4x')?.[step]
@@ -375,7 +375,12 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       kind: 'arm' | 'control',
     ): Promise<{
       rows: number
-      stats: { rowsDerived: number; rollupsDerived: number; indexUpdates: number; notifications: number }
+      stats: {
+        rowsDerived: number
+        rollupsDerived: number
+        indexUpdates: number
+        notifications: number
+      }
     }> => {
       const ctx = await startScenarioEngine(1)
       const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
@@ -412,7 +417,11 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       coarseNow: ctx.engine.getSnapshot().coarseNow,
     }
     const armMounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
-    const controlMounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, fixedLocals(locals))
+    const controlMounted = mountArmForCounts(
+      legacyControlArmFor(ctx.engine),
+      source.source,
+      fixedLocals(locals),
+    )
     try {
       // One shared publication, both sides reset before it, both read after:
       // neither may wake the other beyond what its solo run shows.

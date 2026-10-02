@@ -65,4 +65,3 @@ export function issueRowFixture(over: Partial<UnbrandIds<IssueRow>> = {}): Issue
     ...over,
   } as unknown as IssueRow
 }
-

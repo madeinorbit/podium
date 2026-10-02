@@ -1,9 +1,5 @@
+import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS, type IssueStage } from '@podium/model'
 import type { IssueViewModel } from '../replica/issue-view-models'
-import {
-  canonicalIssueCloseReason,
-  ISSUE_STATUS_LABELS,
-  type IssueStage,
-} from '@podium/model'
 import { ISSUE_STAGE_LABELS } from './issue-reference'
 
 /**

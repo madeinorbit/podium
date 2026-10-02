@@ -1,22 +1,21 @@
-import { allIssueViewModels } from '@podium/client-core/replica'
-import { placeholderProjection } from '../../../../packages/client-core/src/engine/optimism'
-import type { IssueViewModel } from '@podium/client-core/replica'
-import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { allIssueViewModels, createReplica } from '@podium/client-core/replica'
 import { optimisticDraftIssue } from '@podium/client-core/viewmodels'
 import {
   asIssueId,
   asSessionId,
+  asUserId,
   type IssueId,
   type SessionId,
   type SessionMeta,
   type SessionMetaInput,
 } from '@podium/model'
 import type { SyncChangesSinceResult } from '@podium/protocol'
-import { createReplica } from '@podium/client-core/replica'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { placeholderProjection } from '../../../../packages/client-core/src/engine/optimism'
 
 /** These suites predate multi-user; they exercise ONE signed-in operator, which
  *  is what the shipped single-admin install is. */
@@ -45,7 +44,9 @@ const fakeTrpc = {
         }),
     },
   },
-  discovery: { refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [], machines: [] }) } },
+  discovery: {
+    refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [], machines: [] }) },
+  },
   pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
   tabs: { listOrders: { query: async () => ({}) } },
   settings: { get: { query: async () => ({ sidebar: { repoSort: 'lastUsed', repoOrder: [] } }) } },
@@ -105,7 +106,10 @@ let latest: { sessions: SessionMeta[]; issues: IssueViewModel[] } = { sessions: 
 let store: ReturnType<typeof useStore> | null = null
 function Probe(): null {
   const s = useStore()
-  latest = { sessions: s.sessions, issues: allIssueViewModels(s.replica, s.issueProjections, s.issueUserStates) }
+  latest = {
+    sessions: s.sessions,
+    issues: allIssueViewModels(s.replica, s.issueProjections, s.issueUserStates),
+  }
   store = s
   return null
 }
@@ -209,14 +213,16 @@ describe('optimistic new-session spawn', () => {
       sessions: [serverSession(ids.sessionId, { status: 'starting', issueId: ids.issueId })],
       issues: [],
       issueProjections: [
-        placeholderProjection(optimisticDraftIssue({
-          userId: TEST_PRINCIPAL.userId,
-          issueId: ids.issueId,
-          repoPath: '/w',
-          sortKey: 'i',
-          agentKind: 'claude-code',
-          nowIso: '2026-07-01T00:00:00.000Z',
-        })),
+        placeholderProjection(
+          optimisticDraftIssue({
+            userId: TEST_PRINCIPAL.userId,
+            issueId: ids.issueId,
+            repoPath: '/w',
+            sortKey: 'i',
+            agentKind: 'claude-code',
+            nowIso: '2026-07-01T00:00:00.000Z',
+          }),
+        ),
       ],
       conversations: [],
       diagnostics: [],

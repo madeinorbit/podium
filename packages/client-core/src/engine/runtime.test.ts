@@ -30,31 +30,45 @@ import {
   asSessionId,
   asUserId,
   issueUserStateRowId,
-  shipLaneId,
   sessionUserStateRowId,
+  shipLaneId,
   UNADDRESSABLE_SEND_REASON,
 } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
-import { createElement, Profiler, act, useSyncExternalStore } from 'react'
-import { act as testingAct, render } from '@testing-library/react'
-import { createSlicePublisher } from '../viewmodels/slices/publish'
-import { worklistSlice } from '../viewmodels/slices/worklist/published'
+import { render, act as testingAct } from '@testing-library/react'
+import { act, createElement, Profiler, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
+import { readStoreStats, storeStats } from '../perf/store-stats'
 import { asClientPrincipal } from '../principal'
 import { issueViewModelsFromReplica } from '../replica/issue-view-models'
 import { createKernelReplica, createSideCache } from '../replica/kernel'
 import { createReplica, memoryStorage, type Replica, type StorageApi } from '../replica/replica'
-import type { SocketHub } from '../socket-transport'
-import { type Router, routeDefaults, type RouterWindow, SIDEBAR_COLLAPSED_KEY, SUPERAGENT_MODE_KEY } from '../ui-state'
-import { allTabIds, leafPaneIds, shippingPanelModel } from '../viewmodels'
 import { sessionById } from '../session-index'
-import { readStoreStats, storeStats } from '../perf/store-stats'
-import { Reactions } from './reactions'
-import { foregroundIssue, type EngineState } from './state'
-import { foldOverlays, insertOverlay, type OverlayEntity, type OverlayTarget, type PendingOverlay, type AwaitingTruth, pruneAwaiting } from './overlay'
+import type { SocketHub } from '../socket-transport'
+import {
+  type Router,
+  type RouterWindow,
+  routeDefaults,
+  SIDEBAR_COLLAPSED_KEY,
+  SUPERAGENT_MODE_KEY,
+} from '../ui-state'
+import { allTabIds, leafPaneIds, shippingPanelModel } from '../viewmodels'
+import { createSlicePublisher } from '../viewmodels/slices/publish'
+import { worklistSlice } from '../viewmodels/slices/worklist/published'
 import { type OptimismLedger, placeholderProjection } from './optimism'
+import {
+  type AwaitingTruth,
+  foldOverlays,
+  insertOverlay,
+  type OverlayEntity,
+  type OverlayTarget,
+  type PendingOverlay,
+  pruneAwaiting,
+} from './overlay'
+import { Reactions } from './reactions'
 import { COARSE_CLOCK_MS, type CoarseClock, createClientRuntime } from './runtime'
+import { type EngineState, foregroundIssue } from './state'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -281,7 +295,8 @@ function makeEngine(
     api: (opts.api ?? makeApi()) as PodiumClientApi,
     onFatalError: (m) => fatals.push(m),
     notices: { error: (m) => errors.push(m), info: () => {} },
-    createReplicaFn: () => opts.replica ?? createReplica({ storage: opts.storage ?? memoryStorage() }),
+    createReplicaFn: () =>
+      opts.replica ?? createReplica({ storage: opts.storage ?? memoryStorage() }),
     routerWindow: rw.win,
     createHub: () => hub as unknown as SocketHub,
     ...(opts.spawnConfirmGraceMs !== undefined
@@ -413,9 +428,14 @@ describe('engine lifecycle', () => {
       previousMachines = machines
     })
     const machine = {
-      id: 'machine-a', online: true, lastSeenAt: 'before', buildReportedAt: 'before',
-      services: { server: { state: 'available', observedAt: 'before' },
-        agentExecution: { state: 'available', observedAt: 'before' } },
+      id: 'machine-a',
+      online: true,
+      lastSeenAt: 'before',
+      buildReportedAt: 'before',
+      services: {
+        server: { state: 'available', observedAt: 'before' },
+        agentExecution: { state: 'available', observedAt: 'before' },
+      },
     }
     hub.emit('machines', [machine])
     const snapshot = engine.getSnapshot()
@@ -424,9 +444,17 @@ describe('engine lifecycle', () => {
     expect(machinePublish).toHaveBeenCalledTimes(1)
     publish.mockClear()
     hub.emit('machines', [structuredClone(machine)])
-    hub.emit('machines', [{ ...machine, lastSeenAt: 'after', buildReportedAt: 'after',
-      services: { server: { observedAt: 'after', state: 'available' },
-        agentExecution: { observedAt: 'after', state: 'available' } } }])
+    hub.emit('machines', [
+      {
+        ...machine,
+        lastSeenAt: 'after',
+        buildReportedAt: 'after',
+        services: {
+          server: { observedAt: 'after', state: 'available' },
+          agentExecution: { observedAt: 'after', state: 'available' },
+        },
+      },
+    ])
     expect(publish).not.toHaveBeenCalled()
     expect(engine.getSnapshot()).toBe(snapshot)
     engine.dispose()
@@ -507,9 +535,7 @@ describe('engine lifecycle', () => {
     // A rebound daemon replacing the prior visible machine leaves the online
     // count at one. The old count-rise heuristic skipped this invalidation and
     // could leave the worklist joined against the wrong machine snapshot.
-    hub.emit('machines', [
-      { id: asMachineId('daemon-after-restart'), online: true, name: 'after' },
-    ])
+    hub.emit('machines', [{ id: asMachineId('daemon-after-restart'), online: true, name: 'after' }])
     await settle()
 
     expect(api.discovery.refreshRepos.mutate).toHaveBeenCalledTimes(1)
@@ -554,17 +580,13 @@ describe('engine lifecycle', () => {
     api.discovery.refreshRepos.mutate.mockClear()
 
     const machineId = asMachineId('shared-daemon')
-    hub.emit('machines', [
-      { id: machineId, online: true, name: 'shared daemon', use: 'granted' },
-    ])
+    hub.emit('machines', [{ id: machineId, online: true, name: 'shared daemon', use: 'granted' }])
     await settle()
     api.discovery.refreshRepos.mutate.mockClear()
 
     // The machine remains visible and online, but filesystem scan authority is
     // gone. The authorized repo snapshot must be recomputed under that denial.
-    hub.emit('machines', [
-      { id: machineId, online: true, name: 'shared daemon', use: 'denied' },
-    ])
+    hub.emit('machines', [{ id: machineId, online: true, name: 'shared daemon', use: 'denied' }])
     await settle()
 
     expect(api.discovery.refreshRepos.mutate).toHaveBeenCalledTimes(1)
@@ -705,7 +727,11 @@ describe('single URL writer (React #185 regression, engine-level)', () => {
 
   it('settles when there are no known worktrees at all', async () => {
     const api = makeApi()
-    api.discovery.refreshRepos.mutate = vi.fn(async () => ({ repositories: [], diagnostics: [], machines: [] }))
+    api.discovery.refreshRepos.mutate = vi.fn(async () => ({
+      repositories: [],
+      diagnostics: [],
+      machines: [],
+    }))
     const { engine, fatals } = makeEngine({ url: '/workspace?wt=%2Fgone&pane=dead', api })
     let notifications = 0
     engine.subscribe(() => {
@@ -860,7 +886,12 @@ describe('short session id pane links (POD-4637)', () => {
 
   it('an ambiguous short id says so and opens nothing', async () => {
     const message = "ambiguous session id prefix '2' matches 2 sessions: 2a, 2b"
-    const { api } = apiResolving({ kind: 'ambiguous', prefix: '2', candidates: ['2a', '2b'], message })
+    const { api } = apiResolving({
+      kind: 'ambiguous',
+      prefix: '2',
+      candidates: ['2a', '2b'],
+      message,
+    })
     const { engine, rw, errors } = makeEngine({ url: '/workspace?wt=%2Ftmp%2Fknown-repo', api })
     engine.start()
     await settle(40)
@@ -1442,7 +1473,11 @@ describe('unified optimistic overlay (#263)', () => {
     const { engine } = makeEngine({ api })
     engine.start()
     await settle(40)
-    engine.replica.applyChanges('sessions', [{ ...session('s1', '/w'), readAt: '2026-07-01T00:00:00.000Z' }], [])
+    engine.replica.applyChanges(
+      'sessions',
+      [{ ...session('s1', '/w'), readAt: '2026-07-01T00:00:00.000Z' }],
+      [],
+    )
     await settle()
     void engine.getSnapshot().renameSession(asSessionId('s1'), 'first')
     void engine.getSnapshot().markSessionUnread(asSessionId('s1'))
@@ -2068,7 +2103,13 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     if (!optimisticIssue) throw new Error('missing optimistic issue')
     engine.replica.applyChanges(
       'issueProjections',
-      [placeholderProjection({ ...optimisticIssue, seq: 1, worktreePath: '/w/.worktrees/smooth-task-launch' })],
+      [
+        placeholderProjection({
+          ...optimisticIssue,
+          seq: 1,
+          worktreePath: '/w/.worktrees/smooth-task-launch',
+        }),
+      ],
       [],
     )
     engine.replica.applyChanges(
@@ -2960,50 +3001,52 @@ describe('coarse clock (POD-331)', () => {
 describe('mounted worklist rescopes (POD-4722)', () => {
   it('publishes every grown-scope row before synchronous readers derive, including after restart', async () => {
     const at = '2026-09-30T12:00:00.000Z'
-    const recordsFor = (ids: string[]): EntityRecord[] => ids.flatMap((id, index) => {
-      const projection = {
-        id,
-        seq: index + 1,
-        title: id,
-        description: { value: '' },
-        stage: 'in_progress',
-        createdAt: at,
-        updatedAt: at,
-        archived: false,
-        priority: 2,
-        type: 'task',
-        intentOrigin: 'human',
-        audience: 'human',
-        isDraftVessel: false,
-      } as unknown as IssueProjection
-      const issue = {
-        ...projection,
-        description: '',
-        repoPath: KNOWN_REPO.path,
-        intentOrigin: 'human',
-        isDraftVessel: false,
-        pinned: false,
-        needsHuman: false,
-        blocked: false,
-        ready: true,
-        deps: [],
-        dependents: [],
-        labels: [],
-        comments: [],
-        blockedByNotes: [],
-        readAt: null,
-      } as unknown as IssueViewModel
-      return [
-        { entity: 'issue', entityId: id, value: issue, provenance: { seq: 1 } },
-        { entity: 'issueProjection', entityId: id, value: projection, provenance: { seq: 1 } },
-      ]
-    })
+    const recordsFor = (ids: string[]): EntityRecord[] =>
+      ids.flatMap((id, index) => {
+        const projection = {
+          id,
+          seq: index + 1,
+          title: id,
+          description: { value: '' },
+          stage: 'in_progress',
+          createdAt: at,
+          updatedAt: at,
+          archived: false,
+          priority: 2,
+          type: 'task',
+          intentOrigin: 'human',
+          audience: 'human',
+          isDraftVessel: false,
+        } as unknown as IssueProjection
+        const issue = {
+          ...projection,
+          description: '',
+          repoPath: KNOWN_REPO.path,
+          intentOrigin: 'human',
+          isDraftVessel: false,
+          pinned: false,
+          needsHuman: false,
+          blocked: false,
+          ready: true,
+          deps: [],
+          dependents: [],
+          labels: [],
+          comments: [],
+          blockedByNotes: [],
+          readAt: null,
+        } as unknown as IssueViewModel
+        return [
+          { entity: 'issue', entityId: id, value: issue, provenance: { seq: 1 } },
+          { entity: 'issueProjection', entityId: id, value: projection, provenance: { seq: 1 } },
+        ]
+      })
     let records = recordsFor(['iss_1'])
     const replica = createKernelReplica({
       cache: {
         readCursor: () => ({ seq: 1 }),
         readEntities: () => records,
-        read: (entity, entityId) => records.find((r) => r.entity === entity && r.entityId === entityId),
+        read: (entity, entityId) =>
+          records.find((r) => r.entity === entity && r.entityId === entityId),
         durability: () => 'durable',
       },
       side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
@@ -3019,19 +3062,25 @@ describe('mounted worklist rescopes (POD-4722)', () => {
     const publisher = createSlicePublisher(engine.getSnapshot)
     const read = () => publisher.read(worklistSlice)
     const idsOf = () =>
-      read().work.flatMap((row) => row.kind === 'issue' ? [row.issue.id] : []).sort()
+      read()
+        .work.flatMap((row) => (row.kind === 'issue' ? [row.issue.id] : []))
+        .sort()
     function WorklistReader() {
       const slice = useSyncExternalStore(engine.subscribe, read)
       return createElement(
         'ul',
         null,
-        slice.work.flatMap((row) => row.kind === 'issue'
-          ? [createElement('li', { key: row.issue.id }, row.issue.id)]
-          : []),
+        slice.work.flatMap((row) =>
+          row.kind === 'issue' ? [createElement('li', { key: row.issue.id }, row.issue.id)] : [],
+        ),
       )
     }
     const root = render(createElement(WorklistReader))
-    const renderedIds = () => root.queryAllByRole('listitem').map((row) => row.textContent).sort()
+    const renderedIds = () =>
+      root
+        .queryAllByRole('listitem')
+        .map((row) => row.textContent)
+        .sort()
     const publications: string[][] = []
     const off = engine.subscribe(() => publications.push(idsOf()))
     try {
@@ -3417,11 +3466,23 @@ describe('issue visit baseline', () => {
     const { engine } = makeEngine()
     engine.start()
     await settle()
-    const issue = { id: asIssueId('repo-only'), seq: 1, title: 'Repo-only facts', repoId: 'repo',
-      stage: 'backlog', archived: false, createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-01T00:00:00Z' } as IssueViewModel
+    const issue = {
+      id: asIssueId('repo-only'),
+      seq: 1,
+      title: 'Repo-only facts',
+      repoId: 'repo',
+      stage: 'backlog',
+      archived: false,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-01T00:00:00Z',
+    } as IssueViewModel
     applyNormalizedIssueRecords(engine, [issue])
     const before = engine.getSnapshot()
-    engine.replica.applyChanges('repos', [{ id: 'repo', prefix: 'NEW', repoPath: '/new-home' } as never], [])
+    engine.replica.applyChanges(
+      'repos',
+      [{ id: 'repo', prefix: 'NEW', repoPath: '/new-home' } as never],
+      [],
+    )
     const after = engine.getSnapshot()
     expect(engine.getSnapshot()).not.toHaveProperty('issues')
     expect(after).not.toBe(before)
@@ -3469,9 +3530,7 @@ describe('issue visit baseline', () => {
     })
 
     void engine.getSnapshot().markIssueRead(asIssueId('iss_1'))
-    expect(issueModels(engine).find((issue) => issue.id === 'iss_1')?.readAt).not.toBe(
-      first.readAt,
-    )
+    expect(issueModels(engine).find((issue) => issue.id === 'iss_1')?.readAt).not.toBe(first.readAt)
     expect(engine.getSnapshot().issueVisitBaseline?.readAt).toBe(first.readAt)
 
     engine.getSnapshot().setSelectedIssueId(asIssueId('iss_2'))
@@ -3494,7 +3553,6 @@ describe('issue visit baseline', () => {
   })
 })
 
-
 describe('host metrics isolation', () => {
   it('measures snapshot publishes, slice derivations and React commits against the old frame path', async () => {
     ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -3505,37 +3563,71 @@ describe('host metrics isolation', () => {
       await settle()
       // Counterfactual: reinstall the exact old frame handler alongside the new
       // telemetry path. Without isolation these same instruments MUST move.
-      const undo = legacy ? hub.on('hostMetrics', (metrics) => {
-        ;(engine as unknown as { apply(patch: object): void }).apply({ hostMetrics: metrics })
-      }) : () => {}
+      const undo = legacy
+        ? hub.on('hostMetrics', (metrics) => {
+            ;(engine as unknown as { apply(patch: object): void }).apply({ hostMetrics: metrics })
+          })
+        : () => {}
       const publisher = createSlicePublisher(engine.getSnapshot)
-      const slice = { name: 'snapshotProbe', derive: (s: ReturnType<typeof engine.getSnapshot>) => ({ sessions: s.sessions }) }
+      const slice = {
+        name: 'snapshotProbe',
+        derive: (s: ReturnType<typeof engine.getSnapshot>) => ({ sessions: s.sessions }),
+      }
       publisher.read(slice)
       let publishes = 0
-      const off = engine.subscribe(() => { publishes++; publisher.read(slice) })
+      const off = engine.subscribe(() => {
+        publishes++
+        publisher.read(slice)
+      })
       const commits = { snapshot: 0, metrics: 0 }
       function SnapshotReader() {
         useSyncExternalStore(engine.subscribe, engine.getSnapshot)
         return null
       }
       function MetricsReader() {
-        const metrics = useSyncExternalStore(engine.hostMetrics.subscribe, engine.hostMetrics.getSnapshot)
+        const metrics = useSyncExternalStore(
+          engine.hostMetrics.subscribe,
+          engine.hostMetrics.getSnapshot,
+        )
         return createElement('span', null, metrics[0]?.hostname ?? '')
       }
-      const root = render(createElement('div', null,
-        createElement(Profiler, { id: 'snapshot', onRender: () => commits.snapshot++ }, createElement(SnapshotReader)),
-        createElement(Profiler, { id: 'metrics', onRender: () => commits.metrics++ }, createElement(MetricsReader)),
-      ))
+      const root = render(
+        createElement(
+          'div',
+          null,
+          createElement(
+            Profiler,
+            { id: 'snapshot', onRender: () => commits.snapshot++ },
+            createElement(SnapshotReader),
+          ),
+          createElement(
+            Profiler,
+            { id: 'metrics', onRender: () => commits.metrics++ },
+            createElement(MetricsReader),
+          ),
+        ),
+      )
       commits.snapshot = 0
       commits.metrics = 0
       const before = publisher.derivations().snapshotProbe!
       for (let frame = 1; frame <= 3; frame++) {
-        await act(async () => hub.emit('hostMetrics', [{ hostname: `host-${frame}` }] as HostMetricsWire[]))
+        await act(async () =>
+          hub.emit('hostMetrics', [{ hostname: `host-${frame}` }] as HostMetricsWire[]),
+        )
         expect(root.container.textContent).toBe(`host-${frame}`)
       }
-      const counts = { publishes, derivations: publisher.derivations().snapshotProbe! - before, ...commits }
+      const counts = {
+        publishes,
+        derivations: publisher.derivations().snapshotProbe! - before,
+        ...commits,
+      }
       results.push({ legacy, ...counts })
-      expect(counts).toEqual({ publishes: legacy ? 3 : 0, derivations: legacy ? 3 : 0, snapshot: legacy ? 3 : 0, metrics: 3 })
+      expect(counts).toEqual({
+        publishes: legacy ? 3 : 0,
+        derivations: legacy ? 3 : 0,
+        snapshot: legacy ? 3 : 0,
+        metrics: 3,
+      })
       await act(async () => root.unmount())
       off()
       undo()
@@ -3617,7 +3709,6 @@ describe('opt-in runtime publication diagnostics', () => {
   })
 })
 
-
 describe('shared session index', () => {
   it('the reaction table shares a build without ID scans and still follows and marks read', () => {
     const { engine } = makeEngine()
@@ -3626,16 +3717,26 @@ describe('shared session index', () => {
     const sessions = [moved]
     const find = vi.spyOn(sessions, 'find')
     const state = {
-      ...engine.getSnapshot(), sessions, paneA: moved.sessionId, focusedPane: 'A',
-      selectedWorktree: '/before', selectedIssueId: original.issueId, workspaces: {},
+      ...engine.getSnapshot(),
+      sessions,
+      paneA: moved.sessionId,
+      focusedPane: 'A',
+      selectedWorktree: '/before',
+      selectedIssueId: original.issueId,
+      workspaces: {},
       repos: [{ ...KNOWN_REPO, path: '/after', worktrees: [] }],
     } as EngineState
     const publish = vi.fn()
     const info = vi.fn()
     const markSessionRead = vi.fn()
     const reactions = new Reactions({
-      state: () => state, publish, notices: { info, error: vi.fn() },
-      hub: {} as SocketHub, markSessionRead, markIssueRead: vi.fn(), isVisible: () => true,
+      state: () => state,
+      publish,
+      notices: { info, error: vi.fn() },
+      hub: {} as SocketHub,
+      markSessionRead,
+      markIssueRead: vi.fn(),
+      isVisible: () => true,
     })
     reactions.seedCwds([original])
     reactions.seedIssueIds([original])
@@ -3648,7 +3749,9 @@ describe('shared session index', () => {
       expect(find).not.toHaveBeenCalled()
       expect(readStoreStats().runtimes.reduce((n, c) => n + (c.slices.sessionById ?? 0), 0)).toBe(1)
       expect(info).toHaveBeenCalledWith('s1 moved worktree', '/after')
-      expect(publish).toHaveBeenCalledWith(expect.objectContaining({ selectedIssueId: moved.issueId }))
+      expect(publish).toHaveBeenCalledWith(
+        expect.objectContaining({ selectedIssueId: moved.issueId }),
+      )
       expect(markSessionRead).toHaveBeenCalledWith(moved.sessionId)
     } finally {
       reactions.dispose()
@@ -3662,7 +3765,11 @@ describe('shared session index', () => {
   it('indexes effective optimistic inserts and their removal without retaining absent rows', () => {
     const base = [session('base', '/w')]
     const pending = session('pending', '/w')
-    const effective = foldOverlays(base, [insertOverlay('sessions', pending.sessionId, pending)], (s) => s.sessionId).rows
+    const effective = foldOverlays(
+      base,
+      [insertOverlay('sessions', pending.sessionId, pending)],
+      (s) => s.sessionId,
+    ).rows
     expect(sessionById(base).get(pending.sessionId)).toBeUndefined()
     expect(sessionById(effective).get(pending.sessionId)).toBe(pending)
     expect(sessionById(effective).get(base[0]!.sessionId)).toBe(base[0])
@@ -3674,19 +3781,36 @@ describe('shared session index', () => {
 
 // Same issue click, real runtime/reactions, old setters versus planned commit.
 describe('atomic navigation publication', () => {
-  it.each(['warm', 'first-open'] as const)('A/B %s: one navigation publication with identical destination and focus report', async (scenario) => {
-    const { storeStats, readRuntimeStoreStats, readStoreStats } = await import('../perf/store-stats')
+  it.each([
+    'warm',
+    'first-open',
+  ] as const)('A/B %s: one navigation publication with identical destination and focus report', async (scenario) => {
+    const { storeStats, readRuntimeStoreStats, readStoreStats } = await import(
+      '../perf/store-stats'
+    )
     const results = []
     const readPublications = []
     for (const legacy of [true, false]) {
       const { engine, hub, rw } = makeEngine({ url: '/issues' })
       engine.start()
       await settle()
-      const issue = { id: asIssueId('nav-issue'), title: 'Navigation', stage: 'in_progress',
-        readAt: '2026-09-02T00:00:00Z', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
-        archived: false, worktreePath: '/tmp/known-repo/.worktrees/wt1' } as IssueViewModel
-      const session = { sessionId: asSessionId('nav-session'), cwd: issue.worktreePath,
-        issueId: issue.id, name: 'Navigation', unread: false } as SessionMeta
+      const issue = {
+        id: asIssueId('nav-issue'),
+        title: 'Navigation',
+        stage: 'in_progress',
+        readAt: '2026-09-02T00:00:00Z',
+        createdAt: '2026-09-01T00:00:00Z',
+        updatedAt: '2026-09-01T00:00:00Z',
+        archived: false,
+        worktreePath: '/tmp/known-repo/.worktrees/wt1',
+      } as IssueViewModel
+      const session = {
+        sessionId: asSessionId('nav-session'),
+        cwd: issue.worktreePath,
+        issueId: issue.id,
+        name: 'Navigation',
+        unread: false,
+      } as SessionMeta
       applyIssueRecords(engine, [issue])
       engine.replica.applyChanges('sessions', [session], [])
       await settle()
@@ -3694,19 +3818,32 @@ describe('atomic navigation publication', () => {
         // A1's warm path: both layouts already exist in the same worktree,
         // and the workspace surface is already open. No first-open/view switch.
         const otherIssue = { ...issue, id: asIssueId('other-issue') }
-        const otherSession = { ...session, sessionId: asSessionId('other-session'), issueId: otherIssue.id }
+        const otherSession = {
+          ...session,
+          sessionId: asSessionId('other-session'),
+          issueId: otherIssue.id,
+        }
         applyIssueRecords(engine, [otherIssue])
         engine.replica.applyChanges('sessions', [otherSession], [])
         await settle()
-        engine.getSnapshot().navigateWorkspace({ selectedIssueId: issue.id,
-          selectedWorktree: issue.worktreePath, tabId: session.sessionId, firstPane: true })
-        engine.getSnapshot().navigateWorkspace({ selectedIssueId: otherIssue.id,
-          selectedWorktree: issue.worktreePath, tabId: otherSession.sessionId, firstPane: true })
+        engine.getSnapshot().navigateWorkspace({
+          selectedIssueId: issue.id,
+          selectedWorktree: issue.worktreePath,
+          tabId: session.sessionId,
+          firstPane: true,
+        })
+        engine.getSnapshot().navigateWorkspace({
+          selectedIssueId: otherIssue.id,
+          selectedWorktree: issue.worktreePath,
+          tabId: otherSession.sessionId,
+          firstPane: true,
+        })
       }
       const focusBefore = hub.viewStates.length
       const snapshots: Array<ReturnType<typeof engine.getSnapshot>> = []
       const off = engine.subscribe(() => snapshots.push(engine.getSnapshot()))
-      storeStats.enable(); storeStats.reset()
+      storeStats.enable()
+      storeStats.reset()
       const window = storeStats.begin('gesture')
       const actions = engine.getSnapshot()
       if (legacy) {
@@ -3714,24 +3851,46 @@ describe('atomic navigation publication', () => {
         actions.setSelectedWorktree(issue.worktreePath)
         actions.setPane('A', session.sessionId)
         const router = (engine as unknown as { router: Router }).router
-        router.navigate({ ...routeDefaults('workspace'), worktree: router.current().worktree, pane: router.current().pane })
+        router.navigate({
+          ...routeDefaults('workspace'),
+          worktree: router.current().worktree,
+          pane: router.current().pane,
+        })
       } else {
-        actions.navigateWorkspace({ selectedIssueId: issue.id, selectedWorktree: issue.worktreePath,
-          tabId: session.sessionId, firstPane: true })
+        actions.navigateWorkspace({
+          selectedIssueId: issue.id,
+          selectedWorktree: issue.worktreePath,
+          tabId: session.sessionId,
+          firstPane: true,
+        })
       }
       storeStats.end(window)
       const final = engine.getSnapshot()
-      const result = { publishes: readRuntimeStoreStats(engine)?.publishes,
-        selected: final.selectedIssueId, pane: final.paneA, view: final.view,
-        focus: hub.viewStates.length - focusBefore, url: rw.url(), baseline: final.issueVisitBaseline?.issueId }
+      const result = {
+        publishes: readRuntimeStoreStats(engine)?.publishes,
+        selected: final.selectedIssueId,
+        pane: final.paneA,
+        view: final.view,
+        focus: hub.viewStates.length - focusBefore,
+        url: rw.url(),
+        baseline: final.issueVisitBaseline?.issueId,
+      }
       results.push(result)
       if (!legacy) {
         expect(snapshots).toHaveLength(1)
-        expect(snapshots[0]).toMatchObject({ selectedIssueId: issue.id, paneA: session.sessionId,
-          view: 'workspace', issueVisitBaseline: { issueId: issue.id } })
+        expect(snapshots[0]).toMatchObject({
+          selectedIssueId: issue.id,
+          paneA: session.sessionId,
+          view: 'workspace',
+          issueVisitBaseline: { issueId: issue.id },
+        })
         const writes = rw.writes.length
-        actions.navigateWorkspace({ selectedIssueId: issue.id, selectedWorktree: issue.worktreePath,
-          tabId: session.sessionId, firstPane: true })
+        actions.navigateWorkspace({
+          selectedIssueId: issue.id,
+          selectedWorktree: issue.worktreePath,
+          tabId: session.sessionId,
+          firstPane: true,
+        })
         expect(snapshots).toHaveLength(1)
         expect(rw.writes).toHaveLength(writes)
       }
@@ -3741,22 +3900,41 @@ describe('atomic navigation publication', () => {
       await actions.markIssueRead(issue.id)
       await settle()
       storeStats.end(optimisticWindow)
-      const optimistic = readStoreStats().publishes.filter((p) => p.changedKeys.includes('issueUserStates')).length
+      const optimistic = readStoreStats().publishes.filter((p) =>
+        p.changedKeys.includes('issueUserStates'),
+      ).length
       expect(issueModels(engine).find((i) => i.id === issue.id)?.readAt).not.toBe(issue.readAt)
       storeStats.reset()
       const networkWindow = storeStats.begin('feed')
       applyIssueRecords(engine, [{ ...issue, readAt: '2099-01-01T00:00:00.000Z' }])
       await settle()
       storeStats.end(networkWindow)
-      const network = readStoreStats().publishes.filter((p) => p.changedKeys.includes('issueUserStates')).length
+      const network = readStoreStats().publishes.filter((p) =>
+        p.changedKeys.includes('issueUserStates'),
+      ).length
       readPublications.push({ optimistic, network })
-      storeStats.enable(false); engine.destroy()
+      storeStats.enable(false)
+      engine.destroy()
     }
     expect(results).toEqual([
-      { publishes: scenario === 'warm' ? 1 : 4, selected: 'nav-issue', pane: 'nav-session', view: 'workspace', focus: 1,
-        url: '/workspace?wt=%2Ftmp%2Fknown-repo%2F.worktrees%2Fwt1&pane=nav-session', baseline: 'nav-issue' },
-      { publishes: 1, selected: 'nav-issue', pane: 'nav-session', view: 'workspace', focus: 1,
-        url: '/workspace?wt=%2Ftmp%2Fknown-repo%2F.worktrees%2Fwt1&pane=nav-session', baseline: 'nav-issue' },
+      {
+        publishes: scenario === 'warm' ? 1 : 4,
+        selected: 'nav-issue',
+        pane: 'nav-session',
+        view: 'workspace',
+        focus: 1,
+        url: '/workspace?wt=%2Ftmp%2Fknown-repo%2F.worktrees%2Fwt1&pane=nav-session',
+        baseline: 'nav-issue',
+      },
+      {
+        publishes: 1,
+        selected: 'nav-issue',
+        pane: 'nav-session',
+        view: 'workspace',
+        focus: 1,
+        url: '/workspace?wt=%2Ftmp%2Fknown-repo%2F.worktrees%2Fwt1&pane=nav-session',
+        baseline: 'nav-issue',
+      },
     ])
     expect(readPublications[0]!.optimistic).toBeGreaterThan(0)
     expect(readPublications[0]!.network).toBeGreaterThan(0)
@@ -3767,11 +3945,16 @@ describe('atomic navigation publication', () => {
 
   it('history failure leaves the snapshot, selection and reactions untouched', async () => {
     const { engine, rw, hub } = makeEngine({ url: '/issues' })
-    engine.start(); await settle()
+    engine.start()
+    await settle()
     const before = engine.getSnapshot()
     const focus = hub.viewStates.length
-    vi.spyOn(rw.win.history, 'pushState').mockImplementation(() => { throw new Error('history failed') })
-    expect(() => before.navigateWorkspace({ selectedIssueId: asIssueId('unknown') })).toThrow('history failed')
+    vi.spyOn(rw.win.history, 'pushState').mockImplementation(() => {
+      throw new Error('history failed')
+    })
+    expect(() => before.navigateWorkspace({ selectedIssueId: asIssueId('unknown') })).toThrow(
+      'history failed',
+    )
     expect(engine.getSnapshot()).toBe(before)
     expect(hub.viewStates).toHaveLength(focus)
     engine.destroy()
@@ -3779,7 +3962,12 @@ describe('atomic navigation publication', () => {
 
   it('nested batches defer snapshots but expose immediate state, last-write wins, and union keys', () => {
     const { engine } = makeEngine()
-    const seam = engine as unknown as { batch(fn: () => void): void; apply(p: object): void; react(k: ReadonlySet<string>): void; state: EngineState }
+    const seam = engine as unknown as {
+      batch(fn: () => void): void
+      apply(p: object): void
+      react(k: ReadonlySet<string>): void
+      state: EngineState
+    }
     const reaction = vi.spyOn(seam, 'react').mockImplementation(() => {})
     const before = engine.getSnapshot()
     const subscriber = vi.fn()
@@ -3807,7 +3995,13 @@ type PublicationSeam = {
   batch(fn: () => void): void
   react(keys: ReadonlySet<keyof EngineState>): void
   buildSnapshot(): ReturnType<ReturnType<typeof makeEngine>['engine']['getSnapshot']>
-  subStore: { publish(snapshot: ReturnType<PublicationSeam['buildSnapshot']>, keys: ReadonlySet<keyof EngineState>, nested: boolean): void }
+  subStore: {
+    publish(
+      snapshot: ReturnType<PublicationSeam['buildSnapshot']>,
+      keys: ReadonlySet<keyof EngineState>,
+      nested: boolean,
+    ): void
+  }
   batchDepth: number
   statsReactionDepth: number
 }
@@ -3818,7 +4012,10 @@ function legacyPublications(engine: ReturnType<typeof makeEngine>['engine']): ()
   let pending: Partial<EngineState> | null = null
   const apply = vi.spyOn(seam, 'apply').mockImplementation((patch) => {
     if (engine.isDestroyed) return
-    if (depth > 0) { pending = { ...pending, ...patch }; return }
+    if (depth > 0) {
+      pending = { ...pending, ...patch }
+      return
+    }
     const changed = new Set<keyof EngineState>()
     for (const key of Object.keys(patch) as Array<keyof EngineState>) {
       if (!Object.is(seam.state[key], patch[key])) {
@@ -3829,11 +4026,17 @@ function legacyPublications(engine: ReturnType<typeof makeEngine>['engine']): ()
     if (!changed.size) return
     seam.subStore.publish(seam.buildSnapshot(), changed, reacting > 0)
     reacting++
-    try { seam.react(changed) } finally { reacting-- }
+    try {
+      seam.react(changed)
+    } finally {
+      reacting--
+    }
   })
   const batch = vi.spyOn(seam, 'batch').mockImplementation((fn) => {
     depth++
-    try { fn() } finally {
+    try {
+      fn()
+    } finally {
       depth--
       if (depth === 0) {
         const patch = pending
@@ -3851,125 +4054,192 @@ function legacyPublications(engine: ReturnType<typeof makeEngine>['engine']): ()
       listener(size)
     }),
   )
-  return () => { subscribe.mockRestore(); batch.mockRestore(); apply.mockRestore() }
-
+  return () => {
+    subscribe.mockRestore()
+    batch.mockRestore()
+    apply.mockRestore()
+  }
 }
 
 describe('coalesced outbox and reaction publications', () => {
-  it.each(['outbox', 'fallback', 'worktree-follow', 'issue-follow', 'prune', 'visit-baseline', 'session-read', 'issue-read'] as const)(
-    'A/B %s preserves reaction outcomes and publishes once', async (scenario) => {
-      const results = []
-      for (const legacy of [true, false]) {
-        const api = makeApi()
-        // Keep network completion outside this event's measurement window.
-        api.sessions.rename.mutate = vi.fn(() => new Promise(() => {}))
-        api.sessions.markRead.mutate = vi.fn(() => new Promise(() => {}))
-        api.issues.markRead.mutate = vi.fn(() => new Promise(() => {}))
-        const { engine, hub } = makeEngine({ api, url: '/workspace', workspacePruneGraceMs: 0 })
-        const restore = legacy ? legacyPublications(engine) : () => {}
-        engine.start()
-        await settle()
-        const oldId = asIssueId('b2-old')
-        const newId = asIssueId('b2-new')
-        const issue = { id: oldId, title: 'B2', stage: 'in_progress', archived: false,
-          createdAt: '2025-01-01T00:00:00Z', updatedAt: '2025-01-01T00:00:00Z',
-          readAt: '2099-01-01T00:00:00Z' } as IssueViewModel
-        const row = { ...session('b2-session', scenario === 'fallback' ? '/unregistered' : '/tmp/known-repo'),
-          issueId: oldId, readAt: '2099-01-01T00:00:00Z' } as SessionMeta
-        if (scenario !== 'visit-baseline') {
-          applyIssueRecords(engine, [issue, { ...issue, id: newId }])
-        } else {
-          // This case measures the arrival of one projection. Personal state
-          // is already hydrated; the legacy fixture adapter emits one notice
-          // per kind, whereas the kernel publishes a whole kind batch.
-          engine.replica.applyChanges('issueUserStates', [{ userId: asUserId('operator'),
-            entityId: oldId, readAt: issue.readAt ?? null, tuckedAt: null, pinned: false }], [])
-        }
-        engine.replica.applyChanges('sessions', [row], [])
-        await settle()
-        engine.getSnapshot().navigateWorkspace({ selectedIssueId: oldId,
-          selectedWorktree: row.cwd, tabId: row.sessionId, firstPane: true })
-        await settle()
-        const oldKey = engine.getSnapshot().workspaceKey()
-        hub.viewStates.length = 0
-        const seen: Array<ReturnType<typeof engine.getSnapshot>> = []
-        const off = engine.subscribe(() => seen.push(engine.getSnapshot()))
-        storeStats.reset(); storeStats.enable()
-        const capture = storeStats.begin(scenario === 'outbox' ? 'gesture' : 'feed')
-        try {
-          switch (scenario) {
-            case 'outbox':
-              engine.outbox.enqueue('rename', { sessionId: row.sessionId, name: 'renamed' })
-              break
-            case 'fallback':
-            case 'prune':
-              engine.replica.applyChanges('sessions', [], [row.sessionId])
-              break
-            case 'worktree-follow':
-              engine.replica.applyChanges('sessions', [{ ...row, cwd: '/tmp/known-repo/.worktrees/wt1' }], [])
-              break
-            case 'issue-follow':
-              engine.replica.applyChanges('sessions', [{ ...row, issueId: newId }], [])
-              break
-            case 'visit-baseline':
-              engine.replica.applyChanges('issueProjections', [placeholderProjection(issue)], [])
-              break
-            case 'session-read':
-              engine.replica.applyChanges('sessions', [{ ...row, lastActiveAt: '2026-07-01T00:01:00Z', readAt: null, unread: true }], [])
-              break
-            case 'issue-read':
-              engine.replica.applyChanges('issueProjections', [placeholderProjection({ ...issue, updatedAt: '2100-07-01T00:01:00Z' })], [])
-              break
-          }
-          // Replica notifications and reactions are synchronous. End this
-          // event before the optimistic action's post-await handoff (POD-4351).
-          storeStats.end(capture)
-          const st = engine.getSnapshot()
-          const publications = readStoreStats().publishes.length
-          expect(publications).toBe(seen.length)
-          if (legacy) expect(publications).toBeGreaterThan(1)
-          else expect(publications).toBe(1)
-          if (scenario === 'outbox') {
-            expect(st.outboxSize).toBe(1)
-            expect(st.sessions[0]?.name).toBe('renamed')
-          }
-          if (scenario === 'fallback') expect(st.selectedWorktree).toBe('/tmp/known-repo')
-          if (scenario === 'worktree-follow') expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
-          if (scenario === 'issue-follow') {
-            expect(st.selectedIssueId).toBe(newId)
-            expect(st.paneA).toBe(row.sessionId)
-            expect(allTabIds(st.workspaces[oldKey]!)).not.toContain(row.sessionId)
-            expect(st.issueVisitBaseline?.issueId).toBe(newId)
-            expect(hub.viewStates.at(-1)?.visible).toContain(row.sessionId)
-          }
-          if (scenario === 'prune') expect(st.paneA).toBeNull()
-          if (scenario === 'visit-baseline') expect(st.issueVisitBaseline?.issueId).toBe(oldId)
-          if (scenario === 'session-read') expect(st.sessions[0]?.unread).toBe(false)
-          if (scenario === 'issue-read') expect(issueModels(engine, st).find((i) => i.id === oldId)?.readAt).not.toBe(issue.readAt)
-          results.push({ publications, selectedWorktree: st.selectedWorktree, selectedIssueId: st.selectedIssueId,
-            paneA: st.paneA, paneB: st.paneB, baseline: st.issueVisitBaseline?.issueId,
-            tabs: Object.values(st.workspaces).map((ws) => allTabIds(ws)),
-            reports: hub.viewStates, sessionReads: api.sessions.markRead.mutate.mock.calls.length,
-            issueReads: api.issues.markRead.mutate.mock.calls.length })
-        } finally {
-          off(); storeStats.enable(false); storeStats.reset()
-          await settle() // drain post-event action continuations before teardown
-          engine.destroy(); restore()
-        }
+  it.each([
+    'outbox',
+    'fallback',
+    'worktree-follow',
+    'issue-follow',
+    'prune',
+    'visit-baseline',
+    'session-read',
+    'issue-read',
+  ] as const)('A/B %s preserves reaction outcomes and publishes once', async (scenario) => {
+    const results = []
+    for (const legacy of [true, false]) {
+      const api = makeApi()
+      // Keep network completion outside this event's measurement window.
+      api.sessions.rename.mutate = vi.fn(() => new Promise(() => {}))
+      api.sessions.markRead.mutate = vi.fn(() => new Promise(() => {}))
+      api.issues.markRead.mutate = vi.fn(() => new Promise(() => {}))
+      const { engine, hub } = makeEngine({ api, url: '/workspace', workspacePruneGraceMs: 0 })
+      const restore = legacy ? legacyPublications(engine) : () => {}
+      engine.start()
+      await settle()
+      const oldId = asIssueId('b2-old')
+      const newId = asIssueId('b2-new')
+      const issue = {
+        id: oldId,
+        title: 'B2',
+        stage: 'in_progress',
+        archived: false,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+        readAt: '2099-01-01T00:00:00Z',
+      } as IssueViewModel
+      const row = {
+        ...session('b2-session', scenario === 'fallback' ? '/unregistered' : '/tmp/known-repo'),
+        issueId: oldId,
+        readAt: '2099-01-01T00:00:00Z',
+      } as SessionMeta
+      if (scenario !== 'visit-baseline') {
+        applyIssueRecords(engine, [issue, { ...issue, id: newId }])
+      } else {
+        // This case measures the arrival of one projection. Personal state
+        // is already hydrated; the legacy fixture adapter emits one notice
+        // per kind, whereas the kernel publishes a whole kind batch.
+        engine.replica.applyChanges(
+          'issueUserStates',
+          [
+            {
+              userId: asUserId('operator'),
+              entityId: oldId,
+              readAt: issue.readAt ?? null,
+              tuckedAt: null,
+              pinned: false,
+            },
+          ],
+          [],
+        )
       }
-      expect({ ...results[0], publications: 1 }).toEqual(results[1])
-      process.stdout.write(`B2 publication A/B ${scenario}: ${results.map((r) => r.publications).join(' -> ')}\n`)
-    },
-  )
+      engine.replica.applyChanges('sessions', [row], [])
+      await settle()
+      engine.getSnapshot().navigateWorkspace({
+        selectedIssueId: oldId,
+        selectedWorktree: row.cwd,
+        tabId: row.sessionId,
+        firstPane: true,
+      })
+      await settle()
+      const oldKey = engine.getSnapshot().workspaceKey()
+      hub.viewStates.length = 0
+      const seen: Array<ReturnType<typeof engine.getSnapshot>> = []
+      const off = engine.subscribe(() => seen.push(engine.getSnapshot()))
+      storeStats.reset()
+      storeStats.enable()
+      const capture = storeStats.begin(scenario === 'outbox' ? 'gesture' : 'feed')
+      try {
+        switch (scenario) {
+          case 'outbox':
+            engine.outbox.enqueue('rename', { sessionId: row.sessionId, name: 'renamed' })
+            break
+          case 'fallback':
+          case 'prune':
+            engine.replica.applyChanges('sessions', [], [row.sessionId])
+            break
+          case 'worktree-follow':
+            engine.replica.applyChanges(
+              'sessions',
+              [{ ...row, cwd: '/tmp/known-repo/.worktrees/wt1' }],
+              [],
+            )
+            break
+          case 'issue-follow':
+            engine.replica.applyChanges('sessions', [{ ...row, issueId: newId }], [])
+            break
+          case 'visit-baseline':
+            engine.replica.applyChanges('issueProjections', [placeholderProjection(issue)], [])
+            break
+          case 'session-read':
+            engine.replica.applyChanges(
+              'sessions',
+              [{ ...row, lastActiveAt: '2026-07-01T00:01:00Z', readAt: null, unread: true }],
+              [],
+            )
+            break
+          case 'issue-read':
+            engine.replica.applyChanges(
+              'issueProjections',
+              [placeholderProjection({ ...issue, updatedAt: '2100-07-01T00:01:00Z' })],
+              [],
+            )
+            break
+        }
+        // Replica notifications and reactions are synchronous. End this
+        // event before the optimistic action's post-await handoff (POD-4351).
+        storeStats.end(capture)
+        const st = engine.getSnapshot()
+        const publications = readStoreStats().publishes.length
+        expect(publications).toBe(seen.length)
+        if (legacy) expect(publications).toBeGreaterThan(1)
+        else expect(publications).toBe(1)
+        if (scenario === 'outbox') {
+          expect(st.outboxSize).toBe(1)
+          expect(st.sessions[0]?.name).toBe('renamed')
+        }
+        if (scenario === 'fallback') expect(st.selectedWorktree).toBe('/tmp/known-repo')
+        if (scenario === 'worktree-follow')
+          expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
+        if (scenario === 'issue-follow') {
+          expect(st.selectedIssueId).toBe(newId)
+          expect(st.paneA).toBe(row.sessionId)
+          expect(allTabIds(st.workspaces[oldKey]!)).not.toContain(row.sessionId)
+          expect(st.issueVisitBaseline?.issueId).toBe(newId)
+          expect(hub.viewStates.at(-1)?.visible).toContain(row.sessionId)
+        }
+        if (scenario === 'prune') expect(st.paneA).toBeNull()
+        if (scenario === 'visit-baseline') expect(st.issueVisitBaseline?.issueId).toBe(oldId)
+        if (scenario === 'session-read') expect(st.sessions[0]?.unread).toBe(false)
+        if (scenario === 'issue-read')
+          expect(issueModels(engine, st).find((i) => i.id === oldId)?.readAt).not.toBe(issue.readAt)
+        results.push({
+          publications,
+          selectedWorktree: st.selectedWorktree,
+          selectedIssueId: st.selectedIssueId,
+          paneA: st.paneA,
+          paneB: st.paneB,
+          baseline: st.issueVisitBaseline?.issueId,
+          tabs: Object.values(st.workspaces).map((ws) => allTabIds(ws)),
+          reports: hub.viewStates,
+          sessionReads: api.sessions.markRead.mutate.mock.calls.length,
+          issueReads: api.issues.markRead.mutate.mock.calls.length,
+        })
+      } finally {
+        off()
+        storeStats.enable(false)
+        storeStats.reset()
+        await settle() // drain post-event action continuations before teardown
+        engine.destroy()
+        restore()
+      }
+    }
+    expect({ ...results[0], publications: 1 }).toEqual(results[1])
+    process.stdout.write(
+      `B2 publication A/B ${scenario}: ${results.map((r) => r.publications).join(' -> ')}\n`,
+    )
+  })
 
   it('keeps copied-listener unsubscribe semantics during the folded publication', () => {
     const { engine } = makeEngine()
     const seam = engine as unknown as PublicationSeam
     const calls: string[] = []
     let offSecond = () => {}
-    engine.subscribe(() => { calls.push('first'); offSecond() })
+    engine.subscribe(() => {
+      calls.push('first')
+      offSecond()
+    })
     offSecond = engine.subscribe(() => calls.push('second'))
-    seam.batch(() => { seam.apply({ paletteOpen: true }); seam.apply({ coarseNow: 123 }) })
+    seam.batch(() => {
+      seam.apply({ paletteOpen: true })
+      seam.apply({ coarseNow: 123 })
+    })
     expect(calls).toEqual(['first', 'second'])
     seam.apply({ coarseNow: 456 })
     expect(calls).toEqual(['first', 'second', 'first'])
@@ -3998,33 +4268,54 @@ describe('coalesced outbox and reaction publications', () => {
   })
 })
 
-
 // Frozen pre-B11 pure fold: the production runtime, outbox and B2 batching are
 // identical in both arms. Removing fold reuse MUST fail the new budget.
 function legacyOptimisticFolds(engine: ReturnType<typeof makeEngine>['engine']): () => void {
   const ledger = (engine as unknown as { optimism: OptimismLedger<PodiumClientApi> }).optimism
   const seam = ledger as unknown as {
-    foldStable(entity: OverlayEntity, base: object[], keyOf: (row: object) => string): ReturnType<typeof foldOverlays>
+    foldStable(
+      entity: OverlayEntity,
+      base: object[],
+      keyOf: (row: object) => string,
+    ): ReturnType<typeof foldOverlays>
   }
-  const spy = vi.spyOn(seam, 'foldStable').mockImplementation((entity, base, keyOf) =>
-    foldOverlays(base, ledger.overlaysFor(entity), keyOf))
+  const spy = vi
+    .spyOn(seam, 'foldStable')
+    .mockImplementation((entity, base, keyOf) =>
+      foldOverlays(base, ledger.overlaysFor(entity), keyOf),
+    )
   return () => spy.mockRestore()
 }
 
 /** Render the engine's normalized rows, including optimistic personal markers. */
-function issueModels(engine: ReturnType<typeof makeEngine>['engine'], state = engine.getSnapshot()): IssueViewModel[] {
+function issueModels(
+  engine: ReturnType<typeof makeEngine>['engine'],
+  state = engine.getSnapshot(),
+): IssueViewModel[] {
   return allIssueViewModels(engine.replica, state.issueProjections, state.issueUserStates)
 }
 
-function applyNormalizedIssueRecords(engine: ReturnType<typeof makeEngine>['engine'], rows: IssueViewModel[], userId = 'operator'): void {
+function applyNormalizedIssueRecords(
+  engine: ReturnType<typeof makeEngine>['engine'],
+  rows: IssueViewModel[],
+  userId = 'operator',
+): void {
   applyIssueRecords(engine, rows, userId)
 }
 
-function applyIssueRecords(engine: ReturnType<typeof makeEngine>['engine'], rows: IssueViewModel[], userId = 'operator'): void {
+function applyIssueRecords(
+  engine: ReturnType<typeof makeEngine>['engine'],
+  rows: IssueViewModel[],
+  userId = 'operator',
+): void {
   engine.replica.batch(() => applyIssueKinds(engine, rows, userId))
 }
 
-function applyIssueKinds(engine: ReturnType<typeof makeEngine>['engine'], rows: IssueViewModel[], userId: string): void {
+function applyIssueKinds(
+  engine: ReturnType<typeof makeEngine>['engine'],
+  rows: IssueViewModel[],
+  userId: string,
+): void {
   engine.replica.applyChanges('issueProjections', rows.map(placeholderProjection), [])
   const upserts: IssueUserStateWire[] = []
   const removes: string[] = []
@@ -4044,172 +4335,278 @@ function applyIssueKinds(engine: ReturnType<typeof makeEngine>['engine'], rows: 
   engine.replica.applyChanges('issueUserStates', upserts, removes)
 }
 
-const b11Issue = () => ({ id: asIssueId('b11-issue'), title: 'B11', stage: 'in_progress',
-  archived: false, createdAt: '2025-01-01T00:00:00Z', updatedAt: '2025-01-01T00:00:00Z',
-  readAt: null }) as IssueViewModel
+const b11Issue = () =>
+  ({
+    id: asIssueId('b11-issue'),
+    title: 'B11',
+    stage: 'in_progress',
+    archived: false,
+    createdAt: '2025-01-01T00:00:00Z',
+    updatedAt: '2025-01-01T00:00:00Z',
+    readAt: null,
+  }) as IssueViewModel
 
 function b11Counts(entity: 'issueUserStates' | 'sessions') {
   const records = readStoreStats().publishes
   const affected = records.filter((p) => p.changedKeys.includes(entity))
-  return { publications: records.length, entityPublications: affected.length,
+  return {
+    publications: records.length,
+    entityPublications: affected.length,
     readerWakes: records.reduce((n, p) => n + p.subscriberWakes, 0),
-    entityReaderWakes: affected.reduce((n, p) => n + p.subscriberWakes, 0) }
+    entityReaderWakes: affected.reduce((n, p) => n + p.subscriberWakes, 0),
+  }
 }
 
 describe('stable optimistic folds (B11)', () => {
-  it.each(['read', 'rename', 'reaction-read'] as const)(
-    'A/B %s separates synchronous publication, async handoff, resolution and echo', async (scenario) => {
-      const results: Array<{
-        sync: ReturnType<typeof b11Counts>
-        handoff: ReturnType<typeof b11Counts>
-        resolution: ReturnType<typeof b11Counts>
-        echo: ReturnType<typeof b11Counts>
-        instant: string | null | undefined
-        final: string | null | undefined
-        queued: Array<{ kind: string; input: unknown; baseline?: string; chained?: boolean }>
-        baseline: Pick<NonNullable<EngineState['issueVisitBaseline']>, 'issueId' | 'readAt'> | null
-      }> = []
-      for (const legacy of [true, false]) {
-        const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-18T12:00:00Z'))
-        const api = makeApi()
-        let confirm!: () => void
-        const response = new Promise<void>((resolve) => { confirm = resolve })
-        api.issues.markRead.mutate = vi.fn(() => response)
-        api.sessions.rename.mutate = vi.fn(() => response)
-        const { engine } = makeEngine({ api, url: '/workspace' })
-        const restore = legacy ? legacyOptimisticFolds(engine) : () => {}
-        const offs: Array<() => void> = []
-        try {
-          engine.start(); await settle(40)
-          const issue = b11Issue()
-          const row = session('b11-session', '/tmp/known-repo')
-          if (scenario === 'reaction-read') issue.readAt = '2099-01-01T00:00:00Z'
-          applyIssueRecords(engine, [issue])
-          engine.replica.applyChanges('sessions', [row], [])
+  it.each([
+    'read',
+    'rename',
+    'reaction-read',
+  ] as const)('A/B %s separates synchronous publication, async handoff, resolution and echo', async (scenario) => {
+    const results: Array<{
+      sync: ReturnType<typeof b11Counts>
+      handoff: ReturnType<typeof b11Counts>
+      resolution: ReturnType<typeof b11Counts>
+      echo: ReturnType<typeof b11Counts>
+      instant: string | null | undefined
+      final: string | null | undefined
+      queued: Array<{ kind: string; input: unknown; baseline?: string; chained?: boolean }>
+      baseline: Pick<NonNullable<EngineState['issueVisitBaseline']>, 'issueId' | 'readAt'> | null
+    }> = []
+    for (const legacy of [true, false]) {
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-18T12:00:00Z'))
+      const api = makeApi()
+      let confirm!: () => void
+      const response = new Promise<void>((resolve) => {
+        confirm = resolve
+      })
+      api.issues.markRead.mutate = vi.fn(() => response)
+      api.sessions.rename.mutate = vi.fn(() => response)
+      const { engine } = makeEngine({ api, url: '/workspace' })
+      const restore = legacy ? legacyOptimisticFolds(engine) : () => {}
+      const offs: Array<() => void> = []
+      try {
+        engine.start()
+        await settle(40)
+        const issue = b11Issue()
+        const row = session('b11-session', '/tmp/known-repo')
+        if (scenario === 'reaction-read') issue.readAt = '2099-01-01T00:00:00Z'
+        applyIssueRecords(engine, [issue])
+        engine.replica.applyChanges('sessions', [row], [])
+        await settle()
+        if (scenario === 'reaction-read') {
+          engine.getSnapshot().navigateWorkspace({
+            selectedIssueId: issue.id,
+            selectedWorktree: row.cwd,
+            firstPane: true,
+          })
           await settle()
-          if (scenario === 'reaction-read') {
-            engine.getSnapshot().navigateWorkspace({ selectedIssueId: issue.id,
-              selectedWorktree: row.cwd, firstPane: true })
-            await settle()
-          }
-          // The measured 23-reader cohort is explicitly installed, not inferred
-          // from publication count. A2 records every actual callback wake.
-          for (let i = 0; i < 23; i++) offs.push(engine.subscribe(() => {}))
-          const entity = scenario === 'rename' ? 'sessions' : 'issueUserStates'
-          const painted = () => scenario === 'rename' ? engine.getSnapshot().sessions[0]?.name
-            : issueModels(engine)[0]?.readAt
-          const phase = () => { const counts = b11Counts(entity); storeStats.reset(); return counts }
-          const visitBaseline = engine.getSnapshot().issueVisitBaseline
-          storeStats.reset(); storeStats.enable()
-          let command: Promise<void> | undefined
-          if (scenario === 'reaction-read') {
-            // Only the row the reaction reads: this replica publishes each kind
-            // apart, and the count below is about the reaction's boundary.
-            engine.replica.applyChanges('issueProjections', [placeholderProjection({ ...issue, updatedAt: '2100-01-01T00:00:00Z' })], [])
-          } else if (scenario === 'rename') {
-            command = engine.getSnapshot().renameSession(row.sessionId, 'renamed')
-          } else command = engine.getSnapshot().markIssueRead(issue.id)
-          const sync = phase()
-          const instant = painted()
-          expect(instant).toBe(scenario === 'rename' ? 'renamed' : '2026-09-18T12:00:00.000Z')
-          const entries = engine.outbox.pending()
-          const queued = entries.map(({ kind, input, baseline, chained }) => ({ kind, input, baseline, chained }))
-          expect(queued).toHaveLength(1)
-          await command; await settle()
-          const handoff = phase()
-          expect(painted()).toBe(instant)
-          confirm(); await settle()
-          const resolution = phase()
-          expect(painted()).toBe(instant)
-          expect(engine.outbox.size()).toBe(0)
-          expect(engine.outbox.awaiting()).toHaveLength(1)
-          if (scenario === 'rename') engine.replica.applyChanges('sessions', [{ ...row, name: 'renamed' }], [])
-          else applyIssueRecords(engine, [{ ...issue, readAt: '2026-09-18T12:00:01.000Z' }])
-          const echo = phase()
-          const final = painted()
-          expect(final).toBe(scenario === 'rename' ? 'renamed' : '2026-09-18T12:00:01.000Z')
-          expect(engine.outbox.awaiting()).toHaveLength(0)
-          const assertBudget = () => {
-            expect(handoff.entityPublications).toBe(0)
-            expect(sync.entityPublications + handoff.entityPublications + resolution.entityPublications).toBe(1)
-          }
-          if (legacy) expect(assertBudget).toThrow()
-          else assertBudget()
-          if (scenario === 'reaction-read') expect(sync.publications).toBe(1) // B2 boundary stays separate
-          expect(engine.getSnapshot().issueVisitBaseline).toEqual(visitBaseline)
-          const calls = scenario === 'rename' ? api.sessions.rename.mutate.mock.calls : api.issues.markRead.mutate.mock.calls
-          expect(calls).toEqual([[{ ...(entries[0]!.input as object), mutationId: entries[0]!.mutationId }]])
-          results.push({ sync, handoff, resolution, echo, instant, final, queued,
-            baseline: visitBaseline && { issueId: visitBaseline.issueId, readAt: visitBaseline.readAt } })
-        } finally {
-          offs.forEach((off) => { off() }); engine.destroy(); restore(); clock.mockRestore()
-          storeStats.enable(false); storeStats.reset()
         }
-      }
-      const controls = ({ instant, final, queued, baseline }: typeof results[number]) => ({ instant, final, queued, baseline })
-      expect(controls(results[0]!)).toEqual(controls(results[1]!))
-      const total = (r: typeof results[number]) => r.sync.entityPublications + r.handoff.entityPublications + r.resolution.entityPublications
-      expect(total(results[1]!)).toBeLessThan(total(results[0]!))
-      process.stdout.write(`B11 ${scenario} A/B: ${JSON.stringify(results.map(({ sync, handoff, resolution, echo }) => ({ sync, handoff, resolution, echo })))}\n`)
-    },
-  )
-
-  it.each(['sync-failure', 'persistence-failure', 'async-rejection', 'server-rejection', 'offline'] as const)(
-    'A/B %s preserves read command failure and durability behavior', async (scenario) => {
-      const results = []
-      for (const legacy of [true, false]) {
-        const storage = memoryStorage()
-        const api = makeApi()
-        if (scenario === 'offline') api.issues.markRead.mutate = vi.fn(async () => { throw new Error('offline') })
-        if (scenario === 'server-rejection') api.issues.markRead.mutate = vi.fn(async () => {
-          throw Object.assign(new Error('bad input'), { data: { code: 'BAD_REQUEST', httpStatus: 400 } })
+        // The measured 23-reader cohort is explicitly installed, not inferred
+        // from publication count. A2 records every actual callback wake.
+        for (let i = 0; i < 23; i++) offs.push(engine.subscribe(() => {}))
+        const entity = scenario === 'rename' ? 'sessions' : 'issueUserStates'
+        const painted = () =>
+          scenario === 'rename'
+            ? engine.getSnapshot().sessions[0]?.name
+            : issueModels(engine)[0]?.readAt
+        const phase = () => {
+          const counts = b11Counts(entity)
+          storeStats.reset()
+          return counts
+        }
+        const visitBaseline = engine.getSnapshot().issueVisitBaseline
+        storeStats.reset()
+        storeStats.enable()
+        let command: Promise<void> | undefined
+        if (scenario === 'reaction-read') {
+          // Only the row the reaction reads: this replica publishes each kind
+          // apart, and the count below is about the reaction's boundary.
+          engine.replica.applyChanges(
+            'issueProjections',
+            [placeholderProjection({ ...issue, updatedAt: '2100-01-01T00:00:00Z' })],
+            [],
+          )
+        } else if (scenario === 'rename') {
+          command = engine.getSnapshot().renameSession(row.sessionId, 'renamed')
+        } else command = engine.getSnapshot().markIssueRead(issue.id)
+        const sync = phase()
+        const instant = painted()
+        expect(instant).toBe(scenario === 'rename' ? 'renamed' : '2026-09-18T12:00:00.000Z')
+        const entries = engine.outbox.pending()
+        const queued = entries.map(({ kind, input, baseline, chained }) => ({
+          kind,
+          input,
+          baseline,
+          chained,
+        }))
+        expect(queued).toHaveLength(1)
+        await command
+        await settle()
+        const handoff = phase()
+        expect(painted()).toBe(instant)
+        confirm()
+        await settle()
+        const resolution = phase()
+        expect(painted()).toBe(instant)
+        expect(engine.outbox.size()).toBe(0)
+        expect(engine.outbox.awaiting()).toHaveLength(1)
+        if (scenario === 'rename')
+          engine.replica.applyChanges('sessions', [{ ...row, name: 'renamed' }], [])
+        else applyIssueRecords(engine, [{ ...issue, readAt: '2026-09-18T12:00:01.000Z' }])
+        const echo = phase()
+        const final = painted()
+        expect(final).toBe(scenario === 'rename' ? 'renamed' : '2026-09-18T12:00:01.000Z')
+        expect(engine.outbox.awaiting()).toHaveLength(0)
+        const assertBudget = () => {
+          expect(handoff.entityPublications).toBe(0)
+          expect(
+            sync.entityPublications + handoff.entityPublications + resolution.entityPublications,
+          ).toBe(1)
+        }
+        if (legacy) expect(assertBudget).toThrow()
+        else assertBudget()
+        if (scenario === 'reaction-read') expect(sync.publications).toBe(1) // B2 boundary stays separate
+        expect(engine.getSnapshot().issueVisitBaseline).toEqual(visitBaseline)
+        const calls =
+          scenario === 'rename'
+            ? api.sessions.rename.mutate.mock.calls
+            : api.issues.markRead.mutate.mock.calls
+        expect(calls).toEqual([
+          [{ ...(entries[0]!.input as object), mutationId: entries[0]!.mutationId }],
+        ])
+        results.push({
+          sync,
+          handoff,
+          resolution,
+          echo,
+          instant,
+          final,
+          queued,
+          baseline: visitBaseline && {
+            issueId: visitBaseline.issueId,
+            readAt: visitBaseline.readAt,
+          },
         })
-        const { engine, errors } = makeEngine({ api, storage })
-        const restore = legacy ? legacyOptimisticFolds(engine) : () => {}
-        let enqueue: ReturnType<typeof vi.spyOn> | undefined
-        try {
-          engine.start(); await settle(40)
-          const issue = b11Issue()
-          applyIssueRecords(engine, [issue]); await settle()
-          const failure = new Error('persistence refused')
-          if (scenario === 'persistence-failure') {
-            const seam = engine.outbox as unknown as { storage: { save(entries: unknown[]): void } }
-            enqueue = vi.spyOn(seam.storage, 'save').mockImplementation(() => { throw failure })
-          }
-          if (scenario === 'sync-failure') enqueue = vi.spyOn(engine.outbox, 'enqueue').mockImplementation(() => { throw failure })
-          if (scenario === 'async-rejection') {
-            // Exercise the async port contract even though today's outbox is sync.
-            enqueue = vi.spyOn(engine.outbox, 'enqueue').mockImplementation(() =>
-              Promise.reject(failure) as unknown as ReturnType<typeof engine.outbox.enqueue>)
-          }
-          const command = engine.getSnapshot().markIssueRead(issue.id)
-          if (scenario === 'sync-failure' || scenario === 'persistence-failure' || scenario === 'async-rejection') await expect(command).rejects.toBe(failure)
-          else await command
-          await settle()
-          const read = issueModels(engine)[0]?.readAt != null
-          // A real storage refusal retains the in-memory entry (POD-1231),
-          // but still rejects: only a pre-enqueue rejection removes all paint.
-          expect(read).toBe(scenario === 'offline' || scenario === 'persistence-failure')
-          expect(engine.outbox.size()).toBe(scenario === 'offline' || scenario === 'persistence-failure' ? 1 : 0)
-          const queued = engine.outbox.pending().map(({ kind, input }) => ({ kind, input }))
-          if (scenario === 'offline') {
-            expect(queued).toEqual([{ kind: 'issueMarkRead', input: { id: issue.id } }])
-            engine.dispose()
-            const reload = makeEngine({ api, storage }).engine
-            try {
-              expect(issueModels(reload)[0]?.readAt).toBeTruthy()
-              expect(reload.outbox.pending()).toHaveLength(1)
-              expect(reload.replica.rows('issueUserStates')[0]?.readAt ?? null).toBeNull()
-            } finally { reload.destroy() }
-          }
-          results.push({ read, queued, errors, dead: engine.outbox.deadLetters().map((d) => d.reason) })
-        } finally { enqueue?.mockRestore(); engine.destroy(); restore() }
+      } finally {
+        offs.forEach((off) => {
+          off()
+        })
+        engine.destroy()
+        restore()
+        clock.mockRestore()
+        storeStats.enable(false)
+        storeStats.reset()
       }
-      expect(results[0]).toEqual(results[1])
-    },
-  )
-})
+    }
+    const controls = ({ instant, final, queued, baseline }: (typeof results)[number]) => ({
+      instant,
+      final,
+      queued,
+      baseline,
+    })
+    expect(controls(results[0]!)).toEqual(controls(results[1]!))
+    const total = (r: (typeof results)[number]) =>
+      r.sync.entityPublications + r.handoff.entityPublications + r.resolution.entityPublications
+    expect(total(results[1]!)).toBeLessThan(total(results[0]!))
+    process.stdout.write(
+      `B11 ${scenario} A/B: ${JSON.stringify(results.map(({ sync, handoff, resolution, echo }) => ({ sync, handoff, resolution, echo })))}\n`,
+    )
+  })
 
+  it.each([
+    'sync-failure',
+    'persistence-failure',
+    'async-rejection',
+    'server-rejection',
+    'offline',
+  ] as const)('A/B %s preserves read command failure and durability behavior', async (scenario) => {
+    const results = []
+    for (const legacy of [true, false]) {
+      const storage = memoryStorage()
+      const api = makeApi()
+      if (scenario === 'offline')
+        api.issues.markRead.mutate = vi.fn(async () => {
+          throw new Error('offline')
+        })
+      if (scenario === 'server-rejection')
+        api.issues.markRead.mutate = vi.fn(async () => {
+          throw Object.assign(new Error('bad input'), {
+            data: { code: 'BAD_REQUEST', httpStatus: 400 },
+          })
+        })
+      const { engine, errors } = makeEngine({ api, storage })
+      const restore = legacy ? legacyOptimisticFolds(engine) : () => {}
+      let enqueue: ReturnType<typeof vi.spyOn> | undefined
+      try {
+        engine.start()
+        await settle(40)
+        const issue = b11Issue()
+        applyIssueRecords(engine, [issue])
+        await settle()
+        const failure = new Error('persistence refused')
+        if (scenario === 'persistence-failure') {
+          const seam = engine.outbox as unknown as { storage: { save(entries: unknown[]): void } }
+          enqueue = vi.spyOn(seam.storage, 'save').mockImplementation(() => {
+            throw failure
+          })
+        }
+        if (scenario === 'sync-failure')
+          enqueue = vi.spyOn(engine.outbox, 'enqueue').mockImplementation(() => {
+            throw failure
+          })
+        if (scenario === 'async-rejection') {
+          // Exercise the async port contract even though today's outbox is sync.
+          enqueue = vi
+            .spyOn(engine.outbox, 'enqueue')
+            .mockImplementation(
+              () => Promise.reject(failure) as unknown as ReturnType<typeof engine.outbox.enqueue>,
+            )
+        }
+        const command = engine.getSnapshot().markIssueRead(issue.id)
+        if (
+          scenario === 'sync-failure' ||
+          scenario === 'persistence-failure' ||
+          scenario === 'async-rejection'
+        )
+          await expect(command).rejects.toBe(failure)
+        else await command
+        await settle()
+        const read = issueModels(engine)[0]?.readAt != null
+        // A real storage refusal retains the in-memory entry (POD-1231),
+        // but still rejects: only a pre-enqueue rejection removes all paint.
+        expect(read).toBe(scenario === 'offline' || scenario === 'persistence-failure')
+        expect(engine.outbox.size()).toBe(
+          scenario === 'offline' || scenario === 'persistence-failure' ? 1 : 0,
+        )
+        const queued = engine.outbox.pending().map(({ kind, input }) => ({ kind, input }))
+        if (scenario === 'offline') {
+          expect(queued).toEqual([{ kind: 'issueMarkRead', input: { id: issue.id } }])
+          engine.dispose()
+          const reload = makeEngine({ api, storage }).engine
+          try {
+            expect(issueModels(reload)[0]?.readAt).toBeTruthy()
+            expect(reload.outbox.pending()).toHaveLength(1)
+            expect(reload.replica.rows('issueUserStates')[0]?.readAt ?? null).toBeNull()
+          } finally {
+            reload.destroy()
+          }
+        }
+        results.push({
+          read,
+          queued,
+          errors,
+          dead: engine.outbox.deadLetters().map((d) => d.reason),
+        })
+      } finally {
+        enqueue?.mockRestore()
+        engine.destroy()
+        restore()
+      }
+    }
+    expect(results[0]).toEqual(results[1])
+  })
+})
 
 // S5 (this issue): one synchronous publication per row click.
 //
@@ -4242,19 +4639,43 @@ describe('S5 one publication per click', () => {
       const { engine } = makeEngine({ api, url: '/workspace' })
       engine.start()
       await settle()
-      const issueA = { id: asIssueId('s5-a'), title: 'A', stage: 'in_progress',
-        readAt: null, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
-        archived: false, worktreePath: '/tmp/known-repo' } as IssueViewModel
-      const issueB = { id: asIssueId('s5-b'), title: 'B', stage: 'in_progress',
-        readAt: null, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
-        archived: false, worktreePath: '/tmp/known-repo' } as IssueViewModel
-      const sessionA = { ...session('s5-session-a', '/tmp/known-repo'), issueId: issueA.id } as SessionMeta
-      const sessionB = { ...session('s5-session-b', '/tmp/known-repo'), issueId: issueB.id } as SessionMeta
+      const issueA = {
+        id: asIssueId('s5-a'),
+        title: 'A',
+        stage: 'in_progress',
+        readAt: null,
+        createdAt: '2026-09-01T00:00:00Z',
+        updatedAt: '2026-09-01T00:00:00Z',
+        archived: false,
+        worktreePath: '/tmp/known-repo',
+      } as IssueViewModel
+      const issueB = {
+        id: asIssueId('s5-b'),
+        title: 'B',
+        stage: 'in_progress',
+        readAt: null,
+        createdAt: '2026-09-01T00:00:00Z',
+        updatedAt: '2026-09-01T00:00:00Z',
+        archived: false,
+        worktreePath: '/tmp/known-repo',
+      } as IssueViewModel
+      const sessionA = {
+        ...session('s5-session-a', '/tmp/known-repo'),
+        issueId: issueA.id,
+      } as SessionMeta
+      const sessionB = {
+        ...session('s5-session-b', '/tmp/known-repo'),
+        issueId: issueB.id,
+      } as SessionMeta
       applyIssueRecords(engine, [issueA, issueB])
       engine.replica.applyChanges('sessions', [sessionA, sessionB], [])
       await settle()
-      engine.getSnapshot().navigateWorkspace({ selectedIssueId: issueA.id,
-        selectedWorktree: '/tmp/known-repo', tabId: sessionA.sessionId, firstPane: true })
+      engine.getSnapshot().navigateWorkspace({
+        selectedIssueId: issueA.id,
+        selectedWorktree: '/tmp/known-repo',
+        tabId: sessionA.sessionId,
+        firstPane: true,
+      })
       await settle()
       await engine.getSnapshot().markIssueRead(issueA.id)
       await settle()
@@ -4269,13 +4690,21 @@ describe('S5 one publication per click', () => {
       let command: Promise<void> | undefined
       if (batched) {
         seam.batch(() => {
-          engine.getSnapshot().navigateWorkspace({ selectedIssueId: issueB.id,
-            selectedWorktree: '/tmp/known-repo', tabId: sessionB.sessionId, firstPane: true })
+          engine.getSnapshot().navigateWorkspace({
+            selectedIssueId: issueB.id,
+            selectedWorktree: '/tmp/known-repo',
+            tabId: sessionB.sessionId,
+            firstPane: true,
+          })
           command = engine.getSnapshot().markIssueRead(issueB.id)
         })
       } else {
-        engine.getSnapshot().navigateWorkspace({ selectedIssueId: issueB.id,
-          selectedWorktree: '/tmp/known-repo', tabId: sessionB.sessionId, firstPane: true })
+        engine.getSnapshot().navigateWorkspace({
+          selectedIssueId: issueB.id,
+          selectedWorktree: '/tmp/known-repo',
+          tabId: sessionB.sessionId,
+          firstPane: true,
+        })
         command = engine.getSnapshot().markIssueRead(issueB.id)
       }
       const syncPubs = readStoreStats().publishes.map((p) => [...p.changedKeys].sort())
@@ -4296,8 +4725,9 @@ describe('S5 one publication per click', () => {
       // Control: same commands sent in both arms. Setup enqueues s5-a twice
       // (reaction + explicit separated by settle); the measured click dedupes
       // to one s5-b send via pendingReads in both arms.
-      const markCalls = (api.issues.markRead.mutate as ReturnType<typeof vi.fn>).mock.calls
-        .map((c) => (c[0] as { id: unknown }).id)
+      const markCalls = (api.issues.markRead.mutate as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c) => (c[0] as { id: unknown }).id,
+      )
       expect(markCalls.filter((id) => id === issueB.id)).toHaveLength(1)
       expect(markCalls).toHaveLength(3)
       // Control: same visible gesture state + optimistic paint.
@@ -4313,7 +4743,13 @@ describe('S5 one publication per click', () => {
         expect(sync).toBe(1)
         expect(syncSeen).toBe(1)
         const keys = syncPubs[0]!
-        for (const key of ['selectedIssueId', 'paneA', 'issueVisitBaseline', 'issueUserStates', 'outboxSize'] as const)
+        for (const key of [
+          'selectedIssueId',
+          'paneA',
+          'issueVisitBaseline',
+          'issueUserStates',
+          'outboxSize',
+        ] as const)
           expect(keys, `batched pub carries ${key}`).toContain(key)
       } else {
         expect(sync).toBeGreaterThan(1)
@@ -4339,9 +4775,18 @@ describe('S5 one publication per click', () => {
       const echo = engine.getSnapshot()
       const echoReadAt = issueModels(engine, echo).find((i) => i.id === issueB.id)?.readAt
       expect(echoReadAt).toBe('2099-01-01T00:00:00.000Z')
-      results.push({ sync, syncKeys: syncPubs, selected: st.selectedIssueId, pane: st.paneA,
-        baseline: st.issueVisitBaseline?.issueId, readAt, queued,
-        echoReadAt, echoAwaiting: engine.outbox.awaiting().length, drainPubs })
+      results.push({
+        sync,
+        syncKeys: syncPubs,
+        selected: st.selectedIssueId,
+        pane: st.paneA,
+        baseline: st.issueVisitBaseline?.issueId,
+        readAt,
+        queued,
+        echoReadAt,
+        echoAwaiting: engine.outbox.awaiting().length,
+        drainPubs,
+      })
       off()
       storeStats.enable(false)
       storeStats.reset()
@@ -4350,8 +4795,13 @@ describe('S5 one publication per click', () => {
     // Legacy arm fails the new budget; controls are equal across arms.
     expect(results[0]!.sync).toBeGreaterThan(1)
     expect(results[1]!.sync).toBe(1)
-    const controls = ({ selected, pane, baseline, queued, echoReadAt }: typeof results[number]) =>
-      ({ selected, pane, baseline, queued, echoReadAt })
+    const controls = ({
+      selected,
+      pane,
+      baseline,
+      queued,
+      echoReadAt,
+    }: (typeof results)[number]) => ({ selected, pane, baseline, queued, echoReadAt })
     expect(controls(results[1]!)).toEqual(controls(results[0]!))
     // Rollback semantics unchanged (B11 owns the failure matrix); the gesture
     // batch only moves the publication boundary. The drain echo published
@@ -4359,7 +4809,9 @@ describe('S5 one publication per click', () => {
     // is a no-op (0) in both.
     expect(results[0]!.drainPubs).toBe(0)
     expect(results[1]!.drainPubs).toBe(0)
-    process.stdout.write(`S5 click A/B sync ${results[0]!.sync} -> ${results[1]!.sync} keys=${JSON.stringify(results[1]!.syncKeys)}\n`)
+    process.stdout.write(
+      `S5 click A/B sync ${results[0]!.sync} -> ${results[1]!.sync} keys=${JSON.stringify(results[1]!.syncKeys)}\n`,
+    )
     storeStats.reset()
   })
 
@@ -4367,10 +4819,20 @@ describe('S5 one publication per click', () => {
     const { engine } = makeEngine({ url: '/workspace' })
     engine.start()
     await settle()
-    const issue = { id: asIssueId('s5-gesture'), title: 'G', stage: 'in_progress',
-      readAt: null, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
-      archived: false, worktreePath: '/tmp/known-repo' } as IssueViewModel
-    const row = { ...session('s5-gesture-session', '/tmp/known-repo'), issueId: issue.id } as SessionMeta
+    const issue = {
+      id: asIssueId('s5-gesture'),
+      title: 'G',
+      stage: 'in_progress',
+      readAt: null,
+      createdAt: '2026-09-01T00:00:00Z',
+      updatedAt: '2026-09-01T00:00:00Z',
+      archived: false,
+      worktreePath: '/tmp/known-repo',
+    } as IssueViewModel
+    const row = {
+      ...session('s5-gesture-session', '/tmp/known-repo'),
+      issueId: issue.id,
+    } as SessionMeta
     applyIssueRecords(engine, [issue])
     engine.replica.applyChanges('sessions', [row], [])
     await settle()
@@ -4382,12 +4844,17 @@ describe('S5 one publication per click', () => {
     const snapshot = engine.getSnapshot()
     // Production path: the store's batchGesture (actions.ts) wraps the calls
     // use-unified-work issues. Here through the same public surface.
-    const batchGesture = (snapshot as unknown as { batchGesture: (fn: () => void) => void }).batchGesture
+    const batchGesture = (snapshot as unknown as { batchGesture: (fn: () => void) => void })
+      .batchGesture
     expect(typeof batchGesture).toBe('function')
     let command: Promise<void> | undefined
     batchGesture(() => {
-      snapshot.navigateWorkspace({ selectedIssueId: issue.id,
-        selectedWorktree: row.cwd, tabId: row.sessionId, firstPane: true })
+      snapshot.navigateWorkspace({
+        selectedIssueId: issue.id,
+        selectedWorktree: row.cwd,
+        tabId: row.sessionId,
+        firstPane: true,
+      })
       command = snapshot.markIssueRead(issue.id)
     })
     const sync = readStoreStats().publishes.length
@@ -4468,18 +4935,30 @@ describe('unreferenced file records', () => {
   })
 })
 
-
 describe('session home reads in the shared runtime', () => {
   const read = '2026-07-01T00:00:00.000Z'
   const id = asSessionId('home-session')
   const user = asUserId('operator')
   function seeded() {
     const replica = createReplica({ storage: memoryStorage() })
-    replica.applySnapshot('sessions', [{ ...session(id, '/repo'), machineId: asMachineId('m1'),
-      refRepoId: 'repo:one', refSeq: 42, refLetter: 'A', displayRef: 'OLD-42-A', unread: true,
-      snoozedUntil: null, machineName: 'Old source', condition: 'logged-out' } as SessionMeta])
+    replica.applySnapshot('sessions', [
+      {
+        ...session(id, '/repo'),
+        machineId: asMachineId('m1'),
+        refRepoId: 'repo:one',
+        refSeq: 42,
+        refLetter: 'A',
+        displayRef: 'OLD-42-A',
+        unread: true,
+        snoozedUntil: null,
+        machineName: 'Old source',
+        condition: 'logged-out',
+      } as SessionMeta,
+    ])
     replica.applySnapshot('sessionUserStates', [{ userId: user, sessionId: id, readAt: read }])
-    replica.applySnapshot('machines', [{ id: asMachineId('m1'), name: 'Source', loggedOutHarnesses: [] }])
+    replica.applySnapshot('machines', [
+      { id: asMachineId('m1'), name: 'Source', loggedOutHarnesses: [] },
+    ])
     replica.applySnapshot('repos', [{ id: 'repo:one', prefix: 'NEW' } as never])
     return replica
   }
@@ -4487,10 +4966,22 @@ describe('session home reads in the shared runtime', () => {
     const replica = seeded()
     const { engine } = makeEngine({ replica })
     try {
-      expect(engine.getSnapshot().sessions[0]).toMatchObject({ readAt: read, unread: false,
-        snoozedUntil: undefined, displayRef: 'NEW-42-A', machineName: 'Source', condition: undefined })
-      expect(replica.rows('sessions')[0]).toMatchObject({ unread: true, snoozedUntil: null, displayRef: 'OLD-42-A' })
-    } finally { engine.destroy() }
+      expect(engine.getSnapshot().sessions[0]).toMatchObject({
+        readAt: read,
+        unread: false,
+        snoozedUntil: undefined,
+        displayRef: 'NEW-42-A',
+        machineName: 'Source',
+        condition: undefined,
+      })
+      expect(replica.rows('sessions')[0]).toMatchObject({
+        unread: true,
+        snoozedUntil: null,
+        displayRef: 'OLD-42-A',
+      })
+    } finally {
+      engine.destroy()
+    }
   })
   it('repaints refs, personal state and login conditions without a session echo', async () => {
     const replica = seeded()
@@ -4501,17 +4992,28 @@ describe('session home reads in the shared runtime', () => {
     try {
       replica.applySnapshot('repos', [{ id: 'repo:one', prefix: 'RENAMED' } as never])
       expect(engine.getSnapshot().sessions[0]?.displayRef).toBe('RENAMED-42-A')
-      replica.applySnapshot('sessionUserStates', [{ userId: user, sessionId: id, readAt: null, snoozedUntil: null }])
+      replica.applySnapshot('sessionUserStates', [
+        { userId: user, sessionId: id, readAt: null, snoozedUntil: null },
+      ])
       expect(engine.getSnapshot().sessions[0]).toMatchObject({ unread: true, snoozedUntil: null })
-      replica.applySnapshot('machines', [{ id: asMachineId('m1'), name: 'New source', loggedOutHarnesses: ['claude-code'] }])
-      expect(engine.getSnapshot().sessions[0]).toMatchObject({ machineName: 'New source', condition: 'logged-out' })
+      replica.applySnapshot('machines', [
+        { id: asMachineId('m1'), name: 'New source', loggedOutHarnesses: ['claude-code'] },
+      ])
+      expect(engine.getSnapshot().sessions[0]).toMatchObject({
+        machineName: 'New source',
+        condition: 'logged-out',
+      })
       expect(replica.rows('sessions')[0]).toBe(original)
-    } finally { engine.destroy() }
+    } finally {
+      engine.destroy()
+    }
   })
   it('keeps read optimism and rejection above the personal row until S3', async () => {
     const replica = seeded()
     let refuse!: (e: Error) => void
-    const pending = new Promise((_resolve, reject) => { refuse = reject })
+    const pending = new Promise((_resolve, reject) => {
+      refuse = reject
+    })
     const api = makeApi()
     api.sessions.markUnread.mutate = () => pending
     const { engine } = makeEngine({ replica, api })
@@ -4520,18 +5022,28 @@ describe('session home reads in the shared runtime', () => {
     try {
       const write = engine.getSnapshot().markSessionUnread(id)
       expect(engine.getSnapshot().sessions[0]).toMatchObject({ unread: true, readAt: null })
-      refuse(Object.assign(new Error('refused'), { data: { code: 'BAD_REQUEST', httpStatus: 400 } }))
+      refuse(
+        Object.assign(new Error('refused'), { data: { code: 'BAD_REQUEST', httpStatus: 400 } }),
+      )
       await write
       await settle()
       expect(engine.getSnapshot().sessions[0]).toMatchObject({ unread: false, readAt: read })
-    } finally { engine.destroy() }
+    } finally {
+      engine.destroy()
+    }
   })
   it('does not borrow another principal cursor and falls back until its own row arrives', () => {
     const replica = seeded()
     const { engine } = makeEngine({ replica, principal: 'other' })
     try {
-      expect(engine.getSnapshot().sessions[0]).toMatchObject({ unread: true, readAt: null, snoozedUntil: null })
-    } finally { engine.destroy() }
+      expect(engine.getSnapshot().sessions[0]).toMatchObject({
+        unread: true,
+        readAt: null,
+        snoozedUntil: null,
+      })
+    } finally {
+      engine.destroy()
+    }
   })
 })
 
@@ -4541,34 +5053,62 @@ describe('pool shared runtime work', () => {
     for (const enabled of [false, true]) {
       const { engine } = makeEngine()
       if (enabled) engine.enablePoolRuntimeWork()
-      const seam = engine as unknown as { apply(patch: Partial<EngineState>): void; reactions: Reactions }
-      const names = ['worktreeFollow', 'sessionIssueFollow', 'worktreeFallback', 'pruneWorkspaces'] as const
-      const spies = names.map(name => vi.spyOn(seam.reactions, name))
+      const seam = engine as unknown as {
+        apply(patch: Partial<EngineState>): void
+        reactions: Reactions
+      }
+      const names = [
+        'worktreeFollow',
+        'sessionIssueFollow',
+        'worktreeFallback',
+        'pruneWorkspaces',
+      ] as const
+      const spies = names.map((name) => vi.spyOn(seam.reactions, name))
       const row = { ...session('s', '/wt'), issueId: 'before' } as SessionMeta
       try {
         seam.apply({ sessions: [row] })
-        spies.forEach(spy => { spy.mockClear() })
-        seam.apply({ sessions: [{ ...row, name: 'new title', lastActiveAt: '2026-08-01T00:00:00Z' }] })
-        expect(spies.map(spy => spy.mock.calls.length)).toEqual(enabled ? [0, 0, 0, 0] : [1, 1, 1, 1])
+        spies.forEach((spy) => {
+          spy.mockClear()
+        })
+        seam.apply({
+          sessions: [{ ...row, name: 'new title', lastActiveAt: '2026-08-01T00:00:00Z' }],
+        })
+        expect(spies.map((spy) => spy.mock.calls.length)).toEqual(
+          enabled ? [0, 0, 0, 0] : [1, 1, 1, 1],
+        )
         for (const rows of [
           [{ ...row, cwd: '/new', issueId: 'after' }],
           [{ ...row, cwd: '/new', issueId: 'after' }, session('arrived', '/new')],
           [],
         ]) {
-          spies.forEach(spy => { spy.mockClear() })
+          spies.forEach((spy) => {
+            spy.mockClear()
+          })
           seam.apply({ sessions: rows as SessionMeta[] })
-          expect(spies.map(spy => spy.mock.calls.length)).toEqual([1, 1, 1, 1])
+          expect(spies.map((spy) => spy.mock.calls.length)).toEqual([1, 1, 1, 1])
         }
-        spies.forEach(spy => { spy.mockClear() })
+        spies.forEach((spy) => {
+          spy.mockClear()
+        })
         seam.apply({ pendingSpawnIds: new Set(['pending']) })
         expect(spies[3]).toHaveBeenCalledTimes(1)
         seam.apply({ issueProjections: [placeholderProjection(b11Issue())] })
-        spies.forEach(spy => { spy.mockClear() })
+        spies.forEach((spy) => {
+          spy.mockClear()
+        })
         seam.apply({ sessions: [] }) // original pruning after a changed issue topology
         expect(spies[3]).toHaveBeenCalledTimes(1)
-        runs.push({ sessions: engine.getSnapshot().sessions, selected: engine.getSnapshot().selectedWorktree,
-          workspaces: engine.getSnapshot().workspaces })
-      } finally { spies.forEach(spy => { spy.mockRestore() }); engine.dispose() }
+        runs.push({
+          sessions: engine.getSnapshot().sessions,
+          selected: engine.getSnapshot().selectedWorktree,
+          workspaces: engine.getSnapshot().workspaces,
+        })
+      } finally {
+        spies.forEach((spy) => {
+          spy.mockRestore()
+        })
+        engine.dispose()
+      }
     }
     expect(runs[1]).toEqual(runs[0])
   })
@@ -4577,13 +5117,28 @@ describe('pool shared runtime work', () => {
     const { engine } = makeEngine()
     const ledger = (engine as unknown as { optimism: OptimismLedger<PodiumClientApi> }).optimism
     ledger.enableKeyedFolds()
-    const seam = ledger as unknown as { foldStable(entity: OverlayTarget, base: object[], keyOf: (row: object) => string): ReturnType<typeof foldOverlays> }
+    const seam = ledger as unknown as {
+      foldStable(
+        entity: OverlayTarget,
+        base: object[],
+        keyOf: (row: object) => string,
+      ): ReturnType<typeof foldOverlays>
+    }
     let overlays: PendingOverlay[] = []
     const spy = vi.spyOn(ledger, 'overlaysFor').mockImplementation(() => overlays)
     let reads = 0
-    const keyOf = (row: object) => { reads++; return (row as { id: string }).id }
+    const keyOf = (row: object) => {
+      reads++
+      return (row as { id: string }).id
+    }
     const patch = (id: string, value: number, absent?: object): PendingOverlay => ({
-      op: 'patch', entity: 'issueProjections', id, key: `${id}:${value}`, patch: { value }, coveredBy: () => false, absent,
+      op: 'patch',
+      entity: 'issueProjections',
+      id,
+      key: `${id}:${value}`,
+      patch: { value },
+      coveredBy: () => false,
+      absent,
     })
     const base = Array.from({ length: 2000 }, (_, i) => ({ id: String(i), value: 0 }))
     try {
@@ -4591,14 +5146,21 @@ describe('pool shared runtime work', () => {
       seam.foldStable('issueProjections', base, keyOf) // build the current base's index once
       reads = 0
       overlays = [patch('1999', 2)]
-      expect(seam.foldStable('issueProjections', base, keyOf).rows[1999]).toEqual({ id: '1999', value: 2 })
+      expect(seam.foldStable('issueProjections', base, keyOf).rows[1999]).toEqual({
+        id: '1999',
+        value: 2,
+      })
       expect(reads).toBeLessThan(20)
       for (const rows of [base, [...base].reverse(), [base[0]!, base[0]!, base[1]!], []]) {
         for (const next of [
           [patch('0', 3), patch('0', 4), patch('1', 5)],
-          [insertOverlay('issueProjections', 'new', { id: 'new', value: 7 } as never), patch('new', 8)],
+          [
+            insertOverlay('issueProjections', 'new', { id: 'new', value: 7 } as never),
+            patch('new', 8),
+          ],
           [patch('absent', 9, { id: 'absent', value: 0 })],
-          [patch('missing', 10)], [],
+          [patch('missing', 10)],
+          [],
         ]) {
           overlays = next
           const expected = foldOverlays(rows, overlays, keyOf)
@@ -4613,28 +5175,56 @@ describe('pool shared runtime work', () => {
       expect(seam.foldStable('issueProjections', base, keyOf).rows).toBe(previous.rows)
       overlays = []
       expect(seam.foldStable('issueProjections', base, keyOf).rows).toEqual(base)
-    } finally { spy.mockRestore(); engine.dispose() }
+    } finally {
+      spy.mockRestore()
+      engine.dispose()
+    }
   })
 
   it('addressed awaiting retirement preserves coverage, evict and TTL decisions', () => {
     const { engine } = makeEngine()
     const ledger = (engine as unknown as { optimism: OptimismLedger<PodiumClientApi> }).optimism
     ledger.enableKeyedFolds()
-    const seam = ledger as unknown as { awaitingTruth: AwaitingTruth[]; retireCovered(entity: OverlayTarget, base: object[], keyOf: (row: object) => string): void }
+    const seam = ledger as unknown as {
+      awaitingTruth: AwaitingTruth[]
+      retireCovered(entity: OverlayTarget, base: object[], keyOf: (row: object) => string): void
+    }
     const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
     const keyOf = (row: object) => (row as { id: string }).id
     const awaiting = (id: string, resolvedAt = 999_999): AwaitingTruth => ({
-      resolvedAt, baseline: undefined, overlay: { op: 'patch', entity: 'issueProjections', key: id, id, patch: { title: 'covered' },
-        coveredBy: row => (row as IssueProjection).title === 'covered' },
+      resolvedAt,
+      baseline: undefined,
+      overlay: {
+        op: 'patch',
+        entity: 'issueProjections',
+        key: id,
+        id,
+        patch: { title: 'covered' },
+        coveredBy: (row) => (row as IssueProjection).title === 'covered',
+      },
     })
     try {
-      for (const base of [[{ id: 'keep', title: 'old' }, { id: 'cover', title: 'covered' }], []]) {
-        const entries = [awaiting('keep'), awaiting('cover'), awaiting('absent'), awaiting('keep', 0)]
+      for (const base of [
+        [
+          { id: 'keep', title: 'old' },
+          { id: 'cover', title: 'covered' },
+        ],
+        [],
+      ]) {
+        const entries = [
+          awaiting('keep'),
+          awaiting('cover'),
+          awaiting('absent'),
+          awaiting('keep', 0),
+        ]
         const expected = pruneAwaiting(entries, 'issueProjections', base, keyOf, Date.now())
         seam.awaitingTruth = entries
         seam.retireCovered('issueProjections', base, keyOf)
         expect(seam.awaitingTruth).toEqual(expected)
       }
-    } finally { clock.mockRestore(); engine.dispose() }
+    } finally {
+      clock.mockRestore()
+      engine.dispose()
+    }
   })
 })

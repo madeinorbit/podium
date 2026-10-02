@@ -24,12 +24,22 @@ import { describe, expect, it } from 'vitest'
 import type { FileTab, WorkspaceKey } from '../viewmodels'
 import { missionIssueIds } from '../viewmodels'
 import type { EngineState } from './state'
-import { enableWorkspaceKeyCache, knownTabIdsForWorkspace, sessionBelongsToWorkspace, workspaceKeyForState } from './state'
+import {
+  enableWorkspaceKeyCache,
+  knownTabIdsForWorkspace,
+  sessionBelongsToWorkspace,
+  workspaceKeyForState,
+} from './state'
 
 /** Exactly the slices the membership rule reads. */
 type MembershipState = Pick<
   EngineState,
-  'issueProjections' | 'issueDeps' | 'sessions' | 'pendingSpawnIds' | 'pendingSpawnPrompts' | 'fileTabs'
+  | 'issueProjections'
+  | 'issueDeps'
+  | 'sessions'
+  | 'pendingSpawnIds'
+  | 'pendingSpawnPrompts'
+  | 'fileTabs'
 >
 
 function issue(id: string, over: Record<string, unknown> = {}): IssueViewModel {
@@ -88,8 +98,26 @@ function membership(
   over: Partial<MembershipState> = {},
 ): MembershipState {
   return {
-    issueProjections: issues.map(row => ({ ...row, description: { value: row.description }, isDraftVessel: row.isDraftVessel, intentOrigin: row.intentOrigin } as unknown as import('@podium/model').IssueProjection)),
-    issueDeps: issues.flatMap(row => row.deps.map((dep, index) => ({ id: `${row.id}:${index}`, fromId: row.id, toId: dep.id, type: dep.type } as import('@podium/model').IssueDepProjection))),
+    issueProjections: issues.map(
+      (row) =>
+        ({
+          ...row,
+          description: { value: row.description },
+          isDraftVessel: row.isDraftVessel,
+          intentOrigin: row.intentOrigin,
+        }) as unknown as import('@podium/model').IssueProjection,
+    ),
+    issueDeps: issues.flatMap((row) =>
+      row.deps.map(
+        (dep, index) =>
+          ({
+            id: `${row.id}:${index}`,
+            fromId: row.id,
+            toId: dep.id,
+            type: dep.type,
+          }) as import('@podium/model').IssueDepProjection,
+      ),
+    ),
     sessions,
     pendingSpawnIds: new Set<string>(),
     pendingSpawnPrompts: new Map<string, string>(),
@@ -300,9 +328,23 @@ describe('workspace membership budget', () => {
 describe('pool workspace scalar cache', () => {
   it('avoids a repeated corpus walk and invalidates selection, topology and rescope', () => {
     let reads = 0
-    const projections = membership([issue('root'), issue('child', { parentId: 'root' })], []).issueProjections
-      .map(row => new Proxy(row, { get(target, key, receiver) { reads++; return Reflect.get(target, key, receiver) } }))
-    const st = { issueProjections: projections, selectedIssueId: 'child', selectedWorktree: '/wt' } as EngineState
+    const projections = membership(
+      [issue('root'), issue('child', { parentId: 'root' })],
+      [],
+    ).issueProjections.map(
+      (row) =>
+        new Proxy(row, {
+          get(target, key, receiver) {
+            reads++
+            return Reflect.get(target, key, receiver)
+          },
+        }),
+    )
+    const st = {
+      issueProjections: projections,
+      selectedIssueId: 'child',
+      selectedWorktree: '/wt',
+    } as EngineState
     const reference = () => workspaceKeyForState({ ...st })
     enableWorkspaceKeyCache(st)
     expect(workspaceKeyForState(st)).toBe(reference())
@@ -314,7 +356,10 @@ describe('pool workspace scalar cache', () => {
     st.selectedWorktree = '/other'
     expect(workspaceKeyForState(st)).toBe(reference())
     st.selectedIssueId = asIssueId('child')
-    st.issueProjections = membership([issue('root', { archived: true }), issue('child', { parentId: 'root' })], []).issueProjections
+    st.issueProjections = membership(
+      [issue('root', { archived: true }), issue('child', { parentId: 'root' })],
+      [],
+    ).issueProjections
     expect(workspaceKeyForState(st)).toBe('mission:child')
     expect(workspaceKeyForState(st)).toBe(reference())
     st.issueProjections = [] // an evict/rescope cannot retain the former root

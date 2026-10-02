@@ -6,16 +6,23 @@ import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import { asUserId } from '@podium/model'
+import { useEffect } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import { useEffect } from 'react'
-import { buildCorpus } from '../../../packages/worklist-proto/harness/src/fixture'
 import type { RuntimePoolFixture } from '../../../packages/worklist-proto/harness/browser/runtime-pool-fixture'
-import { attachWorklistPool, useWorklistPool, worklistPoolSurvivors } from '../src/app/store-worklist-pool'
+import { buildCorpus } from '../../../packages/worklist-proto/harness/src/fixture'
+import {
+  attachWorklistPool,
+  useWorklistPool,
+  worklistPoolSurvivors,
+} from '../src/app/store-worklist-pool'
 import { sidebarDataLayer } from '../src/lib/sidebar-data-layer'
 
 const corpus = buildCorpus(1)
-const issue = corpus.issues.find((row) => row.audience === 'human' && row.stage === 'in_progress' && !row.closedAt && !row.parentId)!
+const issue = corpus.issues.find(
+  (row) =>
+    row.audience === 'human' && row.stage === 'in_progress' && !row.closedAt && !row.parentId,
+)!
 const projection = corpus.issueProjections.find((row) => row.id === issue.id)!
 const id = issue.id
 const api = {} as PodiumClientApi
@@ -36,10 +43,14 @@ function replica() {
   const cache = {
     readCursor: () => null,
     readEntities: () => records,
-    read: (entity: string, entityId: string) => records.find((row) => row.entity === entity && row.entityId === entityId),
+    read: (entity: string, entityId: string) =>
+      records.find((row) => row.entity === entity && row.entityId === entityId),
     durability: () => 'durable' as const,
   }
-  return createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
+  return createKernelReplica({
+    cache,
+    side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+  })
 }
 
 function Probe(): null {
@@ -49,12 +60,18 @@ function Probe(): null {
     if (pool === null) return
     let gone = false
     let stop: (() => void) | undefined
-    void import('../../../packages/worklist-proto/harness/browser/runtime-pool-observe').then(({ observePool }) => {
-      if (gone) return
-      stop = observePool(pool, id)
-      observed = pool
-    })
-    return () => { gone = true; stop?.(); if (observed === pool) observed = null }
+    void import('../../../packages/worklist-proto/harness/browser/runtime-pool-observe').then(
+      ({ observePool }) => {
+        if (gone) return
+        stop = observePool(pool, id)
+        observed = pool
+      },
+    )
+    return () => {
+      gone = true
+      stop?.()
+      if (observed === pool) observed = null
+    }
   }, [pool])
   return null
 }
@@ -67,26 +84,34 @@ function show(name: string | null, rebuild = false): void {
   }
   current = null
   if (rebuild) config = { ...config }
-  flushSync(() => root.render(
-    <StoreProvider
-      principal={name === null ? null : asClientPrincipal(asUserId(name))}
-      config={config} api={api} createReplicaFn={replica}
-      networkEnabled={false} onFatalError={(message) => failures.push(message)}
-      attachRuntime={(runtime) => {
-        attachments += 1
-        return attachWorklistPool(runtime, (error) => failures.push(error.message))
-      }}
-    ><Probe /></StoreProvider>,
-  ))
+  flushSync(() =>
+    root.render(
+      <StoreProvider
+        principal={name === null ? null : asClientPrincipal(asUserId(name))}
+        config={config}
+        api={api}
+        createReplicaFn={replica}
+        networkEnabled={false}
+        onFatalError={(message) => failures.push(message)}
+        attachRuntime={(runtime) => {
+          attachments += 1
+          return attachWorklistPool(runtime, (error) => failures.push(error.message))
+        }}
+      >
+        <Probe />
+      </StoreProvider>,
+    ),
+  )
 }
 
 const fixture = {
   show,
-  ready: () => sidebarDataLayer() === 'legacy' ? attachments > 0 : current !== null && observed === current,
+  ready: () =>
+    sidebarDataLayer() === 'legacy' ? attachments > 0 : current !== null && observed === current,
   state: () => ({ replicas, attachments, pool: current !== null, failures }),
   survivors: () => [
     ...worklistPoolSurvivors(),
-    ...models.flatMap((ref, index) => ref.deref() === undefined ? [] : [`model.${index}`]),
+    ...models.flatMap((ref, index) => (ref.deref() === undefined ? [] : [`model.${index}`])),
   ],
 } satisfies RuntimePoolFixture
 Object.assign(window, { __poolFixture: fixture })

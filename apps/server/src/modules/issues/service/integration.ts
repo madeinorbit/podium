@@ -1,9 +1,9 @@
 import { describeError } from '@podium/logger'
 import {
-  integrationReceiptMatchesOrder,
   type DescendantTip,
   type IssueId,
   type IssueProjection,
+  integrationReceiptMatchesOrder,
 } from '@podium/model'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { IssueRow } from '../../../store'
@@ -103,7 +103,9 @@ export class IssueEpicIntegrationModule {
     row: IssueRow,
     principal: CommandPrincipal,
   ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
-    const refuse = async (output: string): Promise<{ ok: boolean; output: string; issue: IssueProjection }> => ({
+    const refuse = async (
+      output: string,
+    ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> => ({
       ok: false,
       output,
       issue: await this.store.projection(row),
@@ -286,21 +288,21 @@ export class IssueEpicIntegrationModule {
           descendants: descendantTips,
         })
       } catch (error) {
-        return await refuse(
-          `integrate: receipt persistence failed: ${this.errorSummary(error)}`,
-        )
+        return await refuse(`integrate: receipt persistence failed: ${this.errorSummary(error)}`)
       }
     }
     // Comment dedup: rebuild runs are idempotent, so an unchanged outcome must not
     // spam a new comment — skip when the latest integrate comment is identical.
-    const prior = (await this.store.d.store.issues
-      .listIssueComments(row.id))
+    const prior = (await this.store.d.store.issues.listIssueComments(row.id))
       .filter((c) => c.author === 'system:integrate')
       .at(-1)
     if (prior?.body !== summary)
       await this.commentsMail().addComment(row.id, 'system:integrate', summary, principal)
     if (blockedAt != null) {
-      await this.attention().setNeedsHuman(row.id, `integration blocked at #${blockedAt}: ${blockedWhy}`)
+      await this.attention().setNeedsHuman(
+        row.id,
+        `integration blocked at #${blockedAt}: ${blockedWhy}`,
+      )
     }
     await this.store.emitEvent('issue.integration', row.id, {
       epicSeq: row.seq,

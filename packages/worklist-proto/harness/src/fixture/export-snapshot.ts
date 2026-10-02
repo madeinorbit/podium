@@ -143,16 +143,16 @@ export async function readLive(origin: string): Promise<{
   const scan = await api.discovery.refreshRepos.mutate()
   const pins = await api.pins.list.query()
   const raw = {
-      issues: [],
-      issueProjections: rowsOf('issueProjection'),
-      issueUserStates: rowsOf('issueUserState'),
-      issueGitStates: rowsOf('issueGitState'),
-      sessions: rowsOf('session'),
-      repoProjections: rowsOf('repo'),
-      issueDeps: rowsOf('issueDep'),
-      repos: scan.repositories,
-      machines: scan.machines,
-      pins,
+    issues: [],
+    issueProjections: rowsOf('issueProjection'),
+    issueUserStates: rowsOf('issueUserState'),
+    issueGitStates: rowsOf('issueGitState'),
+    sessions: rowsOf('session'),
+    repoProjections: rowsOf('repo'),
+    issueDeps: rowsOf('issueDep'),
+    repos: scan.repositories,
+    machines: scan.machines,
+    pins,
   } as LiveCollections
   raw.issues = fixtureViewModels(raw)
   return {

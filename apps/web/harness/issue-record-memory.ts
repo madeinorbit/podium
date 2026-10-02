@@ -132,8 +132,7 @@ try {
             if ((await page.evaluate(() => window.__memory.mode())) !== mode)
               throw new Error('Wrong sidebar mode')
             const state = await page.evaluate(() => window.__memory.state())
-            if (state.unknownEntityRows !== 0)
-              throw new Error('Retention guard RED')
+            if (state.unknownEntityRows !== 0) throw new Error('Retention guard RED')
             // A ready runtime can still be sizing the virtualized sidebar.
             // Require its model and screen hashes to settle before comparing.
             let fingerprint = await page.evaluate(() => window.__memory.fingerprint())
@@ -198,7 +197,9 @@ const summaries = cells.flatMap((cell) =>
     return {
       cell,
       mode,
-      heapBytes: median(records.filter(r => r.cell === cell && r.mode === mode).map(r => r.heapBytes)),
+      heapBytes: median(
+        records.filter((r) => r.cell === cell && r.mode === mode).map((r) => r.heapBytes),
+      ),
     }
   }),
 )

@@ -50,7 +50,7 @@ async function harness() {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: async () => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' }),
+    spawnSession: async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: {
       run: plumbing.funnel.run,
@@ -301,13 +301,17 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
           throw new Error('enclosing span failed')
         }),
       ).rejects.toThrow('enclosing span failed')
-      expect(await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id)).toBeUndefined()
+      expect(
+        await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id),
+      ).toBeUndefined()
       expect(await ledger.cursor()).toBe(before)
       expect(svc.issueOverlay(issue.id).pinned).toBe(false)
       expect((await svc.list()).find((row) => row.id === issue.id)?.pinned).toBe(false)
       await svc.writeIssueUserState(issue.id, { pinnedAt: '2026-07-03' })
       expect((await svc.list()).find((row) => row.id === issue.id)?.pinned).toBe(true)
-      expect(((await ledger.changesSince(before)) ?? []).find((row) => row.entity === 'issueUserState')).toMatchObject({
+      expect(
+        ((await ledger.changesSince(before)) ?? []).find((row) => row.entity === 'issueUserState'),
+      ).toMatchObject({
         value: { pinned: true },
       })
     } finally {
@@ -342,7 +346,9 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       }),
     ).rejects.toThrow('declaration failed')
     // The entity write inside the same transact span rolled back with the append.
-    expect((await store.issues.listIssueRows()).find((r) => r.id === wire.id)?.title).toBe('original')
+    expect((await store.issues.listIssueRows()).find((r) => r.id === wire.id)?.title).toBe(
+      'original',
+    )
     expect(await ledger.cursor()).toBe(cursorBefore)
     // The baseline is untouched: re-declaring the ORIGINAL wire truth is a no-op.
     const redo = await ledger.commit({
@@ -360,15 +366,24 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect((await svc.get(b.id))?.blocked).toBe(true)
     appended.length = 0
     await svc.close(a.id)
-    expect(appended.flat().some((change) => change.entity === 'issueProjection' && change.id === b.id)).toBe(false)
-    expect(appended.flat()).toContainEqual(expect.objectContaining({ entity: 'issueProjection', id: a.id, op: 'upsert' }))
+    expect(
+      appended.flat().some((change) => change.entity === 'issueProjection' && change.id === b.id),
+    ).toBe(false)
+    expect(appended.flat()).toContainEqual(
+      expect.objectContaining({ entity: 'issueProjection', id: a.id, op: 'upsert' }),
+    )
     expect(await svc.get(b.id)).toMatchObject({ ready: true, blocked: false })
   })
 
   it('internal draft purge emits the remove and the log replays to live state', async () => {
     const { ledger, svc, appended } = await harness()
     const parent = await svc.create({ repoPath: '/r', title: 'epic', startNow: false })
-    const child = await svc.create({ repoPath: '/r', title: 'kid', startNow: false, parentId: parent.id })
+    const child = await svc.create({
+      repoPath: '/r',
+      title: 'kid',
+      startNow: false,
+      parentId: parent.id,
+    })
     appended.length = 0
     await svc.purgeEmptyDraft(parent.id)
     // The committed remove entered the delta pipe (the reconcile alone would
@@ -382,13 +397,8 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       | undefined
     expect(childChange?.value?.parentId).toBeUndefined()
     // Replica-style replay of the WHOLE durable log folds to the live truth.
-    const folded = fold(await ledger.changesSince(0) ?? [])
-    expect([...folded.keys()].sort()).toEqual(
-      (await svc
-        .list())
-        .map((i) => i.id)
-        .sort(),
-    )
+    const folded = fold((await ledger.changesSince(0)) ?? [])
+    expect([...folded.keys()].sort()).toEqual((await svc.list()).map((i) => i.id).sort())
     expect(folded.has(parent.id)).toBe(false)
   })
 
@@ -410,10 +420,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect(await ledger.cursor()).toBe(cursorBefore)
     // A subsequent full-list reconcile appends NOTHING — no fabricated upsert
     // for a row the store never accepted.
-    const reconciled = await ledger.reconcile(
-      'issueProjection',
-      (await svc.allProjections()) ?? [],
-    )
+    const reconciled = await ledger.reconcile('issueProjection', (await svc.allProjections()) ?? [])
     expect(reconciled).toEqual([])
     expect(await ledger.cursor()).toBe(cursorBefore)
   })
@@ -437,10 +444,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect(await ledger.cursor()).toBe(cursorBefore)
     // A follow-up full-list reconcile appends NOTHING — the phantom title is
     // gone from memory, so nothing fabricates a durable upsert for it.
-    const reconciled = await ledger.reconcile(
-      'issueProjection',
-      (await svc.allProjections()) ?? [],
-    )
+    const reconciled = await ledger.reconcile('issueProjection', (await svc.allProjections()) ?? [])
     expect(reconciled).toEqual([])
     expect(await ledger.cursor()).toBe(cursorBefore)
     // A successful retry then works end to end.
@@ -448,7 +452,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect(retried.title).toBe('new title')
     expect((await svc.get(wire.id))?.title).toBe('new title')
     expect((await store.issues.getIssue(wire.id))?.title).toBe('new title')
-    const healed = await ledger.changesSince(cursorBefore) ?? []
+    const healed = (await ledger.changesSince(cursorBefore)) ?? []
     expect(
       healed.some(
         (c) =>
@@ -474,10 +478,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     // stamp was restored — a reconcile sees byte-identical wire truth.
     expect(await store.issues.getIssueLabels(wire.id)).toEqual([])
     expect((await svc.get(wire.id))?.updatedAt).toBe(updatedAtBefore)
-    const reconciled = await ledger.reconcile(
-      'issueProjection',
-      (await svc.allProjections()) ?? [],
-    )
+    const reconciled = await ledger.reconcile('issueProjection', (await svc.allProjections()) ?? [])
     expect(reconciled).toEqual([])
     expect(await ledger.cursor()).toBe(cursorBefore)
   })
@@ -497,10 +498,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect((await store.issues.listIssueRows()).some((r) => r.id === wire.id)).toBe(true)
     expect(await ledger.cursor()).toBe(cursorBefore)
     // A subsequent reconcile of the (unchanged) truth appends nothing.
-    const reconciled = await ledger.reconcile(
-      'issueProjection',
-      (await svc.allProjections()) ?? [],
-    )
+    const reconciled = await ledger.reconcile('issueProjection', (await svc.allProjections()) ?? [])
     expect(reconciled).toEqual([])
   })
 
@@ -521,7 +519,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       store,
       ...sessionReadPorts(() => []),
       getSettings: async () => normalizeSettings({ sessionDefaults: { agent: 'claude-code' } }),
-      spawnSession: async () => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' }),
+      spawnSession: async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' }),
       repoOp: async () => ({ ok: true, output: '' }),
       funnel: {
         run: plumbing2.funnel.run,
@@ -536,13 +534,13 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     // snapshot list to be empty any more, so the claim is made where it is now
     // decidable: the reconcile appends its rows and a client learns of them the
     // same way it learns of everything else.
-    const healed = await ledger2.changesSince(cursorBefore) ?? []
+    const healed = (await ledger2.changesSince(cursorBefore)) ?? []
     const change = healed.find(
       (c) => c.id === wire.id && c.op === 'upsert' && c.entity === 'issueProjection',
     ) as { value?: { title?: string } } | undefined
     expect(change?.value?.title).toBe('changed offline')
 
-    expect(healed.some(row => String(row.entity) === 'issue')).toBe(false)
+    expect(healed.some((row) => String(row.entity) === 'issue')).toBe(false)
   })
 })
 
@@ -554,8 +552,10 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
  * anything else.
  */
 describe('per-entity revision (ADR 2 D3)', () => {
-  const revisionOf = async (svc: Awaited<ReturnType<typeof harness>>['svc'], id: string): Promise<number | undefined> =>
-    (await svc.get(id))?.revision
+  const revisionOf = async (
+    svc: Awaited<ReturnType<typeof harness>>['svc'],
+    id: string,
+  ): Promise<number | undefined> => (await svc.get(id))?.revision
 
   it('starts at 1 on create and increments on EVERY accepted write', async () => {
     const { svc } = await harness()
@@ -657,7 +657,9 @@ describe('per-entity revision (ADR 2 D3)', () => {
     expect((await svc.get(b.id))?.blocked).toBe(true)
     appended.length = 0
     await svc.close(a.id)
-    expect(appended.flat().filter(c => c.id === b.id && c.entity === 'issueProjection')).toEqual([])
+    expect(appended.flat().filter((c) => c.id === b.id && c.entity === 'issueProjection')).toEqual(
+      [],
+    )
     expect(await svc.get(b.id)).toMatchObject({ ready: true, blocked: false, revision })
   })
 

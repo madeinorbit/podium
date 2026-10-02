@@ -1,5 +1,3 @@
-import { bindCommittedIssueReader } from '../../world-index/issue-reader'
-import { issueFromRow } from '../../../store/issues'
 import { createLogger } from '@podium/logger'
 import {
   asIssueId,
@@ -12,7 +10,6 @@ import {
   type IssuePanel,
   type IssueProjection,
   type IssueUserOverlay,
-  type MachineId,
   isIssueBlocked,
   isIssueClosed,
   isIssueDeferred,
@@ -22,6 +19,7 @@ import {
   issueOverlayOf,
   issueUserStateRowId,
   issueUserStateToWire,
+  type MachineId,
   type RepoProjection,
   requireInstant,
   type SessionId,
@@ -34,6 +32,9 @@ import { sessionsForIssue, slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
 import { afterCommit, applyAfterCommit } from '../../../store/executor/executor'
 import { decodePanel } from '../../../store/issue-storage'
+import { issueFromRow } from '../../../store/issues'
+import type { SessionFacts } from '../../sessions/facts'
+import { bindCommittedIssueReader } from '../../world-index/issue-reader'
 import { normalizeBlankIssueText } from '../blank-text'
 import {
   issueDepProjectionRows,
@@ -43,7 +44,6 @@ import {
   repoProjectionRows,
 } from '../projection'
 import { IssueNotFound } from './not-found'
-import type { SessionFacts } from '../../sessions/facts'
 import type { IssueDeps } from './types'
 
 const log = createLogger('server:issues')
@@ -83,9 +83,7 @@ class IssueReferenceIndex {
   }
 
   ids(seq: number, repoId?: string | null): Iterable<string> {
-    return (
-      (repoId === undefined ? this.bySeq.get(seq) : this.byRepo.get(repoId)?.get(seq)) ?? []
-    )
+    return (repoId === undefined ? this.bySeq.get(seq) : this.byRepo.get(repoId)?.get(seq)) ?? []
   }
 
   orderOf(id: string): number | undefined {
@@ -158,7 +156,7 @@ export class IssueStore {
         const viewerState = this.requireHydrated().viewerState
         if (state) viewerState.set(id, state)
         else viewerState.delete(id)
-          },
+      },
       'issue-user-state-install',
     )
     this.stagedRows = new StagedOverlay<string, IssueRow>(
@@ -192,7 +190,7 @@ export class IssueStore {
    * body with the request's principal; every caller already asks the question.
    */
   async broadcastViewer(): Promise<UserId> {
-    return (await firstAdminMemberId(this.deps.store))
+    return await firstAdminMemberId(this.deps.store)
   }
 
   /**
@@ -330,8 +328,6 @@ export class IssueStore {
       // to say so.
     } else committed.set(id, row)
   }
-
-
 
   /**
    * DRAFT-THEN-INSTALL, THE ISSUE REGISTRY'S MODEL [POD-3259, spec §3.6 (b)].
@@ -511,7 +507,9 @@ export class IssueStore {
         map.set(r.id, r)
         references.add(r)
       }
-      const viewerState = await this.deps.store.issues.listIssueUserState(await this.broadcastViewer())
+      const viewerState = await this.deps.store.issues.listIssueUserState(
+        await this.broadcastViewer(),
+      )
       applyAfterCommit(() => {
         this.composedRows = undefined
         this.hydrated = map
@@ -519,17 +517,21 @@ export class IssueStore {
         this.stagedReferences = undefined
         this.viewerState = viewerState
         this.unsubscribeRows?.()
-        this.unsubscribeRows = this.deps.store.issues.committed.subscribe(change => {
+        this.unsubscribeRows = this.deps.store.issues.committed.subscribe((change) => {
           for (const raw of change.rows) {
             this.applyRow(raw.id, change.operation === 'delete' ? null : issueFromRow(raw))
           }
-              })
+        })
         // Point and cwd reads quarantine fewer columns than listIssueRows.
         // If boot omitted anything, use SQL rather than turn a quarantined
         // row into a missing ownership fact or change cwd ambiguity rules.
-        bindCommittedIssueReader(this.deps.store.issues,
-          this.deps.store.issues.quarantinedRowCount === 0 ? () => this.requireHydrated().rows : undefined)
-          }, 'issue-rows:load')
+        bindCommittedIssueReader(
+          this.deps.store.issues,
+          this.deps.store.issues.quarantinedRowCount === 0
+            ? () => this.requireHydrated().rows
+            : undefined,
+        )
+      }, 'issue-rows:load')
     })
   }
 
@@ -612,7 +614,10 @@ export class IssueStore {
   }
 
   /** blocked = open AND ≥1 `blocks` dep whose target issue is not closed. */
-  async computeBlocked(row: IssueRow, batch?: { depsByFrom: ReadonlyMap<string, readonly { toId: IssueId; type: string }[]> }): Promise<boolean> {
+  async computeBlocked(
+    row: IssueRow,
+    batch?: { depsByFrom: ReadonlyMap<string, readonly { toId: IssueId; type: string }[]> },
+  ): Promise<boolean> {
     // With a batch this reads nothing: the outgoing deps for the whole set were
     // fetched once by the report batch. Without one it is the single-row case
     // and asks for its own row's deps, as it always did (POD-3257).
@@ -630,9 +635,17 @@ export class IssueStore {
     return issueRowToProjection(row, await this.deps.store.issues.getIssueLabels(row.id))
   }
 
-  async isReady(row: IssueRow, batch?: { depsByFrom: ReadonlyMap<string, readonly { toId: IssueId; type: string }[]> }): Promise<boolean> {
-    return isIssueStage(row.stage) && isReadyIssueStage(row.stage) &&
-      !this.isClosed(row) && !this.isDeferred(row) && !await this.computeBlocked(row, batch)
+  async isReady(
+    row: IssueRow,
+    batch?: { depsByFrom: ReadonlyMap<string, readonly { toId: IssueId; type: string }[]> },
+  ): Promise<boolean> {
+    return (
+      isIssueStage(row.stage) &&
+      isReadyIssueStage(row.stage) &&
+      !this.isClosed(row) &&
+      !this.isDeferred(row) &&
+      !(await this.computeBlocked(row, batch))
+    )
   }
 
   /** Parse the stored panel JSON, tolerating legacy/garbage values (empty panel).
@@ -671,7 +684,8 @@ export class IssueStore {
     if (!repoPath) return () => true
     const resolve = await this.deps.store.repos.issueRepoIdResolver()
     const scope = resolve(repoPath)
-    return (row: IssueRow) => scope !== null && (row.repoId ?? resolve(row.repoPath, row.machineId)) === scope
+    return (row: IssueRow) =>
+      scope !== null && (row.repoId ?? resolve(row.repoPath, row.machineId)) === scope
   }
 
   /** Index only staged writes, once per overlay version. Copying the composed
@@ -710,8 +724,7 @@ export class IssueStore {
 
   private sortReferenceRows(matches: IssueRow[], pending = this.pendingReferences()): IssueRow[] {
     const order = (id: string) =>
-      this.references.orderOf(id) ??
-      this.references.nextOrder + (pending?.orderOf(id) ?? 0)
+      this.references.orderOf(id) ?? this.references.nextOrder + (pending?.orderOf(id) ?? 0)
     return matches.sort((a, b) => order(a.id) - order(b.id))
   }
 
@@ -776,7 +789,8 @@ export class IssueStore {
     if (
       ref.startsWith('iss_') ||
       (staged ? staged.value !== undefined : this.requireHydrated().rows.has(ref))
-    ) return asIssueId(ref)
+    )
+      return asIssueId(ref)
     // Human-facing nice id `PREFIX-seq` (#474). The prefix identifies the repo
     // server-wide, so this resolves without a path qualifier. A prefix that no
     // repo owns falls through to the other branches (and ultimately returns the
@@ -833,7 +847,12 @@ export class IssueStore {
   async companionChanges(row: IssueRow, projection?: IssueProjection): Promise<EntityChangeSpec[]> {
     const states = await this.deps.store.issues.listIssueUserStateRows(row.id)
     return [
-      { entity: 'issueProjection', id: row.id, op: 'upsert', value: projection ?? await this.projection(row) },
+      {
+        entity: 'issueProjection',
+        id: row.id,
+        op: 'upsert',
+        value: projection ?? (await this.projection(row)),
+      },
       this.gitStateChange(row),
       ...states.map((state) => ({
         entity: 'issueUserState' as const,
@@ -1066,10 +1085,7 @@ export class IssueStore {
           return committedWire
         },
         // Own facts and companions commit and roll back together.
-        changes: () => [
-          ...committedProjectionChanges,
-          ...committedExtraChanges,
-        ],
+        changes: () => [...committedProjectionChanges, ...committedExtraChanges],
       })
     ).result
     // Install into the map only AFTER the commit succeeded (#247): a throw in
@@ -1091,15 +1107,19 @@ export class IssueStore {
     rows: IssueRow[],
     write: () => T | Promise<T>,
     extraChanges: (result: T) => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>,
-    events: (result: T) => readonly {
-      kind: string
-      subject: string
-      payload: Record<string, unknown>
-    }[] | Promise<readonly {
-      kind: string
-      subject: string
-      payload: Record<string, unknown>
-    }[]> = () => [],
+    events: (result: T) =>
+      | readonly {
+          kind: string
+          subject: string
+          payload: Record<string, unknown>
+        }[]
+      | Promise<
+          readonly {
+            kind: string
+            subject: string
+            payload: Record<string, unknown>
+          }[]
+        > = () => [],
     opts?: { touch?: boolean },
   ): Promise<{ issues: IssueProjection[]; result: T }> {
     // DRAFT-THEN-INSTALL, same model as {@link persistWith} (POD-3259): every
@@ -1135,7 +1155,7 @@ export class IssueStore {
               pin === undefined ? undefined : { expectedRevision: pin },
             )
           }
-          wires = await Promise.all(rows.map(row => this.projection(row)))
+          wires = await Promise.all(rows.map((row) => this.projection(row)))
           committedProjectionChanges = await Promise.all(
             rows.map(async (row, index) => await this.companionChanges(row, wires[index])),
           )
@@ -1161,10 +1181,7 @@ export class IssueStore {
           )
           return { result, wires }
         },
-        changes: () => [
-          ...committedProjectionChanges.flat(),
-          ...committedExtraChanges,
-        ],
+        changes: () => [...committedProjectionChanges.flat(), ...committedExtraChanges],
       })
     ).result
     result = committed.result

@@ -1,7 +1,7 @@
+import type { SessionId } from '@podium/model'
+import { type AttentionGroup, attentionGroup, attentionSummary, relativeTime } from '../focus'
 import type { IssueViewModel } from '../replica/issue-view-models'
 import type { SessionView } from '../session-values'
-import type { SessionId} from '@podium/model'
-import { type AttentionGroup, attentionGroup, attentionSummary, relativeTime } from '../focus'
 import { type DotTone, panelLabel, sessionDotTone } from './session-status'
 
 export interface SessionCardModel {

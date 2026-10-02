@@ -1,4 +1,3 @@
-import type { UnbrandIds } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   artifactKind,
@@ -13,6 +12,7 @@ import {
   subissuesWithPanels,
   worktreeAssetUrl,
 } from '@podium/client-core/viewmodels'
+import type { UnbrandIds } from '@podium/model'
 import {
   asArtifactId,
   asIssueId,

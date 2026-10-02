@@ -39,7 +39,9 @@ let rowReads = 0
 let redraw: (() => void) | undefined
 let timer: ReturnType<typeof setInterval> | undefined
 const failures: string[] = []
-const records = [{ entity: 'issueProjection', entityId: issue.id, value: issue, provenance: { seq } }]
+const records = [
+  { entity: 'issueProjection', entityId: issue.id, value: issue, provenance: { seq } },
+]
 const replica = createKernelReplica({
   cache: {
     readCursor: () => null,
@@ -110,7 +112,12 @@ const fixture = {
   failures: () => [...failures],
   update() {
     issue = { ...issue, title: 'Updated synthetic pool row' }
-    records[0] = { entity: 'issueProjection', entityId: issue.id, value: issue, provenance: { seq: ++seq } }
+    records[0] = {
+      entity: 'issueProjection',
+      entityId: issue.id,
+      value: issue,
+      provenance: { seq: ++seq },
+    }
     replica.onKernelEvent({ type: 'upserted', record: records[0], readmitted: false })
   },
   startRedraw() {

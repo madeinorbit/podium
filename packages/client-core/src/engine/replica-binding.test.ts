@@ -1,8 +1,8 @@
-import type { EntityRecord } from '@podium/sync/replica'
 import { asIssueId, asMachineId, asRepoId, asSessionId, asUserId, shipLaneId } from '@podium/model'
+import type { EntityRecord } from '@podium/sync/replica'
 import { describe, expect, it } from 'vitest'
-import { createKernelReplica, createSideCache } from '../replica/kernel'
 import type { KernelCacheRead } from '../replica/kernel'
+import { createKernelReplica, createSideCache } from '../replica/kernel'
 import { createReplica, memoryStorage } from '../replica/replica'
 import {
   createReplicaBinding,
@@ -19,7 +19,8 @@ const session = (id: string, readAt: string | null = null) =>
     snoozedUntil: id === 'alice-session' ? '2026-08-02T12:00:00.000Z' : null,
   }) as never
 
-const issue = (id: string) => ({ id, title: id, stage: 'backlog', description: { value: '' } }) as never
+const issue = (id: string) =>
+  ({ id, title: id, stage: 'backlog', description: { value: '' } }) as never
 
 describe('replica snapshot binding', () => {
   it('hydrates shipping lanes and publishes lane changes, eviction, readmission, removal and empty rescopes', async () => {
@@ -91,10 +92,25 @@ describe('replica snapshot binding', () => {
     const first = createReplica({ storage, keyPrefix })
     first.applySnapshot('sessions', [session('alice-session', '2026-08-01T09:00:00.000Z')])
     first.applySnapshot('issueProjections', [issue('alice-issue')])
-    const issuePersonal = { userId: asUserId('alice'), entityId: asIssueId('alice-issue'), readAt: '2026-08-01T10:00:00.000Z', tuckedAt: null, pinned: true }
+    const issuePersonal = {
+      userId: asUserId('alice'),
+      entityId: asIssueId('alice-issue'),
+      readAt: '2026-08-01T10:00:00.000Z',
+      tuckedAt: null,
+      pinned: true,
+    }
     first.applySnapshot('issueUserStates', [issuePersonal])
-    const personal = { userId: asUserId('alice'), sessionId: asSessionId('alice-session'), readAt: null, snoozedUntil: null }
-    const machine = { id: asMachineId('machine:alice'), name: 'Laptop', loggedOutHarnesses: ['codex' as const] }
+    const personal = {
+      userId: asUserId('alice'),
+      sessionId: asSessionId('alice-session'),
+      readAt: null,
+      snoozedUntil: null,
+    }
+    const machine = {
+      id: asMachineId('machine:alice'),
+      name: 'Laptop',
+      loggedOutHarnesses: ['codex' as const],
+    }
     first.applySnapshot('sessionUserStates', [personal])
     first.applySnapshot('machines', [machine])
     await first.flush()

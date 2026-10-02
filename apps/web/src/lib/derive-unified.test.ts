@@ -1,4 +1,3 @@
-import { asIssueId, asMachineId } from '@podium/model'
 import {
   archivedSessionsForIssue,
   archivedSessionsForWorktreePath,
@@ -24,6 +23,8 @@ import {
   type WorktreeNavView,
 } from '@podium/client-core/viewmodels'
 import {
+  asIssueId,
+  asMachineId,
   asRepoId,
   isIssueDeferred,
   issueReturnedFromDefer,
@@ -258,9 +259,9 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     })
     const bare = navWt('/r/a')
     const rows = unifiedWorkList(emptySections([withSess, bare]), [], [], [], NOW)
-    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : `worktree:${r.worktree.path}`))).toEqual([
-      'worktree:/r/a/.worktrees/x',
-    ])
+    expect(
+      rows.map((r) => (r.kind === 'issue' ? r.issue.id : `worktree:${r.worktree.path}`)),
+    ).toEqual(['worktree:/r/a/.worktrees/x'])
   })
 
   it('keeps an unowned idle session visible across the coarse-clock tick', () => {
@@ -273,9 +274,9 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     const after = unifiedWorkList(emptySections([wt]), [], [], [], NOW + 60_000)
     expect(before.map((row) => row.kind)).toEqual(['worktree'])
     expect(after.map((row) => row.kind)).toEqual(['worktree'])
-    expect((after[0]?.kind === 'worktree' ? after[0].worktree.sessions : []).map((s) => s.sessionId)).toEqual([
-      's',
-    ])
+    expect(
+      (after[0]?.kind === 'worktree' ? after[0].worktree.sessions : []).map((s) => s.sessionId),
+    ).toEqual(['s'])
   })
 
   it('keeps a displayed live session when its issue projection disappears on the coarse-clock tick', () => {
@@ -296,14 +297,10 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
       before.map((row) => (row.kind === 'issue' ? 'issue:' + row.issue.id : 'worktree')),
     ).toEqual(['issue:draft'])
     expect(
-      after.map((row) =>
-        row.kind === 'worktree' ? 'worktree:' + row.worktree.path : 'issue',
-      ),
+      after.map((row) => (row.kind === 'worktree' ? 'worktree:' + row.worktree.path : 'issue')),
     ).toEqual(['worktree:' + path])
     expect(
-      (after[0]?.kind === 'worktree' ? after[0].worktree.sessions : []).map(
-        (s) => s.sessionId,
-      ),
+      (after[0]?.kind === 'worktree' ? after[0].worktree.sessions : []).map((s) => s.sessionId),
     ).toEqual(['s'])
   })
 
@@ -311,7 +308,9 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     const path = '/r/a'
     const wt = navWt(path, { isMain: true, sessions: [idle('main', path)] })
     const rows = unifiedWorkList(emptySections([wt]), [], [], [], NOW)
-    expect(rows.map((row) => (row.kind === 'worktree' ? row.worktree.path : 'issue'))).toEqual([path])
+    expect(rows.map((row) => (row.kind === 'worktree' ? row.worktree.path : 'issue'))).toEqual([
+      path,
+    ])
   })
 
   it('hides an unowned session after its finished decay window', () => {
@@ -355,7 +354,11 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
   it('does not re-home a nested started-by child session into a worktree row', () => {
     const path = '/r/a/.worktrees/nested'
     const parent = issue({ id: 'parent', audience: 'human' })
-    const child = issue({ id: 'child', audience: 'agent' as unknown as IssueNavigationModel['audience'], parentId: 'parent' })
+    const child = issue({
+      id: 'child',
+      audience: 'agent' as unknown as IssueNavigationModel['audience'],
+      parentId: 'parent',
+    })
     const own = { ...idle('own', path), issueId: 'parent' } as SessionMeta
     const nested = { ...working('nested', path), issueId: 'child' } as SessionMeta
     const wt = navWt(path, { isMain: false, sessions: [own, nested] })
@@ -366,11 +369,22 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
   it('does not re-home a three-level started-by grandchild session into a worktree row', () => {
     const path = '/r/a/.worktrees/deep'
     const root = issue({ id: 'root', audience: 'human' })
-    const child = issue({ id: 'child', audience: 'agent' as unknown as IssueNavigationModel['audience'], parentId: 'root' })
-    const grandchild = issue({ id: 'grandchild', audience: 'agent' as unknown as IssueNavigationModel['audience'], parentId: 'child' })
+    const child = issue({
+      id: 'child',
+      audience: 'agent' as unknown as IssueNavigationModel['audience'],
+      parentId: 'root',
+    })
+    const grandchild = issue({
+      id: 'grandchild',
+      audience: 'agent' as unknown as IssueNavigationModel['audience'],
+      parentId: 'child',
+    })
     const own = { ...idle('own-deep', path), issueId: 'root' } as SessionMeta
     const nested = { ...working('child-deep', path), issueId: 'child' } as SessionMeta
-    const deepSession = { ...working('grandchild-deep', path), issueId: 'grandchild' } as SessionMeta
+    const deepSession = {
+      ...working('grandchild-deep', path),
+      issueId: 'grandchild',
+    } as SessionMeta
     const wt = navWt(path, { isMain: false, sessions: [own, nested, deepSession] })
     const rows = unifiedWorkList(
       emptySections([wt]),
@@ -391,7 +405,9 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     const wt = navWt(path, { isMain: false, sessions: [idle('pinned', path)] })
     const sections: SidebarSections = { pinnedWorktrees: [wt], pinnedRepos: [], repos: [] }
     const rows = unifiedWorkList(sections, [], [], [], NOW)
-    expect(rows.map((row) => (row.kind === 'worktree' ? row.worktree.path : 'issue'))).toEqual([path])
+    expect(rows.map((row) => (row.kind === 'worktree' ? row.worktree.path : 'issue'))).toEqual([
+      path,
+    ])
   })
 
   it('suppresses a worktree row whose sessions are ALL attached to live issues', () => {
@@ -417,15 +433,13 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
       [],
       NOW,
     )
-    expect(rows.map((row) => (row.kind === 'issue' ? row.issue.id : `worktree:${row.worktree.path}`))).toEqual([
-      'i1',
-      'worktree:/r/a/.worktrees/x',
-    ])
+    expect(
+      rows.map((row) => (row.kind === 'issue' ? row.issue.id : `worktree:${row.worktree.path}`)),
+    ).toEqual(['i1', 'worktree:/r/a/.worktrees/x'])
     const roster = rows[1]
-    expect(roster?.kind === 'worktree' ? roster.worktree.sessions.map((s) => s.sessionId) : []).toEqual([
-      's2',
-      's3',
-    ])
+    expect(
+      roster?.kind === 'worktree' ? roster.worktree.sessions.map((s) => s.sessionId) : [],
+    ).toEqual(['s2', 's3'])
   })
 
   it('orders newest-created first — immutable creation order, not urgency (#64)', () => {
@@ -820,9 +834,9 @@ describe('partitionUnifiedWork (WORKING move-out)', () => {
     })
     const { working: w, work } = partitionUnifiedWork(emptySections([wt]), [], [], [], NOW)
     expect(work).toEqual([])
-    expect(w.map((entry) => (entry.kind === 'worktree' ? entry.row.worktree.path : entry.kind))).toEqual([
-      '/r/a/.worktrees/x',
-    ])
+    expect(
+      w.map((entry) => (entry.kind === 'worktree' ? entry.row.worktree.path : entry.kind)),
+    ).toEqual(['/r/a/.worktrees/x'])
   })
 })
 
@@ -939,10 +953,9 @@ describe('groupUnifiedWorkRows', () => {
     const groups = groupUnifiedWorkRows(rowsFor([], [], [wt1, wt2]))
     expect(groups).toHaveLength(1)
     expect(groups[0]?.key).toBe('repo-a')
-    expect(groups[0]?.rows.map((row) => (row.kind === 'worktree' ? row.worktree.path : row.issue.id))).toEqual([
-      '/m1/a/.worktrees/x',
-      '/m2/a/.worktrees/y',
-    ])
+    expect(
+      groups[0]?.rows.map((row) => (row.kind === 'worktree' ? row.worktree.path : row.issue.id)),
+    ).toEqual(['/m1/a/.worktrees/x', '/m2/a/.worktrees/y'])
   })
 
   it('folds only settled top-level closures while open selection stays visible', () => {
@@ -977,7 +990,11 @@ describe('groupUnifiedWorkRows', () => {
       closedRow('child', { parentId: 'parent' }),
       closedRow('awaiting', {
         branch: 'issue/awaiting',
-        gitState: { shared: false, merged: false, ahead: 1 } as unknown as IssueNavigationModel['gitState'],
+        gitState: {
+          shared: false,
+          merged: false,
+          ahead: 1,
+        } as unknown as IssueNavigationModel['gitState'],
       }),
       closedRow('needs-human', { needsHuman: true }),
       closedRow('working', {}, [working('worker', '/r/a')]),
@@ -1178,7 +1195,11 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
   })
 
   it('B5: unread keeps a finished issue visible only within 7 days of finishing (closedAt anchor)', () => {
-    const base = { stage: 'done' as unknown as IssueNavigationModel['stage'], unread: true, readAt: undefined }
+    const base = {
+      stage: 'done' as unknown as IssueNavigationModel['stage'],
+      unread: true,
+      readAt: undefined,
+    }
     expect(
       issueVisibleInSidebar(
         issue({ ...base, closedAt: new Date(NOW - 2 * DAY).toISOString() }),

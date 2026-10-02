@@ -1,5 +1,3 @@
-import type { IssueViewModel } from '../../replica/issue-view-models'
-import type { SessionView } from '../../session-values'
 /**
  * TERMINAL SLICE (POD-330) — the workspace: which session a pane shows, what
  * order the tab strip is in, and what happens to panes when a worktree moves
@@ -27,7 +25,9 @@ import type { SessionView } from '../../session-values'
  * Depends on F1 and F2. Imports no other slice.
  * Platform-neutral: no DOM, no storage.
  */
-import { worktreeForCwd, type SessionId} from '@podium/model'
+import { type SessionId, worktreeForCwd } from '@podium/model'
+import type { IssueViewModel } from '../../replica/issue-view-models'
+import type { SessionView } from '../../session-values'
 import { sessionsForWorktree } from '../session-ownership'
 // POD-1503: coordinator elevation is an ORDERING question, so it lives in F3
 // (session-urgency), not here — the tab strip was merely its first caller.

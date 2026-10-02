@@ -1,11 +1,11 @@
-import { IssueIdentity } from '../fields/issue'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { OWNERSHIP_MATRIX_INDEX, ROW } from '../annotations/matrix'
 import { asMatrixRowId } from '../annotations/ownership'
-import { IssueGraphNode, OrphanIssue } from '../entities/issue'
 import { HandoffManifest, HandoffManifestV1, HandoffManifestV2 } from '../entities/handoff'
+import { IssueGraphNode, OrphanIssue } from '../entities/issue'
 import { SessionMeta } from '../entities/session'
+import { IssueIdentity } from '../fields/issue'
 import {
   type RetainedRepresentation,
   representationViolations,
@@ -243,10 +243,7 @@ describe('the live registry', () => {
       .filter((x) => x.kind === 'per-user-state-member')
       .map((x) => `${x.representation.split(' ')[0]}.${/'([^']+)'/.exec(x.detail)?.[1]}`)
       .sort()
-    expect(found).toEqual([
-      'SessionMeta.readAt',
-      'SessionMeta.snoozedUntil',
-    ])
+    expect(found).toEqual(['SessionMeta.readAt', 'SessionMeta.snoozedUntil'])
   })
 
   it('pins every schema-bearing entry to the schema it claims to document', () => {

@@ -10,16 +10,16 @@
  * `View`/`Text`/`ScrollView` only — so the module also loads on device.
  */
 
-import type { ReactElement } from 'react'
-import { ScrollView, Text, View } from 'react-native'
-import { useMemo, useSyncExternalStore } from 'react'
-import type { SessionMeta } from '@podium/model'
-import { asIssueId } from '@podium/model'
 import {
   createSlicePublisher,
   type UnifiedIssueRow,
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
+import type { SessionMeta } from '@podium/model'
+import { asIssueId } from '@podium/model'
+import type { ReactElement } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
+import { ScrollView, Text, View } from 'react-native'
 import { CommitBoundary } from '../../../shared/src/row-shell'
 import type { LegacyControlEngine } from './arm'
 import type { ControlSliceDef } from './list'

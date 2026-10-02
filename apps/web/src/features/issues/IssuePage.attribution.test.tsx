@@ -1,6 +1,5 @@
 import '@/test-support/mock-core-store-handle'
 import { allIssueViewModels } from '@podium/client-core/replica'
-import { normalizedFixtureStore } from '@/test-support/normalized-issues'
 /**
  * ATTRIBUTION, OWNERSHIP AND THE NEEDS-HUMAN ASKER, RENDERED THROUGH THE REAL
  * PAGE (POD-646).
@@ -19,10 +18,13 @@ import { normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
+import { normalizedFixtureStore } from '@/test-support/normalized-issues'
 import '@/test-support/model-catalog-mock'
 import { IssuePage } from './IssuePage'
 
-const world = vi.hoisted(() => ({ current: null as ReturnType<typeof normalizedFixtureStore> | null }))
+const world = vi.hoisted(() => ({
+  current: null as ReturnType<typeof normalizedFixtureStore> | null,
+}))
 
 vi.mock('@/app/store', () => {
   const state = () =>
@@ -51,14 +53,17 @@ vi.mock('@/app/store', () => {
   return {
     useStore: () => state(),
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(state()),
-    useReplicaIssues: () => world.current ? allIssueViewModels(world.current.replica) : [],
+    useReplicaIssues: () => (world.current ? allIssueViewModels(world.current.replica) : []),
   }
 })
 
 afterEach(cleanup)
 
 const show = (over: Parameters<typeof makeIssue>[0]) => {
-  world.current = normalizedFixtureStore({ issues: [makeIssue({ id: 'i-1', repoPath: '/r', ...over })], sessions: [] })
+  world.current = normalizedFixtureStore({
+    issues: [makeIssue({ id: 'i-1', repoPath: '/r', ...over })],
+    sessions: [],
+  })
   const issue = allIssueViewModels(world.current.replica)[0]!
   render(<IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />)
 }

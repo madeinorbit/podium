@@ -35,7 +35,11 @@ async function fixture() {
   stores.push(store)
   const world = await WorldIndex.load(store)
   const issue = { id: asIssueId('shared'), ownerUserId: owner } as IssueRow
-  const session = { id: asSessionId('shared'), ownerUserId: owner, resumeValue: 'conversation' } as SessionRow
+  const session = {
+    id: asSessionId('shared'),
+    ownerUserId: owner,
+    resumeValue: 'conversation',
+  } as SessionRow
   const rows: FeedVisibilityStore = {
     issues: {
       getIssue: async () => issue,
@@ -55,16 +59,24 @@ async function fixture() {
     sync: store.sync,
   }
   const policy = makeFeedVisibility({
-    store: rows, worldIndex: world.reader,
+    store: rows,
+    worldIndex: world.reader,
     audienceResourceIds: (kind) => store.grants.visibilityAudienceResourceIds(kind),
     audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
     authorizationRevision: () => store.grants.visibilityRevision(),
   })
   const grant = async (kind: string, grantee: string, verb: GrantRow['verb']) =>
     store.grants.upsert({
-      resourceKind: kind, resourceId: 'shared', grantee, verb, owner,
-      visibility: 'personal', createdAt: '2026-09-11T00:00:00Z',
-      actorKind: 'user', actorId: owner, onBehalfOf: owner,
+      resourceKind: kind,
+      resourceId: 'shared',
+      grantee,
+      verb,
+      owner,
+      visibility: 'personal',
+      createdAt: '2026-09-11T00:00:00Z',
+      actorKind: 'user',
+      actorId: owner,
+      onBehalfOf: owner,
     })
   return { store, world, policy, grant }
 }
@@ -133,7 +145,8 @@ describe('feed visibility grant semantics', () => {
     expect(state.mayRead(reader, git)).toBe(true)
     expect(state.mayRead(stranger, git)).toBe(false)
     expect(
-      (await policy.anchors.visibilityEdge({ entity: 'issueProjection', entityId: 'shared' }))?.subjects,
+      (await policy.anchors.visibilityEdge({ entity: 'issueProjection', entityId: 'shared' }))
+        ?.subjects,
     ).toContainEqual(git)
   })
   it('cannot access grant persistence through its store port', () => {
@@ -142,12 +155,16 @@ describe('feed visibility grant semantics', () => {
 
   it('observes committed writes and revocations but not rolled-back grants', async () => {
     const { store, policy, grant } = await fixture()
-    await store.transact(async () => { await grant('issue', reader, 'read') })
+    await store.transact(async () => {
+      await grant('issue', reader, 'read')
+    })
     expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(true)
-    await expect(store.transact(async () => {
-      await store.grants.remove('issue', 'shared', reader, 'read')
-      throw new Error('rollback')
-    })).rejects.toThrow('rollback')
+    await expect(
+      store.transact(async () => {
+        await store.grants.remove('issue', 'shared', reader, 'read')
+        throw new Error('rollback')
+      }),
+    ).rejects.toThrow('rollback')
     expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(true)
     await store.transact(async () => {
       await store.grants.remove('issue', 'shared', reader, 'read')
@@ -155,7 +172,11 @@ describe('feed visibility grant semantics', () => {
     expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(false)
   })
 
-  it.each(['read', 'write', 'manage'] as const)('preserves owner, grantee, stranger and revoked %s edges across kinds', async (verb) => {
+  it.each([
+    'read',
+    'write',
+    'manage',
+  ] as const)('preserves owner, grantee, stranger and revoked %s edges across kinds', async (verb) => {
     const { store, policy, grant } = await fixture()
     await grant('issue', reader, verb)
     await grant('session', reader, verb)
@@ -178,7 +199,8 @@ describe('feed visibility grant semantics', () => {
     expect(await policy.mayReadIssue(revoked, asIssueId('shared'))).toBe(false)
     // Revoked readers remain in the historical audience so they receive removals.
     expect(
-      (await policy.anchors.visibilityEdge({ entity: 'issueProjection', entityId: 'shared' }))?.audience,
+      (await policy.anchors.visibilityEdge({ entity: 'issueProjection', entityId: 'shared' }))
+        ?.audience,
     ).toEqual([reader, revoked])
   })
 
@@ -192,7 +214,10 @@ describe('feed visibility grant semantics', () => {
 })
 
 describe('rows scoped by the session named in their id', () => {
-  const ask: EntityRef = { entity: 'pendingInteraction', entityId: interactionRowId('shared', 'ixn_1') }
+  const ask: EntityRef = {
+    entity: 'pendingInteraction',
+    entityId: interactionRowId('shared', 'ixn_1'),
+  }
   const sent = (senderUserId: string): EntityRef => ({
     entity: 'message',
     entityId: messageRecordRowId({ sessionId: 'shared', senderUserId, messageId: 'msg_1' }),
@@ -253,24 +278,40 @@ describe('the issue anchor edge reads the normalized record', () => {
       anchors: policy.anchors,
     })
     await authority.capture([
-      { entity: 'issueProjection', entityId: 'shared', op: 'upsert', value: { id: 'shared', revision: 1 } },
+      {
+        entity: 'issueProjection',
+        entityId: 'shared',
+        op: 'upsert',
+        value: { id: 'shared', revision: 1 },
+      },
     ])
     const cursor = await authority.cursor()
     await grant('issue', reader, 'read')
     await authority.capture([
-      { entity: 'issueProjection', entityId: 'shared', op: 'upsert', value: { id: 'shared', revision: 2 } },
+      {
+        entity: 'issueProjection',
+        entityId: 'shared',
+        op: 'upsert',
+        value: { id: 'shared', revision: 2 },
+      },
     ])
     const delta = await authority.changesSince(cursor, {
-      kind: 'user', user: reader, device: asDeviceId('reader-device'), capability: asCapabilityRef('reader-cap'),
+      kind: 'user',
+      user: reader,
+      device: asDeviceId('reader-device'),
+      capability: asCapabilityRef('reader-cap'),
     })
     if (delta?.kind !== 'batch') throw new Error('expected a delta batch')
-    expect(delta.changes.filter(change => change.entity === 'issueProjection')).toHaveLength(2)
-    const edge = await policy.anchors.visibilityEdge({ entity: 'issueProjection', entityId: 'shared' })
+    expect(delta.changes.filter((change) => change.entity === 'issueProjection')).toHaveLength(2)
+    const edge = await policy.anchors.visibilityEdge({
+      entity: 'issueProjection',
+      entityId: 'shared',
+    })
     expect(edge?.audience).toEqual([reader])
     expect(edge?.subjects.slice(0, 2)).toEqual([
       { entity: 'issueProjection', entityId: 'shared' },
       { entity: 'issueGitState', entityId: 'shared' },
     ])
-    expect(edge?.subjects.some(ref => String(ref.entity) === 'issue')).toBe(false)
+    expect(edge?.subjects.some((ref) => String(ref.entity) === 'issue')).toBe(false)
   })
 })

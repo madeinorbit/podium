@@ -136,7 +136,12 @@ describe('kind mapping', () => {
     expect(entityForKind('messageRecords')).toBe('message')
     const { cache, replica } = build()
     const rowId = 's1\nusr_me\nmsg_1'
-    cache.put('message', rowId, { id: 'msg_1', sessionId: 's1', senderUserId: 'usr_me', status: 'typed' })
+    cache.put('message', rowId, {
+      id: 'msg_1',
+      sessionId: 's1',
+      senderUserId: 'usr_me',
+      status: 'typed',
+    })
     expect(replica.rows('messageRecords')).toMatchObject([{ id: 'msg_1', status: 'typed' }])
     cache.drop('message', rowId)
     replica.onKernelEvent({ type: 'removed', entity: 'message', entityId: rowId })

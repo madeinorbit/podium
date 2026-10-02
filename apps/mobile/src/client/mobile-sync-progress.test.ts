@@ -114,7 +114,6 @@ describe('MobileSyncProgressStore', () => {
   })
 })
 
-
 it('resets HTTP counters on every attempt and waits for committed events', () => {
   const store = new MobileSyncProgressStore()
   store.begin('cold')
@@ -124,16 +123,32 @@ it('resets HTTP counters on every attempt and waits for committed events', () =>
   store.noteSaving()
   expect(store.getSnapshot()).toMatchObject({ blocking: true, phase: 'saving', rowsSeen: 10 })
   store.beginAttempt()
-  expect(store.getSnapshot()).toMatchObject({ blocking: true, phase: 'connecting', rowsSeen: 0, totalRows: null })
+  expect(store.getSnapshot()).toMatchObject({
+    blocking: true,
+    phase: 'connecting',
+    rowsSeen: 0,
+    totalRows: null,
+  })
   store.noteMeta(20)
   store.noteReceived(20)
   store.noteSaving()
   expect(store.getSnapshot().blocking).toBe(true)
-  store.noteEvent({ type: 'bootstrap-installed', cause: 'cold-start', snapshotSeq: 1, entityCount: 20, bufferedFramesApplied: 0 })
+  store.noteEvent({
+    type: 'bootstrap-installed',
+    cause: 'cold-start',
+    snapshotSeq: 1,
+    entityCount: 20,
+    bufferedFramesApplied: 0,
+  })
   expect(store.getSnapshot()).toMatchObject({ blocking: false, phase: 'ready' })
   store.beginAttempt()
   store.noteMeta(undefined)
   store.noteReceived(2)
   store.noteEvent({ type: 'heal-progress', framesCommitted: 1, seq: 2, targetSeq: 3 })
-  expect(store.getSnapshot()).toMatchObject({ blocking: false, phase: 'saving', rowsSeen: 2, totalRows: null })
+  expect(store.getSnapshot()).toMatchObject({
+    blocking: false,
+    phase: 'saving',
+    rowsSeen: 2,
+    totalRows: null,
+  })
 })

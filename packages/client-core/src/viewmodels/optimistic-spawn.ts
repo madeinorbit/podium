@@ -1,16 +1,19 @@
-import type { IssueViewModel } from '../replica/issue-view-models'
-import type { SessionValues, SessionView } from '../session-values'
-import { actorUser, DRAFT_ISSUE_TITLE, spawnedByTag } from '@podium/model'
 import {
-  isSortKey,
-  sortKeyBetween,
   type AgentKind,
+  actorUser,
+  DRAFT_ISSUE_TITLE,
   type IssueId,
+  isSortKey,
   type MachineId,
   type RepoId,
   type SessionId,
   type SessionUserStateWire,
-  type UserId} from '@podium/model'
+  sortKeyBetween,
+  spawnedByTag,
+  type UserId,
+} from '@podium/model'
+import type { IssueViewModel } from '../replica/issue-view-models'
+import type { SessionValues, SessionView } from '../session-values'
 
 /**
  * Optimistic-UI builders for the "New <Agent> in <Repo>" spawn (issue #119).

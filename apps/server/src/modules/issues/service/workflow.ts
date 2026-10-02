@@ -1,12 +1,11 @@
 import { createLogger } from '@podium/logger'
-import { afterCommit } from '../../../store/executor/executor'
 import {
   asMachineId,
   asUserId,
   DEFER_NEXT_MESSAGE,
   type IssueId,
-  type IssueRehomeTarget,
   type IssueProjection,
+  type IssueRehomeTarget,
   isIssueStage,
   isSystemOwnedIssueStage,
   type MachineId,
@@ -21,6 +20,13 @@ import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
+import { afterCommit } from '../../../store/executor/executor'
+import {
+  buildShellLifetimeInputs,
+  decideShellLifetime,
+  shellQuietMs,
+} from '../../sessions/terminal-lifetime'
+import { resolveShellOwningIssue } from '../../shells/service'
 import { issueRefsPattern, probeGitState } from '../git-state'
 import { IssueAssistantDigestModule } from './assistant'
 import type { IssueAttentionModule } from './attention'
@@ -31,8 +37,6 @@ import type { IssueCommentsMailModule } from './mail'
 import type { CreateIssueInput } from './types'
 import { IssueWorktreeGcModule } from './worktree-gc'
 import { parseGitWorktreeList, sameWorktreePath } from './worktree-safety'
-import { buildShellLifetimeInputs, decideShellLifetime, shellQuietMs } from '../../sessions/terminal-lifetime'
-import { resolveShellOwningIssue } from '../../shells/service'
 
 const log = createLogger('server:issues')
 
@@ -131,8 +135,9 @@ export class IssueGitWorkflowModule {
     // Capability methods are also handed to lifecycle ports as callbacks. Keep
     // the module as the receiver so its per-instance timers and git-attribution
     // maps can never fall through to undefined or leak into module-global state.
-    this.worktreeGc = new IssueWorktreeGcModule(store, async (id, principal) =>
-      await this.freeWorktreeKeepBranch(id, principal),
+    this.worktreeGc = new IssueWorktreeGcModule(
+      store,
+      async (id, principal) => await this.freeWorktreeKeepBranch(id, principal),
     )
 
     this.rehome = this.rehome.bind(this)
@@ -183,7 +188,7 @@ export class IssueGitWorkflowModule {
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot rehome issue work')
     }
-    if (!await this.isSameRepoIdentity(row, to.repoPath)) return null
+    if (!(await this.isSameRepoIdentity(row, to.repoPath))) return null
     // The repo move rides update()'s own draft [POD-3259]. It used to be
     // assigned onto the map's row here, which left the new repoPath standing on
     // the shared object whether or not the update below committed.
@@ -209,7 +214,7 @@ export class IssueGitWorkflowModule {
    */
   private async isSameRepoIdentity(row: IssueRow, toRepoPath: string): Promise<boolean> {
     const repos = this.store.d.store.repos
-    const from = row.repoId ?? await repos.resolveIssueRepoId(row.repoPath, row.machineId)
+    const from = row.repoId ?? (await repos.resolveIssueRepoId(row.repoPath, row.machineId))
     const target = await repos.resolveRepoIdForPath(toRepoPath)
     return Boolean(target) && (!from || from === target)
   }
@@ -389,7 +394,7 @@ export class IssueGitWorkflowModule {
       // Refuse a foreign repository BEFORE creating anything (POD-1461). The same identity
       // rule rehome applies: a target whose repoId differs would renumber this issue into
       // another repo. Checked here rather than after the add, so a refusal costs nothing.
-      if (startRepoPath !== row.repoPath && !await this.isSameRepoIdentity(row, startRepoPath)) {
+      if (startRepoPath !== row.repoPath && !(await this.isSameRepoIdentity(row, startRepoPath))) {
         throw new Error(
           `refusing to start on ${startRepoPath}: it is not the same repository as ${row.repoPath}`,
         )
@@ -400,7 +405,10 @@ export class IssueGitWorkflowModule {
       // Freeze the SAME repo-affine/default choice repoOp used to make internally.
       // Persisting and routing with one value records where the worktree was actually
       // created without changing which daemon receives the operation.
-      const worktreeMachineId = (await this.store.resolveWorktreeMachine(row.machineId, startRepoPath))
+      const worktreeMachineId = await this.store.resolveWorktreeMachine(
+        row.machineId,
+        startRepoPath,
+      )
       const res = await this.store.d.repoOp(
         'worktreeAdd',
         startRepoPath,
@@ -483,7 +491,6 @@ export class IssueGitWorkflowModule {
     row.assignee = asUserId(`agent:${row.defaultAgent}`)
     const wire = await this.store.persistRow(row)
     if (wasClosed) {
-
       await this.store.emitEvent('issue.reopened', row.id, {
         seq: row.seq,
         ...(row.parentId ? { parentId: row.parentId } : {}),
@@ -501,7 +508,9 @@ export class IssueGitWorkflowModule {
       for (const session of existing) {
         if (session.cwd !== path) await this.store.d.setSessionCwd?.(session.sessionId, path)
       }
-      const originId = (await this.store.deps.store.issues.listIssueDeps(row.id)).find(dep => dep.type === 'discovered-from')?.toId
+      const originId = (await this.store.deps.store.issues.listIssueDeps(row.id)).find(
+        (dep) => dep.type === 'discovered-from',
+      )?.toId
       if (originId) {
         void this.releaseWorktreeIfIdle(originId, systemPrincipal('start')).catch(
           (err: unknown) => {
@@ -516,7 +525,7 @@ export class IssueGitWorkflowModule {
       return {
         ...wire,
         machine: existing[0]?.machineId
-          ? await this.store.d.machineName?.(existing[0].machineId) ?? existing[0].machineId
+          ? ((await this.store.d.machineName?.(existing[0].machineId)) ?? existing[0].machineId)
           : 'local',
       }
     }
@@ -603,7 +612,8 @@ export class IssueGitWorkflowModule {
     const { parentBranch, repoPath } = planned
     const machineId = planned.machineId ?? undefined
     /** The issue as COMMITTED right now, for the report. A read wants no draft. */
-    const issueNow = async (): Promise<IssueProjection> => await this.store.projection(await this.store.rowOrThrow(id))
+    const issueNow = async (): Promise<IssueProjection> =>
+      await this.store.projection(await this.store.rowOrThrow(id))
     const gw = (await this.store.d.getSettings()).gitWorkflow
     if (kind === 'rebase') {
       const r = await this.store.d.repoOp('rebase', worktreePath, { parentBranch })
@@ -694,10 +704,13 @@ export class IssueGitWorkflowModule {
    */
   /** Takes the machine id rather than the row: it reads nothing else, and the
    *  callers that used to hand it their draft no longer hold one [POD-3375]. */
-  private async isRegisteredRepoRoot(machineId: MachineId | undefined, path: string): Promise<boolean> {
-    return (await this.store.d.store.repos
-      .listRepos(machineId))
-      .some((repo) => sameWorktreePath(repo.path, path))
+  private async isRegisteredRepoRoot(
+    machineId: MachineId | undefined,
+    path: string,
+  ): Promise<boolean> {
+    return (await this.store.d.store.repos.listRepos(machineId)).some((repo) =>
+      sameWorktreePath(repo.path, path),
+    )
   }
 
   /**
@@ -825,7 +838,12 @@ export class IssueGitWorkflowModule {
     const job = principal.kind === 'system' ? principal.job : 'stop'
     const refuse = async (
       output: string,
-    ): Promise<{ ok: boolean; output: string; issue: IssueProjection; worktreeFreed: boolean }> => ({
+    ): Promise<{
+      ok: boolean
+      output: string
+      issue: IssueProjection
+      worktreeFreed: boolean
+    }> => ({
       ok: false,
       output,
       issue: await this.store.projection(await this.store.rowOrThrow(id)),
@@ -1111,10 +1129,10 @@ export class IssueGitWorkflowModule {
         (await this.repoPathOnMachine(at.repoPath, at.machineId)) === repoPath)
     const recordedWorktreePath = homeMatches ? at.worktreePath : null
     if (recordedWorktreePath) {
-      const statusMachineId = (await this.store.resolveWorktreeMachine(
+      const statusMachineId = await this.store.resolveWorktreeMachine(
         pinnedMachineId,
         recordedWorktreePath,
-      ))
+      )
       const st = await this.store.d.repoOp(
         'status',
         recordedWorktreePath,
@@ -1164,7 +1182,7 @@ export class IssueGitWorkflowModule {
     // row.repoPath when the layouts differ (POD-1571). Resolve by identity first, then
     // guard — and run the recreate itself against the resolved path, since `git -C
     // <source path>` on the target names a directory that is not there.
-    const worktreeMachineId = (await this.store.resolveWorktreeMachine(pinnedMachineId, repoPath))
+    const worktreeMachineId = await this.store.resolveWorktreeMachine(pinnedMachineId, repoPath)
     const path = recordedWorktreePath ?? this.worktreePathFor(repoPath, branch)
     // Keep the old implicit behavior: only explicit requests/pins use this pre-flight.
     // A repo-affine/default selection used to flow straight through repoOp.
@@ -1266,7 +1284,9 @@ export class IssueGitWorkflowModule {
     const seq = at.seq
     const machineId = at.machineId ?? undefined
     const { repoPath, parentBranch } = at
-    const refuse = async (output: string): Promise<{ ok: boolean; output: string; issue: IssueProjection }> => ({
+    const refuse = async (
+      output: string,
+    ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> => ({
       ok: false,
       output,
       issue: await this.store.projection(await this.store.rowOrThrow(id)),
@@ -1369,7 +1389,9 @@ export class IssueGitWorkflowModule {
     // (e) worktree must be clean (porcelain lines beyond the `## branch` header = dirty).
     const dirty = st.output.split('\n').filter((l) => l.trim() !== '' && !l.startsWith('## '))
     if (dirty.length > 0) {
-      return await refuse(`refusing cleanup: worktree has uncommitted changes:\n${dirty.join('\n')}`)
+      return await refuse(
+        `refusing cleanup: worktree has uncommitted changes:\n${dirty.join('\n')}`,
+      )
     }
     // Remove the worktree (non-forcing; git may still refuse and we surface it).
     const wr = await this.store.d.repoOp(
@@ -1542,7 +1564,7 @@ export class IssueGitWorkflowModule {
     if (row.machineId) {
       await this.store.d.requireMachineForRepo?.(
         row.machineId,
-        (await this.repoPathOnMachine(row.repoPath, row.machineId)),
+        await this.repoPathOnMachine(row.repoPath, row.machineId),
       )
     }
     await this.store.d.spawnSession({
@@ -1559,7 +1581,10 @@ export class IssueGitWorkflowModule {
     return await this.store.projection(row)
   }
 
-  async addShell(id: string, opts?: { spawnedBy?: string }): Promise<IssueProjection | Promise<IssueProjection>> {
+  async addShell(
+    id: string,
+    opts?: { spawnedBy?: string },
+  ): Promise<IssueProjection | Promise<IssueProjection>> {
     return await this.addSession(id, 'shell', opts)
   }
 
@@ -1838,7 +1863,7 @@ export class IssueGitWorkflowModule {
     const cwd = row.worktreePath ?? fallbackCwd
     if (!cwd) return false
     try {
-      const members = (await this.store.sessionsFor(row))
+      const members = await this.store.sessionsFor(row)
       const attribution = this.gitAttributionFor(members)
       const landingBranch = landingBaseFromSettings(
         (await this.store.d.getSettings()).gitWorkflow.defaultParentBranch,

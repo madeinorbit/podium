@@ -14,7 +14,7 @@ afterEach(async () => {
 
 /** Compare the same production mutations before and after the record retirement.
  * Timings are evidence only; exact feed rows and repository calls detect regressions. */
-it.each([16, 64])('publishes only the changed normalized issue among %i rows', async count => {
+it.each([16, 64])('publishes only the changed normalized issue among %i rows', async (count) => {
   const store = await openTestStore(':memory:')
   stores.push(store)
   await store.repos.addRepo('/repo', store.hostMachineId)
@@ -22,18 +22,26 @@ it.each([16, 64])('publishes only the changed normalized issue among %i rows', a
   const svc = await IssueService.create({
     store,
     ...sessionReadPorts(() => []),
-    getSettings: async () => normalizeSettings({
-      gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
-      sessionDefaults: { agent: 'claude-code' },
-    }),
+    getSettings: async () =>
+      normalizeSettings({
+        gitWorkflow: {
+          defaultParentBranch: '',
+          mergeStyle: 'ff-only',
+          autoRebaseBeforeMerge: true,
+        },
+        sessionDefaults: { agent: 'claude-code' },
+      }),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
-    ...issueTestPlumbing(change => published.push(change)),
+    ...issueTestPlumbing((change) => published.push(change)),
     now: () => '2026-10-02T00:00:00.000Z',
   })
   const ids: string[] = []
   for (let index = 0; index < count; index++) {
-    ids.push((await svc.create({ repoPath: '/repo', title: `Fixture issue ${index}`, startNow: false })).id)
+    ids.push(
+      (await svc.create({ repoPath: '/repo', title: `Fixture issue ${index}`, startNow: false }))
+        .id,
+    )
   }
   const [target, parent] = ids as [string, string, ...string[]]
   const calls = {
@@ -69,14 +77,18 @@ it.each([16, 64])('publishes only the changed normalized issue among %i rows', a
         milliseconds,
         rows: published.length,
         bytes: Buffer.byteLength(JSON.stringify(published)),
-        kinds: [...new Set(published.map(change => change.entity))],
-        calls: Object.fromEntries(Object.entries(calls).map(([name, spy]) => [name, spy.mock.calls.length])),
+        kinds: [...new Set(published.map((change) => change.entity))],
+        calls: Object.fromEntries(
+          Object.entries(calls).map(([name, spy]) => [name, spy.mock.calls.length]),
+        ),
       })
     }
     console.log('issue-publication-cost', JSON.stringify({ count, samples }))
     for (const changes of emitted) {
-      expect(changes.filter(change => change.entity === 'issueProjection').map(change => change.id)).toEqual([target])
-      expect(changes.every(change => String(change.entity) !== 'issue')).toBe(true)
+      expect(
+        changes.filter((change) => change.entity === 'issueProjection').map((change) => change.id),
+      ).toEqual([target])
+      expect(changes.every((change) => String(change.entity) !== 'issue')).toBe(true)
     }
     for (const sample of samples) {
       expect(sample.calls.commentCount).toBe(0)
