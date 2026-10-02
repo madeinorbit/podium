@@ -663,6 +663,18 @@ export function navigationSession(st: Pick<EngineState, 'sessions' | 'navigation
   return sessionById(st.sessions).get(id)
 }
 
+/** Read reactions share the navigation port rather than scanning snapshot rows. */
+export function navigationActivityAt(st: EngineState, issue: NavigationIssue): string | undefined {
+  if (!st.navigation) return issueActivityAt(issue, st.sessions, st.issueProjections)
+  const stamp = st.navigation.activityAt(issue.id)
+  return stamp === NAVIGATION_LOADING ? undefined : stamp
+}
+
+export function navigationIssueReadAt(st: EngineState, id: string): string | null {
+  return (st.navigation ? st.navigation.issueReadAt(id)
+    : st.issueUserStates.find(marker => marker.entityId === id)?.readAt) ?? null
+}
+
 /** The UI-state module's view of the workspace — the single input to routing,
  *  persistence and the URL mirror. */
 export function workspaceUiSnapshot(st: EngineState): WorkspaceUiSnapshot {

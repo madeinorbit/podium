@@ -1,4 +1,5 @@
-import { type EngineState, loadingNavigationProvider, NAVIGATION_LOADING, navigationStats, resolvedWorkspaceKey, workspaceKeyForState } from '@podium/client-core/engine'
+import { type EngineState, issueActivityAt, loadingNavigationProvider, NAVIGATION_LOADING, navigationStats, resolvedWorkspaceKey, workspaceKeyForState } from '@podium/client-core/engine'
+import type { SessionView } from '@podium/client-core/session-values'
 import { planNavigation } from '../../../../packages/client-core/src/engine/navigation'
 import { routeDefaults } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
@@ -9,7 +10,7 @@ import { computed } from '@podium/client-graph/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { startScenarioEngine, upsert } from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { createPoolNavigationProvider } from './pool-navigation-provider'
-import { panePoolScreen } from './pane-pool-screen'
+import { NAVIGATION_SUMMARIES, panePoolScreen } from './pane-pool-screen'
 import { preparePoolScreens, screenOptions } from './pool-screen-registry'
 import { attachWorklistPool } from './store-worklist-pool'
 
@@ -60,6 +61,64 @@ describe('web pool navigation', () => {
       expect(load).toHaveBeenCalledTimes(1)
       expect(tracked(() => provider.issue('child'))).toMatchObject({ id: 'child' })
       expect(tracked(() => provider.missionRoot('child'))).toBe('child')
+    } finally { pool.dispose() }
+  })
+
+  it('uses declared cold navigation summaries without loading full issue rows', () => {
+    const row = issue('cold', { archived: true, worktreePath: '/repo/branch' })
+    const load = vi.fn(() => row)
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
+      { load, summaries: NAVIGATION_SUMMARIES, schedule: () => () => {} })
+    pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: row.id, value: row }] })
+    const provider = createPoolNavigationProvider(pool)
+    try {
+      expect(tracked(() => provider.issue(row.id))).toMatchObject({ id: row.id, updatedAt: stamp, archived: true, worktreePath: '/repo/branch' })
+      expect(tracked(() => provider.activityAt(row.id))).toBe(stamp)
+      expect(pool.hydrate()).toBe(0)
+      expect(load).not.toHaveBeenCalled()
+    } finally { pool.dispose() }
+  })
+
+  it('matches read activity through hidden descendants and explicit archived or headless sessions', () => {
+    const later = '2026-09-24T00:00:00.000Z', outside = '2026-09-30T00:00:00.000Z'
+    const rows = [issue('root'), issue('hidden', { parentId: 'root', archived: true }),
+      issue('deleted', { parentId: 'hidden', deletedAt: stamp }), issue('leaf', { parentId: 'deleted' }),
+      issue('spin-off', { startedBySession: 'owner', updatedAt: outside }), issue('unrelated', { updatedAt: outside })]
+    const seats = [
+      { sessionId: 'owner', issueId: 'root', lastActiveAt: stamp, cwd: '/repo' },
+      { sessionId: 'archived-seat', issueId: 'hidden', lastActiveAt: later, archived: true, status: 'exited', stoppedAt: later, cwd: '/repo' },
+      { sessionId: 'headless-seat', issueId: 'leaf', lastActiveAt: later, headless: true, cwd: '/repo' },
+      { sessionId: 'cwd-only', lastActiveAt: outside, cwd: '/repo' },
+    ] as SessionView[]
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
+      { summaries: NAVIGATION_SUMMARIES, schedule: () => () => {} })
+    pool.apply({ type: 'replace', rows: [...rows.map(value => ({ kind: 'issue' as const, id: value.id, value })),
+      ...seats.map(value => ({ kind: 'session' as const, id: value.sessionId, value }))] })
+    const provider = createPoolNavigationProvider(pool)
+    try {
+      expect(tracked(() => provider.activityAt('root'))).toBe(issueActivityAt(rows[0]!, seats, rows))
+      expect(tracked(() => provider.activityAt('root'))).toBe(later)
+      expect(tracked(() => provider.activityAt('absent'))).toBeUndefined()
+      expect(pool.hydrate()).toBe(0)
+      const newest = '2026-09-25T00:00:00.000Z'
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'leaf', value: { ...rows[3]!, updatedAt: newest } }] })
+      expect(tracked(() => provider.activityAt('root'))).toBe(newest)
+    } finally { pool.dispose() }
+  })
+
+  it('loads missing cold activity facts in the ordinary batch', () => {
+    const rows = [issue('root'), issue('hidden', { parentId: 'root', archived: true, updatedAt: '2026-09-25T00:00:00.000Z' })]
+    const load = vi.fn((_kind: string, id: string) => rows.find(row => row.id === id))
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
+      { load, summaries: MISSION_SUMMARIES, schedule: () => () => {} })
+    pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue', id: value.id, value })) })
+    const provider = createPoolNavigationProvider(pool)
+    try {
+      expect(tracked(() => provider.activityAt('root'))).toBe(NAVIGATION_LOADING)
+      expect(load).not.toHaveBeenCalled()
+      expect(pool.hydrate()).toBe(1)
+      expect(tracked(() => provider.activityAt('root'))).toBe(issueActivityAt(rows[0]!, [], rows))
+      expect(load).toHaveBeenCalledExactlyOnceWith('issue', 'hidden')
     } finally { pool.dispose() }
   })
 
@@ -238,7 +297,7 @@ describe('web pool navigation', () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
     const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-    const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
+    const handle = createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES })
     const provider = createPoolNavigationProvider(handle.pool)
     try {
       const st: EngineState = runtime.getSnapshot()
@@ -251,6 +310,8 @@ describe('web pool navigation', () => {
         const expected = planNavigation(st, routeDefaults('issues'), { view: 'workspace', selectedIssueId: issue.id }, { visible: true, now: stamp })
         const actual = check(issue.id)
         if (JSON.stringify(actual) !== JSON.stringify(expected)) differences++
+        if (tracked(() => provider.activityAt(issue.id)) !== issueActivityAt(issue, st.sessions, st.issueProjections)) differences++
+        expect(tracked(() => provider.issueReadAt(issue.id)) ?? null).toBe(st.issueUserStates.find(row => row.entityId === issue.id)?.readAt ?? null)
       }
       expect(differences).toBe(0)
     } finally { handle.dispose(); runtime.destroy() }

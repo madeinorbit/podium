@@ -3,7 +3,7 @@ import { type MainView, type RouteState, routeDefaults } from '../ui-state'
 import { type FileTab, type RecentFileEntry, allTabIds, leafPaneIds, openTab } from '../viewmodels'
 import {
   type EngineState, foregroundIssue, workspaceFor, resolvedWorkspaceKey, NAVIGATION_LOADING,
-  workspaceMirrorPatch, workspaceWritePatch,
+  workspaceMirrorPatch, workspaceWritePatch, navigationIssueReadAt,
 } from './state'
 
 export interface NavigationIntent {
@@ -80,6 +80,6 @@ export function planNavigation(
   const issue = context.visible ? foregroundIssue({ ...landing, ...patch }) : undefined
   patch.issueVisitBaseline = !issue ? null : state.issueVisitBaseline?.issueId === issue.id
     ? state.issueVisitBaseline
-    : { issueId: issue.id, readAt: state.issueUserStates.find(marker => marker.entityId === issue.id)?.readAt ?? null, openedAt: context.now }
+    : { issueId: issue.id, readAt: navigationIssueReadAt(state, issue.id), openedAt: context.now }
   return { pending: false, patch, route, key, replace: intent.history !== 'push' && current.view === intent.view }
 }

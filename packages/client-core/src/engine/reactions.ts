@@ -35,7 +35,8 @@ import {
   navigationSession,
   NAVIGATION_LOADING,
   resolvedWorkspaceKey,
-  issueActivityAt,
+  navigationActivityAt,
+  navigationIssueReadAt,
   knownTabIds,
   knownTabIdsForWorkspace,
   referencedTabIds,
@@ -389,7 +390,7 @@ export class Reactions {
     this.ports.publish({
       issueVisitBaseline: {
         issueId: issue.id,
-        readAt: state.issueUserStates.find(marker => marker.entityId === issue.id)?.readAt ?? null,
+        readAt: navigationIssueReadAt(state, issue.id),
         openedAt: new Date().toISOString(),
       },
     })
@@ -446,17 +447,17 @@ export class Reactions {
    *  keyed on activity (so a manual mark-unread sticks), leading edge, throttled
    *  by MARK_READ_ON_VIEW_MS. */
   updateIssueMarkReadTimer(): void {
-    const issue = foregroundIssue(this.ports.state())
-    const key = issue
-      ? `${issue.id}\n${issueActivityAt(issue, this.ports.state().sessions, this.ports.state().issueProjections)}`
-      : null
+    const st = this.ports.state()
+    const issue = foregroundIssue(st)
+    const activity = issue ? navigationActivityAt(st, issue) : undefined
+    const key = issue && activity ? `${issue.id}\n${activity}` : null
     if (key === this.issueMarkReadKey) return
     this.issueMarkReadKey = key
     if (this.issueMarkReadTimer !== null) {
       clearTimeout(this.issueMarkReadTimer)
       this.issueMarkReadTimer = null
     }
-    if (!issue) return
+    if (!issue || !activity) return
     const issueId = issue.id
     const wait = MARK_READ_ON_VIEW_MS - (Date.now() - this.issueMarkReadFiredAt)
     if (wait <= 0) {
@@ -473,9 +474,11 @@ export class Reactions {
     const st = this.ports.state()
     const issue = foregroundIssue(st)
     if (issue?.id !== issueId || !this.isVisible()) return
-    const activityAt = Date.parse(issueActivityAt(issue, st.sessions, st.issueProjections))
-    const marker = st.issueUserStates.find(row => row.entityId === issue.id)
-    const readAt = marker?.readAt ? Date.parse(marker.readAt) : Number.NaN
+    const activity = navigationActivityAt(st, issue)
+    if (activity === undefined) return
+    const activityAt = Date.parse(activity)
+    const cursor = navigationIssueReadAt(st, issue.id)
+    const readAt = cursor ? Date.parse(cursor) : Number.NaN
     const unread = !Number.isFinite(readAt) || (Number.isFinite(activityAt) && activityAt > readAt)
     if (!unread) return
     this.issueMarkReadFiredAt = Date.now()

@@ -1038,8 +1038,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       const issue = foregroundIssue(st)
       const pending = this.pendingNavigation
       return [
-        resolvedWorkspaceKey(st), issue ? [issue.id, issue.updatedAt] : undefined,
-        // Read cursors and display metadata already publish through the store.
+        resolvedWorkspaceKey(st), issue ? [issue.id, issue.updatedAt,
+          provider.activityAt(issue.id), provider.issueReadAt(issue.id)] : undefined,
         // Watch only the pool fields these navigation reactions consume.
         session && session !== NAVIGATION_LOADING
           ? [session.sessionId, session.issueId, session.cwd, session.lastActiveAt, session.unread] : session,

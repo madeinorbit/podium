@@ -2,6 +2,7 @@ import { NAVIGATION_LOADING, type NavigationProvider } from '@podium/client-core
 import type { SessionView } from '@podium/client-core/session-values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missions } from '@podium/client-graph/mission'
+import { MISSION_SCHEMA } from '@podium/client-graph/mission-schema'
 import { knownSessionIds } from '@podium/client-graph/enumerate'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
@@ -13,7 +14,10 @@ import { parseSessionRef } from '@podium/protocol'
 export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider {
   return {
     issue(id) {
-      const row = pool.row('issue', id) as SliceIssue | typeof LOADING | undefined
+      let row = pool.row('issue', id, 'summary') as SliceIssue | typeof LOADING | undefined
+      if (row && row !== LOADING && (!Object.hasOwn(row, 'id') || !Object.hasOwn(row, 'updatedAt'))) {
+        row = pool.row('issue', id) as SliceIssue | typeof LOADING | undefined
+      }
       if (row === LOADING) return NAVIGATION_LOADING
       // Borrow the normalized row; do not retain a parallel issue index.
       return row as ReturnType<NavigationProvider['issue']>
@@ -39,6 +43,33 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       }
       return pending ? NAVIGATION_LOADING : undefined
     },
+    activityAt(id) {
+      const stack = [id], seen = new Set<string>()
+      let latest: string | undefined
+      while (stack.length) {
+        const current = stack.pop()!
+        if (seen.has(current)) continue
+        seen.add(current)
+        let issue = pool.row('issue', current, 'summary')
+        if (issue && issue !== LOADING && !Object.hasOwn(issue, 'updatedAt')) issue = pool.row('issue', current)
+        if (issue === LOADING) return NAVIGATION_LOADING
+        if (!issue) continue
+        const stamp = (issue as { updatedAt: string }).updatedAt
+        if (latest === undefined || stamp > latest) latest = stamp
+        // Read activity follows the raw formal tree, including hidden children.
+        // Mission provenance and cwd-only sessions do not contribute to it.
+        stack.push(...pool.graph.many('issue', current, 'treeChildren'))
+        for (const sessionId of pool.graph.many('issue', current, MISSION_SCHEMA.members.sessions)) {
+          let session = pool.row('session', sessionId, 'summary')
+          if (session && session !== LOADING && !Object.hasOwn(session, 'lastActiveAt')) session = pool.row('session', sessionId)
+          if (session === LOADING) return NAVIGATION_LOADING
+          const activity = (session as { lastActiveAt: string } | undefined)?.lastActiveAt
+          if (activity && (latest === undefined || activity > latest)) latest = activity
+        }
+      }
+      return latest
+    },
+    issueReadAt: id => pool.readCursor(id),
     watch: (read, changed) => createPoolProjection(pool, read).subscribe(changed),
   }
 }

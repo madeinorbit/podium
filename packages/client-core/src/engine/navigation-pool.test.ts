@@ -20,6 +20,8 @@ const provider: NavigationProvider = {
   issue: id => id === root.id ? root : id === child.id ? child : undefined,
   missionRoot: () => root.id,
   session: id => id === seat.sessionId ? seat : undefined,
+  activityAt: () => stamp,
+  issueReadAt: () => null,
 }
 const state = (navigation?: NavigationProvider) => ({
   navigation, issueProjections: [root, child], issueUserStates: [], issueDeps: [], sessions: [seat], repos: [],
@@ -106,12 +108,37 @@ describe('navigation with an injected pool provider', () => {
     } finally { reactions.dispose() }
   })
 
+  it('uses pool read cursors and waits for cold activity without scanning legacy rows', () => {
+    let ready = false
+    const cursor = '2026-09-17T00:00:00.000Z'
+    const st = { ...state({ ...provider, activityAt: () => ready ? stamp : NAVIGATION_LOADING,
+      issueReadAt: () => cursor }), view: 'workspace' as const, selectedIssueId: child.id }
+    vi.spyOn(st.issueProjections, Symbol.iterator).mockImplementation(() => { throw new Error('legacy activity issues') })
+    vi.spyOn(st.sessions, Symbol.iterator).mockImplementation(() => { throw new Error('legacy activity sessions') })
+    vi.spyOn(st.issueUserStates, 'find').mockImplementation(() => { throw new Error('legacy read cursor') })
+    const markIssueRead = vi.fn()
+    const reactions = new Reactions({ state: () => st, publish: patch => Object.assign(st, patch),
+      hub: {} as never, notices: {} as never, isVisible: () => true, markSessionRead: vi.fn(), markIssueRead })
+    try {
+      const plan = planNavigation(st, routeDefaults('workspace'), { view: 'workspace' }, context)
+      expect(plan.patch.issueVisitBaseline?.readAt).toBe(cursor)
+      reactions.updateIssueVisitBaseline()
+      expect(st.issueVisitBaseline?.readAt).toBe(cursor)
+      reactions.updateIssueMarkReadTimer()
+      expect(markIssueRead).not.toHaveBeenCalled()
+      ready = true
+      reactions.updateIssueMarkReadTimer()
+      expect(markIssueRead).toHaveBeenCalledExactlyOnceWith(child.id)
+    } finally { reactions.dispose() }
+  })
+
   it('keeps a rehome pending until its pool mission root is loaded', () => {
     navigationStats.enable()
     const target = { ...root, id: asIssueId('destination') }
     const moved = { ...seat, issueId: target.id }
     let ready = false
     const navigation: NavigationProvider = {
+      ...provider,
       issue: id => id === target.id ? target : provider.issue(id),
       missionRoot: id => id === target.id ? ready ? target.id : NAVIGATION_LOADING : root.id,
       session: () => moved,

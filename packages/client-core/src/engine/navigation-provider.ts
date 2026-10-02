@@ -13,6 +13,8 @@ export interface NavigationProvider {
   issue(id: string): NavigationRead<NavigationIssue>
   missionRoot(id: string): NavigationRead<IssueId>
   session(id: string): NavigationRead<SessionView>
+  activityAt(id: string): NavigationRead<string>
+  issueReadAt(id: string): string | null | undefined
   /** Track just the addressed reads made by the current navigation. */
   watch?(read: () => readonly unknown[], changed: () => void): () => void
 }
@@ -22,6 +24,8 @@ export const loadingNavigationProvider: NavigationProvider = {
   issue: () => NAVIGATION_LOADING,
   missionRoot: () => NAVIGATION_LOADING,
   session: () => NAVIGATION_LOADING,
+  activityAt: () => NAVIGATION_LOADING,
+  issueReadAt: () => undefined,
 }
 
 /** Opt-in store-level counts at the actual legacy reads, including reads made

@@ -5,6 +5,11 @@ import type { PoolScreen } from './pool-screen-registry'
 
 const generations = new WeakMap<ClientRuntime, object>()
 
+export const NAVIGATION_SUMMARIES = {
+  issue: [...MISSION_SUMMARIES.issue, 'id', 'updatedAt', 'worktreePath'],
+  session: ['displayRef', 'lastActiveAt'],
+} as const
+
 export const panePoolScreen: PoolScreen = {
   id: 'pane',
   initialize: initializePaneDataLayer,
@@ -19,7 +24,7 @@ export const panePoolScreen: PoolScreen = {
       runtime.setNavigationProvider(loadingNavigationProvider)
     }
   },
-  options: () => ({ summaries: { ...MISSION_SUMMARIES, session: ['displayRef'] } }),
+  options: () => ({ summaries: NAVIGATION_SUMMARIES }),
   async attach(runtime, pool) {
     const generation = generations.get(runtime)
     const { createPoolNavigationProvider } = await import('./pool-navigation-provider')
