@@ -1,13 +1,34 @@
 /** Plain, transient evaluation of the hand arm's worklist rule tables.
  * Only the compact result survives a filing run; getter memos are discarded. */
 import type { RowView } from '@podium/client-graph/shared/row-view'
+import { allRelations, SCHEMA } from '@podium/client-graph/shared/schema'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
-import { buildRowView, directParts, sessionActivityOf, type ViewInputs, type RepoRow } from '../../hand/pool/views'
-import { directSessionParts, directVisibleParts, retainedSeatIdsOf, retentionOf, sortByRank, type SessionVisibleParts, type VisibleParts, type VisibleInputs, type HiddenIssue } from '../../hand/pool/worklist/visible'
-import { directRollupParts, seatVerdictOf, type RollupInputs, type RollupSelf } from '../../hand/pool/worklist/rollup'
-import { LOADING, type LeanPool } from './pool'
-import { SCHEMA, allRelations } from '@podium/client-graph/shared/schema'
 import { isLinkSpec, relationRef } from '../../hand/pool/relations'
+import {
+  buildRowView,
+  directParts,
+  type RepoRow,
+  sessionActivityOf,
+  type ViewInputs,
+} from '../../hand/pool/views'
+import {
+  directRollupParts,
+  type RollupInputs,
+  type RollupSelf,
+  seatVerdictOf,
+} from '../../hand/pool/worklist/rollup'
+import {
+  directSessionParts,
+  directVisibleParts,
+  type HiddenIssue,
+  retainedSeatIdsOf,
+  retentionOf,
+  type SessionVisibleParts,
+  sortByRank,
+  type VisibleInputs,
+  type VisibleParts,
+} from '../../hand/pool/worklist/visible'
+import { type LeanPool, LOADING } from './pool'
 
 function scopeOf(pool: LeanPool) {
   const tables = pool.fenced
@@ -27,15 +48,23 @@ function scopeOf(pool: LeanPool) {
       if (target === null) continue
       forward.set(id, target)
       const members = groups.get(target) ?? new Set<string>()
-      members.add(id); groups.set(target, members)
+      members.add(id)
+      groups.set(target, members)
     }
     summaryGroups.set(`${relation.to}.${relation.inverse}`, groups)
     summaryForward.set(`${from}.${name}`, forward)
   }
   const relations: ViewInputs['relations'] = {
-    one: (from, id, name) => pool.relations.one(from, id, name) ?? summaryForward.get(`${from}.${name}`)?.get(id) ?? null,
-    many: (from, id, name) => new Set([...pool.relations.many(from, id, name), ...(summaryGroups.get(`${from}.${name}`)?.get(id) ?? [])]),
-    size: (from, id, name) => pool.relations.size(from, id, name) + (summaryGroups.get(`${from}.${name}`)?.get(id)?.size ?? 0),
+    one: (from, id, name) =>
+      pool.relations.one(from, id, name) ?? summaryForward.get(`${from}.${name}`)?.get(id) ?? null,
+    many: (from, id, name) =>
+      new Set([
+        ...pool.relations.many(from, id, name),
+        ...(summaryGroups.get(`${from}.${name}`)?.get(id) ?? []),
+      ]),
+    size: (from, id, name) =>
+      pool.relations.size(from, id, name) +
+      (summaryGroups.get(`${from}.${name}`)?.get(id)?.size ?? 0),
     subset: (from, id, name, subset) => pool.relations.subset(from, id, name, subset),
   }
   const issues = [...tables.issue.keys()].map((id) => ({ id }))
@@ -45,9 +74,13 @@ function scopeOf(pool: LeanPool) {
     issue: (id) => pool.row('issue', id, 'summary') as SliceIssue | undefined,
     session: (id) => pool.row('session', id, 'summary') as SliceSession | undefined,
     repo: (id) => pool.row('repo', id, 'summary') as RepoRow | undefined,
-    sessionActivity: (id) => sessionActivityOf(pool.row('session', id, 'summary') as SliceSession | undefined),
+    sessionActivity: (id) =>
+      sessionActivityOf(pool.row('session', id, 'summary') as SliceSession | undefined),
     present: (entity, id) => tables[entity].has(id),
-    loading: (entity, id) => { const value = pool.row(entity, id); return value === LOADING },
+    loading: (entity, id) => {
+      const value = pool.row(entity, id)
+      return value === LOADING
+    },
     parts: (id) => (pool.known('issue', id) ? directParts(inputs, id) : undefined),
     rollup: (id) => (pool.known('issue', id) ? rollupPartsOf(id).rollup : undefined),
     retainedSeats: (id) =>
@@ -97,24 +130,24 @@ function scopeOf(pool: LeanPool) {
   }
   function rollupPartsOf(id: string): RollupSelf {
     const parts = directVisibleParts(visible, id, memo)
-    return directRollupParts(
-      rollupInputs,
-      id,
-      rollupMemo,
-      {
-        present: parts.present,
-        finished: parts.standing?.finished,
-        rosterIds: retainedSeatIdsOf(visible, id, parts, true),
-        seatIds: parts.seatIds,
-      },
-    )
+    return directRollupParts(rollupInputs, id, rollupMemo, {
+      present: parts.present,
+      finished: parts.standing?.finished,
+      rosterIds: retainedSeatIdsOf(visible, id, parts, true),
+      seatIds: parts.seatIds,
+    })
   }
   const visible: VisibleInputs = {
     relations,
     resident: (entity, id) => tables[entity].has(id),
     issueRow: inputs.issue,
-    hidden: (id) => pool.residency.hidden('issue', id) ? pool.row('issue', id, 'summary') as HiddenIssue : undefined,
-    loadIssue: (id) => { pool.row('issue', id) },
+    hidden: (id) =>
+      pool.residency.hidden('issue', id)
+        ? (pool.row('issue', id, 'summary') as HiddenIssue)
+        : undefined,
+    loadIssue: (id) => {
+      pool.row('issue', id)
+    },
     sessionRow: inputs.session,
     issue: (id) => (pool.known('issue', id) ? directVisibleParts(visible, id, memo) : undefined),
     session: (id) => {
@@ -130,13 +163,21 @@ function scopeOf(pool: LeanPool) {
     own: (id) => directParts(inputs, id).own,
     passed: inputs.passed,
   }
-  return { inputs, visible, rollupPartsOf, visiblePartsOf: (id: string) => directVisibleParts(visible, id, memo) }
+  return {
+    inputs,
+    visible,
+    rollupPartsOf,
+    visiblePartsOf: (id: string) => directVisibleParts(visible, id, memo),
+  }
 }
 
 /** One filing derivation, with plain facts for whole-list consumers. */
 export function derive(pool: LeanPool): { order: readonly string[]; views: Map<string, RowView> } {
   const scope = scopeOf(pool)
-  const order = sortByRank([...pool.fenced.issue.keys()].filter((id) => scope.visiblePartsOf(id).visible), (id) => scope.visiblePartsOf(id).rank)
+  const order = sortByRank(
+    [...pool.fenced.issue.keys()].filter((id) => scope.visiblePartsOf(id).visible),
+    (id) => scope.visiblePartsOf(id).rank,
+  )
   const views = new Map<string, RowView>()
   for (const id of pool.mounted.keys()) {
     const view = buildRowView(scope.inputs, id, directParts(scope.inputs, id))
@@ -145,7 +186,10 @@ export function derive(pool: LeanPool): { order: readonly string[]; views: Map<s
   return { order, views }
 }
 
-function directNested(ids: Iterable<string>, partsOf: (id: string) => VisibleParts): ReadonlyMap<string, readonly string[]> {
+function directNested(
+  ids: Iterable<string>,
+  partsOf: (id: string) => VisibleParts,
+): ReadonlyMap<string, readonly string[]> {
   const nested = new Map<string, string[]>()
   for (const id of ids) {
     const parent = partsOf(id).nestParent

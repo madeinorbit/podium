@@ -1,9 +1,6 @@
 {
   "pool: all machinery": {
-    "handles": [
-      "pool",
-      "pool.*"
-    ],
+    "handles": ["pool", "pool.*"],
     "mobx": true,
     "scripts": "^(hand-pool|lean-pool)-"
   },
@@ -20,175 +17,61 @@
     "sites": "^Reaction pool\\.file\\."
   },
   "pool: relation engine and buckets": {
-    "handles": [
-      "pool.engine",
-      "pool.relations"
-    ]
+    "handles": ["pool.engine", "pool.relations"]
   },
   "pool: residency": {
-    "handles": [
-      "pool.residency"
-    ]
+    "handles": ["pool.residency"]
   },
   "pool: sidebar indexes and groups": {
-    "handles": [
-      "pool.sidebarRosters",
-      "pool.groups",
-      "pool.worklist",
-      "pool.sidebar"
-    ]
+    "handles": ["pool.sidebarRosters", "pool.groups", "pool.worklist", "pool.sidebar"]
   },
   "pool: read-state lane": {
-    "handles": [
-      "pool.readStates"
-    ]
+    "handles": ["pool.readStates"]
   },
   "pool: MobX debug names": {
     "sites": "^\\(MobX debug names\\)$"
   },
   "legacy store (published snapshot, engine state and base arrays, view-model cache)": {
-    "handles": [
-      "snapshot",
-      "snapshot.*",
-      "runtime.state",
-      "runtime.subStore",
-      "runtime.base*"
-    ],
-    "weakValuesOf": [
-      "replica"
-    ],
-    "contextVars": [
-      "lastMissionIndexIssues",
-      "lastMissionIndex"
-    ],
+    "handles": ["snapshot", "snapshot.*", "runtime.state", "runtime.subStore", "runtime.base*"],
+    "weakValuesOf": ["replica"],
+    "contextVars": ["lastMissionIndexIssues", "lastMissionIndex"],
     "props": [
-      [
-        "displayRef",
-        "sessionSummary",
-        "memberSessionIds"
-      ],
-      [
-        "displayRef",
-        "memberSessionIds",
-        "!title"
-      ],
-      [
-        "prefix",
-        "parentId",
-        "stage",
-        "!title"
-      ]
+      ["displayRef", "sessionSummary", "memberSessionIds"],
+      ["displayRef", "memberSessionIds", "!title"],
+      ["prefix", "parentId", "stage", "!title"]
     ]
   },
   "temporary old-record join (temporary-issue-input.ts)": {
-    "props": [
-      [
-        "sessionFacts",
-        "humanQuestionAskedBy",
-        "repoPath",
-        "readAt"
-      ]
-    ]
+    "props": [["sessionFacts", "humanQuestionAskedBy", "repoPath", "readAt"]]
   },
   "kernel replica and its cache": {
-    "handles": [
-      "replica",
-      "replica.*",
-      "cache",
-      "cache.*",
-      "runtime.replica"
-    ]
+    "handles": ["replica", "replica.*", "cache", "cache.*", "runtime.replica"]
   },
   "old issue record (POD-4949 retires it)": {
-    "props": [
-      [
-        "childDoneCount",
-        "unread",
-        "sessionSummary",
-        "!displayRef"
-      ]
-    ]
+    "props": [["childDoneCount", "unread", "sessionSummary", "!displayRef"]]
   },
   "end state A: legacy store removed": {
-    "handles": [
-      "snapshot",
-      "snapshot.*",
-      "runtime.state",
-      "runtime.subStore",
-      "runtime.base*"
-    ],
-    "weakValuesOf": [
-      "replica"
-    ],
-    "contextVars": [
-      "lastMissionIndexIssues",
-      "lastMissionIndex"
-    ],
+    "handles": ["snapshot", "snapshot.*", "runtime.state", "runtime.subStore", "runtime.base*"],
+    "weakValuesOf": ["replica"],
+    "contextVars": ["lastMissionIndexIssues", "lastMissionIndex"],
     "props": [
-      [
-        "displayRef",
-        "sessionSummary",
-        "memberSessionIds"
-      ],
-      [
-        "displayRef",
-        "memberSessionIds",
-        "!title"
-      ],
-      [
-        "prefix",
-        "parentId",
-        "stage",
-        "!title"
-      ]
+      ["displayRef", "sessionSummary", "memberSessionIds"],
+      ["displayRef", "memberSessionIds", "!title"],
+      ["prefix", "parentId", "stage", "!title"]
     ]
   },
   "end state B: legacy store, temporary join and old issue record removed (POD-4949)": {
-    "handles": [
-      "snapshot",
-      "snapshot.*",
-      "runtime.state",
-      "runtime.subStore",
-      "runtime.base*"
-    ],
+    "handles": ["snapshot", "snapshot.*", "runtime.state", "runtime.subStore", "runtime.base*"],
     "mobx": false,
     "props": [
-      [
-        "displayRef",
-        "sessionSummary",
-        "memberSessionIds"
-      ],
-      [
-        "displayRef",
-        "memberSessionIds",
-        "!title"
-      ],
-      [
-        "prefix",
-        "parentId",
-        "stage",
-        "!title"
-      ],
-      [
-        "sessionFacts",
-        "humanQuestionAskedBy",
-        "repoPath",
-        "readAt"
-      ],
-      [
-        "childDoneCount",
-        "unread",
-        "sessionSummary",
-        "!displayRef"
-      ]
+      ["displayRef", "sessionSummary", "memberSessionIds"],
+      ["displayRef", "memberSessionIds", "!title"],
+      ["prefix", "parentId", "stage", "!title"],
+      ["sessionFacts", "humanQuestionAskedBy", "repoPath", "readAt"],
+      ["childDoneCount", "unread", "sessionSummary", "!displayRef"]
     ],
-    "weakValuesOf": [
-      "replica"
-    ],
-    "contextVars": [
-      "lastMissionIndexIssues",
-      "lastMissionIndex"
-    ]
+    "weakValuesOf": ["replica"],
+    "contextVars": ["lastMissionIndexIssues", "lastMissionIndex"]
   },
   "prototype: pool and feed": {
     "handles": [
@@ -206,24 +89,13 @@
     "mobx": true
   },
   "prototype: plain tables": {
-    "handles": [
-      "pool.tables",
-      "pool.fenced"
-    ]
+    "handles": ["pool.tables", "pool.fenced"]
   },
   "prototype: resident relations": {
-    "handles": [
-      "pool.engine",
-      "pool.relations"
-    ]
+    "handles": ["pool.engine", "pool.relations"]
   },
   "prototype: feed adapter": {
-    "handles": [
-      "prototype.feed",
-      "prototype.feed.*",
-      "prototype.locals",
-      "prototype.locals.*"
-    ],
+    "handles": ["prototype.feed", "prototype.feed.*", "prototype.locals", "prototype.locals.*"],
     "scripts": "^prototype-feed-"
   }
 }
