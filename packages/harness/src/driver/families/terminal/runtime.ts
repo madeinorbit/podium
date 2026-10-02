@@ -1822,15 +1822,9 @@ export function createTerminalRuntime(
     queued: boolean,
   ): AcceptWaiter | undefined {
     const frameId = podiumFrameId(typed)
-    // Order is decided on the first entry (or queue record) after the start,
-    // whatever it turns out to be: mark it spent for every unwrapped send.
-    const deciding = after.filter(
-      (waiter) => !waiter.frameId && !(queued ? waiter.queueSpent : waiter.orderSpent),
-    )
-    for (const waiter of deciding) {
-      if (queued) waiter.queueSpent = true
-      else waiter.orderSpent = true
-    }
+    // A framed entry (or queue record) is provably another Podium send's, even
+    // when no open watch carries its id: it must not spend an unwrapped
+    // watch's order. Foreign/unknown entries still spend below.
     if (frameId)
       return after.find((waiter) => waiter.frameId === frameId && !(queued && waiter.held))
     const matches = correlation.textMatches
@@ -1846,8 +1840,21 @@ export function createTerminalRuntime(
         writes.count(sessionId) === mark
       )
     }
+    // Order is decided on the first entry (or queue record) after the start
+    // that is not provably another send's. An entry uniquely credited to
+    // another open watch leaves every other unwrapped watch unspent.
+    const deciding = after.filter(
+      (waiter) => !waiter.frameId && !(queued ? waiter.queueSpent : waiter.orderSpent),
+    )
+    const spend = (): void => {
+      for (const waiter of deciding) {
+        if (queued) waiter.queueSpent = true
+        else waiter.orderSpent = true
+      }
+    }
     const [candidate] = deciding.filter((waiter) => matches(waiter.text, typed))
     if (!candidate) {
+      spend()
       // THE SELF-CHECK (spec §6.3): nothing else was written, yet the entry
       // is not the words typed — a prompt entry the counter did not explain.
       if (!queued && deciding.some(unchanged)) {
@@ -1858,24 +1865,28 @@ export function createTerminalRuntime(
       }
       return undefined
     }
-    if (queued && candidate.held) return undefined
+    if (queued && candidate.held) {
+      spend()
+      return undefined
+    }
     // NEVER GUESS: another open send with the same words could be this entry.
     const twin = [...session.echoWaiters].some(
       (waiter) => waiter !== candidate && !waiter.frameId && matches(waiter.text, typed),
     )
-    if (!twin) {
-      if (!unchanged(candidate)) log.debug('order credit with foreign-write diagnostics', {
-        sessionId, typingMark: candidate.typingMark(), count: host.foreignWrites?.count(sessionId),
-        orderTrustworthy: host.foreignWrites?.orderTrustworthy(sessionId),
+    if (twin) {
+      spend()
+      log.warn('order credit withheld', {
+        sessionId,
+        reason: 'another open send has the same text',
+        queued,
       })
-      return candidate
+      return undefined
     }
-    log.warn('order credit withheld', {
-      sessionId,
-      reason: 'another open send has the same text',
-      queued,
+    if (!unchanged(candidate)) log.debug('order credit with foreign-write diagnostics', {
+      sessionId, typingMark: candidate.typingMark(), count: host.foreignWrites?.count(sessionId),
+      orderTrustworthy: host.foreignWrites?.orderTrustworthy(sessionId),
     })
-    return undefined
+    return candidate
   }
 
   function removeProofWatch(session: DriverSession, turnId: string): void {
