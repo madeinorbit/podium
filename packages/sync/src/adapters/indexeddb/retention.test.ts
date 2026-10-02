@@ -51,12 +51,10 @@ describe('IndexedDB optional entity retention', () => {
         .viewFor(principal)
         .cache.installSnapshot([row('issue'), row('issueProjection'), row('future')], cursor(9), [])
     }
-    await old
-      .viewFor('alice')
-      .outbox.apply({
-        put: [queued],
-        expect: [{ mutationId: queued.mutationId, expect: 'absent' }],
-      })
+    await old.viewFor('alice').outbox.apply({
+      put: [queued],
+      expect: [{ mutationId: queued.mutationId, expect: 'absent' }],
+    })
     await old.settled()
     old.close()
     const before = await readDurable(factory)

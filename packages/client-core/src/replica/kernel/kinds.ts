@@ -17,7 +17,7 @@
  * "not mine" — never "corrupt".
  */
 
-import { issueUserStateRowId, sessionUserStateRowId, layoutRowId } from '@podium/model'
+import { issueUserStateRowId, layoutRowId, sessionUserStateRowId } from '@podium/model'
 import type { ReplicaKind, ReplicaRows } from '../contract'
 
 /** Kernel entity name → engine collection kind. */
@@ -66,12 +66,12 @@ const KIND_TO_ENTITY = Object.fromEntries(
   Object.entries(ENTITY_TO_KIND).map(([entity, kind]) => [kind, entity]),
 ) as Record<ReplicaKind, KernelEntity>
 
-/** `undefined` for an entity this read model does not render (D4 leniency). */
 /** The compatibility record still travels on the feed; web no longer retains it. */
 export function retainReplicaEntity(entity: string, dropLegacyIssues = false): boolean {
   return !dropLegacyIssues || entity !== 'issue'
 }
 
+/** `undefined` for an entity this read model does not render (D4 leniency). */
 export function kindForEntity(entity: string, dropLegacyIssues = false): ReplicaKind | undefined {
   if (!retainReplicaEntity(entity, dropLegacyIssues)) return undefined
   return (ENTITY_TO_KIND as Record<string, ReplicaKind | undefined>)[entity]

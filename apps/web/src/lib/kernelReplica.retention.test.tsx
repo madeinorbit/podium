@@ -1,15 +1,15 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { allIssueViewModels, type IssueViewModel } from '@podium/client-core/replica'
 import { asUserId, ISSUE_STAGES, IssueWire, issueUserStateRowId } from '@podium/model/browser'
-import { IDBFactory } from 'fake-indexeddb'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { cleanup, render } from '@testing-library/react'
+import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueListView } from '@/features/issues/IssueListView'
 import { IssuesKanban } from '@/features/issues/IssuesKanban'
 import { DEFAULT_DISPLAY } from '@/features/issues/issues-display'
 import { normalizedFixtureStore } from '@/test-support/normalized-issues'
-import { openKernelAssembly, type KernelAssembly } from './kernelReplica'
+import { type KernelAssembly, openKernelAssembly } from './kernelReplica'
 import { makeIssue } from './test-issue'
 
 const principal = JSON.stringify(['installation-a', 'alice'])

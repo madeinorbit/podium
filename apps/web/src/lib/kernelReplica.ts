@@ -31,8 +31,8 @@ import {
   createKernelReplica,
   createSideCache,
   FeedSink,
-  preparePrincipalNamespace,
   parseReplicaNamespaceKey,
+  preparePrincipalNamespace,
   retainReplicaEntity,
 } from '@podium/client-core/replica'
 import type { FeedServerFrame, FeedSinkPort } from '@podium/client-core/socket-transport'

@@ -65,13 +65,13 @@ import type {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
-  SessionUserStateWire,
-  MachineProjection,
   IssueWire,
   LayoutWire,
+  MachineProjection,
   MessageRecordWire,
   RepoProjection,
   SessionMeta,
+  SessionUserStateWire,
   ShipLaneProjection,
   ShipOrderProjection,
   TranscriptItem,
@@ -223,7 +223,10 @@ export interface UiState {
  * an empty scope; an absent row may still carry a changed exit record. */
 export type ReplicaAddressedBatch =
   | { readonly type: 'replace'; readonly reason: 'bootstrap' | 'rescope' }
-  | { readonly type: 'update'; readonly rows: readonly { readonly kind: ReplicaKind; readonly id: string }[] }
+  | {
+      readonly type: 'update'
+      readonly rows: readonly { readonly kind: ReplicaKind; readonly id: string }[]
+    }
 
 export interface Replica {
   /** Web drops the compatibility issue kind. Omitted/false keeps it for mobile. */

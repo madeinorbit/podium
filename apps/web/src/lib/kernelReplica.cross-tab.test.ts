@@ -1,8 +1,6 @@
-import { IssueProjection, actorUser } from '@podium/model'
-import { makeIssue } from './test-issue'
-import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
-import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
+import { actorUser, asUserId, IssueProjection } from '@podium/model'
+import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -11,6 +9,7 @@ import {
   type KernelBroadcastChannel,
   openKernelAssembly,
 } from './kernelReplica'
+import { makeIssue } from './test-issue'
 
 const trpc = {} as unknown as Parameters<typeof openKernelAssembly>[0]['trpc']
 

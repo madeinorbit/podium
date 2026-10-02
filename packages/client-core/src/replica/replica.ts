@@ -64,20 +64,20 @@ import {
   type IssueGitStateProjection,
   type IssueProjection,
   type IssueUserStateWire,
-  type SessionUserStateWire,
-  type MachineProjection,
-  sessionUserStateRowId,
   type IssueWire,
   interactionRowId,
   issueUserStateRowId,
   type LayoutWire,
   layoutRowId,
+  type MachineProjection,
   type MessageRecordWire,
   messageRecordRowId,
   type RepoProjection,
   type SessionMeta,
+  type SessionUserStateWire,
   type ShipLaneProjection,
   type ShipOrderProjection,
+  sessionUserStateRowId,
   type TranscriptItem,
 } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
@@ -471,13 +471,15 @@ class TanstackReplica implements Replica {
       // Never open the old blob/SQLite table when dropping this kind. Hydrating
       // then clearing would retain it at boot and would adopt old cache rows.
       issues: this.dropLegacyIssues
-        ? createCollection(localStorageCollectionOptions<IssueWire, string>({
-            id: `${prefix}.issues#${this.nonce}`,
-            storageKey: `${prefix}.issues.dropped`,
-            storage: memoryStorage(),
-            storageEventApi: NOOP_STORAGE_EVENTS,
-            getKey: (i) => i.id,
-          }))
+        ? createCollection(
+            localStorageCollectionOptions<IssueWire, string>({
+              id: `${prefix}.issues#${this.nonce}`,
+              storageKey: `${prefix}.issues.dropped`,
+              storage: memoryStorage(),
+              storageEventApi: NOOP_STORAGE_EVENTS,
+              getKey: (i) => i.id,
+            }),
+          )
         : this.makeCollection<IssueWire>('issues', (i) => i.id, guarded, guardedEvents),
       sessionUserStates: this.makeCollection<SessionUserStateWire>(
         'sessionUserStates',
@@ -536,7 +538,11 @@ class TanstackReplica implements Replica {
       messageRecords: this.makeCollection<MessageRecordWire>(
         'messageRecords',
         (r) =>
-          messageRecordRowId({ sessionId: r.sessionId, senderUserId: r.senderUserId, messageId: r.id }),
+          messageRecordRowId({
+            sessionId: r.sessionId,
+            senderUserId: r.senderUserId,
+            messageId: r.id,
+          }),
         guarded,
         guardedEvents,
       ),
@@ -675,8 +681,7 @@ class TanstackReplica implements Replica {
         issueDeps: this.cols.issueDeps.toArray as IssueDepProjection[],
         repos: this.cols.repos.toArray as RepoProjection[],
         issueEvents: this.cols.issueEvents.toArray as IssueEventWire[],
-        pendingInteractions: this.cols.pendingInteractions
-          .toArray as PendingInteractionWire[],
+        pendingInteractions: this.cols.pendingInteractions.toArray as PendingInteractionWire[],
         messageRecords: this.cols.messageRecords.toArray as MessageRecordWire[],
         shipOrders: this.cols.shipOrders.toArray as ShipOrderProjection[],
         shipLanes: this.cols.shipLanes.toArray as ShipLaneProjection[],

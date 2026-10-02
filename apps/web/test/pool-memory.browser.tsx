@@ -9,11 +9,11 @@ import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle, useStoreSelector } from '@podium/client-core/react'
 import {
+  allIssueViewModels,
   createKernelReplica,
   createSideCache,
   replicaNamespaceKey,
   retainReplicaEntity,
-  allIssueViewModels,
 } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import { asUserId } from '@podium/model/browser'

@@ -1,8 +1,8 @@
 import {
   createKernelReplica,
   createSideCache,
-  memoryStorage,
   type KernelCacheRead,
+  memoryStorage,
   retainReplicaEntity,
 } from '@podium/client-core/replica'
 import type { EntityRecord } from '@podium/sync/replica'

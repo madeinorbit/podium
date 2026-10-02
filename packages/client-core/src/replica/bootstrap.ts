@@ -43,12 +43,12 @@
  * is a frozen UI rather than a missed watchdog. Same rule, different loop.
  */
 
-import { sessionUserStateRowId, type SessionUserStateWire, type SessionId } from '@podium/model'
+import { type SessionId, type SessionUserStateWire, sessionUserStateRowId } from '@podium/model'
 import type { MetadataChangeLenient } from '@podium/protocol'
 import { isKnownMetadataChange } from '@podium/protocol'
 import type { FeedCursor } from './feed'
-import type { Replica, ReplicaKind, ReplicaRows } from './replica'
 import { retainReplicaEntity } from './kernel/kinds'
+import type { Replica, ReplicaKind, ReplicaRows } from './replica'
 
 /** Wire entity kind → replica collection kind. The feed says `session`, the
  *  replica says `sessions`; this is the only place the two vocabularies meet. */
@@ -110,9 +110,7 @@ export class BootstrapSession {
   /** Staged rows per kind. The replica is not touched until commit. */
   // An absent lane in an empty or older snapshot removes cached lane authority
   // at commit, so a rescope can return to the order's compatibility rank.
-  private readonly staged = new Map<ReplicaKind, Map<string, unknown>>([
-    ['shipLanes', new Map()],
-  ])
+  private readonly staged = new Map<ReplicaKind, Map<string, unknown>>([['shipLanes', new Map()]])
   /** Deltas that landed with `seq > snapshotSeq` while we streamed. */
   private readonly buffered: MetadataChangeLenient[] = []
   private bufferedSeq = 0
