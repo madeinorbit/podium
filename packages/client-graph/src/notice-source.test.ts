@@ -109,7 +109,9 @@ it('preserves outbox order across message updates and never reads recovery targe
     f.outbox([...f.data.deadLetters].reverse())
     await Promise.resolve()
     f.updateMessages(f.data.messages.map(row => ({ ...row, body: `${row.body}!` })))
+    const read = vi.spyOn(f.pool, 'row')
     expect(noticeRecovery(f.pool).deadLetters).toEqual([...f.data.deadLetters].reverse())
+    expect(read.mock.calls.every(([entity]) => entity === 'noticeCatalog' || entity === 'outboxDeadLetter')).toBe(true)
     expect(f.check().differences).toBe(0)
     expect(f.rows.mock.calls.every(([kind]) => kind === 'messageRecords' || kind === 'pendingInteractions')).toBe(true)
   } finally { f.pool.dispose() }
