@@ -154,7 +154,9 @@ describe('terminal receipt operator regressions', () => {
     const sentA = w.handle.send({ id: idA, text: framedA }, { origin: 'mail', delivery: 'when-ready' })
     const sentB = w.handle.send({ id: idB, text: framedB }, { origin: 'mail', delivery: 'when-ready' })
     const ours = w.handle.send({ id: 'msg_d0117333', text: words }, { origin: 'human', delivery: 'when-ready' })
+    console.log('TEST5294: sends armed')
     await vi.advanceTimersByTimeAsync(300)
+    console.log('TEST5294: after 300ms writes=', JSON.stringify(w.writes.filter((b) => b === '\r').length), 'total=', w.writes.length)
     expect(w.writes.filter((bytes) => bytes === '\r')).toHaveLength(3)
     // Claude was busy: all three prompts are recorded together after our typing
     // started, framed first, ours last verbatim. (Queue records covered below.)
