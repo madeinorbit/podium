@@ -32,6 +32,7 @@ import { FlightDeck } from '../src/app/FlightDeck'
 import { OperatorFocusProvider } from '../src/app/operator-focus'
 import { RightDock } from '../src/app/RightDock'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
+import { initializePoolScreens } from '../src/app/pool-screens'
 import { Workspace } from '../src/app/Workspace'
 import { TooltipProvider } from '../src/components/ui/tooltip'
 import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
@@ -297,6 +298,7 @@ async function show(name = 'acceptance-alice', rebuild = false) {
         onFatalError={(message) => errors.push(message)}
         attachRuntime={(runtime) => {
           instrumentRuntime(runtime)
+          initializePoolScreens(runtime.ui)
           return attachWorklistPool(runtime, (error) => errors.push(error.message))
         }}
       >
