@@ -22,7 +22,7 @@ Baseline file-and-line evidence is the seven-module [parent inventory](POD-5082-
 
 Validation uses the private `~/podium-test-5163` checkout, its copied checkout-local `.toolchain`, pinned Bun 1.4.2 and a frozen checkout-local dependency graph. Commands run sequentially and select exact files. No whole suite runs, and operator records never move to flatblock.
 
-The independent UI selection is green: **18 tests** across six files (nine web, nine mobile). Enabled UI tests verify dismiss, answer, discard, retry and edited-send payloads using the same owner; legacy selectors throw on the enabled arm. A positive fallback check establishes that the selector and derivation counters detect real legacy work. The startup check covers default OFF, the explicit override, diagnostic opt-in and the once-only latch.
+The independent UI selection is green: **18 tests** across five files (nine web, nine mobile). Enabled UI tests verify dismiss, answer, discard, retry and edited-send payloads using the same owner; legacy selectors throw on the enabled arm. A positive fallback check establishes that the selector and derivation counters detect real legacy work. The startup check covers default OFF, the explicit override, diagnostic opt-in and the once-only latch.
 
 Three planted UI controls each exit nonzero: remove the startup latch, force the legacy message arm, and drop the legacy counter write. Every planted edit is restored, with clean tracked files afterward. Logs are attached to the issue as `ui-evidence`.
 
