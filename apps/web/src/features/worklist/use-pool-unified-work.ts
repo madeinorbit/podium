@@ -3,6 +3,7 @@ import { beginSwitch } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import { pickPaneSession } from '@podium/client-core/viewmodels'
 import { LOADING, type MobxPool } from '@podium/client-graph'
+import { missions } from '@podium/client-graph/mission'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import {
   asIssueId,
@@ -94,48 +95,6 @@ function sessionMembership(pool: MobxPool, retainedOnly = false): Map<string, Se
   return byIssue
 }
 
-function missionMembers(
-  pool: MobxPool,
-  rootId: string,
-  sessions: Map<string, SessionView[]>,
-): Map<string, SliceIssue> {
-  const members = new Map<string, SliceIssue>()
-  const pending = [rootId]
-  const seen = new Set<string>()
-  while (pending.length > 0) {
-    const id = pending.pop()!
-    if (seen.has(id)) continue
-    seen.add(id)
-    const issue = pool.row('issue', id)
-    if (issue === undefined || issue === LOADING) continue
-    members.set(id, issue as SliceIssue)
-    // The filtered formal edge excludes archived/deleted children, matching
-    // missionParentId. Provenance does not recursively admit formal children.
-    pending.push(...pool.graph.many('issue', id, 'children'))
-  }
-  const filed = [...members.keys()]
-  for (let index = 0; index < filed.length; index += 1) {
-    // Provenance also follows archived/headless senders. The visible-seat
-    // relation excludes headless sessions, so use gesture-local membership.
-    for (const session of sessions.get(filed[index]!) ?? []) {
-      for (const id of pool.graph.many('session', session.sessionId, 'startedIssues')) {
-        if (members.has(id)) continue
-        const issue = pool.row('issue', id)
-        if (issue === undefined || issue === LOADING) continue
-        const candidate = issue as SliceIssue
-        const departed =
-          candidate.stage !== 'proposed' &&
-          candidate.stage !== 'backlog' &&
-          candidate.deps?.some((dep) => dep.type === 'discovered-from') === true
-        if (departed) continue
-        members.set(id, candidate)
-        filed.push(id)
-      }
-    }
-  }
-  return members
-}
-
 /** Pool reads are gesture-local. Writes and batching remain the app's actions. */
 export function createPoolWorkActions(
   pool: MobxPool,
@@ -154,30 +113,20 @@ export function createPoolWorkActions(
   const selectIssue = (id: string, paneSession?: SessionId): void => {
     const clicked = pool.sidebar.row(id)
     if (clicked === undefined || clicked === LOADING) return
-    let root: SliceIssue = clicked.issue
-    const seen = new Set<string>()
-    while (root.parentId && !seen.has(root.id)) {
-      seen.add(root.id)
-      // Archived/deleted ancestors can be cold by design. Their retained
-      // summary ends the legacy root walk without requesting a hidden row.
-      const hidden = pool.hidden('issue', root.parentId)
-      if (hidden?.archived || hidden?.deletedAt) break
-      const parent = pool.row('issue', root.parentId) as SliceIssue | typeof LOADING | undefined
-      if (parent === LOADING) return
-      if (parent === undefined || parent.archived || parent.deletedAt) break
-      root = parent
-    }
+    const mission = missions(pool)
+    const rootId = mission.rootFor(id)
+    if (rootId === undefined || rootId === LOADING) return
+    const issueIds = mission.members(rootId)
+    if (issueIds === LOADING) return
     const store = runtime.getSnapshot()
     const members = new Map<string, SessionView>()
     // R2 already applies resume collapse. Headless provenance remains raw;
     // it never participates in collapse or supplies a workspace pane.
     const sessions = sessionMembership(pool, true)
-    const mission = missionMembers(pool, root.id, sessions)
     // The legacy candidate order is the slice order, including tie-breaking
     // on lastActiveAt. Walk resident keys, reading only this mission's rows.
     for (const member of pool.tables.issue.keys()) {
-      const issue = mission.get(member)
-      if (!issue) continue
+      if (!issueIds.has(member)) continue
       // The app's issue membership summary comes from session.issueId and
       // excludes dock shells. Cwd-only seats can draw a row but do not become
       // workspace pane candidates for an issue.
@@ -193,7 +142,7 @@ export function createPoolWorkActions(
     trace(target, asIssueId(id))
     batch(() => {
       const changed = store.navigateWorkspace({
-        selectedIssueId: asIssueId(root.id),
+        selectedIssueId: asIssueId(rootId),
         ...(clicked.issue.worktreePath ? { selectedWorktree: clicked.issue.worktreePath } : {}),
         tabId: target,
         firstPane: true,

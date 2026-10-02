@@ -858,6 +858,26 @@ const DECLARED = defineSchema({
         lazy: true,
         why: "The session that started this issue: the nest fallback for a parentless issue that is not a spin-off (nestStartedByIssues, rows.ts:288-305).",
       }),
+      missionStartedBy: belongsTo({
+        to: 'session',
+        foreignKey: 'startedBySession',
+        targetKey: 'sessionId',
+        inverse: 'missionStartedIssues',
+        lazy: true,
+        why: 'Mission provenance, including archived/deleted candidates, while they have not left the originating mission.',
+        where: {
+          fields: ['stage', 'deps'],
+          test: row => row['stage'] === 'proposed' || row['stage'] === 'backlog' ||
+            (row['deps'] as readonly { id: string; type: string }[] | undefined)?.find(dep => dep.type === 'discovered-from')?.id == null,
+          why: 'missionIssueIds / hasLeftMission: a started spin-off departs even when its origin row is absent.',
+        },
+      }),
+      missionSessions: hasMany({
+        to: 'session',
+        inverse: 'missionIssue',
+        lazy: true,
+        why: 'Every explicit mission sender, including headless and archived sessions; never cwd-only seats.',
+      }),
       sessions: hasMany({
         to: 'session',
         inverse: 'issue',
@@ -1016,6 +1036,20 @@ const DECLARED = defineSchema({
         inverse: 'startedBy',
         lazy: true,
         why: "The issues this session started: a present issue finds the ones its sessions started, nested under it by the started-by fallback.",
+      }),
+      missionStartedIssues: hasMany({
+        to: 'issue',
+        inverse: 'missionStartedBy',
+        lazy: true,
+        why: 'Eligible mission provenance candidates, maintained from the declared starter edge.',
+      }),
+      missionIssue: belongsTo({
+        to: 'issue',
+        foreignKey: 'issueId',
+        targetKey: 'id',
+        inverse: 'missionSessions',
+        lazy: true,
+        why: 'missionSessionIndex uses explicit issueId ownership, including headless and archived sessions.',
       }),
       issue: belongsTo({
         to: 'issue',
