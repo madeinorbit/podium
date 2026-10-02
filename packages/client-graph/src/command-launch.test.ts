@@ -11,7 +11,7 @@ import { checkCommandLaunch, compareCommandLaunchSnapshots, legacyCommandLaunchS
 import { LOADING } from './worklist/rollup'
 import { startScenarioEngine, writeHeartbeat, writePhaseChange, writeSelectionClick, writeTitleRename, writeStageMove,
   writeNewIssue, writeArchiveIssue, writeEvictIssue, writeParentReassignment, writeClockTick, writeBurst50,
-  writeRescopeGrow, writeRescopeBack } from '../../worklist-proto/shared/src/scenarios'
+  writeRescopeGrow, writeRescopeBack, upsert } from '../../worklist-proto/shared/src/scenarios'
 
 afterEach(() => { vi.useRealTimers(); storeStats.enable(false); storeStats.reset() })
 async function fixture() {
@@ -83,6 +83,15 @@ describe('declared command and launch targets', () => {
       expect(f.source.counts.sessionChanges).toBeGreaterThan(before.sessionChanges)
       expect(f.pool.row('commandWindow', 'window')).toBe(window)
       f.parity('heartbeat relations')
+      const id = f.ctx.targets.phaseSessionId, row = f.ctx.cache.read('session', id)!.value as { issueId: string }
+      expect(f.pool.resident('session', id)).toBe(true)
+      expect(f.pool.sources.related('commandIssue', row.issueId, 'sessions')).toContain(id)
+      const nextIssueId = 'command-relation-next'
+      upsert(f.ctx, 'session', id, { ...row, issueId: nextIssueId })
+      await new Promise(resolve => setTimeout(resolve, f.ctx.settleMs))
+      expect(f.pool.sources.related('commandIssue', row.issueId, 'sessions')).not.toContain(id)
+      expect(f.pool.sources.related('commandIssue', nextIssueId, 'sessions')).toContain(id)
+      f.parity('addressed session relation move')
     } finally { f.close() }
   }, 120_000)
 
