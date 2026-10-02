@@ -329,7 +329,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
   }
 
   function project<K extends ReplicaKind>(kind: K): ReplicaRows[K][] {
-    if (dropLegacyIssues && kind === 'issues') return EMPTY as ReplicaRows[K][]
+    if (dropLegacyIssues && kind === 'issues') return EMPTY as unknown as ReplicaRows[K][]
     let state = projected.get(kind)
     if (state === undefined) {
       buildMissingProjections()

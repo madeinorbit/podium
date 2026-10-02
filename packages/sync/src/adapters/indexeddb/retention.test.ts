@@ -51,7 +51,7 @@ describe('IndexedDB optional entity retention', () => {
         .viewFor(principal)
         .cache.installSnapshot([row('issue'), row('issueProjection'), row('future')], cursor(9), [])
     }
-    await old.viewFor('alice').outbox.apply({ put: [queued] })
+    await old.viewFor('alice').outbox.apply({ put: [queued], expect: [] })
     await old.settled()
     old.close()
     const before = await readDurable(factory)
@@ -77,7 +77,7 @@ describe('IndexedDB optional entity retention', () => {
     expect(degraded).toEqual([])
     const after = await readDurable(factory)
     expect(after[ENTITY_STORE]).toEqual(
-      before[ENTITY_STORE].filter((r) => (r as EntityRecord).entity !== 'issue'),
+      before[ENTITY_STORE]!.filter((r) => (r as EntityRecord).entity !== 'issue'),
     )
     expect(after[META_STORE]).toEqual(before[META_STORE])
     expect(after[OUTBOX_STORE]).toEqual(before[OUTBOX_STORE])
@@ -122,7 +122,7 @@ describe('IndexedDB optional entity retention', () => {
     ).toEqual(['future', 'issueProjection'])
     expect(cache.readCursor()).toEqual(cursor(7))
     expect(
-      (await readDurable(factory))[ENTITY_STORE].some(
+      (await readDurable(factory))[ENTITY_STORE]!.some(
         (r) => (r as EntityRecord).entity === 'issue',
       ),
     ).toBe(false)
@@ -142,7 +142,7 @@ describe('IndexedDB optional entity retention', () => {
     const bob = store.viewFor('bob')
     alice.cache.installSnapshot([row('issueProjection')], cursor(1), [])
     bob.cache.installSnapshot([row('issueProjection')], cursor(1), [])
-    await alice.outbox.apply({ put: [queued] })
+    await alice.outbox.apply({ put: [queued], expect: [] })
     const events: unknown[] = []
     const replica = new Replica({
       store: alice.cache,

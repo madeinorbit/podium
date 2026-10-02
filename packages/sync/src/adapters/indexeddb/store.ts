@@ -503,17 +503,6 @@ export class IndexedDbSyncStore {
     const outbox = (await requestAsPromise(
       tx.objectStore(OUTBOX_STORE).getAll(),
     )) as StoredOutboxRecord[]
-    // Old caches remain readable without a schema reset. Retire excluded cache
-    // rows before opening the mirror, so sign-out also leaves no hidden rows.
-    const excluded = entities.filter((row) => !this.retainsEntity(row.entity))
-    if (excluded.length > 0) {
-      const retire = this.db.transaction([ENTITY_STORE], 'readwrite')
-      const completion = transactionCompletion(retire)
-      for (const row of excluded) {
-        retire.objectStore(ENTITY_STORE).delete([row.principal, row.entity, row.entityId])
-      }
-      await completion
-    }
     this.adoptOutboxRows(outbox)
   }
 
@@ -797,6 +786,17 @@ export class IndexedDbSyncStore {
     const outbox = (await requestAsPromise(
       tx.objectStore(OUTBOX_STORE).getAll(),
     )) as StoredOutboxRecord[]
+    // Old caches remain readable without a schema reset. Retire excluded cache
+    // rows before opening the mirror, so sign-out also leaves no hidden rows.
+    const excluded = entities.filter((row) => !this.retainsEntity(row.entity))
+    if (excluded.length > 0) {
+      const retire = this.db.transaction([ENTITY_STORE], 'readwrite')
+      const completion = transactionCompletion(retire)
+      for (const row of excluded) {
+        retire.objectStore(ENTITY_STORE).delete([row.principal, row.entity, row.entityId])
+      }
+      await completion
+    }
     this.entities.clear()
     this.cursors.clear()
     this.outboxRows.clear()

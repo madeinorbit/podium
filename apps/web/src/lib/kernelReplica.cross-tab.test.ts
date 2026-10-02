@@ -1,4 +1,4 @@
-import { IssueProjection } from '@podium/model/browser'
+import { IssueProjection } from '@podium/model'
 import { makeIssue } from './test-issue'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { asUserId } from '@podium/model'
