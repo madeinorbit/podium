@@ -1,3 +1,4 @@
+import { createSessionPaneReader } from './session-pane'
 import { SettingsSource, type SettingsOwner } from './settings-source'
 import { isSettingsEntity, SETTINGS_SCHEMA, SETUP_SESSION_SUMMARY_FIELDS, setupSessionSummary, type SetupSession } from './settings-schema'
 import { createSettingsViews } from './settings-views'
@@ -216,6 +217,7 @@ export class MobxPool {
   readonly sidebarRosters: SidebarRosterIndex
   private preferenceSource: PreferenceSource | undefined
   readonly sources = new PoolSources()
+  readonly sessionPanes = createSessionPaneReader(this)
   private settingsSequence = 0
   private readonly settingsEnabled: boolean
   readonly settingsViews = createSettingsViews(this)

@@ -117,6 +117,8 @@ function LifecycleButton({
  * A missing worktree is rebuilt from the branch on resume, so it is not a fact
  * this surface needs.
  */
+// AgentPanel supplies these facts from its latched session reader (pool or
+// legacy). Recovery stays presentation-only; mutations keep the store owner.
 type ExitedProps = Pick<
   SessionView,
   'sessionId' | 'exitCode' | 'spawnFailure' | 'resumable' | 'neverBound'

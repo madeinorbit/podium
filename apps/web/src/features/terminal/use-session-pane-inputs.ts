@@ -6,8 +6,6 @@ import { useCallback } from 'react'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { MobxPool } from '@podium/client-graph'
-import { paneSession, paneMachines, paneWindow, paneHasSessions, paneSpawnConfirmed, paneStampIssue, paneIssueColor } from '@podium/client-graph/session-pane'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { sessionPaneDataLayer } from './session-pane-data-layer'
 import { effectiveIssueColorHex, issueColorHex } from '@/lib/issueColors'
 import type { SessionPaneRows } from '@podium/client-graph/session-pane-schema'
@@ -18,10 +16,7 @@ function useLegacyPaneSession(id: SessionId | undefined): SessionView | undefine
   return useStoreSelector(s => legacySessionPaneRead(s.replica ?? s, 'session', () => id === undefined ? undefined : sessionById(s.sessions).get(id)))
 }
 function usePoolPaneSession(id: SessionId | undefined): SessionView | undefined {
-  const read = useCallback((pool: MobxPool) => {
-    const row = paneSession(pool, id)
-    return row === LOADING ? undefined : row
-  }, [id])
+  const read = useCallback((pool: MobxPool) => pool.sessionPanes.session(id), [id])
   return useWorklistPoolProjection(read, undefined)
 }
 /** The choice is latched once before mounting any screen. Neither branch
@@ -33,26 +28,25 @@ export function usePaneSession(id: SessionId | undefined): SessionView | undefin
 function useLegacyPaneMachines(): MachineWire[] {
   return useStoreSelector(s => legacySessionPaneRead(s.replica ?? s, 'machines', () => s.machines))
 }
-function usePoolPaneMachines(): MachineWire[] { return useWorklistPoolProjection(paneMachines, EMPTY_MACHINES) }
+const machinesRead = (pool: MobxPool) => pool.sessionPanes.machines()
+function usePoolPaneMachines(): MachineWire[] { return useWorklistPoolProjection(machinesRead, EMPTY_MACHINES) }
 export function usePaneMachines(): MachineWire[] {
   const useRead = sessionPaneDataLayer() === 'pool' ? usePoolPaneMachines : useLegacyPaneMachines
   return useRead()
 }
 function windowRead(pool: MobxPool) {
-  const value = paneWindow(pool)
-  return !value || value === LOADING ? EMPTY_WINDOW : value
+  return pool.sessionPanes.window()
 }
 export function usePoolPaneWindow() { return useWorklistPoolProjection(windowRead, EMPTY_WINDOW) }
 function useLegacySpawnConfirmed(id: SessionId) { return useStoreSelector(s => legacySessionPaneRead(s.replica ?? s, 'spawn', () => !s.pendingSpawnIds.has(id))) }
 function usePoolSpawnConfirmed(id: SessionId) {
-  const read = useCallback((pool: MobxPool) => paneSpawnConfirmed(pool, id), [id])
+  const read = useCallback((pool: MobxPool) => pool.sessionPanes.spawnConfirmed(id), [id])
   return useWorklistPoolProjection(read, false)
 }
 export function usePaneSpawnConfirmed(id: SessionId) {
   const useRead = sessionPaneDataLayer() === 'pool' ? usePoolSpawnConfirmed : useLegacySpawnConfirmed
   return useRead(id)
 }
-export function usePoolPaneHasSessions() { return useWorklistPoolProjection(paneHasSessions, false) }
 
 function useLegacyPanePanelModes() {
   return useStoreSelector(s => legacySessionPaneRead(s.replica ?? s, 'panelMode', () => s.panelMode))
@@ -72,16 +66,7 @@ function useLegacyDockInputs(cwd: string, pending: string | null) {
   })), (a, b) => a.mapped === b.mapped && a.session === b.session && a.pendingPresent === b.pendingPresent && a.hasSessions === b.hasSessions && a.reposLoaded === b.reposLoaded)
 }
 function usePoolDockInputs(cwd: string, pending: string | null) {
-  const read = useCallback((pool: MobxPool) => {
-    const window = windowRead(pool)
-    const mapped = window.dockShells[cwd]
-    const session = paneSession(pool, mapped)
-    const pendingRow = paneSession(pool, pending ?? undefined)
-    return { mapped, session: session === LOADING ? undefined : session,
-      pendingPresent: !!pendingRow && pendingRow !== LOADING,
-      hasSessions: paneHasSessions(pool), reposLoaded: window.reposLoaded,
-      loading: session === LOADING }
-  }, [cwd, pending])
+  const read = useCallback((pool: MobxPool) => pool.sessionPanes.dock(cwd, pending), [cwd, pending])
   return useWorklistPoolProjection(read, { mapped: undefined, session: undefined, pendingPresent: false, hasSessions: false, reposLoaded: false, loading: true })
 }
 export function useDockPaneInputs(cwd: string, pending: string | null) {
@@ -101,12 +86,7 @@ function useLegacyPaneOwnership(session: SessionView | undefined) {
   })), (a, b) => a.selectedIssueId === b.selectedIssueId && a.stampIssue === b.stampIssue && a.issueHex === b.issueHex)
 }
 function usePoolPaneOwnership(session: SessionView | undefined) {
-  const read = useCallback((pool: MobxPool) => {
-    const selectedIssueId = pool.selection.keys().next().value ?? null
-    const stamp = paneStampIssue(pool, session)
-    const color = paneIssueColor(pool, selectedIssueId, issueColorHex)
-    return { selectedIssueId, stampIssue: stamp === LOADING ? undefined : stamp, issueHex: color === LOADING ? undefined : color }
-  }, [session])
+  const read = useCallback((pool: MobxPool) => pool.sessionPanes.ownership(session, issueColorHex), [session])
   return useWorklistPoolProjection(read, { selectedIssueId: null, stampIssue: undefined, issueHex: undefined })
 }
 export function usePaneOwnership(session: SessionView | undefined) {

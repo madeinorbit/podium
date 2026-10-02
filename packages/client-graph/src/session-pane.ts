@@ -80,3 +80,36 @@ export function paneIssueColor(pool: MobxPool, id: string | null, hex: (color: s
   }
   return row === LOADING ? LOADING : undefined
 }
+
+const EMPTY_WINDOW: SessionPaneRows['sessionPaneWindow'] = { panelMode: {}, dockShells: {}, reposLoaded: false, pendingSpawnIds: new Set() }
+/** Runtime implementations stay in the lazily imported pool. Web hooks import
+ * only this API's types, so a legacy startup loads no graph/MobX implementation. */
+export function createSessionPaneReader(pool: MobxPool) {
+  const session = (id: string | undefined) => {
+    const row = paneSession(pool, id)
+    return row === LOADING ? undefined : row
+  }
+  const window = () => {
+    const value = paneWindow(pool)
+    return !value || value === LOADING ? EMPTY_WINDOW : value
+  }
+  return {
+    session, window,
+    machines: () => paneMachines(pool),
+    spawnConfirmed: (id: string) => paneSpawnConfirmed(pool, id),
+    dock(cwd: string, pending: string | null) {
+      const controls = window()
+      const mapped = controls.dockShells[cwd]
+      const row = paneSession(pool, mapped)
+      const pendingRow = paneSession(pool, pending ?? undefined)
+      return { mapped, session: row === LOADING ? undefined : row,
+        pendingPresent: !!pendingRow && pendingRow !== LOADING,
+        hasSessions: paneHasSessions(pool), reposLoaded: controls.reposLoaded, loading: row === LOADING }
+    },
+    ownership(row: SessionView | undefined, hex: (color: string | null | undefined) => string | undefined) {
+      const selectedIssueId = pool.selection.keys().next().value ?? null
+      const stamp = paneStampIssue(pool, row), color = paneIssueColor(pool, selectedIssueId, hex)
+      return { selectedIssueId, stampIssue: stamp === LOADING ? undefined : stamp, issueHex: color === LOADING ? undefined : color }
+    },
+  }
+}
