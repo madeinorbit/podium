@@ -74,20 +74,20 @@ export function poolMissionContains(pool: MobxPool, rootId: string, id: string):
 /** Navigation includes the formal mission at every depth and tasks filed by
  * its explicitly attached sessions. Display nesting is narrower than this:
  * hidden descendants and unstarted spin-offs can still supply a pane. */
-function sessionMembership(pool: MobxPool, retainedOnly = false): Map<string, SessionView[]> {
+function sessionMembership(pool: MobxPool, issueIds?: ReadonlySet<string>): Map<string, SessionView[]> {
   const byIssue = new Map<string, SessionView[]>()
-  const retainedByIssue = new Map<string, ReadonlySet<string>>()
+  // Navigation already has the mission. R2 supplies its retained, non-headless
+  // candidates without reading or grouping every other session's row.
+  const retained = issueIds ? new Set<string>() : undefined
+  if (issueIds && retained) for (const id of issueIds) {
+    for (const sessionId of pool.graph.many('issue', id, 'sessions')) retained.add(sessionId)
+  }
+  // Keep slice order for lastActiveAt ties, even when a relation bucket was
+  // reordered by a move away and back. Non-candidates cost only an ID probe.
   for (const id of pool.tables.session.keys()) {
+    if (retained && !retained.has(id)) continue
     const session = pool.row('session', id) as SessionView | typeof LOADING | undefined
     if (session === undefined || session === LOADING || !session.issueId) continue
-    if (retainedOnly && session.headless !== true) {
-      let retained = retainedByIssue.get(session.issueId)
-      if (!retained) {
-        retained = new Set(pool.graph.many('issue', session.issueId, 'sessions'))
-        retainedByIssue.set(session.issueId, retained)
-      }
-      if (!retained.has(id)) continue
-    }
     const members = byIssue.get(session.issueId)
     if (members) members.push(session)
     else byIssue.set(session.issueId, [session])
@@ -122,7 +122,7 @@ export function createPoolWorkActions(
     const members = new Map<string, SessionView>()
     // R2 already applies resume collapse. Headless provenance remains raw;
     // it never participates in collapse or supplies a workspace pane.
-    const sessions = sessionMembership(pool, true)
+    const sessions = sessionMembership(pool, issueIds)
     // The legacy candidate order is the slice order, including tie-breaking
     // on lastActiveAt. Walk resident keys, reading only this mission's rows.
     for (const member of pool.tables.issue.keys()) {
