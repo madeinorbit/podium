@@ -154,7 +154,7 @@ audit exclusion follow that code. These are focused results, not a full-suite cl
 | Mobile package | **1,084 passed**, 4 skipped; 166 files passed, 1 skipped |
 | Corrected protocol message goldens | **129 passed** |
 | Web attribution and stored unattributed question | **15 passed** across 2 files |
-| Web guard, banner and workspace final focused group | **106 passed** across the other 3 files of the restored web group |
+| Web guard, sidebar actions and terminal active panel | **106 passed** across the other 3 files of the restored web group |
 | Runtime and issue-view cache | **160 + 11 passed**, including provisional edits, truthful dependency blocking and pending personal state |
 | Native cache retirement / database migration | **4 + 1 passed** |
 | Normalized wire, supported root lane | **7 passed**; `bun run test:lane -- normalized-wire apps/server/src/issues.normalized-wire.test.ts` |
