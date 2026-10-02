@@ -98,15 +98,20 @@ describe('session homes in the graph row source', () => {
   it('a prefix rename updates every dependent ref with no session resent or kind enumeration', () => {
     const { replica, handle, push } = boot()
     try {
+      const another = { ...row, sessionId: 's3', refSeq: 43, refLetter: 'C' }
+      push('session', 's3', another)
+      handle.flush()
       handle.source.snapshot('worktree')
       const untouched = handle.source.row!('session', 's2')
       handle.stats.reset()
       push('repo', 'r1', { id: 'r1', prefix: 'RENAMED', repoPath: '/different/path' })
       const event = handle.flush()!
       expect(event.rows.filter((row) => row.kind === 'session').map((row) => row.id)).toEqual([
-        's1',
+        's1', 's3',
       ])
       expect(handle.source.row!('session', 's1')).toHaveProperty('displayRef', 'RENAMED-42-A')
+      expect(handle.source.row!('session', 's3')).toHaveProperty('displayRef', 'RENAMED-43-C')
+      expect(replica.row('sessions', 's3')).toBe(another)
       expect(handle.source.row!('session', 's2')).toBe(untouched)
       expect(replica.row('sessions', 's1')).toBe(row)
       expect(handle.stats.enumerations).toBe(0)
