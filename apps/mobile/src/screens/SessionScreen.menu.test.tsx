@@ -290,6 +290,8 @@ describe('session menu snooze from the acting user home', () => {
     })
     fireEvent.click(await screen.findByLabelText('Clear snooze'))
     await waitFor(() => expect(clear).toHaveBeenCalled())
+    fireEvent.click(await screen.findByLabelText('Session actions'))
+    expect(await screen.findByLabelText('Cancel')).toBeTruthy()
     expect(screen.queryByLabelText('Clear snooze')).toBeNull()
     expect(replica.rows('sessions')[0]).toBe(raw)
   })
