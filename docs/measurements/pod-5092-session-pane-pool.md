@@ -25,9 +25,9 @@ Focused validation ran on flatblock in `~/podium-test-5092`, using its private `
 - Focused typecheck passed for `@podium/web`, `@podium/client-graph` and `@podium/client-core`. Focused lint passed for the changed graph source and diagnostics files.
 - Twelve planted faults each produced a real failing assertion. They cover value parity, mismatch detection, cold loading, addressed updates, both ownership rules, tint inheritance, control inputs, source disposal, dock wake identity, the legacy-read fence and startup switch latching. Original bytes were restored after each run.
 
-The completed private replay at candidate `4fdca006c2` covered 5,136 sessions, 5,979 issues and 5,142 comparison positions. It reported zero unintended differences and zero pending rows, with 1,572 accepted ownership differences as the live corpus changed. Only counts and comparison positions left ludovico; the operator server and daemon were neither restarted nor reconfigured. The replay and planted-fault summaries are also attached to the issue.
+The final private replay at candidate `9df0b71249`, after the shared-host rebase and capability-field additions, covered 5,139 sessions, 5,988 issues and 5,145 comparison positions. It reported zero unintended differences and zero pending rows, with 1,571 accepted ownership differences as the live corpus changed. Two hydration rounds drained the initially cold rows. Only counts and comparison positions left ludovico; the operator server and daemon were neither restarted nor reconfigured. The replay and planted-fault summaries are also attached to the issue.
 
-Later bounded replays after the shared-host rebase and additional capability fields did not complete; this is not a newer green replay result. A final replay remains follow-up evidence. The separate registry test currently fails on the notices and automations startup latches; POD-5307 owns that repair, outside this screen's scope.
+Earlier bounded replays either failed to connect or did not complete. The result above is the completed run, using the source export condition. The separate registry test currently fails on the notices and automations startup latches; POD-5307 owns that repair, outside this screen's scope.
 
 ## Remaining rollout evidence
 
