@@ -53,8 +53,8 @@ describe('pool diagnostic names', () => {
     expect(debugName(() => 'pool.issue')).toBe('pool.issue')
   })
 
-  it('keeps table names and cached-group owner attribution in the census', async () => {
-    await names({ mode: 'test' })
+  it('keeps table names and cached-group owner attribution in a production-mode census', async () => {
+    await names()
     const { autorun, getDependencyTree, runInAction } = await import('mobx')
     const { cachedGroup } = await import('../src/cached')
     const { createObservableTables } = await import('../src/tables')
