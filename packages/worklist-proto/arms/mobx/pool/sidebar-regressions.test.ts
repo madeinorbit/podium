@@ -156,14 +156,15 @@ describe('POD-5179 reciprocal provenance in the sidebar check corpus', () => {
       expect(runInAction(() => ctx.pool.knownIssue(b.id)?.nested)).toEqual([a.id])
       expect(root.actual.aggregateSessions).toHaveLength(2)
       expect(root.actual.aggregateSessions.map(seat => seat.sessionId)).toEqual(['seat-b', 'seat-a'])
-      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 2 })
+      // The check counts the section root plus both all-visible rows.
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 3 })
       // Breaking and restoring the cycle must update the observed rows, too.
       ctx.updateIssue({ ...a, startedBySession: null })
       expect(runInAction(() => ctx.pool.knownIssue(a.id)?.nested)).toEqual([b.id])
-      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 2 })
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 3 })
       ctx.updateIssue(a)
       expect(runInAction(() => ctx.pool.knownIssue(b.id)?.nested)).toEqual([a.id])
-      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 2 })
+      expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 3 })
     } finally { ctx.dispose() }
   })
 })
