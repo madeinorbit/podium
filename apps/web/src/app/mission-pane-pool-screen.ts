@@ -1,6 +1,6 @@
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { initializePaneDataLayer, paneDataLayer } from '@/lib/pane-data-layer'
-import type { PoolScreen } from './pool-screen-registry'
+import type { PoolScreen } from '@podium/client-graph/host'
 
 /** The navigation pane and mission view share one startup latch. Register the
  * view's declarations before ingest into the existing principal-owned pool. */
