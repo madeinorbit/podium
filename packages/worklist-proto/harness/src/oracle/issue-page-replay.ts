@@ -34,7 +34,13 @@ export function replayIssuePages(corpus: FixtureCorpus) {
   ])
   const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const store = sidebarReplayStore(corpus, replica)
-  store.sessions = dedupeSessions([...corpus.sessions])
+  const viewsById = new Map(corpus.sessions.map(row => [row.sessionId, row]))
+  const ordered = replica.rows('sessions').map(row => {
+    const value = viewsById.get(row.sessionId)
+    if (!value) throw new Error('Missing replay session view')
+    return value
+  })
+  store.sessions = dedupeSessions(ordered)
   const runtime = { getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() }
   phase(3)
   const rows = createRowSource(runtime, replica, { mode: 'overlaid' }), locals = createEngineLocals(runtime)

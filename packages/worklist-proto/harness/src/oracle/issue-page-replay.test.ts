@@ -12,7 +12,7 @@ it('uses normalized session homes when replaying an existing read view', () => {
     snoozedUntil: new Date(corpus.fixedNow + 60_000).toISOString(),
   }))
   const sessions = sessionViews(homes.sessions.map(stripSessionLegacy), { ...homes, userStates })
-  const { result } = replayIssuePages({ ...corpus, sessions })
+  const { result } = replayIssuePages({ ...corpus, sessions: [...sessions].reverse() })
   expect(result.issues).toBeGreaterThan(0)
   expect(result).toMatchObject({ differences: 0, pending: 0, first: null })
 })
