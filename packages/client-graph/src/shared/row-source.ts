@@ -357,7 +357,7 @@ export function createRowSource(
   function sessionInput(id: string): AnyRow | undefined {
     const raw = authority('sessions', id)
     if (!raw) return undefined
-    const value = raw as SessionValueInput
+    const value = raw as AnyRow & SessionValueInput
     return sessionView(value, {
       userState: sessionUserKeys.has(id) ? authority('sessionUserStates', sessionUserKeys.get(id)!) : undefined,
       repo: value.refRepoId ? authority('repos', value.refRepoId) : undefined,

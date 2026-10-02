@@ -111,9 +111,9 @@ describe('session homes in the graph row source', () => {
       ])
       expect(handle.source.row!('session', 's1')).toHaveProperty('displayRef', 'RENAMED-42-A')
       expect(handle.source.row!('session', 's3')).toHaveProperty('displayRef', 'RENAMED-43-C')
-      expect(replica.row('sessions', 's3')).toBe(another)
+      expect(replica.row!('sessions', 's3')).toBe(another)
       expect(handle.source.row!('session', 's2')).toBe(untouched)
-      expect(replica.row('sessions', 's1')).toBe(row)
+      expect(replica.row!('sessions', 's1')).toBe(row)
       expect(handle.stats.enumerations).toBe(0)
     } finally {
       handle.dispose()
@@ -160,9 +160,10 @@ describe('session homes in the graph row source', () => {
         ['repo', 'r1'],
         ['machine', 'm1'],
         ['machine', 'm2'],
-      ])
+      ]) {
         push(kind!, id!, undefined, 'evict')
-      handle.flush()
+        expect(handle.flush()?.rows.filter(row => row.kind === 'session').map(row => row.id)).toEqual(['s1'])
+      }
       expect(handle.source.row!('session', 's1')).toMatchObject({
         displayRef: 'OLD-42-A',
         unread: true,

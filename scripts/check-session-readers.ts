@@ -90,7 +90,7 @@ export function legacySessionReads(source: string, file = 'apps/web/src/example.
     }
     // Writes/fingerprints remain legal; reading a named legacy cell through a
     // raw cast anywhere in client-core is not a transport operation.
-    let base =
+    let base: ts.Expression | undefined =
       ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)
         ? node.expression
         : undefined

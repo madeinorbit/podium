@@ -9,7 +9,7 @@ export interface SessionValues {
   unread: boolean
   snoozedUntil?: string | null
   displayRef?: string
-  machineName: string
+  machineName?: string
   condition?: 'logged-out'
   handoffTarget?: string
 }
