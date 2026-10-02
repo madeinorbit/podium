@@ -1,19 +1,17 @@
+import type { UiState } from '@podium/client-core/ui-state'
+import { webPoolSwitch } from '@/lib/mobx-pilot'
+
 /** Default OFF. Both screen choices and diagnostic requests are latched once
  * per app startup, including principal changes. Rollback requires a reload. */
-let automations: 'legacy' | 'pool' | undefined
-let specs: 'legacy' | 'pool' | undefined
-let check = false
-export function initializeAutomationsDataLayer(): void {
-  if (automations !== undefined) return
-  let params: URLSearchParams | undefined
-  try { params = new URLSearchParams(location.search) } catch { /* SSR */ }
-  automations = params?.get('mobxAutomations') === '1' ? 'pool' : 'legacy'
-  specs = params?.get('mobxSpecs') === '1' ? 'pool' : 'legacy'
-  check = (automations === 'pool' || specs === 'pool') && params?.get('mobxAutomationsCheck') === '1'
+const automations = webPoolSwitch('mobxAutomations', 'mobxAutomationsCheck')
+const specs = webPoolSwitch('mobxSpecs', 'mobxAutomationsCheck')
+export function initializeAutomationsDataLayer(ui: Pick<UiState, 'get'>): void {
+  automations.initialize(ui)
+  specs.initialize(ui)
 }
-export const automationsDataLayer = () => automations ?? 'legacy'
-export const specsDataLayer = () => specs ?? 'legacy'
-export const automationsCheckRequested = () => check
+export function automationsDataLayer(): 'legacy' | 'pool' { return automations.layer() }
+export function specsDataLayer(): 'legacy' | 'pool' { return specs.layer() }
+export function automationsCheckRequested(): boolean { return automations.checkRequested() || specs.checkRequested() }
 
 let counting = false
 let owners = new WeakMap<object, Record<string, number>>()
@@ -28,4 +26,3 @@ export function recordLegacyAutomationRead(owner: object, reader: string): void 
   counts[reader] = (counts[reader] ?? 0) + 1
   owners.set(owner, counts)
 }
-initializeAutomationsDataLayer()

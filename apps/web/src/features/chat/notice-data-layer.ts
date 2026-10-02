@@ -1,16 +1,12 @@
+import type { UiState } from '@podium/client-core/ui-state'
+import { webPoolSwitch } from '@/lib/mobx-pilot'
+
 /** One startup choice for all notice readers, default OFF. Principal rebuilds
  * retain the latched choice; rollout retirement belongs to POD-5174. */
-let startup: 'legacy' | 'pool' | undefined
-let check = false
-export function initializeNoticesDataLayer(): void {
-  if (startup !== undefined) return
-  let params: URLSearchParams | undefined
-  try { params = new URLSearchParams(location.search) } catch { /* SSR. */ }
-  startup = params?.get('mobxNotices') === '1' ? 'pool' : 'legacy'
-  check = startup === 'pool' && params?.get('mobxNoticesCheck') === '1'
-}
-export function noticesDataLayer(): 'legacy' | 'pool' { return startup ?? 'legacy' }
-export function noticesCheckRequested(): boolean { return check }
+const notices = webPoolSwitch('mobxNotices', 'mobxNoticesCheck')
+export function initializeNoticesDataLayer(ui: Pick<UiState, 'get'>): void { notices.initialize(ui) }
+export function noticesDataLayer(): 'legacy' | 'pool' { return notices.layer() }
+export function noticesCheckRequested(): boolean { return notices.checkRequested() }
 
 type Work = 'messageSelectors' | 'messageDerivations' | 'interactionSelectors' | 'interactionDerivations' | 'recoverySelectors'
 let counting = false
@@ -26,4 +22,3 @@ export function recordLegacyNoticeWork(owner: object, work: Work): void {
   values[work] = (values[work] ?? 0) + 1
   counts.set(owner, values)
 }
-initializeNoticesDataLayer()

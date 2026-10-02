@@ -22,7 +22,7 @@ function fixture() {
       subscribeAddressedBatch: (listener: (batch: ReplicaAddressedBatch) => void) => { listeners.add(listener); return () => { listeners.delete(listener) } } },
     outbox: { deadLetters: () => deadLetters, subscribe: (listener: () => void) => { outboxListeners.add(listener); return () => { outboxListeners.delete(listener) } } },
   } as unknown as Pick<ClientRuntime, 'replica' | 'outbox'>
-  const pool = new MobxPool({ coarseNow: Date.now(), selectedIssueId: null }, undefined,
+  const pool = new MobxPool({ coarseNow: Date.parse('2026-10-01T13:00:00Z'), selectedIssueId: null }, undefined,
     { load: (_entity, id) => data.sessions.find(row => row.sessionId === id) as never, summaries: NOTICE_SUMMARIES, schedule: () => () => {} })
   pool.apply({ type: 'replace', rows: [
     ...data.sessions.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })),

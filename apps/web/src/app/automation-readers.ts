@@ -25,7 +25,9 @@ function useLegacyList() {
   return { automations: userAutomations(rows.automations), automationRuns: rows.automationRuns, runGroups: undefined, pending: 0 }
 }
 function usePoolList() { return useWorklistPoolProjection(poolList, EMPTY_LIST) }
-export const useAutomationList = automationsDataLayer() === 'pool' ? usePoolList : useLegacyList
+// Startup initializes after module imports and before mount. The latched
+// choice keeps each mounted reader's hook order stable.
+export function useAutomationList() { return automationsDataLayer() === 'pool' ? usePoolList() : useLegacyList() }
 
 function useLegacyTargets(currentPath: string | null) {
   const owner = useStoreHandle<Trpc>()
@@ -41,7 +43,9 @@ function usePoolTargets(currentPath: string | null) {
   const read = useCallback((pool: Parameters<typeof automationViews>[0]) => automationViews(pool).targets(currentPath), [currentPath])
   return useWorklistPoolProjection(read, EMPTY_TARGETS)
 }
-export const useAutomationTargets = automationsDataLayer() === 'pool' ? usePoolTargets : useLegacyTargets
+export function useAutomationTargets(currentPath: string | null) {
+  return automationsDataLayer() === 'pool' ? usePoolTargets(currentPath) : useLegacyTargets(currentPath)
+}
 
 function useLegacyRunSession(id: string | undefined) {
   const owner = useStoreHandle<Trpc>()
@@ -56,7 +60,9 @@ function usePoolRunSession(id: string | undefined) {
   const row = useWorklistPoolProjection(read, LOADING)
   return row === LOADING ? undefined : row
 }
-export const useAutomationRunSession = automationsDataLayer() === 'pool' ? usePoolRunSession : useLegacyRunSession
+export function useAutomationRunSession(id: string | undefined) {
+  return automationsDataLayer() === 'pool' ? usePoolRunSession(id) : useLegacyRunSession(id)
+}
 
 function useLegacyRepos() {
   const owner = useStoreHandle<Trpc>()
@@ -67,4 +73,4 @@ function useLegacyRepos() {
   return { repos, pending: 0 }
 }
 function usePoolRepos() { return useWorklistPoolProjection(poolRepos, EMPTY_REPOS) }
-export const useSpecsRepositories = specsDataLayer() === 'pool' ? usePoolRepos : useLegacyRepos
+export function useSpecsRepositories() { return specsDataLayer() === 'pool' ? usePoolRepos() : useLegacyRepos() }

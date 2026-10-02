@@ -3,6 +3,7 @@ import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { machineViewsFromWire } from '@podium/client-core/viewmodels'
+import { MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
 import { checkAutomations } from '@podium/client-graph/diagnostics/automation-check'
 import { AutomationSource } from '@podium/client-graph/automation-source'
 import { AUTOMATION_ENTITIES } from '@podium/client-graph/automation-schema'
@@ -11,19 +12,17 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asMachineId, asUserId } from '@podium/model/browser'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createAutomationsFixture } from '../../test/automations-fixture'
 import { automationTargetChoices } from '@/features/automations/automation-form'
-import { automationReadStats } from '@/lib/automations-data-layer'
+import { automationReadStats, initializeAutomationsDataLayer } from '@/lib/automations-data-layer'
 import { useAutomationList, useAutomationRunSession, useAutomationTargets, useSpecsRepositories } from './automation-readers'
 import { attachPoolScreens, screenOptions, type PoolScreen } from '@podium/client-graph/host'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 import type { Trpc } from './trpc'
 
-vi.mock('@/lib/automations-data-layer', async importOriginal => ({
-  ...await importOriginal<typeof import('@/lib/automations-data-layer')>(),
-  automationsDataLayer: () => 'pool', specsDataLayer: () => 'pool',
-}))
+// Readers are imported before the hydrated device setting is latched.
+beforeEach(() => { initializeAutomationsDataLayer({ get: key => key === MOBX_SIDEBAR_KEY ? '1' : null }) })
 afterEach(() => { cleanup(); storeStats.enable(false); automationReadStats.enable(false) })
 
 it('registry routes declared kinds, rejects overlap atomically and disposes once', async () => {
