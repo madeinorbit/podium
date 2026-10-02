@@ -1,7 +1,7 @@
 /** Measurement prototype only. Coarse MobX invalidation over borrowed plain tables.
  * The hand arm's schema-driven ingest, summaries and plain rule functions are reused.
  * No computed, observable entry, or reaction is attached to an unmounted row. */
-import { comparer, computed, createAtom, runInAction, type IComputedValue } from 'mobx'
+import { compareStructural, computed, createAtom, runInAction, type IComputedValue } from 'mobx'
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
 import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
 import type { RowSourceEvent } from '../../../shared/src/stats'
@@ -119,7 +119,7 @@ export class LeanPool {
   mountRow(id: string): IComputedValue<RowView | undefined> {
     let value = this.mounted.get(id)
     if (!value) {
-      value = computed(() => this.filing.get().views.get(id), { equals: comparer.structural })
+      value = computed(() => this.filing.get().views.get(id), { equals: compareStructural })
       this.mounted.set(id, value)
     }
     return value
