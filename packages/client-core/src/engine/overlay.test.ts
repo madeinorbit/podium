@@ -724,14 +724,14 @@ describe('pruneAwaiting (retirement rule (a))', () => {
     // with the OLD sortKey. Whole-row fingerprint divergence used to retire
     // the overlay and snap the row back; only a competing write on sortKey
     // itself (or coverage, or the TTL) may.
-    const base = { id: 'i1', sortKey: 'c', title: 'Task', revision: 1 } as OverlayRow
+    const base = { id: 'i1', sortKey: 'c', title: 'Task', revision: 1 } as IssueProjection
     const o = overlayForOutboxEntry(entry('issueUpdate', { id: 'i1', patch: { sortKey: 'a1' } }))
     if (o?.op !== 'patch') throw new Error('expected patch')
     const awaiting: AwaitingTruth[] = [
       { overlay: o, baseline: rowFingerprint(base), resolvedAt: NOW },
     ]
     const issueKey = (i: IssueProjection): string => i.id
-    const noisy = { ...base, title: 'Changed', revision: 4 } as OverlayRow
+    const noisy = { ...base, title: 'Changed', revision: 4 } as IssueProjection
     expect(pruneAwaiting(awaiting, 'issueProjections', [noisy], issueKey, NOW)).toBe(awaiting)
     // A competing reorder of the SAME cell does retire.
     expect(

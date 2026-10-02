@@ -1,5 +1,5 @@
 import { allIssueViewModels } from '@podium/client-core/replica'
-import { placeholderProjection } from '../../../../../packages/client-core/src/engine/optimism'
+import { placeholderProjection } from '../../../../packages/client-core/src/engine/optimism'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'

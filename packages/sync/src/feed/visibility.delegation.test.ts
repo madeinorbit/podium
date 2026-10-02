@@ -170,7 +170,7 @@ describe('issue room authorization after record retirement', () => {
       classOf: entity => entity === 'issueProjection' ? 'personal' : null,
       mayRead: (_principal, ref) => { refs.push(ref); return granted },
       keyedUserOf: () => null,
-    }, { scopeOf: () => null })
+    }, { scopeOf: () => ({ kind: 'entities', keys: new Set() }) })
     const resolver = kernelVisibilityResolver(policy)
     const room = { kind: 'issue', id: 'issue-room' }
     expect(resolver.canSee(human, room)).toBe(true)

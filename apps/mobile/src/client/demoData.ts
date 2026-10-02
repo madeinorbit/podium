@@ -451,6 +451,10 @@ export const DEMO_ISSUES: IssueViewModel[] = [
   }),
   {
     id: asIssueId('demo-issue-auth'),
+    displayRef: 'POD-87',
+    childIds: [],
+    memberSessionIds: [asSessionId('demo-auth')],
+    tuckedAt: null,
     repoPath: '/home/dev/src/podium',
     owner: asUserId('demo-user'),
     visibility: 'personal',
@@ -501,6 +505,10 @@ export const DEMO_ISSUES: IssueViewModel[] = [
   } as IssueViewModel,
   {
     id: asIssueId('demo-issue-header'),
+    displayRef: 'POD-121',
+    childIds: [],
+    memberSessionIds: [],
+    tuckedAt: null,
     repoPath: '/home/dev/src/podium',
     owner: asUserId('demo-user'),
     visibility: 'personal',
@@ -540,6 +548,10 @@ export const DEMO_ISSUES: IssueViewModel[] = [
   } as IssueViewModel,
   {
     id: asIssueId('demo-issue-ci'),
+    displayRef: 'POD-118',
+    childIds: [],
+    memberSessionIds: [],
+    tuckedAt: null,
     repoPath: '/home/dev/src/podium',
     owner: asUserId('demo-user'),
     visibility: 'personal',

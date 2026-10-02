@@ -44,7 +44,7 @@ describe('issue close concerns', () => {
       issueCloseConcerns(
         issue({
           needsHuman: true,
-          humanQuestion: 'Which direction should we ship?',
+          asked: { question: 'Which direction should we ship?' },
           childCount: 3,
           childDoneCount: 1,
           gitState: {
