@@ -1,7 +1,6 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import type { SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
@@ -29,7 +28,7 @@ const issue = {
   id: asIssueId(replay?.issueId ?? 'utility-root'), seq: 1, title: 'Synthetic review',
   stage: 'review', updatedAt: stamp, deps: [], parentId: null,
   activityNotes: 'Utility transport proof', notesUpdatedAt: stamp,
-} as IssueNavigationModel
+} as unknown as IssueNavigationModel
 const session = {
   sessionId: asSessionId(replay?.sessionId ?? 'utility-session'), issueId: issue.id,
   agentKind: 'codex', cwd: '/synthetic', title: 'Synthetic agent', status: 'live', archived: false,
@@ -78,7 +77,6 @@ function History() {
   return <output data-utility-surface="waterfall">{JSON.stringify([...history])}</output>
 }
 function Surface() {
-  useStoreHandle() as ClientRuntime
   useEffect(() => { mounted = true; return () => { mounted = false } }, [])
   return <Profiler id="utilities" onRender={(_id, _phase, ms) => { commits++; commitMs += ms }}>
     <main style={{ padding: 24 }}>
@@ -96,7 +94,7 @@ root.render(<StoreProvider principal={asClientPrincipal(asUserId('utility-synthe
   config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
   createReplicaFn={() => fixture.newReplica()} networkEnabled={false}
   onFatalError={() => failures.push('provider-failure')}
-  attachRuntime={(runtime) => { fixture.bindHub(runtime.hub) }}
+  attachRuntime={(runtime) => { fixture.bindHub(runtime.hub); return () => {} }}
 ><Surface /></StoreProvider>)
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
 const driver = {

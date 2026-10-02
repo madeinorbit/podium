@@ -48,7 +48,7 @@ const session = {
 const issue = {
   id: asIssueId('utility-root'), seq: 1, title: 'Synthetic review', stage: 'review',
   updatedAt: '2026-10-02T10:00:00Z', deps: [], parentId: null,
-} as IssueNavigationModel
+} as unknown as IssueNavigationModel
 
 function setup() {
   const reads = {
