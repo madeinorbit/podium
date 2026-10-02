@@ -18,6 +18,8 @@ import '../src/styles.css'
 
 const fixture = createHeaderFixture(5600, 5014)
 const failures: string[] = []
+document.documentElement.classList.add('dark')
+document.documentElement.dataset.theme = 'podium'
 const settings = normalizeSettings({})
 Object.assign(fixture.api, {
   settings: {
