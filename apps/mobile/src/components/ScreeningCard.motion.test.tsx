@@ -1,4 +1,5 @@
-import { asIssueId, type IssueWire } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { asIssueId } from '@podium/model'
 import { act, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -113,7 +114,7 @@ const issue = {
   title: 'Motion preference test',
   type: 'task',
   archived: false,
-  draft: false,
+  isDraftVessel: false,
   audience: 'human',
   color: null,
   blockedByNotes: [],
@@ -126,9 +127,9 @@ const issue = {
   defaultEffort: 'auto',
   parentBranch: 'main',
   createdAt: '2026-08-23T00:00:00.000Z',
-  origin: 'human',
+  intentOrigin: 'human',
   dependencyNote: null,
-} as unknown as IssueWire
+} as unknown as IssueViewModel
 
 describe('ScreeningCard motion', () => {
   beforeEach(() => {

@@ -1,3 +1,4 @@
+import { MobileClientVersions } from './gateway/mobile-client-versions'
 import { bootStage } from './boot-timing'
 import type { ServerPlacement } from './modules/updates/service'
 import type { SyncDeltaPorts } from './sync/route-support'
@@ -417,6 +418,8 @@ function noticeInfo(session: Session): SessionNoticeInfo {
  * (or the store's aggregate repositories) directly.
  */
 export class SessionRegistry {
+  private mobileVersions?: MobileClientVersions
+
   readonly worldIndex: WorldIndexReader
 
   readonly recoveryOnly: boolean
@@ -3722,7 +3725,9 @@ export class SessionRegistry {
     // that both surfaces arrive on the same socket.
     // The CLIENT plane's mux. Every client frame is session-owned today except
     // `ping`, which the mux answers itself — see gateway/client-frame-routing.ts.
+    const mobileVersions = this.mobileVersions = new MobileClientVersions(join(stateDir(), 'mobile-client-versions.json'))
     this.clientGateway = new ClientMux({
+      mobileVersions,
       registry: clientRegistry,
       ports: { sessions: sessionsSvc },
       feed: feedServing,
@@ -3811,6 +3816,7 @@ export class SessionRegistry {
   }
 
   async dispose(): Promise<void> {
+    this.mobileVersions?.close()
     // FIRST, and before store.close() further down the shutdown's persist list:
     // the memory service owns paced loops (transcript mirror + FTS indexer) that
     // keep writing to the store on later turns. Left running they woke after the

@@ -1,3 +1,4 @@
+import { seedIssueFixtures } from './issue-fixtures'
 /**
  * THE MOBILE COMPOSITION ROOT — bootstrap, and nothing else (POD-332).
  *
@@ -617,7 +618,7 @@ function DemoProvider({ children }: { children: ReactNode }) {
   const createReplicaFn = useMemo(() => {
     const replica = createReplica()
     replica.applySnapshot('sessions', DEMO_SESSIONS)
-    replica.applySnapshot('issues', DEMO_ISSUES)
+    seedIssueFixtures(replica, DEMO_ISSUES, DEMO_PRINCIPAL)
     return () => replica
   }, [])
   return (

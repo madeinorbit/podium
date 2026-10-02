@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 /**
  * THE CHAT 3-DOTS, DRAFT VS ACTIVE (2026-08-27 device review).
  *
@@ -8,7 +9,7 @@
  * sheet's standard Cancel. An active session keeps the session-scoped verbs,
  * including transcript search.
  */
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -115,7 +116,7 @@ const session = (patch: Partial<SessionMeta> = {}): SessionMeta =>
     ...patch,
   }) as unknown as SessionMeta
 
-const vessel = (patch: Partial<IssueWire> = {}): IssueWire =>
+const vessel = (patch: Partial<IssueViewModel> = {}): IssueViewModel =>
   ({
     id: vesselId,
     repoPath: '/src/podium',
@@ -132,12 +133,12 @@ const vessel = (patch: Partial<IssueWire> = {}): IssueWire =>
     childDoneCount: 0,
     archived: false,
     pinned: false,
-    draft: true,
+    isDraftVessel: true,
     worktreePath: null,
     ...patch,
-  }) as unknown as IssueWire
+  }) as unknown as IssueViewModel
 
-async function openMenu(issue: IssueWire) {
+async function openMenu(issue: IssueViewModel) {
   const result = await renderWithMobileStore(<SessionScreen />, {
     sessions: [session()],
     issues: [issue],
@@ -150,9 +151,9 @@ async function openMenu(issue: IssueWire) {
 /** The live store's issues, watched through the real selector — the Delete
  *  confirm resolves into `deleteIssue`, whose optimistic overlay stamps
  *  `deletedAt` on the vessel. A Cancel must leave it unstamped. */
-function IssueProbe({ seen }: { seen: { issues: IssueWire[] } }) {
+function IssueProbe({ seen }: { seen: { issues: IssueViewModel[] } }) {
   const issues = useStoreSelector((s) => s.issues)
-  seen.issues = issues as IssueWire[]
+  seen.issues = issues as IssueViewModel[]
   return null
 }
 
@@ -163,7 +164,7 @@ const threeSessions = () => [
 ]
 
 async function openDraftMenuWithSessions() {
-  const seen: { issues: IssueWire[] } = { issues: [] }
+  const seen: { issues: IssueViewModel[] } = { issues: [] }
   const result = await renderWithMobileStore(
     <>
       <SessionScreen />
@@ -176,7 +177,7 @@ async function openDraftMenuWithSessions() {
   return { ...result, seen }
 }
 
-function vesselDeletedAt(seen: { issues: IssueWire[] }): string | null | undefined {
+function vesselDeletedAt(seen: { issues: IssueViewModel[] }): string | null | undefined {
   return seen.issues.find((issue) => issue.id === vesselId)?.deletedAt as
     | string
     | null
@@ -248,7 +249,7 @@ describe('the draft chat menu', () => {
 
 describe('the active-session chat menu', () => {
   it('keeps transcript search and the session verbs', async () => {
-    await openMenu(vessel({ draft: false, worktreePath: '/tmp/wt/vessel' }))
+    await openMenu(vessel({ isDraftVessel: false, worktreePath: '/tmp/wt/vessel' }))
 
     expect(screen.getByLabelText('Find in transcript')).toBeTruthy()
     expect(screen.queryByLabelText('Delete')).toBeNull()

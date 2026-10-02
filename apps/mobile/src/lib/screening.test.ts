@@ -1,4 +1,5 @@
-import { asIssueId, type IssueWire, type IssueWireInput } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { asIssueId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
   applyScreeningDecision,
@@ -7,7 +8,7 @@ import {
   screeningTally,
 } from './screening'
 
-const issue = (partial: Partial<IssueWireInput> & Pick<IssueWire, 'id'>) =>
+const issue = (partial: Partial<IssueViewModel> & Pick<IssueViewModel, 'id'>) =>
   ({
     repoPath: '/src/podium',
     seq: 1,
@@ -15,10 +16,10 @@ const issue = (partial: Partial<IssueWireInput> & Pick<IssueWire, 'id'>) =>
     stage: 'proposed',
     title: partial.id,
     archived: false,
-    draft: false,
+    isDraftVessel: false,
     audience: 'human',
     ...partial,
-  }) as IssueWire
+  }) as IssueViewModel
 
 /** Recording stand-ins for the mix of ordered server calls and store action. */
 function fakeCommands() {
@@ -48,7 +49,7 @@ describe('buildScreeningQueue', () => {
       issue({ id: asIssueId('p2-new'), priority: 2, seq: 30 }),
       issue({ id: asIssueId('archived'), archived: true }),
       issue({ id: asIssueId('deleted'), deletedAt: '2026-07-01T00:00:00.000Z' }),
-      issue({ id: asIssueId('draft'), draft: true }),
+      issue({ id: asIssueId('draft'), isDraftVessel: true }),
       issue({ id: asIssueId('internal'), audience: 'agent' }),
     ])
 

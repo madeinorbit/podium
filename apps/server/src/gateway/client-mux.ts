@@ -1,3 +1,4 @@
+import type { MobileClientVersions } from './mobile-client-versions'
 import { negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, type WireVersionOffer } from '@podium/protocol'
 /**
  * THE CLIENT SOCKET MUX (POD-390, under POD-317's gateway).
@@ -150,6 +151,8 @@ const transportOf = (peer: ClientPeer): ClientTransport =>
   typeof peer === 'function' ? { send: peer } : peer
 
 export interface ClientMuxDeps {
+  /** Release observation only; never an admission or authorization input. */
+  readonly mobileVersions?: Pick<MobileClientVersions, 'connected' | 'disconnected'>
   readonly ports: ClientFeaturePorts
   readonly registry: ClientRegistry
   /**
@@ -281,6 +284,7 @@ export class ClientMux {
   detachClient(id: string, cause: 'socket-close' | 'reclaim' = 'socket-close'): void {
     const conn = this.deps.registry.get(id)
     if (!conn) return
+    this.deps.mobileVersions?.disconnected(id)
     this.deps.presence.disconnect(conn)
     this.deps.registry.delete(id)
     const attachedAt = this.attachedAtByPeer.get(id)
@@ -346,6 +350,7 @@ export class ClientMux {
   routeClientFrame(id: string, msg: ClientMessage): Promise<void> {
     const conn = this.deps.registry.get(id)
     if (!conn) return Promise.resolve()
+    if (msg.type === 'hello') this.deps.mobileVersions?.connected(id, msg.origin)
     if (msg.type === 'hello' && !msg.caps?.includes(CAP_SYNC_HTTP_V1)) {
       // The attach URL already returned 426 to ordinary old clients. Refuse a
       // peer that advertised the cap there but omits it from the actual hello.

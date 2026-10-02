@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 // @vitest-environment happy-dom
 /**
  * The mobile pane's two contracts that are not xterm's: WHEN it attaches, and
@@ -34,13 +35,10 @@
  * against the defect.
  */
 import { useStore } from '@podium/client-core/react'
-import {
-  asIssueId,
+import { asIssueId,
   asSessionId,
-  type IssueWire,
   type SessionId,
-  type SessionMeta,
-} from '@podium/model'
+  type SessionMeta } from '@podium/model'
 import type { MountSessionOptions } from '@podium/terminal-client/session-mount'
 import { cleanup } from '@testing-library/react'
 import { act, useState } from 'react'
@@ -170,8 +168,8 @@ function confirmedRow(sessionId: SessionId): SessionMeta {
 
 /** A visible task row, as the replica holds one. */
 function issueRow(
-  overrides: Omit<Partial<IssueWire>, 'id'> & { id: string; seq: number },
-): IssueWire {
+  overrides: Omit<Partial<IssueViewModel>, 'id'> & { id: string; seq: number },
+): IssueViewModel {
   return {
     title: 'Some work',
     stage: 'in_progress',
@@ -182,7 +180,7 @@ function issueRow(
     updatedAt: new Date(0).toISOString(),
     ...overrides,
     id: asIssueId(overrides.id),
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 beforeEach(() => {

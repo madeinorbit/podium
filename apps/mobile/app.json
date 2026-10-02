@@ -19,7 +19,7 @@
     "ios": {
       "bundleIdentifier": "dev.podium.mobile",
       "appleTeamId": "Z5A2ZC8STN",
-      "buildNumber": "12",
+      "buildNumber": "13",
       "supportsTablet": false,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,

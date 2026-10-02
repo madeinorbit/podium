@@ -63,7 +63,7 @@ vi.mock('./client-frame-routing', async (importOriginal) => {
 const presenceStub = (): PresenceRouting =>
   ({ route: vi.fn(), setVisible: vi.fn(), disconnect: vi.fn() }) as unknown as PresenceRouting
 
-async function harness() {
+async function harness(mobileVersions?: ClientMuxDeps['mobileVersions']) {
   const registry = new ClientRegistry()
   const ports: ClientFeaturePorts = {
     sessions: {
@@ -80,6 +80,7 @@ async function harness() {
   const bootstrap = vi.fn<ClientMuxDeps['bootstrap']>(async () => {})
   const feed = (await feedTestPlumbing()).serving
   const mux = new ClientMux({
+    mobileVersions,
     registry,
     ports,
     feed,
@@ -583,4 +584,17 @@ it('serves a newer client at the server maximum and welcomes it with that dialec
   expect(h.registry.get(id)?.wireVersion).toBe(CLIENT_WIRE_VERSION)
   expect(sent).toContainEqual(expect.objectContaining({ type: 'welcome', wireVersion: CLIENT_WIRE_VERSION }))
   h.mux.detachClient(id)
+})
+
+
+describe('mobile version observation at the real gateway boundary', () => {
+  it('records hello even for refused legacy clients, and records disconnect', async () => {
+    const mobileVersions = { connected: vi.fn(), disconnected: vi.fn() }
+    const h = await harness(mobileVersions)
+    const origin = { role: 'mobile', v: '1.0.0+12' }
+    await h.mux.routeClientFrame(h.id, { type: 'hello', origin })
+    expect(mobileVersions.connected).toHaveBeenCalledWith(h.id, origin)
+    h.mux.detachClient(h.id)
+    expect(mobileVersions.disconnected).toHaveBeenCalledWith(h.id)
+  })
 })

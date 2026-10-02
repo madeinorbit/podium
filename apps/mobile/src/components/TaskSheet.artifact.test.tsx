@@ -1,4 +1,5 @@
-import type { IssuePanelArtifact, IssueWire } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssuePanelArtifact } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -153,7 +154,7 @@ const issue = {
   comments: [],
   createdAt: '2026-08-28T09:00:00.000Z',
   updatedAt: '2026-08-28T10:00:00.000Z',
-} as unknown as IssueWire
+} as unknown as IssueViewModel
 
 describe('TaskSheet artifacts', () => {
   it('closes the sheet first, then opens the viewer outside it', async () => {

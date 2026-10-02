@@ -1,4 +1,5 @@
-import type { IssuePanelArtifact, IssueWire, SessionOffer } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssuePanelArtifact, SessionOffer } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -44,13 +45,13 @@ const art = (path: string, addedAt = '2026-08-20T00:00:00.000Z'): IssuePanelArti
   addedAt,
 })
 
-const issue = (artifacts: IssuePanelArtifact[]): IssueWire =>
+const issue = (artifacts: IssuePanelArtifact[]): IssueViewModel =>
   ({
     id: 'iss_offer',
     repoPath: '/repo',
     worktreePath: '/repo/.worktrees/POD-1',
     panel: { todos: [], artifacts, deferred: [] },
-  }) as unknown as IssueWire
+  }) as unknown as IssueViewModel
 
 const offer = (artifacts: string[]): SessionOffer => ({
   message: 'Ready to merge',

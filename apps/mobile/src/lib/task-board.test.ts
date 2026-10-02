@@ -1,4 +1,4 @@
-import type { IssueWire, IssueWireInput } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { filterBoardIssues, taskStateWord } from '@podium/client-core/viewmodels'
 import { describe, expect, it } from 'vitest'
 import { taskBoardOrder, taskBoardProgress, taskBoardSections, taskNeighbours } from './task-board'
@@ -10,7 +10,7 @@ import { taskBoardOrder, taskBoardProgress, taskBoardSections, taskNeighbours } 
  * asserted here is that the phone asks that derivation for roots only, then
  * promotes screenable proposals so they are not trapped under an epic.
  */
-function issue(over: Partial<IssueWireInput> = {}): IssueWire {
+function issue(over: Partial<IssueViewModel> = {}): IssueViewModel {
   return {
     id: 'i',
     repoPath: '/r',
@@ -21,8 +21,8 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     priority: 2,
     type: 'task',
     audience: 'human',
-    origin: 'human',
-    draft: false,
+    intentOrigin: 'human',
+    isDraftVessel: false,
     archived: false,
     labels: [],
     deps: [],
@@ -38,7 +38,7 @@ function issue(over: Partial<IssueWireInput> = {}): IssueWire {
     createdAt: '2026-06-01T00:00:00.000Z',
     updatedAt: '2026-06-01T00:00:00.000Z',
     ...over,
-  } as IssueWire
+  } as IssueViewModel
 }
 
 const rowIds = (sections: ReturnType<typeof taskBoardSections>) =>
@@ -241,7 +241,7 @@ describe('taskBoardSections', () => {
     const rows = taskBoardSections(
       [
         issue({ id: 'real', stage: 'backlog' }),
-        issue({ id: 'draft', stage: 'backlog', draft: true }),
+        issue({ id: 'draft', stage: 'backlog', isDraftVessel: true }),
         issue({ id: 'gone', stage: 'backlog', archived: true }),
         issue({ id: 'tomb', stage: 'backlog', deletedAt: '2026-06-02T00:00:00.000Z' }),
       ],

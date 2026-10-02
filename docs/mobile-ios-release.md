@@ -64,3 +64,52 @@ outlive the fix, because clang caches the broken module *outside* DerivedData:
 ```bash
 rm -rf ~/Library/Developer/Xcode/DerivedData/ModuleCache.noindex
 ```
+
+## Normalized issue release and adoption (POD-4972)
+
+Build **1.0.0 (13)** reads `issueProjection` plus `issueUserState`, `issueGitState`,
+`repo` and `issueDep` through the shared issue view builder. The phone continues
+storing `issue` during the release window. Keep the server's legacy issue emission
+and mobile's legacy-storage switch unchanged until the adoption gate is satisfied.
+The native hello/log version is `1.0.0+13`, from the tracked `app.json` version and
+build number; mobile web continues reporting its served page stamp.
+
+Before uploading, confirm build 13 is unused in App Store Connect. If a different
+build number is needed, change `app.json` before prebuild, archive and validation.
+POD-5113 shares the mobile release: coordinate the final release candidate with
+POD-4286 before cutting an archive. Record the archived source SHA, upload result,
+Apple's processed TestFlight build, its availability time, and the name/model of the
+real phone used to check the issue list, mission, and issue detail. Check question
+options, repo references, draft vessels, and awaiting-merge state on that phone.
+
+The server writes a bounded version summary in its own state directory as
+`mobile-client-versions.json`. It records mobile hello/disconnect events and
+heartbeats connected sockets every minute. Unknown versions and unidentified
+clients block the gate. Restart, an observation gap, or a persistence failure
+starts a new seven-day coverage window; disconnected builds remain in the history.
+The reporter is additive and requires the operator to deploy the integration
+candidate through their normal release flow; do not restart a running server to
+enable it.
+
+After the TestFlight build is available, run on the server host:
+
+```bash
+timeout 30s bun scripts/mobile-adoption-report.ts \
+  --state-root <server-state-directory> \
+  --release 1.0.0+13 --released-at <TestFlight-availability-ISO>
+```
+
+The JSON reports `versions` (current connections, lifetime connection counts and
+last-seen times), `connectedOlder`, `consecutiveQuietDays`, `eligibleAt` and
+`step7Ready`. Exit 2 means the gate is still waiting; a missing or invalid evidence
+file is an error, never a green gate. An updated mobile-web build can be included
+with repeated `--supported-web-version <exact-served-stamp>` only after verifying
+that stamp contains the normalized reader. Mail the distribution and timestamps
+to POD-4286. POD-4973 may start only when `step7Ready` is true: no older or unknown
+client connected for seven consecutive observed days after this release.
+
+Rollback: leave legacy server emission and mobile storage enabled, and cut a new
+TestFlight archive from the previous mobile reader with a fresh build number. A
+rollback archive does not contain this step and must never be declared supported
+by the normalized-record adoption report. Reset the release threshold/time to a
+subsequent archive that contains the fix before allowing step 7.

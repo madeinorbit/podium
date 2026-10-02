@@ -1,10 +1,11 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type {
   IssueNavigationModel,
   UnifiedIssueRow,
   UnifiedWorkGroup,
   UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
-import type { IssueWireInput, SessionMeta } from '@podium/model'
+import type { SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
@@ -22,7 +23,7 @@ import {
  * — a session blocked on the human — so the banding is exercised through the
  * genuine predicate rather than a stand-in.
  */
-function issue(over: Partial<IssueWireInput> = {}): IssueNavigationModel {
+function issue(over: Partial<IssueViewModel> = {}): IssueNavigationModel {
   return {
     id: 'i',
     repoPath: '/r',
@@ -33,8 +34,8 @@ function issue(over: Partial<IssueWireInput> = {}): IssueNavigationModel {
     priority: 2,
     type: 'task',
     audience: 'human',
-    origin: 'human',
-    draft: false,
+    intentOrigin: 'human',
+    isDraftVessel: false,
     archived: false,
     labels: [],
     deps: [],

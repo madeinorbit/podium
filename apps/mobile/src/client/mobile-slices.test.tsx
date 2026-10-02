@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 /**
  * MOBILE READS THE SHARED SLICES (POD-332).
  *
@@ -25,7 +26,7 @@ import {
   resolveSpawnTargetMachine,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { GitRepositoryWire, IssueWire, MachineWire, SessionMeta } from '@podium/model'
+import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import { act, cleanup, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -50,8 +51,8 @@ const REPO: GitRepositoryWire = {
 } as unknown as GitRepositoryWire
 
 function issue(
-  overrides: Omit<Partial<IssueWire>, 'id'> & { id: string; title: string },
-): IssueWire {
+  overrides: Omit<Partial<IssueViewModel>, 'id'> & { id: string; title: string },
+): IssueViewModel {
   return {
     seq: 1,
     stage: 'in_progress',
@@ -65,7 +66,7 @@ function issue(
     updatedAt: '2026-08-01T10:00:00.000Z',
     ...overrides,
     id: asIssueId(overrides.id),
-  } as unknown as IssueWire
+  } as unknown as IssueViewModel
 }
 
 function session(

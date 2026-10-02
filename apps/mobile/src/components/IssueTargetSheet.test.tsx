@@ -1,10 +1,11 @@
-import { asIssueId, type IssueWire } from '@podium/model'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { asIssueId } from '@podium/model'
 import { cleanup, render } from '@testing-library/react'
 import type { ComponentType, ReactNode } from 'react'
 import type { FlatListProps as NativeFlatListProps } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-type FlatListProps = NativeFlatListProps<IssueWire>
+type FlatListProps = NativeFlatListProps<IssueViewModel>
 let captured: FlatListProps | undefined
 
 vi.mock('react-native-safe-area-context', () => ({
@@ -46,7 +47,7 @@ afterEach(() => {
   cleanup()
 })
 
-const candidate = (index: number): IssueWire =>
+const candidate = (index: number): IssueViewModel =>
   ({
     id: asIssueId(`issue-${index}`),
     seq: index,
@@ -66,7 +67,7 @@ const candidate = (index: number): IssueWire =>
     childDoneCount: 0,
     parentBranch: 'main',
     archived: false,
-  }) as unknown as IssueWire
+  }) as unknown as IssueViewModel
 
 describe('IssueTargetSheet scale boundary', () => {
   it('hands hundreds of variable-height candidates to a bounded virtualized list', () => {

@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
 /**
  * THE COMMENT COMPOSER RIDES THE KEYBOARD [2026-08-28 device feedback].
  *
@@ -10,7 +11,7 @@
  * band that docks with it) must live INSIDE the avoiding view, because a
  * composer rendered beside it is exactly the regression that shipped.
  */
-import { asIssueId, type IssueWire, type IssueWireInput } from '@podium/model'
+import { asIssueId } from '@podium/model'
 import { cleanup, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -118,7 +119,7 @@ vi.mock('../components/Composer', async () => {
 const { renderWithMobileStore } = await import('../client/test-support')
 const { IssueScreen } = await import('./IssueScreen')
 
-const issue = (partial: Partial<IssueWireInput> = {}): IssueWire =>
+const issue = (partial: Partial<IssueViewModel> = {}): IssueViewModel =>
   ({
     id: asIssueId('root'),
     repoPath: '/src/podium',
@@ -136,7 +137,7 @@ const issue = (partial: Partial<IssueWireInput> = {}): IssueWire =>
     parentBranch: 'main',
     archived: false,
     ...partial,
-  }) as IssueWire
+  }) as IssueViewModel
 
 describe('task page keyboard avoidance', () => {
   it('pins the comment composer inside the keyboard-avoiding view', async () => {

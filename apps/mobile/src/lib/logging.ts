@@ -1,3 +1,5 @@
+import { Platform } from 'react-native'
+import mobileConfig from '../../app.json'
 /**
  * MOBILE LOG CAPTURE — the phone's half of the one pipeline
  * ([spec:2026-08-11-logging-strategy-design], chunk 5).
@@ -47,7 +49,7 @@ import { PRODUCT_VERSION_META } from '@podium/protocol'
 
 /**
  * WHICH BUILD OF THE PHONE IS RUNNING — read off the page first, the environment
- * second.
+ * second on web; native archives use the tracked marketing version and build number.
  *
  * `EXPO_PUBLIC_APP_VERSION` was the only source, and NOTHING IN THIS REPOSITORY
  * EVER SET IT: not `build`, not the redeploy path, not CI. So every phone
@@ -58,10 +60,9 @@ import { PRODUCT_VERSION_META } from '@podium/protocol'
  * answer this synchronously. Ask that first, the same way `apps/web` does
  * (`pageBuildVersion`).
  *
- * THE ENV VAR IS STILL THE FALLBACK and still matters: a NATIVE build has no
- * index.html to carry a meta tag, so there the inline is the only channel, and
- * an unset one honestly reports `dev` rather than claiming a version it cannot
- * substantiate.
+ * Native archives have no page stamp. Their identity comes from app.json, the
+ * same source Expo prebuild writes into CFBundleShortVersionString/CFBundleVersion.
+ * Including the build number makes two TestFlight archives distinguishable in hello.
  */
 declare const process: { env?: Record<string, string | undefined> } | undefined
 
@@ -72,7 +73,9 @@ export function appVersion(
   declared: string | undefined = typeof process === 'undefined'
     ? undefined
     : process.env?.EXPO_PUBLIC_APP_VERSION,
+  platform: string = Platform.OS,
 ): string {
+  if (platform !== 'web') return `${mobileConfig.expo.version}+${mobileConfig.expo.ios.buildNumber}`
   const stamped = doc
     ?.querySelector(`meta[name="${PRODUCT_VERSION_META}"]`)
     ?.getAttribute('content')

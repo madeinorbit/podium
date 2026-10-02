@@ -1,10 +1,7 @@
-import {
-  asIssueId,
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { asIssueId,
   asSessionId,
-  type IssueWire,
-  type IssueWireInput,
-  type SessionMeta,
-} from '@podium/model'
+  type SessionMeta } from '@podium/model'
 import { cleanup, fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
@@ -34,7 +31,7 @@ vi.mock('react-native-svg', () => ({
 
 const { MissionDeck } = await import('./MissionDeck')
 
-const issue = (partial: Partial<IssueWireInput> = {}): IssueWire =>
+const issue = (partial: Partial<IssueViewModel> = {}): IssueViewModel =>
   ({
     id: asIssueId('root'),
     repoPath: '/src/podium',
@@ -52,7 +49,7 @@ const issue = (partial: Partial<IssueWireInput> = {}): IssueWire =>
     parentBranch: 'main',
     archived: false,
     ...partial,
-  }) as IssueWire
+  }) as IssueViewModel
 
 const root = issue({ id: asIssueId('root'), seq: 1, title: 'The mission' })
 const quiet = issue({
