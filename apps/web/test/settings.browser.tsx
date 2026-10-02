@@ -11,8 +11,10 @@ import { SettingsView } from '../src/features/settings/SettingsView'
 import { ColdStartComposer } from '../src/features/setup/ColdStartComposer'
 import { settingsDataLayer } from '../src/features/settings/data-layer'
 import { preferenceReadStats } from '../src/lib/preferences-data-layer'
+import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
+import '../src/styles.css'
 
 const fixture = createHeaderFixture(5600, 5014)
 const failures: string[] = []
@@ -36,10 +38,17 @@ function Surface() {
   owner = useStoreHandle() as ClientRuntime
   pool = useWorklistPool()
   useEffect(() => {
-    fixture.publishMachines()
-    owner.getSnapshot().setSettingsTab('accounts')
-    ready = settingsDataLayer() === 'legacy' || pool !== null
-    return () => { ready = false }
+    let active = true
+    queueMicrotask(async () => {
+      if (!active) return
+      // Provider start installs the real hub listeners in its passive effect.
+      fixture.publishMachines()
+      await owner.getSnapshot().refreshRepos()
+      if (!active) return
+      owner.getSnapshot().setSettingsTab('accounts')
+      ready = settingsDataLayer() === 'legacy' || pool !== null
+    })
+    return () => { active = false; ready = false }
   }, [pool, owner])
   return <main style={{ minHeight: '100vh', padding: 24 }}>
     <Profiler id="settings" onRender={(_id, _phase, duration) => { commits++; commitMs += duration }}>
@@ -55,7 +64,7 @@ function App() {
     config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
     createReplicaFn={() => fixture.newReplica()} networkEnabled={false} onFatalError={(error) => failures.push(error)}
     attachRuntime={(runtime) => { fixture.bindHub(runtime.hub); return attachWorklistPool(runtime, (error) => failures.push(error.message)) }}
-  ><Surface /></StoreProvider>
+  ><ConfirmProvider><Surface /></ConfirmProvider></StoreProvider>
 }
 const root = createRoot(document.getElementById('root')!)
 root.render(<App />)

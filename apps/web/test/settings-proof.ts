@@ -25,7 +25,7 @@ try {
   for (const mode of ['before', 'after'] as const) {
     const page = await browser.newPage({ viewport: { width: 1200, height: 900 } })
     const errors: string[] = []
-    page.on('pageerror', (error) => errors.push(error.message))
+    page.on('pageerror', (error) => { errors.push(error.message); console.error(`Settings fixture error: ${error.message}`) })
     await page.goto(`${origin}/test/settings.browser.html?mobxSettings=${mode === 'after' ? 1 : 0}`)
     await page.waitForFunction(() => window.__settings?.ready(), null, { timeout: 60000 })
     await page.getByRole('heading', { name: 'Accounts & Keys', exact: true }).waitFor()
