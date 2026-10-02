@@ -22,10 +22,14 @@ const store = vi.hoisted(() => {
       return () => void listeners.delete(cb)
     },
   }
-  return { data, uiState, available: { value: true } }
+  return { data, listeners, uiState, available: { value: true }, legacyReads: vi.fn() }
 })
 
 vi.mock('@podium/client-core/react', () => ({
+  useStoreSelector: (select: (s: unknown) => unknown) => {
+    store.legacyReads()
+    return select({ uiState: store.available.value ? store.uiState : undefined })
+  },
   useStoreHandle: () => ({
     getSnapshot: () => ({ uiState: store.available.value ? store.uiState : undefined }),
   }),
@@ -52,6 +56,7 @@ describe('usePersistedUiState', () => {
 
   beforeEach(() => {
     store.data.clear()
+    store.legacyReads.mockClear()
     store.available.value = true
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -67,6 +72,14 @@ describe('usePersistedUiState', () => {
     act(() => root.render(node))
   }
   const text = (): string => container.textContent ?? ''
+
+  it('uses the preference subscription without a legacy snapshot selector', () => {
+    render(<Collapsed />)
+    expect(store.listeners.size).toBe(1)
+    act(() => store.uiState.set(KEY, 'true'))
+    expect(text()).toBe('collapsed')
+    expect(store.legacyReads).not.toHaveBeenCalled()
+  })
 
   it('adopts a replicated value that arrives AFTER mount', () => {
     // The row is not in the replica yet — exactly the state a seeded
