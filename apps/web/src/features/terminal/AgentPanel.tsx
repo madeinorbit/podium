@@ -59,7 +59,6 @@ import { OfferDismissalContext, useOfferDismissalHost } from '@/features/chat/of
 import { OfferLiftContext, useOfferLiftHost } from '@/features/chat/offer-lift'
 import { agentBrandDot } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
-import { effectiveIssueColorHex } from '@/lib/issueColors'
 import { issueAgentKind } from '@/lib/issue-agents'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
@@ -87,7 +86,7 @@ import { sessionAgeMs, startupOverlay } from './startup-overlay'
 import { usePanelSurface } from './use-panel-surface'
 import { prettyCwd } from './pretty-cwd'
 import { useTerminalAppearance } from './use-terminal-appearance'
-import { usePaneSession, usePaneMachines, usePaneSpawnConfirmed } from './use-session-pane-inputs'
+import { usePaneSession, usePaneMachines, usePaneSpawnConfirmed, usePaneOwnership } from './use-session-pane-inputs'
 import { sessionPaneDataLayer } from './session-pane-data-layer'
 
 // Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
@@ -222,7 +221,6 @@ export function AgentPanel({
     sendChat,
     openFile,
     uiState,
-    selectedIssueId,
     navigateToSession,
   } = useStoreSelector(
     (s) => ({
@@ -238,13 +236,13 @@ export function AgentPanel({
       sendChat: s.sendChat,
       openFile: s.openFile,
       uiState: s.uiState,
-      selectedIssueId: s.selectedIssueId,
       navigateToSession: s.navigateToSession,
     }),
     shallowEqual,
   )
   const session = usePaneSession(sessionId)
   const machines = usePaneMachines()
+  const { selectedIssueId, stampIssue, issueHex } = usePaneOwnership(session)
   const [loginTerminalBusy, setLoginTerminalBusy] = useState(false)
   const [loginTerminalError, setLoginTerminalError] = useState<string | null>(null)
   const [pendingLoginSessionId, setPendingLoginSessionId] = useState<SessionId | null>(null)
@@ -575,23 +573,6 @@ export function AgentPanel({
   // §2.5): the selected issue's colour (slate flow when uncoloured) mixed over
   // the terminal base, mirrored into the xterm theme via setAppearance — no
   // remount. A user-set custom background wins over the tint (Q6).
-  const selectedIssue = selectedIssueId
-    ? issues.find((i) => i.id === selectedIssueId && !i.archived && !i.deletedAt)
-    : undefined
-  // The SESSION's own issue (not the pane selection) — owns the git stamp
-  // [POD-98]. Explicit attachment wins; else the worktree containing the cwd.
-  const stampIssue = (issues ?? []).find(
-    (i) =>
-      !i.deletedAt &&
-      !i.archived &&
-      (session?.issueId === i.id ||
-        (i.worktreePath !== null &&
-          session?.cwd !== undefined &&
-          (session.cwd === i.worktreePath || session.cwd.startsWith(`${i.worktreePath}/`)))),
-  )
-  // Same flow-colour resolution as the shell root (own colour, else nearest
-  // coloured ancestor) so the terminal never disagrees with the pane chrome.
-  const issueHex = effectiveIssueColorHex(selectedIssue, (id) => issues.find((i) => i.id === id))
   const termBg = termSettings.background ?? paneTintedBackground(issueHex)
   const appearance = useMemo(
     () => (termSettings.background ? termAppearance : withBackground(termAppearance, termBg)),

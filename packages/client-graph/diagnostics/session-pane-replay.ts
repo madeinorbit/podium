@@ -8,6 +8,10 @@ import { sessionViews } from '@podium/client-core/session-values'
 import { dedupeSessions, type Store } from '@podium/client-core/engine'
 import { NdjsonLineReader, readSyncStream } from '@podium/client-core/sync-stream'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { createRuntimeWorklistPool } from '../src/runtime-pool'
+import { SessionPaneSource } from '../src/session-pane-source'
+import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from '../src/session-pane-schema'
+import { checkSessionPanes } from './session-pane-check'
 import { ScenarioCache } from '../../worklist-proto/shared/src/scenarios'
 
 let phase = 0
@@ -55,6 +59,26 @@ async function main() {
   console.log(JSON.stringify({ phase, sessions: sessions.length, issues: issues.length, multipleMatches, differentTies }))
   if (!sessions.length || !issues.length) process.exitCode = 1
   if (process.argv.includes('--audit-only')) return
-  // Full screen replay is added alongside the completed ownership rule.
+  phase = 4
+  const state = { sessions, machines: replica.rows('machines'), repos: [], issueProjections: replica.rows('issueProjections'),
+    issueUserStates: replica.rows('issueUserStates'), coarseNow: Date.now(), selectedIssueId: null,
+    panelMode: {}, dockShells: {}, reposLoaded: true, pendingSpawnIds: new Set(),
+  } as unknown as Store
+  const runtime = { replica, getSnapshot: () => state, pendingOverlaysByRow: () => new Map(), subscribe: () => () => {} }
+  const handle = createRuntimeWorklistPool(runtime as Parameters<typeof createRuntimeWorklistPool>[0], { summaries: SESSION_PANE_SUMMARIES })
+  const pool = handle.pool
+  pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource(runtime as never))
+  pool.header.apply(state.machines.map(row => ({ kind: 'machine', id: row.id, value: row })))
+  pool.header.order('machine', state.machines.map(row => row.id))
+  try {
+    let result = checkSessionPanes(pool, state, undefined, issues)
+    for (let round = 0; result.pending && round < 64; round++) {
+      pool.hydrate()
+      result = checkSessionPanes(pool, state, undefined, issues)
+    }
+    phase = 5
+    console.log(JSON.stringify({ phase, sessions: sessions.length, issues: issues.length, ...result }))
+    if (result.differences || result.pending) process.exitCode = 1
+  } finally { handle.dispose() }
 }
 if (import.meta.main) main().catch(() => { console.log(JSON.stringify({ replay: 'unavailable', phase, httpStatus })); process.exitCode = 1 })

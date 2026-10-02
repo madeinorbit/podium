@@ -3,12 +3,13 @@ import { sessionById } from '@podium/client-core/viewmodels'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SessionId, MachineWire } from '@podium/model/browser'
 import { useCallback } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { MobxPool } from '@podium/client-graph'
-import { paneSession, paneMachines, paneWindow, paneHasSessions, paneSpawnConfirmed } from '@podium/client-graph/session-pane'
+import { paneSession, paneMachines, paneWindow, paneHasSessions, paneSpawnConfirmed, paneStampIssue, paneIssueColor } from '@podium/client-graph/session-pane'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { sessionPaneDataLayer } from './session-pane-data-layer'
+import { effectiveIssueColorHex, issueColorHex } from '@/lib/issueColors'
 import type { SessionPaneRows } from '@podium/client-graph/session-pane-schema'
 
 const EMPTY_MACHINES: MachineWire[] = []
@@ -86,4 +87,29 @@ function usePoolDockInputs(cwd: string, pending: string | null) {
 export function useDockPaneInputs(cwd: string, pending: string | null) {
   const useRead = sessionPaneDataLayer() === 'pool' ? usePoolDockInputs : useLegacyDockInputs
   return useRead(cwd, pending)
+}
+
+function useLegacyPaneOwnership(session: SessionView | undefined) {
+  const issues = useReplicaIssues()
+  return useStoreSelector(s => legacySessionPaneRead(s.replica ?? s, 'ownership', () => {
+    const selectedIssueId = s.selectedIssueId
+    const selected = selectedIssueId ? issues.find(i => i.id === selectedIssueId && !i.archived && !i.deletedAt) : undefined
+    const stamp = issues.find(i => !i.deletedAt && !i.archived && (session?.issueId === i.id ||
+      (i.worktreePath !== null && session?.cwd !== undefined &&
+        (session.cwd === i.worktreePath || session.cwd.startsWith(`${i.worktreePath}/`)))))
+    return { selectedIssueId, stampIssue: stamp, issueHex: effectiveIssueColorHex(selected, id => issues.find(i => i.id === id)) }
+  })), (a, b) => a.selectedIssueId === b.selectedIssueId && a.stampIssue === b.stampIssue && a.issueHex === b.issueHex)
+}
+function usePoolPaneOwnership(session: SessionView | undefined) {
+  const read = useCallback((pool: MobxPool) => {
+    const selectedIssueId = pool.selection.keys().next().value ?? null
+    const stamp = paneStampIssue(pool, session)
+    const color = paneIssueColor(pool, selectedIssueId, issueColorHex)
+    return { selectedIssueId, stampIssue: stamp === LOADING ? undefined : stamp, issueHex: color === LOADING ? undefined : color }
+  }, [session])
+  return useWorklistPoolProjection(read, { selectedIssueId: null, stampIssue: undefined, issueHex: undefined })
+}
+export function usePaneOwnership(session: SessionView | undefined) {
+  const useRead = sessionPaneDataLayer() === 'pool' ? usePoolPaneOwnership : useLegacyPaneOwnership
+  return useRead(session)
 }

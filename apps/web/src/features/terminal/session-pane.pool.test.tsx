@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { useCallback, useMemo, useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { SessionView } from '@podium/client-core/session-values'

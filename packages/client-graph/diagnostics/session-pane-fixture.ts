@@ -11,7 +11,7 @@ export function sessionPaneFixture(): SessionView[] {
     { agentState: { phase: 'needs_user', since: '2026-10-01T23:30:00Z' }, offer: { message: 'Review ready', actions: [{ label: 'Continue', prompt: 'continue' }], createdAt: '2026-10-01T23:40:00Z' } },
     { agentState: { phase: 'errored', error: 'synthetic failure' } },
     { status: 'hibernated', resumable: true },
-    { status: 'hibernated', agentState: { phase: 'idle', queuedCount: 2 }, resumable: true },
+    { status: 'hibernated', agentState: { phase: 'idle' }, queuedMessageCount: 2, resumable: true },
     { status: 'exited', exitCode: 2, resumable: true },
     { status: 'exited', agentKind: 'shell', exitCode: 0 },
     { status: 'exited', neverBound: true, spawnFailure: 'synthetic spawn refusal' },

@@ -1,11 +1,11 @@
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import type { MachineWire } from '@podium/model/browser'
-import { autorun, runInAction } from 'mobx'
+import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { checkSessionPanes } from '../diagnostics/session-pane-check'
 import { sessionPaneFixture, SESSION_PANE_NOW } from '../diagnostics/session-pane-fixture'
 import { MobxPool } from './pool'
-import { paneSession, paneWindow, paneSpawnConfirmed } from './session-pane'
+import { paneSession, paneWindow, paneSpawnConfirmed, paneStampIssue, paneIssueColor } from './session-pane'
 import { SessionPaneSource } from './session-pane-source'
 import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from './session-pane-schema'
 import { LOADING } from './worklist/rollup'
@@ -97,4 +97,40 @@ it('isolates addressed pane updates and releases the control source with its poo
     expect(f.listeners.size).toBe(0)
     expect(f.pool.row('sessionPaneWindow', 'window')).toBe(LOADING)
   } finally { f.pool.dispose() }
+})
+
+function issue(id: string, path: string | null, patch: Record<string, unknown> = {}) {
+  return { id, seq: 1, title: id, stage: 'in_progress', repoPath: '/synthetic', deps: [],
+    createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', archived: false, worktreePath: path, ...patch }
+}
+it('chooses the explicit eligible attachment even when a containing checkout appears first', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW })
+  try {
+    pool.apply({ type: 'replace', rows: [issue('outer', '/synthetic'), issue('attached', '/elsewhere')].map(row => ({ kind: 'issue', id: row.id, value: row as never })) })
+    const session = { ...sessionPaneFixture()[0]!, issueId: 'attached', cwd: '/synthetic/nested/file' } as SessionView
+    expect(paneStampIssue(pool, session)).toMatchObject({ id: 'attached' })
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'attached', value: issue('attached', '/elsewhere', { archived: true }) as never }] })
+    expect(paneStampIssue(pool, session)).toMatchObject({ id: 'outer' })
+  } finally { pool.dispose() }
+})
+it('chooses the nearest eligible cwd ancestor at exact slash boundaries, including a missing scanned lane', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW })
+  try {
+    const rows = [issue('outer', '/synthetic'), issue('inner', '/synthetic/nested'), issue('deleted', '/synthetic/nested/file', { deletedAt: '2026-10-01T00:00:00Z' })]
+    pool.apply({ type: 'replace', rows: rows.map(row => ({ kind: 'issue', id: row.id, value: row as never })) })
+    const session = { ...sessionPaneFixture()[0]!, cwd: '/synthetic/nested/file/deep' }
+    expect(paneStampIssue(pool, session)).toMatchObject({ id: 'inner' })
+    expect(paneStampIssue(pool, { ...session, cwd: '/synthetic/nested-other/file' })).toMatchObject({ id: 'outer' })
+    expect(paneStampIssue(pool, { ...session, cwd: '/synthetic-other/file' })).toBeUndefined()
+  } finally { pool.dispose() }
+})
+it('inherits the selected issue tint through summary fields and stops on a parent cycle', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW })
+  try {
+    pool.apply({ type: 'replace', rows: [issue('root', null, { color: 'violet' }), issue('child', null, { parentId: 'root' })].map(row => ({ kind: 'issue', id: row.id, value: row as never })) })
+    const hex = (name: string | null | undefined) => name === 'violet' ? '#abc' : undefined
+    expect(paneIssueColor(pool, 'child', hex)).toBe('#abc')
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'root', value: issue('root', null, { parentId: 'child' }) as never }] })
+    expect(paneIssueColor(pool, 'child', hex)).toBeUndefined()
+  } finally { pool.dispose() }
 })

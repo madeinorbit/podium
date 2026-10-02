@@ -4,8 +4,10 @@ import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import { attentionGroup } from '@podium/client-core/focus'
 import { sessionWaking, resumeCommand, sessionUrgencyRank, exitedRecovery } from '@podium/client-core/viewmodels'
 import type { SessionView } from '@podium/client-core/session-values'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { allIssueViewModels } from '@podium/client-core/replica'
 import type { MobxPool } from '../src/pool'
-import { paneSession, paneWindow, paneMachines } from '../src/session-pane'
+import { paneSession, paneWindow, paneMachines, paneStampIssue } from '../src/session-pane'
 import { SESSION_PANE_SCHEMA } from '../src/session-pane-schema'
 import { LOADING } from '../src/worklist/rollup'
 import { compareSidebarSnapshots, type CheckRow } from './sidebar-check'
@@ -26,13 +28,26 @@ export function paneComparable(row: SessionView | undefined, now: number): Recor
   }
 }
 export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' | 'machines' | 'panelMode' | 'dockShells' | 'reposLoaded' | 'pendingSpawnIds' | 'coarseNow'>,
-  ids = state.sessions.map(row => row.sessionId as string)) {
+  ids = state.sessions.map(row => row.sessionId as string), issues: readonly IssueViewModel[] = []) {
   let pending = 0
-  const expected = ids.map((id): CheckRow => ({ id, fields: paneComparable(state.sessions.find(row => row.sessionId === id), state.coarseNow) }))
+  let acceptedOwnershipDifferences = 0
+  const expected = ids.map((id): CheckRow => {
+    const row = state.sessions.find(row => row.sessionId === id)
+    const eligible = issues.filter(issue => !issue.archived && !issue.deletedAt)
+    const candidates = eligible.filter(issue => row && (row.issueId === issue.id ||
+      (issue.worktreePath !== null && (row.cwd === issue.worktreePath || row.cwd.startsWith(`${issue.worktreePath}/`)))))
+    const approved = row && (eligible.find(issue => issue.id === row.issueId) ??
+      [...candidates].sort((a, b) => (b.worktreePath?.length ?? 0) - (a.worktreePath?.length ?? 0))[0])
+    if (candidates[0]?.id !== approved?.id) acceptedOwnershipDifferences++
+    return { id, fields: { ...paneComparable(row, state.coarseNow), stamp: approved ? { id: approved.id, branch: approved.branch, gitState: approved.gitState } : undefined } }
+  })
   const actual = ids.map((id): CheckRow => {
     const row = paneSession(pool, id)
-    if (row === LOADING) pending++
-    return { id, pending: row === LOADING, fields: row === LOADING ? {} : paneComparable(row, state.coarseNow) }
+    const stamp = row === LOADING ? LOADING : paneStampIssue(pool, row)
+    const loading = row === LOADING || stamp === LOADING
+    if (loading) pending++
+    return { id, pending: loading, fields: loading ? {} : { ...paneComparable(row === LOADING ? undefined : row, state.coarseNow),
+      stamp: stamp && stamp !== LOADING ? { id: stamp.id, branch: stamp.branch, gitState: stamp.gitState } : undefined } }
   })
   const window = paneWindow(pool)
   const windowPending = window === LOADING
@@ -51,12 +66,15 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
     { key: 'controls', fields: controls(window), pendingFields: windowPending ? ['panelMode', 'dockShells', 'reposLoaded', 'pendingSpawnIds'] : [], rows: [] },
     { key: 'machines', fields: {}, rows: machineRows(paneMachines(pool)) },
   ], pending })
-  return { differences: result.differences, pending: result.pending, positions: result.rows,
+  return { differences: result.differences, pending: result.pending, positions: result.rows, acceptedOwnershipDifferences,
     first: result.first ? { section: result.first.sectionIndex, index: result.first.rowIndex, field: result.first.field } : null }
 }
 export function installSessionPaneCheck(pool: MobxPool, runtime: ClientRuntime): () => void {
   if (typeof window === 'undefined') return () => {}
-  const check = () => checkSessionPanes(pool, runtime.getSnapshot())
+  const check = () => {
+    const state = runtime.getSnapshot()
+    return checkSessionPanes(pool, state, undefined, allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates))
+  }
   Object.assign(window, { __sessionPaneCheck: check })
   return () => { if (Reflect.get(window, '__sessionPaneCheck') === check) Reflect.deleteProperty(window, '__sessionPaneCheck') }
 }
