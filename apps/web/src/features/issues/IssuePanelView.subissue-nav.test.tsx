@@ -1,4 +1,5 @@
 import '@/test-support/mock-core-store-handle'
+import '@/test-support/model-catalog-mock'
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -219,4 +220,3 @@ describe('IssuePanelView subissue rows', () => {
     expect(within(relations).getByText('Review dependency')).toBeTruthy()
   })
 })
-import '@/test-support/model-catalog-mock'
