@@ -5,10 +5,9 @@ import { GOLDEN } from './__fixtures__/golden'
 import { FeedChange, FeedChangeLenient } from './messages/feed'
 import { MetadataChange, MetadataChangeLenient, MetadataEntityKind } from './messages/sync'
 
-/** Targeted evidence for the additive migration. Other pre-existing corpus
- * drift is tracked separately; the old IssueWire cases remain an exact pin. */
-describe('additive issue companions on the wire', () => {
-  it('pins each new shape and preserves every old IssueWire golden byte', () => {
+/** Each independently keyed companion remains part of the supported protocol. */
+describe('normalized issue companions on the wire', () => {
+  it('pins the companion shapes', () => {
     const model = buildCorpus().find((family) => family.family === 'model')!
     const schemas = new Set([
       'IssueUserStateWire',
@@ -16,7 +15,6 @@ describe('additive issue companions on the wire', () => {
       'Repo',
       'RepoIdentity',
       'RepoProjection',
-      'IssueWire',
     ])
     const golden = GOLDEN.model as typeof model
     const actual = model.cases.filter((c) => schemas.has(c.schema))
@@ -24,7 +22,7 @@ describe('additive issue companions on the wire', () => {
     expect(actual).toEqual(golden.cases.filter((c) => schemas.has(c.schema)))
   })
 
-  it('accepts the new kinds on v1 and v2 without changing the legacy kind', () => {
+  it('accepts companions in snapshots and feed envelopes', () => {
     const states = [
       [
         'issueUserState',
@@ -63,6 +61,6 @@ describe('additive issue companions on the wire', () => {
         entity: 'futureIssueCompanion',
       })
     }
-    expect(MetadataEntityKind.options).toContain('issue')
+    expect(MetadataEntityKind.options).not.toContain('issue')
   })
 })

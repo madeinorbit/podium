@@ -1,5 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
-import { } from '@podium/model/browser'
+import { normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { makeIssue } from './test-issue'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { IDBFactory } from 'fake-indexeddb'
@@ -31,10 +30,10 @@ const meta = {
 }
 const row = {
   seq: 1,
-  entity: 'issue',
+  entity: 'issueProjection',
   entityId: 'i',
   op: 'upsert',
-  value: IssueViewModel.parse(makeIssue({ id: 'i', title: 'HTTP' })),
+  value: normalizedFixtureStore({ issues: [makeIssue({ id: 'i', title: 'HTTP' })] }).replica.rows('issueProjections')[0],
 }
 const chunk = {
   type: 'feedBootstrap',

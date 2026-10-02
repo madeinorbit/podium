@@ -204,31 +204,31 @@ describe('BootstrapSession — staging and the atomic swap', () => {
     // (offline) keeps serving the last-known state. Clearing first and filling
     // after is the obvious implementation and the one D6 forbids.
     const replica = createReplica({ storage: memoryStorage() })
-    replica.applySnapshot('issues', [{ id: 'old', title: 'stale but visible' } as never])
+    replica.applySnapshot('issueProjections', [{ id: 'old', title: 'stale but visible' } as never])
     replica.setFeedCursor(at('feed_1', 'epoch_1', 5))
 
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_2', 9), noYield)
     await session.install({ changes: [upsert('issue', 'new', 1)] })
 
     // Mid-bootstrap: the old world is still there, untouched.
-    expect(replica.rows('issues').map((i) => i.id)).toEqual(['old'])
+    expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['old'])
     expect(replica.getFeedCursor()).toEqual(at('feed_1', 'epoch_1', 5))
 
     session.commit()
-    expect(replica.rows('issues').map((i) => i.id)).toEqual(['new'])
+    expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['new'])
     expect(replica.getFeedCursor()).toEqual(at('feed_1', 'epoch_2', 9))
   })
 
   it('an aborted bootstrap leaves the replica exactly as it was', async () => {
     const replica = createReplica({ storage: memoryStorage() })
-    replica.applySnapshot('issues', [{ id: 'old', title: 'old' } as never])
+    replica.applySnapshot('issueProjections', [{ id: 'old', title: 'old' } as never])
     replica.setFeedCursor(at('feed_1', 'epoch_1', 5))
 
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 9), noYield)
     await session.install({ changes: [upsert('issue', 'new', 1)] })
     session.abort()
 
-    expect(replica.rows('issues').map((i) => i.id)).toEqual(['old'])
+    expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['old'])
     expect(replica.getFeedCursor()).toEqual(at('feed_1', 'epoch_1', 5))
   })
 
@@ -236,9 +236,9 @@ describe('BootstrapSession — staging and the atomic swap', () => {
     // A subscriber that reacted to the transient half-installed list is exactly
     // what yanked the engine's worktree selection once (#262).
     const replica = createReplica({ storage: memoryStorage() })
-    replica.applySnapshot('issues', [{ id: 'old', title: 'old' } as never])
+    replica.applySnapshot('issueProjections', [{ id: 'old', title: 'old' } as never])
     const seen: string[][] = []
-    replica.subscribeRows('issues', () => seen.push(replica.rows('issues').map((i) => i.id)))
+    replica.subscribeRows('issueProjections', () => seen.push(replica.rows('issueProjections').map((i) => i.id)))
 
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 9), noYield)
     void session.install({ changes: [upsert('issue', 'a', 1), upsert('issue', 'b', 2)] })
@@ -249,14 +249,14 @@ describe('BootstrapSession — staging and the atomic swap', () => {
 
   it('installs across kinds and drops rows the authority no longer has', async () => {
     const replica = createReplica({ storage: memoryStorage() })
-    replica.applySnapshot('issues', [{ id: 'gone', title: 'gone' } as never])
+    replica.applySnapshot('issueProjections', [{ id: 'gone', title: 'gone' } as never])
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 3), noYield)
     await session.install({
       changes: [upsert('issue', 'i1', 1), upsert('session', 's1', 2, { sessionId: 's1' })],
     })
     session.commit()
 
-    expect(replica.rows('issues').map((i) => i.id)).toEqual(['i1'])
+    expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['i1'])
     expect(replica.rows('sessions').map((s) => s.sessionId)).toEqual(['s1'])
   })
 
@@ -267,7 +267,7 @@ describe('BootstrapSession — staging and the atomic swap', () => {
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 2), noYield)
     await session.install({ changes: [upsert('machine', 'm1', 1), upsert('issue', 'i1', 2)] })
     session.commit()
-    expect(replica.rows('issues').map((i) => i.id)).toEqual(['i1'])
+    expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['i1'])
   })
 })
 
@@ -329,7 +329,7 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
     session.bufferDelta(13, changes)
     session.commit()
 
-    expect(replica.rows('issues')).toMatchObject(expected)
+    expect(replica.rows('issueProjections')).toMatchObject(expected)
     expect(replica.getFeedCursor().seq).toBe(Math.max(...changes.map((change) => change.seq)))
   })
 
@@ -344,7 +344,7 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
     ])
     session.commit()
 
-    expect(replica.rows('issues')).toEqual([])
+    expect(replica.rows('issueProjections')).toEqual([])
     expect(replica.rows('machines')).toMatchObject([{ id: 'shared-id', title: 'shared-id' }])
     expect(replica.getFeedCursor().seq).toBe(13)
   })
@@ -359,10 +359,10 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
       session.bufferDelta(11, [upsert('issue', 'i1', 11, { id: 'i1', title: 'as of 11' })]),
     ).toBe(true)
     // Nothing applied yet.
-    expect(replica.rows('issues')).toHaveLength(0)
+    expect(replica.rows('issueProjections')).toHaveLength(0)
 
     session.commit()
-    expect(replica.rows('issues')[0]?.title).toBe('as of 11')
+    expect(replica.rows('issueProjections')[0]?.title).toBe('as of 11')
     expect(replica.getFeedCursor().seq).toBe(11)
   })
 
@@ -376,7 +376,7 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
     session.bufferDelta(11, [remove('issue', 'i1', 11)])
     session.commit()
 
-    expect(replica.rows('issues').map((i) => i.id)).toEqual(['i2'])
+    expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['i2'])
     expect(replica.getFeedCursor().seq).toBe(11)
   })
 
@@ -387,7 +387,7 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
     session.bufferDelta(13, [upsert('issue', 'i1', 13, { id: 'i1', title: 'last' })])
     session.bufferDelta(12, [upsert('issue', 'i1', 12, { id: 'i1', title: 'middle' })])
     session.commit()
-    expect(replica.rows('issues')[0]?.title).toBe('last')
+    expect(replica.rows('issueProjections')[0]?.title).toBe('last')
     expect(replica.getFeedCursor().seq).toBe(13)
   })
 
@@ -426,7 +426,7 @@ describe('snapshotToChunks — today’s monolithic arm through the final machin
       await session.install(chunk)
     }
     session.commit()
-    expect(replica.rows('issues').map((i) => i.id)).toEqual(['i1', 'i2'])
+    expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['i1', 'i2'])
     expect(replica.getFeedCursor().seq).toBe(42)
   })
 })
@@ -444,7 +444,7 @@ describe('D7 conformance: THE OUTBOX SURVIVES EVERY RUNG', () => {
     const replica = createReplica({ storage })
 
     // A warm replica on epoch_1.
-    replica.applySnapshot('issues', [{ id: 'i1', title: 'from epoch 1' } as never])
+    replica.applySnapshot('issueProjections', [{ id: 'i1', title: 'from epoch 1' } as never])
     replica.setFeedCursor(at('feed_1', 'epoch_1', 77))
     // The user, offline, types something.
     replica.outboxStorage().save([userWrite])
@@ -460,7 +460,7 @@ describe('D7 conformance: THE OUTBOX SURVIVES EVERY RUNG', () => {
 
     // Rung 4: discard the cache, re-bootstrap.
     replica.resetCache()
-    expect(replica.rows('issues')).toHaveLength(0)
+    expect(replica.rows('issueProjections')).toHaveLength(0)
     expect(replica.getFeedCursor()).toEqual(COLD_CURSOR)
 
     // THE ASSERTION. A command is a request against an entity, not against a
@@ -475,7 +475,7 @@ describe('D7 conformance: THE OUTBOX SURVIVES EVERY RUNG', () => {
     })
     session.commit()
 
-    expect(replica.rows('issues').map((i) => i.id)).toEqual(['i2'])
+    expect(replica.rows('issueProjections').map((i) => i.id)).toEqual(['i2'])
     expect(replica.getFeedCursor()).toEqual(at('feed_1', 'epoch_2', 78))
     // Still there, on the far side of the whole ladder, ready to drain.
     expect(replica.outboxStorage().load()).toEqual([userWrite])
@@ -487,7 +487,7 @@ describe('D7 conformance: THE OUTBOX SURVIVES EVERY RUNG', () => {
     // on the next reload passes the test above and still eats the user's work.
     const storage = memoryStorage()
     const first = createReplica({ storage })
-    first.applySnapshot('issues', [{ id: 'i1', title: 'i1' } as never])
+    first.applySnapshot('issueProjections', [{ id: 'i1', title: 'i1' } as never])
     first.setFeedCursor(at('feed_1', 'epoch_1', 77))
     first.outboxStorage().save([userWrite])
     first.resetCache()
@@ -495,7 +495,7 @@ describe('D7 conformance: THE OUTBOX SURVIVES EVERY RUNG', () => {
 
     const reloaded = createReplica({ storage })
     const result = await reloaded.hydrate()
-    expect(result.issues).toHaveLength(0)
+    expect(result.issueProjections).toHaveLength(0)
     expect(result.cursor).toBeNull()
     expect(reloaded.outboxStorage().load()).toEqual([userWrite])
   })
@@ -506,7 +506,7 @@ describe('D7 conformance: THE OUTBOX SURVIVES EVERY RUNG', () => {
     // Were the cursor to survive at 77, this would say "apply" over an empty
     // replica and be wrong forever.
     const replica = createReplica({ storage: memoryStorage() })
-    replica.applySnapshot('issues', [{ id: 'i1', title: 'i1' } as never])
+    replica.applySnapshot('issueProjections', [{ id: 'i1', title: 'i1' } as never])
     replica.setFeedCursor(at('feed_1', 'epoch_1', 77))
     replica.resetCache()
 

@@ -199,6 +199,13 @@ export async function checkServerVersion(
     return 'server-behind'
   }
 
+  const pageOrigin = globalThis.location?.origin
+  if (pageOrigin === 'tauri://localhost' || pageOrigin === 'http://tauri.localhost' || pageOrigin === 'https://tauri.localhost') {
+    reportSkew({ source: 'boot-digest', severe: true,
+      message: 'Update Podium to continue. This desktop app contains an older app build than the server supports.' })
+    return 'blocked'
+  }
+
   const serverWire = server.wireVersion
   const serverMin = server.minSupportedVersion
 

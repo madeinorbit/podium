@@ -8,7 +8,8 @@ import {
   asRepoId,
   asSessionId,
   IssueProjection,
-  type IssueWire,
+  asUserId,
+  actorUser,
   RepoProjection,
   type ShipLaneProjection,
   shipLaneId,
@@ -46,44 +47,24 @@ class FakeSocket implements WebSocketLike {
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
 
-// Must satisfy the real IssueWire zod schema: the hub's lenient parser quarantines
+// Must satisfy the real IssueProjection zod schema: the hub's lenient parser quarantines
 // invalid change rows and treats a quarantined delta as a cursor gap (a heal),
 // so a sloppy fixture would silently test the WRONG code path.
-const issue = (id: string, title: string): IssueWire => ({
-  id: asIssueId(id),
-  repoPath: '/r',
-  seq: 1,
-  title,
-  description: '',
-  stage: 'backlog',
-  worktreePath: null,
-  branch: null,
-  parentBranch: 'main',
-  defaultAgent: 'claude-code',
-  defaultModel: 'auto',
-  defaultEffort: 'auto',
-  blockedByNotes: [],
-  priority: 2,
-  type: 'task',
-  pinned: false,
-  needsHuman: false,
-  labels: [],
-  deps: [],
-  dependents: [],
-  comments: [],
-  ready: true,
-  blocked: false,
-  deferred: false,
-  childCount: 0,
-  childDoneCount: 0,
-  createdAt: '2026-07-01T00:00:00.000Z',
-  updatedAt: '2026-07-01T00:00:00.000Z',
-  archived: false,
-  readAt: null,
-  origin: 'human',
-  audience: 'human',
-  draft: false,
+const issue = (id: string, title: string): IssueProjection => IssueProjection.parse({
+  id, seq: 1, title, description: { value: '' }, stage: 'backlog',
+  parentBranch: 'main', defaultAgent: 'claude-code', defaultModel: 'auto', defaultEffort: 'auto',
+  blockedByNotes: [], priority: 2, type: 'task', needsHuman: false, labels: [],
+  createdAt: '2026-07-01T00:00:00.000Z', updatedAt: '2026-07-01T00:00:00.000Z',
+  archived: false, intentOrigin: 'human', audience: 'human', isDraftVessel: false,
+  owner: asUserId('viewer'), visibility: 'personal',
+  createdBy: { actor: actorUser(asUserId('viewer')), onBehalfOf: asUserId('viewer') },
 })
+const latestProjections = new WeakMap<SocketHub, IssueProjection[]>()
+const observedIssues = (hub: SocketHub) => latestProjections.get(hub) ?? []
+const observeIssues = (hub: SocketHub, cb: (rows: IssueProjection[]) => void) => {
+  cb(observedIssues(hub))
+  return hub.on('issueProjections', cb)
+}
 
 const automation = (
   id: string,
@@ -119,11 +100,12 @@ const automationRun = (id: string, automationId: string): AutomationRunWire => (
 
 const snapshot = (
   cursor: number,
-  issues: IssueWire[] = [],
+  issueProjections: IssueProjection[] = [],
 ): Extract<SyncChangesSinceResult, { kind: 'snapshot' }> => ({
   kind: 'snapshot',
   sessions: [],
-  issues,
+  issues: [],
+  issueProjections,
   conversations: [],
   diagnostics: [],
   cursor,
@@ -155,6 +137,7 @@ function setup(
       applied: extra.onMetadataApplied ?? (() => {}),
     }),
   })
+  hub.on('issueProjections', rows => latestProjections.set(hub, rows))
   return { sock, hub, calls }
 }
 
@@ -178,7 +161,7 @@ describe('SocketHub metadata delta mode', () => {
     const seen: ShipLaneProjection[][] = []
     hub.on('shipLanes', (rows) => seen.push(rows))
     try {
-      hub.seedMetadata({ sessions: [], issues: [], conversations: [], shipLanes: [cached] })
+      hub.seedMetadata({ sessions: [], conversations: [], shipLanes: [cached] })
       expect(seen.at(-1)).toMatchObject([cached])
       hub.connect()
       sock.open()
@@ -207,7 +190,7 @@ describe('SocketHub metadata delta mode', () => {
     try {
       const oldSeen: ShipLaneProjection[][] = []
       older.hub.on('shipLanes', (rows) => oldSeen.push(rows))
-      older.hub.seedMetadata({ sessions: [], issues: [], conversations: [], shipLanes: [cached] })
+      older.hub.seedMetadata({ sessions: [], conversations: [], shipLanes: [cached] })
       older.hub.connect()
       older.sock.open()
       await vi.waitFor(() => expect(oldSeen.at(-1)).toEqual([]))
@@ -240,7 +223,7 @@ describe('SocketHub metadata delta mode', () => {
 
   it('does NOT advertise issuesNormalized unless the embedder opts in [POD-796]', () => {
     // The default is a SAFETY INTERLOCK, not a preference. The cap promises the
-    // server this client no longer needs IssueWire, and the server's D7.2 bypass
+    // server this client no longer needs IssueProjection, and the server's D7.2 bypass
     // believes it: offering it while the UI still renders from `issues` asks the
     // server to stop maintaining the data the UI reads, and the issue list
     // freezes. apps/web cannot opt in until POD-822 gives the replica-side views
@@ -274,31 +257,31 @@ describe('SocketHub metadata delta mode', () => {
   it('bootstraps lists + cursor from the snapshot, then applies deltas in order', async () => {
     const { sock, hub, calls } = setup([snapshot(5, [issue(asIssueId('a'), 'one')])])
     const seen: string[][] = []
-    hub.onIssues((i) => seen.push(i.map((x) => x.title)))
+    observeIssues(hub, (i) => seen.push(i.map((x) => x.title)))
     hub.connect()
     sock.open()
     await flush()
     expect(calls).toEqual([null])
-    expect(hub.issues().map((i) => i.title)).toEqual(['one'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['one'])
 
     sock.recv({
       type: 'metadataDelta',
       seq: 6,
       changes: [
-        { seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue(asIssueId('b'), 'two') },
+        { seq: 6, entity: 'issueProjection', id: 'b', op: 'upsert', value: issue(asIssueId('b'), 'two') },
       ],
     })
-    expect(hub.issues().map((i) => i.title)).toEqual(['one', 'two'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['one', 'two'])
     // Upsert replaces in place; remove drops.
     sock.recv({
       type: 'metadataDelta',
       seq: 8,
       changes: [
-        { seq: 7, entity: 'issue', id: 'a', op: 'upsert', value: issue(asIssueId('a'), 'one v2') },
-        { seq: 8, entity: 'issue', id: 'b', op: 'remove' },
+        { seq: 7, entity: 'issueProjection', id: 'a', op: 'upsert', value: issue(asIssueId('a'), 'one v2') },
+        { seq: 8, entity: 'issueProjection', id: 'b', op: 'remove' },
       ],
     })
-    expect(hub.issues().map((i) => i.title)).toEqual(['one v2'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['one v2'])
     expect(seen.at(-1)).toEqual(['one v2'])
   })
 
@@ -350,10 +333,10 @@ describe('SocketHub metadata delta mode', () => {
       {
         kind: 'delta',
         changes: [
-          { seq: 6, entity: 'issue', id: 'q6', op: 'remove' },
-          { seq: 7, entity: 'issue', id: 'q7', op: 'remove' },
-          { seq: 8, entity: 'issue', id: 'q8', op: 'remove' },
-          { seq: 9, entity: 'issue', id: 'q9', op: 'remove' },
+          { seq: 6, entity: 'issueProjection', id: 'q6', op: 'remove' },
+          { seq: 7, entity: 'issueProjection', id: 'q7', op: 'remove' },
+          { seq: 8, entity: 'issueProjection', id: 'q8', op: 'remove' },
+          { seq: 9, entity: 'issueProjection', id: 'q9', op: 'remove' },
         ],
         cursor: 9,
       },
@@ -369,7 +352,7 @@ describe('SocketHub metadata delta mode', () => {
       type: 'metadataDelta',
       seq: 8,
       changes: [
-        { seq: 8, entity: 'issue', id: 'x', op: 'upsert', value: issue(asIssueId('x'), 'late') },
+        { seq: 8, entity: 'issueProjection', id: 'x', op: 'upsert', value: issue(asIssueId('x'), 'late') },
       ],
     })
     await flush()
@@ -379,10 +362,10 @@ describe('SocketHub metadata delta mode', () => {
       type: 'metadataDelta',
       seq: 10,
       changes: [
-        { seq: 10, entity: 'issue', id: 'y', op: 'upsert', value: issue(asIssueId('y'), 'next') },
+        { seq: 10, entity: 'issueProjection', id: 'y', op: 'upsert', value: issue(asIssueId('y'), 'next') },
       ],
     })
-    expect(hub.issues().map((i) => i.title)).toEqual(['next'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['next'])
   })
 
   it('accepts filtered source ranges and advances across hidden-only rows', async () => {
@@ -396,7 +379,7 @@ describe('SocketHub metadata delta mode', () => {
       type: 'metadataDelta',
       fromExclusive: 8,
       seq: 10,
-      changes: [{ seq: 10, entity: 'issue', id: 'visible', op: 'remove' }],
+      changes: [{ seq: 10, entity: 'issueProjection', id: 'visible', op: 'remove' }],
     })
 
     expect(calls).toEqual([null])
@@ -423,13 +406,13 @@ describe('SocketHub metadata delta mode', () => {
       type: 'metadataDelta',
       seq: 6,
       changes: [
-        { seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue(asIssueId('b'), 'raced') },
+        { seq: 6, entity: 'issueProjection', id: 'b', op: 'upsert', value: issue(asIssueId('b'), 'raced') },
       ],
     })
-    expect(hub.issues()).toEqual([])
+    expect(observedIssues(hub)).toEqual([])
     resolveBoot?.(snapshot(5, [issue(asIssueId('a'), 'base')]))
     await flush()
-    expect(hub.issues().map((i) => i.title)).toEqual(['base', 'raced'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['base', 'raced'])
   })
 
   it('treats a quarantined delta element as a gap and heals', async () => {
@@ -441,8 +424,8 @@ describe('SocketHub metadata delta mode', () => {
       {
         kind: 'delta',
         changes: [
-          { seq: 6, entity: 'issue', id: 'ok', op: 'remove' },
-          { seq: 7, entity: 'issue', id: 'bad', op: 'remove' },
+          { seq: 6, entity: 'issueProjection', id: 'ok', op: 'remove' },
+          { seq: 7, entity: 'issueProjection', id: 'bad', op: 'remove' },
         ],
         cursor: 7,
       },
@@ -461,18 +444,18 @@ describe('SocketHub metadata delta mode', () => {
         changes: [
           {
             seq: 6,
-            entity: 'issue',
+            entity: 'issueProjection',
             id: 'ok',
             op: 'upsert',
             value: issue(asIssueId('ok'), 'fine'),
           },
-          { seq: 7, entity: 'issue', id: 'bad', op: 'upsert', value: { not: 'an issue' } },
+          { seq: 7, entity: 'issueProjection', id: 'bad', op: 'upsert', value: { not: 'an issue' } },
         ],
       }),
     })
     await flush()
     expect(calls).toEqual([null, 5])
-    expect(hub.issues()).toEqual([]) // nothing applied from the poisoned batch
+    expect(observedIssues(hub)).toEqual([]) // nothing applied from the poisoned batch
     warn.mockRestore()
   })
 
@@ -485,7 +468,7 @@ describe('SocketHub metadata delta mode', () => {
       // past it permanently — the runtime parser rejects the whole result.
       {
         kind: 'delta',
-        changes: [{ seq: 6, entity: 'issue', id: 'bad', op: 'upsert', value: { bogus: true } }],
+        changes: [{ seq: 6, entity: 'issueProjection', id: 'bad', op: 'upsert', value: { bogus: true } }],
         cursor: 6,
       } as unknown as SyncChangesSinceResultLenient,
       // Escalation: the null-cursor refetch answers with the full snapshot.
@@ -500,24 +483,24 @@ describe('SocketHub metadata delta mode', () => {
       type: 'metadataDelta',
       seq: 8,
       changes: [
-        { seq: 8, entity: 'issue', id: 'x', op: 'upsert', value: issue(asIssueId('x'), 'late') },
+        { seq: 8, entity: 'issueProjection', id: 'x', op: 'upsert', value: issue(asIssueId('x'), 'late') },
       ],
     })
     await flush()
     // Heal from the live cursor → malformed → escalate to a null-cursor snapshot.
     expect(calls).toEqual([null, 5, null])
     // The snapshot replaced the lists wholesale; the bogus row never installed.
-    expect(hub.issues().map((i) => i.title)).toEqual(['from snapshot'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['from snapshot'])
     // Cursor landed on the snapshot's cursor: seq 10 is contiguous, no re-heal.
     sock.recv({
       type: 'metadataDelta',
       seq: 10,
       changes: [
-        { seq: 10, entity: 'issue', id: 'y', op: 'upsert', value: issue(asIssueId('y'), 'next') },
+        { seq: 10, entity: 'issueProjection', id: 'y', op: 'upsert', value: issue(asIssueId('y'), 'next') },
       ],
     })
     await flush()
-    expect(hub.issues().map((i) => i.title)).toEqual(['from snapshot', 'next'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['from snapshot', 'next'])
     expect(calls).toEqual([null, 5, null])
   })
 
@@ -534,10 +517,10 @@ describe('SocketHub metadata delta mode', () => {
       sock.open()
       await vi.advanceTimersByTimeAsync(0)
       expect(calls).toEqual([null])
-      expect(hub.issues()).toEqual([]) // the malformed snapshot never installed
+      expect(observedIssues(hub)).toEqual([]) // the malformed snapshot never installed
       await vi.advanceTimersByTimeAsync(3_000) // HEAL_RETRY_MS
       expect(calls).toEqual([null, null])
-      expect(hub.issues().map((i) => i.title)).toEqual(['valid'])
+      expect(observedIssues(hub).map((i) => i.title)).toEqual(['valid'])
     } finally {
       vi.useRealTimers()
     }
@@ -564,11 +547,11 @@ describe('SocketHub metadata delta mode', () => {
         type: 'metadataDelta',
         seq: 8,
         changes: [
-          { seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue(asIssueId('a'), 'known') },
+          { seq: 6, entity: 'issueProjection', id: 'a', op: 'upsert', value: issue(asIssueId('a'), 'known') },
           { seq: 7, entity: 'machine', id: 'm1', op: 'upsert', value: { id: 'm1', os: 'linux' } },
           {
             seq: 8,
-            entity: 'issue',
+            entity: 'issueProjection',
             id: 'b',
             op: 'upsert',
             value: issue(asIssueId('b'), 'also known'),
@@ -577,7 +560,7 @@ describe('SocketHub metadata delta mode', () => {
       }),
     })
     await flush()
-    expect(hub.issues().map((i) => i.title)).toEqual(['known', 'also known'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['known', 'also known'])
     expect(hub.conversations()).toEqual([]) // the unknown row corrupted nothing
     // The kind is a structured FIELD now, not interpolated into the message —
     // so assert on the field, which is what makes the record queryable at all.
@@ -589,10 +572,10 @@ describe('SocketHub metadata delta mode', () => {
     sock.recv({
       type: 'metadataDelta',
       seq: 9,
-      changes: [{ seq: 9, entity: 'issue', id: 'a', op: 'remove' }],
+      changes: [{ seq: 9, entity: 'issueProjection', id: 'a', op: 'remove' }],
     })
     await flush()
-    expect(hub.issues().map((i) => i.title)).toEqual(['also known'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['also known'])
     expect(calls).toEqual([null]) // bootstrap only — never healed
     restore()
     resetLevels()
@@ -606,7 +589,7 @@ describe('SocketHub metadata delta mode', () => {
           changes: [
             {
               seq: 6,
-              entity: 'issue',
+              entity: 'issueProjection',
               id: 'a',
               op: 'upsert',
               value: issue(asIssueId('a'), 'known'),
@@ -623,16 +606,16 @@ describe('SocketHub metadata delta mode', () => {
     sock.open()
     await flush()
     expect(calls).toEqual([5])
-    expect(hub.issues().map((i) => i.title)).toEqual(['known'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['known'])
     // Cursor landed on the result cursor (7): seq 8 is contiguous, no heal.
     sock.recv({
       type: 'metadataDelta',
       seq: 8,
       changes: [
-        { seq: 8, entity: 'issue', id: 'b', op: 'upsert', value: issue(asIssueId('b'), 'next') },
+        { seq: 8, entity: 'issueProjection', id: 'b', op: 'upsert', value: issue(asIssueId('b'), 'next') },
       ],
     })
-    expect(hub.issues().map((i) => i.title)).toEqual(['known', 'next'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['known', 'next'])
     expect(calls).toEqual([5])
     debug.mockRestore()
   })
@@ -644,7 +627,7 @@ describe('SocketHub metadata delta mode', () => {
         {
           kind: 'delta',
           changes: [
-            { seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue(asIssueId('a'), 'one') },
+            { seq: 6, entity: 'issueProjection', id: 'a', op: 'upsert', value: issue(asIssueId('a'), 'one') },
           ],
           cursor: 6,
         },
@@ -653,9 +636,9 @@ describe('SocketHub metadata delta mode', () => {
         {
           kind: 'delta',
           changes: [
-            { seq: 7, entity: 'issue', id: 'q7', op: 'remove' },
-            { seq: 8, entity: 'issue', id: 'q8', op: 'remove' },
-            { seq: 9, entity: 'issue', id: 'q9', op: 'remove' },
+            { seq: 7, entity: 'issueProjection', id: 'q7', op: 'remove' },
+            { seq: 8, entity: 'issueProjection', id: 'q8', op: 'remove' },
+            { seq: 9, entity: 'issueProjection', id: 'q9', op: 'remove' },
           ],
           cursor: 9,
         },
@@ -666,13 +649,13 @@ describe('SocketHub metadata delta mode', () => {
     sock.open()
     await flush()
     expect(calls).toEqual([5])
-    expect(hub.issues().map((i) => i.title)).toEqual(['one'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['one'])
     // A live gap heals from the LIVE cursor (6), not the spent initialCursor.
     sock.recv({
       type: 'metadataDelta',
       seq: 8,
       changes: [
-        { seq: 8, entity: 'issue', id: 'x', op: 'upsert', value: issue(asIssueId('x'), 'late') },
+        { seq: 8, entity: 'issueProjection', id: 'x', op: 'upsert', value: issue(asIssueId('x'), 'late') },
       ],
     })
     await flush()
@@ -725,7 +708,7 @@ describe('SocketHub metadata delta mode', () => {
     })
     hub.seedMetadata({
       sessions: [],
-      issues: [issue(asIssueId('old'), 'stale seed')],
+      issueProjections: [issue(asIssueId('old'), 'stale seed')],
       conversations: [],
     })
     hub.connect()
@@ -733,7 +716,7 @@ describe('SocketHub metadata delta mode', () => {
     await flush()
     expect(calls).toEqual([5])
     // The snapshot replaced the seeded list wholesale — gap-heal semantics unchanged.
-    expect(hub.issues().map((i) => i.title)).toEqual(['from snapshot'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['from snapshot'])
   })
 
   it('a reconnect after a spent initialCursor without a live cursor falls back to null', async () => {
@@ -756,27 +739,27 @@ describe('SocketHub metadata delta mode', () => {
   it('seedMetadata paints lists + notifies observers, and server truth supersedes it', async () => {
     const { sock, hub } = setup([snapshot(5, [issue(asIssueId('a'), 'server')])])
     const seen: string[][] = []
-    hub.onIssues((i) => seen.push(i.map((x) => x.title)))
+    observeIssues(hub, (i) => seen.push(i.map((x) => x.title)))
     hub.seedMetadata({
       sessions: [],
-      issues: [issue(asIssueId('local'), 'replica')],
+      issueProjections: [issue(asIssueId('local'), 'replica')],
       conversations: [],
     })
     // Hydrate-first: the seed is visible before any socket traffic.
-    expect(hub.issues().map((i) => i.title)).toEqual(['replica'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['replica'])
     expect(seen.at(-1)).toEqual(['replica'])
     hub.connect()
     sock.open()
     await flush()
     // Reconcile-on-snapshot: final state = server state.
-    expect(hub.issues().map((i) => i.title)).toEqual(['server'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['server'])
     // A late seed (e.g. slow hydrate losing the race) can no longer clobber it.
     hub.seedMetadata({
       sessions: [],
-      issues: [issue(asIssueId('late'), 'stale')],
+      issueProjections: [issue(asIssueId('late'), 'stale')],
       conversations: [],
     })
-    expect(hub.issues().map((i) => i.title)).toEqual(['server'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['server'])
   })
 
   it('a delta first-heal applies onto seeded lists (warm reload catch-up)', async () => {
@@ -787,12 +770,12 @@ describe('SocketHub metadata delta mode', () => {
           changes: [
             {
               seq: 6,
-              entity: 'issue',
+              entity: 'issueProjection',
               id: 'a',
               op: 'upsert',
               value: issue(asIssueId('a'), 'a v2'),
             },
-            { seq: 7, entity: 'issue', id: 'b', op: 'remove' },
+            { seq: 7, entity: 'issueProjection', id: 'b', op: 'remove' },
           ],
           cursor: 7,
         },
@@ -801,7 +784,7 @@ describe('SocketHub metadata delta mode', () => {
     )
     hub.seedMetadata({
       sessions: [],
-      issues: [
+      issueProjections: [
         issue(asIssueId('a'), 'a v1'),
         issue(asIssueId('b'), 'gone soon'),
         issue(asIssueId('c'), 'untouched'),
@@ -812,14 +795,14 @@ describe('SocketHub metadata delta mode', () => {
     sock.open()
     await flush()
     expect(calls).toEqual([5])
-    expect(hub.issues().map((i) => i.title)).toEqual(['a v2', 'untouched'])
+    expect(observedIssues(hub).map((i) => i.title)).toEqual(['a v2', 'untouched'])
   })
 
   it('onMetadataApplied fires after each applied batch with cursor + lists', async () => {
     const applied: Array<{ cursor: number; issues: string[] }> = []
     const { sock, hub } = setup([snapshot(5, [issue(asIssueId('a'), 'one')])], {
       onMetadataApplied: (s) =>
-        applied.push({ cursor: s.cursor, issues: s.issues.map((i) => i.title) }),
+        applied.push({ cursor: s.cursor, issues: s.issueProjections.map((i) => i.title) }),
     })
     hub.connect()
     sock.open()
@@ -830,7 +813,7 @@ describe('SocketHub metadata delta mode', () => {
       type: 'metadataDelta',
       seq: 6,
       changes: [
-        { seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue(asIssueId('b'), 'two') },
+        { seq: 6, entity: 'issueProjection', id: 'b', op: 'upsert', value: issue(asIssueId('b'), 'two') },
       ],
     })
     expect(applied).toEqual([
@@ -867,7 +850,7 @@ describe('SocketHub metadata delta mode', () => {
     sock.recv({
       type: 'metadataDelta',
       seq: 6,
-      changes: [{ seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue('b', 'two') }],
+      changes: [{ seq: 6, entity: 'issueProjection', id: 'b', op: 'upsert', value: issue('b', 'two') }],
       feedId: 'feed_1',
       epoch: 'epoch_1',
       minAvailableSeq: 3,
@@ -890,7 +873,7 @@ describe('SocketHub metadata delta mode', () => {
     sock.recv({
       type: 'metadataDelta',
       seq: 6,
-      changes: [{ seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue('b', 'two') }],
+      changes: [{ seq: 6, entity: 'issueProjection', id: 'b', op: 'upsert', value: issue('b', 'two') }],
     })
     expect(applied[1]).toEqual({ feedId: 'feed_1', epoch: 'epoch_1' })
   })
@@ -908,7 +891,7 @@ describe('SocketHub metadata delta mode', () => {
       expect(calls).toEqual([null])
       await vi.advanceTimersByTimeAsync(3_000) // HEAL_RETRY_MS
       expect(calls).toEqual([null, null])
-      expect(hub.issues().map((i) => i.title)).toEqual(['ok'])
+      expect(observedIssues(hub).map((i) => i.title)).toEqual(['ok'])
     } finally {
       vi.useRealTimers()
     }

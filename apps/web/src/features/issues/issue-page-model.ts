@@ -16,7 +16,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { IssueId, SessionId, UserId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { Store } from '@/app/store'
 import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
@@ -82,7 +82,6 @@ export interface IssuePageModel {
 export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]): IssuePageModel {
   const {
     trpc,
-    hub,
     sessions,
     navigateToSession,
     updateIssue,
@@ -95,7 +94,6 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
-      hub: s.hub,
       sessions: s.sessions,
       navigateToSession: s.navigateToSession,
       updateIssue: s.updateIssue,
@@ -111,6 +109,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   const issues = useReplicaIssues()
   const [busy, setBusy] = useState(false)
   const [events, setEvents] = useState<IssueEvent[]>([])
+  const drainEvents = useRef<(() => void) | null>(null)
   const [comments, setComments] = useState<ActivityComment[]>([])
   const [mail, setMail] = useState<IssueMailMessage[]>([])
 
@@ -173,11 +172,11 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   // page holds only rows this feed will render — no repo-wide download, and no
   // issue silently emptied by its events falling outside the newest page. On
   // open we drain to the end, then advance the cursor and let each
-  // `issuesChanged` broadcast pull only the new tail. This is best-effort: a
+  // normalized issue update pull only the new tail. This is best-effort: a
   // fetch error just leaves the comment-only feed intact.
-  // Deps are the issue identity only — `trpc`/`hub` are stable store singletons,
+  // Deps are the issue identity only — `trpc` are stable store singletons,
   // so keying on them would just risk a refetch loop if their identity churned.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reload only on issue switch; trpc/hub are stable
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reload only on issue switch; trpc are stable
   useEffect(() => {
     let cancelled = false
     let since = 0
@@ -208,12 +207,14 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     }
     setEvents([])
     drain()
-    const off = hub.onIssues(() => drain())
+    drainEvents.current = drain
     return () => {
       cancelled = true
-      off()
+      drainEvents.current = null
     }
   }, [issue.id, issue.repoPath])
+
+  useEffect(() => { drainEvents.current?.() }, [issue.updatedAt])
 
   // A REFUSED WRITE IS AN ALERT, NOT A FOOTNOTE (POD-1266). This used to set a
   // string that IssuePage drew as a muted strip pinned under the whole page —

@@ -847,6 +847,17 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     visibility: 'personal',
   },
   {
+    symbol: 'IssueReport',
+    entity: 'issue',
+    site: 'packages/model/src/projections/issue-read.ts',
+    role: 'R4',
+    purpose: 'The on-demand CLI and RPC response for a reader without a local replica.',
+    distinctSemantics: 'Preserves the command response fields, including graph and personal joins. Never stored or published as a feed entity.',
+    composition: { state: 'composed', from: 'IssueProjection own facts plus IssueUserOverlay and query-only graph/count fields' },
+    matrixRow: ROW.issueCore,
+    visibility: 'personal',
+  },
+  {
     symbol: 'IssueTreeNode',
     entity: 'issue',
     // Moved to model by POD-1141, which gave the tree and show projections one

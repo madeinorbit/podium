@@ -22,7 +22,7 @@
  * writes before either direction is believed.
  */
 
-import { asMutationId, type IssueWire, type SessionMeta, type TranscriptItem } from '@podium/model'
+import { asMutationId, type IssueProjection, type SessionMeta, type TranscriptItem } from '@podium/model'
 import {
   LEGACY_CURSOR_KEY,
   LEGACY_ENTITY_KEYS,
@@ -52,7 +52,7 @@ function observableStorage(): { api: ReturnType<typeof make>; keys: () => string
 
 const session = (id: string): SessionMeta =>
   ({ sessionId: id, title: id, agentKind: 'claude-code' }) as unknown as SessionMeta
-const issue = (id: string): IssueWire => ({ id, title: id }) as unknown as IssueWire
+const issue = (id: string): IssueProjection => ({ id, title: id }) as unknown as IssueProjection
 /** Any collection row: the inventory measures KEYS, so the payload only has to
  *  be non-empty and carry an id. */
 const row = (id: string): never => ({ id, sessionId: id, title: id }) as unknown as never
@@ -63,7 +63,7 @@ async function exerciseLegacyReplica(): Promise<{ keys: string[] }> {
   const storage = observableStorage()
   const replica = createReplica({ storage: storage.api, enumerateKeys: () => storage.keys() })
   replica.applySnapshot('sessions', [session('sess_1')])
-  replica.applySnapshot('issues', [issue('iss_1')])
+  replica.applySnapshot('issueProjections', [issue('iss_1')])
   // Every kind gets a ROW. An empty snapshot writes no key at all, so a version
   // of this exercise that passed `[]` certified an inventory against four
   // collections that were never persisted — found by the assertion below, which

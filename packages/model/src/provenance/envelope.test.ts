@@ -8,7 +8,7 @@
  *    touching the UI.
  */
 
-import { IssueWire, IssueWireEntity, SessionMeta, SessionMetaEntity } from '@podium/model'
+import { IssueProjection, SessionMeta, SessionMetaEntity } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
@@ -49,9 +49,9 @@ describe('the placement rule: replica provenance, not authorship', () => {
     // The placement decision POD-304 inherited, made and pinned: askedBy /
     // askedAt are attribution, so they stay entity data. The entity schema is
     // the one that must carry them — and it does, provenance-free.
-    const entityKeys = Object.keys(IssueWireEntity.shape)
-    expect(entityKeys).toContain('humanQuestionAskedBy')
-    expect(entityKeys).toContain('humanQuestionAskedAt')
+    const entityKeys = Object.keys(IssueProjection.shape)
+    expect(entityKeys).toContain('asked')
+    expect(Object.keys(IssueProjection.shape.asked.unwrap().shape)).toEqual(expect.arrayContaining(['by', 'at']))
     expect(Object.keys(ReplicatedProvenance.shape)).not.toContain('humanQuestionAskedBy')
   })
 
@@ -60,19 +60,19 @@ describe('the placement rule: replica provenance, not authorship', () => {
       expect(Object.keys(SessionMetaEntity.shape), `SessionMetaEntity carries ${key}`).not.toContain(
         key,
       )
-      expect(Object.keys(IssueWireEntity.shape), `IssueWireEntity carries ${key}`).not.toContain(key)
+      expect(Object.keys(IssueProjection.shape), `IssueProjection carries ${key}`).not.toContain(key)
     }
     // The counterfactual: today's WIRE projections still carry them flat, which
     // is what keeps the golden fixtures byte-identical until POD-308.
     expect(Object.keys(SessionMeta.shape)).toContain('viaHub')
-    expect(Object.keys(IssueWire.shape)).toContain('pendingSync')
+    expect(Object.keys(IssueProjection.shape)).not.toContain('pendingSync')
   })
 
   it('declares the flags once, so the two entities cannot drift apart', () => {
     // SessionMeta has never carried pendingSync; both encodings are picks of
     // ONE group, so the meanings stay identical even though the shapes differ.
     expect(Object.keys(SessionMeta.shape)).not.toContain('pendingSync')
-    expect(Object.keys(IssueWire.shape)).toContain('upstreamStale')
+    expect(Object.keys(IssueProjection.shape)).not.toContain('upstreamStale')
   })
 })
 

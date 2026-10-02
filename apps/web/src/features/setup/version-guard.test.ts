@@ -754,3 +754,22 @@ describe('HTTP cutover preserves queued work', () => {
     }
   })
 })
+
+
+describe('unsupported bundled desktop client', () => {
+  it.each(['tauri://localhost', 'http://tauri.localhost', 'https://tauri.localhost'])('shows an update state without reload loops at %s', async origin => {
+    resetSkewNotice()
+    vi.stubGlobal('location', { reload, origin, pathname: '/' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse({
+      wireVersion: CLIENT_WIRE_VERSION + 1,
+      minSupportedVersion: CLIENT_WIRE_VERSION + 1,
+      wireSchemaDigest: wireSchemaDigest(),
+    })))
+    for (let attempt = 0; attempt < 4; attempt++) {
+      expect(await checkServerVersion(ORIGIN, false)).toBe('blocked')
+      expect(currentSkew()).toMatchObject({ severe: true, message: expect.stringContaining('Update Podium to continue') })
+    }
+    expect(reload).not.toHaveBeenCalled()
+    expect(cacheDelete).not.toHaveBeenCalled()
+  })
+})

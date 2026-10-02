@@ -1,3 +1,4 @@
+import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { allIssueViewModels, type IssueViewModel } from '@podium/client-core/replica'
 import { asUserId, ISSUE_STAGES, issueUserStateRowId } from '@podium/model/browser'
@@ -9,7 +10,7 @@ import { IssueListView } from '@/features/issues/IssueListView'
 import { IssuesKanban } from '@/features/issues/IssuesKanban'
 import { DEFAULT_DISPLAY } from '@/features/issues/issues-display'
 import { normalizedFixtureStore } from '@/test-support/normalized-issues'
-import { type KernelAssembly, openKernelAssembly } from './kernelReplica'
+import { KERNEL_REPLICA_DB, type KernelAssembly, openKernelAssembly } from './kernelReplica'
 import { makeIssue } from './test-issue'
 
 const principal = JSON.stringify(['installation-a', 'alice'])
@@ -20,13 +21,12 @@ afterEach(async () => {
   for (const assembly of assemblies.splice(0)) await assembly.dispose()
   vi.unstubAllGlobals()
 })
-async function open(factory: IDBFactory, dropLegacyIssues?: boolean) {
+async function open(factory: IDBFactory) {
   const assembly = await openKernelAssembly({
     trpc: {} as never,
     principal,
     factory: factory as never,
     evidence: { kind: 'single-account', principal },
-    dropLegacyIssues,
     broadcastChannelFactory: () => ({ onmessage: null, postMessage() {}, close() {} }),
   })
   assemblies.push(assembly)
@@ -90,9 +90,9 @@ function screenOutput(models: IssueViewModel[]) {
 }
 
 describe('web legacy issue retention', () => {
-  it('defaults on and loads an old IndexedDB cache with identical issue list and board screens', async () => {
+  it('retires unsupported cache rows while preserving issue list and board screens', async () => {
     const factory = new IDBFactory()
-    const before = await open(factory, false)
+    const before = await IndexedDbSyncStore.open({ factory: factory as never, databaseName: KERNEL_REPLICA_DB, onDegraded: error => { throw error } })
     const wires = [
       makeIssue({
         id: 'i1',
@@ -124,7 +124,7 @@ describe('web legacy issue retention', () => {
       ...wires.map((wire) => ({
         entity: 'issue',
         entityId: wire.id,
-        value: IssueViewModel.parse(wire),
+        value: wire,
         provenance: { seq: 1 },
       })),
       ...(['issueProjections', 'issueUserStates', 'issueGitStates', 'repos'] as const).flatMap(
@@ -142,22 +142,20 @@ describe('web legacy issue retention', () => {
           })),
       ),
     ]
-    const cache = before.assembly.store.viewFor(principal).cache
+    const cache = before.viewFor(principal).cache
     cache.installSnapshot(records, { feedId: 'f', epoch: 'e', seq: 10 }, [])
-    await before.assembly.store.settled()
+    await before.settled()
     expect(cache.readEntities().filter((row) => row.entity === 'issue')).toHaveLength(2)
-    const beforeModels = allIssueViewModels(before.replica)
+    const beforeModels = allIssueViewModels(fixture.replica)
     expect(beforeModels).toHaveLength(2)
     const screens = screenOutput(beforeModels)
     expect(screens.listRows).toEqual(['i1', 'i2'])
     expect(screens.boardRows).toEqual(['i1', 'i2'])
-    await before.assembly.dispose()
-    assemblies.splice(assemblies.indexOf(before.assembly), 1)
+    before.close()
 
     const after = await open(factory)
     const hydrated = await after.replica.hydrate()
-    expect(after.replica.dropLegacyIssues).toBe(true)
-    expect(hydrated.issues).toEqual([])
+    expect(hydrated).not.toHaveProperty('issues')
     expect(hydrated.schemaReset).toBe(false)
     expect(after.replica.getCursor()).toBe(10)
     expect(
@@ -211,12 +209,12 @@ describe('web legacy issue retention', () => {
           entity: 'issue',
           entityId: wires[0]!.id,
           op: 'upsert',
-          value: IssueViewModel.parse(wires[0]),
+          value: wires[0],
         },
       ],
     })
     await vi.waitFor(() => expect(after.replica.getCursor()).toBe(11))
-    expect(after.replica.rows('issues')).toEqual([])
+    expect(await after.replica.hydrate()).not.toHaveProperty('issues')
     expect(allIssueViewModels(after.replica)).toEqual(beforeModels)
   })
 })

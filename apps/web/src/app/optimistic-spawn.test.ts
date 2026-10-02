@@ -1,4 +1,3 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   mergeOptimistic,
   optimisticDraftIssue,
@@ -53,14 +52,14 @@ describe('optimisticDraftIssue', () => {
     nowIso: '2026-07-07T00:00:00.000Z',
   }
 
-  it('is a schema-valid IssueViewModel', () => {
-    expect(() => IssueViewModel.parse(optimisticDraftIssue(base))).not.toThrow()
+  it('carries the canonical issue fields for optimistic rendering', () => {
+    expect(optimisticDraftIssue(base)).toMatchObject({ intentOrigin: 'human', isDraftVessel: true, description: '', tuckedAt: null, memberSessionIds: [], childIds: [] })
   })
 
   it('is a draft vessel with no worktree, carrying the caller id and repo', () => {
     const i = optimisticDraftIssue(base)
     expect(i.id).toBe('iss_1')
-    expect(i.draft).toBe(true)
+    expect(i.isDraftVessel).toBe(true)
     expect(i.worktreePath).toBeNull()
     expect(i.repoPath).toBe('/home/u/my-proj')
     expect(i.repoId).toBe('repo-1')

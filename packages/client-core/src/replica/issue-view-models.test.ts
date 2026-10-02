@@ -60,7 +60,7 @@ function world() {
   replica.applySnapshot('repos', [
     { id: 'repo', repoPath: '/normalized-repo', prefix: 'POD' } as never,
   ])
-  replica.applySnapshot('issues', [])
+  replica.applySnapshot('issueProjections', [])
   return replica
 }
 
@@ -80,12 +80,12 @@ describe('normalized issue render models', () => {
     })
     expect(allIssueViewModels(replica)[0]).toMatchObject({ readAt: markers.readAt,
       tuckedAt: markers.tuckedAt, pinned: true, gitState: { ahead: 3 }, repoPath: '/normalized-repo' })
-    expect(replica.rows('issues')).toEqual([])
+    expect(replica.rows('issueProjections')).toEqual([])
   })
 
   it('publishes every issue field with no old rows', () => {
     const replica = world()
-    expect(replica.rows('issues')).toEqual([])
+    expect(replica.rows('issueProjections')).toEqual([])
     const model = issueViewModelsFromReplica(replica).get(projection.id)!
     expect(model).toMatchObject({
       title: projection.title,
@@ -124,7 +124,7 @@ describe('normalized issue render models', () => {
   })
   it('is identical with poisoned old rows present and after they are emptied', () => {
     const replica = world()
-    replica.applySnapshot('issues', [
+    replica.applySnapshot('issueProjections', [
       {
         id: projection.id,
         title: 'WRONG',
@@ -139,7 +139,7 @@ describe('normalized issue render models', () => {
       } as never,
     ])
     const withOld = issueViewModelsFromReplica(replica)
-    replica.applySnapshot('issues', [])
+    replica.applySnapshot('issueProjections', [])
     expect(issueViewModelsFromReplica(replica)).toEqual(withOld)
   })
   it('uses safe defaults when marker/git/repo rows are absent and never revives them', () => {

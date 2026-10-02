@@ -6,8 +6,8 @@ import {
   type IssueEvent,
 } from '@podium/client-core/viewmodels'
 
-import { useEffect, useState } from 'react'
-import { useHub, useTrpc } from '../client/hooks'
+import { useEffect, useRef, useState } from 'react'
+import { useTrpc } from '../client/hooks'
 import {
   type IssueMailMessage,
   loadIssueComments,
@@ -66,9 +66,9 @@ export interface IssueActivity {
 
 export function useIssueActivity(issue: IssueViewModel): IssueActivity {
   const trpc = useTrpc()
-  const hub = useHub()
   const [comments, setComments] = useState<ActivityComment[]>([])
   const [events, setEvents] = useState<IssueEvent[]>([])
+  const drainEvents = useRef<(() => void) | null>(null)
   const [mail, setMail] = useState<IssueMailMessage[]>([])
 
   const issueId = issue.id
@@ -112,7 +112,7 @@ export function useIssueActivity(issue: IssueViewModel): IssueActivity {
     }
   }, [issueId, updatedAt])
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reload on task switch only; trpc/hub are stable store singletons
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reload on task switch only; trpc are stable store singletons
   useEffect(() => {
     let cancelled = false
     let since = 0
@@ -128,7 +128,7 @@ export function useIssueActivity(issue: IssueViewModel): IssueActivity {
       })
     }
     const drain = (): void => {
-      // One in-flight drain at a time. `hub.onIssues` fires on every task
+      // One in-flight drain at a time. The issue update signal fires on every task
       // write; stacking them is how a busy board turned this page into a
       // request storm.
       if (draining) return
@@ -168,12 +168,14 @@ export function useIssueActivity(issue: IssueViewModel): IssueActivity {
     }
     setEvents([])
     drain()
-    const off = hub.onIssues(() => drain())
+    drainEvents.current = drain
     return () => {
       cancelled = true
-      off()
+      drainEvents.current = null
     }
   }, [issueId, repoPath])
+
+  useEffect(() => { drainEvents.current?.() }, [updatedAt])
 
   return {
     feed: buildActivityFeed(comments, events),
