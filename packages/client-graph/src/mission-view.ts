@@ -1,7 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   deckIssueState, deckSessionOrder, issueAbandoned, issueClosed, issueNeedsHuman,
-  motionPhase, openSession, panelLabel, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
+  motionPhase, panelLabel, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
   sessionSettled, type FlightDeckMode, type FlightDeckRow, type IssueContinuation,
   type IssueNavigationModel, type IssueNote, type MissionDeparture, type MissionProgress,
   type PresenceNote, type HandoffNowEntry, type HandoffNextEntry,
@@ -55,6 +55,7 @@ const attachedValue = cachedGroup('missionAttachments', (node: MissionNode) => n
 const rowOrder = (a: { id: string }, b: { id: string }) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 const sessionOrder = (a: SessionView, b: SessionView) => a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0
 const visible = (issue: { archived?: boolean; deletedAt?: string | null }) => !issue.archived && !issue.deletedAt
+const openSession = sessionPresentOnTask
 const underway = new Set(['planning', 'in_progress', 'shipping'])
 const leftMission = (issue: IssueNavigationModel) => !['proposed', 'backlog'].includes(issue.stage) && Boolean(issue.deps.find(dep => dep.type === 'discovered-from'))
 const originId = (issue: IssueNavigationModel) => issue.deps.find(dep => dep.type === 'discovered-from')?.id ?? null
