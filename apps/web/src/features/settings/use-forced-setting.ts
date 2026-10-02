@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsTrpc } from '@/features/settings/stable-access'
 
 /**
  * The keys that have an environment layer, mirrored from `LAYERED_KEYS` in
@@ -104,7 +104,7 @@ export function resetForcedSettingCache(): void {
  * disabled on a guess.
  */
 export function useForcedSetting(key: ForcedSettingKey): ForcedSetting {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useSettingsTrpc()
   const [forced, setForced] = useState<ForcedSetting>(NOT_FORCED)
   useEffect(() => {
     let alive = true

@@ -1,7 +1,7 @@
 import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { Button } from '@/components/ui/button'
 import { useFeature } from '@/lib/use-feature'
 import { type AccountView, RoleBackendEditor, Section } from './shared'
@@ -59,7 +59,7 @@ export function SuperagentSection({
 /** Reset the global superagent's harness session — the next message starts a
  *  fresh one (#199). Escape hatch for a wedged/stale orchestrator harness. */
 function RestartSuperagentButton(): JSX.Element {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useSettingsTrpc()
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)

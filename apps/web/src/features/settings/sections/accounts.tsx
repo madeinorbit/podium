@@ -3,6 +3,7 @@ import type { HarnessAgent } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
+import { useSettingsTrpc } from '../stable-access'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { type AccountView, harnessAgentLabel, providerLabel, Row, Section } from './shared'
@@ -217,7 +218,7 @@ function ManagedAccountRow({
   account: AccountView
   onChanged: () => void
 }): JSX.Element {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useSettingsTrpc()
   const [editing, setEditing] = useState(false)
   const [secret, setSecret] = useState('')
   const [busy, setBusy] = useState(false)
@@ -375,7 +376,7 @@ function ManagedAccountRow({
  *  a `claude setup-token` subscription token. The credential goes straight to the
  *  server's accounts table; the hub only ever reads back a masked identity. */
 export function AccountsSection(): JSX.Element {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useSettingsTrpc()
   const [accounts, setAccounts] = useState<AccountView[] | null>(null)
 
   // The one loader: connect/disconnect refetch through this, so a row flips state

@@ -24,7 +24,7 @@ import {
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -128,7 +128,7 @@ export function RepoPickerModal({
   selectedMachineId?: MachineId
   onMachineChange?: (machineId: MachineId | undefined) => void
 }): JSX.Element {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useSettingsTrpc()
   const isMobile = useIsMobile()
   const [listing, setListing] = useState<DirectoryListing | null>(null)
   const [loading, setLoading] = useState(false)

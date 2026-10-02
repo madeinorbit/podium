@@ -9,7 +9,7 @@ import type { MachineId, RepoId } from '@podium/model'
 import { isValidPrefix } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { REF_PREFIXES_CHANGED_EVENT } from '@/lib/ref-activation'
@@ -29,7 +29,7 @@ function repoName(path: string): string {
 }
 
 export function ReposSection(): JSX.Element {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useSettingsTrpc()
   const [rows, setRows] = useState<RepoDetailRow[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 

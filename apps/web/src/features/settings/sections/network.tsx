@@ -1,6 +1,6 @@
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { Button } from '@/components/ui/button'
 import { type NetworkSaveController, NetworkStep } from '@/features/setup/network-step'
 import { forcedNotice, useForcedSetting } from '../use-forced-setting'
@@ -28,7 +28,7 @@ export function NetworkSection({
 }: {
   onSaveStateChange?: (state: NetworkSaveController | null) => void
 } = {}): JSX.Element {
-  const trpc = useStoreSelector((s) => s.trpc)
+  const trpc = useSettingsTrpc()
   const forcedPublicUrl = useForcedSetting('publicUrl')
   const forcedAppUrl = useForcedSetting('appUrl')
   const forcedOrigins = useForcedSetting('allowedOrigins')
