@@ -101,9 +101,9 @@ it('has zero session-value, shared-card and mobile-route differences across the 
   const after = sessionViews(homes.sessions.map(stripSessionLegacy), homes)
   expect(before.length).toBe(4304)
   let routes = 0
-  for (let index = 0; index < before.length; index++) {
-    const withLegacy = before[index]!
-    const stripped = after[index]!
+  for (const [index, withLegacy] of before.entries()) {
+    const stripped = after[index]
+    if (!stripped) throw new Error('Missing corresponding stripped session')
     expect(sessionValues(stripped)).toEqual(sessionValues(withLegacy))
     expect(sessionCardModel(stripped, undefined, corpus.fixedNow)).toEqual(
       sessionCardModel(withLegacy, undefined, corpus.fixedNow),

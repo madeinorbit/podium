@@ -82,15 +82,15 @@ describe('mobilePodiumRoute', () => {
   })
 
   it('resolves a joined draft ref and honors an absent or cleared repo prefix', () => {
-    const raw = { sessionId: 'sess-draft', refDraft: 7, displayRef: 'OLD-D7' }
+    const raw = { sessionId: 'sess-draft', refDraft: 7, displayRef: 'OLD-DRAFT-7' }
     const route = (ref: string, repo?: { prefix: string | null }) =>
       mobilePodiumRoute(
         { kind: 'session', session: ref },
         { issues: [], sessions: [sessionView(raw, { repo })] },
       )
-    expect(route('POD-D7', { prefix: 'POD' })).toBe('/session/sess-draft')
-    expect(route('OLD-D7')).toBe('/session/sess-draft')
-    expect(route('OLD-D7', { prefix: null })).toBeNull()
+    expect(route('POD-DRAFT-7', { prefix: 'POD' })).toBe('/session/sess-draft')
+    expect(route('OLD-DRAFT-7')).toBe('/session/sess-draft')
+    expect(route('OLD-DRAFT-7', { prefix: null })).toBeNull()
   })
 
   it('has no screen for an artifact or a file, and says so', () => {
