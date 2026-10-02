@@ -8,6 +8,7 @@ import {
 import { ISSUE_STATUS_LABELS, type IssueCloseReason} from '@podium/model/browser'
 import { AlertTriangle, GitBranch, GitCommit, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
+import { useStoreSelector } from '@/app/store'
 import { useIssuePageSessions } from './issue-page/issue-page-data'
 import {
   AlertDialog,
