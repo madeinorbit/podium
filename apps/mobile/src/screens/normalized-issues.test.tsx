@@ -24,10 +24,16 @@ vi.mock('expo-haptics', () => ({
   selectionAsync: vi.fn(async () => {}),
 }))
 vi.mock('expo-router', () => ({
+  Stack: { Screen: () => null },
   useLocalSearchParams: () => ({ issueId: 'root', missionId: 'root' }),
   useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn(), canGoBack: () => false }),
   usePathname: () => '/issue/root',
 }))
+// The real screen stays mounted; only its native tab navigator has no host.
+vi.mock('expo-router/build/react-navigation/bottom-tabs', async () => {
+  const { createContext } = await import('react')
+  return { BottomTabBarHeightContext: createContext<number | undefined>(undefined) }
+})
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
