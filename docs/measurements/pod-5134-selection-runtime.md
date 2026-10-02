@@ -6,25 +6,40 @@ workspace-root resolution, and the explorer provider's all-issue target read.
 The sidebar's gesture membership scan remains assigned to POD-5088; the
 coordinator explicitly excluded its ordering change from this landing.
 
+Selection state CPU p95 falls **38% at 1× and 61% at 4×**. At 4×, paint p95
+falls **283.4 → 204.4 ms (28%)**; at 1× it is **61.8 → 63.8 ms**. The **16 ms
+frame target remains unmet**. The implementation landed at `1f370aebd5`;
+the exact revision's 4× capture is complete. The remaining all-issue model
+caller is the shared promo's first-task predicate, filed as **POD-5215**.
+
 ## Browser comparison
 
-The complete 1× capture reduces pool selection state CPU p95 from **38.5 to
-23.9 ms (38%)**, but input-to-paint is **61.8 → 63.8 ms**. The **16 ms target
-is not met**. The 4× capture of the integration-landed candidate is in progress;
-this section will be completed from that full capture, not its aborted retries.
+Every cell below contains forty retained observations per arm. CPU is the
+union of synchronous measured work, not the sum of nested helper intervals.
 
-| 1× event | Pool state CPU p95 before → after, ms |
-| --- | --- |
-| Selection | 38.5 → 23.9 |
-| Unrelated heartbeat | 38.8 → 31.4 |
-| Title edit | 32.4 → 29.1 |
-| Session phase | 33.1 → 30.9 |
-| Draft actions | 1.5 → 1.8 |
+| Event | 1× pool state CPU p95, ms | 4× pool state CPU p95, ms |
+| --- | --- | --- |
+| Selection | 38.5 → 23.9 | 277.6 → 107.4 |
+| Unrelated heartbeat | 38.8 → 31.4 | 215.8 → 161.5 |
+| Title edit | 32.4 → 29.1 | 183.3 → 172.1 |
+| Session phase | 33.1 → 30.9 | 278.9 → 147.3 |
+| Draft actions | 1.5 → 1.8 | 7.3 → 6.2 |
+
+| Selection paint p95 | Before, ms | After, ms |
+| --- | --- | --- |
+| 1× pool | 61.786 | 63.811 |
+| 4× pool | 283.408 | 204.367 |
 
 The unchanged legacy control also moved: selection paint **173.1 → 193.9 ms**
 and state CPU **211.8 → 243.5 ms**. Raw absolute before/after figures are retained
 without using the control shift to normalize a claimed paint win. All complete
-1× records satisfy the load limit. In the candidate's pool trace number three,
+records satisfy the load limit (largest recorded load **7.08**). At 4× the
+legacy control shifts **1,417.9 → 1,345.0 ms paint** and **2,119.2 → 2,074.1 ms
+CPU**. Code and correctness/count checks preserve the OFF path; these control
+time shifts are reported rather than interpreted as an OFF implementation cut.
+There is no demonstrated 1× draft-action improvement.
+
+In the candidate's 1× pool trace number three,
 input-to-selected-DOM took 46.4 ms and selected-DOM-to-paint 6.6 ms; across the
 forty pool clicks those p95s were 56.5 and 6.8 ms respectively. Trace event
 categories are inclusive: its 43.8 ms event dispatch includes 42.9 ms function
@@ -65,6 +80,44 @@ The continuation's sampled selection stacks attribute **1.44 / 9.76 ms** at
 1× / 4× to the unchanged pool `sessionMembership` scan (inclusive sampled means,
 six profiles per cell). This is a remaining cost for POD-5088, not an attempted
 tie-order fix here.
+
+## Per-event cuts and remaining consumers
+
+The following **inclusive means from the forty headline observations at 4×**
+compare the same named boundaries. They provide every event's attribution even
+where the separate after sampling run stopped on a later load spike.
+
+| Event | Boundary means before → after, ms |
+| --- | --- |
+| Selection | issue-user fold **71.02 → 0.58**; old issue fold **16.07 → 0.37**; modelsFor **33.93 → 31.30**; issue-read timer **13.19 → 11.57**; publish **10.64 → 10.20** |
+| Heartbeat | prune **39.66 → 0**; issue follow **10.38 → 0**; cwd follow **8.83 → 0**; modelsFor **95.05 → 88.64**; session views **15.82 → 20.04** |
+| Title | modelsFor **122.16 → 116.21**; old issue fold **7.15 → 4.21**; workspace key **8.67 → 8.28**; publish **3.84 → 3.29** |
+| Phase | prune **40.85 → 0**; issue follow **10.81 → 0**; cwd follow **9.89 → 0**; modelsFor **102.58 → 83.80**; session views **16.14 → 15.87** |
+| Draft | publish **4.55 → 3.88**; selectors **2.48 → 2.09**; workspace key **1.30 → 1.51**; pending-by-row **0.36 → 0.30** |
+
+The valid after selection profiles trace the remaining `modelsFor` samples to
+**MobilePromoCard → useHasFirstTask → useReplicaIssues → useAllIssueViewModels**.
+The hook at `features/mobile-handoff/mobile-handoff.ts:170` asks only whether
+any non-deleted issue exists; archived issues and drafts both count. It is
+shared sidebar chrome, so these times should not be assigned to the main pane.
+This separately shippable pool predicate is recorded as proposed **POD-5215**,
+with a `discovered-from` link and coordination mail; it has not been claimed.
+
+The six valid after pool-click profiles per scale attribute **0.77 / 7.98 ms**
+at 1× / 4× to the unchanged gesture `sessionMembership` scan. Its before means
+were 1.44 / 9.76 ms; since this function was not edited, the difference is not
+claimed as a code improvement. `selectedMissionRoot` and `missionIssueIds`
+have **zero sampled time** after, compared with 16.71 and 5.00 ms respectively
+at 4× before. The explorer's direct legacy-hook and enumeration checks also
+prove zero calls on its switched path.
+
+Shared runtime issue-read timers, workspace-key lookups on copied state,
+snapshot publication and session-view reconstruction still cost work. The
+scalar cache covers the actual opted-in state; fresh navigation snapshots
+still resolve their roots. These consumers and the promo predicate explain
+why this cut alone cannot reach the frame target. Store-level legacy worklist
+derivations remain zero in all pool headline records; the nonzero residual
+slice counter is `sessionById`, on heartbeat/phase frames.
 
 ## What changed
 
@@ -154,7 +207,12 @@ the selected DOM mutation; the two-RAF condition is retained as an observation
 guard. Synchronous state CPU is the union of measured runtime, delivery,
 selector and shared helper intervals; row-render intervals are excluded and
 nested intervals are not summed. Paint and CPU measure different windows.
-Attribution uses separate six-observation, 1 ms sampled profiles. A sampled
+Attribution uses separate six-observation, 1 ms sampled profiles. The after
+run completed all five 1× event cells and the 4× selection/heartbeat cells
+(84 valid observations, none above load eight), then stopped before retaining
+4× title/phase/draft records on a load guard. Only complete valid sampled cells
+are used; forty-observation boundary means supply the per-event comparison.
+A sampled
 profile or a two-RAF proxy is never used as a headline paint measurement.
 
 All timing captures held `bench:flatblock`. Each retained record includes host
@@ -181,18 +239,18 @@ The implementation landed ff-only at `1f370aebd5` over `520d68c316`, under
 `merge:integrate/4286-pilot`; ancestry was verified and the mutex released. The
 coordinator requested landing before the remaining timing to unblock old-record
 removal, with this issue kept open. The exact landed SHA was rebuilt for the
-fresh `landed4x` capture. The rebase changed no production code in `apps/web/src`,
+fresh, complete `landed4x` capture. The rebase changed no production code in `apps/web/src`,
 `packages/client-core/src` or `packages/client-graph/src` (its web delta is a
 diagnostic test); the diagnostic changes brought by integration are inactive
 in these checker-off captures. The initial landed-capture host load was 1.73.
 
-Source checkpoints,
-per-arm raw records, traces, CPU profiles, targets and proof logs are attached
+Source checkpoints, per-arm raw records, traces, CPU profiles, targets and proof logs are attached
 to POD-5134; these synthetic evidence files remain uncommitted.
 
 ## Remaining work
 
-POD-5077 owns the main-pane reads still backed by legacy snapshots and slices.
+POD-5215 owns the discovered promo predicate; it remains Proposed for another
+agent. POD-5077 owns main-pane reads still backed by legacy snapshots and slices.
 POD-5088 owns the gesture session scan and its session-order decision. The
 snapshot publish pipeline remains until step 07. The diagnostic replay also
 exposed the pre-existing cyclic-provenance nesting problem, filed separately
