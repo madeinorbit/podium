@@ -94,7 +94,9 @@ class IssueReferenceIndex {
   }
 
   ids(seq: number, repoId?: string | null): Iterable<string> {
-    return (repoId === undefined ? this.bySeq.get(seq) : this.byRepo.get(repoId)?.get(seq)) ?? []
+    return (
+      (repoId === undefined ? this.bySeq.get(seq) : this.byRepo.get(repoId)?.get(seq)) ?? []
+    )
   }
 
   orderOf(id: string): number | undefined {
@@ -361,7 +363,8 @@ export class IssueStore {
   private applyRow(id: string, row: IssueRow | null): void {
     const committed = this.requireHydrated().rows
     const previous = committed.get(id)
-    const identityChanged = !previous || !row || previous.seq !== row.seq || previous.repoId !== row.repoId
+    const identityChanged =
+      !previous || !row || previous.seq !== row.seq || previous.repoId !== row.repoId
     if (previous && identityChanged) this.references.remove(previous, row === null)
     if (row && identityChanged) this.references.add(row)
     if (row === null) {
@@ -1003,7 +1006,9 @@ export class IssueStore {
     const version = this.stagedRows.version
     if (this.stagedReferences?.version !== version) {
       const index = new IssueReferenceIndex()
-      for (const [, row] of this.stagedRows.entries()) if (row) index.add(row)
+      for (const [, row] of this.stagedRows.entries()) {
+        if (row) index.add(row)
+      }
       this.stagedReferences = { version, index }
     }
     return this.stagedReferences.index
@@ -1020,14 +1025,18 @@ export class IssueStore {
     for (const id of ids) {
       const staged = this.stagedRows.peek(id)
       const row = staged ? staged.value : committed.get(id)
-      if (row && row.seq === seq && (repoId === undefined || (row.repoId ?? null) === repoId)) matches.push(row)
+      if (row && row.seq === seq && (repoId === undefined || (row.repoId ?? null) === repoId)) {
+        matches.push(row)
+      }
     }
     // Keep the row map's insertion order, including after a seq/repo rekey.
     return this.sortReferenceRows(matches, pending)
   }
 
   private sortReferenceRows(matches: IssueRow[], pending = this.pendingReferences()): IssueRow[] {
-    const order = (id: string) => this.references.orderOf(id) ?? (this.references.nextOrder + (pending?.orderOf(id) ?? 0))
+    const order = (id: string) =>
+      this.references.orderOf(id) ??
+      this.references.nextOrder + (pending?.orderOf(id) ?? 0)
     return matches.sort((a, b) => order(a.id) - order(b.id))
   }
 
@@ -1038,7 +1047,7 @@ export class IssueStore {
     const legacy = this.referenceRows(seq, null)
     if (legacy.length > 0) {
       const resolve = await this.deps.store.repos.issueRepoIdResolver()
-      matches.push(...legacy.filter(row => resolve(row.repoPath, row.machineId) === repoId))
+      matches.push(...legacy.filter((row) => resolve(row.repoPath, row.machineId) === repoId))
       this.sortReferenceRows(matches)
     }
     return matches[0]?.id ?? null
@@ -1049,21 +1058,23 @@ export class IssueStore {
    * lookups use the maintained repo/seq index rather than an issue-row pass. */
   async resolveRefs(refs: readonly string[]): Promise<Array<{ ref: string; id: IssueId | null }>> {
     const prefixes = new Map<string, ReturnType<IssueDeps['store']['repos']['repoForPrefix']>>()
-    return await Promise.all([...new Set(refs)].map(async ref => {
-      const nice = parseIssueRef(ref.trim().toUpperCase())
-      if (nice) {
-        let lookup = prefixes.get(nice.prefix)
-        if (!lookup) {
-          lookup = this.deps.store.repos.repoForPrefix(nice.prefix)
-          prefixes.set(nice.prefix, lookup)
+    return await Promise.all(
+      [...new Set(refs)].map(async (ref) => {
+        const nice = parseIssueRef(ref.trim().toUpperCase())
+        if (nice) {
+          let lookup = prefixes.get(nice.prefix)
+          if (!lookup) {
+            lookup = this.deps.store.repos.repoForPrefix(nice.prefix)
+            prefixes.set(nice.prefix, lookup)
+          }
+          const repo = await lookup
+          return { ref, id: repo ? await this.referenceInRepo(nice.seq, repo.repoId) : null }
         }
-        const repo = await lookup
-        return { ref, id: repo ? await this.referenceInRepo(nice.seq, repo.repoId) : null }
-      }
-      const numeric = /^#(\d+)$/.exec(ref.trim())
-      const matches = numeric ? this.referenceRows(Number(numeric[1])) : []
-      return { ref, id: matches.length === 1 ? matches[0]!.id : null }
-    }))
+        const numeric = /^#(\d+)$/.exec(ref.trim())
+        const matches = numeric ? this.referenceRows(Number(numeric[1])) : []
+        return { ref, id: matches.length === 1 ? (matches[0]?.id ?? null) : null }
+      }),
+    )
   }
 
   /** Resolve an issue reference to the internal id. Accepts the internal `iss_…` id
@@ -1087,7 +1098,10 @@ export class IssueStore {
    *  the throw's job, not the type's. */
   async resolveRef(ref: string, scopeRepoPath?: string): Promise<IssueId> {
     const staged = this.stagedRows.peek(ref)
-    if (ref.startsWith('iss_') || (staged ? staged.value !== undefined : this.requireHydrated().rows.has(ref))) return asIssueId(ref)
+    if (
+      ref.startsWith('iss_') ||
+      (staged ? staged.value !== undefined : this.requireHydrated().rows.has(ref))
+    ) return asIssueId(ref)
     // Human-facing nice id `PREFIX-seq` (#474). The prefix identifies the repo
     // server-wide, so this resolves without a path qualifier. A prefix that no
     // repo owns falls through to the other branches (and ultimately returns the
