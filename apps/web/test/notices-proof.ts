@@ -61,6 +61,7 @@ try {
     await page.screenshot({ path: `${output}/${mode}.png` })
     await page.keyboard.press('Escape')
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await page.screenshot({ path: `${output}/${mode}-surface.png`, fullPage: true })
     const actionStats = await page.evaluate(() => window.__notices.stats())
     const actionLegacy = Object.values(actionStats.legacy).reduce((sum, count) => sum + (count ?? 0), 0)
     // The preserved navigation owner builds one session index on focus. The
