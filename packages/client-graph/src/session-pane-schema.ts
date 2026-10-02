@@ -16,7 +16,7 @@ export const SESSION_PANE_SCHEMA = {
     'driverFamily', 'transcriptAvailable', 'terminalCapable', 'resumable', 'neverBound',
     'exitCode', 'spawnFailure', 'observedModel', 'observedEffort', 'requestedModel',
     'requestedEffort', 'model', 'effort', 'configureFields', 'snoozedUntil', 'resume',
-    'createdAt', 'geometry', 'draftSyncEngine', 'controllerId',
+    'queuedMessageCount', 'createdAt', 'lastActiveAt', 'archived', 'readAt', 'unread', 'geometry', 'draftSyncEngine', 'controllerId',
   ] },
   machine: { source: 'header:machine', relation: 'session.machine' },
   issue: { source: 'pool:issue', relations: ['parent', 'worktree'], summary: ['id', 'seq', 'archived', 'deletedAt', 'parentId', 'color', 'worktreePath'] },
