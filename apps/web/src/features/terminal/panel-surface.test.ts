@@ -1,3 +1,4 @@
+import { sessionView } from '@podium/client-core/session-values'
 import type { TerminalOutlook } from '@podium/client-core/viewmodels'
 import { asMachineId, type SessionStatus } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -402,4 +403,12 @@ describe('panelGates machineOfflineBarShown', () => {
   it('is absent while the machine is online', () => {
     expect(gates(surfaceOf({ status: 'reconnecting' }), false)).toBe(false)
   })
+})
+
+
+it('the offline session label follows its replicated machine home', () => {
+  const id = asMachineId('m-home')
+  const raw = { machineId: id, machineName: 'Stale session name' }
+  const row = sessionView(raw, { machine: { name: 'Renamed home', loggedOutHarnesses: [] } })
+  expect(panelOfflineMachine(row, [{ id, name: 'Stale live frame', online: false }])).toBe('Renamed home')
 })

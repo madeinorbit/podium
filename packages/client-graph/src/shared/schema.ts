@@ -54,7 +54,7 @@ export type ModelSchemaName =
   | 'IssueDepWire'
   | 'IssueDepProjection'
   | 'SessionMeta'
-  | 'SessionValues'
+  | 'SessionUserStateWire'
   | 'AgentRuntimeState'
   | 'SessionOffer'
   | 'ResumeRef'
@@ -78,6 +78,7 @@ export type RowArrival =
   | 'replica:issueGitStates'
   | 'replica:issueProjections'
   | 'replica:sessions'
+  | 'replica:sessionUserStates'
   | 'replica:repos'
   | 'replica:issueDeps'
   | 'engine:repos'
@@ -478,7 +479,7 @@ const projection = (property?: string): FieldSource => ({
   arrivesOn: 'replica:issueProjections',
   ...(property === undefined ? {} : { property }),
 })
-const sessionValue = (property: string): FieldSource => ({ schema: 'SessionValues', property })
+const sessionValue = (property: string): FieldSource => ({ schema: 'SessionUserStateWire', arrivesOn: 'replica:sessionUserStates', property })
 
 const meta = (property?: string): FieldSource => ({
   schema: 'SessionMeta',
@@ -964,7 +965,7 @@ const DECLARED = defineSchema({
       lastActiveAt: { type: 'isoDate', source: meta() },
       stoppedAt: { type: 'isoDate', optional: true, nullable: true, source: meta() },
       readAt: { type: 'isoDate', optional: true, nullable: true, source: sessionValue('readAt') },
-      unread: { type: 'boolean', optional: true, source: sessionValue('unread'), note: 'Derived from the personal read cursor and session activity at the row-source boundary; legacy only while the companion is absent.' },
+      unread: { type: 'boolean', optional: true, source: sessionValue('readAt'), note: 'Derived from the personal read cursor and session activity at the row-source boundary; legacy only while the companion is absent.' },
       agentState: {
         type: 'object',
         optional: true,

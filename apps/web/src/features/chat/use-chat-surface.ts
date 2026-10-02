@@ -297,7 +297,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     return (machines ?? []).find((m) => m.id === id)
   }, [machines, session?.machineId])
   const presenceOfflineMachineName = machineWire && isMachineOfflineForLiveTerminal(machineWire)
-    ? (machineWire.name ?? session?.machineName ?? session?.machineId ?? null)
+    ? (session?.machineName ?? machineWire.name ?? session?.machineId ?? null)
     : null
   const machineOnline = machineWire ? !isMachineOfflineForLiveTerminal(machineWire) : undefined
 

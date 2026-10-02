@@ -30,6 +30,7 @@ import {
   asUserId,
   issueUserStateRowId,
   shipLaneId,
+  sessionUserStateRowId,
   UNADDRESSABLE_SEND_REASON,
 } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
@@ -4483,5 +4484,72 @@ describe('unreferenced file records', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+
+describe('session home reads in the shared runtime', () => {
+  const read = '2026-07-01T00:00:00.000Z'
+  const id = asSessionId('home-session')
+  const user = asUserId('operator')
+  function seeded() {
+    const replica = createReplica({ storage: memoryStorage() })
+    replica.applySnapshot('sessions', [{ ...session(id, '/repo'), machineId: asMachineId('m1'),
+      refRepoId: 'repo:one', refSeq: 42, refLetter: 'A', displayRef: 'OLD-42-A', unread: true,
+      snoozedUntil: null, machineName: 'Old source', condition: 'logged-out' } as SessionMeta])
+    replica.applySnapshot('sessionUserStates', [{ userId: user, sessionId: id, readAt: read }])
+    replica.applySnapshot('machines', [{ id: asMachineId('m1'), name: 'Source', loggedOutHarnesses: [] }])
+    replica.applySnapshot('repos', [{ id: 'repo:one', prefix: 'NEW' } as never])
+    return replica
+  }
+  it('hydrates all new values in the first snapshot without changing wire truth', () => {
+    const replica = seeded()
+    const { engine } = makeEngine({ replica })
+    try {
+      expect(engine.getSnapshot().sessions[0]).toMatchObject({ readAt: read, unread: false,
+        snoozedUntil: undefined, displayRef: 'NEW-42-A', machineName: 'Source', condition: undefined })
+      expect(replica.rows('sessions')[0]).toMatchObject({ unread: true, snoozedUntil: null, displayRef: 'OLD-42-A' })
+    } finally { engine.destroy() }
+  })
+  it('repaints refs, personal state and login conditions without a session echo', async () => {
+    const replica = seeded()
+    const original = replica.rows('sessions')[0]
+    const { engine } = makeEngine({ replica })
+    engine.start()
+    await settle()
+    try {
+      replica.applySnapshot('repos', [{ id: 'repo:one', prefix: 'RENAMED' } as never])
+      expect(engine.getSnapshot().sessions[0]?.displayRef).toBe('RENAMED-42-A')
+      replica.applySnapshot('sessionUserStates', [{ userId: user, sessionId: id, readAt: null, snoozedUntil: null }])
+      expect(engine.getSnapshot().sessions[0]).toMatchObject({ unread: true, snoozedUntil: null })
+      replica.applySnapshot('machines', [{ id: asMachineId('m1'), name: 'New source', loggedOutHarnesses: ['claude-code'] }])
+      expect(engine.getSnapshot().sessions[0]).toMatchObject({ machineName: 'New source', condition: 'logged-out' })
+      expect(replica.rows('sessions')[0]).toBe(original)
+    } finally { engine.destroy() }
+  })
+  it('keeps read optimism and rejection above the personal row until S3', async () => {
+    const replica = seeded()
+    let refuse!: (e: Error) => void
+    const pending = new Promise((_resolve, reject) => { refuse = reject })
+    const api = makeApi()
+    api.sessions.markUnread.mutate = () => pending
+    const { engine } = makeEngine({ replica, api })
+    engine.start()
+    await settle()
+    try {
+      const write = engine.getSnapshot().markSessionUnread(id)
+      expect(engine.getSnapshot().sessions[0]).toMatchObject({ unread: true, readAt: null })
+      refuse(Object.assign(new Error('refused'), { data: { code: 'BAD_REQUEST', httpStatus: 400 } }))
+      await write
+      await settle()
+      expect(engine.getSnapshot().sessions[0]).toMatchObject({ unread: false, readAt: read })
+    } finally { engine.destroy() }
+  })
+  it('does not borrow another principal cursor and falls back until its own row arrives', () => {
+    const replica = seeded()
+    const { engine } = makeEngine({ replica, principal: 'other' })
+    try {
+      expect(engine.getSnapshot().sessions[0]).toMatchObject({ unread: true, readAt: null, snoozedUntil: null })
+    } finally { engine.destroy() }
   })
 })

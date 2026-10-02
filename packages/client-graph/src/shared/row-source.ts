@@ -359,7 +359,7 @@ export function createRowSource(
     if (!raw) return undefined
     const value = raw as SessionValueInput
     return sessionView(value, {
-      userState: authority('sessionUserStates', sessionUserKeys.get(id) ?? ''),
+      userState: sessionUserKeys.has(id) ? authority('sessionUserStates', sessionUserKeys.get(id)!) : undefined,
       repo: value.refRepoId ? authority('repos', value.refRepoId) : undefined,
       machine: value.machineId ? authority('machines', value.machineId) : undefined,
       handoffMachine: value.handoffTargetMachineId ? authority('machines', value.handoffTargetMachineId) : undefined,

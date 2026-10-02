@@ -3,13 +3,13 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import { worklistSlice, sortUnifiedWorkRows, type WorklistSlice, type IssueNavigationModel, type UnifiedIssueRow, type UnifiedWorkRow } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/model'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { SliceLocals } from '../src/shared/slice-types'
 
 export interface LegacyDerivation {
   slice: WorklistSlice
   models: IssueNavigationModel[]
-  sessions: SessionMeta[]
+  sessions: SessionView[]
   allWorktreePaths: string[]
 }
 

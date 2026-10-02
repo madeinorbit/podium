@@ -76,17 +76,18 @@ export function sessionView<T extends SessionValueInput>(session: T, homes: Sess
   }
   if (memo.value) return memo.value as T & SessionValues
   const values = sessionValues(session, homes)
-  memo.value = new Proxy(session, {
-    get(target, key, receiver) {
-      return Object.hasOwn(values, key) ? Reflect.get(values, key) : Reflect.get(target, key, receiver)
-    },
-    has(target, key) { return Object.hasOwn(values, key) || Reflect.has(target, key) },
-    ownKeys(target) { return [...new Set([...Reflect.ownKeys(target), ...Object.keys(values)])] },
-    getOwnPropertyDescriptor(target, key) {
-      return Object.hasOwn(values, key)
-        ? { configurable: true, enumerable: true, writable: false, value: Reflect.get(values, key) }
-        : Reflect.getOwnPropertyDescriptor(target, key)
-    },
+  const read = (key: PropertyKey): unknown => Object.hasOwn(values, key) ? Reflect.get(values, key) : Reflect.get(session, key)
+  const reject = (): never => { throw new TypeError('A session read view is read-only') }
+  memo.value = new Proxy({} as T, {
+    get: (_target, key) => read(key),
+    has: (_target, key) => Object.hasOwn(values, key) || Reflect.has(session, key),
+    ownKeys: () => [...new Set([...Reflect.ownKeys(session), ...Object.keys(values)])],
+    getOwnPropertyDescriptor: (_target, key) =>
+      Object.hasOwn(values, key) || Object.hasOwn(session, key)
+        ? { configurable: true, enumerable: true, get: () => read(key) }
+        : undefined,
+    getPrototypeOf: () => Reflect.getPrototypeOf(session),
+    set: reject, deleteProperty: reject, defineProperty: reject, setPrototypeOf: reject,
   })
   return memo.value as T & SessionValues
 }

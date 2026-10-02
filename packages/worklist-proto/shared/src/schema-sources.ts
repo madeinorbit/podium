@@ -29,6 +29,7 @@ import {
   ResumeRef,
   SessionMeta,
   SessionOffer,
+  SessionUserStateWire,
 } from '@podium/model'
 import type { ReplicaKind } from '@podium/client-core/replica'
 import { SCHEMA, type ModelSchema, type ModelSchemaName, type RowArrival } from '@podium/client-graph/shared/schema'
@@ -52,6 +53,7 @@ export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
   SessionMeta,
   AgentRuntimeState,
   SessionOffer,
+  SessionUserStateWire,
   ResumeRef,
   RepoProjection,
   GitRepositoryWire,

@@ -284,5 +284,5 @@ export function panelOfflineMachine(
   if (!session?.machineId) return null
   const machine = machines.find((m) => m.id === session.machineId)
   if (!machine || !isMachineOfflineForLiveTerminal(machine)) return null
-  return machine.name || session.machineName || 'This machine'
+  return session.machineName || 'This machine'
 }

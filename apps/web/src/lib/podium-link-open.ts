@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 /**
  * What opening a Podium address MEANS in the web app (POD-1606).
  *
@@ -41,10 +42,7 @@ export interface LinkIssueLike {
   } | null
 }
 
-export interface LinkSessionLike {
-  sessionId: SessionId
-  displayRef?: string
-}
+export type LinkSessionLike = Pick<SessionView, 'sessionId' | 'displayRef'>
 
 export type PodiumOpen =
   | { kind: 'issue'; issueId: IssueId }
