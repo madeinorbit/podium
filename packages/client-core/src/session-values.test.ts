@@ -144,5 +144,4 @@ describe('session values from their new homes', () => {
     expect(() => Reflect.set(view, 'displayRef', 'CHANGED')).toThrow(/read-only/)
     expect(raw.displayRef).toBe('OLD-42-B')
   })
-
 })

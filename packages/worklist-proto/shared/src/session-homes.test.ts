@@ -107,7 +107,8 @@ describe('session homes in the graph row source', () => {
       push('repo', 'r1', { id: 'r1', prefix: 'RENAMED', repoPath: '/different/path' })
       const event = handle.flush()!
       expect(event.rows.filter((row) => row.kind === 'session').map((row) => row.id)).toEqual([
-        's1', 's3',
+        's1',
+        's3',
       ])
       expect(handle.source.row!('session', 's1')).toHaveProperty('displayRef', 'RENAMED-42-A')
       expect(handle.source.row!('session', 's3')).toHaveProperty('displayRef', 'RENAMED-43-C')
@@ -162,7 +163,12 @@ describe('session homes in the graph row source', () => {
         ['machine', 'm2'],
       ]) {
         push(kind!, id!, undefined, 'evict')
-        expect(handle.flush()?.rows.filter(row => row.kind === 'session').map(row => row.id)).toEqual(['s1'])
+        expect(
+          handle
+            .flush()
+            ?.rows.filter((row) => row.kind === 'session')
+            .map((row) => row.id),
+        ).toEqual(['s1'])
       }
       expect(handle.source.row!('session', 's1')).toMatchObject({
         displayRef: 'OLD-42-A',
@@ -226,17 +232,29 @@ describe('session homes in the graph row source', () => {
     const { handle, cache, replica, push } = boot()
     try {
       cache.install([])
-      cache.put('session', 's1', { ...row, refRepoId: 'r2', machineId: 'm3', handoffTargetMachineId: undefined })
+      cache.put('session', 's1', {
+        ...row,
+        refRepoId: 'r2',
+        machineId: 'm3',
+        handoffTargetMachineId: undefined,
+      })
       cache.put('sessionUserState', key('b'), { userId: 'b', sessionId: 's1', readAt: null })
-      replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'rescope', snapshotSeq: 4, entityCount: 2, bufferedFramesApplied: 0 })
+      replica.onKernelEvent({
+        type: 'bootstrap-installed',
+        cause: 'rescope',
+        snapshotSeq: 4,
+        entityCount: 2,
+        bufferedFramesApplied: 0,
+      })
       expect(handle.flush()?.type).toBe('replace')
       expect(handle.source.row!('session', 's1')).toHaveProperty('unread', true)
       push('machine', 'm1', { id: 'm1', name: 'Old scope', loggedOutHarnesses: [] })
       expect(handle.flush()).toBeNull()
       push('sessionUserState', key('b'), { userId: 'b', sessionId: 's1', readAt: at })
-      expect(handle.flush()?.rows.map(row => row.id)).toEqual(['s1'])
+      expect(handle.flush()?.rows.map((row) => row.id)).toEqual(['s1'])
       expect(handle.source.row!('session', 's1')).toHaveProperty('unread', false)
-    } finally { handle.dispose() }
+    } finally {
+      handle.dispose()
+    }
   })
-
 })

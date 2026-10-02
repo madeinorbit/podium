@@ -34,18 +34,28 @@ export function legacySessionReads(source: string, file = 'apps/web/src/example.
   const wireNames = new Set(['SessionMeta'])
   const rawBindings = new Set<string>()
   const gather = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && /^@podium\/model(?:\/browser)?$/.test(node.moduleSpecifier.text)) {
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      /^@podium\/model(?:\/browser)?$/.test(node.moduleSpecifier.text)
+    ) {
       const names = node.importClause?.namedBindings
-      if (names && ts.isNamedImports(names)) for (const name of names.elements) {
-        if ((name.propertyName ?? name.name).text === 'SessionMeta') wireNames.add(name.name.text)
-      }
+      if (names && ts.isNamedImports(names))
+        for (const name of names.elements) {
+          if ((name.propertyName ?? name.name).text === 'SessionMeta') wireNames.add(name.name.text)
+        }
     }
     ts.forEachChild(node, gather)
   }
   gather(ast)
   const gatherBindings = (node: ts.Node): void => {
-    if ((ts.isParameter(node) || ts.isVariableDeclaration(node)) && node.type && ts.isIdentifier(node.name) &&
-      [...wireNames].some(name => new RegExp(`\\b${name}\\b`).test(node.type!.getText(ast)))) rawBindings.add(node.name.text)
+    if (
+      (ts.isParameter(node) || ts.isVariableDeclaration(node)) &&
+      node.type &&
+      ts.isIdentifier(node.name) &&
+      [...wireNames].some((name) => new RegExp(`\\b${name}\\b`).test(node.type!.getText(ast)))
+    )
+      rawBindings.add(node.name.text)
     ts.forEachChild(node, gatherBindings)
   }
   gatherBindings(ast)
@@ -80,12 +90,36 @@ export function legacySessionReads(source: string, file = 'apps/web/src/example.
         hits.push('raw sessions collection: read the shared store or row-source session view')
       }
     }
-    if (reader && ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal) &&
-      /^@podium\/model(?:\/browser)?$/.test(node.argument.literal.text) && node.qualifier?.getText(ast) === 'SessionMeta') hits.push('inline raw SessionMeta import: use SessionView')
-    if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) && node.initializer && ts.isIdentifier(node.initializer) && rawBindings.has(node.initializer.text)) {
+    if (
+      reader &&
+      ts.isImportTypeNode(node) &&
+      ts.isLiteralTypeNode(node.argument) &&
+      ts.isStringLiteral(node.argument.literal) &&
+      /^@podium\/model(?:\/browser)?$/.test(node.argument.literal.text) &&
+      node.qualifier?.getText(ast) === 'SessionMeta'
+    )
+      hits.push('inline raw SessionMeta import: use SessionView')
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isObjectBindingPattern(node.name) &&
+      node.initializer &&
+      ts.isIdentifier(node.initializer) &&
+      rawBindings.has(node.initializer.text)
+    ) {
       for (const element of node.name.elements) {
         const field = (element.propertyName ?? element.name).getText(ast).replace(/[\'\"]/g, '')
-        if (['readAt', 'unread', 'snoozedUntil', 'displayRef', 'machineName', 'condition', 'handoffTarget'].includes(field)) hits.push(`raw destructured cell ${field}: use sessionValues`)
+        if (
+          [
+            'readAt',
+            'unread',
+            'snoozedUntil',
+            'displayRef',
+            'machineName',
+            'condition',
+            'handoffTarget',
+          ].includes(field)
+        )
+          hits.push(`raw destructured cell ${field}: use sessionValues`)
       }
     }
     // Writes/fingerprints remain legal; reading a named legacy cell through a
@@ -98,7 +132,10 @@ export function legacySessionReads(source: string, file = 'apps/web/src/example.
     const castType = base && ts.isAsExpression(base) ? base.type.getText(ast) : ''
     if (
       (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
-      base && ((ts.isAsExpression(base) && [...wireNames].some(name => new RegExp(`\\b${name}\\b`).test(castType))) || (ts.isIdentifier(base) && rawBindings.has(base.text)))
+      base &&
+      ((ts.isAsExpression(base) &&
+        [...wireNames].some((name) => new RegExp(`\\b${name}\\b`).test(castType))) ||
+        (ts.isIdentifier(base) && rawBindings.has(base.text)))
     ) {
       const field = ts.isPropertyAccessExpression(node)
         ? node.name.text
