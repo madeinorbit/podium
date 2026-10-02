@@ -1,4 +1,5 @@
 /** Build the prototype entry at the EXISTING collector's URL; no collector fork. */
+import { mkdirSync, renameSync } from 'node:fs'
 import { resolve } from 'node:path'
 import config from './pool-memory.vite'
 
@@ -20,11 +21,13 @@ export default {
     {
       name: 'existing-memory-collector-url',
       enforce: 'post' as const,
-      generateBundle(_options: unknown, bundle: Record<string, { fileName: string }>) {
-        const entry = bundle['harness/per-row-memory.browser.html']!
-        delete bundle[entry.fileName]
-        entry.fileName = 'test/pool-memory.browser.html'
-        bundle[entry.fileName] = entry
+      writeBundle() {
+        const build = resolve('.artifacts/pool-memory/build')
+        mkdirSync(resolve(build, 'test'), { recursive: true })
+        renameSync(
+          resolve(build, 'harness/per-row-memory.browser.html'),
+          resolve(build, 'test/pool-memory.browser.html'),
+        )
       },
     },
   ],
