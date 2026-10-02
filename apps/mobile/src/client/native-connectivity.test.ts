@@ -41,7 +41,9 @@ function fakeAppState(initial: AppStateStatus = 'active'): AppStateLike & {
   }
 }
 
-function fakeNetInfo(initial: NetInfoStateLike = { isConnected: true, isInternetReachable: true }): NetInfoLike & {
+function fakeNetInfo(
+  initial: NetInfoStateLike = { isConnected: true, isInternetReachable: true },
+): NetInfoLike & {
   go(state: NetInfoStateLike): void
   listeners(): number
 } {
@@ -72,7 +74,10 @@ function fakeHub(): NativeConnectivityHub & { calls: string[] } {
 }
 
 function setup(
-  options: { appState?: ReturnType<typeof fakeAppState>; netInfo?: ReturnType<typeof fakeNetInfo> } = {},
+  options: {
+    appState?: ReturnType<typeof fakeAppState>
+    netInfo?: ReturnType<typeof fakeNetInfo>
+  } = {},
 ) {
   const appState = options.appState ?? fakeAppState()
   const netInfo = options.netInfo ?? fakeNetInfo()
@@ -186,6 +191,21 @@ describe('teardown', () => {
     connectivity.dispose()
     expect(appState.listeners()).toBe(0)
     expect(netInfo.listeners()).toBe(0)
+  })
+
+  it('detaches an old runtime without silencing the successor', () => {
+    const { appState, connectivity, hub } = setup()
+    const releaseOld = connectivity.attachHub(hub)
+    const successor = fakeHub()
+    const releaseNew = connectivity.attachHub(successor)
+    releaseOld()
+    appState.go('background')
+    expect(hub.calls).toEqual(['visible:false'])
+    expect(successor.calls).toEqual(['suspend'])
+    releaseNew()
+    appState.go('active')
+    expect(successor.calls).toEqual(['suspend'])
+    connectivity.dispose()
   })
 
   it('stops driving a hub it no longer has', () => {
