@@ -161,16 +161,18 @@ async function main() {
     process.exit(0)
   }
 
-  const sourceSha = git('rev-parse', 'HEAD')
+  const captureSha = git('rev-parse', 'HEAD')
+  const sourceSha = calibrate
+    ? git('rev-parse', value('baseline-ref', 'integrate/4286-pilot'))
+    : captureSha
   const dirtyProduct =
     git('diff', '--name-only', 'HEAD', '--', 'apps/web/src', 'packages').length > 0
-  if (
-    calibrate &&
-    (dirtyProduct || sourceSha !== git('rev-parse', value('baseline-ref', 'integrate/4286-pilot')))
-  )
-    throw new Error(
-      'First baseline must measure the unchanged landed integrate/4286-pilot product tree',
-    )
+  if (calibrate) {
+    if (dirtyProduct)
+      throw new Error('First baseline must measure the unchanged landed integration product tree')
+    // The committed measurement code may sit above the landing being measured.
+    git('diff', '--exit-code', sourceSha, captureSha, '--', 'apps/web/src', 'packages')
+  }
   await mkdir(root, { recursive: true })
   const began = performance.now()
   let leased = false
@@ -526,21 +528,6 @@ async function main() {
 
   let exitCode = 2
   try {
-    if (!args.includes('--lease-confirmed')) {
-      const grant = await podium([
-        'lock',
-        'acquire',
-        'bench:flatblock',
-        '--ttl',
-        '6m',
-        '--wait',
-        '--timeout',
-        '30s',
-        '--json',
-      ])
-      if (!grant?.granted) throw new Error('bench:flatblock was not granted')
-      leased = !grant.alreadyHeld
-    }
     console.log(
       'Building ordinary, minified production web fixture (no profiling renderer or state instrumentation)…',
     )
@@ -604,6 +591,21 @@ async function main() {
     }
     if (baseline && !same(machine, baseline.machine))
       throw new Error('Machine/browser differs from the landed baseline; no timing comparison made')
+    if (!args.includes('--lease-confirmed')) {
+      const grant = await podium([
+        'lock',
+        'acquire',
+        'bench:flatblock',
+        '--ttl',
+        '6m',
+        '--wait',
+        '--timeout',
+        '30s',
+        '--json',
+      ])
+      if (!grant?.granted) throw new Error('bench:flatblock was not granted')
+      leased = !grant.alreadyHeld
+    }
     const runs: Awaited<ReturnType<typeof suite>>[] = []
     for (let i = 0; i < (calibrate ? 3 : 1); i++) {
       console.log(`4× corpus, five actions; capture ${i + 1}/${calibrate ? 3 : 1}`)
@@ -636,6 +638,7 @@ async function main() {
     const report = {
       version: 1,
       sourceSha,
+      captureSha,
       dirtyProduct,
       machine,
       repetitions: REPETITIONS,
