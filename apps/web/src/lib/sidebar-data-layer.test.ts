@@ -13,6 +13,18 @@ afterEach(() => history.replaceState(null, '', '/'))
 
 describe('sidebar startup data layer', () => {
   it.each([
+    ['', '1', 'pool'],
+    ['?mobxSidebar=0', '1', 'legacy'],
+    ['?mobxSidebar=1', '0', 'pool'],
+  ] as const)('uses the shared MobX pilot setting with URL precedence: %s', async (query, setting, expected) => {
+    history.replaceState(null, '', `/${query}`)
+    const mode = await import('./sidebar-data-layer')
+    mode.initializeSidebarDataLayer(stored(setting))
+    expect(mode.sidebarDataLayer()).toBe(expected)
+    expect(mode.sidebarCheckRequested()).toBe(false)
+  })
+
+  it.each([
     ['', false], ['?mobxSidebarCheck=1', false], ['?mobxSidebar=0&mobxSidebarCheck=1', false],
     ['?mobxSidebar=1', false], ['?mobxSidebar=1&mobxSidebarCheck=0', false], ['?mobxSidebar=1&mobxSidebarCheck=1', true],
   ])('freezes both diagnostic opt-ins at startup: %s', async (query, expected) => {

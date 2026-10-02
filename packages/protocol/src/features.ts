@@ -133,8 +133,8 @@ export const FEATURES = [
     // Packaged development builds list this with Podium development enabled;
     // source dev builds retain their usual access to every experimental flag.
     id: 'mobx-sidebar',
-    name: 'Sidebar MobX pilot',
-    description: 'Request the sidebar data-layer pilot on this device. Reload to apply.',
+    name: 'MobX pilot',
+    description: 'Use the new data layer for every converted screen. Reload to apply.',
     visibility: 'development',
   },
   {

@@ -1,15 +1,16 @@
+import type { UiState } from '@podium/client-core/ui-state'
+import { mobxPilotEnabled } from './mobx-pilot'
+
 /** Frozen for the lifetime of this app load, including principal rebuilds.
- * Default off. The query override is the screen's one-week rollback switch. */
+ * The shared device setting defaults off; the URL overrides this screen only. */
 let startup: 'legacy' | 'pool' | undefined
 let check = false
-export function initializeHeaderDataLayer(): void {
+export function initializeHeaderDataLayer(ui: Pick<UiState, 'get'>): void {
   if (startup !== undefined) return
   let params: URLSearchParams | undefined
   try { params = new URLSearchParams(location.search) } catch { /* SSR. */ }
-  startup = params?.get('mobxHeader') === '1' ? 'pool' : 'legacy'
+  startup = mobxPilotEnabled(ui, params, 'mobxHeader') ? 'pool' : 'legacy'
   check = startup === 'pool' && params?.get('mobxHeaderCheck') === '1'
 }
 export function headerDataLayer(): 'legacy' | 'pool' { return startup ?? 'legacy' }
 export function headerCheckRequested(): boolean { return check }
-
-initializeHeaderDataLayer()

@@ -3,14 +3,15 @@
 let startup: 'legacy' | 'pool' | undefined
 let check = false
 
-export function initializeSettingsDataLayer(): void {
+export function initializeSettingsDataLayer(ui: Pick<UiState, 'get'>): void {
   if (startup !== undefined) return
   let params: URLSearchParams | undefined
   try { params = new URLSearchParams(location.search) } catch { /* SSR. */ }
-  startup = params?.get('mobxSettings') === '1' ? 'pool' : 'legacy'
+  startup = mobxPilotEnabled(ui, params, 'mobxSettings') ? 'pool' : 'legacy'
   check = startup === 'pool' && params?.get('mobxSettingsCheck') === '1'
 }
 
 export function settingsDataLayer(): 'legacy' | 'pool' { return startup ?? 'legacy' }
 export function settingsCheckRequested(): boolean { return check }
-initializeSettingsDataLayer()
+import type { UiState } from '@podium/client-core/ui-state'
+import { mobxPilotEnabled } from '@/lib/mobx-pilot'

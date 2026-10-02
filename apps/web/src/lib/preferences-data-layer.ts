@@ -1,12 +1,15 @@
-/** Default OFF; query choice is latched once for this app load, including
- * principal changes. Delete the legacy arm after the operator's rollout week. */
+import type { UiState } from '@podium/client-core/ui-state'
+import { mobxPilotEnabled } from './mobx-pilot'
+
+/** The shared device setting and URL override latch once for this app load,
+ * including principal changes. Reload to apply a different choice. */
 let startup: 'legacy' | 'pool' | undefined
 let check = false
-export function initializePreferencesDataLayer(): void {
+export function initializePreferencesDataLayer(ui: Pick<UiState, 'get'>): void {
   if (startup !== undefined) return
   let params: URLSearchParams | undefined
   try { params = new URLSearchParams(location.search) } catch { /* SSR. */ }
-  startup = params?.get('mobxPreferences') === '1' ? 'pool' : 'legacy'
+  startup = mobxPilotEnabled(ui, params, 'mobxPreferences') ? 'pool' : 'legacy'
   check = startup === 'pool' && params?.get('mobxPreferencesCheck') === '1'
 }
 export function preferencesDataLayer(): 'legacy' | 'pool' { return startup ?? 'legacy' }
@@ -23,4 +26,3 @@ export const preferenceReadStats = {
 export function recordLegacyPreferenceRead(owner: object): void {
   if (counting) legacyReads.set(owner, (legacyReads.get(owner) ?? 0) + 1)
 }
-initializePreferencesDataLayer()
