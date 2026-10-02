@@ -953,7 +953,10 @@ function calledByMobx(): boolean {
   }
   const frames = stack.split('\n').slice(1)
   for (const frame of frames) {
-    if (frame.includes(THIS_FILE) || frame.includes('(native)')) continue
+    // Native constructors have no caller location. Bun and Node spell them
+    // differently; inspect the next frame so MobX's own sets stay excluded.
+    if (frame.includes(THIS_FILE) || frame.includes('(native)') ||
+      /at (?:new )?(?:Set|Map) \((?:<anonymous>|unknown)\)/.test(frame)) continue
     return frame.includes('/node_modules/mobx/')
   }
   return false
@@ -996,11 +999,13 @@ function countedOutside(fn: () => void): OutsideCount {
   // POD-4569: the visible collection's set (`pool.visible`) is not a relation
   // bucket; a row entering the worklist adds its id there, one element per
   // membership flip either way (`counters.membershipFlips`). POD-4686: the
-  // groups' filed lanes (`pool.groups.*`) are the same kind of maintenance
-  // filing, counted separately (`counters.groupRuns`, `groupElements`).
+  // groups' filed lanes (`pool.groups.*`) and sidebar roster candidates are
+  // maintenance filing too, rather than relation buckets. Their plain
+  // bookkeeping still counts below; every actual bucket stays counted.
   const bucketOnly = (self: unknown): number => {
     const name = (self as { name_?: string }).name_ ?? ''
-    return name === 'pool.visible' || name.startsWith('pool.groups.') ? 0 : 1
+    return name === 'pool.visible' || name.startsWith('pool.groups.') ||
+      name === 'pool.sidebar.rosterSeats' ? 0 : 1
   }
   const length = (self: unknown): number => (self as unknown[]).length
   const countingIterator = (it: Iterator<unknown>, tick: () => void): IterableIterator<unknown> => {
@@ -1096,7 +1101,7 @@ function countedOutside(fn: () => void): OutsideCount {
 
 type SetLike = { readonly size: number }
 
-it('preserves the landed write count and collapse rules with only existing declarations', () => {
+it('keeps existing declarations within the bookkeeping bound and preserves collapse rules', () => {
   const collapse = SCHEMA.session.collapse
   if (!collapse) throw new Error('Missing declared session collapse')
   const pageIssueNames = new Set(['pageDependencies', 'pageDependents', 'bornSessions', 'pageSessions',
@@ -1111,15 +1116,80 @@ it('preserves the landed write count and collapse rules with only existing decla
   const r = rig([lane('/repo'), issue('I1')], { schema })
   try {
     const count = countedOutside(() => r.push(issue('I2')))
-    // Recorded on landed 35e707ac7e, including the existing mission relations.
+    // 35e707ac7e did 23 writes + 1 delete + 7 iterations (31 total), even
+    // without mission declarations. Root caches, empty roster dispatch and
+    // the absent collapse-flip delete now save eight unnecessary operations.
     expect(outsideTotal(count)).toBe(1)
-    expect(count.plain).toEqual({ written: 23, deleted: 1, iterated: 7, copied: 0 })
+    expect(count.plain).toEqual({ written: 18, deleted: 0, iterated: 5, copied: 0 })
     const ref = { kind: 'codex-thread', value: 'compatibility' }
     r.push(session('S1', { issueId: 'I1', status: 'exited', resume: ref }),
       session('S2', { issueId: 'I1', status: 'hibernated', resume: ref }))
     expect(r.many('issue', 'I1', 'missionSessions')).toEqual(['S2'])
     r.push(session('S1', { issueId: 'I1', status: 'live', resume: ref }))
     expect(r.many('issue', 'I1', 'missionSessions')).toEqual(['S1', 'S2'])
+    r.check()
+  } finally { r.dispose() }
+})
+
+it('a root starts the nesting walk when it gains a parent, including a cycle', () => {
+  const r = rig([issue('I1'), issue('I2')])
+  let state: { parents: (string | null | undefined)[]; visible: (boolean | undefined)[] }
+  const stop = autorun(() => {
+    state = {
+      parents: ['I1', 'I2'].map(id => r.pool.issue(id)?.nestParent),
+      visible: ['I1', 'I2'].map(id => r.pool.issue(id)?.visible),
+    }
+  })
+  try {
+    expect(state!).toEqual({ parents: [null, null], visible: [true, true] })
+    r.push(issue('I1', { parentId: 'I2' }))
+    expect(state!).toEqual({ parents: ['I2', null], visible: [true, true] })
+    r.push(issue('I2', { parentId: 'I1' }))
+    expect(state!).toEqual({ parents: ['I2', null], visible: [true, true] })
+    r.push(issue('I1'))
+    expect(state!).toEqual({ parents: [null, 'I1'], visible: [true, true] })
+    r.push(issue('I1', { audience: 'agent' }))
+    expect(state!.visible).toEqual([false, false])
+    r.push(issue('I1'))
+    expect(state!).toEqual({ parents: [null, 'I1'], visible: [true, true] })
+    r.check()
+  } finally { stop(); r.dispose() }
+})
+
+it('an empty issue roster follows a later session and owner visibility changes', () => {
+  const r = rig([lane('/repo'), issue('I1', { audience: 'agent' })])
+  const candidates = () => tracked(() => [...r.pool.sidebarRosters.candidates('/repo')])
+  try {
+    expect(candidates()).toEqual([])
+    r.push(session('S1', { issueId: 'I1', cwd: '/repo' }))
+    expect(candidates()).toEqual(['S1'])
+    r.push(issue('I1'))
+    expect(candidates()).toEqual([])
+    r.push(gone('session', 'S1'))
+    r.push(session('S2', { issueId: 'I1', cwd: '/repo' }))
+    expect(candidates()).toEqual([])
+    r.push(issue('I1', { audience: 'agent' }))
+    expect(candidates()).toEqual(['S2'])
+    r.check()
+  } finally { r.dispose() }
+})
+
+it('a real collapse flip restores every filtered relation when a twin loses its resume key', () => {
+  const ref = { kind: 'codex-thread', value: 'loses-key' }
+  const r = rig([
+    lane('/repo'), issue('I1'),
+    session('S1', { issueId: 'I1', cwd: '/repo', status: 'hibernated', resume: ref }),
+    session('S2', { issueId: 'I1', cwd: '/repo', status: 'exited', resume: ref }),
+  ])
+  try {
+    expect(tracked(() => r.pool.graph.isCollapsed('session', 'S2'))).toBe(true)
+    expect(r.many('issue', 'I1', 'sessions')).toEqual(['S1'])
+    r.push(session('S2', { issueId: 'I1', cwd: '/repo' }))
+    expect(tracked(() => r.pool.graph.isCollapsed('session', 'S2'))).toBe(false)
+    expect(r.many('issue', 'I1', 'sessions')).toEqual(['S1', 'S2'])
+    expect(r.many('issue', 'I1', 'missionSessions')).toEqual(['S1', 'S2'])
+    expect(r.many('issue', 'I1', 'pageSessions')).toEqual(['S1', 'S2'])
+    expect(r.many('worktree', '/repo', 'sessions')).toEqual(['S1', 'S2'])
     r.check()
   } finally { r.dispose() }
 })
@@ -1200,6 +1270,9 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
    * iterated, still whatever the bucket's size. The prefix index
    * (`place`) adds or deletes one entry per ancestor path of the row's path,
    * creates or drops at most one set per path, and records the placement once.
+   * The current root insert is 18 writes + 5 iterations = 23. Mission
+   * declarations add nothing without a starter or explicit session edge;
+   * no nesting memo/cycle set, empty roster queue or absent flip is written.
    */
   const PLAIN_BOOKKEEPING = 23
   const plainBound = (path: string | null): number =>

@@ -622,11 +622,22 @@ describe('docs/plans/pod-4545-round-three-schema.md §4.5, verbatim', () => {
       expect(r.one('session', 'S2', 'worktree')).toBe(Wi2)
       expect(r.many('worktree', Wi2, 'sessions')).toEqual(['S2'])
 
-      // 1. S2 gets issueId I2: two objects touched.
+      // 1. S2 gets issueId I2: sidebar, mission and raw page memberships attach.
       r.push(session('S2', { issueId: 'I2', cwd: '/repo/.worktrees/i2/packages/web' }))
       expect(r.many('issue', 'I2', 'sessions')).toEqual(['S1', 'S2'])
+      expect(r.many('issue', 'I2', 'missionSessions')).toEqual(['S1', 'S2'])
+      expect(r.many('issue', 'I2', 'pageSessions')).toEqual(['S1', 'S2'])
+      expect(r.one('session', 'S2', 'missionIssue')).toBe('I2')
+      expect(r.one('session', 'S2', 'pageIssue')).toBe('I2')
       expect(r.one('session', 'S2', 'worktree')).toBe(Wi2)
-      expect(r.writes()).toEqual(['issue.sessions:I2', 'session.issue:S2'])
+      expect(r.writes()).toEqual([
+        'issue.missionSessions:I2',
+        'issue.pageSessions:I2',
+        'issue.sessions:I2',
+        'session.issue:S2',
+        'session.missionIssue:S2',
+        'session.pageIssue:S2',
+      ])
 
       // 2. I2 is archived: R1 re-evaluates, worktree and repo stay.
       r.push(issue('I2', { parentId: 'I1', worktreePath: Wi2, archived: true }))
@@ -730,7 +741,18 @@ describe('the reads fence and the write record', () => {
     {
       name: 'session moves issue',
       change: [session('S2', { issueId: 'I4', cwd: '/repo/y' })],
-      writes: ['issue.sessions:I1', 'issue.sessions:I4', 'session.issue:S2'],
+      // All three declared issueId links move; cwd ownership stays put.
+      writes: [
+        'issue.missionSessions:I1',
+        'issue.missionSessions:I4',
+        'issue.pageSessions:I1',
+        'issue.pageSessions:I4',
+        'issue.sessions:I1',
+        'issue.sessions:I4',
+        'session.issue:S2',
+        'session.missionIssue:S2',
+        'session.pageIssue:S2',
+      ],
     },
     {
       name: 'session moves lane',
@@ -744,14 +766,26 @@ describe('the reads fence and the write record', () => {
     {
       name: 'deps change',
       change: [issue('I3', { parentId: 'I1', deps: [{ id: 'I4', type: 'discovered-from' }] })],
-      writes: ['issue.discoveredFrom:I3', 'issue.spinOffs:I2', 'issue.spinOffs:I4'],
+      // The page's all-target edge includes the same discovered-from edge.
+      writes: [
+        'issue.discoveredFrom:I3',
+        'issue.pageDependencies:I3',
+        'issue.pageDependents:I2',
+        'issue.pageDependents:I4',
+        'issue.spinOffs:I2',
+        'issue.spinOffs:I4',
+      ],
     },
     {
       name: 'new session',
       change: [session('S9', { issueId: 'I4', cwd: '/repo/z' })],
       writes: [
+        'issue.missionSessions:I4',
+        'issue.pageSessions:I4',
         'issue.sessions:I4',
         'session.issue:S9',
+        'session.missionIssue:S9',
+        'session.pageIssue:S9',
         'session.worktree:S9',
         'worktree.sessions:/repo',
       ],
@@ -760,8 +794,12 @@ describe('the reads fence and the write record', () => {
       name: 'remove session',
       change: [gone('session', 'S3')],
       writes: [
+        'issue.missionSessions:I4',
+        'issue.pageSessions:I4',
         'issue.sessions:I4',
         'session.issue:S3',
+        'session.missionIssue:S3',
+        'session.pageIssue:S3',
         'session.worktree:S3',
         'worktree.sessions:/repo/.worktrees/a',
       ],

@@ -660,6 +660,15 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   get nesting(): Nesting {
+    // A present root with no provenance has no candidate or cycle to resolve.
+    // Keep tracking presence and standing so a later parent/starter builds
+    // the ordinary cached walk, without two memo entries for every root.
+    if (this.present) {
+      const standing = this.standing
+      if (standing?.parentId === null && standing.startedBy === null) {
+        return nestingOf(this.host.visibleInputs, this.id, standing, true, null)
+      }
+    }
     return IssueModel.groups.nesting(this)
   }
 

@@ -123,7 +123,11 @@ export class SidebarRosterIndex {
     }
   }
   queueSession(id: string): void { this.dirty.add(id) }
-  queueIssue(id: string): void { this.dirtyOwners.add(id) }
+  queueIssue(id: string): void {
+    // Nothing can be re-filed from an empty inverse. Later session deltas
+    // queue themselves; a later owner publication sees its populated bucket.
+    if (this.pool.graph.size('issue', id, 'sessions') > 0) this.dirtyOwners.add(id)
+  }
 
   /** Existing issue filing reaction supplies these narrow facts. A burst on
    * a represented issue never invalidates its worktree's fallback roster. */

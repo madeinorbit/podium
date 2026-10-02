@@ -569,7 +569,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     const resident = after !== undefined && this.promote(entity, id)
     this.summarize(entity, id, resident ? undefined : after)
     const flipped = this.recollapse(entity, id, before, after)
-    const selfFlipped = flipped.delete(id)
+    const selfFlipped = flipped.has(id) && flipped.delete(id)
     for (const link of this.outgoing.get(entity) ?? []) {
       if (after === undefined) {
         this.relink(link, id, undefined)
@@ -841,7 +841,10 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
         groupOf.set(id, newKey)
       }
     }
-    if (newKey === null && collapsed.delete(id)) flipped.add(id)
+    if (newKey === null && collapsed.has(id)) {
+      collapsed.delete(id)
+      flipped.add(id)
+    }
     for (const key of new Set([oldKey, newKey])) {
       if (key === null) continue
       const group = groups.get(key)
