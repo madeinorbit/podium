@@ -73,7 +73,13 @@ const driver = {
       await nextFrame()
     }
   },
-  stats: () => ({ store: storeStats.snapshot(), ...preferenceReadStats.read(owner), pool: pool?.preferenceCounts(), commits, commitMs, failures }),
+  stats: () => {
+    const rows = storeStats.snapshot().runtimes
+    return { selectors: rows.reduce((sum, row) => sum + row.selectorRuns, 0),
+      wakes: rows.reduce((sum, row) => sum + row.subscriberWakes, 0),
+      legacyDerivations: rows.reduce((sum, row) => sum + Object.values(row.slices).reduce((a, n) => a + n, 0), 0),
+      ...preferenceReadStats.read(owner), pool: pool?.preferenceCounts(), commits, commitMs, failures }
+  },
   async check() {
     if (!pool) return null
     const { checkPreferences } = await import('@podium/client-graph/diagnostics/preference-check')

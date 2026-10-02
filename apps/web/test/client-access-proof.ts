@@ -36,9 +36,9 @@ try {
       if (phase === 'activity') await page.evaluate(() => window.__clientAccess.activity(200))
       else await page.evaluate(() => window.__clientAccess.preferences())
       const final = await metrics(), stats = await page.evaluate(() => window.__clientAccess.stats())
-      const counts = stats.store.runtimes.reduce((sum, row) => ({ selectors: sum.selectors + row.selectorRuns, wakes: sum.wakes + row.subscriberWakes }), { selectors: 0, wakes: 0 })
+      const counts = { selectors: stats.selectors, wakes: stats.wakes, legacyDerivations: stats.legacyDerivations }
       results[`${mode}.${phase}`] = { taskMs: ((final.TaskDuration ?? 0) - (initial.TaskDuration ?? 0)) * 1000, scriptMs: ((final.ScriptDuration ?? 0) - (initial.ScriptDuration ?? 0)) * 1000, ...counts, legacyReads: stats.legacyReads, pool: stats.pool, commits: stats.commits, commitMs: stats.commitMs }
-      if (mode === 'after' && (counts.selectors !== 0 || stats.legacyReads !== 0)) throw new Error('Legacy preference/transport reader executed')
+      if (mode === 'after' && (counts.selectors !== 0 || stats.legacyReads !== 0 || stats.legacyDerivations !== 0)) throw new Error('Legacy preference/transport reader executed')
       if (mode === 'before' && phase === 'activity' && counts.selectors === 0) throw new Error('Legacy positive control did not execute')
       if (stats.failures.length) throw new Error('Provider failure in synthetic proof')
     }
