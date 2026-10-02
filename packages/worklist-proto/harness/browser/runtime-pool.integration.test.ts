@@ -59,7 +59,7 @@ describe('principal pool lifetime in Chromium', () => {
     try {
       await page.goto(`${origin}/__pool_test?mobxSidebar=1&mobxChips=1`)
       await ready(page)
-      await page.waitForSelector('#offline-reference-host', { state: 'attached' })
+      await page.waitForSelector('#offline-reference-host [data-ref="POD-0"][data-issue-availability="unavailable"]', { state: 'attached' })
       // Observing the reference itself would warm it; inspect residency only.
       const before = await page.evaluate(() => {
         const state = window.__poolFixture.referenceState()
@@ -71,10 +71,19 @@ describe('principal pool lifetime in Chromium', () => {
       const requests: string[] = []
       page.on('request', request => requests.push(request.url()))
       await page.evaluate(() => window.__poolFixture.mountReference())
-      await page.waitForFunction(() =>
-        document.querySelector('#offline-reference-host a')?.getAttribute('aria-label') ===
-          'Archived Done task POD-1234: Cold offline issue',
-      )
+      try {
+        await page.waitForFunction(() =>
+          document.querySelector('#offline-reference-host [data-ref="POD-1234"]')?.getAttribute('aria-label') ===
+            'Archived Done task POD-1234: Cold offline issue',
+        )
+      } catch (cause) {
+        const state = await page.evaluate(() => ({
+          ...window.__poolFixture.referenceState(),
+          html: document.getElementById('offline-reference-host')?.innerHTML,
+          failures: window.__poolFixture.state().failures,
+        }))
+        throw new Error(JSON.stringify({ state, requests, errors }), { cause })
+      }
       const after = await page.evaluate(() => window.__poolFixture.referenceState())
       expect(after).toEqual({ online: false, cold: false, resident: true,
         issueId: 'iss_offline_reference', serverCalls: 0 })
@@ -86,7 +95,7 @@ describe('principal pool lifetime in Chromium', () => {
           heading.textContent = 'Cold issue chip resolved offline'
           const evidence = document.createElement('pre')
           evidence.textContent = JSON.stringify({ before, after, networkRequests: requests,
-            label: document.querySelector('#offline-reference-host a')?.getAttribute('aria-label') }, null, 2)
+            label: document.querySelector('#offline-reference-host [data-ref="POD-1234"]')?.getAttribute('aria-label') }, null, 2)
           document.body.prepend(heading)
           document.body.append(evidence)
         }, { before, after, requests })

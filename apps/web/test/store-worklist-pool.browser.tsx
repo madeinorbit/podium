@@ -52,7 +52,7 @@ function replica() {
       value: { id: coldRepo, path: '/offline-reference', prefix: 'POD' }, provenance: { seq: 1 } },
     { entity: 'issueProjection', entityId: coldId,
       value: { ...projection, id: coldId, repoId: coldRepo, seq: 1234, title: 'Cold offline issue',
-        archived: true, stage: 'done', closedAt: '2026-01-01T00:00:00.000Z' }, provenance: { seq: 1 } },
+        archived: true, deletedAt: null, stage: 'done', closedAt: '2026-01-01T00:00:00.000Z' }, provenance: { seq: 1 } },
   ]
   const cache = {
     readCursor: () => null,
@@ -94,7 +94,11 @@ function ReferenceProbe() {
   const pool = useWorklistPool()
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   if (pool === null || chipsDataLayer() !== 'pool') return null
-  return <><div id="offline-reference-host" ref={setHost} /><IssueChipLiveness root={host} /></>
+  // A missing sentinel proves the asynchronous production watcher is attached
+  // before the driver goes offline, without reading or warming the cold issue.
+  return <><div id="offline-reference-host" ref={setHost}>
+    <a className="ref-link--issue" data-ref="POD-0">Watcher ready</a>
+  </div><IssueChipLiveness root={host} /></>
 }
 
 function show(name: string | null, rebuild = false): void {
