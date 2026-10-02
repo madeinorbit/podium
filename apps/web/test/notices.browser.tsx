@@ -91,8 +91,12 @@ const driver = {
   },
   stats() {
     const rows = storeStats.snapshot().runtimes
+    const legacySliceNames: Record<string, number> = {}
+    for (const row of rows) for (const [name, count] of Object.entries(row.slices)) {
+      legacySliceNames[name] = (legacySliceNames[name] ?? 0) + count
+    }
     return { selectors: rows.reduce((sum, row) => sum + row.selectorRuns, 0),
-      legacySlices: rows.reduce((sum, row) => sum + Object.values(row.slices).reduce((a, n) => a + n, 0), 0),
+      legacySlices: Object.values(legacySliceNames).reduce((sum, count) => sum + count, 0), legacySliceNames,
       legacy: noticeReadStats.read(owner), commits, commitMs, failures: failures.length, actions,
       parked: owner.outbox.deadLetters().length, opened: owner.getSnapshot().paneA }
   },

@@ -46,6 +46,8 @@ try {
     const before = await page.evaluate(() => window.__notices.check())
     if (mode === 'after' && (!before || before.differences || before.pending || before.positions !== 20)) throw new Error(`Notice comparison failed: ${JSON.stringify(before)}`)
     results[`${mode}.check`] = before
+    // Measure actions independently of the opt-in legacy-reference comparison.
+    await page.evaluate(() => window.__notices.reset())
     await page.getByTestId('message-notice-chip').click()
     await page.getByRole('button', { name: 'Dismiss', exact: true }).first().click()
     await page.waitForFunction(() => window.__notices.stats().actions.dismissed === 1)
@@ -59,12 +61,12 @@ try {
     await page.screenshot({ path: `${output}/${mode}.png` })
     await page.keyboard.press('Escape')
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
-    const after = await page.evaluate(() => window.__notices.check())
-    if (mode === 'after' && (!after || after.differences || after.pending || after.positions !== 17)) throw new Error(`Post-action comparison failed: ${JSON.stringify(after)}`)
     const actionStats = await page.evaluate(() => window.__notices.stats())
     const actionLegacy = Object.values(actionStats.legacy).reduce((sum, count) => sum + (count ?? 0), 0)
-    if (mode === 'after' && (actionStats.selectors || actionStats.legacySlices || actionLegacy)) throw new Error('Legacy notice work executed while acting')
-    results[`${mode}.actions`] = { ...actionStats.actions, parked: actionStats.parked, selectors: actionStats.selectors, legacy: actionStats.legacy, check: after }
+    if (mode === 'after' && (actionStats.selectors || actionStats.legacySlices || actionLegacy)) throw new Error(`Legacy notice work executed while acting: ${JSON.stringify({ selectors: actionStats.selectors, legacySliceNames: actionStats.legacySliceNames, legacy: actionStats.legacy })}`)
+    const after = await page.evaluate(() => window.__notices.check())
+    if (mode === 'after' && (!after || after.differences || after.pending || after.positions !== 17)) throw new Error(`Post-action comparison failed: ${JSON.stringify(after)}`)
+    results[`${mode}.actions`] = { ...actionStats.actions, parked: actionStats.parked, selectors: actionStats.selectors, legacy: actionStats.legacy, legacySliceNames: actionStats.legacySliceNames, check: after }
     if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`)
     await page.evaluate(() => window.__notices.close()); await page.close()
   }
