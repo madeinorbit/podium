@@ -10,10 +10,11 @@ declare module './source-registry' { interface PoolSourceRows extends SessionPan
 export const SESSION_PANE_ENTITIES = ['sessionPaneWindow'] as const
 export const SESSION_PANE_SCHEMA = {
   sessionPaneWindow: { key: 'window', source: 'engine:locals', fields: ['panelMode', 'dockShells', 'reposLoaded', 'pendingSpawnIds'], cold: 'never' },
+  selection: { source: 'engine:locals', fields: ['selectedIssueId'], reader: 'pool.selection' },
   session: { source: 'pool:session', reader: 'load', fields: [
     'sessionId', 'status', 'agentState', 'offer', 'issueId', 'cwd', 'machineId', 'machineName',
     'condition', 'handoffTarget', 'name', 'title', 'displayRef', 'agentKind', 'headless',
-    'driverFamily', 'transcriptAvailable', 'terminalCapable', 'harnessPromptModeHints', 'resumable', 'neverBound',
+    'driverFamily', 'transcriptAvailable', 'attachKinds', 'harnessPromptModeHints', 'resumable', 'neverBound',
     'exitCode', 'spawnFailure', 'observedModel', 'observedEffort', 'requestedModel',
     'requestedEffort', 'model', 'effort', 'configureFields', 'snoozedUntil', 'resume',
     'queuedMessageCount', 'createdAt', 'lastActiveAt', 'archived', 'readAt', 'unread', 'geometry', 'draftSyncEngine', 'controllerId',

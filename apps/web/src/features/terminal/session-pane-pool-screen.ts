@@ -1,4 +1,4 @@
-import type { PoolScreen } from '@/app/pool-screen-registry'
+import type { PoolScreen } from '@podium/client-graph/host'
 import { SESSION_PANE_SUMMARIES } from '@podium/client-graph/session-pane-schema'
 import { initializeSessionPaneDataLayer, sessionPaneDataLayer, sessionPaneCheckRequested } from './session-pane-data-layer'
 import { issueColorHex } from '@/lib/issueColors'

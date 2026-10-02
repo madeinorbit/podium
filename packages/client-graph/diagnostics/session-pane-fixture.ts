@@ -18,13 +18,15 @@ export function sessionPaneFixture(): SessionView[] {
     { status: 'exited', resumable: false },
     { status: 'starting' },
     { status: 'reconnecting' },
-    { condition: 'logged-out', machineName: 'Offline host' },
-    { driverFamily: 'server', headless: true, configureFields: ['permissionMode'] },
+    { condition: 'logged-out', machineId: 'machine-b', machineName: 'Offline host' },
+    { driverFamily: 'server', attachKinds: [], headless: true, configureFields: ['permissionMode'] },
     { requestedModel: 'gpt-6', requestedEffort: 'high', configureFields: ['model', 'effort'] },
     { observedModel: 'claude-opus-4-8', observedEffort: 'medium', requestedModel: 'gpt-6' },
     { snoozedUntil: '2026-10-03T00:00:00Z' },
     { handoffTarget: 'Another host', machineName: 'Host' },
     { agentKind: 'shell', status: 'hibernated' },
+    { driverFamily: undefined, attachKinds: undefined },
+    { machineId: 'machine-b', machineName: 'Offline host' },
     { archived: true, status: 'exited', lastActiveAt: '2020-01-01T00:00:00Z' },
   ]
   return variants.map((patch, i) => ({ sessionId: asSessionId(`pane-${i}`), agentKind: 'claude-code',
@@ -32,5 +34,6 @@ export function sessionPaneFixture(): SessionView[] {
     machineId: 'machine-a', machineName: 'Host', displayRef: `POD-${i}.a`, controllerId: 'controller',
     geometry: { cols: 80, rows: 24 }, epoch: 0, clientCount: 1, createdAt: '2026-10-01T00:00:00Z',
     lastActiveAt: '2026-10-01T23:50:00Z', origin: { kind: 'spawn' }, archived: false, readAt: null, unread: true,
-    agentState: { phase: 'idle' }, model: 'auto', effort: 'auto', ...patch } as SessionView))
+    agentState: { phase: 'idle' }, driverFamily: 'terminal', attachKinds: ['client'],
+    model: 'auto', effort: 'auto', ...patch } as SessionView))
 }

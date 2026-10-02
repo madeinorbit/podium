@@ -2,7 +2,7 @@
  * Legacy input is diagnostic-only; it never enters the switched read path. */
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import { attentionGroup } from '@podium/client-core/focus'
-import { sessionWaking, resumeCommand, sessionUrgencyRank, exitedRecovery, deriveGitStamp } from '@podium/client-core/viewmodels'
+import { sessionWaking, resumeCommand, sessionUrgencyRank, exitedRecovery, deriveGitStamp, sessionTerminalOutlook, defaultChatCapable } from '@podium/client-core/viewmodels'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-core/replica'
@@ -22,6 +22,7 @@ export function paneComparable(row: SessionView | undefined, now: number): Recor
     resumeCommand: resumeCommand(row),
     recovery: exitedRecovery({ exitCode: row.exitCode, spawnFailure: row.spawnFailure,
       isShell: row.agentKind === 'shell', resumable: row.resumable === true, neverBound: row.neverBound === true }),
+    terminalOutlook: sessionTerminalOutlook(row), chatCapable: row.transcriptAvailable ?? defaultChatCapable(row.agentKind),
     canEnd: ['live', 'starting', 'reconnecting'].includes(row.status),
     canHibernate: row.status === 'live' && row.resumable === true && phase !== 'working' && phase !== 'compacting',
     dockDead: row.archived || row.status === 'exited', dockParked: !row.archived && row.status === 'hibernated',
