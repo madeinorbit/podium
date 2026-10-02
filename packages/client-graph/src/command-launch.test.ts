@@ -101,8 +101,7 @@ describe('declared command and launch targets', () => {
       f.parity()
       const expected = legacyCommandLaunchSnapshot(f.ctx.engine.getSnapshot()), actual = runInAction(() => poolCommandLaunchSnapshot(f.pool))
       for (const fault of ['value', 'order', 'membership'] as const) {
-        const damaged = structuredClone(actual)
-        damaged.pending = 1
+        const damaged = { ...structuredClone(actual), pending: 1 }
         const section = damaged.sections.find(section => section.key === 'machines')!
         if (fault === 'value') (section.fields as Record<string, unknown>).fault = true
         if (fault === 'order') (section.rows as unknown[]).reverse()

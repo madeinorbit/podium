@@ -5,6 +5,7 @@ import { lastUsedMaps, reposToViews, spawnTargetForRepo, type RepoNavView } from
 import { COMMAND_SUMMARIES } from '@podium/client-graph/command-launch-schema'
 import { commandLaunchViews, type CommandLaunchData } from '@podium/client-graph/command-launch-views'
 import { LOADING, type MobxPool } from '@podium/client-graph'
+import type { Loaded } from '@podium/client-graph/worklist/rollup'
 import { useMemo } from 'react'
 import { useSidebarProjectSections } from '@/features/worklist/use-sidebar-projects'
 import { commandLaunchCheckRequested, commandLaunchDataLayer, commandLaunchReadStats, initializeCommandLaunchDataLayer } from '@/lib/command-launch-data-layer'
@@ -34,7 +35,7 @@ function useLegacyLaunch() {
   const owner = useStoreHandle<Trpc>()
   return useStoreSelector(s => { commandLaunchReadStats.legacy(owner); return { repos: s.repos, sessions: s.sessions ?? [], machines: s.machines ?? [] } }, shallowEqual)
 }
-export function useCommandLaunchData() {
+export function useCommandLaunchData(): Loaded<CommandLaunchData> | ReturnType<typeof useLegacyLaunch> {
   const useRead = commandLaunchDataLayer() === 'pool' ? usePoolLaunch : useLegacyLaunch
   return useRead()
 }
@@ -53,7 +54,7 @@ function useLegacyPalette() {
   }, [data.repos, data.sessions, sections, data.selectedWorktree])
   return { ...data, issues, spawnTargets }
 }
-export function useCommandPaletteData() {
+export function useCommandPaletteData(): Loaded<CommandLaunchData> | ReturnType<typeof useLegacyPalette> {
   const useRead = commandLaunchDataLayer() === 'pool' ? usePoolPalette : useLegacyPalette
   return useRead()
 }
