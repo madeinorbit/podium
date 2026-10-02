@@ -97,7 +97,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
-      sessions: pooled ? pooled.sessions : s.sessions,
+      sessions: pooled ? pooled.sessions : s.sessions ?? [],
       navigateToSession: s.navigateToSession,
       updateIssue: s.updateIssue,
       deleteIssue: s.deleteIssue,

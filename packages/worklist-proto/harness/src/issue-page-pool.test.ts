@@ -78,6 +78,12 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
 }
 
 describe('declared issue page', () => {
+  it('expires a defer at the exact coarse-clock deadline', () => {
+    const ctx = open([task('root', { deferUntil: new Date(NOW).toISOString() })])
+    expect(tracked(() => ctx.views.issue('root'))).toMatchObject({ ready: true, deferred: false })
+    expect(tracked(() => ctx.views.summary('root'))).toMatchObject({ ready: true, deferred: false })
+    expect(ctx.check()).toMatchObject({ differences: 0 })
+  })
   it('keeps a later resume winner in the first group slot while raw member order follows IDs', () => {
     const twin = { kind: 'codex-thread', value: 'same' }
     const ctx = open([task('root'), task('born')], [
@@ -139,7 +145,7 @@ describe('declared issue page', () => {
     expect(tracked(() => [...links.issue.pageDependents.ids('a')])).toEqual([])
     ctx.pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'owner', value: task('owner', { deps: [{ id: 'a', type: 'custom' }] }) }] })
     expect(tracked(() => [...links.issue.pageDependents.ids('a')])).toEqual(['owner'])
-    expect(() => tracked(() => ctx.pool.graph.one('issue', 'owner', 'pageDependencies'))).toThrow(/not a single/)
+    expect(() => ctx.pool.graph.one('issue', 'owner', 'pageDependencies')).toThrow(/is a collection/)
   })
 
   it('matches explicit, session, containment and mission destinations without a legacy lookup', () => {
@@ -192,7 +198,7 @@ describe('declared issue page', () => {
         memberSessionIds: [], dependents: [{ id: 'other', type: 'relates' }], sessionSummary: { total: 0 } })
     } finally { stop() }
     ctx.pool.dispose()
-    expect(tracked(() => ctx.views.data('root'))).toBe(LOADING)
+    expect(runInAction(() => ctx.views.data('root'))).toBe(LOADING)
   })
 })
 

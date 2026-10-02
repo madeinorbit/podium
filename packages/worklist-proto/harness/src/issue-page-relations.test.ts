@@ -74,7 +74,7 @@ describe('page schema generic relation collections', () => {
       unobserve()
       stop(); stop(); pool.dispose()
       expect(stops).toBe(1)
-      expect(tracked(() => pool.row('issueExit', 'opaque'))).toBe(LOADING)
+      expect(runInAction(() => pool.row('issueExit', 'opaque'))).toBe(LOADING)
     } finally { unobserve(); pool.dispose() }
   })
 })

@@ -1,5 +1,5 @@
 import { reaction } from 'mobx'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import { createWorklistPool } from '@podium/client-graph/create'
 import { checkIssuePages, poolIssuePageSnapshot, startIssuePageCheck } from '@podium/client-graph/diagnostics/issue-page-check'
@@ -14,8 +14,10 @@ import { FENCE_SCENARIOS, openFenceFeeds } from '../fence-scenarios'
 import { tracked } from '../adapters/mobx-pool'
 import { installMobxWarnTrap } from '../mobx-trap'
 import { writeResult } from '../results'
+import { FIXED_NOW } from '../fixture'
 
 installMobxWarnTrap({ errors: true })
+afterEach(() => vi.restoreAllMocks())
 function settle(pool: MobxPool) {
   for (let round = 0; round < 64; round++) {
     tracked(() => poolIssuePageSnapshot(pool))
@@ -26,7 +28,9 @@ function settle(pool: MobxPool) {
 
 describe('issue page differential replay', () => {
   it('owns the diagnostic timer, brackets legacy check work and releases it after errors or disposal', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
     const run = await startGenRun({ corpus: genCorpus(), feedMode: 'overlaid' })
+    clock.mockImplementation(() => run.ctx.engine.getSnapshot().coarseNow)
     const locals = createEngineLocals(run.ctx.engine)
     const handle = createWorklistPool(run.feed().source, locals.source, { summaries: ISSUE_PAGE_SUMMARIES })
     const perf = createSidebarPerf(), unbind = bindSidebarPerf(run.ctx.engine, perf)
@@ -55,7 +59,9 @@ describe('issue page differential replay', () => {
     }
   })
   for (const scale of [1, 4] as const) it(`corpus and every methodology change at ${scale}x`, async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
     const ctx = await startScenarioEngine(scale)
+    clock.mockImplementation(() => ctx.engine.getSnapshot().coarseNow)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, { summaries: ISSUE_PAGE_SUMMARIES })
     const stop = reaction(() => poolIssuePageSnapshot(handle.pool), () => {}, { fireImmediately: true })
@@ -80,8 +86,10 @@ describe('issue page differential replay', () => {
   const seeds = Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3)
   const steps = Number(process.env['POD_POOL_GATE_STEPS'] ?? 200)
   for (let seed = firstSeed; seed < firstSeed + seeds; seed++) it(`every generated change, seed ${seed}`, async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
     const corpus = genCorpus(), changes = gen(seed, steps, {}, { corpus, forceSidebarValues: true })
     const run = await startGenRun({ corpus, feedMode: 'overlaid' })
+    clock.mockImplementation(() => run.ctx.engine.getSnapshot().coarseNow)
     let feed = run.feed(), locals = createEngineLocals(run.ctx.engine)
     let handle = createWorklistPool(feed.source, locals.source, { summaries: ISSUE_PAGE_SUMMARIES })
     const observe = () => reaction(() => poolIssuePageSnapshot(handle.pool), () => {}, { fireImmediately: true })

@@ -120,7 +120,7 @@ function rendered(root: Element): unknown {
     if (node.nodeType === Node.TEXT_NODE) return node.textContent?.replace(/\s+/g, ' ')
     if (!(node instanceof Element)) return null
     const attrs = Object.fromEntries([...node.attributes].map(attr => [attr.name,
-      /^(id|aria-controls|aria-describedby|aria-labelledby)$/.test(attr.name) ? attr.value.split(' ').map(id).join(' ') : attr.value]))
+      /^(id|aria-controls|aria-describedby|aria-labelledby|aria-owns|data-rootownerid)$/.test(attr.name) ? attr.value.split(' ').map(id).join(' ') : attr.value]))
     return { tag: node.tagName, attrs, children: [...node.childNodes].map(visit).filter(value => value !== null) }
   }
   return visit(root)

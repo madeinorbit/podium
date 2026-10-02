@@ -101,7 +101,7 @@ export function createIssuePageViews(pool: MobxPool) {
       const inverse = dependents(id)
       if (inverse === LOADING) return LOADING
       const p = prefix(id)
-      const deferred = Boolean(value.deferUntil && !pool.clock.passed(Date.parse(value.deferUntil as string)))
+      const deferred = Boolean(value.deferUntil && !pool.clock.reached(Date.parse(value.deferUntil as string)))
       return { ...fields, id, prefix: p, displayRef: p ? `${p}-${value.seq}` : `#${value.seq}`,
         labels: value.labels ?? [], deps: value.deps ?? [], dependents: inverse ?? [], memberSessionIds: [], childIds: [],
         childCount: 0, childDoneCount: 0, deferred, ready: !value.blocked && !deferred && value.stage !== 'done',
@@ -139,7 +139,7 @@ export function createIssuePageViews(pool: MobxPool) {
       const inverse = dependents(id)
       if (inverse === LOADING) return LOADING
       const p = prefix(id)
-      const deferred = Boolean(value.deferUntil && !pool.clock.passed(Date.parse(value.deferUntil)))
+      const deferred = Boolean(value.deferUntil && !pool.clock.reached(Date.parse(value.deferUntil)))
       const readAt = Date.parse(value.readAt ?? '')
       let unread = !Number.isFinite(readAt) || Date.parse(value.updatedAt) > readAt
       const byPhase: Record<string, number> = {}
