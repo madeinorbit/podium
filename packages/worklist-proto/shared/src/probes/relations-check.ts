@@ -62,7 +62,7 @@ export function capturingFence(inner: ReadFence): CapturingFence {
   return { fence, relations: () => captured }
 }
 
-/** Every single-valued relation the schema declares (`belongsTo`, `prefix`, outgoing `edge`). */
+/** Every forward relation the schema declares, including outgoing edge collections. */
 export function declaredLinks(schema: ModelSchema = SCHEMA): RelationRef[] {
   const out: RelationRef[] = []
   for (const from of Object.keys(schema) as EntityName[]) {
@@ -114,16 +114,19 @@ export function checkRelations(
     const { to, inverse } = spec
     const fromIds = rows[from]
     const toIds = rows[to]
+    const targets = (id: string): Iterable<string> => {
+      if (spec.kind === 'edge' && spec.many) return reader.many(from, id, relation)
+      const target = reader.one(from, id, relation)
+      return target === null ? [] : [target]
+    }
     if (fromIds !== undefined) {
       for (const x of fromIds) {
-        const y = reader.one(from, x, relation)
-        if (y === null) continue
-        edges += 1
-        if (toIds !== undefined && !toIds.has(y)) continue // a kept reference id (§4.3)
-        if (![...reader.many(to, y, inverse)].includes(x)) {
-          report(
-            `one-way: ${from}:${x}.${relation} = ${to}:${y}, but ${to}:${y}.${inverse} does not hold ${x}`,
-          )
+        for (const y of targets(x)) {
+          edges += 1
+          if (toIds !== undefined && !toIds.has(y)) continue // a kept reference id (§4.3)
+          if (![...reader.many(to, y, inverse)].includes(x)) {
+            report(`one-way: ${from}:${x}.${relation} = ${to}:${y}, but ${to}:${y}.${inverse} does not hold ${x}`)
+          }
         }
       }
     }
@@ -135,10 +138,12 @@ export function checkRelations(
             report(`ghost: ${to}:${y}.${inverse} holds ${from}:${x}, which the feed no longer has`)
             continue
           }
-          const back = reader.one(from, x, relation)
-          if (back !== y) {
+          const back = [...targets(x)]
+          if (!back.includes(y)) {
             report(
-              `one-way: ${to}:${y}.${inverse} holds ${x}, but ${from}:${x}.${relation} = ${back ?? 'null'}`,
+              spec.kind === 'edge' && spec.many
+                ? `one-way: ${to}:${y}.${inverse} holds ${x}, but ${from}:${x}.${relation} does not hold ${y}`
+                : `one-way: ${to}:${y}.${inverse} holds ${x}, but ${from}:${x}.${relation} = ${back[0] ?? 'null'}`,
             )
           }
         }

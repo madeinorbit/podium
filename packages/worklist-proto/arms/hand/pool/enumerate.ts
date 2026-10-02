@@ -46,6 +46,7 @@ import {
 } from '@podium/client-graph/shared/schema'
 import type { RowRecord } from '../../../shared/src/stats'
 import { isLinkSpec, relationRef } from './relations'
+import { relationTargets } from '@podium/client-graph/shared/links'
 import type { Residency } from './residency'
 import {
   createTables,
@@ -169,6 +170,7 @@ export function scanRelations(
     for (const [name, spec] of Object.entries(schema[from].relations)) {
       if (!isLinkSpec(spec)) continue
       const pointers = new Map<string, string>()
+      const targetsBySource = new Map<string, string[]>()
       const buckets = new Map<string, string[]>()
       let roots: string[] = []
       if (spec.kind === 'prefix') {
@@ -197,8 +199,14 @@ export function scanRelations(
       }
       for (const [id, value] of tables[from]) {
         const row = value as Readonly<Record<string, unknown>>
-        if (collapsed.has(`${from}:${id}`)) continue
+        if (!spec.uncollapsed && collapsed.has(`${from}:${id}`)) continue
         if (spec.where !== undefined && !spec.where.test(row)) continue
+        if (spec.kind === 'edge' && spec.many) {
+          const targets = [...relationTargets(from, name, row, schema)].sort()
+          targetsBySource.set(id, targets)
+          for (const target of targets) buckets.set(target, [...(buckets.get(target) ?? []), id])
+          continue
+        }
         let target: string | null
         if (spec.kind === 'prefix') {
           const path = row[spec.sourceField]
@@ -211,7 +219,8 @@ export function scanRelations(
         buckets.set(target, [...(buckets.get(target) ?? []), id])
       }
       for (const members of buckets.values()) members.sort()
-      forward.set(`${from}.${name}`, pointers)
+      if (spec.kind === 'edge' && spec.many) inverse.set(`${from}.${name}`, targetsBySource)
+      else forward.set(`${from}.${name}`, pointers)
       inverse.set(`${spec.to}.${spec.inverse}`, buckets)
     }
   }
@@ -291,7 +300,7 @@ export function diffRelations(
       for (const [name, spec] of Object.entries(schema[from].relations)) {
         let got: unknown
         let want: unknown
-        if (isLinkSpec(spec)) {
+        if (isLinkSpec(spec) && !(spec.kind === 'edge' && spec.many)) {
           got = live.one(from, id, name)
           want = scan.one(from, id, name)
         } else {

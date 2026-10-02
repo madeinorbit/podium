@@ -37,7 +37,7 @@ type IsCollection<S> = S extends { readonly kind: 'hasMany' }
   ? true
   : S extends { readonly kind: 'edge'; readonly direction: 'in' }
     ? true
-    : false
+    : S extends { readonly kind: 'edge'; readonly many: true } ? true : false
 
 /** The collections of `E`: `hasMany` and incoming `edge`. */
 export type CollectionName<E extends EntityName> = {
@@ -100,7 +100,7 @@ export function relationLinks(reader: RelationReader, schema: ModelSchema = SCHE
     const entity: Record<string, unknown> = {}
     for (const [name, spec] of Object.entries(schema[from].relations)) {
       const collection =
-        spec.kind === 'hasMany' || (spec.kind === 'edge' && spec.direction === 'in')
+        spec.kind === 'hasMany' || (spec.kind === 'edge' && (spec.direction === 'in' || spec.many))
       if (!collection) {
         entity[name] = (id: string) => reader.one(from, id, name)
         continue
@@ -139,7 +139,7 @@ function relationRefs(schema: ModelSchema): RelationRefs {
   for (const from of Object.keys(schema) as EntityName[]) {
     const entity: Record<string, unknown> = {}
     for (const [name, spec] of Object.entries(schema[from].relations)) {
-      if (spec.kind === 'belongsTo' || (spec.kind === 'edge' && spec.direction === 'out')) {
+      if (spec.kind === 'belongsTo' || (spec.kind === 'edge' && spec.direction === 'out' && !spec.many)) {
         entity[name] = (row: object) => relationRef(from, name, row, schema)
       }
     }
@@ -182,10 +182,28 @@ export function relationRef(
   } else if (spec.kind === 'edge' && spec.direction === 'out') {
     const edges = row[spec.edgeField]
     if (!Array.isArray(edges)) return null
-    const hit = (edges as readonly Row[]).find((edge) => edge[spec.edgeTypeKey] === spec.edgeType)
+    if (spec.many) throw new Error(`[pool] ${from}.${relation} is a collection; read its targets`)
+    const hit = (edges as readonly Row[]).find((edge) => spec.allTypes || edge[spec.edgeTypeKey] === spec.edgeType)
     target = hit?.[spec.edgeIdKey]
   } else {
     throw new Error(`[pool] ${from}.${relation} is not resolved from its own row (${spec.kind})`)
   }
   return typeof target === 'string' && target.length > 0 ? target : null
+}
+
+/** The source row's declared edge collection. Keys only, no target payloads;
+ * duplicate edges/types between the same endpoints contribute one membership. */
+export function relationTargets(from: EntityName, relation: string, source: object,
+  schema: ModelSchema = SCHEMA): ReadonlySet<string> {
+  const spec = schema[from].relations[relation]
+  if (spec?.kind !== 'edge' || spec.direction !== 'out' || !spec.many)
+    throw new Error(`[pool] ${from}.${relation} is not an outgoing edge collection`)
+  const row = source as Row
+  if (spec.where && !spec.where.test(row)) return new Set()
+  const edges = row[spec.edgeField]
+  return new Set(Array.isArray(edges) ? (edges as readonly Row[]).flatMap(edge => {
+    const id = edge[spec.edgeIdKey]
+    return (spec.allTypes || edge[spec.edgeTypeKey] === spec.edgeType) && typeof id === 'string' && id
+      ? [id] : []
+  }) : [])
 }

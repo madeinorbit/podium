@@ -4,7 +4,7 @@ import { normalizeOriginUrl } from '@podium/model/browser'
 import { compareStructural, computed, observable, observe, runInAction } from 'mobx'
 import type { MobxPool } from './pool'
 import { allResidentSessions, knownIssueIds, knownSessionIds } from './enumerate'
-import { COMMAND_ENTITIES, COMMAND_RELATIONS, type CommandEntity, type CommandLaunchRows, type CommandSessionSummary } from './command-launch-schema'
+import { COMMAND_ENTITIES, COMMAND_RELATIONS, type CommandEntity, type CommandLaunchRows } from './command-launch-schema'
 import type { PoolSource, PoolSourceRows } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -60,26 +60,12 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
   }
 
   private sessionOrder(): readonly string[] {
-    const ids = knownSessionIds(this.pool), groups = new Map<string, string>()
-    const first = new Map<string, string>(), collapsed = new Set<string>()
-    // Transient placement from the declared two-string resume identity. The
-    // existing pool alone chooses winners; no cold relation index is retained.
-    for (const id of ids) {
-      const row = this.pool.row('session', id, 'summary') as Loaded<CommandSessionSummary>
-      if (!row || row === LOADING || row.headless || !row.resume) continue
-      const key = JSON.stringify([row.resume.kind, row.resume.value])
-      groups.set(id, key)
-      if (!first.has(key)) first.set(key, id)
-      if (this.pool.graph.isCollapsed('session', id)) collapsed.add(key)
-    }
-    const placed: [string, string][] = []
-    for (const id of ids) {
-      if (this.pool.graph.isCollapsed('session', id)) continue
-      const key = groups.get(id)
-      placed.push([key && collapsed.has(key) ? first.get(key)! : id, id])
-    }
-    // Today's deduped list replaces the group's first slot with its winner.
-    return placed.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, id]) => id)
+    return knownSessionIds(this.pool)
+      .filter(id => !this.pool.graph.isCollapsed('session', id))
+      .sort((a, b) => {
+        const left = this.pool.graph.orderKey('session', a), right = this.pool.graph.orderKey('session', b)
+        return left < right ? -1 : left > right ? 1 : 0
+      })
   }
 
   private replace(entity: CommandEntity, rows: readonly (readonly [string, object])[]): void {

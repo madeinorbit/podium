@@ -94,7 +94,7 @@
 import { type ObservableMap, type ObservableSet, observable } from 'mobx'
 import { debugName } from './debug-name'
 import type { RelationReader } from './shared/relation-reader'
-import { relationRef } from './shared/links'
+import { relationRef, relationTargets } from './shared/links'
 
 // Moved to the typed links (POD-4758); kept importable from the engine.
 export { relationRef }
@@ -195,6 +195,10 @@ interface Link {
   readonly coldForward: Map<string, string>
   /** Buckets keyed by targets that are not resident (POD-4567). */
   readonly coldBuckets: Map<string, Set<string>>
+  /** Multi-target forward keys use the same link and inverse buckets. Cold
+   * source keys remain plain until promotion, like singular forward keys. */
+  readonly forwardMany: ObservableMap<string, ReadonlySet<string>> | null
+  readonly coldForwardMany: Map<string, ReadonlySet<string>>
   /**
    * POD-4671 — `prefix` with `alsoRoots` only: raw extra root → rows naming
    * it. The union root set is the target table's keys plus every key here.
@@ -241,6 +245,7 @@ interface Collapse {
   readonly groups: Map<string, Set<string>>
   readonly groupOf: Map<string, string>
   readonly collapsed: Set<string>
+  readonly orderKeys: ObservableMap<string, string>
 }
 
 /** The write surface the engine probes roots on: the RAW tables. */
@@ -340,7 +345,9 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
           rule: entity.collapse,
           groups: new Map(),
           groupOf: new Map(),
-          collapsed: new Set(),
+          collapsed: Object.values(entity.relations).some(relation => relation.uncollapsed)
+            ? observable.set<string>(undefined, { deep: false }) : new Set(),
+          orderKeys: observable.map<string, string>(undefined, { deep: false }),
         })
       }
     }
@@ -376,6 +383,8 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
           placed: prefix ? new Map() : null,
           coldForward: new Map(),
           coldBuckets: new Map(),
+          forwardMany: spec.kind === 'edge' && spec.many ? observable.map(undefined, { deep: false }) : null,
+          coldForwardMany: new Map(),
           extraCounts: extra ? new Map() : null,
           extraByRow: extra ? new Map() : null,
           subsets: declared.map(([subset, subsetSpec]) => ({
@@ -432,7 +441,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
 
   one(from: EntityName, id: string, relation: string): string | null {
     const link = this.links.get(`${from}.${relation}`)
-    if (link === undefined) {
+    if (link === undefined || link.forwardMany !== null) {
       specOf(this.schema, from, relation)
       throw new Error(`[pool] ${from}.${relation} is a collection; read it with many()`)
     }
@@ -477,6 +486,13 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   }
 
   private bucket(from: EntityName, id: string, relation: string): ReadonlySet<string> {
+    const outgoing = this.links.get(`${from}.${relation}`)
+    if (outgoing?.forwardMany) {
+      const keys = outgoing.forwardMany.get(id)
+      if (keys !== undefined || this.cold === null || this.cold.resident(from, id)) return keys ?? NONE
+      this.cold.observe(from, id)
+      return outgoing.coldForwardMany.get(id) ?? NONE
+    }
     const link = this.collections.get(`${from}.${relation}`)
     if (link === undefined) {
       specOf(this.schema, from, relation)
@@ -504,7 +520,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
    */
   forwardTarget(from: EntityName, id: string, relation: string): string | null {
     const link = this.links.get(`${from}.${relation}`)
-    if (link === undefined) {
+    if (link === undefined || link.forwardMany !== null) {
       specOf(this.schema, from, relation)
       throw new Error(`[pool] ${from}.${relation} is a collection; read it with many()`)
     }
@@ -516,11 +532,18 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     return this.collapses.get(entity)?.collapsed.has(id) ?? false
   }
 
+  /** Declared collapse ordering, over the same resident group keys. */
+  orderKey(entity: EntityName, id: string): string {
+    return this.collapses.get(entity)?.orderKeys.get(id) ?? id
+  }
+
   /**
    * Maintenance only: a copy, in id order (a removed root's members all move;
    * a released repo row passes to its first remaining lane, deterministically).
    */
   members(from: EntityName, id: string, relation: string): readonly string[] {
+    const outgoing = this.links.get(`${from}.${relation}`)
+    if (outgoing?.forwardMany) return [...(outgoing.forwardMany.get(id) ?? outgoing.coldForwardMany.get(id) ?? NONE)].sort()
     const link = this.collections.get(`${from}.${relation}`)
     if (link === undefined) throw new Error(`[pool] ${from}.${relation} is not a collection`)
     const members = new Set(peekBucket(link, id))
@@ -762,6 +785,8 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       link.buckets.clear()
       link.coldForward.clear()
       link.coldBuckets.clear()
+      link.forwardMany?.clear()
+      link.coldForwardMany.clear()
       link.under?.clear()
       link.placed?.clear()
       link.extraCounts?.clear()
@@ -772,6 +797,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       collapse.groups.clear()
       collapse.groupOf.clear()
       collapse.collapsed.clear()
+      collapse.orderKeys.clear()
     }
     for (const held of this.summaries.values()) held.clear()
     this.pending.clear()
@@ -791,12 +817,13 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     const flipped = new Set<string>()
     const collapse = this.collapses.get(entity)
     if (collapse === undefined) return flipped
-    const { rule, groups, groupOf, collapsed } = collapse
+    const { rule, groups, groupOf, collapsed, orderKeys } = collapse
     if (before !== undefined && after !== undefined && sameInputs(rule.fields, before, after)) {
       return flipped
     }
     const oldKey = groupOf.get(id) ?? null
     const newKey = after === undefined ? null : rule.groupKey(after)
+    if (oldKey !== newKey && orderKeys.has(id)) orderKeys.delete(id)
     if (oldKey !== newKey) {
       if (oldKey !== null) {
         const group = groups.get(oldKey)
@@ -824,7 +851,10 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
         row: (member === id ? after : this.rowOf(entity, member)) as Row,
       }))
       const losers = new Set(collapseLosers(rule, members))
+      const first = rule.order === 'first-member' && losers.size ? [...group].sort()[0] : undefined
       for (const { id: member } of members) {
+        if (first !== undefined && !losers.has(member) && member !== first) orderKeys.set(member, first)
+        else if (orderKeys.has(member)) orderKeys.delete(member)
         if (losers.has(member) === collapsed.has(member)) continue
         if (losers.has(member)) collapsed.add(member)
         else collapsed.delete(member)
@@ -839,7 +869,22 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     const member =
       row !== undefined &&
       (link.spec.where === undefined || link.spec.where.test(row)) &&
-      !this.isCollapsed(link.from, id)
+      (link.spec.uncollapsed || !this.isCollapsed(link.from, id))
+    if (link.forwardMany) {
+      const previous = link.forwardMany.get(id) ?? link.coldForwardMany.get(id) ?? NONE
+      const targets = member ? relationTargets(link.from, link.name, row, this.schema) : NONE
+      if (previous.size === targets.size && [...previous].every(target => targets.has(target))) return
+      for (const target of previous) if (!targets.has(target)) this.move(link, target, id, false)
+      for (const target of targets) if (!previous.has(target)) this.move(link, target, id, true)
+      const cold = this.cold !== null && !this.cold.resident(link.from, id)
+      link.forwardMany.delete(id); link.coldForwardMany.delete(id)
+      if (targets.size) {
+        if (cold) link.coldForwardMany.set(id, targets)
+        else link.forwardMany.set(id, targets)
+      }
+      if (cold) this.cold?.changed(link.from, id)
+      return
+    }
     let target: string | null = null
     if (member && link.spec.kind === 'prefix') {
       const path = row[link.spec.sourceField]
@@ -1028,6 +1073,10 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     if (!this.cold.resident(entity, id)) return false
     let moved = false
     for (const link of this.outgoing.get(entity) ?? []) {
+      const targets = link.coldForwardMany.get(id)
+      if (targets && link.forwardMany) {
+        link.coldForwardMany.delete(id); link.forwardMany.set(id, targets); moved = true
+      }
       const target = link.coldForward.get(id)
       if (target === undefined) continue
       link.coldForward.delete(id)

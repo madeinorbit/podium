@@ -400,15 +400,13 @@ describe('validateSources', () => {
     )
   })
 
-  it('fires when a relation name shadows an undeclared property of the row (the `intentOrigin` trap)', () => {
+  it('fires when a relation name shadows a durable property of the row (the `intentOrigin` trap)', () => {
     const schema = clone()
     const relations = schema.issue.relations as Record<string, RelationSpec>
     relations.intentOrigin = { ...relationsOf('issue').children!, inverse: 'parent' } as RelationSpec
-    // `IssueProjection.intentOrigin` is a real field ('human' | 'agent'). The schema does
-    // not declare it, but the composed row still carries it, so the name is
-    // taken — which is why R4 is `discoveredFrom`, not `intentOrigin`.
+    // The page now declares the durable field too; its name is still taken.
     expect(fieldsOf('IssueProjection')).toContain('intentOrigin')
-    expect(Object.keys(SCHEMA.issue.fields)).not.toContain('intentOrigin')
+    expect(Object.keys(SCHEMA.issue.fields)).toContain('intentOrigin')
     expect(validateSources(schema).join('\n')).toMatch(
       /issue\.intentOrigin: relation name shadows IssueProjection\.intentOrigin/,
     )

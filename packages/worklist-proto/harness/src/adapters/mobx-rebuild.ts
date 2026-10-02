@@ -36,6 +36,7 @@ import {
   tableColdContext,
 } from '@podium/client-graph/shared/schema'
 import { isLinkSpec, relationRef } from '@podium/client-graph/relations'
+import { relationTargets } from '@podium/client-graph/shared/links'
 import type { Residency } from '@podium/client-graph/residency'
 import {
   createPlainTables,
@@ -139,6 +140,7 @@ export function scanRelations(
       if (!isLinkSpec(spec)) continue
       const pointers = new Map<string, string>()
       const buckets = new Map<string, string[]>()
+      const targetsBySource = new Map<string, string[]>()
       // One resolution per distinct path: sessions share their lane's cwd.
       let roots: string[] = []
       if (spec.kind === 'prefix') {
@@ -170,8 +172,14 @@ export function scanRelations(
       const owners = new Map<string, string | null>()
       for (const [id, value] of tables[from].entries()) {
         const row = value as Readonly<Record<string, unknown>>
-        if (collapsed.has(`${from}:${id}`)) continue
+        if (!spec.uncollapsed && collapsed.has(`${from}:${id}`)) continue
         if (spec.where !== undefined && !spec.where.test(row)) continue
+        if (spec.kind === 'edge' && spec.many) {
+          const targets = [...relationTargets(from, name, row, schema)].sort()
+          targetsBySource.set(id, targets)
+          for (const target of targets) buckets.set(target, [...(buckets.get(target) ?? []), id])
+          continue
+        }
         let target: string | null
         if (spec.kind === 'prefix') {
           const path = row[spec.sourceField]
@@ -188,7 +196,8 @@ export function scanRelations(
         buckets.set(target, [...(buckets.get(target) ?? []), id])
       }
       for (const members of buckets.values()) members.sort()
-      forward.set(`${from}.${name}`, pointers)
+      if (spec.kind === 'edge' && spec.many) inverse.set(`${from}.${name}`, targetsBySource)
+      else forward.set(`${from}.${name}`, pointers)
       inverse.set(`${spec.to}.${spec.inverse}`, buckets)
     }
   }
@@ -267,10 +276,11 @@ export function diffRelations(
     for (const id of ids) {
       for (const [name, spec] of Object.entries(schema[from].relations)) {
         // The live buckets are unordered (M3 F1); the scan's are sorted.
-        const got = isLinkSpec(spec)
+        const single = isLinkSpec(spec) && !(spec.kind === 'edge' && spec.many)
+        const got = single
           ? live.one(from, id, name)
           : [...live.many(from, id, name)].sort()
-        const want = isLinkSpec(spec) ? scan.one(from, id, name) : [...scan.many(from, id, name)]
+        const want = single ? scan.one(from, id, name) : [...scan.many(from, id, name)]
         if (JSON.stringify(got) === JSON.stringify(want)) continue
         if (out.length < 12) {
           out.push(

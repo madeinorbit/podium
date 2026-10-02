@@ -278,7 +278,7 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
     if (name in prototype) {
       throw new Error(`[pool] ${entity}.${name} collides with a model member; rename one`)
     }
-    const collection = spec.kind === 'hasMany' || (spec.kind === 'edge' && spec.direction === 'in')
+    const collection = spec.kind === 'hasMany' || (spec.kind === 'edge' && (spec.direction === 'in' || spec.many))
     if (!collection) {
       Object.defineProperty(prototype, name, {
         configurable: false,

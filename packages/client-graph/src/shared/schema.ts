@@ -46,6 +46,8 @@
  * `schema-sources.ts` maps each name to the real schema object; that map is
  * typed as total, so adding a name here without wiring it fails typecheck.
  */
+import { ISSUE_PAGE_FIELDS, ISSUE_PAGE_SESSION_FIELDS } from '../issue-page-schema'
+
 export type ModelSchemaName =
   | 'IssueProjection'
   | 'IssueUserStateWire'
@@ -177,6 +179,8 @@ interface RelationCommon {
   /** The frozen-slice relation this implements, when it is one of the four. */
   readonly slice?: 'R1' | 'R2' | 'R3' | 'R4'
   readonly where?: RelationWhere
+  /** Raw membership counts retain resume twins; visible rosters still collapse. */
+  readonly uncollapsed?: true
 }
 
 export interface BelongsToSpec extends RelationCommon {
@@ -246,6 +250,10 @@ export interface EdgeSpec extends RelationCommon {
   readonly edgeTypeKey: string
   /** Only edges of this type participate. */
   readonly edgeType: string
+  /** Match every edge type (the page exposes custom relation types too). */
+  readonly allTypes?: true
+  /** Outgoing collections retain every target instead of the first match. */
+  readonly many?: true
   /** `out`: read this row's list. `in`: the inverse side. */
   readonly direction: 'out' | 'in'
 }
@@ -423,6 +431,8 @@ export interface CollapseSpec {
   readonly rank: (row: Readonly<Record<string, unknown>>) => number
   /** The field compared on a rank tie: the larger value is kept. */
   readonly recency: string
+  /** A collapsed winner retains its earliest group's canonical ID position. */
+  readonly order?: 'first-member'
   /** The legacy definition this re-expresses, cited. */
   readonly source: string
   readonly why: string
@@ -813,6 +823,7 @@ const DECLARED = defineSchema({
       defaultModel: { type: 'string', source: projection() },
       defaultEffort: { type: 'string', source: projection() },
       machineId: { type: 'id', optional: true, source: projection() },
+      ...ISSUE_PAGE_FIELDS,
     },
     relations: {
       parent: belongsTo({
@@ -909,6 +920,36 @@ const DECLARED = defineSchema({
         slice: 'R4',
         why: 'The inverse: issues discovered from this one.',
       }),
+      pageDependencies: edge({
+        to: 'issue', edgeField: 'deps', edgeIdKey: 'id', edgeTypeKey: 'type',
+        edgeType: '*', allTypes: true, many: true, direction: 'out',
+        inverse: 'pageDependents', lazy: true,
+        why: 'Every dependency target, including multiple targets of a type and custom types.',
+      }),
+      pageDependents: edge({
+        to: 'issue', edgeField: 'deps', edgeIdKey: 'id', edgeTypeKey: 'type',
+        edgeType: '*', allTypes: true, many: true, direction: 'in',
+        inverse: 'pageDependencies', lazy: true,
+        why: 'Every dependency source; edge types and order are read from its declared edge list.',
+      }),
+      bornSessions: hasMany({
+        to: 'session', inverse: 'bornIssue', lazy: true,
+        why: 'Forwarding ghosts: sessions born here which now work on another issue.',
+      }),
+      pageSessions: hasMany({
+        to: 'session', inverse: 'pageIssue', lazy: true,
+        why: 'Raw non-shell attachment IDs used by page counts and destructive-action prompts.',
+      }),
+      supersedingIssue: belongsTo({
+        to: 'issue', foreignKey: 'supersededBy', targetKey: 'id', inverse: 'supersededIssues', lazy: true,
+        why: 'The issue page resolves the successor of a superseded task.',
+      }),
+      supersededIssues: hasMany({ to: 'issue', inverse: 'supersedingIssue', lazy: true, why: 'Inverse successor references.' }),
+      canonicalIssue: belongsTo({
+        to: 'issue', foreignKey: 'duplicateOf', targetKey: 'id', inverse: 'duplicateIssues', lazy: true,
+        why: 'The issue page resolves the canonical task of a duplicate.',
+      }),
+      duplicateIssues: hasMany({ to: 'issue', inverse: 'canonicalIssue', lazy: true, why: 'Inverse duplicate references.' }),
       worktree: belongsTo({
         to: 'worktree',
         foreignKey: 'worktreePath',
@@ -1029,8 +1070,22 @@ const DECLARED = defineSchema({
           value: { type: 'string', source: { schema: 'ResumeRef' }, why: 'Half of the twin key.' },
         },
       },
+      refIssueId: { type: 'id', optional: true, source: meta() },
+      ...ISSUE_PAGE_SESSION_FIELDS,
     },
     relations: {
+      bornIssue: belongsTo({
+        to: 'issue', foreignKey: 'refIssueId', targetKey: 'id',
+        inverse: 'bornSessions', lazy: true,
+        why: 'The permanent creation issue, independent of the current attachment.',
+      }),
+      pageIssue: belongsTo({
+        to: 'issue', foreignKey: 'issueId', targetKey: 'id',
+        inverse: 'pageSessions', lazy: true, uncollapsed: true,
+        where: { fields: ['agentKind'], test: row => row['agentKind'] !== 'shell',
+          why: 'Replica issue membership includes raw headless/archived/resume-twin rows, excluding shells.' },
+        why: 'The replica page membership contract before visual resume collapse.',
+      }),
       startedIssues: hasMany({
         to: 'issue',
         inverse: 'startedBy',
@@ -1094,6 +1149,7 @@ const DECLARED = defineSchema({
       keepsGroup: (row) => ACTIVE_SESSION_STATUSES.has(row['status'] as string),
       rank: (row) => SESSION_STATUS_RANK[row['status'] as string] ?? 0,
       recency: 'lastActiveAt',
+      order: 'first-member',
       source:
         'dedupeSessionsByResume (model/src/identity/session-identity.ts:45), applied to every session list the runtime reads (client-core/src/engine/optimism.ts:876).',
       why: "Resume twins: session rows pointing at the SAME agent conversation collapse to the most useful one (live > starting/reconnecting > hibernated > exited, then the most recently active), EXCEPT that a group holding an active row is kept in full. A headless row never takes part: it shares its terminal twin's ref by design. On an exact tie of rank and recency the legacy keeps the row earlier in the runtime's list, an order a pool does not have; the lower session id is kept instead.",
@@ -2017,6 +2073,9 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
         }
         if (back.kind === 'edge' && back.edgeType !== relation.edgeType) {
           problems.push(`${here}: edgeType "${relation.edgeType}" disagrees with its inverse "${back.edgeType}"`)
+        }
+        if (back.kind === 'edge' && (back.allTypes !== relation.allTypes || back.many !== relation.many)) {
+          problems.push(`${here}: edge matching/cardinality disagrees with its inverse`)
         }
       }
 

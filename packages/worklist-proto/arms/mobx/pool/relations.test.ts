@@ -560,7 +560,7 @@ describe('the resume-twin collapse over cold twins reads no cold row (POD-4753)'
     for (const id of sessionIds) {
       out[`${id}.issue`] = r.one('session', id, 'issue')
       out[`${id}.worktree`] = r.one('session', id, 'worktree')
-      out[`${id}.collapsed`] = r.pool.graph.isCollapsed('session', id)
+      out[`${id}.collapsed`] = tracked(() => r.pool.graph.isCollapsed('session', id))
     }
     return out
   }
@@ -671,7 +671,7 @@ describe('the resume-twin collapse on the corpus, against the legacy dedupe', ()
         expect(kept, `${group.kind} ${group.ref.value}`).toEqual(legacy)
         expect(kept, `${group.kind} ${group.ref.value}`).toEqual([...group.keptSessionIds].sort())
         for (const id of group.sessionIds) {
-          expect(r.pool.graph.isCollapsed('session', id), id).toBe(!legacy.includes(id))
+          expect(tracked(() => r.pool.graph.isCollapsed('session', id)), id).toBe(!legacy.includes(id))
         }
         directions.add(kept.length < group.sessionIds.length ? 'collapsed' : 'kept in full')
       }
@@ -680,7 +680,7 @@ describe('the resume-twin collapse on the corpus, against the legacy dedupe', ()
       // And nothing else in the corpus collapses that the legacy keeps (or the reverse).
       const collapsedByPool = corpus.sliceSessions
         .map((row) => row.sessionId)
-        .filter((id) => r.pool.graph.isCollapsed('session', id))
+        .filter((id) => tracked(() => r.pool.graph.isCollapsed('session', id)))
         .sort()
       const collapsedByLegacy = corpus.sessions
         .map((row) => row.sessionId as string)
@@ -1095,6 +1095,33 @@ function countedOutside(fn: () => void): OutsideCount {
 }
 
 type SetLike = { readonly size: number }
+
+it('preserves the landed write count and collapse rules with only existing declarations', () => {
+  const pageIssueNames = new Set(['pageDependencies', 'pageDependents', 'bornSessions', 'pageSessions',
+    'supersedingIssue', 'supersededIssues', 'canonicalIssue', 'duplicateIssues'])
+  const schema: ModelSchema = { ...SCHEMA,
+    issue: { ...SCHEMA.issue, relations: Object.fromEntries(Object.entries(SCHEMA.issue.relations)
+      .filter(([name]) => !pageIssueNames.has(name))) },
+    session: { ...SCHEMA.session, collapse: { ...SCHEMA.session.collapse, order: undefined },
+      relations: Object.fromEntries(Object.entries(SCHEMA.session.relations)
+        .filter(([name]) => name !== 'bornIssue' && name !== 'pageIssue')) },
+  }
+  const r = rig([lane('/repo'), issue('I1')], { schema })
+  try {
+    const count = countedOutside(() => r.push(issue('I2')))
+    // Recorded on landed 35e707ac7e, including the existing mission relations.
+    expect(outsideTotal(count)).toBe(1)
+    expect(count.plain).toEqual({ written: 23, deleted: 1, iterated: 7, copied: 0 })
+    const ref = { kind: 'codex-thread', value: 'compatibility' }
+    r.push(session('S1', { issueId: 'I1', status: 'exited', resume: ref }),
+      session('S2', { issueId: 'I1', status: 'hibernated', resume: ref }))
+    expect(r.many('issue', 'I1', 'missionSessions')).toEqual(['S2'])
+    r.push(session('S1', { issueId: 'I1', status: 'live', resume: ref }))
+    expect(r.many('issue', 'I1', 'missionSessions')).toEqual(['S1', 'S2'])
+    r.check()
+  } finally { r.dispose() }
+})
+
 type MapLike = { forEach(fn: (value: unknown, key: unknown) => void): void }
 /** Every set the engine holds, by container and key: the object and its size. */
 type Held = Map<string, { set: SetLike; size: number }>

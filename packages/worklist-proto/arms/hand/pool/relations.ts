@@ -59,6 +59,7 @@
  */
 
 import type { RelationReader } from '../../../shared/src/instrument/reads'
+import { relationTargets } from '@podium/client-graph/shared/links'
 import {
   type BelongsToSpec,
   type CollapseSpec,
@@ -129,9 +130,10 @@ export function relationRef(spec: LinkSpec, row: Row, schema: ModelSchema = SCHE
     }
     target = row[spec.foreignKey]
   } else if (spec.kind === 'edge') {
+    if (spec.many) throw new Error('[pool] a many edge is a collection, not a single reference')
     const edges = row[spec.edgeField]
     if (!Array.isArray(edges)) return null
-    const hit = (edges as readonly Row[]).find((edge) => edge[spec.edgeTypeKey] === spec.edgeType)
+    const hit = (edges as readonly Row[]).find((edge) => spec.allTypes || edge[spec.edgeTypeKey] === spec.edgeType)
     target = hit?.[spec.edgeIdKey]
   } else {
     throw new Error(`[pool] a prefix relation is resolved against its roots, not its row`)
@@ -160,6 +162,7 @@ interface Link {
   readonly collection: string
   readonly inputs: readonly string[]
   readonly forward: Map<string, string>
+  readonly forwardMany: Map<string, ReadonlySet<string>> | null
   readonly buckets: Map<string, Set<string>>
   /** `prefix` only: normalized path → members at or under it. */
   readonly under: Map<string, Set<string>> | null
@@ -284,6 +287,7 @@ export class PoolRelations implements RelationReader {
           collection: `${spec.to}.${spec.inverse}`,
           inputs: linkInputs(spec),
           forward: new Map(),
+          forwardMany: spec.kind === 'edge' && spec.many ? new Map() : null,
           buckets: new Map(),
           under: prefix ? new Map() : null,
           placed: prefix ? new Map() : null,
@@ -337,7 +341,7 @@ export class PoolRelations implements RelationReader {
 
   one(from: EntityName, id: string, relation: string): string | null {
     const link = this.links.get(`${from}.${relation}`)
-    if (link === undefined) {
+    if (link === undefined || link.forwardMany) {
       specOf(this.schema, from, relation)
       throw new Error(`[pool] ${from}.${relation} is a collection; read it with many()`)
     }
@@ -402,7 +406,7 @@ export class PoolRelations implements RelationReader {
    */
   forward(from: EntityName, id: string, relation: string): string | null {
     const link = this.links.get(`${from}.${relation}`)
-    if (link === undefined) {
+    if (link === undefined || link.forwardMany) {
       specOf(this.schema, from, relation)
       throw new Error(`[pool] ${from}.${relation} is a collection; read it with many()`)
     }
@@ -413,7 +417,7 @@ export class PoolRelations implements RelationReader {
   /** The raw forward slot of `from:id` (maintenance: untracked, no presence check; POD-4745). */
   forwardTarget(from: EntityName, id: string, relation: string): string | null {
     const link = this.links.get(`${from}.${relation}`)
-    if (link === undefined) {
+    if (link === undefined || link.forwardMany) {
       specOf(this.schema, from, relation)
       throw new Error(`[pool] ${from}.${relation} is a collection; read it with many()`)
     }
@@ -421,6 +425,11 @@ export class PoolRelations implements RelationReader {
   }
 
   private bucket(from: EntityName, id: string, relation: string): ReadonlySet<string> {
+    const outgoing = this.links.get(`${from}.${relation}`)
+    if (outgoing?.forwardMany) {
+      this.options.read?.(outgoing.relation, id)
+      return outgoing.forwardMany.get(id) ?? this.none
+    }
     const link = this.collections.get(`${from}.${relation}`)
     if (link === undefined) {
       specOf(this.schema, from, relation)
@@ -434,6 +443,8 @@ export class PoolRelations implements RelationReader {
 
   /** A collection's members, untracked (ingest: another lane of a repo). */
   members(from: EntityName, id: string, relation: string): ReadonlySet<string> {
+    const outgoing = this.links.get(`${from}.${relation}`)
+    if (outgoing?.forwardMany) return outgoing.forwardMany.get(id) ?? this.none
     const link = this.collections.get(`${from}.${relation}`)
     if (link === undefined) throw new Error(`[pool] ${from}.${relation} is not a collection`)
     return link.buckets.get(id) ?? this.none
@@ -646,6 +657,7 @@ export class PoolRelations implements RelationReader {
     const out = { forward: 0, buckets: 0, members: 0, under: 0, collapse: 0 }
     for (const link of this.links.values()) {
       out.forward += link.forward.size
+      out.forward += link.forwardMany?.size ?? 0
       out.buckets += link.buckets.size
       for (const bucket of link.buckets.values()) out.members += bucket.size
       for (const set of link.under?.values() ?? []) out.under += set.size
@@ -660,6 +672,7 @@ export class PoolRelations implements RelationReader {
   clear(): void {
     for (const link of this.links.values()) {
       link.forward.clear()
+      link.forwardMany?.clear()
       link.buckets.clear()
       link.under?.clear()
       link.placed?.clear()
@@ -794,7 +807,27 @@ export class PoolRelations implements RelationReader {
     const member =
       row !== undefined &&
       (link.spec.where === undefined || link.spec.where.test(row)) &&
-      !this.isCollapsed(link.from, id)
+      (link.spec.uncollapsed || !this.isCollapsed(link.from, id))
+    if (link.forwardMany) {
+      const previous = link.forwardMany.get(id) ?? this.none
+      const targets = member ? relationTargets(link.from, link.name, row, this.schema) : this.none
+      if (previous.size === targets.size && [...previous].every(target => targets.has(target))) return
+      for (const target of previous) if (!targets.has(target)) {
+        const bucket = link.buckets.get(target)
+        bucket?.delete(id)
+        if (bucket?.size === 0) link.buckets.delete(target)
+        this.touched(1); this.wrote(link.collection, target)
+      }
+      for (const target of targets) if (!previous.has(target)) {
+        let bucket = link.buckets.get(target)
+        if (!bucket) { bucket = new Set(); link.buckets.set(target, bucket) }
+        bucket.add(id); this.touched(1); this.wrote(link.collection, target)
+      }
+      if (targets.size) link.forwardMany.set(id, targets)
+      else link.forwardMany.delete(id)
+      this.touched(1); this.wrote(link.relation, id)
+      return
+    }
     let target: string | null = null
     if (link.spec.kind === 'prefix') {
       const path = member ? row[link.spec.sourceField] : undefined
