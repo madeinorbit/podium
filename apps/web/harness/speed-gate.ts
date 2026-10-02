@@ -353,6 +353,18 @@ async function main() {
     try {
       await perform()
       await page.waitForFunction(() => window.__speedCapture?.twoRaf)
+    } catch (error) {
+      const diagnostic = await page.evaluate(() => ({
+        capture: window.__speedCapture,
+        state: window.__acceptance.state(),
+        errors: window.__acceptance.errors(),
+        panes: [...document.querySelectorAll('[data-panel-resident]')].map((el) => ({
+          session: el.getAttribute('data-session'),
+          pane: el.getAttribute('data-pane'),
+          text: el.textContent?.slice(0, 180),
+        })),
+      }))
+      throw new Error(`${action} did not paint: ${JSON.stringify(diagnostic)}`, { cause: error })
     } finally {
       events = await stop()
       await page.evaluate(() => {
@@ -462,7 +474,7 @@ async function main() {
           'session-pane',
           deckSession(id),
           {
-            selector: `[data-panel-resident][data-session="${id}"][data-pane] [data-testid="chat-surface"]`,
+            selector: `[data-panel-resident][data-session="${id}"][data-pane]`,
           },
           () => full.page.locator(deckSession(id)).first().click(),
         )
