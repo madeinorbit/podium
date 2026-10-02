@@ -50,7 +50,7 @@ try {
     await page.getByRole('button', { name: 'Dismiss', exact: true }).first().click()
     await page.waitForFunction(() => window.__notices.stats().actions.dismissed === 1)
     await page.getByRole('button', { name: 'Open chat', exact: true }).first().click()
-    await page.waitForFunction(() => window.__notices.stats().opened?.kind === 'session')
+    await page.waitForFunction(() => window.__notices.stats().opened === 'cold-notice-session')
     await page.getByRole('button', { name: 'I signed in — retry', exact: true }).click()
     await page.waitForFunction(() => window.__notices.stats().actions.answered === 1)
     await page.getByTestId('outbox-recovery-chip').click()
@@ -61,7 +61,10 @@ try {
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
     const after = await page.evaluate(() => window.__notices.check())
     if (mode === 'after' && (!after || after.differences || after.pending || after.positions !== 17)) throw new Error(`Post-action comparison failed: ${JSON.stringify(after)}`)
-    results[`${mode}.actions`] = { dismissed: 1, answered: 1, parked: 4, check: after }
+    const actionStats = await page.evaluate(() => window.__notices.stats())
+    const actionLegacy = Object.values(actionStats.legacy).reduce((sum, count) => sum + (count ?? 0), 0)
+    if (mode === 'after' && (actionStats.selectors || actionStats.legacySlices || actionLegacy)) throw new Error('Legacy notice work executed while acting')
+    results[`${mode}.actions`] = { ...actionStats.actions, parked: actionStats.parked, selectors: actionStats.selectors, legacy: actionStats.legacy, check: after }
     if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`)
     await page.evaluate(() => window.__notices.close()); await page.close()
   }
