@@ -204,6 +204,7 @@ describe('phone offline machine label from session homes', () => {
       machines: [machine({ online: false, name: 'Stale live label' })],
       machineProjections: [{ id: asMachineId('m1'), name: 'Replicated desk', loggedOutHarnesses: [] }],
     })
+    const stored = replica.rows('sessions')[0]
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain('Replicated desk')
     expect(screen.getByTestId('machine-offline-banner').textContent).not.toContain('Stale')
     await act(async () => {
@@ -214,7 +215,7 @@ describe('phone offline machine label from session homes', () => {
       )
     })
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain('Renamed desk')
-    expect(replica.rows('sessions')[0]).toBe(row)
+    expect(replica.rows('sessions')[0]).toBe(stored)
     await act(async () => {
       replica.applyChanges('machines', [{ id: asMachineId('m1'), name: '', loggedOutHarnesses: [] }], [])
     })

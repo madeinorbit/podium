@@ -279,6 +279,7 @@ describe('session menu snooze from the acting user home', () => {
       sessionUserStates: [personal(null)],
       api: { snoozes: { clear: { mutate: clear } } },
     })
+    const stored = replica.rows('sessions')[0]
     fireEvent.click(await screen.findByLabelText('Session actions'))
     expect(await screen.findByLabelText('Clear snooze')).toBeTruthy()
     await act(async () => {
@@ -293,7 +294,7 @@ describe('session menu snooze from the acting user home', () => {
     fireEvent.click(await screen.findByLabelText('Session actions'))
     expect(await screen.findByLabelText('Cancel')).toBeTruthy()
     expect(screen.queryByLabelText('Clear snooze')).toBeNull()
-    expect(replica.rows('sessions')[0]).toBe(raw)
+    expect(replica.rows('sessions')[0]).toBe(stored)
   })
 
   it('does not substitute another user’s snooze for the acting user’s cleared row', async () => {

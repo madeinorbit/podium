@@ -256,6 +256,7 @@ describe('MissionDeck session homes', () => {
       issues: [root, proposal],
       repoProjections: [{ id: asRepoId('repo-birth'), prefix: 'POD' }],
     })
+    const stored = replica.rows('sessions')[0]
     // The session band and proposal author are separate mobile readers.
     expect(screen.getByText('POD-42-B')).toBeTruthy()
     expect(screen.getByText('by POD-42-B')).toBeTruthy()
@@ -265,7 +266,7 @@ describe('MissionDeck session homes', () => {
     })
     expect(screen.getByText('NEW-42-B')).toBeTruthy()
     expect(screen.getByText('by NEW-42-B')).toBeTruthy()
-    expect(replica.rows('sessions')[0]).toBe(row)
+    expect(replica.rows('sessions')[0]).toBe(stored)
   })
 
   it('keeps the legacy ref before the repo arrives, then respects a cleared prefix', async () => {

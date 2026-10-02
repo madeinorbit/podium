@@ -1,6 +1,7 @@
 import { type SessionView, sessionValues, sessionViews } from '@podium/client-core/session-values'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
 import { asMachineId, asRepoId, asSessionId, asUserId, type SessionMeta } from '@podium/model'
+import { formatSessionRef } from '@podium/protocol'
 import { act, cleanup, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture/corpus'
@@ -69,6 +70,7 @@ describe('mobile session read seam', () => {
         { id: asMachineId('machine-target'), name: 'Target', loggedOutHarnesses: [] },
       ],
     })
+    const stored = replica.rows('sessions')[0]
     const values = () => JSON.parse(screen.getByTestId('values').textContent ?? '{}')
     expect(values()).toEqual({
       readAt: active,
@@ -88,20 +90,40 @@ describe('mobile session read seam', () => {
       )
     })
     expect(values()).toMatchObject({ readAt: null, unread: true, snoozedUntil: null })
-    expect(replica.rows('sessions')[0]).toBe(row)
+    expect(replica.rows('sessions')[0]).toBe(stored)
   })
 
   it('keeps an older offline row by identity until its homes arrive', async () => {
     const seen: { rows: SessionView[]; one?: SessionView } = { rows: [] }
-    await renderWithMobileStore(<Probe seen={seen} />, { sessions: [raw] })
-    expect(seen.one).toBe(raw)
-    expect(seen.rows[0]).toBe(raw)
+    const { replica } = await renderWithMobileStore(<Probe seen={seen} />, { sessions: [raw] })
+    const stored = replica.rows('sessions')[0]
+    expect(seen.one).toBe(stored)
+    expect(seen.rows[0]).toBe(stored)
     expect(JSON.parse(screen.getByTestId('values').textContent ?? '{}')).toEqual(sessionValues(raw))
   })
 })
 
 it('has zero session-value, shared-card and mobile-route differences across the corpus', () => {
   const corpus = buildCorpus(1)
+  // The stock worklist corpus has no refs. Add deterministic issue and draft
+  // birth refs so the mobile routing comparison exercises every session.
+  const repos = corpus.repoProjections.filter((repo) => repo.prefix)
+  corpus.sessions = corpus.sessions.map((row, index) => {
+    const repo = repos[index % repos.length]
+    if (!repo?.prefix) throw new Error('Corpus repo prefix missing')
+    const draft = index % 5 === 0
+    const number = index + 1
+    return {
+      ...row,
+      refRepoId: repo.id,
+      refSeq: draft ? undefined : number,
+      refLetter: draft ? undefined : 'B',
+      refDraft: draft ? number : undefined,
+      displayRef: formatSessionRef(draft
+        ? { prefix: repo.prefix, draft: number }
+        : { prefix: repo.prefix, seq: number, letter: 'B' }),
+    }
+  })
   const homes = fixtureSessionHomes(corpus)
   const before = sessionViews(homes.sessions, homes)
   const after = sessionViews(homes.sessions.map(stripSessionLegacy), homes)
@@ -122,5 +144,5 @@ it('has zero session-value, shared-card and mobile-route differences across the 
     expect(mobilePodiumRoute(target, { issues: [], sessions: [stripped] })).toBe(expected)
     expect(mobilePodiumRoute(target, { issues: [], sessions: [withLegacy] })).toBe(expected)
   }
-  expect(routes).toBeGreaterThan(0)
+  expect(routes).toBe(4304)
 })
