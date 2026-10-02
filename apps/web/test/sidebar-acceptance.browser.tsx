@@ -244,10 +244,10 @@ function Fixture() {
             </aside>
             {full && (
               <>
-                <div className="flex min-h-0 flex-none" style={{ width: 330 }}>
+                <div data-fixture-mission={selected ?? ''} className="flex min-h-0 flex-none" style={{ width: 330 }}>
                   <FlightDeck key={selected ?? 'empty'} onCollapse={() => {}} />
                 </div>
-                <div className="relative flex min-h-0 min-w-0 flex-1">
+                <div data-fixture-workspace className="relative flex min-h-0 min-w-0 flex-1">
                   <Workspace />
                 </div>
                 <aside className="right-dock-shell flex min-h-0 flex-none" style={{ width: 316 }}>
@@ -364,8 +364,12 @@ const fixture = {
     )
     return ids.map((id) => ({
       id,
+      root: issues.some(issue => issue.id === id && !issue.parentId && !issue.archived && !issue.closedAt && issue.stage !== 'done'),
       rows: buildFlightDeckRows(issues, snapshot.sessions, id, 'full', []).length,
     }))
+  },
+  backgroundTitle(id: string, title: string) {
+    patch('issueProjection', id, { title })
   },
   async event(kind: string, iteration: number) {
     const stamp = new Date(Date.now() + iteration).toISOString()

@@ -6,7 +6,8 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { hostname, loadavg, uptime } from 'node:os'
 import { extname, resolve } from 'node:path'
-import { chromium, type CDPSession } from '@playwright/test'
+import { chromium } from '@playwright/test'
+import { paintOf, traceStart } from './browser-paint'
 import plan from './sidebar-acceptance-plan.json'
 import type {} from '../test/sidebar-acceptance.browser'
 
@@ -57,27 +58,6 @@ const browser = await chromium.launch({ headless: true,
   executablePath: `${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`,
   env: { ...process.env, LD_LIBRARY_PATH: resolve('.toolchain/lib') },
   args: ['--no-sandbox', '--disable-dev-shm-usage'] })
-
-async function traceStart(cdp: CDPSession) {
-  const events: any[] = []
-  const receive = ({ value }: { value: any[] }) => events.push(...value)
-  cdp.on('Tracing.dataCollected', receive)
-  await cdp.send('Tracing.start', { categories: 'devtools.timeline,blink.user_timing', transferMode: 'ReportEvents' })
-  return async () => {
-    const complete = new Promise<void>(done => cdp.once('Tracing.tracingComplete', () => done()))
-    await cdp.send('Tracing.end'); await complete; cdp.off('Tracing.dataCollected', receive)
-    return events
-  }
-}
-function paintOf(events: any[]) {
-  const input = events.filter(e => e.name === 'acceptance:input')
-  const selected = events.filter(e => e.name === 'acceptance:selected-dom')
-  if (input.length !== 1 || selected.length !== 1) throw new Error('Missing or duplicate input/selection marks')
-  const paint = events.filter(e => e.name === 'Paint' && e.ph === 'X' && e.ts >= selected[0].ts && e.pid === input[0].pid).sort((a, b) => a.ts - b.ts)[0]
-  if (!paint) throw new Error('No actual Chromium Paint after selection')
-  return { inputToPaintMs: (paint.ts + (paint.dur ?? 0) - input[0].ts) / 1000,
-    selectedDomMs: (selected[0].ts - input[0].ts) / 1000 }
-}
 
 try {
   await writeFile(resolve(root, 'provenance.json'), JSON.stringify({ sha, tag, phase, samples, plan,

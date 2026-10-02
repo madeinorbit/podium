@@ -2,7 +2,7 @@
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import tailwindcss from '../node_modules/@tailwindcss/vite/dist/index.mjs'
-import { defineConfig } from '../node_modules/vite/dist/node/index.js'
+import { defineConfig, type UserConfig } from 'vite'
 
 const repo = process.cwd()
 const functions: Record<string, string[]> = {
@@ -12,7 +12,7 @@ const functions: Record<string, string[]> = {
   '/viewmodels/slices/machines/facts.ts': ['reposToViews'],
   '/replica/issue-view-cache.ts': ['modelsFor'],
 }
-export default defineConfig({
+const config: UserConfig = defineConfig({
   root: resolve(repo, 'apps/web'),
   cacheDir: resolve(repo, 'node_modules/.cache/sidebar-acceptance'),
   plugins: [tailwindcss(), {
@@ -55,3 +55,4 @@ export default defineConfig({
     rollupOptions: { input: resolve(repo, 'apps/web/test/sidebar-acceptance.browser.html') },
   },
 })
+export default config
