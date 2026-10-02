@@ -3,8 +3,10 @@ import { autorun, configure, observable, runInAction } from 'mobx'
 import { PoolSources, type PoolSource } from './source-registry'
 import { LOADING } from './worklist/rollup'
 
+interface NumericSourceRows { sourceTypeProbe: { count: number } }
+interface TextSourceRows { sourceTextProbe: { label: string } }
 declare module './source-registry' {
-  interface PoolSourceRows { sourceTypeProbe: { count: number } }
+  interface PoolSourceRows extends NumericSourceRows, TextSourceRows {}
 }
 
 function source() {
@@ -66,8 +68,12 @@ it('source teardown honors the strict observable read trap', async () => {
 it('independent row declarations preserve a typed public reader', () => {
   const registry = new PoolSources()
   const custom: PoolSource<'sourceTypeProbe'> = { read: () => ({ count: 3 }), dispose() {} }
+  const independent: PoolSource<'sourceTextProbe'> = { read: () => ({ label: 'Second source' }), dispose() {} }
   registry.register(['sourceTypeProbe'], custom)
+  registry.register(['sourceTextProbe'], independent)
   const value = registry.read('sourceTypeProbe', 'probe')
+  const text = registry.read('sourceTextProbe', 'probe')
   expect(value && value !== LOADING ? value.count : undefined).toBe(3)
+  expect(text && text !== LOADING ? text.label : undefined).toBe('Second source')
   registry.dispose()
 })
