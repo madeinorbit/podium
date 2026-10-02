@@ -23,13 +23,13 @@ export async function readSessionRefs(
 ): Promise<ReadonlyMap<SessionId, string>> {
   const refs = new Map<SessionId, string>()
   if (sessions.length === 0) return refs
-  const issueIds = [...new Set(sessions.flatMap(s =>
-    s.refIssueId && s.refLetter ? [s.refIssueId] : [],
-  ))]
+  const issueIds = [
+    ...new Set(sessions.flatMap((s) => (s.refIssueId && s.refLetter ? [s.refIssueId] : []))),
+  ]
   const issues = issueIds.length
     ? await readIssues(store.issues, issueIds)
     : new Map<string, IssueRow>()
-  const needsPath = sessions.some(s =>
+  const needsPath = sessions.some((s) =>
     s.refIssueId && s.refLetter
       ? !!issues.get(s.refIssueId) && !issues.get(s.refIssueId)?.repoId
       : s.refDraft != null,
@@ -37,11 +37,10 @@ export async function readSessionRefs(
   const repoIdForPath = needsPath ? await store.repos.repoIdResolver() : undefined
   const prefixes = new Map<RepoId, string | null>()
   for (const session of sessions) {
-    const issue = session.refIssueId && session.refLetter
-      ? issues.get(session.refIssueId)
-      : undefined
+    const issue =
+      session.refIssueId && session.refLetter ? issues.get(session.refIssueId) : undefined
     const repoId = issue
-      ? issue.repoId ?? repoIdForPath?.(issue.repoPath, issue.machineId)
+      ? (issue.repoId ?? repoIdForPath?.(issue.repoPath, issue.machineId))
       : !(session.refIssueId && session.refLetter) && session.refDraft != null
         ? repoIdForPath?.(session.cwd, session.machineId)
         : undefined
@@ -50,7 +49,10 @@ export async function readSessionRefs(
     const prefix = prefixes.get(repoId)
     if (!prefix) continue
     if (issue && session.refLetter) {
-      refs.set(session.sessionId, formatSessionRef({ prefix, seq: issue.seq, letter: session.refLetter }))
+      refs.set(
+        session.sessionId,
+        formatSessionRef({ prefix, seq: issue.seq, letter: session.refLetter }),
+      )
     } else if (session.refDraft != null) {
       refs.set(session.sessionId, formatSessionRef({ prefix, draft: session.refDraft }))
     }
