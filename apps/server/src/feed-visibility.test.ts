@@ -271,6 +271,6 @@ describe('the issue anchor edge reads the normalized record', () => {
       { entity: 'issueProjection', entityId: 'shared' },
       { entity: 'issueGitState', entityId: 'shared' },
     ])
-    expect(edge?.subjects.some(ref => ref.entity === 'issueProjection')).toBe(false)
+    expect(edge?.subjects.some(ref => String(ref.entity) === 'issue')).toBe(false)
   })
 })

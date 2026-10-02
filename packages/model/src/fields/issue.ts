@@ -185,50 +185,22 @@ export type IssueAgentDefaults = z.infer<typeof IssueAgentDefaults>
 // Needs-human, panel, intent, coordination, external refs
 // ---------------------------------------------------------------------------
 
-/**
- * THE NEEDS-HUMAN GROUP — ADR 4 D3.1's own worked example, and the site
- * POD-302's drift comment names.
- *
- * THE PAIR CANNOT SPLIT, AND THE SHAPE IS WHAT ENFORCES IT. POD-367 pinned the
- * live defect (commit `a349bf4e`): the node-side optimistic-patch arm stamps
- * `humanQuestionAskedAt` UNCONDITIONALLY but carries `humanQuestionAskedBy` only
- * when the input happens to supply a string — so the overlay can answer WHEN a
- * question was asked while answering nothing about WHO. That is exactly the
- * split ADR 9 D5 A3 forbids.
- *
- * So `asked` is one nested object, required as a whole: a shape in which "when"
- * is present and "who" is absent does not typecheck. `askedBy` stays the ACTOR
- * half and stays SERVER-AUTHORITATIVE (an agent may only attribute to its own
- * session — `registry.ts` rejects a mismatch against `actorSessionId`, and ADR 3
- * D7 forbids taking either half from payload); `onBehalfOf` is the half that
- * makes "did a PERSON or an agent ask this?" answerable under multi-user, which
- * is the entire reason the field exists.
- */
+/** An outstanding question survives even when its historical asker is unknown.
+ * Attribution is recorded from the authenticated caller for new commands; it is
+ * never inferred from the issue's creator. `by` is an optional session delivery
+ * address, so a user-authored question has attribution without that address. */
 export const NeedsHuman = z.object({
   needsHuman: z.boolean(),
-  /** Present iff a question is outstanding. All-or-nothing by construction. */
-  asked: z
-    .object({
-      question: z.string(),
-      /** Structured suggested answers, rendered as answer chips — in the Task
-       *  dock's decision band on web, and in the Tray on mobile. Absent =
-       *  free-form question. */
-      options: z.array(z.string()).optional(),
-      /** WHEN. Deliberately NOT `StampedAttribution` (POD-1156): that shape's
-       *  `by` is the principal pair, and this object's `by` is already spoken
-       *  for by the asking session below. Composing it here would mean RENAMING
-       *  two keys on a persisted shape to remove a duplicated `z.string()` —
-       *  strictly the worse trade. The deviation is pinned by name in
-       *  `attribution-stamped.test.ts` so it stays a recorded decision rather
-       *  than the precedent a fourth site reads it as. */
-      at: z.string(),
-      /** The actor half, kept as the asking session because that is also the
-       *  DELIVERY ADDRESS the registry routes the answer to. */
-      by: SessionIdField,
-      /** The pair. `onBehalfOf` is the new half (ADR 9 D5 A3). */
-      attribution: Attribution,
-    })
-    .optional(),
+  asked: z.object({
+    question: z.string(),
+    options: z.array(z.string()).optional(),
+    /** Historical rows may have no recorded timestamp. */
+    at: z.string().optional(),
+    /** Absent means there is no recorded asking session to route an answer to. */
+    by: SessionIdField.optional(),
+    /** Absent means unattributed; do not substitute the issue's creator. */
+    attribution: Attribution.optional(),
+  }).optional(),
 })
 export type NeedsHuman = z.infer<typeof NeedsHuman>
 

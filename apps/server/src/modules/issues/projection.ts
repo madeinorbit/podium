@@ -138,17 +138,14 @@ export function issueRowToProjection(row: IssueRow, labels: string[]): IssueProj
     visibility: row.visibility ?? 'personal',
     createdBy: { actor, onBehalfOf: row.createdByOnBehalfOf },
   }
-  const { askedLegacy: _askedLegacy, asked, ...issue } = stored
+  const { askedLegacy, asked, ...issue } = stored
+  const question = asked ?? (askedLegacy?.question ? { ...askedLegacy, question: askedLegacy.question } : undefined)
   return toWire({
     ...issue,
     ...ownership,
     labels,
-    // `StoredAsked` is `NeedsHuman.asked` MINUS its attribution half, for the
-    // same reason `createdBy` is absent: no column, and ADR 9 D8 S5 forbids a
-    // mapper defaulting `onBehalfOf`. Re-attached from the same named constant
-    // so the pair stays all-or-nothing on the wire (POD-365) instead of shipping
-    // a "when" with no "who".
-    ...(asked ? { asked: { ...asked, attribution: ownership.createdBy } } : {}),
+    // Unknown historical askers stay unknown; a stored question is never dropped.
+    ...(question ? { asked: question } : {}),
   })
 }
 

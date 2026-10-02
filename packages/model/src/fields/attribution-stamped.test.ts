@@ -130,7 +130,7 @@ describe('NeedsHuman.asked, the declared deviation', () => {
   // still speaks `asked.attribution` fails to parse.
   it('keeps its own spelling, and still names the ONE Attribution instance', () => {
     expect(Object.keys(ASKED.shape)).toEqual(['question', 'options', 'at', 'by', 'attribution'])
-    expect(ASKED.shape.attribution).toBe(Attribution)
+    expect(ASKED.shape.attribution.unwrap()).toBe(Attribution)
     expect(ASKED.shape.at).not.toBe(StampedAttribution.shape.at)
   })
 })

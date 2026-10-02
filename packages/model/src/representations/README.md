@@ -63,10 +63,10 @@ allowed to do. An audit that conflated them would forbid the attribution the mat
   key set out of the source. Both directions are closed there: an entity-shaped declaration missing
   from this registry counts as debt, and a registry entry whose site no longer exists counts too —
   so the registry cannot rot into a list of retired names.
-- **The per-user item is a RATCHET, not a zero.** Five singletons ride the two wire projections
-  today (`SessionMeta.readAt`/`snoozedUntil`, `IssueProjection.readAt`/`tuckedAt`/`pinned`). They are
+- **The per-user item is a RATCHET, not a zero.** Two singletons remain on `SessionMeta` (`readAt`/`snoozedUntil`). Issue markers
+  live on the keyed `IssueUserStateWire` companion. The session fields are
   **inherited** — 1.4 added none and blessed none — and POD-1076 owns re-keying them. The exact
-  membership is pinned, so a sixth is a red rather than a slightly larger number.
+  membership is pinned, so any new singleton is a red rather than a slightly larger number.
 
 ## Adding a representation
 

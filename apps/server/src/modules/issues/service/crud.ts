@@ -13,6 +13,7 @@ import {
   type GrantVerb,
   type IssueId,
   type IssueProjection,
+  type Attribution,
   isIssueStage,
   isSortKey,
   isSystemOwnedIssueStage,
@@ -229,6 +230,7 @@ export class IssueCrudModule {
           row.humanQuestionOptions = null
           row.humanQuestionAskedBy = null
           row.humanQuestionAskedAt = null
+          row.humanQuestionAttribution = null
         }
       },
       {
@@ -294,6 +296,7 @@ export class IssueCrudModule {
       row.humanQuestionOptions = null
       row.humanQuestionAskedBy = null
       row.humanQuestionAskedAt = null
+          row.humanQuestionAttribution = null
     }
     const committed = await this.store.persistManyWith(
       rows,
@@ -1696,7 +1699,7 @@ export class IssueCrudModule {
     /** Structured question metadata (issue #53): suggested answers for the Tray's
      *  answer chips + the asking session. askedAt is stamped here (now()) — a
      *  re-flag replaces the WHOLE pending question, metadata included. */
-    meta?: { options?: string[]; askedBy?: SessionId },
+    meta?: { options?: string[]; askedBy?: SessionId; attribution?: Attribution },
   ): Promise<IssueProjection> {
     const wasFlagged = this.store.rows.get(await this.store.resolveRef(id))?.needsHuman === true
     const options = meta?.options?.map((o) => o.trim()).filter(Boolean) ?? []
@@ -1706,6 +1709,7 @@ export class IssueCrudModule {
       humanQuestionOptions: options.length > 0 ? options : null,
       humanQuestionAskedBy: meta?.askedBy ?? null,
       humanQuestionAskedAt: this.store.now(),
+      humanQuestionAttribution: meta?.attribution ?? null,
     })
     // Emit only on the false→true flip — a re-flag must not duplicate the event.
     if (!wasFlagged) {
@@ -1730,6 +1734,7 @@ export class IssueCrudModule {
       humanQuestionOptions: null,
       humanQuestionAskedBy: null,
       humanQuestionAskedAt: null,
+      humanQuestionAttribution: null,
     })
     if (wasFlagged) await this.store.emitEvent('issue.needs_human_cleared', wire.id, { seq: wire.seq })
     return wire

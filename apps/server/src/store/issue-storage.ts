@@ -108,16 +108,8 @@ export const ISSUE_R1_MEMBERS_STORAGE_CANNOT_CARRY = [
   'labels',
 ] as const
 
-/**
- * `NeedsHuman.asked` minus the one member storage cannot carry.
- *
- * Derived from the group rather than rewritten, so every retained member is the
- * SHARED SCHEMA INSTANCE and a rename in `fields/issue.ts` reaches here. POD-365
- * made `asked` all-or-nothing on purpose — a shape where "when" is present and
- * "who" is absent must not typecheck — and that property survives the omission:
- * `question`, `at` and `by` stay required together.
- */
-export const StoredAsked = NeedsHuman.shape.asked.unwrap().omit({ attribution: true })
+/** The stored question has the same optional attribution as the canonical row. */
+export const StoredAsked = NeedsHuman.shape.asked.unwrap()
 export type StoredAsked = z.infer<typeof StoredAsked>
 
 /**
@@ -141,6 +133,7 @@ export const LegacyAsked = z.object({
    *  validation here would turn a legacy row that decodes today into one that
    *  throws. The field schema is brand-only, so what parses is unchanged. */
   by: SessionIdField.optional(),
+  attribution: NeedsHuman.shape.asked.unwrap().shape.attribution,
 })
 export type LegacyAsked = z.infer<typeof LegacyAsked>
 
@@ -396,6 +389,7 @@ export function toStorage(
     humanQuestionOptions: asked?.options ?? null,
     humanQuestionAskedBy: asked?.by ?? null,
     humanQuestionAskedAt: asked?.at ?? null,
+    humanQuestionAttribution: asked?.attribution ?? null,
 
     // --- IssuePanelGroup (object -> raw JSON column) -----------------------
     panel: issue.panel ? JSON.stringify(issue.panel) : null,
@@ -445,6 +439,7 @@ function decodeAsked(row: IssueRow): { asked?: StoredAsked } | { askedLegacy?: L
         ...(options ? { options } : {}),
         at: row.humanQuestionAskedAt,
         by: row.humanQuestionAskedBy,
+        ...opt('attribution', row.humanQuestionAttribution),
       },
     }
   }
@@ -453,6 +448,7 @@ function decodeAsked(row: IssueRow): { asked?: StoredAsked } | { askedLegacy?: L
     ...(options ? { options } : {}),
     ...opt('at', row.humanQuestionAskedAt),
     ...opt('by', row.humanQuestionAskedBy),
+    ...opt('attribution', row.humanQuestionAttribution),
   }
   // Only the empty quartet decodes to nothing. ANY populated column travels —
   // decoding is not the place to decide a partially-written question is junk,

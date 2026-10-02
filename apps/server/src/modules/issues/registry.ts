@@ -8,7 +8,7 @@ import {
   ISSUE_CONTRACTS,
   type IssueContractName,
 } from '@podium/commands'
-import { asIssueId } from '@podium/model'
+import { asIssueId, actorUser, actorAgent, actorSystem, asAgentIdentityId } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
@@ -956,9 +956,16 @@ const defs = {
             'askedBy is server-authoritative: agents may only attribute a question to their own session (omit askedBy)',
         })
       }
+      const principal = ctx.requirePrincipal()
+      const attribution = principal.kind === 'user'
+        ? { actor: actorUser(principal.user), onBehalfOf: principal.user }
+        : principal.kind === 'agent'
+          ? { actor: actorAgent(asAgentIdentityId(principal.agentSessionId)), onBehalfOf: principal.onBehalfOf }
+          : { actor: actorSystem(principal.job), onBehalfOf: null }
       return await ctx.attention.setNeedsHuman(input.id, input.question ?? null, {
         ...(input.options ? { options: input.options } : {}),
         ...(askedBy ? { askedBy } : {}),
+        attribution,
       })
     },
   }),

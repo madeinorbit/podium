@@ -1447,6 +1447,7 @@ export const issues = sqliteTable(
     humanQuestionOptions: text('human_question_options'),
     humanQuestionAskedBy: text('human_question_asked_by').$type<SessionId>(),
     humanQuestionAskedAt: text('human_question_asked_at'),
+    humanQuestionAttribution: text('human_question_attribution'),
     panel: text(),
     createdAt: text('created_at').notNull(),
     actor: text('actor'),

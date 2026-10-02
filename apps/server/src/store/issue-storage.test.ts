@@ -257,19 +257,9 @@ describe('the storage gap is named, not invented', () => {
     ])
   })
 
-  it('asked keeps its all-or-nothing invariant with only attribution removed', () => {
-    // The counterfactual: attribution IS gone (so the omission happened at all)…
-    expect(Object.keys(StoredIssue.shape.asked.unwrap().shape)).toEqual([
-      'question',
-      'options',
-      'at',
-      'by',
-    ])
-    // …and "when without who" still does not parse, which is the property
-    // POD-365 built the nested object for.
-    expect(
-      StoredIssue.shape.asked.unwrap().safeParse({ question: 'q', at: 't' }).success,
-    ).toBe(false)
+  it('stores the canonical optional asker without inventing an attribution', () => {
+    expect(StoredIssue.shape.asked.unwrap()).toBe(NeedsHuman.shape.asked.unwrap())
+    expect(StoredIssue.shape.asked.unwrap().parse({ question: 'q', at: 't' })).toEqual({ question: 'q', at: 't' })
   })
 
   it('keeps the per-user and derived columns OFF R1', () => {

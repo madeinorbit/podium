@@ -11,6 +11,7 @@ import { CommittedRows } from './committed-rows'
 import { createLogger } from '@podium/logger'
 import {
   asIssueId,
+  Attribution,
   type IssueId,
   IssueStage,
   IssueUserState,
@@ -304,6 +305,7 @@ export class IssuesRepository {
         : null,
       humanQuestionAskedBy: row.humanQuestionAskedBy ?? null,
       humanQuestionAskedAt: row.humanQuestionAskedAt ?? null,
+      humanQuestionAttribution: row.humanQuestionAttribution ? JSON.stringify(row.humanQuestionAttribution) : null,
       panel: row.panel ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -367,6 +369,7 @@ export class IssuesRepository {
           humanQuestionOptions: values.humanQuestionOptions,
           humanQuestionAskedBy: values.humanQuestionAskedBy,
           humanQuestionAskedAt: values.humanQuestionAskedAt,
+          humanQuestionAttribution: values.humanQuestionAttribution,
           panel: values.panel,
           updatedAt: values.updatedAt,
           archived: values.archived,
@@ -1521,6 +1524,7 @@ export function issueFromRow(r: typeof issues.$inferSelect): IssueRow {
         : null,
       humanQuestionAskedBy: r.humanQuestionAskedBy ?? null,
       humanQuestionAskedAt: r.humanQuestionAskedAt,
+      humanQuestionAttribution: questionAttribution(r.humanQuestionAttribution),
       panel: r.panel,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
@@ -1537,3 +1541,13 @@ export function issueFromRow(r: typeof issues.$inferSelect): IssueRow {
       startedBySession: r.startedBySession ?? null,
     }
   }
+
+/** Corrupt optional provenance does not hide the question or invent an actor. */
+function questionAttribution(raw: string | null): Attribution | null {
+  if (!raw) return null
+  try {
+    const parsed = Attribution.safeParse(JSON.parse(raw))
+    if (parsed.success) return parsed.data
+  } catch { /* Unattributed historical or corrupt row. */ }
+  return null
+}
