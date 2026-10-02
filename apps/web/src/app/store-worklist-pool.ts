@@ -7,7 +7,7 @@ import type { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { useMemo, useSyncExternalStore } from 'react'
 import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
 import { chipsPerfRequested } from '@/lib/chips-data-layer'
-import { attachPoolScreens, screenOptions } from './pool-screen-registry'
+import { attachPoolScreens, preparePoolScreens, screenOptions } from './pool-screen-registry'
 import { poolBackedScreens } from './pool-screens'
 
 interface PoolSlot {
@@ -81,6 +81,7 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
     stopCensus = () => { if (Reflect.get(window, '__chipPerf') === census) Reflect.deleteProperty(window, '__chipPerf') }
   }
   if (!poolBackedScreens.some((screen) => screen.enabled())) return stopCensus
+  const stopPrepared = preparePoolScreens(poolBackedScreens, runtime)
   reportSidebarPool(runtime, null, false)
   const slot = slotFor(runtime)
   slot.error = null
@@ -112,6 +113,7 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
     disposed = true
     stopCensus()
     stopScreens?.()
+    stopPrepared()
     stopScreens = undefined
     const handle = slot.handle
     slot.handle = null

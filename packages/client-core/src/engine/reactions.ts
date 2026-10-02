@@ -1,4 +1,3 @@
-import { sessionById } from '../session-index'
 /**
  * THE REACTION TABLE (POD-404, split out of the old `engine.ts`).
  *
@@ -17,7 +16,7 @@ import { sessionById } from '../session-index'
  * after a different principal took over (POD-404 AC).
  */
 
-import type { IssueProjection, SessionId, IssueId } from '@podium/model'
+import type { SessionId, IssueId } from '@podium/model'
 import { markSwitch } from '../perf/switch-trace'
 import type { SocketHub } from '../socket-transport'
 import {
@@ -33,12 +32,14 @@ import {
   type EngineState,
   focusedPaneSession,
   foregroundIssue,
+  navigationSession,
+  NAVIGATION_LOADING,
+  resolvedWorkspaceKey,
   issueActivityAt,
   knownTabIds,
   knownTabIdsForWorkspace,
   referencedTabIds,
   visibleTabIds,
-  workspaceKeyForState,
   workspaceWritePatch,
   workspacesPatch,
 } from './state'
@@ -239,7 +240,7 @@ export class Reactions {
     if (Object.keys(prev).length === 0) return
     const focused = focusedPaneSession(st)
     if (!focused) return
-    const session = sessionById(st.sessions).get(focused)
+    const session = navigationSession(st, focused)
     const after = session?.issueId
     const before = prev[focused]
     if (!after || before === undefined || before === after || before === '') return
@@ -249,7 +250,8 @@ export class Reactions {
       return
     }
     const nextState = { ...st, selectedIssueId: after }
-    const key = workspaceKeyForState(nextState)
+    const key = resolvedWorkspaceKey(nextState)
+    if (key === NAVIGATION_LOADING) return
     const nextLayout = openTab(st.workspaces[key] ?? emptyWorkspace(key), focused, {
       permanent: true,
     })
@@ -279,7 +281,7 @@ export class Reactions {
     })
     if (plan.follow) this.ports.publish({ selectedWorktree: plan.follow })
     for (const move of plan.moved) {
-      const s = sessionById(st.sessions).get(move.sessionId)
+      const s = navigationSession(st, move.sessionId)
       const dest = move.to ?? s?.cwd
       // The title said the destination's last segment and the description then
       // said the whole path, so the branch name was read twice in one notice —
@@ -400,7 +402,7 @@ export class Reactions {
   updateMarkReadTimer(): void {
     const st = this.ports.state()
     const focusedId = focusedPaneSession(st)
-    const session = focusedId ? sessionById(st.sessions).get(focusedId) : undefined
+    const session = focusedId ? navigationSession(st, focusedId) : undefined
     const key = session ? `${session.sessionId}\n${session.lastActiveAt}` : null
     if (key === this.markReadKey) return
     this.markReadKey = key
@@ -425,7 +427,7 @@ export class Reactions {
    *  pane, still unread, and the tab is visible. */
   private fireMarkSessionRead(sessionId: SessionId): void {
     const cur = this.ports.state()
-    const s = sessionById(cur.sessions).get(sessionId)
+    const s = navigationSession(cur, sessionId)
     if (focusedPaneSession(cur) !== sessionId || s?.unread !== true || !this.isVisible()) return
     this.markReadFiredAt = Date.now()
     this.ports.markSessionRead(sessionId)
@@ -462,7 +464,7 @@ export class Reactions {
 
   private fireMarkIssueRead(issueId: IssueId): void {
     const st = this.ports.state()
-    const issue: IssueProjection | undefined = foregroundIssue(st)
+    const issue = foregroundIssue(st)
     if (issue?.id !== issueId || !this.isVisible()) return
     const activityAt = Date.parse(issueActivityAt(issue, st.sessions, st.issueProjections))
     const marker = st.issueUserStates.find(row => row.entityId === issue.id)

@@ -7,12 +7,22 @@ export interface PoolScreen {
   readonly id?: string
   initialize(ui: ClientRuntime['ui']): void
   enabled(): boolean
+  /** Synchronous startup guard, before any lazy graph import. */
+  prepare?(runtime: ClientRuntime): void | (() => void)
   options?(runtime: ClientRuntime): PoolScreenOptions
   /** Register read-side sources and optional diagnostics on the existing pool.
    * A late attachment must return its disposer; it is immediately released. */
   attach?(runtime: ClientRuntime, pool: MobxPool): Promise<(() => void) | void>
   /** Optional diagnostics preserve their existing failure isolation. */
   optional?: boolean
+}
+
+export function preparePoolScreens(screens: readonly PoolScreen[], runtime: ClientRuntime): () => void {
+  const stops = screens.filter(screen => screen.enabled()).flatMap(screen => {
+    const stop = screen.prepare?.(runtime)
+    return stop ? [stop] : []
+  })
+  return () => { for (const stop of stops.splice(0).reverse()) stop() }
 }
 
 export function screenOptions(screens: readonly PoolScreen[], runtime: ClientRuntime): PoolScreenOptions {

@@ -109,7 +109,13 @@ import {
   type EngineState,
   type EngineStatics,
   enableWorkspaceKeyCache,
+  focusedPaneSession,
+  foregroundIssue,
   initialEngineState,
+  NAVIGATION_LOADING,
+  type NavigationProvider,
+  navigationSession,
+  resolvedWorkspaceKey,
   userFocus,
   type WorkspacePatch,
   workspaceFor,
@@ -341,6 +347,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   }
 
   private readonly state: EngineState
+  private stopNavigationWatch: (() => void) | undefined
+  private pendingNavigation: NavigationIntent | undefined
+  private navigationWakeQueued = false
   private statsReactionDepth = 0
   private readonly subStore: SubscriptionStore<Store<TApi>>
   /** The action methods + constant handles, spread into every snapshot so their
@@ -982,6 +991,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       return
     }
     this.dispose()
+    this.stopNavigationWatch?.()
+    this.stopNavigationWatch = undefined
+    this.pendingNavigation = undefined
     this.destroyed = true
     this.hostMetricsStore.destroy()
   }
@@ -999,6 +1011,49 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.poolRuntimeWork = true
     enableWorkspaceKeyCache(this.state)
     this.optimism.enableKeyedFolds()
+  }
+
+  /** The web startup attachment supplies this read port. No fallback is
+   * installed during loading or teardown; mobile never calls this method. */
+  setNavigationProvider(provider: NavigationProvider): void {
+    if (this.destroyed) return
+    this.apply({ navigation: provider })
+    if (this.pendingNavigation) this.navigate(this.pendingNavigation)
+  }
+
+  private watchNavigation(): void {
+    this.stopNavigationWatch?.()
+    this.stopNavigationWatch = undefined
+    const provider = this.state.navigation
+    if (!provider?.watch) return
+    this.stopNavigationWatch = provider.watch(() => {
+      const st = this.state
+      const focused = focusedPaneSession(st)
+      const pending = this.pendingNavigation
+      return [
+        resolvedWorkspaceKey(st), foregroundIssue(st),
+        focused ? provider.session(focused) : undefined,
+        pending ? resolvedWorkspaceKey({ ...st,
+          ...(pending.selectedIssueId !== undefined ? { selectedIssueId: pending.selectedIssueId } : {}),
+          ...(pending.selectedWorktree !== undefined ? { selectedWorktree: pending.selectedWorktree } : {}),
+        }) : undefined,
+      ]
+    }, () => {
+      if (this.navigationWakeQueued) return
+      this.navigationWakeQueued = true
+      queueMicrotask(() => {
+        this.navigationWakeQueued = false
+        if (this.destroyed || this.state.navigation !== provider) return
+        this.batch(() => {
+          if (this.paneLink) this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
+          if (this.pendingNavigation) this.navigate(this.pendingNavigation)
+          this.syncWorkspaceSelection()
+          this.reactions.updateIssueVisitBaseline()
+          this.reactions.updateMarkReadTimer()
+          this.reactions.updateIssueMarkReadTimer()
+        })
+      })
+    })
   }
 
   // ------------------------------------------------------------ state pipeline
@@ -1108,7 +1163,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // the truth; the pane scalars follow whichever workspace is now on screen.
     // `issueProjections` is in the trigger set because the key resolves through the
     // mission root, which an issue update can move.
-    if (any('selectedIssueId', 'selectedWorktree', 'issueProjections'))
+    if (any('selectedIssueId', 'selectedWorktree', 'issueProjections', 'navigation'))
       this.syncWorkspaceSelection()
     // A tab whose session or file is GONE (POD-710). Nothing else can remove it
     // — it renders nothing, so there is no ✕ to click — and it is persisted, so
@@ -1162,13 +1217,16 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       )
     )
       this.reactions.updateIssueMarkReadTimer()
+    if (any('navigation', 'selectedIssueId', 'selectedWorktree', 'view', 'openIssueId', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces'))
+      this.watchNavigation()
   }
 
   /** Re-derive the pane mirrors when the workspace on screen changes. A write
    *  INSIDE one workspace already carries its own mirror (workspaceWritePatch),
    *  so this fires only on the switch. */
   private syncWorkspaceSelection(): void {
-    const key = workspaceKeyForState(this.state)
+    const key = resolvedWorkspaceKey(this.state)
+    if (key === NAVIGATION_LOADING) return
     if (key === this.workspaceKey) return
     this.workspaceKey = key
     // Mirror only: switching to a task that has never been opened must not
@@ -1233,7 +1291,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     permanent = true,
   ): WorkspacePatch {
     const st = { ...this.state, ...selection }
-    const key = workspaceKeyForState(st)
+    const key = resolvedWorkspaceKey(st)
+    if (key === NAVIGATION_LOADING) return {}
     const next = openTab(workspaceFor(st, key), tabId, { permanent })
     this.workspaceKey = key
     return workspaceWritePatch(st, key, next)
@@ -1283,6 +1342,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   private navigate(intent: NavigationIntent): boolean {
     if (this.destroyed) return false
+    this.pendingNavigation = undefined
     // Any navigation supersedes a link still waiting for its session, so a late
     // row never yanks the operator off where they went since (POD-4642).
     this.dropPaneLink()
@@ -1290,6 +1350,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       visible: this.visibility.isVisible(),
       now: new Date().toISOString(),
     })
+    if (plan.pending) {
+      this.pendingNavigation = intent
+      this.watchNavigation()
+      return false
+    }
     const changed = Object.entries(plan.patch).some(
       ([key, value]) => !Object.is(this.state[key as keyof EngineState], value),
     )
@@ -1399,7 +1464,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Open a linked session this replica holds; false when it holds none. */
   private openLinkedSession(sessionId: string, worktree: string | null): boolean {
-    const meta = this.state.sessions.find((s) => s.sessionId === sessionId)
+    const meta = navigationSession(this.state, sessionId)
     if (!meta) return false
     this.dropPaneLink()
     const selection = sessionLinkSelection(this.state, meta, worktree)

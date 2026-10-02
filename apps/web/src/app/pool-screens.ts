@@ -7,6 +7,7 @@ import { initializeSidebarDataLayer, sidebarDataLayer, sidebarCheckRequested } f
 import { initializeHeaderDataLayer, headerDataLayer, headerCheckRequested } from '@/lib/header-data-layer'
 import { initializeChipsDataLayer, chipsDataLayer, chipsCheckRequested } from '@/lib/chips-data-layer'
 import type { PoolScreen } from './pool-screen-registry'
+import { panePoolScreen } from './pane-pool-screen'
 
 /** Latch with hydrated UI state before rendering any screen, including settings.
  * Provider attachments and principal rebuilds reuse the same app-load choices. */
@@ -17,6 +18,7 @@ export function initializePoolScreens(ui: UiState): void {
 /** Screen declarations are the only provider registration surface. Graph code
  * stays behind startup choices; every entry uses the existing runtime/pool. */
 export const poolBackedScreens: readonly PoolScreen[] = [
+  panePoolScreen,
   { optional: true, initialize: initializeSettingsDataLayer, enabled: () => settingsDataLayer() === 'pool',
     options: () => ({ settings: true }),
     async attach(runtime, pool) {

@@ -21,6 +21,7 @@ import { asThreadId } from '@podium/model'
 import { createLogger } from '@podium/logger'
 import {
   isSessionIdPrefix,
+  isShortSessionIdentifier,
   resolveSessionIdentifier,
   type SessionIdentifierResolution,
 } from '@podium/protocol'
@@ -71,6 +72,10 @@ import {
 } from './replicated-layout'
 import {
   currentWorkspace,
+  NAVIGATION_LOADING,
+  navigationSession,
+  type NavigationProvider,
+  resolvedWorkspaceKey,
   type WorkspacePatch,
   type WorkspaceSelection,
   workspaceFor,
@@ -190,6 +195,7 @@ export const ACTION_STATE_REDUCER_COMMANDS = [
 ] as const
 
 type ActionState = {
+  navigation?: NavigationProvider
   pins: PinState
   tabOrders: Record<string, string[]>
   sessions: SessionView[]
@@ -342,7 +348,7 @@ function reducePin(state: PinState, kind: PinKind, id: string, pinned: boolean):
 /** The slice of action state a workspace write reads. */
 type WorkspaceStateSlice = Pick<
   ActionState,
-  'issueProjections' | 'selectedIssueId' | 'selectedWorktree' | 'workspaces'
+  'issueProjections' | 'selectedIssueId' | 'selectedWorktree' | 'workspaces' | 'navigation'
 >
 
 /** Reduce the current workspace and re-derive the pane mirrors — the pure core
@@ -352,7 +358,8 @@ function workspaceEdit(
   reduce: (ws: WorkspaceLayout) => WorkspaceLayout,
   selection?: Partial<WorkspaceSelection>,
 ): WorkspacePatch {
-  const key = workspaceKeyForState(selection ? { ...st, ...selection } : st)
+  const key = resolvedWorkspaceKey(selection ? { ...st, ...selection } : st)
+  if (key === NAVIGATION_LOADING) return {}
   return workspaceWritePatch(st, key, reduce(workspaceFor(st, key)))
 }
 
@@ -499,12 +506,15 @@ export function createEngineActions<TApi extends PodiumClientApi>(
    */
   const navigateToSession = (sessionIdOrRef: string): void => {
     const state = rt.state()
-    const meta = resolveSessionIdentifier(sessionIdOrRef, state.sessions)
+    const meta = state.navigation
+      ? navigationSession(state, sessionIdOrRef)
+      : resolveSessionIdentifier(sessionIdOrRef, state.sessions)
     if (!meta) {
       // A short id this client cannot match (POD-4637): the server answers,
       // through the CLI's rule — no prefix matching here. Anything else stays
       // inert, as before: an unknown full id may be a spawn still arriving.
-      if (isSessionIdPrefix(sessionIdOrRef)) void navigateToSessionLink(sessionIdOrRef)
+      if (isSessionIdPrefix(sessionIdOrRef) || (state.navigation && isShortSessionIdentifier(sessionIdOrRef)))
+        void navigateToSessionLink(sessionIdOrRef)
       return
     }
     rt.navigate({
@@ -529,7 +539,8 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     }
     // The row may not be in this replica yet; a full id is then inert here,
     // exactly as any other unknown full id is.
-    if (resolveSessionIdentifier(answer.sessionId, rt.state().sessions)) {
+    const state = rt.state()
+    if (state.navigation ? navigationSession(state, answer.sessionId) : resolveSessionIdentifier(answer.sessionId, state.sessions)) {
       navigateToSession(answer.sessionId)
     }
   }

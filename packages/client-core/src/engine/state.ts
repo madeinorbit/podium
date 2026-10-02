@@ -1,4 +1,7 @@
 import type { SessionView } from '../session-values'
+import { sessionById } from '../session-index'
+import { countLegacyNavigation, NAVIGATION_LOADING, type NavigationIssue, type NavigationProvider } from './navigation-provider'
+export * from './navigation-provider'
 /**
  * The client runtime's STATE SHAPE and the pure derivations over it (POD-404).
  *
@@ -66,6 +69,8 @@ import type { IssueVisitBaseline, Store, TranscriptRevealRequest, UserFocus } fr
 /** The runtime's mutable data slices — exactly the non-function fields of Store
  *  that change over time (constants like hub/trpc/replica live outside it). */
 export interface EngineState {
+  /** Startup-only read provider; absent on legacy web and mobile. */
+  navigation?: NavigationProvider
   repos: GitRepositoryWire[]
   reposLoading: boolean
   reposLoaded: boolean
@@ -284,7 +289,7 @@ export interface WorkspacePatch {
 /** The selection a workspace key is computed from. */
 export type WorkspaceSelection = Pick<
   EngineState,
-  'issueProjections' | 'selectedIssueId' | 'selectedWorktree'
+  'issueProjections' | 'selectedIssueId' | 'selectedWorktree' | 'navigation'
 >
 
 /**
@@ -313,6 +318,23 @@ export function enableWorkspaceKeyCache(st: WorkspaceSelection): void {
 }
 
 export function workspaceKeyForState(st: WorkspaceSelection): WorkspaceKey {
+  const key = resolvedWorkspaceKey(st)
+  // Existing view readers have a total key API. Loading has no writable
+  // workspace; selection commits use resolvedWorkspaceKey and wait instead.
+  return key === NAVIGATION_LOADING ? 'none' : key
+}
+
+export function resolvedWorkspaceKey(st: WorkspaceSelection): WorkspaceKey | typeof NAVIGATION_LOADING {
+  if (st.navigation) {
+    const selected = st.selectedIssueId ? st.navigation.issue(st.selectedIssueId) : undefined
+    if (selected === NAVIGATION_LOADING) return NAVIGATION_LOADING
+    const root = selected && !selected.archived && !selected.deletedAt
+      ? st.navigation.missionRoot(selected.id) : undefined
+    if (root === NAVIGATION_LOADING) return NAVIGATION_LOADING
+    // The provider owns invalidation. Never cache this answer against the
+    // legacy issue array, which need not move when a cold pool row arrives.
+    return workspaceKeyFor({ missionRootId: root ?? null, issueId: st.selectedIssueId, worktreePath: st.selectedWorktree })
+  }
   const cached = workspaceKeys.get(st)
   if (
     cached?.value !== undefined &&
@@ -321,9 +343,12 @@ export function workspaceKeyForState(st: WorkspaceSelection): WorkspaceKey {
     cached.worktree === st.selectedWorktree
   )
     return cached.value
-  const selected = st.selectedIssueId
-    ? st.issueProjections.find((i) => i.id === st.selectedIssueId && !i.archived && !i.deletedAt)
-    : undefined
+  let selected: IssueProjection | undefined
+  if (st.selectedIssueId) {
+    countLegacyNavigation('issuesFind')
+    selected = st.issueProjections.find((i) => i.id === st.selectedIssueId && !i.archived && !i.deletedAt)
+  }
+  if (selected) countLegacyNavigation('missionRootFor')
   const root = selected ? missionRootFor(st.issueProjections, selected.id) : undefined
   const value = workspaceKeyFor({
     missionRootId: root?.id ?? null,
@@ -410,8 +435,8 @@ export function workspacesPatch(
     workspaces[key] = next
   }
   if (!changed) return {}
-  const key = workspaceKeyForState(st)
-  const current = workspaces[key]
+  const key = resolvedWorkspaceKey(st)
+  const current = key === NAVIGATION_LOADING ? undefined : workspaces[key]
   return { workspaces, ...(current ? workspaceMirrorPatch(current) : {}) }
 }
 
@@ -616,10 +641,26 @@ export function referencedTabIds(st: Pick<EngineState, 'workspaces'>): Set<strin
  *
  *  A miss is final, not pending: under a scoped slice the selected issue may
  *  simply not be visible to this principal. */
-export function foregroundIssue(st: EngineState): IssueProjection | undefined {
+export function foregroundIssue(st: EngineState): NavigationIssue | undefined {
   const id =
     st.view === 'issues' ? st.openIssueId : st.view === 'workspace' ? st.selectedIssueId : null
-  return id ? st.issueProjections.find((i) => i.id === id) : undefined
+  if (!id) return undefined
+  if (st.navigation) {
+    const issue = st.navigation.issue(id)
+    return issue === NAVIGATION_LOADING ? undefined : issue
+  }
+  countLegacyNavigation('issuesFind')
+  return st.issueProjections.find((i) => i.id === id)
+}
+
+/** Session reactions use the same addressed provider as a selection gesture. */
+export function navigationSession(st: Pick<EngineState, 'sessions' | 'navigation'>, id: string): SessionView | undefined {
+  if (st.navigation) {
+    const session = st.navigation.session(id)
+    return session === NAVIGATION_LOADING ? undefined : session
+  }
+  countLegacyNavigation('sessionById')
+  return sessionById(st.sessions).get(id)
 }
 
 /** The UI-state module's view of the workspace — the single input to routing,

@@ -2,7 +2,7 @@ import type { IssueId } from '@podium/model'
 import { type MainView, type RouteState, routeDefaults } from '../ui-state'
 import { type FileTab, type RecentFileEntry, allTabIds, leafPaneIds, openTab } from '../viewmodels'
 import {
-  type EngineState, foregroundIssue, workspaceFor, workspaceKeyForState,
+  type EngineState, foregroundIssue, workspaceFor, resolvedWorkspaceKey, NAVIGATION_LOADING,
   workspaceMirrorPatch, workspaceWritePatch,
 } from './state'
 
@@ -30,7 +30,10 @@ export function planNavigation(
     ...(intent.selectedWorktree !== undefined ? { selectedWorktree: intent.selectedWorktree } : {}),
   }
   const landing = { ...state, ...selection }
-  const key = workspaceKeyForState(landing)
+  const key = resolvedWorkspaceKey(landing)
+  if (key === NAVIGATION_LOADING) return {
+    pending: true, patch: {} as Partial<EngineState>, route: current, key: 'none' as const, replace: false,
+  }
   const workspace = workspaceFor(landing, key)
   const next = intent.tabId ? openTab(workspace, intent.tabId, {
     permanent: intent.permanent !== false,
@@ -78,5 +81,5 @@ export function planNavigation(
   patch.issueVisitBaseline = !issue ? null : state.issueVisitBaseline?.issueId === issue.id
     ? state.issueVisitBaseline
     : { issueId: issue.id, readAt: state.issueUserStates.find(marker => marker.entityId === issue.id)?.readAt ?? null, openedAt: context.now }
-  return { patch, route, key, replace: intent.history !== 'push' && current.view === intent.view }
+  return { pending: false, patch, route, key, replace: intent.history !== 'push' && current.view === intent.view }
 }
