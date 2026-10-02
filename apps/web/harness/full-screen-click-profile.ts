@@ -59,15 +59,14 @@ declare global {
 const args = process.argv.slice(2).filter((arg) => arg !== '--')
 const value = (name: string, fallback: string) =>
   args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback
-const delayMs = Number(value('plant-delay-ms', '0'))
 const profileAction = value('profile', 'all')
 const profileActions = profileAction === 'all' ? ACTIONS.filter(action => action !== 'sidebar-issue')
   : [profileAction === 'session-switch' ? 'session-pane' : profileAction]
 const root = resolve('.artifacts/full-screen-click-profile')
 const buildDir = resolve(root, 'build')
-const profileDir = resolve(root, 'profiles', profileAction + (delayMs ? '-plant' : ''))
+const profileDir = resolve(root, 'profiles', profileAction)
 const baselinePath = resolve('docs/measurements/click-speed-baseline.json')
-const REPETITIONS = delayMs ? 1 : 3
+const REPETITIONS = 3
 const WARMUPS = 2
 const git = (...argv: string[]) => execFileSync('git', argv, { encoding: 'utf8' }).trim()
 const median = (values: number[]) => {
@@ -82,15 +81,14 @@ async function main() {
   if (args.includes('--help')) {
     console.log('bun apps/web/harness/full-screen-click-profile.ts --profile=mission-switch|session-switch|issue-rename|background-update|all\n' +
       'Three production CPU + trace samples per action, mobxPane OFF/ON; no gate/baseline writes.\n' +
-      '--lease-confirmed: caller holds bench:flatblock. --plant-delay-ms=200: mission-switch CPU control.')
+      '--lease-confirmed: caller holds bench:flatblock.')
     return
   }
-  for (const arg of args) if (arg !== '--lease-confirmed' && !arg.startsWith('--profile=') && !arg.startsWith('--plant-delay-ms='))
+  for (const arg of args) if (arg !== '--lease-confirmed' && !arg.startsWith('--profile='))
     throw new Error(`Unknown argument ${arg}`)
   if (hostname() !== 'flatblock') throw new Error('Profile capture runs on flatblock')
   if (!profileActions.length || profileActions.some(action => !ACTIONS.includes(action as Action) || action === 'sidebar-issue'))
     throw new Error('Choose a full-screen profile action')
-  if (![0, 200].includes(delayMs)) throw new Error('Only the named 200 ms measurement control is supported')
   const baseline = JSON.parse(await readFile(baselinePath, 'utf8')) as Baseline
   const captureSha = git('rev-parse', 'HEAD')
   const dirtyProduct =
@@ -205,7 +203,7 @@ async function main() {
       },
     )
     await page.goto(
-      `${origin}/harness/full-screen-click-profile.browser.html?mobxSidebar=1&mobxPane=${pilot}&scale=4&surface=full&panelMode=chat&plantBusyMs=${delayMs}`,
+      `${origin}/harness/full-screen-click-profile.browser.html?mobxSidebar=1&mobxPane=${pilot}&scale=4&surface=full&panelMode=chat`,
     )
     await page.waitForFunction(
       () => window.__acceptance?.ready() && document.querySelector('[data-issue-row]'),
@@ -317,7 +315,7 @@ async function main() {
       const actionName = action === 'session-pane' ? 'session-switch' : action
       const file = `${actionName}-pilot-${fixture.pilot ? 'on' : 'off'}-${sampleIndex}`
       const record = {
-        file, sourceSha: captureSha, action: actionName, pilot: fixture.pilot, plantDelayMs: delayMs,
+        file, sourceSha: captureSha, action: actionName, pilot: fixture.pilot,
         iteration: sampleIndex, trigger, expected, paint: result, boundary,
         react, stateBefore, stateAfter: await page.evaluate(() => window.__acceptance.state()),
         loadavg: loadavg(),
@@ -346,17 +344,10 @@ async function main() {
               .map((node) => node.getAttribute('data-issue-row')!),
           ),
         ])
-      const shapes = (await full.page.evaluate((ids) => window.__acceptance.shape(ids),
-        delayMs ? ids.slice(0, 24) : fixed.missions))
+      const shapes = (await full.page.evaluate((ids) => window.__acceptance.shape(ids), fixed.missions))
         .filter((shape) => shape.root && shape.rows > 0)
         .sort((a, b) => b.rows - a.rows || a.id.localeCompare(b.id))
       const targets = structuredClone(fixed)
-      if (delayMs) {
-        // Arming control: a small real mission keeps a 200ms plant larger than
-        // the surrounding UI work. It is never part of the fixed-target results.
-        targets.missions = shapes.filter(shape => shape.rows <= 2).slice(0, 2).map(shape => shape.id)
-        if (targets.missions.length !== 2) throw new Error('Need two small missions for the CPU control')
-      }
       if (
         targets.sidebar.length !== 2 ||
         targets.missions.length !== 2 ||
@@ -591,7 +582,7 @@ async function main() {
         runs.push(await suite(origin, baseline!.targets, pilot))
       }
       await writeFile(resolve(profileDir, 'manifest.json'), JSON.stringify({
-        version: 1, sourceSha: captureSha, dirtyProduct, machine, capturedAt: new Date().toISOString(), plantDelayMs: delayMs,
+        version: 1, sourceSha: captureSha, dirtyProduct, machine, capturedAt: new Date().toISOString(),
         profileAction, pilot: 'mobxPane=0/1; mobxSidebar=1 in both arms',
         scale: 4, surface: 'full', seed: 4443, repetitions: REPETITIONS, warmups: WARMUPS,
         build: 'ordinary React 19.2.7; minified production; hidden source maps; no state-boundary wrappers',

@@ -15,7 +15,7 @@ type Event = { name: string; ph: string; ts: number; dur?: number; pid: number; 
 type Location = { file: string; line: number; column: number; name: string; mappedLine: number }
 type Segment = { column: number; source: number; line: number; originalColumn: number }
 type SourceMap = { sources: string[]; sourcesContent: (string | null)[]; mappings: string }
-type Source = { ast: ts.SourceFile; functions: { start: number; end: number; name: string; line: number }[] }
+type Source = { ast: ts.SourceFile; functions: { start: number; entryStart: number; end: number; name: string; line: number }[] }
 const arg = (name: string, fallback: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback
 const root = resolve('.artifacts/full-screen-click-profile')
 const directory = resolve(root, 'profiles', arg('profile', 'all'))
@@ -71,7 +71,10 @@ class Maps {
     const functions: Source['functions'] = []
     const visit = (node: ts.Node) => {
       if (ts.isFunctionLike(node) && 'body' in node && node.body) {
-        functions.push({ start: node.getStart(ast), end: node.end, name: functionName(node, ast),
+        const parent = node.parent
+        const entryStart = ts.isVariableDeclaration(parent) || ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent)
+          ? parent.getStart(ast) : node.getStart(ast)
+        functions.push({ start: node.getStart(ast), entryStart, end: node.end, name: functionName(node, ast),
           line: ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1 })
       }
       ts.forEachChild(node, visit)
@@ -123,7 +126,7 @@ class Maps {
     if (data === null && frame.lineNumber >= 0) {
       const file = `generated/assets/${name}`, source = this.sources.get(file)!
       const position = source.ast.getPositionOfLineAndCharacter(frame.lineNumber, frame.columnNumber)
-      const symbol = source.functions.filter(f => f.start <= position && position < f.end)
+      const symbol = source.functions.filter(f => f.entryStart <= position && position < f.end)
         .sort((a, b) => (a.end - a.start) - (b.end - b.start))[0]
       return { file, line: symbol?.line ?? frame.lineNumber + 1, column: frame.columnNumber + 1,
         mappedLine: frame.lineNumber + 1, name: symbol?.name ?? frame.functionName }
@@ -144,7 +147,10 @@ class Maps {
     let symbol: Source['functions'][number] | undefined
     if (source) {
       const position = source.ast.getPositionOfLineAndCharacter(segment.line, segment.originalColumn)
-      symbol = source.functions.filter((f) => f.start <= position && position < f.end)
+      // A minified function's entry often maps to its property/variable name,
+      // before the arrow itself (e.g. `get: (...) => ...`). Include that entry
+      // span so the enclosing factory does not absorb the accessor's samples.
+      symbol = source.functions.filter((f) => f.entryStart <= position && position < f.end)
         .sort((a, b) => (a.end - a.start) - (b.end - b.start))[0]
       // Some function-entry mappings point at the declaration immediately before
       // the arrow/function. Accept only a same-line declaration, never another body.
@@ -284,15 +290,23 @@ for (const { file, profile } of raw) {
   for (const name of ['UpdateLayoutTree', 'Layout', 'PrePaint', 'Paint', 'EventDispatch', 'FunctionCall', 'FireAnimationFrame'])
     timeline[name] = union(intervals(main.filter((e) => e.name === name)))
   timeline['layoutPaintUnion'] = union(intervals(main.filter((e) => ['UpdateLayoutTree', 'Layout', 'PrePaint', 'Paint'].includes(e.name))))
-  const tasks = main.filter((e) => e.name === 'RunTask')
-  if (!tasks.length) throw new Error(`${file}: trace has no top-level RunTask boundaries`)
+  const taskEventName = main.some(e => e.name === 'ThreadControllerImpl::RunTask')
+    ? 'ThreadControllerImpl::RunTask' : 'RunTask'
+  const tasks = main.filter((e) => e.name === taskEventName)
+  if (!tasks.length) throw new Error(`${file}: trace has no top-level task boundaries`)
   const longTasks = tasks.filter((e) => Math.min(end, e.ts + (e.dur ?? 0)) - Math.max(start, e.ts) > 50_000)
     .map((e) => ({ windowMs: (Math.min(end, e.ts + e.dur!) - Math.max(start, e.ts)) / 1000,
       fullMs: e.dur! / 1000, offsetMs: (e.ts - start) / 1000 }))
     .sort((a, b) => b.windowMs - a.windowMs)
   const commits = record.react.commits.filter((_commit, index) => {
     const marker = events.find((e) => e.name === `speed:commit:${index}`)
-    if (!marker) throw new Error(`${file}: missing commit marker ${index}`)
+    if (!marker) {
+      // Reading state after Tracing.end can see later commits. They have no
+      // trace mark and cannot belong to the already-ended first-Paint window.
+      const estimated = start + (_commit.at - record.boundary.input) * 1000
+      if (estimated > end) return false
+      throw new Error(`${file}: missing in-window commit marker ${index}`)
+    }
     return marker.ts >= start && marker.ts <= end
   })
   const rendered: Record<string, number> = {}
@@ -307,7 +321,7 @@ for (const { file, profile } of raw) {
     window: { inputUs: start, domUs: dom[0]!.ts, paintEndUs: end, wallMs: wall, domMs: (dom[0]!.ts - start) / 1000 },
     sampledMs: sampled, exclusiveSampledMs: buckets, mobxDerivationWithinReactRenderMs: reactMobxMs,
     mobxReactionInclusiveMs: reactionInclusiveMs, timelineMs: timeline,
-    tasks: { count: tasks.length, longCount: longTasks.length, longestMs: longTasks[0]?.windowMs ?? 0,
+    tasks: { eventName: taskEventName, count: tasks.length, longCount: longTasks.length, longestMs: longTasks[0]?.windowMs ?? 0,
       occupiedMs: union(intervals(tasks)), longTasks },
     commits: { count: commits.length, observerMs: commits.reduce((sum, c) => sum + c.end - c.at, 0),
       renderedInstances: Object.values(rendered).reduce((sum, count) => sum + count, 0), components: rendered },
@@ -344,13 +358,13 @@ await writeFile(resolve(directory, 'analysis.json'), JSON.stringify({
   definitions: {
     wall: 'trusted pointerdown (background feed delivery) through end of first main-thread Paint after expected DOM change',
     sampled: 'reconstructed 1ms V8 sample intervals clipped to the wall window; each interval counted once',
-    self: 'arithmetic mean of three samples per action/arm; leaf-only time by source function declaration',
-    inclusive: 'arithmetic mean of three samples per action/arm; all descendant samples per function, recursive occurrences deduplicated within one stack; overlapping, never additive',
+    self: `arithmetic mean of ${manifest.repetitions} samples per action/arm; leaf-only time by source function declaration`,
+    inclusive: `arithmetic mean of ${manifest.repetitions} samples per action/arm; all descendant samples per function, recursive occurrences deduplicated within one stack; overlapping, never additive`,
     react: 'committed PerformedWork composite instances, excluding hosts/providers/bailouts; render restarts excluded from counts and included in CPU',
     timeline: 'union of clipped main-thread complete events per name; layoutPaintUnion merges style/layout/prepaint/paint; timeline overlaps stack samples',
-    longTasks: 'RunTask window intersection >50ms; fullMs additionally preserves the original task duration',
+    longTasks: 'ThreadControllerImpl::RunTask (legacy trace: RunTask) window intersection >50ms; fullMs additionally preserves the original task duration',
     observer: 'wall time spent in the measurement-only commit-hook tree walk',
-    medians: 'per-column medians of three recordings; independently computed medians need not add to the wall median',
+    medians: `per-column medians of ${manifest.repetitions} recordings; independently computed medians need not add to the wall median`,
   }, groups, records: summaries,
 }, null, 2) + '\n')
 console.log(`${summaries.length} CPU/trace windows and committed component lists analyzed at ${manifest.sourceSha}; ${resolve(directory, 'analysis.json')}`)
