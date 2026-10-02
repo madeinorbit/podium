@@ -1395,6 +1395,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    */
   private onRouteChanged(route: RouteState): void {
     if (this.committingNavigation) return
+    this.pendingNavigation = undefined
     const prev = this.prevRoute
     this.prevRoute = route
     const st = this.state

@@ -80,7 +80,10 @@ describe('web pool navigation', () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
     const before = runtime.getSnapshot()
-    const target = before.issueProjections.find(row => !row.archived && !row.deletedAt && !row.parentId)!
+    const seat = before.sessions.find(session => !session.archived && session.issueId &&
+      before.issueProjections.some(row => row.id === session.issueId && !row.archived && !row.deletedAt))!
+    const target = before.issueProjections.find(row => row.id === seat.issueId)!
+    const expectedKey = workspaceKeyForState({ ...before, selectedIssueId: target.id })
     const errors = vi.fn()
     navigationStats.enable(); navigationStats.reset()
     const detach = attachWorklistPool(runtime, errors)
@@ -90,9 +93,46 @@ describe('web pool navigation', () => {
       expect(runtime.getSnapshot().selectedIssueId).toBe(before.selectedIssueId)
       expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
       await vi.waitFor(() => expect(runtime.getSnapshot().selectedIssueId).toBe(target.id))
-      expect(runtime.getSnapshot().workspaceKey()).toBe(`mission:${target.id}`)
+      expect(runtime.getSnapshot().workspaceKey()).toBe(expectedKey)
+      // The notice's Open chat action and eager read reaction use the same port.
+      runtime.getSnapshot().navigateToSession(seat.sessionId)
+      await vi.waitFor(() => expect(runtime.getSnapshot().paneA).toBe(seat.sessionId))
+      expect(runtime.router.current().pane).toBe(seat.sessionId)
+      expect(runtime.getSnapshot().workspaceKey()).toBe(expectedKey)
       expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
       expect(errors).not.toHaveBeenCalled()
+    } finally { detach(); runtime.destroy() }
+  })
+
+  it('a retired async attachment cannot replace a new generation with the old pool', async () => {
+    const setNavigationProvider = vi.fn()
+    const runtime = { setNavigationProvider, isDestroyed: false } as never
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+    const retire = preparePoolScreens([panePoolScreen], runtime)
+    const attached = panePoolScreen.attach!(runtime, pool)
+    retire()
+    const stopNext = preparePoolScreens([panePoolScreen], runtime)
+    try {
+      expect(await attached).toBeUndefined()
+      expect(setNavigationProvider.mock.calls.every(([provider]) => provider === loadingNavigationProvider)).toBe(true)
+    } finally { stopNext(); pool.dispose() }
+  })
+
+  it('a newer navigation cancels the selection waiting for the pool import', async () => {
+    const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
+    const runtime = ctx.engine
+    const target = runtime.getSnapshot().issueProjections[0]!.id
+    const detach = preparePoolScreens([panePoolScreen], runtime)
+    try {
+      runtime.getSnapshot().navigateWorkspace({ selectedIssueId: target })
+      runtime.getSnapshot().setView('settings')
+      const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
+      const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
+      try {
+        runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
+        expect(runtime.getSnapshot().view).toBe('settings')
+        expect(runtime.getSnapshot().selectedIssueId).not.toBe(target)
+      } finally { runtime.setNavigationProvider(loadingNavigationProvider); handle.dispose() }
     } finally { detach(); runtime.destroy() }
   })
 
