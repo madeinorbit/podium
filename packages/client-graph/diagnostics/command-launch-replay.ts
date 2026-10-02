@@ -66,7 +66,7 @@ async function main() {
   try {
     phase = 5
     let checks = 0, differences = 0, pending = 0, positions = 0
-    let first: { check: number; sectionIndex: number; rowIndex: number; field: string } | null = null
+    let first: { check: number; sectionIndex: number; rowIndex: number | null; field: string } | null = null
     for (const selectedIssueId of [null, ...replica.rows('issueProjections').slice(0, 32).map(row => asIssueId(row.id))]) {
       store = { ...store, selectedIssueId }
       for (const listener of listeners) listener()
