@@ -881,7 +881,7 @@ export class IssueStore {
    *  the difference is the rollback — see {@link EMPTY_NORMALIZED_TRUTH}.
    *
    *  Used only by boot reconciliation and explicit normalized truth reads. */
-  async allProjections(): Promise<{ id: string; value: IssueProjection }[]> {
+  async allProjections(): Promise<{ id: string; value: IssueProjection }[] | undefined> {
     const labelsByIssue = await this.deps.store.issues.listIssueLabelsByIssue()
     return issueProjectionRows(this.rows.values(), (id) => labelsByIssue.get(id) ?? [])
   }

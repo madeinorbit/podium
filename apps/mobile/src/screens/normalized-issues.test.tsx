@@ -1,3 +1,5 @@
+import { issueRowFixture } from '../../../server/src/test-support/issue-row'
+import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   asIssueId,
@@ -225,7 +227,11 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
   })
 
   it('renders an outstanding question whose historical asker is unknown', async () => {
-    const question = { ...projection, asked: { question: 'Keep this unanswered question?' } }
+    const question = issueRowToProjection(issueRowFixture({
+      id: projection.id, repoId: projection.repoId, title: projection.title,
+      needsHuman: true, humanQuestion: 'Keep this unanswered question?',
+      humanQuestionAskedBy: null, humanQuestionAskedAt: null, humanQuestionAttribution: null, humanQuestionOptions: null,
+    }), [])
     await renderWithMobileStore(<><IssueScreen /><Probe /></>, { ...fixture, issueProjections: [question] })
     await waitFor(() => expect(screen.getByText('Keep this unanswered question?')).toBeTruthy())
     expect(latest?.needsHuman).toBe(true)

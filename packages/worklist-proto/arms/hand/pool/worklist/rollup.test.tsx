@@ -1,3 +1,4 @@
+import { upsertIssue } from '../../../../shared/src/scenarios'
 // @vitest-environment happy-dom
 /**
  * POD-4584 (Hb3) — the row roll-ups on the live engine, 1x live-shaped
@@ -401,11 +402,10 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
       const first = pool.view(parent)!
       const oracleBefore = oracleOf()
       const readsBefore = feeds.rowReads()
-      const wire = ctx.cache.read('issue', child)?.value as object
+      const wire = ctx.cache.read('issueProjection', child)?.value as object
       const projection = ctx.cache.read('issueProjection', child)?.value as object | undefined
       ctx.replica.batch(() => {
-        upsert(ctx, 'issue', child, { ...wire, closedReason: 'cancelled' })
-        upsert(ctx, 'issueProjection', child, { ...(projection ?? {}), closedReason: 'cancelled' })
+        upsertIssue(ctx, child, { ...wire, closedReason: 'cancelled' })
       })
       await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
       feeds.flush()
@@ -710,16 +710,10 @@ describe('row roll-ups (Hb3)', () => {
       expect(found, 'a visible row with a cold, started spin-off').not.toBeNull()
       const { id, spinOff } = found!
       unsub = pool.subscribe(id, () => {})
-      const wire = ctx.cache.read('issue', id)?.value as object
+      const wire = ctx.cache.read('issueProjection', id)?.value as object
       const projection = ctx.cache.read('issueProjection', id)?.value as object | undefined
       ctx.replica.batch(() => {
-        upsert(ctx, 'issue', id, { ...wire, stage: 'review', closedReason: null, closedAt: null })
-        upsert(ctx, 'issueProjection', id, {
-          ...(projection ?? {}),
-          stage: 'review',
-          closedReason: null,
-          closedAt: null,
-        })
+        upsertIssue(ctx, id, { ...wire, stage: 'review', closedReason: null, closedAt: null })
       })
       await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
       feeds.flush()

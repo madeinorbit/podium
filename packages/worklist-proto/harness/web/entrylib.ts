@@ -1,3 +1,4 @@
+import { upsertIssue } from '../../shared/src/scenarios'
 /**
  * POD-4445 — shared web-entry wiring. Every arm/control page mounts the same
  * way over a kernel seeded at the `?scale=` corpus and exposes the same
@@ -707,18 +708,17 @@ export function mountPage(options: MountPageOptions): void {
   const visibleHeartbeat = pickVisibleHeartbeat(rules, bootWindow)
   /** The row's server rows now, restored by the returned undo (untimed, next `prepare`). */
   function restorer(id: string): () => void {
-    const wire = boot.cache.read('issue', id)?.value
+    const wire = boot.cache.read('issueProjection', id)?.value
     const projection = boot.cache.read('issueProjection', id)?.value
     if (wire === undefined) throw new Error(`[proto] ${id} missing from the cache`)
     return () =>
       boot.replica.batch(() => {
-        upsert(boot, 'issue', id, wire)
-        if (projection !== undefined) upsert(boot, 'issueProjection', id, projection)
+        upsertIssue(boot, id, wire)
       })
   }
   /** Same title every sample: the server title, then `(renamed)`, undone before the next change. */
   function rename(id: string): void {
-    const wire = boot.cache.read('issue', id)?.value as { title?: string } | undefined
+    const wire = boot.cache.read('issueProjection', id)?.value as { title?: string } | undefined
     if (wire?.title === undefined) throw new Error(`[proto] issue ${id} missing`)
     applyTitleRename(boot, id, `${wire.title} (renamed)`)
   }

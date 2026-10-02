@@ -1,3 +1,4 @@
+import { upsertIssue } from '../../../../shared/src/scenarios'
 /**
  * POD-4940 — a finished row whose private branch holds unlanded work stays in
  * the sidebar without limit (`issueAwaitingMerge`).
@@ -45,7 +46,7 @@ const HOUR_MS = 60 * 60 * 1000
 /** A finished agent child with an unlanded private branch, cloned off a live wire row. */
 function mergeChild(ctx: ScenarioEngine, parentId: string, id: string, closedMsAgo: number) {
   const now = ctx.engine.getSnapshot().coarseNow
-  const wire = { ...(ctx.cache.read('issue', parentId)?.value as Record<string, unknown>) }
+  const wire = { ...(ctx.cache.read('issueProjection', parentId)?.value as Record<string, unknown>) }
   const projection = {
     ...(ctx.cache.read('issueProjection', parentId)?.value as Record<string, unknown>),
   }
@@ -81,14 +82,8 @@ function mergeChild(ctx: ScenarioEngine, parentId: string, id: string, closedMsA
     },
   }
   ctx.replica.batch(() => {
-    upsert(ctx, 'issue', id, {
+    upsertIssue(ctx, id, {
       ...wire,
-      ...common,
-      seq: ctx.corpus.issues.length + 901,
-      title: `Synthetic awaiting-merge child ${id}`,
-    })
-    upsert(ctx, 'issueProjection', id, {
-      ...projection,
       ...common,
       seq: ctx.corpus.issues.length + 901,
       title: `Synthetic awaiting-merge child ${id}`,

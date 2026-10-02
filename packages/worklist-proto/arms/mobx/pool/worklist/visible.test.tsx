@@ -1,3 +1,4 @@
+import { upsertIssue } from '../../../../shared/src/scenarios'
 // @vitest-environment happy-dom
 /**
  * POD-4569 (Mb1) — the visible collection and its order on the live engine,
@@ -217,9 +218,9 @@ describe('visible collection and order (Mb1)', () => {
       expect(target).toBeDefined()
       mounted.log.reset()
       await act(async () => {
-        const wire = ctx.cache.read('issue', target!)?.value as object | undefined
+        const wire = ctx.cache.read('issueProjection', target!)?.value as object | undefined
         expect(wire).toBeDefined()
-        ctx.replica.batch(() => upsert(ctx, 'issue', target!, { ...wire, pinned: true }))
+        ctx.replica.batch(() => upsertIssue(ctx, target!, { ...wire, pinned: true }))
         await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
         feeds.flush()
       })

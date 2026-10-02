@@ -1,3 +1,4 @@
+import { upsertIssue } from '../../../../shared/src/scenarios'
 // @vitest-environment happy-dom
 /**
  * POD-4571 (Mb3) — the row roll-ups on the live engine, 1x live-shaped
@@ -769,16 +770,10 @@ describe('row roll-ups (Mb3)', () => {
         () => rowViewOf(pool.issue(id)),
         () => {},
       )
-      const wire = ctx.cache.read('issue', id)?.value as object
+      const wire = ctx.cache.read('issueProjection', id)?.value as object
       const projection = ctx.cache.read('issueProjection', id)?.value as object | undefined
       ctx.replica.batch(() => {
-        upsert(ctx, 'issue', id, { ...wire, stage: 'review', closedReason: null, closedAt: null })
-        upsert(ctx, 'issueProjection', id, {
-          ...(projection ?? {}),
-          stage: 'review',
-          closedReason: null,
-          closedAt: null,
-        })
+        upsertIssue(ctx, id, { ...wire, stage: 'review', closedReason: null, closedAt: null })
       })
       await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
       feeds.flush()

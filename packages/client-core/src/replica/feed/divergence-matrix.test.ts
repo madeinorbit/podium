@@ -218,11 +218,11 @@ describe('POD-376 divergence matrix', () => {
     const alice = await openClient(ALICE)
     await online(alice)
     const at = alice.replica.cursor?.seq ?? 0
-    authority.append({ entity: 'issue', entityId: 'i1', op: 'upsert', payload: { id: 'i1' } })
-    authority.grant('user:alice', 'issue', 'i1')
+    authority.append({ entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: { id: 'i1' } })
+    authority.grant('user:alice', 'issueProjection', 'i1')
     alice.pushDelta(at)
     await alice.replica.settled()
-    expect(alice.keys()).toEqual(['issue:i1', 'session:s1'])
+    expect(alice.keys()).toEqual(['issueProjection:i1', 'session:s1'])
   })
 
   // ── 2: cold-start paint from durable state ────────────────────────────────

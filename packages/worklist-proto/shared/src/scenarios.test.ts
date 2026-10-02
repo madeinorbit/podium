@@ -448,7 +448,7 @@ describe('scenario server writes build on server truth (POD-4551)', () => {
     const ctx = await startScenarioEngine(1, { server: { issueUpdate: () => new Promise(() => {}) } })
     try {
       const id = ctx.targets.stageMoveId
-      const serverTitle = (ctx.cache.read('issue', id)?.value as { title: string }).title
+      const serverTitle = (ctx.cache.read('issueProjection', id)?.value as { title: string }).title
       void ctx.engine.getSnapshot().updateIssue(asIssueId(id), { title: 'Pending title' } as never)
       await new Promise((r) => setTimeout(r, ctx.settleMs))
       const painted = ctx.engine.getSnapshot().issues.find((i) => i.id === id) as { title: string }
@@ -456,7 +456,7 @@ describe('scenario server writes build on server truth (POD-4551)', () => {
 
       applyStageMove(ctx, id)
 
-      const wire = ctx.cache.read('issue', id)?.value as { title: string; stage: string }
+      const wire = ctx.cache.read('issueProjection', id)?.value as { title: string; stage: string }
       expect(wire.stage).toBe('done')
       expect(wire.title, 'the server write carries the server title, not the painted one').toBe(serverTitle)
     } finally {

@@ -1,3 +1,4 @@
+import { upsertIssue } from '../../../shared/src/scenarios'
 /** POD-4953: every real sidebar fact, from the existing issue and indexes.
  * The oracle alone reads the legacy derivation. Kept observed so a stale
  * cache after a random change cannot hide behind an unobserved re-read.
@@ -168,8 +169,7 @@ describe('real sidebar oracle (POD-4953)', () => {
           parentId: null, startedBySession: null, coordinatorSessionId: null, archived: false, deletedAt: null,
           closedReason: null, closedAt: null, draft: false, isDraftVessel: false, pinned: false, needsHuman: false,
           worktreePath: lane.path, repoPath: lane.repoPath, updatedAt: stamp }
-        upsert(ctx, 'issue', 'roster-owner', { ...ctx.corpus.issues[0]!, ...owner })
-        upsert(ctx, 'issueProjection', 'roster-owner', { ...ctx.corpus.issueProjections[0]!, ...owner })
+        upsertIssue(ctx, 'roster-owner', { ...ctx.corpus.issues[0]!, ...owner })
         upsert(ctx, 'session', 'owned-roster-guest', {
           sessionId: 'owned-roster-guest', issueId: 'roster-owner', cwd: lane.path,
           title: 'Owned guest', agentKind: 'codex', status: 'hibernated', archived: false,

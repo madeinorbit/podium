@@ -1,3 +1,4 @@
+import { upsertIssue } from '../../../../shared/src/scenarios'
 // @vitest-environment happy-dom
 /**
  * POD-4743 — one row reader with pending edits (`MobxPool.row`).
@@ -77,12 +78,11 @@ const NEVER_AUTO = { schedule: () => () => {} } as const
 
 /** Server truth for one issue's editable fields, through the replica facade (an echo). */
 function serverWrite(ctx: ScenarioEngine, id: string, patch: { title?: string; stage?: string }): void {
-  const wire = ctx.cache.read('issue', id)?.value as Record<string, unknown> | undefined
+  const wire = ctx.cache.read('issueProjection', id)?.value as Record<string, unknown> | undefined
   if (!wire) throw new Error(`issue ${id} missing from the server cache`)
   const projection = (ctx.cache.read('issueProjection', id)?.value ?? {}) as Record<string, unknown>
   ctx.replica.batch(() => {
-    upsert(ctx, 'issue', id, { ...wire, ...patch })
-    upsert(ctx, 'issueProjection', id, { ...projection, ...patch })
+    upsertIssue(ctx, id, { ...wire, ...patch })
   })
 }
 

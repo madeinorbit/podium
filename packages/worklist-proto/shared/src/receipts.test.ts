@@ -1,3 +1,4 @@
+import { upsertIssue } from './scenarios'
 // @vitest-environment happy-dom
 /**
  * POD-4554 (L3b) — the receipts stream over the REAL runtime and both queues
@@ -33,7 +34,7 @@ const tick = (ms = 80): Promise<void> => new Promise((r) => setTimeout(r, ms))
 const tx = (n: string): MutationId => asMutationId(`00000000-0000-4000-8000-${n.padStart(12, '0')}`)
 
 function issueRow(ctx: ScenarioEngine, id: string): Record<string, unknown> {
-  const row = ctx.cache.read('issue', id)?.value as Record<string, unknown> | undefined
+  const row = ctx.cache.read('issueProjection', id)?.value as Record<string, unknown> | undefined
   if (!row) throw new Error(`issue ${id} missing from the server cache`)
   return row
 }
@@ -112,7 +113,7 @@ describe('write transport on the kernel queue', () => {
         seen.push(input.mutationId)
         // The broadcast outruns the HTTP response (Linear's refresh race):
         // the echo lands before the command returns.
-        upsert(ctx!, 'issue', input.id, { ...issueRow(ctx!, input.id), ...input.patch }, 5)
+        upsertIssue(ctx!, input.id, { ...issueRow(ctx!, input.id), ...input.patch }, 5)
         await tick(20)
         return {}
       },
@@ -128,7 +129,7 @@ describe('write transport on the kernel queue', () => {
     expect(seen).toEqual([tx('1')])
     expect(events).toEqual([{ type: 'accepted', txId: tx('1'), kind: 'issueUpdate', id }])
     // A second copy of the echo row: no second event.
-    upsert(ctx, 'issue', id, { ...issueRow(ctx, id), title: 'Renamed' }, 6)
+    upsertIssue(ctx, id, { ...issueRow(ctx, id), title: 'Renamed' }, 6)
     await tick()
     expect(events).toHaveLength(1)
     // The arm's contract type accepts this transport as is.

@@ -71,7 +71,7 @@ describe('the hub records what it could not read', () => {
     sock.raw(
       bootstrap([
         { seq: 1, entity: 'session', entityId: 's1', op: 'remove' },
-        { seq: 2, entity: 'issue', entityId: 'i1', op: 'upsert', value: { unreadable: true } },
+        { seq: 2, entity: 'issueProjection', entityId: 'i1', op: 'upsert', value: { unreadable: true } },
       ]),
     )
     expect(hub.wireSkew()).toMatchObject({ quarantined: 1, refusedFrames: 0 })

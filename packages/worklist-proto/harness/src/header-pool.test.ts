@@ -54,7 +54,7 @@ describe('header pool values', () => {
     const f = await fixture()
     try {
       f.ctx.replica.batch(() => {
-        for (const issue of f.ctx.corpus.issues) evict(f.ctx, 'issue', issue.id)
+        for (const issue of f.ctx.corpus.issues) evict(f.ctx, 'issueProjection', issue.id)
       })
       const id = asIssueId('iss_header_normalized_draft')
       upsert(f.ctx, 'issueProjection', id, {

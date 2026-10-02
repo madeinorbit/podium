@@ -1,3 +1,4 @@
+import { upsertIssue } from '../../../shared/src/scenarios'
 /**
  * POD-4559 — the store helpers run on ONE clock: the caller's.
  *
@@ -133,22 +134,16 @@ describe('snapshot helpers on a row whose visibility the derivation clock decide
     planted = candidate.id
     const sessions = ctx.corpus.sessions.filter((session) => session.issueId === planted)
     const closedAt = new Date(now - UNREAD_WINDOW_MS + HOUR).toISOString()
-    const wire = ctx.cache.read('issue', planted)?.value as object
+    const wire = ctx.cache.read('issueProjection', planted)?.value as object
     const projection = ctx.cache.read('issueProjection', planted)?.value as object
     ctx.replica.batch(() => {
-      upsert(ctx, 'issue', planted, {
+      upsertIssue(ctx, planted, {
         ...wire,
         stage: 'done',
         closedAt,
         closedReason: 'done',
         readAt: null,
         unread: true,
-      })
-      upsert(ctx, 'issueProjection', planted, {
-        ...projection,
-        stage: 'done',
-        closedAt,
-        closedReason: 'done',
       })
       for (const session of sessions) {
         const row = ctx.cache.read('session', session.sessionId)?.value as object

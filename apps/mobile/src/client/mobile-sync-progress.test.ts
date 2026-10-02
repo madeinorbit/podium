@@ -61,7 +61,7 @@ describe('MobileSyncProgressStore', () => {
       type: 'upserted',
       readmitted: false,
       record: {
-        entity: 'issue',
+        entity: 'issueProjection',
         entityId: 'i1',
         value: {},
         provenance: { seq: 1 },

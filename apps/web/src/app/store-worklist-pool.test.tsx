@@ -48,7 +48,6 @@ function Probe(): null {
 
 const replicaFactory = vi.fn(() => {
   const cache = new ScenarioCache()
-  cache.put('issue', id, corpus.issues.find((row) => row.id === id)!)
   cache.put('issueProjection', id, corpus.issueProjections.find((row) => row.id === id)!)
   return createKernelReplica({
     cache,

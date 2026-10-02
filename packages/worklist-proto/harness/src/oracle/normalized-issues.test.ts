@@ -17,7 +17,7 @@ import { sidebarReplayStore } from './sidebar-replay'
 function boot(withOld: boolean) {
   const corpus = buildCorpus(1, 4443)
   const cache = seedCacheFromCorpus(corpus)
-  if (!withOld) for (const issue of corpus.issues) cache.drop('issue', issue.id)
+  if (!withOld) for (const issue of corpus.issues) cache.drop('issueProjection', issue.id)
   const replica = createKernelReplica({
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),

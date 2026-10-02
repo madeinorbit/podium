@@ -1,3 +1,5 @@
+import { issueRowFixture } from '../../../server/src/test-support/issue-row'
+import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { allIssueViewModels, type IssueViewModel } from '@podium/client-core/replica'
@@ -108,7 +110,10 @@ describe('web legacy issue retention', () => {
         title: 'Waiting to merge',
         stage: 'review',
         needsHuman: true,
-        asked: { question: 'Approve?', options: ['Yes', 'No'] },
+        asked: issueRowToProjection(issueRowFixture({
+          needsHuman: true, humanQuestion: 'Approve?', humanQuestionOptions: ['Yes', 'No'],
+          humanQuestionAskedBy: null, humanQuestionAskedAt: null, humanQuestionAttribution: null,
+        }), []).asked,
         gitState: {
           updatedAt: 'probe',
           branch: 'feature',

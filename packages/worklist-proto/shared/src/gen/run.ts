@@ -1,3 +1,4 @@
+import { upsertIssue } from '../scenarios'
 /**
  * POD-4555 (L4a) — applies generated changes through the real scenario engine.
  *
@@ -268,13 +269,12 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
 
   /** Dual-write an issue change onto SERVER truth (wire + projection). */
   const patchIssue = (id: string, patch: Record<string, unknown>): string | null => {
-    const wire = readRow('issue', id)
+    const wire = readRow('issueProjection', id)
     if (!wire) return `issue ${id} not in scope`
     const projection = readRow('issueProjection', id) ?? {}
     const updatedAt = ctx.stamp()
     ctx.replica.batch(() => {
-      upsert(ctx, 'issue', id, { ...wire, ...patch, updatedAt })
-      upsert(ctx, 'issueProjection', id, { ...projection, ...patch, updatedAt })
+      upsertIssue(ctx, id, { ...wire, ...patch, updatedAt })
     })
     return null
   }
@@ -288,7 +288,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
 
   const newSession = (sessionId: string, issueId: string, phase: string): Record<string, unknown> => {
     const now = ctx.stamp()
-    const issue = readRow('issue', issueId)
+    const issue = readRow('issueProjection', issueId)
     return {
       sessionId,
       issueId,
@@ -315,10 +315,10 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
   const applyRow = (c: RowChange): string | null => {
     switch (c.kind) {
       case 'newIssue': {
-        if (readRow('issue', c.id)) return `issue ${c.id} exists`
-        const parent = c.parentId ? readRow('issue', c.parentId) : undefined
+        if (readRow('issueProjection', c.id)) return `issue ${c.id} exists`
+        const parent = c.parentId ? readRow('issueProjection', c.parentId) : undefined
         if (c.parentId && !parent) return `parent ${c.parentId} not in scope`
-        const repo = parent ?? readRow('issue', ctx.targets.visibleRootId)
+        const repo = parent ?? readRow('issueProjection', ctx.targets.visibleRootId)
         const now = ctx.stamp()
         const seq = corpus.issues.length + Number(c.id.replace(/\D/g, ''))
         const common = {
@@ -334,7 +334,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           repoId: repo?.['repoId'] ?? ctx.targets.newIssueRepo.repoId,
         }
         ctx.replica.batch(() => {
-          upsert(ctx, 'issue', c.id, {
+          upsertIssue(ctx, c.id, {
             ...common,
             repoPath: repo?.['repoPath'] ?? ctx.targets.newIssueRepo.repoPath,
             readAt: null,
@@ -342,13 +342,12 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
             needsHuman: false,
             blocked: false,
           })
-          upsert(ctx, 'issueProjection', c.id, { ...common, description: { value: '' }, priority: 2, type: 'task' })
         })
         return null
       }
       case 'newSession': {
         if (readRow('session', c.sessionId)) return `session ${c.sessionId} exists`
-        if (!readRow('issue', c.issueId)) return `issue ${c.issueId} not in scope`
+        if (!readRow('issueProjection', c.issueId)) return `issue ${c.issueId} not in scope`
         upsert(ctx, 'session', c.sessionId, newSession(c.sessionId, c.issueId, c.phase))
         return null
       }
@@ -375,15 +374,15 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           remove(ctx, 'session', c.id)
           return null
         }
-        if (!readRow('issue', c.id)) return `issue ${c.id} not in scope`
+        if (!readRow('issueProjection', c.id)) return `issue ${c.id} not in scope`
         ctx.replica.batch(() => {
-          remove(ctx, 'issue', c.id)
+          remove(ctx, 'issueProjection', c.id)
           remove(ctx, 'issueProjection', c.id)
         })
         return null
       }
       case 'reparent': {
-        if (c.parentId && !readRow('issue', c.parentId)) return `parent ${c.parentId} not in scope`
+        if (c.parentId && !readRow('issueProjection', c.parentId)) return `parent ${c.parentId} not in scope`
         return patchIssue(c.id, { parentId: c.parentId })
       }
       case 'stageChange': {
@@ -398,11 +397,11 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
       case 'rankMove':
         return patchIssue(c.id, { sortKey: c.sortKey })
       case 'evict': {
-        const wire = readRow('issue', c.id)
+        const wire = readRow('issueProjection', c.id)
         if (!wire) return `issue ${c.id} not in scope`
         evicted.set(c.id, { wire, projection: readRow('issueProjection', c.id) })
         ctx.replica.batch(() => {
-          evict(ctx, 'issue', c.id)
+          evict(ctx, 'issueProjection', c.id)
           evict(ctx, 'issueProjection', c.id)
         })
         return null
@@ -410,10 +409,10 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
       case 'reAdd': {
         const rows = evicted.get(c.id)
         if (!rows) return `issue ${c.id} was not evicted`
-        if (readRow('issue', c.id)) return `issue ${c.id} already back`
+        if (readRow('issueProjection', c.id)) return `issue ${c.id} already back`
         evicted.delete(c.id)
         ctx.replica.batch(() => {
-          upsert(ctx, 'issue', c.id, rows.wire, 2, true)
+          upsertIssue(ctx, c.id, rows.wire, 2, true)
           if (rows.projection) upsert(ctx, 'issueProjection', c.id, rows.projection, 2, true)
         })
         return null
@@ -433,7 +432,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
       }
       case 'newOrphanSession': {
         if (readRow('session', c.sessionId)) return `session ${c.sessionId} exists`
-        const owner = readRow('issue', c.ownerId)
+        const owner = readRow('issueProjection', c.ownerId)
         if (!owner) return `issue ${c.ownerId} not in scope`
         const wt = owner['worktreePath'] as string | undefined
         if (!wt) return `issue ${c.ownerId} has no worktree`
@@ -459,7 +458,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         return null
       }
       case 'newDraftIssue': {
-        if (readRow('issue', c.id)) return `issue ${c.id} exists`
+        if (readRow('issueProjection', c.id)) return `issue ${c.id} exists`
         const now = ctx.stamp()
         const seq = corpus.issues.length + Number(c.id.replace(/\D/g, ''))
         const common = {
@@ -478,7 +477,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           repoId: ctx.targets.newIssueRepo.repoId,
         }
         ctx.replica.batch(() => {
-          upsert(ctx, 'issue', c.id, {
+          upsertIssue(ctx, c.id, {
             ...common,
             repoPath: ctx.targets.newIssueRepo.repoPath,
             readAt: null,
@@ -486,7 +485,6 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
             needsHuman: false,
             blocked: false,
           })
-          upsert(ctx, 'issueProjection', c.id, { ...common, description: { value: '' }, priority: 2, type: 'task' })
         })
         return null
       }
@@ -568,7 +566,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
   const applyWrite = async (c: Change, detail: Record<string, unknown>): Promise<string | null> => {
     switch (c.kind) {
       case 'edit': {
-        if (!readRow('issue', c.id)) return `issue ${c.id} not in scope`
+        if (!readRow('issueProjection', c.id)) return `issue ${c.id} not in scope`
         const actions = ctx.engine.getSnapshot()
         const field = 'title' in c.patch ? 'title' : 'stage' in c.patch ? 'stage' : 'readAt'
         if (opts.editViaArm) {
@@ -600,7 +598,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         return null
       }
       case 'supersede': {
-        if (!readRow('issue', c.id)) return `issue ${c.id} not in scope`
+        if (!readRow('issueProjection', c.id)) return `issue ${c.id} not in scope`
         const ids: string[] = []
         const armTxIds: string[] = []
         for (const handle of c.handles) {

@@ -208,7 +208,7 @@ const memory = {
   mode: sidebarDataLayer,
   errors: () => [...errors],
   state: () => ({
-    issues: owner?.getSnapshot().issues.length,
+    issues: owner?.getSnapshot().issueProjections.length,
     sessions: owner?.getSnapshot().sessions.length,
     projections: owner?.getSnapshot().issueProjections.length,
     unknownEntityRows: assembly.view.cache.readEntities().filter((row) => !retainReplicaEntity(row.entity)).length,

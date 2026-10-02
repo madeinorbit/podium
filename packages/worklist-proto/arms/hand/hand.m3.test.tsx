@@ -219,7 +219,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       checkOracle(mounted)
       ctx.replica.batch(() => {
         for (let n = 0; n < 10; n += 1) {
-          ctx.cache.drop('issue', `i-grow-${n}`)
+          ctx.cache.drop('issueProjection', `i-grow-${n}`)
           ctx.cache.drop('issueProjection', `i-grow-${n}`)
         }
       })

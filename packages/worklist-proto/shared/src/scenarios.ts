@@ -1,3 +1,4 @@
+import { IssueProjection as IssueProjectionSchema } from '@podium/model'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { fixtureMarkers, fixtureGitStates, fixtureProjection } from '../../harness/src/fixture/normalized-issues'
@@ -993,6 +994,25 @@ export function upsert(
 ): void {
   ctx.cache.put(entity, entityId, value)
   ctx.replica.onKernelEvent({ type: 'upserted', record: { entity, entityId, value, provenance: { seq } }, readmitted } as never)
+}
+
+/** Fixture authority write: facts, personal markers, and git observations have
+ * independent homes, just as they do on the server. No materialized view is cached. */
+export function upsertIssue(ctx: ScenarioEngine, id: string, input: unknown, seq = 2, readmitted = false): void {
+  const value = input as Record<string, unknown>
+  const previous = ctx.cache.read('issueProjection', id)?.value as object | undefined
+  const facts = Object.fromEntries(Object.entries(value).filter(([key]) => Object.hasOwn(IssueProjectionSchema.shape, key)))
+  if (typeof facts.description === 'string') facts.description = { value: facts.description }
+  if (typeof facts.notes === 'string') facts.notes = { value: facts.notes }
+  ctx.replica.batch(() => {
+    upsert(ctx, 'issueProjection', id, {
+      description: { value: '' }, intentOrigin: 'human', isDraftVessel: false,
+      ...previous, ...facts, id,
+    }, seq, readmitted)
+    const markers = Object.fromEntries(Object.entries(value).filter(([key]) => ['readAt', 'tuckedAt', 'pinned'].includes(key)))
+    if (Object.keys(markers).length) patchIssueMarkers(ctx, id, markers, seq)
+    if (value.gitState) upsert(ctx, 'issueGitState', id, { ...value.gitState as object, id }, seq, readmitted)
+  })
 }
 
 /** The authority's snapshot omitted the row: `evicted`, not `removed`. */

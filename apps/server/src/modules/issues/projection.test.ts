@@ -1,6 +1,6 @@
-import { asRepoId, type UnbrandIds } from '@podium/model'
+import { issueRowFixture as row } from '../../test-support/issue-row'
+import { asRepoId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import type { IssueRow } from '../../store'
 import { captureLogs } from '../../test-support/capture-logs'
 import {
   issueDepProjectionRows,
@@ -25,70 +25,6 @@ import {
 /** A FULLY populated row: every optional key present, every nullable key set.
  *  Populated-only fixtures cannot see a null/absent bug, so the null cases get
  *  their own tests below rather than riding on this one. */
-function row(over: Partial<UnbrandIds<IssueRow>> = {}): IssueRow {
-  return {
-    id: 'iss_1',
-    ownerUserId: 'user:sole',
-    visibility: 'personal',
-    createdByActor: 'user:sole',
-    createdByOnBehalfOf: 'user:sole',
-    repoPath: '/repo',
-    repoId: 'repo_1',
-    seq: 13,
-    title: 'a title',
-    description: 'a description',
-    stage: 'in_progress',
-    worktreePath: '/repo/.worktrees/x',
-    branch: 'issue/13',
-    parentBranch: 'main',
-    defaultAgent: 'claude-code',
-    defaultModel: 'auto',
-    defaultEffort: 'auto',
-    machineId: 'mach_1',
-    linearId: 'lin_1',
-    linearIdentifier: 'POD-13',
-    linearUrl: 'https://linear.app/x',
-    activityNotes: 'notes',
-    notesUpdatedAt: '2026-07-01T00:00:00.000Z',
-    suggestedStage: 'review',
-    suggestedReason: 'because',
-    blockedBy: ['some-branch'],
-    dependencyNote: 'dep note',
-    prUrl: 'https://github.com/x/y/pull/1',
-    createdAt: '2026-07-01T00:00:00.000Z',
-    updatedAt: '2026-07-02T00:00:00.000Z',
-    archived: false,
-    revision: 7,
-    deletedAt: null,
-    priority: 2,
-    type: 'feature',
-    assignee: 'mgw',
-    parentId: 'iss_parent',
-    design: 'design',
-    acceptance: 'acceptance',
-    notes: 'notes',
-    dueAt: '2026-08-01T00:00:00.000Z',
-    deferUntil: null,
-    closedReason: null,
-    closedAt: null,
-    supersededBy: null,
-    duplicateOf: null,
-    pinned: true,
-    color: 'violet',
-    estimateMin: 45,
-    needsHuman: true,
-    humanQuestion: 'which way?',
-    humanQuestionOptions: ['left', 'right'],
-    humanQuestionAskedBy: 'sess_1',
-    humanQuestionAskedAt: '2026-07-02T00:00:00.000Z',
-    panel: JSON.stringify({ todos: [{ text: 't', done: false }], artifacts: [], deferred: [] }),
-    origin: 'agent',
-    audience: 'human',
-    draft: false,
-    readAt: '2026-07-02T00:00:00.000Z',
-    ...over,
-  } as unknown as IssueRow
-}
 
 /** No labels. `issueRowToProjection` takes them as a SECOND argument on this
  *  branch (they are a relation, not a column), and every case below is about the

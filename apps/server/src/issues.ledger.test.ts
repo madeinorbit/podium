@@ -427,7 +427,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     // for a row the store never accepted.
     const reconciled = await ledger.reconcile(
       'issueProjection',
-      await svc.allProjections(),
+      (await svc.allProjections()) ?? [],
     )
     expect(reconciled).toEqual([])
     expect(await ledger.cursor()).toBe(cursorBefore)
@@ -454,7 +454,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     // gone from memory, so nothing fabricates a durable upsert for it.
     const reconciled = await ledger.reconcile(
       'issueProjection',
-      await svc.allProjections(),
+      (await svc.allProjections()) ?? [],
     )
     expect(reconciled).toEqual([])
     expect(await ledger.cursor()).toBe(cursorBefore)
@@ -491,7 +491,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect((await svc.get(wire.id))?.updatedAt).toBe(updatedAtBefore)
     const reconciled = await ledger.reconcile(
       'issueProjection',
-      await svc.allProjections(),
+      (await svc.allProjections()) ?? [],
     )
     expect(reconciled).toEqual([])
     expect(await ledger.cursor()).toBe(cursorBefore)
@@ -514,7 +514,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     // A subsequent reconcile of the (unchanged) truth appends nothing.
     const reconciled = await ledger.reconcile(
       'issueProjection',
-      await svc.allProjections(),
+      (await svc.allProjections()) ?? [],
     )
     expect(reconciled).toEqual([])
   })
@@ -655,8 +655,8 @@ describe('per-entity revision (ADR 2 D3)', () => {
     const cursorBefore = await ledger.cursor()
 
     // Two republishes of unchanged truth.
-    await ledger.reconcile('issueProjection', await svc.allProjections())
-    await ledger.reconcile('issueProjection', await svc.allProjections())
+    await ledger.reconcile('issueProjection', (await svc.allProjections()) ?? [])
+    await ledger.reconcile('issueProjection', (await svc.allProjections()) ?? [])
 
     expect(appended.flat()).toEqual([]) // fully deduped
     expect(await ledger.cursor()).toBe(cursorBefore) // nothing appended

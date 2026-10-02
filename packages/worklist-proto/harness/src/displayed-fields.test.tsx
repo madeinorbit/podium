@@ -1,3 +1,4 @@
+import { upsertIssue } from '../../shared/src/scenarios'
 // @vitest-environment happy-dom
 /**
  * POD-4825 (item 5) — the exact-commit oracle expects a row to redraw only
@@ -44,7 +45,7 @@ function sortKeyOnly(id: (ctx: ScenarioEngine) => string): FenceScenario {
     methodology: 'P1',
     async write(ctx) {
       const target = id(ctx)
-      const wire = ctx.cache.read('issue', target)?.value as Record<string, unknown> | undefined
+      const wire = ctx.cache.read('issueProjection', target)?.value as Record<string, unknown> | undefined
       if (wire === undefined) throw new Error(`issue ${target} missing from the server cache`)
       const projection = (ctx.cache.read('issueProjection', target)?.value ?? {}) as Record<
         string,
@@ -52,8 +53,7 @@ function sortKeyOnly(id: (ctx: ScenarioEngine) => string): FenceScenario {
       >
       const sortKey = `${String(wire['sortKey'] ?? '')}0pod-4825`
       ctx.replica.batch(() => {
-        upsert(ctx, 'issue', target, { ...wire, sortKey })
-        upsert(ctx, 'issueProjection', target, { ...projection, sortKey })
+        upsertIssue(ctx, target, { ...wire, sortKey })
       })
       await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
     },
