@@ -62,12 +62,39 @@ function functionName(node: ts.Node, ast: ts.SourceFile): string {
   return `<anonymous@${ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1}>`
 }
 class Maps {
-  private maps = new Map<string, { map: SourceMap; lines: Segment[][] }>()
+  private maps = new Map<string, { map: SourceMap; lines: Segment[][] } | null>()
   private sources = new Map<string, Source>()
+  readonly generatedAssets: string[] = []
+  private source(file: string, code: string) {
+    if (this.sources.has(file)) return
+    const ast = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true)
+    const functions: Source['functions'] = []
+    const visit = (node: ts.Node) => {
+      if (ts.isFunctionLike(node) && 'body' in node && node.body) {
+        functions.push({ start: node.getStart(ast), end: node.end, name: functionName(node, ast),
+          line: ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1 })
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(ast)
+    this.sources.set(file, { ast, functions })
+  }
   async prepare(url: string) {
     const name = url.split('/').pop()!
     if (!name.endsWith('.js') || this.maps.has(name)) return
-    const map = await read<SourceMap>(resolve(root, 'build/assets', name + '.map'))
+    let map: SourceMap
+    try { map = await read<SourceMap>(resolve(root, 'build/assets', name + '.map')) }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      // Rolldown's tiny generated interop/preload helpers have no original map.
+      // Keep their generated coordinates, explicitly labelled, rather than
+      // fabricating an application source location or dropping their samples.
+      const code = await readFile(resolve(root, 'build/assets', name), 'utf8')
+      this.source(`generated/assets/${name}`, code)
+      this.generatedAssets.push(name)
+      this.maps.set(name, null)
+      return
+    }
     let source = 0, line = 0, originalColumn = 0
     const lines = map.mappings.split(';').map((rawLine) => {
       let column = 0
@@ -87,21 +114,20 @@ class Maps {
     map.sources.forEach((path, i) => {
       const file = sourceName(path)
       if (this.sources.has(file) || !map.sourcesContent[i]) return
-      const ast = ts.createSourceFile(file, map.sourcesContent[i]!, ts.ScriptTarget.Latest, true)
-      const functions: Source['functions'] = []
-      const visit = (node: ts.Node) => {
-        if (ts.isFunctionLike(node) && 'body' in node && node.body) {
-          functions.push({ start: node.getStart(ast), end: node.end, name: functionName(node, ast),
-            line: ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1 })
-        }
-        ts.forEachChild(node, visit)
-      }
-      visit(ast)
-      this.sources.set(file, { ast, functions })
+      this.source(file, map.sourcesContent[i]!)
     })
   }
   locate(frame: Frame): Location | null {
-    const data = this.maps.get(frame.url.split('/').pop()!)
+    const name = frame.url.split('/').pop()!
+    const data = this.maps.get(name)
+    if (data === null && frame.lineNumber >= 0) {
+      const file = `generated/assets/${name}`, source = this.sources.get(file)!
+      const position = source.ast.getPositionOfLineAndCharacter(frame.lineNumber, frame.columnNumber)
+      const symbol = source.functions.filter(f => f.start <= position && position < f.end)
+        .sort((a, b) => (a.end - a.start) - (b.end - b.start))[0]
+      return { file, line: symbol?.line ?? frame.lineNumber + 1, column: frame.columnNumber + 1,
+        mappedLine: frame.lineNumber + 1, name: symbol?.name ?? frame.functionName }
+    }
     if (!data || frame.lineNumber < 0) return null
     const segments = data.lines[frame.lineNumber]
     if (!segments) return null
@@ -158,7 +184,7 @@ function bucket(chain: { frame: Frame; source: Location | null }[]) {
     return 'other MobX tracking/computed/scheduling'
   return 'other JS/native/program'
 }
-const manifest = await read<{ sourceSha: string; records: string[] }>(resolve(directory, 'manifest.json'))
+const manifest = await read<{ sourceSha: string; records: string[]; repetitions: number }>(resolve(directory, 'manifest.json'))
 const maps = new Maps()
 const raw = []
 const generatedNames = new Map<string, Location>()
@@ -291,14 +317,15 @@ for (const { file, profile } of raw) {
 const groups = []
 for (const action of new Set(summaries.map((s) => s.action))) for (const pilot of [0, 1]) {
   const records = summaries.filter((s) => s.action === action && s.pilot === pilot)
-  if (records.length !== 3 || new Set(records.map((r) => r.iteration)).size !== 3) throw new Error('Expected three distinct samples per action/arm')
+  if (records.length !== manifest.repetitions || new Set(records.map((r) => r.iteration)).size !== manifest.repetitions)
+    throw new Error(`Expected ${manifest.repetitions} distinct samples per action/arm`)
   const medians = (select: (r: typeof records[number]) => Record<string, number>) => Object.fromEntries(
     [...new Set(records.flatMap((r) => Object.keys(select(r))))].map((key) => [key, median(records.map((r) => select(r)[key] ?? 0))]),
   )
   const top = (key: 'self' | 'inclusive') => {
     const labels = [...new Set(records.flatMap((r) => r[key].map((f) => f.label)))]
     return labels.map((label) => ({ ...records.flatMap((r) => r[key]).find((f) => f.label === label)!,
-      ms: records.reduce((sum, r) => sum + (r[key].find((f) => f.label === label)?.ms ?? 0), 0) / 3 }))
+      ms: records.reduce((sum, r) => sum + (r[key].find((f) => f.label === label)?.ms ?? 0), 0) / records.length }))
       .sort((a, b) => b.ms - a.ms)
   }
   groups.push({ action, pilot, wallSamplesMs: records.map((r) => r.window.wallMs), wallMedianMs: median(records.map((r) => r.window.wallMs)),
@@ -313,6 +340,7 @@ for (const action of new Set(summaries.map((s) => s.action))) for (const pilot o
 }
 await writeFile(resolve(directory, 'analysis.json'), JSON.stringify({
   sourceSha: manifest.sourceSha,
+  generatedAssetsWithoutOriginalMap: maps.generatedAssets,
   definitions: {
     wall: 'trusted pointerdown (background feed delivery) through end of first main-thread Paint after expected DOM change',
     sampled: 'reconstructed 1ms V8 sample intervals clipped to the wall window; each interval counted once',

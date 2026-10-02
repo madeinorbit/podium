@@ -19,7 +19,7 @@ export async function traceStart(cdp: CDPSession) {
 }
 
 export const PROFILE_CATEGORIES =
-  'toplevel,devtools.timeline,blink.user_timing,disabled-by-default-devtools.timeline'
+  'toplevel,devtools.timeline,blink.user_timing'
 
 type Fiber = {
   tag: number
@@ -33,6 +33,7 @@ type Commit = {
   end: number
   components: Record<number, number>
   visited: number
+  reused: number
 }
 declare global {
   interface Window {
@@ -49,6 +50,7 @@ export async function installCommitObserver(page: Page) {
   await page.addInitScript(() => {
     const functions: Function[] = []
     const ids = new WeakMap<Function, number>()
+    let previousFibers = new WeakSet<Fiber>()
     const state = { renderer: null as Record<string, unknown> | null, commits: [] as Commit[] }
     window.__speedReact = state
     window.__speedFunctions = functions
@@ -64,17 +66,24 @@ export async function installCommitObserver(page: Page) {
           return 1
         },
         onCommitFiberRoot(_id: number, root: { current: Fiber }) {
-          if (window.__speedCapture?.input == null) return
+          const observing = window.__speedCapture?.input != null
           const at = performance.now()
-          performance.mark(`speed:commit:${state.commits.length}`)
+          if (observing) performance.mark(`speed:commit:${state.commits.length}`)
           const components: Record<number, number> = {}
+          const nextFibers = new WeakSet<Fiber>()
           let visited = 0
+          let reused = 0
           const stack = [root.current]
           while (stack.length) {
             const fiber = stack.pop()!
             visited++
+            nextFibers.add(fiber)
             if (fiber.sibling) stack.push(fiber.sibling)
             if (fiber.child) stack.push(fiber.child)
+            // A bailed-out subtree can retain PerformedWork from its earlier
+            // commit. React reuses those exact objects; they did not render now.
+            if (previousFibers.has(fiber)) { reused++; continue }
+            if (!observing) continue
             if (!(fiber.flags & 1) || ![0, 1, 11, 14, 15].includes(fiber.tag)) continue
             let type = fiber.type as Function | { render?: Function; type?: Function } | null
             if (type && typeof type !== 'function') type = type.render ?? type.type ?? null
@@ -87,7 +96,8 @@ export async function installCommitObserver(page: Page) {
             }
             components[id] = (components[id] ?? 0) + 1
           }
-          state.commits.push({ at, end: performance.now(), components, visited })
+          previousFibers = nextFibers
+          if (observing) state.commits.push({ at, end: performance.now(), components, visited, reused })
         },
         onCommitFiberUnmount() {},
       },

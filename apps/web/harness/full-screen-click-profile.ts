@@ -67,7 +67,7 @@ const root = resolve('.artifacts/full-screen-click-profile')
 const buildDir = resolve(root, 'build')
 const profileDir = resolve(root, 'profiles', profileAction + (delayMs ? '-plant' : ''))
 const baselinePath = resolve('docs/measurements/click-speed-baseline.json')
-const REPETITIONS = 3
+const REPETITIONS = delayMs ? 1 : 3
 const WARMUPS = 2
 const git = (...argv: string[]) => execFileSync('git', argv, { encoding: 'utf8' }).trim()
 const median = (values: number[]) => {
@@ -346,10 +346,17 @@ async function main() {
               .map((node) => node.getAttribute('data-issue-row')!),
           ),
         ])
-      const shapes = (await full.page.evaluate((ids) => window.__acceptance.shape(ids), ids))
+      const shapes = (await full.page.evaluate((ids) => window.__acceptance.shape(ids),
+        delayMs ? ids.slice(0, 24) : fixed.missions))
         .filter((shape) => shape.root && shape.rows > 0)
         .sort((a, b) => b.rows - a.rows || a.id.localeCompare(b.id))
       const targets = structuredClone(fixed)
+      if (delayMs) {
+        // Arming control: a small real mission keeps a 200ms plant larger than
+        // the surrounding UI work. It is never part of the fixed-target results.
+        targets.missions = shapes.filter(shape => shape.rows <= 2).slice(0, 2).map(shape => shape.id)
+        if (targets.missions.length !== 2) throw new Error('Need two small missions for the CPU control')
+      }
       if (
         targets.sidebar.length !== 2 ||
         targets.missions.length !== 2 ||
@@ -580,13 +587,13 @@ async function main() {
     {
       if (dirtyProduct) throw new Error('Profile a committed product tree')
       for (const pilot of [0, 1]) {
-        console.log(`4× full surface; mobxSidebar=1, mobxPane=${pilot}; three profiles per action`)
+        console.log(`4× full surface; mobxSidebar=1, mobxPane=${pilot}; ${REPETITIONS} profiles per action`)
         runs.push(await suite(origin, baseline!.targets, pilot))
       }
       await writeFile(resolve(profileDir, 'manifest.json'), JSON.stringify({
         version: 1, sourceSha: captureSha, dirtyProduct, machine, capturedAt: new Date().toISOString(), plantDelayMs: delayMs,
         profileAction, pilot: 'mobxPane=0/1; mobxSidebar=1 in both arms',
-        scale: 4, surface: 'full', seed: 4443, repetitions: 3, warmups: WARMUPS,
+        scale: 4, surface: 'full', seed: 4443, repetitions: REPETITIONS, warmups: WARMUPS,
         build: 'ordinary React 19.2.7; minified production; hidden source maps; no state-boundary wrappers',
         samplingIntervalUs: 1000,
         metric: 'trusted pointerdown (background: feed delivery) to end of first Chromium Paint after expected DOM change',
