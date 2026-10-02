@@ -4,6 +4,7 @@ import type { SessionView } from '../session-values'
 import { routeDefaults } from '../ui-state'
 import { emptyWorkspace, openTab, splitPane } from '../viewmodels'
 import { planNavigation } from './navigation'
+import { createEngineActions } from './actions'
 import { Reactions } from './reactions'
 import {
   type EngineState, type NavigationProvider, loadingNavigationProvider,
@@ -130,5 +131,22 @@ describe('navigation with an injected pool provider', () => {
       expect(workspaceKeyForState(st)).toBe(`mission:${target.id}`)
       expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
     } finally { reactions.dispose() }
+  })
+
+  it('resumes a server-resolved short session link when its pool row is cold', async () => {
+    navigationStats.enable()
+    let ready = false
+    const st = state({ ...provider, session: id => id === seat.sessionId ? ready ? seat : NAVIGATION_LOADING : undefined })
+    const navigate = vi.fn(), waitForSessionNavigation = vi.fn()
+    const resolve = vi.fn().mockResolvedValue({ kind: 'session', sessionId: seat.sessionId })
+    const actions = createEngineActions({ state: () => st, navigate, waitForSessionNavigation,
+      api: { sessions: { resolve: { query: resolve } } }, notices: { error: vi.fn() } } as never)
+    actions.navigateToSession('abcdef')
+    await vi.waitFor(() => expect(waitForSessionNavigation).toHaveBeenCalledExactlyOnceWith(seat.sessionId))
+    expect(navigate).not.toHaveBeenCalled()
+    ready = true
+    actions.navigateToSession(seat.sessionId)
+    expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ tabId: seat.sessionId, selectedIssueId: child.id }))
+    expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
   })
 })

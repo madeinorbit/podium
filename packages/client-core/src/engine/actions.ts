@@ -72,7 +72,6 @@ import {
 import {
   currentWorkspace,
   NAVIGATION_LOADING,
-  navigationSession,
   type NavigationProvider,
   resolvedWorkspaceKey,
   type WorkspacePatch,
@@ -544,7 +543,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     // The row may not be in this replica yet; a full id is then inert here,
     // exactly as any other unknown full id is.
     const state = rt.state()
-    if (state.navigation ? navigationSession(state, answer.sessionId) : resolveSessionIdentifier(answer.sessionId, state.sessions)) {
+    if (state.navigation || resolveSessionIdentifier(answer.sessionId, state.sessions)) {
       navigateToSession(answer.sessionId)
     }
   }
