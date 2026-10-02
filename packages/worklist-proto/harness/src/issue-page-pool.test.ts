@@ -23,7 +23,7 @@ const pools: MobxPool[] = []
 afterEach(() => { for (const pool of pools.splice(0)) pool.dispose(); vi.restoreAllMocks() })
 type PageInput = SliceIssue & { description?: string | { value: string }; notes?: string | { value: string } }
 const task = (id: string, patch: Partial<PageInput> = {}): PageInput => ({
-  id, seq: 1, title: 'Synthetic task', stage: 'backlog', repoId: 'R', repoPath: '/synthetic',
+  id, seq: 1, title: 'Synthetic task', stage: 'backlog', blocked: false, repoId: 'R', repoPath: '/synthetic',
   description: '', createdAt: STAMP, updatedAt: STAMP, ...patch,
 })
 const seat = (sessionId: string, issueId: string | null, patch: Partial<SliceSession & { refIssueId: string }> = {}): SliceSession => ({
@@ -151,6 +151,7 @@ describe('declared issue page', () => {
     ] })])
     const links = relationLinks(ctx.pool.graph)
     expect(tracked(() => [...links.issue.pageDependencies.ids('owner')])).toEqual(['a', 'b'])
+    expect(tracked(() => ctx.pool.model('issue', 'owner')!.pageDependencies.ready.map(row => row.id).sort())).toEqual(['a', 'b'])
     const check = () => expect(runInAction(() => diffRelations(ctx.pool.graph, ctx.pool.tables))).toEqual([])
     check()
     for (const deps of [[{ id: 'a', type: 'custom' }], [{ id: 'missing', type: 'custom' }], []]) {
