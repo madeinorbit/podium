@@ -1,4 +1,4 @@
-import { asUserId, sessionUserStateRowId } from '@podium/model/browser'
+import { asUserId, sessionUserStateRowId } from '@podium/model'
 import type { FixtureCorpus } from '../../../packages/worklist-proto/harness/src/fixture/corpus'
 import { fixtureMarkers } from '../../../packages/worklist-proto/harness/src/fixture/normalized-issues'
 import { fixtureSessionHomes, stripSessionLegacy } from '../../../packages/worklist-proto/harness/src/fixture/session-homes'
