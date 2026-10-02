@@ -208,7 +208,7 @@ async function observe(reg: SessionRegistry, issueId: string): Promise<Lifecycle
     // differently than awaited ones, but the final recorded truth must match.
     oplogIssues: normalize(
       (await store.sync.latestChangeStates())
-        .filter((r) => r.entity === 'issue')
+        .filter((r) => r.entity === 'issueProjection')
         .map((r) => ({ op: r.op, payload: r.payload == null ? null : JSON.parse(r.payload) })),
     ),
   }
@@ -461,7 +461,7 @@ describe('characterization: change-log delta client heals to identical state (co
 
     // Round 1 — both clients see it. reconcile() is the full-truth diff path
     // (the same semantics the deleted broadcast-seam oplog's record() had).
-    let changes = await ledger.reconcile('issue', [
+    let changes = await ledger.reconcile('issueProjection', [
       { id: 'a', value: { id: 'a', title: 'a1' } },
       { id: 'b', value: { id: 'b', title: 'b1' } },
     ])
@@ -470,8 +470,8 @@ describe('characterization: change-log delta client heals to identical state (co
 
     // Rounds 2-3 happen while the lagging client is offline: an edit, a removal,
     // and a brand-new entity.
-    apply(liveState, await ledger.reconcile('issue', [{ id: 'a', value: { id: 'a', title: 'a2' } }]))
-    changes = await ledger.reconcile('issue', [
+    apply(liveState, await ledger.reconcile('issueProjection', [{ id: 'a', value: { id: 'a', title: 'a2' } }]))
+    changes = await ledger.reconcile('issueProjection', [
       { id: 'a', value: { id: 'a', title: 'a3' } },
       { id: 'c', value: { id: 'c', title: 'c1' } },
     ])
@@ -570,7 +570,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     // The oplog seq keeps counting from where it was — a reset here would corrupt
     // every client cursor.
     const next = await store2.sync.appendChanges(
-      [{ entity: 'issue', entityId: issue.id, op: 'upsert', payload: '{}' }],
+      [{ entity: 'issueProjection', entityId: issue.id, op: 'upsert', payload: '{}' }],
       2000,
     )
     expect(next).toEqual([before.maxChangeSeq + 1])

@@ -44,8 +44,7 @@ import {
  * The refetch keys are the desktop model's, for the same reasons. Comments and
  * mail re-read on `updatedAt` — every `addComment` broadcasts the updated issue,
  * so a comment (ours or an agent's) pulls the fresh thread without a second
- * channel. Events drain to the end on open, then re-drain on each `issuesChanged`
- * broadcast, pulling only the new tail.
+ * channel. Events drain to the end on open, then re-drain on each normalized issue update, pulling only the new tail.
  */
 
 /** Page size for the subject-narrowed event drain. One task's whole history is
@@ -118,6 +117,7 @@ export function useIssueActivity(issue: IssueViewModel): IssueActivity {
     let since = 0
     let pages = 0
     let draining = false
+    let pending = false
     const absorb = (rows: IssueEvent[]): void => {
       if (cancelled || !Array.isArray(rows) || rows.length === 0) return
       since = rows.reduce((m, r) => Math.max(m, r.id), since)
@@ -131,8 +131,11 @@ export function useIssueActivity(issue: IssueViewModel): IssueActivity {
       // One in-flight drain at a time. The issue update signal fires on every task
       // write; stacking them is how a busy board turned this page into a
       // request storm.
-      if (draining) return
+      if (cancelled) return
+      if (draining) { pending = true; return }
       draining = true
+      pending = false
+      pages = 0
       const step = (): void => {
         const sinceBefore = since
         // Wrapped, like the two reads above: a missing `issues.events` on the
@@ -159,15 +162,16 @@ export function useIssueActivity(issue: IssueViewModel): IssueActivity {
               return
             }
             draining = false
+            if (pending && !cancelled) drain()
           })
           .catch(() => {
             draining = false
+            if (pending && !cancelled) drain()
           })
       }
       step()
     }
     setEvents([])
-    drain()
     drainEvents.current = drain
     return () => {
       cancelled = true
@@ -175,7 +179,7 @@ export function useIssueActivity(issue: IssueViewModel): IssueActivity {
     }
   }, [issueId, repoPath])
 
-  useEffect(() => { drainEvents.current?.() }, [updatedAt])
+  useEffect(() => { drainEvents.current?.() }, [issueId, repoPath, updatedAt])
 
   return {
     feed: buildActivityFeed(comments, events),

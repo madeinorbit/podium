@@ -42,13 +42,9 @@
  * the minimum-connected-version telemetry and the 426 backstop are KEPT
  * architecture. Deleting them recreates the next rollout's problem.
  *
- * What is temporary is whatever CONCRETE adapter currently fills the window. At
- * wire 2 that is `apps/server/src/gateway/legacy-wire-v1-adapter.ts`, which
- * carries a mechanical expiry (`scripts/audit-wire-adapters.ts`) rather than a
- * date in a docstring. When it goes, `MIN_CLIENT_WIRE_VERSION` rises to 2 and the
- * window closes to a single version — the mechanism unchanged and unused, which
- * is the correct resting state for a mechanism whose whole job is the NEXT
- * rollout.
+ * Concrete translators carry mechanical expiry. When the support floor passes
+ * their version, remove them and keep the registry, telemetry and 426 backstop
+ * for the next rollout. The current window is [4, 4].
  */
 
 import { z } from 'zod'
@@ -67,14 +63,6 @@ export const CLIENT_WIRE_VERSION = 4
  * correct, since it allows a rolling upgrade where server and client deploy
  * separately — already true of the PWA, whose bundle can lag the server across a
  * redeploy.
- *
- * The two agreed only NUMERICALLY while MIN_CLIENT_WIRE_VERSION === CLIENT_WIRE_VERSION,
- * which is exactly why the drift went unnoticed. THAT COVER IS NOW GONE: at the
- * POD-1246 catch-up the window opened to [1, 2], so an equality check and a range
- * check no longer return the same answer for a v1 peer — this function would
- * refuse one the server is deliberately still serving through
- * `legacy-wire-v1-adapter.ts`. Which is the concrete reason it is deprecated
- * rather than merely redundant.
  *
  * The distinction the two encode, kept because it is the reason both names exist:
  * this asks "are we IDENTICAL", for peers that must speak the same dialect with

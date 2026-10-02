@@ -291,7 +291,7 @@ describe('rescope and evict — and the prohibition on reusing remove', () => {
     // `value` is `.optional()` on the arm because "present iff upsert" is a
     // cross-field rule zod cannot state inside a discriminated union — it is
     // enforced by `validateFeedDelta` and covered in `messages/feed.test.ts`.
-    // Omitted here rather than filled with a fake IssueWire the port never reads.
+    // Omitted here rather than filled with a fake IssueProjection the port never reads.
     const readmit = frame(9, 10, [
       { seq: 10, entity: 'issue', entityId: 'i1', op: 'upsert' },
     ])

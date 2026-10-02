@@ -64,7 +64,7 @@ allowed to do. An audit that conflated them would forbid the attribution the mat
   from this registry counts as debt, and a registry entry whose site no longer exists counts too —
   so the registry cannot rot into a list of retired names.
 - **The per-user item is a RATCHET, not a zero.** Five singletons ride the two wire projections
-  today (`SessionMeta.readAt`/`snoozedUntil`, `IssueWire.readAt`/`tuckedAt`/`pinned`). They are
+  today (`SessionMeta.readAt`/`snoozedUntil`, `IssueProjection.readAt`/`tuckedAt`/`pinned`). They are
   **inherited** — 1.4 added none and blessed none — and POD-1076 owns re-keying them. The exact
   membership is pinned, so a sixth is a red rather than a slightly larger number.
 

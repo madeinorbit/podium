@@ -19,7 +19,7 @@ import {
  * what lives here — is the SERVER's half: that today's hand-written `IssueRow`
  * is adapted onto `IssueStorageRow` without losing or inventing anything, and
  * that the projection carries none of the cross-entity payload the legacy
- * `IssueWire` carries.
+ * `IssueProjection` carries.
  */
 
 /** A FULLY populated row: every optional key present, every nullable key set.
@@ -288,7 +288,7 @@ describe('issueRowToProjection [POD-796]', () => {
   })
 
   it('REFUSES a stored enum value the model does not understand', () => {
-    // Stricter than today's blind `row.stage as IssueWire['stage']` cast, and
+    // Stricter than today's blind `row.stage as IssueProjection['stage']` cast, and
     // deliberately so (model/issue/storage.ts): an unrecognised value currently
     // flows onto the wire mislabelled as valid. The boundary refuses it instead.
     expect(() => issueRowToProjection(row({ type: 'not-a-type' }), NO_LABELS)).toThrow()

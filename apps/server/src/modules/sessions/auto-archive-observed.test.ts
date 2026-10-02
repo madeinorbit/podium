@@ -183,7 +183,7 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
  *
  * A session of a CHILD issue is never auto-archived; the check reads the issue's
  * `parentId` from the feed. Until this step it read the old record (`issue`,
- * IssueWire), which stops being sent at step 7. Each arm below empties ONE
+ * IssueProjection), which stops being sent at step 7. Each arm below empties ONE
  * issue kind from the feed the check reads, the way a server sending only the
  * other kind would.
  */

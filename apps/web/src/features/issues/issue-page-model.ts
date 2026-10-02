@@ -180,6 +180,8 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   useEffect(() => {
     let cancelled = false
     let since = 0
+    let draining = false
+    let pending = false
     const absorb = (rows: IssueEvent[]): void => {
       if (cancelled || rows.length === 0) return
       since = rows.reduce((m, r) => Math.max(m, r.id), since)
@@ -190,23 +192,32 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
       })
     }
     const drain = (): void => {
-      loadIssueEventsPage(trpc, {
-        since,
-        repoPath: issue.repoPath,
-        subject: issue.id,
-        limit: EVENTS_PAGE,
-      })
-        .then((rows) => {
-          if (cancelled) return
-          absorb(rows)
-          if (rows.length === EVENTS_PAGE) drain() // a full page means more remain
-        })
-        .catch(() => {
-          // best-effort — keep whatever we already have
-        })
+      if (cancelled) return
+      if (draining) { pending = true; return }
+      draining = true
+      pending = false
+      const step = async (): Promise<void> => {
+        try {
+          let rows: IssueEvent[]
+          let previous: number
+          do {
+            previous = since
+            rows = await loadIssueEventsPage(trpc, {
+              since, repoPath: issue.repoPath, subject: issue.id, limit: EVENTS_PAGE,
+            })
+            if (cancelled) return
+            absorb(rows)
+          } while (rows.length === EVENTS_PAGE && since > previous)
+        } catch {
+          // Best effort: preserve the history already loaded.
+        } finally {
+          draining = false
+          if (pending && !cancelled) drain()
+        }
+      }
+      void step()
     }
     setEvents([])
-    drain()
     drainEvents.current = drain
     return () => {
       cancelled = true
@@ -214,7 +225,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     }
   }, [issue.id, issue.repoPath])
 
-  useEffect(() => { drainEvents.current?.() }, [issue.updatedAt])
+  useEffect(() => { drainEvents.current?.() }, [issue.id, issue.repoPath, issue.updatedAt])
 
   // A REFUSED WRITE IS AN ALERT, NOT A FOOTNOTE (POD-1266). This used to set a
   // string that IssuePage drew as a muted strip pinned under the whole page —

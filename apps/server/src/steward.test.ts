@@ -102,7 +102,7 @@ const fakeSession = (s: Partial<SessionMetaInput>): SessionMeta =>
     ...s,
   }) as never
 
-// #175: comment bodies left IssueWire — read the thread via IssueService.comments.
+// #175: comment bodies left IssueProjection — read the thread via IssueService.comments.
 const stewardComments = async (issues: IssueService, id: string) =>
   (await issues.comments(id)).filter((c) => c.author === 'steward')
 

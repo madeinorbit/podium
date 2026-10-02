@@ -99,12 +99,7 @@ async function harness(
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: { run: (op) => op.write() },
     ledger,
-    publishSpecs: {
-      issueUpdated: (issue) => ({ rows: [{ id: issue.id, value: issue }] }),
-      issuesChanged: (rows) => ({
-        rows: rows.map((issue) => ({ id: issue.id, value: issue })),
-      }),
-    },
+
   })
   const createIssue = issues.create.bind(issues)
   issues.create = (async (input) =>

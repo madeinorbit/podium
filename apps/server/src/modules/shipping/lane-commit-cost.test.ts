@@ -62,10 +62,7 @@ async function world(outside: number, laneSize: number) {
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: { run: (op) => op.write() },
     ledger,
-    publishSpecs: {
-      issueUpdated: (issue) => ({ rows: [{ id: issue.id, value: issue }] }),
-      issuesChanged: (rows) => ({ rows: rows.map((issue) => ({ id: issue.id, value: issue })) }),
-    },
+
   })
   const service = new ShippingService({
     repository: store.shipping,

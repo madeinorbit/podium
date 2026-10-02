@@ -19,7 +19,7 @@ exactly once — so that the 24 session-shaped and 17 issue-shaped representatio
 
 ### 1. Nothing here is a projection
 
-A projection function — `toWire`, `toStorage`, `SessionMeta`, `IssueWire` — belongs to the
+A projection function — `toWire`, `toStorage`, `SessionMeta`, `IssueProjection` — belongs to the
 representation that owns it (POD-366 for sessions, POD-367 for issues, POD-643 for the handoff
 manifest). This directory defines *what a field means*; it never decides *which representation
 carries it*. If a change here would need to know about a specific wire shape, it is in the wrong

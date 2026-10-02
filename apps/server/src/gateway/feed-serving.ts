@@ -138,12 +138,7 @@ export interface FeedServingDeps {
   readonly retention: FeedRetentionPort
   /** The gateway's ONE routing table, shared with room presence. */
   readonly subscriptions: SubscriptionRegistry
-  /**
-   * Conversation scan diagnostics — advisory, connection-scoped, never an entity
-   * and never a change row. The v1 `conversationsChanged` message carries it as a
-   * required field, so the v1 adapter is injected with it; v2 does not carry it
-   * at all. See `legacy-wire-v1-adapter.ts`.
-   */
+  
   diagnostics(): ConversationDiagnosticWire[]
   /** Rights moved: revalidate ephemeral rooms held by these same subscribers. */
   onVisibilityChanged?(subscriberIds: readonly SubscriberId[]): void | Promise<void>

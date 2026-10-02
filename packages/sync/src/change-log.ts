@@ -257,7 +257,7 @@ export class ChangeBaseline {
    *  the first sighting then re-upserts it. */
   async seed(store: Pick<ChangeLogStore, 'latestChangeStates'>): Promise<void> {
     for (const row of await store.latestChangeStates()) {
-      if (row.op !== 'upsert' || row.payload == null) continue
+      if (row.op !== 'upsert' || row.payload == null || !MetadataEntityKind.safeParse(row.entity).success) continue
       try {
         const entity = row.entity as MetadataEntityKind
         const value: unknown = JSON.parse(row.payload)

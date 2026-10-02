@@ -207,7 +207,7 @@ describe('IssueService CRUD', () => {
   })
 
   it('does NOT embed members or a summary on the wire — the POD-797 residue', async () => {
-    // Main deleted `sessions` / `sessionSummary` from `IssueWire`; this is that
+    // Main deleted `sessions` / `sessionSummary` from `IssueProjection`; this is that
     // deletion, asserted rather than assumed. The MEMBERSHIP RULE is unchanged
     // and still lives in `sessionsForIssue` (two of these three sessions are
     // members) — what changed is that the issue payload no longer carries the
@@ -2843,7 +2843,7 @@ describe('IssueService assistant', () => {
    * POD-1144 — THE ASSISTANT'S NOTE IS NOT AN ISSUE ID, and the wire may no
    * longer claim it is.
    *
-   * `IssueWire.blockedByNotes` (then still spelled `blockedBy`) was `z.array(IssueIdField)` while this exact path —
+   * `IssueProjection.blockedByNotes` (then still spelled `blockedBy`) was `z.array(IssueIdField)` while this exact path —
    * `refreshAssistant` writing the model's digest — puts BRANCH NAMES in it. The
    * projection could only reach the wire through a cast, and no runtime test
    * could see the problem because `IssueId` is `z.string().min(1).brand()`:
@@ -2909,7 +2909,7 @@ describe('IssueService field mutations (P1)', () => {
     expect((await svc.setLabels(a.id, ['ui', 'p1'])).labels).toEqual(['p1', 'ui'])
   })
 
-  // #175: comment bodies left IssueWire — the wire carries only commentCount;
+  // #175: comment bodies left IssueProjection — the wire carries only commentCount;
   // the thread itself is served by IssueService.comments (issues.comments proc).
   it('addComment appends a comment; wire carries the count, comments() the bodies', async () => {
     const { svc } = await harness()

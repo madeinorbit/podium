@@ -219,9 +219,9 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
       [
         // Both issue kinds, as every issue write declares them: the anchor is
         // keyed on the normalized record (POD-4971) and re-admits the old one.
-        { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
         { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
-        { entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
+        { entity: 'issueProjection', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
         { entity: 'issueProjection', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
         { entity: 'issueDep', entityId: dependencyId, op: 'upsert', payload: '{"dep":true}' },
       ],
@@ -239,12 +239,12 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     expect(wholeTableLoads).toHaveBeenCalledTimes(0)
     expect(
       first.changes.filter(
-        (change) => change.entity === 'issue' && change.entityId === 'i1' && change.op === 'upsert',
+        (change) => change.entity === 'issueProjection' && change.entityId === 'i1' && change.op === 'upsert',
       ),
     ).toHaveLength(2)
     expect(first.changes).toContainEqual(
       expect.objectContaining({
-        entity: 'issue',
+        entity: 'issueProjection',
         entityId: 'i1',
         op: 'upsert',
         value: { v: 1 },
@@ -262,7 +262,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     const cursor = await store.sync.maxChangeSeq()
     await store.sync.appendChanges(
       [
-        { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
+        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
         { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
       ],
       2000,
@@ -277,7 +277,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     expect(sessionLoads).toHaveBeenCalledTimes(2)
     expect(second.changes).toContainEqual(
       expect.objectContaining({
-        entity: 'issue',
+        entity: 'issueProjection',
         entityId: 'i1',
         op: 'upsert',
         value: { v: 2 },
@@ -345,7 +345,7 @@ async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<n
     })
   }
   return (await ledger.capture(
-    ids.map((id) => ({ entity: 'issue', id, op: 'upsert', value: { id } }) as EntityChangeSpec),
+    ids.map((id) => ({ entity: 'issueProjection', id, op: 'upsert', value: { id } }) as EntityChangeSpec),
   )).length
 }
 
@@ -403,7 +403,7 @@ describe('POD-3870 — feed passes read grants from the world index', () => {
     // AND THE ANSWER IS UNCHANGED — the rows the grant admits are still in the
     // world. A prefetch that returned nothing would satisfy every count above.
     const world = await internals(large).ledger.authority.bootstrap(feedPrincipal)
-    expect(world.changes.filter((change) => change.entity === 'issue')).toHaveLength(32)
+    expect(world.changes.filter((change) => change.entity === 'issueProjection')).toHaveLength(32)
   })
 
   it('reads them without SQL for a batch across subscribed principals', async () => {

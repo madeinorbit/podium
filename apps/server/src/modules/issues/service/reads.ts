@@ -199,7 +199,7 @@ export class IssueReportsModule {
     }
   }
 
-  private async reportBatch(): Promise<IssueReportBatch> {
+  private async reportBatch(includeCommentCounts = true): Promise<IssueReportBatch> {
     const labelsByIssue = await this.store.deps.store.issues.listIssueLabelsByIssue()
     const depsByFrom = new Map<string, { toId: IssueId; type: string }[]>()
     const dependentsByTo = new Map<string, { fromId: IssueId; type: string }[]>()
@@ -219,7 +219,7 @@ export class IssueReportsModule {
       else childrenByParent.set(row.parentId, [row])
     }
     return {
-      commentCounts: await this.store.deps.store.issues.countIssueCommentsByIssue(),
+      commentCounts: includeCommentCounts ? await this.store.deps.store.issues.countIssueCommentsByIssue() : new Map(),
       labelsByIssue,
       depsByFrom,
       dependentsByTo,
@@ -325,17 +325,16 @@ export class IssueReportsModule {
     mayRead: IssueReadPredicate = () => true,
   ): Promise<IssueReport[]> {
     const root = await this.store.rowOrThrow(id)
+    const batch = await this.reportBatch()
     const rows: IssueRow[] = []
     const walk = async (pid: string): Promise<void> => {
-      for (const r of this.store.rows.values()) {
-        if (!(await mayRead(r.id)) || r.parentId !== pid) continue
-        if (r.deletedAt) continue
-        rows.push(r)
-        if (recursive) await walk(r.id)
+      for (const row of batch.childrenByParent.get(pid) ?? []) {
+        if (!(await mayRead(row.id))) continue
+        rows.push(row)
+        if (recursive) await walk(row.id)
       }
     }
     await walk(root.id)
-    const batch = await this.reportBatch()
     return await Promise.all(
       rows.sort((a, b) => a.seq - b.seq).map(async (r) => await this.report(r, batch)),
     )
@@ -382,7 +381,7 @@ export class IssueReportsModule {
     // ...and one dep read for the whole walk, for the same reason: `node` below
     // recurses over the subtree and asked for its own row's deps at every step
     // (POD-3257).
-    const batch = await this.reportBatch()
+    const batch = await this.reportBatch(false)
     let count = 0
     let omitted = 0
     const node = async (row: IssueRow, depth: number): Promise<IssueTreeNode> => {

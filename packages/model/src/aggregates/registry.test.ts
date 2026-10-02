@@ -435,7 +435,7 @@ describe('live-only and derived fields stay OFF the durable aggregate', () => {
     }
   })
 
-  it('excludes IssueWire.sessions — THE entity-in-entity embed (ADR 4 D7.1)', () => {
+  it('excludes IssueProjection.sessions — THE entity-in-entity embed (ADR 4 D7.1)', () => {
     expect(IssueAggregate.shape).not.toHaveProperty('sessions')
     expect(IssueAggregate.shape).not.toHaveProperty('sessionSummary')
   })

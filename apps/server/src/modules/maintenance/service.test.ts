@@ -259,7 +259,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     const now = nowMs
     for (let i = 0; i < 5; i++) {
       await store.sync.appendChanges(
-        [{ entity: 'issue', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
+        [{ entity: 'issueProjection', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
         now - CHANGE_MAX_AGE_MS - 1_000,
       )
     }

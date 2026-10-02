@@ -17,7 +17,7 @@
  *     refusing a frame the new one accepts.
  *
  *  2. A KNOWN KIND WITH A CHANGED PAYLOAD. The stale bundle required
- *     `IssueWire.blockedBy` where the server had moved to `blockedByNotes`, so
+ *     `IssueProjection.blockedBy` where the server had moved to `blockedByNotes`, so
  *     every issue row failed its arm. No catch-all can save that one — the kind
  *     IS known — so the frame must survive by QUARANTINING the row, which is
  *     what `parseServerMessageLenient` now does for the feed family.
@@ -109,7 +109,7 @@ describe('a kind the union has no arm for', () => {
 
 describe('a known kind whose payload this build cannot read', () => {
   // The `blockedBy` → `blockedByNotes` half. An `issue` row whose value fails
-  // `IssueWire` is unparseable by construction on the old build; what must not
+  // `IssueProjection` is unparseable by construction on the old build; what must not
   // happen is the other rows going down with it.
   const unreadable = { seq: 9, entity: 'issue', entityId: 'iss_2', op: 'upsert', value: { no: 1 } }
 

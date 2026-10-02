@@ -69,7 +69,7 @@ async function fixture() {
   return { store, world, policy, grant }
 }
 const refs: EntityRef[] = [
-  { entity: 'issue', entityId: 'shared' },
+  { entity: 'issueProjection', entityId: 'shared' },
   { entity: 'session', entityId: 'shared' },
   { entity: 'conversation', entityId: 'conversation' },
 ]
@@ -169,7 +169,7 @@ describe('feed visibility grant semantics', () => {
       const state = await prepare(refs)
       for (const ref of refs) {
         expect(state.mayRead(owner, ref)).toBe(true)
-        expect(state.mayRead(reader, ref)).toBe(ref.entity === 'issue' || verb === 'read')
+        expect(state.mayRead(reader, ref)).toBe(ref.entity === 'issueProjection' || verb === 'read')
         expect(state.mayRead(stranger, ref)).toBe(false)
         expect(state.mayRead(revoked, ref)).toBe(false)
       }
@@ -242,15 +242,8 @@ describe('rows scoped by the session named in their id', () => {
  * keyed there, a share would then re-admit nothing. Each arm captures ONE issue
  * kind into a real Authority and reads the grantee's delta.
  */
-describe('the issue anchor edge reads the normalized record (POD-4971)', () => {
-  const principal = (user: typeof owner): Principal => ({
-    kind: 'user',
-    user,
-    device: asDeviceId(`device:${user}`),
-    capability: asCapabilityRef(`cap:${user}`),
-  })
-  /** A grantee's delta after a write that published only `entity`. */
-  const deltaAfterOnly = async (entity: 'issue' | 'issueProjection') => {
+describe('the issue anchor edge reads the normalized record', () => {
+  it('a share re-admits the normalized issue and names only current subjects', async () => {
     const { store, policy, grant } = await fixture()
     const authority = new Authority({
       store: store.sync,
@@ -259,47 +252,25 @@ describe('the issue anchor edge reads the normalized record (POD-4971)', () => {
       visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
       anchors: policy.anchors,
     })
-    // The world before the share: both records, as every issue write declares.
     await authority.capture([
-      { entity: 'issue', entityId: 'shared', op: 'upsert', value: { id: 'shared', title: 'old' } },
       { entity: 'issueProjection', entityId: 'shared', op: 'upsert', value: { id: 'shared', revision: 1 } },
     ])
     const cursor = await authority.cursor()
     await grant('issue', reader, 'read')
     await authority.capture([
-      { entity, entityId: 'shared', op: 'upsert', value: { id: 'shared', revision: 2 } },
+      { entity: 'issueProjection', entityId: 'shared', op: 'upsert', value: { id: 'shared', revision: 2 } },
     ])
-    const delta = await authority.changesSince(cursor, principal(reader))
+    const delta = await authority.changesSince(cursor, {
+      kind: 'user', user: reader, device: asDeviceId('reader-device'), capability: asCapabilityRef('reader-cap'),
+    })
     if (delta?.kind !== 'batch') throw new Error('expected a delta batch')
-    return delta.changes.map((change) => `${change.entity}:${change.op}`)
-  }
-
-  it('a share published as the normalized record re-admits the old record too', async () => {
-    // The grantee gets the normalized row itself, then the anchored subjects:
-    // the OLD record a released client reads, re-admitted at its current value,
-    // and the normalized one again. With the edge on `issue` only the first
-    // entry is here.
-    const delta = await deltaAfterOnly('issueProjection')
-    expect(delta).toContain('issue:upsert')
-    expect(delta.filter((row) => row === 'issueProjection:upsert')).toHaveLength(2)
-  })
-
-  it('a change to the old record alone moves no audience', async () => {
-    // The proof that nothing here still depends on the old record: it is
-    // delivered as an ordinary row and anchors nothing.
-    expect(await deltaAfterOnly('issue')).toEqual(['issue:upsert'])
-  })
-
-  it('names no edge for the old record, and the same subjects for the normalized one', async () => {
-    const { policy, grant } = await fixture()
-    await grant('issue', reader, 'read')
-    expect(await policy.anchors.visibilityEdge({ entity: 'issue', entityId: 'shared' })).toBeNull()
+    expect(delta.changes.filter(change => change.entity === 'issueProjection')).toHaveLength(2)
     const edge = await policy.anchors.visibilityEdge({ entity: 'issueProjection', entityId: 'shared' })
     expect(edge?.audience).toEqual([reader])
-    expect(edge?.subjects.slice(0, 3)).toEqual([
-      { entity: 'issue', entityId: 'shared' },
+    expect(edge?.subjects.slice(0, 2)).toEqual([
       { entity: 'issueProjection', entityId: 'shared' },
       { entity: 'issueGitState', entityId: 'shared' },
     ])
+    expect(edge?.subjects.some(ref => ref.entity === 'issueProjection')).toBe(false)
   })
 })

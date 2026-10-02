@@ -770,13 +770,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   const anchors: VisibilityAnchorPort = {
     visibilityEdge: async (ref) => {
       if (ref.entity === 'shipOrder') return await laneDepartureEdge(ref.entityId)
-      // KEYED ON THE NORMALIZED RECORD (POD-4971). A share or unshare commits
-      // through the issue's own write, which declares its `issueProjection`
-      // beside the old `issue` record, so this kind sees every audience move.
-      // Keying on both would anchor every subject twice per write; keying on the
-      // old record alone would stop re-admission when step 7 of POD-4949 stops
-      // sending it. The subjects below still name `issue`: a released client
-      // reads only that record, and is re-admitted to it until step 7.
+      // An issue write is the audience-change edge for its normalized companions.
       if (ref.entity !== 'issueProjection') return null
       const audience = await deps.audienceFor('issue', ref.entityId)
       if (audience.length === 0) return null
@@ -785,7 +779,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       // arm learned at POD-1614. See {@link BootstrapReadCache.sessionsByIssue}.
       const issueSessions = await sessionsForIssue(cache, ref.entityId)
       const subjects = [
-        { entity: 'issue' as const, entityId: ref.entityId },
         { entity: 'issueProjection' as const, entityId: ref.entityId },
         { entity: 'issueGitState' as const, entityId: ref.entityId },
         ...issueSessions.map((session) => ({

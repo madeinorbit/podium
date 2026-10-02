@@ -1,9 +1,9 @@
-/** Retained V8 heap before/after legacy issue retention, using POD-5133's fixture.
+/** Retained V8 heap for revision-to-revision issue-record measurements, using POD-5133's fixture.
  * Synthetic captures run on flatblock under bench:flatblock. Operator data is
  * exported and replayed only on ludovico; output contains counts and byte totals.
  * --export-operator writes a private .live input; delete it after the replay.
  * Build: bun apps/web/harness/pool-memory.ts --phase=build
- * Capture: bun apps/web/harness/legacy-issue-memory.ts --lease-confirmed
+ * Capture: bun apps/web/harness/issue-record-memory.ts --lease-confirmed
  * Operator: ... --export-operator, then ... --operator=<private input path>
  */
 import { execFileSync } from 'node:child_process'
@@ -23,7 +23,7 @@ const operator = arg('operator')
 const operatorExport = process.argv.includes('--export-operator')
 if ((operator || operatorExport) && hostname() !== 'ludovico')
   throw new Error('Operator data stays on ludovico')
-const privateInput = resolve('packages/worklist-proto/harness/.live/POD-4970-memory-input.json')
+const privateInput = resolve('packages/worklist-proto/harness/.live/POD-4973-memory-input.json')
 if (operatorExport) {
   const { raw, bootstrapEntityCounts } = await readLive(arg('origin', 'http://127.0.0.1:18787'))
   await mkdir(resolve('packages/worklist-proto/harness/.live'), { recursive: true })
@@ -42,7 +42,7 @@ const samples = Number(arg('samples', '5'))
 const cells = operator ? ['operator'] : arg('cells', '1x,4x').split(',')
 const modes = arg('modes', 'legacy,pool').split(',')
 const build = resolve('.artifacts/pool-memory/build')
-const out = resolve(arg('out', '.artifacts/legacy-issue-memory/counts.json'))
+const out = resolve(arg('out', '.artifacts/issue-record-memory/counts.json'))
 const sha = execFileSync('git', ['rev-parse', 'HEAD'], { timeout: 10_000 }).toString().trim()
 const server = createServer(async (req, res) => {
   try {
@@ -87,10 +87,9 @@ const browser = await chromium.launch({
 type MemorySample = {
   cell: string
   mode: string
-  drop: boolean
   sample: number
   heapBytes: number
-  oldRecords: number
+  unknownEntityRows: number
   projections: number
   sessions: number
   visibleRows: number
@@ -104,7 +103,7 @@ try {
   for (const cell of cells)
     for (const mode of modes)
       for (let sample = 0; sample < samples; sample++) {
-        for (const drop of sample % 2 === 0 ? [false, true] : [true, false]) {
+        {
           const context = await browser.newContext({
             viewport: { width: 1800, height: 1000 },
             reducedMotion: 'reduce',
@@ -118,7 +117,7 @@ try {
               Date.now = () => Date.parse('2026-09-20T12:00:00Z')
             })
             await page.goto(
-              `http://127.0.0.1:41701/test/pool-memory.browser.html?mobxSidebar=${mode === 'pool' ? 1 : 0}&dropLegacyIssues=${drop ? 1 : 0}&scale=${cell === '4x' ? 4 : 1}${operator ? '&operator=1' : ''}`,
+              `http://127.0.0.1:41701/test/pool-memory.browser.html?mobxSidebar=${mode === 'pool' ? 1 : 0}&scale=${cell === '4x' ? 4 : 1}${operator ? '&operator=1' : ''}`,
             )
             await page.waitForFunction(
               () => window.__memory?.ready() && document.querySelector('[data-issue-row]') !== null,
@@ -133,7 +132,7 @@ try {
             if ((await page.evaluate(() => window.__memory.mode())) !== mode)
               throw new Error('Wrong sidebar mode')
             const state = await page.evaluate(() => window.__memory.state())
-            if (state.oldRecords !== (drop ? 0 : state.projections))
+            if (state.unknownEntityRows !== 0)
               throw new Error('Retention guard RED')
             // A ready runtime can still be sizing the virtualized sidebar.
             // Require its model and screen hashes to settle before comparing.
@@ -146,7 +145,7 @@ try {
               fingerprint = next
             }
             if (stable < 3) throw new Error('Screen did not settle')
-            const key = `${cell}:${mode}:${sample}`
+            const key = `${cell}:${mode}`
             if (parity.has(key)) {
               const previous = parity.get(key)!
               const differing = Object.keys(fingerprint).filter(
@@ -157,7 +156,6 @@ try {
               if (differing.length > 0)
                 throw new Error(`Screen/model parity RED (${differing.join(', ')})`)
               comparisons++
-              parity.delete(key)
             } else parity.set(key, fingerprint)
             // Release the construction corpus and feed rows BEFORE GC, on every
             // sample. Keeping them would measure inputs the app has already dropped.
@@ -173,10 +171,9 @@ try {
             const record = {
               cell,
               mode,
-              drop,
               sample,
               heapBytes: heap.usedSize,
-              oldRecords: state.oldRecords,
+              unknownEntityRows: state.unknownEntityRows,
               projections: state.projections ?? 0,
               sessions: state.sessions ?? 0,
               visibleRows: await page.locator('[data-issue-row]').count(),
@@ -198,19 +195,10 @@ const median = (values: number[]) =>
   [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!
 const summaries = cells.flatMap((cell) =>
   modes.map((mode) => {
-    const before = median(
-      records.filter((r) => r.cell === cell && r.mode === mode && !r.drop).map((r) => r.heapBytes),
-    )
-    const after = median(
-      records.filter((r) => r.cell === cell && r.mode === mode && r.drop).map((r) => r.heapBytes),
-    )
     return {
       cell,
       mode,
-      beforeBytes: before,
-      afterBytes: after,
-      savedBytes: before - after,
-      savedPercent: ((before - after) / before) * 100,
+      heapBytes: median(records.filter(r => r.cell === cell && r.mode === mode).map(r => r.heapBytes)),
     }
   }),
 )

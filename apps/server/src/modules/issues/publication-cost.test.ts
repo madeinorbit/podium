@@ -76,12 +76,13 @@ it.each([16, 64])('publishes only the changed normalized issue among %i rows', a
     console.log('issue-publication-cost', JSON.stringify({ count, samples }))
     for (const changes of emitted) {
       expect(changes.filter(change => change.entity === 'issueProjection').map(change => change.id)).toEqual([target])
-      expect(changes.every(change => change.entity !== 'issue')).toBe(true)
+      expect(changes.every(change => String(change.entity) !== 'issue')).toBe(true)
     }
     for (const sample of samples) {
       expect(sample.calls.commentCount).toBe(0)
       expect(sample.calls.allCommentCounts).toBe(0)
-      expect(sample.calls.incomingDeps).toBe(0)
+      expect(sample.calls.incomingDeps).toBe(sample.operation === 'close' ? 1 : 0)
+      expect(sample.calls.allDeps).toBe(0)
     }
   } finally {
     for (const spy of Object.values(calls)) spy.mockRestore()

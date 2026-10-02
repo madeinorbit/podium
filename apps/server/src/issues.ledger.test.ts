@@ -57,7 +57,7 @@ async function harness() {
     },
     ledger,
     applyCommit,
-    publishSpecs: plumbing.publishSpecs,
+
     now: () => wallClock,
   }
   return {
@@ -307,16 +307,16 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         store.transact(async () => {
           await svc.writeIssueUserState(issue.id, { pinnedAt: '2026-07-02' })
           expect(svc.issueOverlay(issue.id).pinned).toBe(true)
-          expect((await svc.allWire()).find((row) => row.id === issue.id)?.pinned).toBe(true)
+          expect((await svc.list()).find((row) => row.id === issue.id)?.pinned).toBe(true)
           throw new Error('enclosing span failed')
         }),
       ).rejects.toThrow('enclosing span failed')
       expect(await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id)).toBeUndefined()
       expect(await ledger.cursor()).toBe(before)
       expect(svc.issueOverlay(issue.id).pinned).toBe(false)
-      expect((await svc.allWire()).find((row) => row.id === issue.id)?.pinned).toBe(false)
+      expect((await svc.list()).find((row) => row.id === issue.id)?.pinned).toBe(false)
       await svc.writeIssueUserState(issue.id, { pinnedAt: '2026-07-03' })
-      expect((await svc.allWire()).find((row) => row.id === issue.id)?.pinned).toBe(true)
+      expect((await svc.list()).find((row) => row.id === issue.id)?.pinned).toBe(true)
       expect(((await ledger.changesSince(before)) ?? []).find((row) => row.entity === 'issueUserState')).toMatchObject({
         value: { pinned: true },
       })
@@ -400,7 +400,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     const folded = fold(await ledger.changesSince(0) ?? [])
     expect([...folded.keys()].sort()).toEqual(
       (await svc
-        .allWire())
+        .list())
         .map((i) => i.id)
         .sort(),
     )
@@ -419,7 +419,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     )
     spy.mockRestore()
     // Memory truth unchanged: the rows map never installed the rolled-back row…
-    expect((await svc.allWire()).map((w) => w.title)).toEqual(['pre-existing'])
+    expect((await svc.list()).map((w) => w.title)).toEqual(['pre-existing'])
     // …the store rolled it back with the append, and nothing was logged.
     expect((await store.issues.listIssueRows()).map((r) => r.title)).toEqual(['pre-existing'])
     expect(await ledger.cursor()).toBe(cursorBefore)
@@ -427,7 +427,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     // for a row the store never accepted.
     const reconciled = await ledger.reconcile(
       'issue',
-      (await svc.allWire()).map((w) => ({ id: w.id, value: w })),
+      (await svc.list()).map((w) => ({ id: w.id, value: w })),
     )
     expect(reconciled).toEqual([])
     expect(await ledger.cursor()).toBe(cursorBefore)
@@ -454,7 +454,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     // gone from memory, so nothing fabricates a durable upsert for it.
     const reconciled = await ledger.reconcile(
       'issue',
-      (await svc.allWire()).map((w) => ({ id: w.id, value: w })),
+      (await svc.list()).map((w) => ({ id: w.id, value: w })),
     )
     expect(reconciled).toEqual([])
     expect(await ledger.cursor()).toBe(cursorBefore)
@@ -491,7 +491,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect((await svc.get(wire.id))?.updatedAt).toBe(updatedAtBefore)
     const reconciled = await ledger.reconcile(
       'issue',
-      (await svc.allWire()).map((w) => ({ id: w.id, value: w })),
+      (await svc.list()).map((w) => ({ id: w.id, value: w })),
     )
     expect(reconciled).toEqual([])
     expect(await ledger.cursor()).toBe(cursorBefore)
@@ -514,7 +514,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     // A subsequent reconcile of the (unchanged) truth appends nothing.
     const reconciled = await ledger.reconcile(
       'issue',
-      (await svc.allWire()).map((w) => ({ id: w.id, value: w })),
+      (await svc.list()).map((w) => ({ id: w.id, value: w })),
     )
     expect(reconciled).toEqual([])
   })
@@ -542,7 +542,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         run: plumbing2.funnel.run,
       },
       ledger: ledger2,
-      publishSpecs: plumbing2.publishSpecs,
+
       now: () => '2026-07-02T00:00:00.000Z',
     })
     const cursorBefore = await ledger2.cursor()

@@ -1,41 +1,6 @@
-/**
- * THE WIRE FEED EDGE — the ONE place entity truth leaves this server (POD-308).
- *
- * ---------------------------------------------------------------------------
- * WHAT THIS REPLACES
- * ---------------------------------------------------------------------------
- *
- * Before the cutover the server served entity state through TWO paths: an
- * ordered `metadataDelta` pipe fed by the Authority, and `funnel.publishComputed`
- * — a full-list snapshot fan-out that each feature drove by rebuilding its own
- * list (`sessionsChanged` from `listSessions()`, `issuesChanged` from
- * `allWire()`, and so on). Thirteen call sites, five features, one shared
- * assumption that the two paths agreed.
- *
- * That second path is gone. Everything now leaves through {@link publish}: the
- * Authority's feed is framed once, and each connection receives it through the
- * adapter for the wire version it negotiated. Legacy clients still get their
- * full-list snapshots — as a TRANSLATION of the feed, built inside
- * `legacy-wire-v1-adapter.ts`, which expires. A translation of one pipeline is
- * not a second pipeline: it cannot disagree with the feed, because it is the
- * feed folded up.
- *
- * ---------------------------------------------------------------------------
- * BOOTSTRAP IS READ OVER HTTP
- * ---------------------------------------------------------------------------
- *
- * This edge publishes live deltas and resume/rescope control frames. Snapshot
- * rows use the HTTP NDJSON stream and never enter the WebSocket message union.
- *
- * ---------------------------------------------------------------------------
- * THE COMPILE-TIME GATE STILL HOLDS
- * ---------------------------------------------------------------------------
- *
- * `LiveServerMessage` (protocol `message-class.ts`) is the type the raw fan-out
- * helpers accept, and control-plane messages fail it. Nothing here weakens that:
- * entity frames reach a socket only through this class, and this class is driven
- * only by the Authority's feed.
- */
+/** The only live entity-feed edge. The current version uses the canonical
+ * frames directly; HTTP NDJSON owns bootstrap. The permanent adapter registry
+ * enforces advertised support and mechanically expires future translators. */
 
 import { createLogger } from '@podium/logger'
 import type {
@@ -76,10 +41,7 @@ export type FeedFrame =
  * Declared on this feed-specific interface and NOT on L1's generic
  * `WireVersionAdapter`, because "can this version express an eviction" is a
  * question about the feed's vocabulary and L1 must not learn what an `evict` is.
- * Declared as a required member rather than duck-typed like {@link
- * LegacyAdvisorySource}, because the two are opposites: `advisory` is v1 debt that
- * expires, and this is a permanent property every future wire version has to state
- * about itself. A wire that forgot to state it would default to the permissive
+ * Every future adapter must declare this capability explicitly. A wire that forgot to state it would default to the permissive
  * answer, which is exactly the fails-OPEN gate this run keeps paying for.
  */
 export interface FeedWireAdapter extends WireVersionAdapter<FeedFrame, ServerMessage> {

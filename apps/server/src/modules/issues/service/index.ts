@@ -144,6 +144,7 @@ export type IssueReportsCapability = Pick<
   | 'worktreePaths'
   | 'unreadFor'
   | 'visibilityPolicy'
+  | 'commandResult'
 >
 
 export interface IssueTrackerCapabilities {

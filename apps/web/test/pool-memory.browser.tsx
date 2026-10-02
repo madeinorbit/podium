@@ -41,7 +41,6 @@ import '../src/styles.css'
 
 const params = new URLSearchParams(location.search)
 const scale = Number(params.get('scale') ?? 1) as 1 | 4
-const dropLegacyIssues = params.get('dropLegacyIssues') === '1'
 let corpus: ReturnType<typeof buildCorpus> | null = params.has('operator')
   ? ((await (await fetch('/operator-input.json')).json()) as ReturnType<typeof buildCorpus>)
   : params.get('cell') === 'h10a1'
@@ -93,7 +92,7 @@ let seedRecords: ReturnType<ReturnType<typeof seedCacheFromCorpus>['readEntities
 const database = await IndexedDbSyncStore.open({
   factory: indexedDB as unknown as Parameters<typeof IndexedDbSyncStore.open>[0]['factory'],
   databaseName: 'pool-memory-synthetic',
-  retainEntity: (entity) => retainReplicaEntity(entity, dropLegacyIssues),
+  retainEntity: retainReplicaEntity,
   onDegraded: (reason) => errors.push(`Synthetic IndexedDB degraded: ${String(reason)}`),
 })
 let owner: ClientRuntime | undefined
@@ -107,7 +106,6 @@ async function assemble(name: string) {
   view.cache.installSnapshot(seedRecords!, { feedId: 'synthetic-fixture', epoch: '1', seq: 1 }, [])
   await database.settled()
   const replica = createKernelReplica({
-    dropLegacyIssues,
     cache: view.cache,
     side: createSideCache({
       storage: localStorage,
@@ -213,7 +211,7 @@ const memory = {
     issues: owner?.getSnapshot().issues.length,
     sessions: owner?.getSnapshot().sessions.length,
     projections: owner?.getSnapshot().issueProjections.length,
-    oldRecords: assembly.view.cache.readEntities().filter((row) => row.entity === 'issue').length,
+    unknownEntityRows: assembly.view.cache.readEntities().filter((row) => !retainReplicaEntity(row.entity)).length,
     pool: graph !== null,
     rows: graph
       ? Object.fromEntries(

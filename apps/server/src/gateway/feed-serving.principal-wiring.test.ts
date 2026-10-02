@@ -85,9 +85,9 @@ const BOB = asUserId('user-bob')
  */
 function issueOwnershipPolicy(owners: Map<string, UserId>, grants: Map<string, UserId[]>) {
   const port: VisibilityStatePort = {
-    classOf: (entity) => (entity === 'issue' ? 'personal' : null),
+    classOf: (entity) => (entity === 'issueProjection' ? 'personal' : null),
     mayRead: (user, ref) => {
-      if (ref.entity !== 'issue') return false
+      if (ref.entity !== 'issueProjection') return false
       if (owners.get(ref.entityId) === user) return true
       return (grants.get(ref.entityId) ?? []).includes(user as UserId)
     },
@@ -186,7 +186,7 @@ const commitIssue = (
 ) =>
   plumbing.ledger.commit({
     write: async () => {},
-    changes: () => [{ entity: 'issue', id, op, ...(op === 'upsert' ? { value } : {}) }],
+    changes: () => [{ entity: 'issueProjection', id, op, ...(op === 'upsert' ? { value } : {}) }],
   })
 
 /** Wait for admission and for every live socket to certify the committed head.
@@ -214,17 +214,7 @@ function changesOn(socket: Socket): { seq: number; entityId: string; op: string 
   )
 }
 
-/**
- * Did this entity reach this socket in ANY shape at all?
- *
- * `changesOn` reads the v2 frame family only, and that blindness was a real hole:
- * a peer that never reaches wire 2 is served the SAME feed folded into v1
- * `issuesChanged` full lists (`legacy-wire-v1-adapter.ts`), so a leak into a
- * legacy list is invisible to a v2-only reader. A mutation that stopped a peer
- * renegotiating went undetected until this helper existed — the test was passing
- * because it had stopped looking, which is the failure mode a negative assertion
- * is most prone to.
- */
+
 const leakedTo = (socket: Socket, entityId: string): boolean =>
   socket.received.some((msg) => JSON.stringify(msg).includes(entityId))
 

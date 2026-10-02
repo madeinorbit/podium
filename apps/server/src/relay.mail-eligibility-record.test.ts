@@ -3,7 +3,7 @@
  *
  * The relay's `oplog.appended` listener decides which issues to re-examine for
  * held mail. Until this step it listened only for the old record (`issue`,
- * IssueWire); step 7 stops sending that record, and a listener still keyed on
+ * IssueProjection); step 7 stops sending that record, and a listener still keyed on
  * it would then stop mail without an error anywhere. These two tests pin which
  * record is the trigger, over a real registry, by taking one of the two kinds
  * out of the bus before the listener sees it:

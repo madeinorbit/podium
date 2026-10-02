@@ -120,12 +120,12 @@ describe('POD-98 git-state service wiring', () => {
     await svc.recordSessionGitActivity(asSessionId('sess-1'), { touched: ['/repo/apps/a.ts'] })
     await svc.refreshGitState(id, '/repo')
     for (let i = 0; i < 50; i++) {
-      const gs = (await svc.allWire()).find((w) => w.id === id)?.gitState
+      const gs = (await svc.list()).find((w) => w.id === id)?.gitState
       if (gs && gs.updatedAt !== '' && gs.computing !== true) break
       await new Promise((r) => setTimeout(r, 10))
     }
 
-    const wire = (await svc.allWire()).find((w) => w.id === id)
+    const wire = (await svc.list()).find((w) => w.id === id)
     expect(wire?.gitState).toMatchObject({
       shared: true,
       branch: 'main',
@@ -154,7 +154,7 @@ describe('POD-98 git-state service wiring', () => {
     let commits: string[] | undefined
     for (let i = 0; i < 50 && commits === undefined; i++) {
       await new Promise((r) => setTimeout(r, 10))
-      commits = (await svc.allWire()).find((w) => w.id === id)?.gitState?.commits
+      commits = (await svc.list()).find((w) => w.id === id)?.gitState?.commits
     }
     expect(commits).toEqual(['sha9'])
   })
@@ -188,7 +188,7 @@ describe('POD-98 git-state service wiring', () => {
     sessions.push(member(asSessionId('sess-1'), id))
 
     await svc.refreshGitState(id, '/repo')
-    const wire = (await svc.allWire()).find((w) => w.id === id)
+    const wire = (await svc.list()).find((w) => w.id === id)
     expect(wire?.gitState?.fallback).toBe(true)
     expect(wire?.gitState?.dirtyOwn).toBeUndefined()
   })
@@ -207,7 +207,7 @@ describe('POD-98 git-state service wiring', () => {
     let state: unknown
     for (let i = 0; i < 50 && state === undefined; i++) {
       await new Promise((r) => setTimeout(r, 10))
-      const gs = (await svc.allWire()).find((w) => w.id === id)?.gitState
+      const gs = (await svc.list()).find((w) => w.id === id)?.gitState
       state = gs && gs.updatedAt !== '' && gs.computing !== true ? gs : undefined
     }
     expect(state).toMatchObject({ shared: true, branch: 'main' })

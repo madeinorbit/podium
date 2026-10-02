@@ -37,9 +37,9 @@ describe('snapshot bootstrap producer', () => {
       await store.issues.upsertIssue({ ...issue('private'), seq: 2 })
       await store.grants.upsert({ resourceKind: 'issue', resourceId: 'shared', grantee: 'reader', verb: 'read', owner: 'owner', visibility: 'personal', createdAt: 't0', actorKind: 'user', actorId: 'owner', onBehalfOf: 'owner' })
       await store.sync.appendChanges([
-        { entity: 'issue', entityId: 'shared', op: 'upsert', payload: JSON.stringify({ id: 'shared' }) },
+        { entity: 'issueProjection', entityId: 'shared', op: 'upsert', payload: JSON.stringify({ id: 'shared' }) },
         { entity: 'issueProjection', entityId: 'shared', op: 'upsert', payload: '{}' },
-        { entity: 'issue', entityId: 'private', op: 'upsert', payload: JSON.stringify({ id: 'private' }) },
+        { entity: 'issueProjection', entityId: 'private', op: 'upsert', payload: JSON.stringify({ id: 'private' }) },
         { entity: 'repo', entityId: '/r', op: 'upsert', payload: '{}' },
       ], 1)
       const forbidden = (): never => { throw new Error('bootstrap invoked anchor input') }

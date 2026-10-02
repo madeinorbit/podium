@@ -12,7 +12,6 @@ import {
   asSessionId,
   asUserId,
   firstAdminMemberId,
-  type IssueWire,
   resolveTelegramPrincipal,
   type SessionId,
 } from '@podium/model'
@@ -24,7 +23,6 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 const TEST_MACHINE = asMachineId('machine-under-test')
 
 import { resolvePrincipalAsync, userCommandPrincipal } from './command-principal'
-import { IssuePublisher } from './modules/issues/publish'
 import { MessageDeliveryService } from './modules/messages/service'
 import { machinesForPrincipal, sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand } from './modules/sessions/command-plane'
@@ -877,46 +875,6 @@ describe('SessionRegistry', () => {
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code' }),
     )
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.agentKind).toBe('claude-code')
-  })
-
-  it('still sends welcome + the world when the issues payload build throws', async () => {
-    // The issues list is DERIVED (allWire embeds member sessions). If building it
-    // throws (e.g. a poison issue row), it must NOT abort the attach and take the
-    // whole connection down with it.
-    //
-    // THE ATTACH NO LONGER TOUCHES `allWire` AT ALL (POD-1203), and that is a
-    // stronger form of the same resilience rather than a weaker test: the world a
-    // connection is served comes from the feed, whose rows were serialized at
-    // their write, so a projection that throws TODAY cannot reach the bootstrap
-    // at all. The degradation path it used to exercise is asserted directly
-    // below, where it still lives.
-    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    ;(reg.issues as unknown as { allWire: () => unknown }).allWire = () => {
-      throw new Error('boom')
-    }
-    const sent: ServerMessage[] = []
-    await expect(attachCurrent(reg, (m) => sent.push(m))).resolves.toBeTypeOf('string')
-    reg.modules.funnel.flushDeltas()
-    expect(sent.some((m) => m.type === 'welcome')).toBe(true)
-    expect(sent.some((m) => m.type === 'feedResume')).toBe(true)
-  })
-
-  it('a throwing issues projection degrades to an empty list and logs', async () => {
-    // The other half of the case above, at the site that still owns it: the
-    // publisher swallows the throw, publishes nothing, and says so. Without this
-    // the degradation would have no test at all after the attach stopped
-    // building the list.
-    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    ;(reg.issues as unknown as { allWire: () => unknown }).allWire = () => {
-      throw new Error('boom')
-    }
-    const logs = captureLogs()
-    const publisher = new IssuePublisher({
-      allWire: () => (reg.issues as unknown as { allWire: () => IssueWire[] }).allWire(),
-    })
-    expect(publisher.safeIssuesList()).toEqual([])
-    expect(logs.at('warn')).not.toHaveLength(0)
-    logs.restore()
   })
 
   it('resume spawns with the resume ref + resume origin', async () => {

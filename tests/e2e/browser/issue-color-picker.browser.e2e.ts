@@ -97,7 +97,7 @@ test('ID square state language and picker persist a colour and clear it again', 
   await expect(square).toHaveAttribute('aria-busy', 'false', { timeout: 15_000 })
 
   // Reload from the isolated harness database: violet must come back from the
-  // migrated SQLite row through IssueWire, not from component-local optimism.
+  // migrated SQLite row through IssueProjection, not from component-local optimism.
   await page.reload()
   await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
     timeout: 45_000,

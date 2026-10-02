@@ -90,7 +90,7 @@ async function write(ledger: Ledger, ids: string[]): Promise<number> {
   for (const id of ids) {
     await ledger.commit({
       write: async () => undefined,
-      changes: () => [{ entity: 'issue', id, op: 'upsert', value: { id, title: id } }],
+      changes: () => [{ entity: 'issueProjection', id, op: 'upsert', value: { id, title: id } }],
     })
   }
   return await ledger.cursor()
