@@ -313,7 +313,7 @@ function PoolIssueExplorerProvider({ children }: { children: ReactNode }): React
   const selectedId = useStoreSelector(s => s.selectedIssueId)
   const { focusedIssueId } = useOperatorFocus()
   const pool = useWorklistPool()
-  const readTarget = useCallback((pool: MobxPool) => ({
+  const readTarget = useCallback((pool: MobxPool): typeof EMPTY_POOL_TARGET => ({
     target: poolExplorerTarget(pool, selectedId, focusedIssueId),
     grounded: pool.tables.issue.size > 0,
   }), [selectedId, focusedIssueId])

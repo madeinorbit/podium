@@ -593,7 +593,7 @@ describe('pool explorer target', () => {
       { sessionId: 'cycle-b-sender', issueId: 'cycle-b', cwd: '/synthetic' },
     ] as SliceSession[]
     const pool = explorerPool(rows, sessions)
-    const oracle = missionIssueIds(rows.map(row => makeIssue({ ...row })), 'root' as never, sessions as never)
+    const oracle = missionIssueIds(rows.map(row => makeIssue({ ...row } as Parameters<typeof makeIssue>[0])), 'root' as never, sessions as never)
     // A planted full scan fails even when it produces the right target.
     const scan = vi.spyOn(pool.tables.issue, 'keys').mockImplementation(() => { throw new Error('Target enumerated all issues') })
     const sessionScan = vi.spyOn(pool.tables.session, 'keys').mockImplementation(() => { throw new Error('Target enumerated all sessions') })
@@ -649,12 +649,12 @@ describe('pool explorer target', () => {
     poolMode.pool = explorerPool([poolIssue('p'), poolIssue('c', { parentId: 'p' })])
     state.selectedIssueId = 'p'
     const view = mount('p', false)
-    expect(screen.getByTestId('pointer')).toHaveAttribute('data-current', 'p')
+    expect(screen.getByTestId('pointer').getAttribute('data-current')).toBe('p')
     fireEvent.click(screen.getByRole('button', { name: 'deck: c' }))
-    expect(screen.getByTestId('pointer')).toHaveAttribute('data-current', 'c')
+    expect(screen.getByTestId('pointer').getAttribute('data-current')).toBe('c')
     poolMode.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'c', value: undefined }] })
     view.rerender(tree('p', false))
-    expect(screen.getByTestId('pointer')).toHaveAttribute('data-current', 'p')
+    expect(screen.getByTestId('pointer').getAttribute('data-current')).toBe('p')
     expect(legacyIssueRead).not.toHaveBeenCalled()
   })
 })

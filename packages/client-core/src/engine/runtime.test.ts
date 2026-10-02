@@ -4639,7 +4639,7 @@ describe('pool shared runtime work', () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
     const keyOf = (row: object) => (row as { id: string }).id
     const awaiting = (id: string, resolvedAt = 999_999): AwaitingTruth => ({
-      resolvedAt, overlay: { op: 'patch', entity: 'issues', key: id, id, patch: { title: 'covered' },
+      resolvedAt, baseline: undefined, overlay: { op: 'patch', entity: 'issues', key: id, id, patch: { title: 'covered' },
         coveredBy: row => (row as IssueWire).title === 'covered' },
     })
     try {
