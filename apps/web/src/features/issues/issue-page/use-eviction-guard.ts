@@ -53,19 +53,25 @@ import { useIssuePageIssues } from './issue-page-data'
  */
 export function useEvictionGuard(issue: IssueViewModel, onLeave: () => void): void {
   const issues = useIssuePageIssues()
+  useEvictionPresenceGuard(issue.id, issues.some(row => row.id === issue.id), onLeave)
+}
+
+/** Both readers share the same per-issue latch. Loading carries no presence
+ * answer yet and cannot mean that the issue left the view. */
+export function useEvictionPresenceGuard(issueId: string, present: boolean | null, onLeave: () => void): void {
   const wasPresent = useRef(false)
   const fired = useRef(false)
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `issue.id` is the SUBJECT of the re-arm, not a value the body reads — dropping it is what the rule suggests and it would make the effect fire once and never re-arm on navigation
+  // biome-ignore lint/correctness/useExhaustiveDependencies: issueId changes the subject and resets both latches.
   useEffect(() => {
     // A new issue id is a new subject: re-arm from scratch rather than carrying
     // the previous one's presence across a navigation.
     wasPresent.current = false
     fired.current = false
-  }, [issue.id])
+  }, [issueId])
 
   useEffect(() => {
-    const present = issues.some((row) => row.id === issue.id)
+    if (present === null) return
     if (present) {
       wasPresent.current = true
       return
@@ -74,5 +80,5 @@ export function useEvictionGuard(issue: IssueViewModel, onLeave: () => void): vo
     if (!wasPresent.current || fired.current) return
     fired.current = true
     onLeave()
-  }, [issues, issue.id, onLeave])
+  }, [present, issueId, onLeave])
 }

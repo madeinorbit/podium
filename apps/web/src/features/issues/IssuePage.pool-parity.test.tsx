@@ -11,6 +11,7 @@ import { recordSliceDerivation, storeStats } from '@podium/client-core/perf'
 import { MobxPool } from '@podium/client-graph/pool'
 import { issuePages } from '@podium/client-graph/issue-page'
 import { attachIssuePageSource } from '@podium/client-graph/issue-page-source'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import type { ReactNode } from 'react'
 import { OperatorFocusProvider } from '@/app/operator-focus'
@@ -169,7 +170,7 @@ describe('issue page rendered pool parity', () => {
     if (surface !== 'list') { expect(comments).toHaveBeenCalled(); expect(events).toHaveBeenCalled() }
   })
 
-  it('leaves an evicted pool page once and rearms after the issue loads again', async () => {
+  it('leaves once per issue ID, matching the legacy latch when the same row returns', async () => {
     layer = 'pool'; forbidden = true
     const issue = legacyIssues.find(row => row.id === 'root')!, back = vi.fn()
     const payload = pool.row('issue', issue.id)
@@ -181,11 +182,11 @@ describe('issue page rendered pool parity', () => {
     await waitFor(() => expect(back).toHaveBeenCalledTimes(1))
     view.rerender(wrap(<IssuePage issue={issue} orderedIds={[]} onBack={back} onNavigate={navigate} />))
     expect(back).toHaveBeenCalledTimes(1)
-    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issue.id, value: payload }] })
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issue.id, value: payload as SliceIssue }] })
     view.rerender(wrap(<IssuePage issue={issue} orderedIds={[]} onBack={back} onNavigate={navigate} />))
     await screen.findByText('Exact page title')
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issue.id, value: undefined }] })
     view.rerender(wrap(<IssuePage issue={issue} orderedIds={[]} onBack={back} onNavigate={navigate} />))
-    await waitFor(() => expect(back).toHaveBeenCalledTimes(2))
+    expect(back).toHaveBeenCalledTimes(1)
   })
 })

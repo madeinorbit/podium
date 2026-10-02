@@ -20,7 +20,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IssueViewModel } from '@/app/store'
 import { makeIssue } from '@/lib/test-issue'
-import { useEvictionGuard } from './use-eviction-guard'
+import { useEvictionGuard, useEvictionPresenceGuard } from './use-eviction-guard'
 
 const ISSUE = makeIssue({ id: 'i-open', seq: 3, title: 'Open issue' })
 
@@ -42,6 +42,26 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('useEvictionGuard', () => {
+  it('ignores loading and rearms only when the subject ID changes', () => {
+    const onLeave = vi.fn()
+    function Presence({ id, present }: { id: string; present: boolean | null }) {
+      useEvictionPresenceGuard(id, present, onLeave)
+      return <div>the issue page</div>
+    }
+    const view = render(<Presence id="first" present={true} />)
+    view.rerender(<Presence id="first" present={null} />)
+    expect(onLeave).not.toHaveBeenCalled()
+    view.rerender(<Presence id="first" present={false} />)
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    view.rerender(<Presence id="first" present={true} />)
+    view.rerender(<Presence id="first" present={false} />)
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    view.rerender(<Presence id="next" present={false} />)
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    view.rerender(<Presence id="next" present={true} />)
+    view.rerender(<Presence id="next" present={false} />)
+    expect(onLeave).toHaveBeenCalledTimes(2)
+  })
   it('leaves — silently — when the open issue is unshared while mounted', () => {
     const onLeave = vi.fn()
     const view = render(<Guarded onLeave={onLeave} />)
