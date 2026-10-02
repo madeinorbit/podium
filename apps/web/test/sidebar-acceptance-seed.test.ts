@@ -7,6 +7,13 @@ import { seedAcceptanceCache } from './sidebar-acceptance-seed'
 describe('browser acceptance seed', () => {
   it.each(['a', 'b'])('preserves session labels and personal state in principal %s', principal => {
     const corpus = buildCorpus(1, 4443)
+    corpus.repoProjections[0] = { ...corpus.repoProjections[0]!, prefix: 'SEED' }
+    const named = { ...corpus.sessions[0]!, displayRef: 'SEED-17-A',
+      readAt: '2026-10-03T00:00:00.000Z', unread: false, snoozedUntil: '2026-10-04T00:00:00.000Z' }
+    // Exercise an older-server row whose permanent label needs canonical birth
+    // coordinates, even when the generated corpus does not contain one.
+    delete named.refRepoId; delete named.refSeq; delete named.refLetter; delete named.refDraft
+    corpus.sessions[0] = named
     const records = seedAcceptanceCache(corpus, principal).readEntities()
     const sessions = records.filter(row => row.entity === 'session').map(row => row.value as SessionMeta)
     const userStates = records.filter(row => row.entity === 'sessionUserState').map(row => row.value as SessionUserStateWire)
