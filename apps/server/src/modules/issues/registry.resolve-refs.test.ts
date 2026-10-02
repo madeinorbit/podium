@@ -340,6 +340,7 @@ describe('maintained issue reference index', () => {
     )
     expect(await issues.resolveRef('ONE-7')).toBe('ONE-7')
     expect(await issues.resolveRef('TWO-7')).toBe('iss_one')
+    await store.repos.removeRepo('/shared', remote)
     await store.repos.addRepo('/shared', remote, 'https://example.test/one.git')
     expect(await issues.resolveRef('ONE-7')).toBe('iss_one')
     expect(await issues.resolveRef('TWO-7')).toBe('TWO-7')
