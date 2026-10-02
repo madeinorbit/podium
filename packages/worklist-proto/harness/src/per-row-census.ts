@@ -33,6 +33,7 @@ for (const cell of ['1x', '4x', 'h10a1']) for (const arm of ['hand', 'lean']) {
     stops.push(hand.pool.subscribeOrder(() => hand.pool.order()))
     for (const id of ids) { hand.pool.view(id); stops.push(hand.pool.subscribe(id, () => hand.pool.view(id))) }
   } else {
+    ;(pool as LeanPool).setWindow(ids)
     stops.push(autorun(() => (pool as LeanPool).filing.get()))
     for (const id of ids) stops.push(autorun(() => (pool as LeanPool).mountRow(id).get()))
   }

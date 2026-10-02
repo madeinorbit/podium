@@ -9,6 +9,7 @@ import { SCHEMA, allRelations, type EntityName } from '@podium/client-graph/shar
 import type { RowView } from '@podium/client-graph/shared/row-view'
 import { reseed } from '../../hand/pool/enumerate'
 import { PoolRelations } from '../../hand/pool/relations'
+import { isLinkSpec, linkInputs } from '../../hand/pool/relations'
 import { Residency, type Schedule } from '../../hand/pool/residency'
 import { createTables, ingestOut, ingestRecord, type IngestTarget } from '../../hand/pool/tables'
 import { COLD_SESSION_FIELDS, HIDDEN_ISSUE_FIELDS } from '../../hand/pool/worklist/visible'
@@ -23,6 +24,7 @@ export class LeanPool {
   readonly tableSignals = Object.fromEntries(entities.map((e) => [e, createAtom('')])) as Record<EntityName, ReturnType<typeof createAtom>>
   readonly relationSignals = new Map(allRelations().map(({ from, name }) => [`${from}.${name}`, createAtom('')]))
   readonly localSignal = createAtom('')
+  readonly windowSignal = createAtom('')
   readonly residency: Residency
   readonly engine: PoolRelations
   readonly relations: ReturnType<ReadFence['wrapRelations']>
@@ -41,7 +43,10 @@ export class LeanPool {
       residentRow: (entity, id) => this.row(entity, id, 'mark') as object | undefined,
       load: (entity, id) => source.row!(entity, id),
       now: () => locals.get().coarseNow,
-      summaries: { issue: HIDDEN_ISSUE_FIELDS, session: COLD_SESSION_FIELDS },
+      summaries: Object.fromEntries(['issue', 'session'].map((entity) => [entity, [
+        ...(entity === 'issue' ? HIDDEN_ISSUE_FIELDS : COLD_SESSION_FIELDS),
+        ...allRelations().filter(({ from, relation }) => from === entity && isLinkSpec(relation) && relation.kind !== 'prefix').flatMap(({ relation }) => linkInputs(relation as Parameters<typeof linkInputs>[0])),
+      ]])),
       asked: (entity) => this.tableSignals[entity].reportObserved(),
       peeked: (entity) => this.tableSignals[entity].reportObserved(),
       changed: (entity) => this.tableSignals[entity].reportChanged(),
@@ -68,6 +73,7 @@ export class LeanPool {
     this.target = { read: this.fenced, write: this.tables, relations: residentRelations, residency: this.residency }
     this.filing = computed(() => {
       this.localSignal.reportObserved()
+      this.windowSignal.reportObserved()
       for (const signal of Object.values(this.tableSignals)) signal.reportObserved()
       for (const signal of this.relationSignals.values()) signal.reportObserved()
       return derive(this)
@@ -121,8 +127,12 @@ export class LeanPool {
     if (!value) {
       value = computed(() => this.filing.get().views.get(id), { equals: compareStructural })
       this.mounted.set(id, value)
+      runInAction(() => this.windowSignal.reportChanged())
     }
     return value
+  }
+  setWindow(ids: readonly string[]): void {
+    runInAction(() => { for (const id of ids) this.mountRow(id) })
   }
   unmountRow(id: string): void { this.mounted.delete(id) }
   dispose(): void {

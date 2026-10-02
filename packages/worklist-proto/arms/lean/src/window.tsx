@@ -8,6 +8,7 @@ import type { LeanPool } from './pool'
 
 export const WINDOW_ROWS = 20
 export interface WindowPool {
+  prepare?(ids: readonly string[]): void
   order(): readonly string[]
   view(id: string): RowView | undefined
   subscribeOrder(changed: () => void): () => void
@@ -20,6 +21,7 @@ export const handWindow = (pool: HandPool): WindowPool => ({
   subscribeRow: (id, changed) => pool.subscribe(id, changed),
 })
 export const leanWindow = (pool: LeanPool): WindowPool => ({
+  prepare: (ids) => pool.setWindow(ids),
   order: () => pool.filing.get().order,
   view: (id) => pool.mountRow(id).get(),
   subscribeOrder: (changed) => autorun(() => { pool.filing.get(); changed() }),
@@ -45,6 +47,7 @@ function Window({ pool }: { pool: WindowPool }) {
 }
 
 export function mountWindow(pool: WindowPool, element: Element): () => void {
+  pool.prepare?.(pool.order().slice(0, WINDOW_ROWS))
   // Keep filing observed before React's first render reads the row slots.
   const off = pool.subscribeOrder(() => {})
   const root = createRoot(element)

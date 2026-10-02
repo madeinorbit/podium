@@ -24,6 +24,7 @@ describe('lean memory prototype', () => {
     const census = startCensus()
     const { pool } = boot()
     const off = autorun(() => pool.filing.get())
+    pool.setWindow(pool.filing.get().order.slice(0, 20))
     const rowOff = pool.filing.get().order.slice(0, 20).map((id) => autorun(() => pool.mountRow(id).get()))
     const entries = census.snapshot().entries
     expect(entries.filter((entry) => entry.kind === 'computed')).toHaveLength(21)
@@ -39,6 +40,8 @@ describe('lean memory prototype', () => {
     const hand = handPoolArm.create(replay.source, locals, undefined, { schedule: () => () => {} })
     const off = autorun(() => pool.filing.get())
     expect(pool.filing.get().order).toEqual(hand.pool.order())
+    pool.setWindow(pool.filing.get().order.slice(0, 20))
+    expect(pool.filing.get().order.slice(0, 20).map((id) => pool.mountRow(id).get())).toEqual(hand.pool.order().slice(0, 20).map((id) => hand.pool.view(id)))
     const id = pool.filing.get().order[0]!
     expect(pool.tables.issue.get(id)).toBe(replay.source.row!('issue', id))
     const old = replay.source.row!('issue', id) as import('@podium/client-graph/shared/slice-types').SliceIssue

@@ -6,10 +6,37 @@ import { buildRowView, directParts, sessionActivityOf, type ViewInputs, type Rep
 import { directSessionParts, directVisibleParts, retainedSeatIdsOf, retentionOf, sortByRank, type SessionVisibleParts, type VisibleParts, type VisibleInputs, type HiddenIssue } from '../../hand/pool/worklist/visible'
 import { directRollupParts, seatVerdictOf, type RollupInputs, type RollupSelf } from '../../hand/pool/worklist/rollup'
 import { LOADING, type LeanPool } from './pool'
+import { SCHEMA, allRelations } from '@podium/client-graph/shared/schema'
+import { isLinkSpec, relationRef } from '../../hand/pool/relations'
 
 function scopeOf(pool: LeanPool) {
   const tables = pool.fenced
-  const relations = pool.relations
+  // A transient fold over DECLARED cold summaries supplies formal progress.
+  // No unloaded row is inserted in the pool's maintained relation indexes;
+  // these summary groups die with this filing run (they are not in its result).
+  const summaryGroups = new Map<string, Map<string, Set<string>>>()
+  const summaryForward = new Map<string, Map<string, string>>()
+  for (const { from, name, relation } of allRelations()) {
+    if (!isLinkSpec(relation) || relation.kind === 'prefix') continue
+    const groups = new Map<string, Set<string>>()
+    const forward = new Map<string, string>()
+    for (const id of pool.residency.ids(from)) {
+      const summary = pool.row(from, id, 'summary') as Record<string, unknown> | undefined
+      if (!summary || (relation.where && !relation.where.test(summary))) continue
+      const target = relationRef(relation, summary, SCHEMA)
+      if (target === null) continue
+      forward.set(id, target)
+      const members = groups.get(target) ?? new Set<string>()
+      members.add(id); groups.set(target, members)
+    }
+    summaryGroups.set(`${relation.to}.${relation.inverse}`, groups)
+    summaryForward.set(`${from}.${name}`, forward)
+  }
+  const relations: ViewInputs['relations'] = {
+    one: (from, id, name) => pool.relations.one(from, id, name) ?? summaryForward.get(`${from}.${name}`)?.get(id) ?? null,
+    many: (from, id, name) => new Set([...pool.relations.many(from, id, name), ...(summaryGroups.get(`${from}.${name}`)?.get(id) ?? [])]),
+    size: (from, id, name) => pool.relations.size(from, id, name) + (summaryGroups.get(`${from}.${name}`)?.get(id)?.size ?? 0),
+  }
   const issues = [...tables.issue.keys()].map((id) => ({ id }))
   const { coarseNow, selectedIssueId } = pool.locals.get()
   const inputs: ViewInputs = {
@@ -110,7 +137,7 @@ export function derive(pool: LeanPool): { order: readonly string[]; views: Map<s
   const scope = scopeOf(pool)
   const order = sortByRank([...pool.fenced.issue.keys()].filter((id) => scope.visiblePartsOf(id).visible), (id) => scope.visiblePartsOf(id).rank)
   const views = new Map<string, RowView>()
-  for (const id of order) {
+  for (const id of pool.mounted.keys()) {
     const view = buildRowView(scope.inputs, id, directParts(scope.inputs, id))
     if (view) views.set(id, view)
   }
