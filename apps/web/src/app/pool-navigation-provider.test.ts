@@ -5,7 +5,7 @@ import { MobxPool } from '@podium/client-graph'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { asIssueId } from '@podium/model/browser'
-import { runInAction } from 'mobx'
+import { computed } from '@podium/client-graph/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { startScenarioEngine } from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { createPoolNavigationProvider } from './pool-navigation-provider'
@@ -18,6 +18,7 @@ vi.mock('@/lib/pane-data-layer', () => ({ initializePaneDataLayer() {}, paneData
 vi.mock('@/lib/sidebar-data-layer', () => ({ initializeSidebarDataLayer() {}, sidebarDataLayer: () => 'legacy', sidebarCheckRequested: () => false }))
 afterEach(() => { navigationStats.disable(); navigationStats.reset(); choice.mode = 'pool' })
 const stamp = '2026-09-18T00:00:00.000Z'
+const tracked = <T>(read: () => T): T => computed(read).get()
 const issue = (id: string, patch: Partial<SliceIssue> = {}): SliceIssue => ({
   id, seq: 1, title: 'Synthetic task', stage: 'backlog', repoPath: '/repo', createdAt: stamp, updatedAt: stamp, ...patch,
 })
@@ -34,13 +35,13 @@ describe('web pool navigation', () => {
     try {
       for (const id of [...rows.map(row => row.id), 'absent', null]) {
         const st = { issueProjections: rows, selectedIssueId: id, selectedWorktree: '/repo' } as unknown as EngineState
-        expect(runInAction(() => workspaceKeyForState({ ...st, navigation: provider })), String(id)).toBe(workspaceKeyForState(st))
+        expect(tracked(() => workspaceKeyForState({ ...st, navigation: provider })), String(id)).toBe(workspaceKeyForState(st))
       }
       const selected = { issueProjections: rows, selectedIssueId: 'child', selectedWorktree: '/repo', navigation: provider } as unknown as EngineState
-      expect(runInAction(() => workspaceKeyForState(selected))).toBe('mission:root')
+      expect(tracked(() => workspaceKeyForState(selected))).toBe('mission:root')
       pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'child', value: issue('child', { parentId: 'draft' }) }] })
       // The legacy array stayed identical: pool topology owns invalidation.
-      expect(runInAction(() => workspaceKeyForState(selected))).toBe('mission:draft')
+      expect(tracked(() => workspaceKeyForState(selected))).toBe('mission:draft')
     } finally { pool.dispose() }
   })
 
@@ -53,12 +54,12 @@ describe('web pool navigation', () => {
     pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue', id: value.id, value })) })
     const provider = createPoolNavigationProvider(pool)
     try {
-      expect(runInAction(() => provider.issue('child'))).toBe(NAVIGATION_LOADING)
+      expect(tracked(() => provider.issue('child'))).toBe(NAVIGATION_LOADING)
       expect(load).not.toHaveBeenCalled()
       pool.hydrate()
       expect(load).toHaveBeenCalledTimes(1)
-      expect(runInAction(() => provider.issue('child'))).toMatchObject({ id: 'child' })
-      expect(runInAction(() => provider.missionRoot('child'))).toBe('child')
+      expect(tracked(() => provider.issue('child'))).toMatchObject({ id: 'child' })
+      expect(tracked(() => provider.missionRoot('child'))).toBe('child')
     } finally { pool.dispose() }
   })
 
@@ -103,7 +104,7 @@ describe('web pool navigation', () => {
     const provider = createPoolNavigationProvider(handle.pool)
     try {
       const st: EngineState = runtime.getSnapshot()
-      const check = (id: string) => runInAction(() => planNavigation({ ...st, navigation: provider }, routeDefaults('issues'),
+      const check = (id: string) => tracked(() => planNavigation({ ...st, navigation: provider }, routeDefaults('issues'),
         { view: 'workspace', selectedIssueId: asIssueId(id) }, { visible: true, now: stamp }))
       for (const issue of st.issueProjections) check(issue.id)
       for (let i = 0; i < 32 && handle.pool.hydrate() > 0; i++) { for (const issue of st.issueProjections) check(issue.id) }

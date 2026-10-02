@@ -2,9 +2,9 @@ import { NAVIGATION_LOADING, type NavigationProvider } from '@podium/client-core
 import type { SessionView } from '@podium/client-core/session-values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missions } from '@podium/client-graph/mission'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { asIssueId } from '@podium/model/browser'
-import { comparer, reaction } from 'mobx'
 
 /** An addressed read port over the existing principal's pool. Row reads use
  * its single loading reader; mission invalidation belongs to the pool cache. */
@@ -24,6 +24,6 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       const row = pool.row('session', id)
       return row === LOADING ? NAVIGATION_LOADING : row as SessionView | undefined
     },
-    watch: (read, changed) => reaction(read, changed, { equals: comparer.shallow }),
+    watch: (read, changed) => createPoolProjection(pool, read).subscribe(changed),
   }
 }
