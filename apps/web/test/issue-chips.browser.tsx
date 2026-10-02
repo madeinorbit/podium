@@ -124,7 +124,9 @@ root.render(
       owner.hub.subscribeTranscript = (id, _since, listener) => {
         if (id !== sessionId) throw new Error('Unexpected fixture transcript')
         transcriptListeners.add(listener)
-        return () => { transcriptListeners.delete(listener) }
+        return () => {
+          transcriptListeners.delete(listener)
+        }
       }
       return attachWorklistPool(owner, (error) => failures.push(error.message))
     }}
@@ -175,7 +177,11 @@ const proof = {
     if (!runtime || !pool) throw new Error('Pool absent')
     const { checkIssueChips } = await import('@podium/client-graph/diagnostics/chip-check')
     const state = runtime.getSnapshot()
-    const legacy = allIssueViewModels(runtime.replica, state.issueProjections, state.issueUserStates)
+    const legacy = allIssueViewModels(
+      runtime.replica,
+      state.issueProjections,
+      state.issueUserStates,
+    )
     return checkIssueChips(
       pool.references,
       legacy,

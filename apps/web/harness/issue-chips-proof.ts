@@ -6,7 +6,9 @@ const origin = 'http://127.0.0.1:41678'
 const out = '.artifacts/issue-chips'
 const tailProof = process.argv.includes('--tail-proof')
 const correctnessOnly = process.argv.includes('--correctness-only') || tailProof
-const modes = process.argv.includes('--pool-only') ? (['pool'] as const) : (['legacy', 'pool'] as const)
+const modes = process.argv.includes('--pool-only')
+  ? (['pool'] as const)
+  : (['legacy', 'pool'] as const)
 await mkdir(out, { recursive: true })
 const server = Bun.spawn(
   [
@@ -168,17 +170,25 @@ try {
       pinned: document.querySelector('.brief-shelf-text'),
       pinnedParagraph: document.querySelector('.brief-shelf-text')?.firstChild,
     }))
-    const retainedConversation = () => page.evaluate((previous) => ({
-      rows: previous.rows.length,
-      retainedRows: previous.rows.filter(({ key, element, body, paragraph }) => {
-        const row = document.querySelector(`[data-row-key="${key}"]`)
-        return row === element && row.querySelector('.chat-md') === body &&
-          row.querySelector('.chat-md')?.firstChild === paragraph
-      }).length,
-      pinnedPresent: previous.pinned !== null,
-      pinnedRetained: document.querySelector('.brief-shelf-text') === previous.pinned &&
-        document.querySelector('.brief-shelf-text')?.firstChild === previous.pinnedParagraph,
-    }), conversation)
+    const retainedConversation = () =>
+      page.evaluate(
+        (previous) => ({
+          rows: previous.rows.length,
+          retainedRows: previous.rows.filter(({ key, element, body, paragraph }) => {
+            const row = document.querySelector(`[data-row-key="${key}"]`)
+            return (
+              row === element &&
+              row.querySelector('.chat-md') === body &&
+              row.querySelector('.chat-md')?.firstChild === paragraph
+            )
+          }).length,
+          pinnedPresent: previous.pinned !== null,
+          pinnedRetained:
+            document.querySelector('.brief-shelf-text') === previous.pinned &&
+            document.querySelector('.brief-shelf-text')?.firstChild === previous.pinnedParagraph,
+        }),
+        conversation,
+      )
     await page.evaluate(() => window.__issueChips.traffic())
     await page.waitForTimeout(200)
     const traffic = await page.evaluate(() => window.__issueChips.stats())
@@ -187,16 +197,24 @@ try {
     await mounted.dispose()
     if (tailProof) {
       const evidence = {
-        mode, shape, trafficMounts, trafficDom,
+        mode,
+        shape,
+        trafficMounts,
+        trafficDom,
         reads: traffic.reads - before.reads,
         paints: traffic.redraws - before.redraws,
         legacyScans: traffic.legacyScans,
       }
       await writeFile(`${out}/tail-${mode}.json`, JSON.stringify(evidence, null, 2))
-      if (trafficMounts.added !== 0 || trafficMounts.changed !== 0 ||
-          trafficDom.rows !== 120 || trafficDom.retainedRows !== 120 ||
-          !trafficDom.pinnedPresent || !trafficDom.pinnedRetained ||
-          (mode === 'pool' && (evidence.reads !== 0 || evidence.paints !== 0)))
+      if (
+        trafficMounts.added !== 0 ||
+        trafficMounts.changed !== 0 ||
+        trafficDom.rows !== 120 ||
+        trafficDom.retainedRows !== 120 ||
+        !trafficDom.pinnedPresent ||
+        !trafficDom.pinnedRetained ||
+        (mode === 'pool' && (evidence.reads !== 0 || evidence.paints !== 0))
+      )
         throw new Error(`Unchanged conversation DOM replaced: ${JSON.stringify(evidence)}`)
     }
     if (
@@ -239,8 +257,13 @@ try {
     const issueDom = await retainedConversation()
     await issueBefore.dispose()
     await conversation.dispose()
-    if (tailProof && (issueMounts.added !== 0 || issueDom.retainedRows !== 120 || !issueDom.pinnedRetained))
-      throw new Error(`Issue decoration replaced conversation DOM: ${JSON.stringify({ issueMounts, issueDom })}`)
+    if (
+      tailProof &&
+      (issueMounts.added !== 0 || issueDom.retainedRows !== 120 || !issueDom.pinnedRetained)
+    )
+      throw new Error(
+        `Issue decoration replaced conversation DOM: ${JSON.stringify({ issueMounts, issueDom })}`,
+      )
     const after = await page.evaluate(() => window.__issueChips.stats())
     const changedChips = changed.filter(
       (row, i) => JSON.stringify(row) !== JSON.stringify(initial[i]),
@@ -287,36 +310,52 @@ try {
     if (tailProof) {
       const tail = page.locator('[data-row-key="message-119"]')
       const tailElement = await tail.elementHandle()
+      if (!tailElement) throw new Error('Transcript tail absent')
+      const waitForText = async (id: string, text: string) => {
+        try {
+          await page.waitForFunction(
+            ({ id, text }) =>
+              document.querySelector(`[data-row-key="${id}"] .chat-md`)?.textContent?.trim() ===
+              text,
+            { id, text },
+          )
+        } catch (error) {
+          throw new Error(`Streamed transcript did not update ${id}`, { cause: error })
+        }
+      }
       const partial = 'Streamed partial SYN-1000'
       await page.evaluate((text) => window.__issueChips.streamTail(text), partial)
-      await page.waitForFunction((text) =>
-        document.querySelector('[data-row-key="message-119"] .chat-md')?.textContent?.trim() === text,
-        partial,
-      )
+      await waitForText('message-119', partial)
       const complete = 'Streamed partial completed SYN-1001'
       await page.evaluate((text) => window.__issueChips.streamTail(text), complete)
-      await page.waitForFunction((text) =>
-        document.querySelector('[data-row-key="message-119"] .chat-md')?.textContent?.trim() === text,
-        complete,
-      )
-      const tailRetained = await page.evaluate((previous) =>
-        document.querySelector('[data-row-key="message-119"]') === previous,
+      await waitForText('message-119', complete)
+      const tailRetained = await page.evaluate(
+        (previous) => document.querySelector('[data-row-key="message-119"]') === previous,
         tailElement,
       )
       const text = 'Appended streamed reply SYN-1002'
-      const appendedId = await page.evaluate((text) => window.__issueChips.streamTail(text, true), text)
-      await page.waitForFunction(({ id, text }) =>
-        document.querySelector(`[data-row-key="${id}"] .chat-md`)?.textContent?.trim() === text,
-        { id: appendedId, text },
+      const appendedId = await page.evaluate(
+        (text) => window.__issueChips.streamTail(text, true),
+        text,
       )
-      const retainedOnAppend = await page.evaluate((previous) =>
-        document.querySelector('[data-row-key="message-119"]') === previous,
+      await waitForText(appendedId, text)
+      const retainedOnAppend = await page.evaluate(
+        (previous) => document.querySelector('[data-row-key="message-119"]') === previous,
         tailElement,
       )
-      await tailElement?.dispose()
-      if (!tailRetained || !retainedOnAppend) throw new Error('Streaming replaced the existing tail row')
-      streaming = { sameIdPartial: true, sameIdComplete: true, append: true, tailRetained, retainedOnAppend }
+      await tailElement.dispose()
+      if (!tailRetained || !retainedOnAppend)
+        throw new Error('Streaming replaced the existing tail row')
+      streaming = {
+        sameIdPartial: true,
+        sameIdComplete: true,
+        append: true,
+        tailRetained,
+        retainedOnAppend,
+      }
     }
+    if (errors.length || (await page.evaluate(() => window.__issueChips.failures())).length)
+      throw new Error(`Browser errors after streaming: ${errors.join('; ')}`)
     times.sort((a, b) => a - b)
     results.push({
       mode,
@@ -344,7 +383,11 @@ try {
     throw new Error('Legacy/pool chip values differ')
   await writeFile(
     `${out}/result.json`,
-    JSON.stringify({ results, ...(snapshots.length === 2 ? { identicalChipValues: true } : {}) }, null, 2),
+    JSON.stringify(
+      { results, ...(snapshots.length === 2 ? { identicalChipValues: true } : {}) },
+      null,
+      2,
+    ),
   )
   console.log(JSON.stringify(results))
 } finally {
