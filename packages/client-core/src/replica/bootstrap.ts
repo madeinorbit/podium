@@ -212,28 +212,33 @@ export class BootstrapSession {
       }
       // Then the changes that happened WHILE we streamed, in seq order.
       const sorted = [...this.buffered].sort((a, b) => a.seq - b.seq)
-      const upserts = new Map<ReplicaKind, unknown[]>()
-      const removes = new Map<ReplicaKind, string[]>()
+      const upserts = new Map<ReplicaKind, Map<string, unknown>>()
+      const removes = new Map<ReplicaKind, Set<string>>()
       let seq = Math.max(this.cursor.seq, this.bufferedSeq)
       for (const change of sorted) {
         seq = Math.max(seq, change.seq)
         const kind = KIND_BY_ENTITY[change.entity]
         if (kind === undefined || !isKnownMetadataChange(change)) continue
+        // Keep the last valid operation per row, in sequence order. Grouping
+        // deletes and upserts without cancelling the earlier operation would
+        // resurrect a row whose final change was a delete.
         if (change.op === 'remove') {
-          const list = removes.get(kind) ?? []
-          list.push(change.id)
-          removes.set(kind, list)
+          upserts.get(kind)?.delete(change.id)
+          const ids = removes.get(kind) ?? new Set<string>()
+          ids.add(change.id)
+          removes.set(kind, ids)
         } else if (change.value !== undefined) {
-          const list = upserts.get(kind) ?? []
-          list.push(change.value)
-          upserts.set(kind, list)
+          removes.get(kind)?.delete(change.id)
+          const rows = upserts.get(kind) ?? new Map<string, unknown>()
+          rows.set(change.id, change.value)
+          upserts.set(kind, rows)
         }
       }
       for (const kind of new Set([...upserts.keys(), ...removes.keys()])) {
         this.replica.applyChanges(
           kind,
-          (upserts.get(kind) ?? []) as ReplicaRows[ReplicaKind][],
-          removes.get(kind) ?? [],
+          [...(upserts.get(kind)?.values() ?? [])] as ReplicaRows[ReplicaKind][],
+          [...(removes.get(kind) ?? [])],
         )
       }
       // Cursor LAST — see the note above.

@@ -301,6 +301,54 @@ describe('pacing — the bootstrap must never own the loop (D6)', () => {
 })
 
 describe('concurrent deltas — the world moves while we stream (D6 step 3)', () => {
+  it.each([
+    {
+      name: 'upsert then remove',
+      changes: [upsert('issue', 'i1', 11), remove('issue', 'i1', 12)],
+      expected: [],
+    },
+    {
+      name: 'remove then upsert',
+      changes: [remove('issue', 'i1', 11), upsert('issue', 'i1', 12)],
+      expected: [{ id: 'i1', title: 'i1' }],
+    },
+    {
+      name: 'upsert, remove, then readmit',
+      changes: [upsert('issue', 'i1', 11), remove('issue', 'i1', 12), upsert('issue', 'i1', 13)],
+      expected: [{ id: 'i1', title: 'i1' }],
+    },
+    {
+      name: 'remove, upsert, then remove delivered out of order',
+      changes: [remove('issue', 'i1', 13), remove('issue', 'i1', 11), upsert('issue', 'i1', 12)],
+      expected: [],
+    },
+  ])('honors same-id buffered operation order: $name', async ({ changes, expected }) => {
+    const replica = createReplica({ storage: memoryStorage() })
+    const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
+    await session.install({ changes: [upsert('issue', 'i1', 1, { id: 'i1', title: 'snapshot' })] })
+    session.bufferDelta(13, changes)
+    session.commit()
+
+    expect(replica.rows('issues')).toMatchObject(expected)
+    expect(replica.getFeedCursor().seq).toBe(Math.max(...changes.map((change) => change.seq)))
+  })
+
+  it('keeps buffered operation identity separate across kinds', async () => {
+    const replica = createReplica({ storage: memoryStorage() })
+    const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
+    await session.install({ changes: [] })
+    session.bufferDelta(13, [
+      upsert('issue', 'shared-id', 11),
+      upsert('machine', 'shared-id', 12),
+      remove('issue', 'shared-id', 13),
+    ])
+    session.commit()
+
+    expect(replica.rows('issues')).toEqual([])
+    expect(replica.rows('machines')).toMatchObject([{ id: 'shared-id', title: 'shared-id' }])
+    expect(replica.getFeedCursor().seq).toBe(13)
+  })
+
   it('buffers deltas past snapshotSeq and applies them in the commit', async () => {
     const replica = createReplica({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
