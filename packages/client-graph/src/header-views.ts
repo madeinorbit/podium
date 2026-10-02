@@ -3,6 +3,7 @@ import { measureHeader } from '@podium/client-core/perf'
 import type { MachineId} from '@podium/model/browser'
 import { isMachineOfflineForLiveTerminal, normalizeOriginUrl } from '@podium/model/browser'
 import { _isComputingDerivation, compareStructural, computed, onBecomeUnobserved, type IComputedValue } from 'mobx'
+import { debugName } from './debug-name'
 import type { MobxPool } from './pool'
 import { coldSessionIds, headerIds, knownIssueIds, knownSessionIds, residentSessionIds } from './enumerate'
 import type { HeaderEntity, HeaderRows } from './header-schema'
@@ -28,7 +29,7 @@ export function createHeaderViews(pool: MobxPool) {
     if (!_isComputingDerivation()) return measureHeader(`pool.${key.split(':')[0]}`, read)
     let value = cache.get(key)
     if (!value) {
-      value = computed(() => measureHeader(`pool.${key.split(':')[0]}`, read), { equals: compareStructural, name: `header.${key}` })
+      value = computed(() => measureHeader(`pool.${key.split(':')[0]}`, read), { equals: compareStructural, name: debugName(() => `header.${key}`) })
       cache.set(key, value)
       onBecomeUnobserved(value, () => cache.delete(key))
     }

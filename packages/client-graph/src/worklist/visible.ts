@@ -86,6 +86,7 @@
  */
 
 import { compareStructural, makeObservable, reaction } from 'mobx'
+import { debugName } from '../debug-name'
 import { type RelationLinks, refs } from '../shared/links'
 import { compareRank, type RowRank } from '../shared/row-view'
 import { awaitingMergeOf } from '../shared/schema'
@@ -1168,7 +1169,7 @@ export class VisibleCollection {
           this.file(id, filing)
           this.host.fileSidebarOwner?.(id, owner)
         },
-        { fireImmediately: true, equals: compareStructural, name: `pool.file.${id}` },
+        { fireImmediately: true, equals: compareStructural, name: debugName(() => `pool.file.${id}`) },
       ),
     )
   }

@@ -75,6 +75,7 @@
  */
 
 import { _isComputingDerivation, createAtom, type IAtom } from 'mobx'
+import { debugName } from './debug-name'
 import {
   type ColdContext,
   coldByRule,
@@ -290,7 +291,7 @@ export class Residency {
       let atom = this.idAtoms.get(entity)
       let fresh = false
       if (!atom) {
-        const created = createAtom(`residency.ids.${entity}`, undefined, () => {
+        const created = createAtom(debugName(() => `residency.ids.${entity}`) ?? 'Atom', undefined, () => {
           if (this.idAtoms.get(entity) === created) this.idAtoms.delete(entity)
         })
         atom = created
@@ -992,7 +993,7 @@ export class Residency {
     let atom = this.atoms.get(key)
     let fresh = false
     if (atom === undefined) {
-      const created = createAtom(`pool.cold.${key}`, undefined, () => {
+      const created = createAtom(debugName(() => `pool.cold.${key}`) ?? 'Atom', undefined, () => {
         if (this.atoms.get(key) === created) this.atoms.delete(key)
       })
       this.atoms.set(key, created)

@@ -1,11 +1,12 @@
 import { compareStructural, computed, observable, runInAction } from 'mobx'
+import { debugName } from './debug-name'
 import { HEADER_RELATIONS, HEADER_SCHEMA, type HeaderEntity, type HeaderRecord, type HeaderRows } from './header-schema'
 
 /** Storage and metadata-driven edges owned by MobxPool, never a second runtime
  * or feed. Product reads call pool.row; get is the pool reader's storage seam. */
 export function createHeaderEntities() {
   const tables = Object.fromEntries(Object.keys(HEADER_SCHEMA).map((entity) => [
-    entity, observable.map<string, object>(undefined, { deep: false, name: `pool.${entity}` }),
+    entity, observable.map<string, object>(undefined, { deep: false, name: debugName(() => `pool.${entity}`) }),
   ])) as Record<HeaderEntity, ReturnType<typeof observable.map<string, object>>>
   const orders = observable.map<HeaderEntity, readonly string[]>(undefined, { deep: false })
   const members = observable.map<string, readonly string[]>(undefined, { deep: false })

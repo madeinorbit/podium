@@ -28,6 +28,7 @@ import {
   type IComputedValue,
   onBecomeUnobserved,
 } from 'mobx'
+import { debugName } from './debug-name'
 
 /** `<Class>@<id>`: the object's debug name. */
 function debugNameOf(target: { readonly id: string }): string {
@@ -50,13 +51,13 @@ export function cachedGroup<T extends { readonly id: string }, V>(
       const state = _getGlobalState()
       if (state.inBatch === 0 && state.computedRequiresReaction) {
         console.warn(
-          `[mobx] Computed value '${debugNameOf(target)}.${group}' is being read outside a reactive context. Doing a full recompute.`,
+          `[mobx] Computed value '${debugName(() => `${debugNameOf(target)}.${group}`) ?? 'ComputedValue'}' is being read outside a reactive context. Doing a full recompute.`,
         )
       }
       return compute(target)
     }
     const value = computed(() => compute(target), {
-      name: `${debugNameOf(target)}.${group}`,
+      name: debugName(() => `${debugNameOf(target)}.${group}`),
       equals,
       context: target,
     })

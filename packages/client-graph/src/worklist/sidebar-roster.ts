@@ -1,6 +1,7 @@
 /** Resident roster candidates, maintained by existing ingest and issue filings.
  * No per-session reaction or full session/issue record is retained here. */
 import { computed, compareStructural, observable, type IComputedValue, type ObservableSet } from 'mobx'
+import { debugName } from '../debug-name'
 import type { MobxPool } from '../pool'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
 import { issueExcluded } from '../shared/schema'
@@ -31,14 +32,14 @@ export class SidebarRosterIndex {
   private readonly dirty = new Set<string>()
   private readonly dirtyOwners = new Set<string>()
   private readonly lanes = observable.map<string, ObservableSet<string>>(undefined, {
-    deep: false, name: 'pool.sidebar.rosterCandidates',
+    deep: false, name: debugName(() => 'pool.sidebar.rosterCandidates'),
   })
   private readonly coldCounts = observable.map<string, number>(undefined, {
-    deep: false, name: 'pool.sidebar.coldRosterSummary',
+    deep: false, name: debugName(() => 'pool.sidebar.coldRosterSummary'),
   })
   /** Project metadata and roster path lanes contain resident worktrees only. */
-  readonly projects = observable.set<string>(undefined, { deep: false, name: 'pool.sidebar.projects' })
-  private readonly projectCounts = observable.map<number | undefined, number>(undefined, { deep: false, name: 'pool.sidebar.projectCounts' })
+  readonly projects = observable.set<string>(undefined, { deep: false, name: debugName(() => 'pool.sidebar.projects') })
+  private readonly projectCounts = observable.map<number | undefined, number>(undefined, { deep: false, name: debugName(() => 'pool.sidebar.projectCounts') })
   private readonly worktrees = new Map<string, { readonly group: string; readonly project?: number }>()
   private readonly paths = new SortedLanes<string, string>((a, b) => a < b ? -1 : a > b ? 1 : 0, 'pool.sidebar.rosterPaths')
   private readonly bands = new Map<string, IComputedValue<{ readonly ids: readonly string[]; readonly label: string; readonly repoPath: string }>>()
@@ -67,7 +68,7 @@ export class SidebarRosterIndex {
         const head = ids[0] === undefined ? undefined : this.pool.row('worktree', ids[0])
         const lane = head === LOADING ? undefined : head as SliceWorktree | undefined
         return { ids, label: lane?.repoName ?? key, repoPath: lane?.repoPath ?? key }
-      }, { name: `pool.sidebar.rosterBand.${key}`, equals: compareStructural })
+      }, { name: debugName(() => `pool.sidebar.rosterBand.${key}`), equals: compareStructural })
       this.bands.set(key, band)
     }
     return band.get()
@@ -221,7 +222,7 @@ export class SidebarRosterIndex {
     let lane = this.lanes.get(seat.path)
     if (candidate) {
       if (!lane) {
-        lane = observable.set<string>(undefined, { deep: false, name: 'pool.sidebar.rosterSeats' })
+        lane = observable.set<string>(undefined, { deep: false, name: debugName(() => 'pool.sidebar.rosterSeats') })
         this.lanes.set(seat.path, lane)
       }
       lane.add(id)

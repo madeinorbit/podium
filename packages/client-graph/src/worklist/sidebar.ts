@@ -8,6 +8,7 @@ import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-ty
 import { issueExcluded } from '../shared/schema'
 import { overlayRow } from '../shared/overlay-row'
 import { compareStructural, computed, type IComputedValue } from 'mobx'
+import { debugName } from '../debug-name'
 import { LOADING, attentionGroup } from './rollup'
 import { retains, retentionOf, type HiddenIssue } from './visible'
 import { sortedSidebarSessions, type SidebarRowValues } from './sidebar-row'
@@ -165,7 +166,7 @@ export class SidebarIndex {
   sections(state: SidebarState = EMPTY_STATE): SidebarSections {
     let view = this.sectionViews.get(state)
     if (!view) {
-      view = computed(() => this.sectionValues(state), { name: 'pool.sidebar.sections', equals: compareStructural })
+      view = computed(() => this.sectionValues(state), { name: debugName(() => 'pool.sidebar.sections'), equals: compareStructural })
       this.sectionViews.set(state, view)
     }
     return view.get()
