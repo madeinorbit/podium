@@ -184,12 +184,21 @@ describe('one projection pass', () => {
     } finally { await f.store.close() }
   })
 
-  it('preserves the old reader-scoped SessionMeta array deeply', async () => {
+  it('preserves legacy SessionMeta deeply apart from S1 additive fields', async () => {
     const f = await fixture(10)
     try {
       const expected = []
       for (const s of f.rows) if (await f.state.canReadSession(principal, s.sessionId)) expected.push(await legacyWire(s, f))
-      expect(await f.view.list(principal, 'rpc')).toEqual(expected)
+      // S1 adds precisely these optional source fields beside the old record.
+      // The frozen oracle continues to compare every legacy key and value.
+      const actual = (await f.view.list(principal, 'rpc')).map(row => {
+        const legacy = { ...row }
+        delete legacy.refRepoId
+        delete legacy.refSeq
+        delete legacy.handoffTargetMachineId
+        return legacy
+      })
+      expect(actual).toEqual(expected)
       expect(expected).toHaveLength(8)
       expect(expected.some(s => s.displayRef)).toBe(true)
       expect(expected.some(s => s.snoozedUntil === null)).toBe(true)
