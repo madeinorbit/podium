@@ -100,6 +100,8 @@ describe('page schema generic relation collections', () => {
     }
     try {
       pool.apply({ type: 'replace', rows }); check()
+      expect(read(() => [...reader.many('issue', 'owner', 'pageDependencies')].sort())).toEqual(['a', 'b'])
+      expect(read(() => [...reader.many('issue', 'a', 'pageDependents')])).toEqual(['owner'])
       expect(read(() => [...reader.many('issue', 'a', 'pageSessions')].sort())).toEqual(['twin-a', 'twin-b'])
       expect(read(() => [...reader.many('issue', 'a', 'missionSessions')])).toHaveLength(1)
       pool.apply({ type: 'update', rows: [issue('owner', [{ id: 'b', type: 'arbitrary-type' }])] }); check()
