@@ -588,7 +588,9 @@ export class MobxPool {
     }
     let loading = false
     for (const id of this.residency?.ids('issue', true) ?? []) {
-      const row = this.hidden('issue', id) ?? this.row('issue', id)
+      const summary = this.hidden('issue', id)
+      // stage is required in the declared summary; hidden() uses {} when absent.
+      const row = summary && 'stage' in summary ? summary : this.row('issue', id)
       if (row === LOADING) loading = true
       else if (row && !(row as Partial<SliceIssue>).deletedAt) return true
     }

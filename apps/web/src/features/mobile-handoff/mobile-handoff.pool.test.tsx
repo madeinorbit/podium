@@ -93,7 +93,7 @@ describe('declared pool first-task value', () => {
 
   it('keeps a missing cold summary LOADING and batches the row load', () => {
     const { pool, load, schedule } = makePool([issue({ archived: true })])
-    vi.spyOn(pool, 'hidden').mockReturnValue(undefined)
+    vi.spyOn(pool.residency!, 'summary').mockReturnValue(undefined)
     expect(pool.hasFirstTask).toBe(LOADING)
     expect(pool.hasFirstTask).toBe(LOADING)
     expect(load).not.toHaveBeenCalled()
