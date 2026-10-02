@@ -1,11 +1,14 @@
-/** Default OFF; frozen for this app load, including provider rebuilds. */
+import type { UiState } from '@podium/client-core/ui-state'
+import { mobxPilotEnabled } from './mobx-pilot'
+
+/** The shared device setting defaults OFF; frozen for this app load. */
 let startup: 'legacy' | 'pool' | undefined
 let check = false
-export function initializeCommandLaunchDataLayer(): void {
+export function initializeCommandLaunchDataLayer(ui: Pick<UiState, 'get'>): void {
   if (startup !== undefined) return
   let params: URLSearchParams | undefined
   try { params = new URLSearchParams(location.search) } catch { /* SSR */ }
-  startup = params?.get('mobxCommands') === '1' ? 'pool' : 'legacy'
+  startup = mobxPilotEnabled(ui, params, 'mobxCommands') ? 'pool' : 'legacy'
   check = startup === 'pool' && params?.get('mobxCommandsCheck') === '1'
 }
 export function commandLaunchDataLayer(): 'legacy' | 'pool' { return startup ?? 'legacy' }
@@ -19,7 +22,6 @@ export const commandLaunchReadStats = {
   legacy(owner: object) { if (enabled) { const counts = owners.get(owner) ?? { legacyReads: 0 }; counts.legacyReads++; owners.set(owner, counts) } },
   read(owner: object) { return owners.get(owner) ?? { legacyReads: 0 } },
 }
-initializeCommandLaunchDataLayer()
 
 /** Startup declarations stay independent of component hooks and the web store.
  * The existing registry owns both late attachment and source disposal. */
