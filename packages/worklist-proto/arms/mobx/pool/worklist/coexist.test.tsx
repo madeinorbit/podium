@@ -36,7 +36,7 @@ import {
   writeHeartbeat,
   writeSelectionClick,
 } from '../../../../shared/src/scenarios'
-import { harnessMobxPoolArm, tracked } from '../../../../harness/src/adapters/mobx-pool'
+import { harnessMobxPoolArm, tracked, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 
@@ -117,7 +117,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(harnessMobxPoolArm, feeds.rows.source, feeds.locals)
     try {
-      const handle = mounted.handle as { pool: MobxPool; settleLoads(): void }
+      const handle = mounted.handle as HarnessMobxPoolHandle
       const pool = handle.pool
       await act(async () => {
         handle.settleLoads()
