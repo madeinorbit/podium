@@ -1,6 +1,6 @@
 # Settings and setup pool readers
 
-2026-10-02. Branch base: `integrate/4286-pilot` at `63aa99e972`. Final runtime candidate measured: `ca071d79f9`. The coordinator allocated web settings/setup, excluding the version guard, and explicitly cleared the settings source/attachment seams and the app-level Machines selector. Mobile settings is separately tracked in **POD-5225**, blocked on POD-4976; it does not block this web deliverable.
+2026-10-02. Branch base: `integrate/4286-pilot` at `63aa99e972`; clean rebase onto `a217dd49c9` preserved all 25 issue patches. Final runtime candidate measured: `5fb2d79645`. The coordinator allocated web settings/setup, excluding the version guard, and explicitly cleared the settings source/attachment seams and the app-level Machines selector. Mobile settings is separately tracked in **POD-5225**, blocked on POD-4976; it does not block this web deliverable.
 
 The enabled settings/setup readers execute **zero legacy selectors, slice derivations and preference reads** in the synthetic Chromium proof. Differential comparisons have zero differences and pending loads on the synthetic corpus and the ludovico-only operator replay. The startup switch remains **OFF by default**. This is reader correctness evidence, not a general performance improvement: the isolated enabled fixture also pays for constructing the shared pool and uses more heap and rebuild time.
 
@@ -24,6 +24,7 @@ All tests, lint, typechecks and Chromium work ran sequentially in `~/podium-test
 - The remaining eight failures reproduce on unchanged base `63aa99e972`: seven obsolete setup expectations tracked in **POD-5224**, and the updates development-version label assertion tracked in **POD-5124**. No product behavior was changed to satisfy those assertions.
 - The folded first-task fix and existing handoff checks executed 35 tests in four exact files. Its new fixture was completed to remove swallowed MobX reaction errors; the affected new check then passed cleanly. The existing 30 handoff checks and four settings-pool checks were green.
 - Final cached graph/web typecheck: **16 successful tasks, 14 cache hits**. Focused lint on the six changed graph/source/diagnostic files is green after the folded fix.
+- Rebased integration inputs: the three exact pool/count/handoff files passed **17 tests** and graph/web typecheck passed **16 tasks, 15 cache hits**. The final fixture change sets the same Podium theme as the established browser fixtures.
 
 Seven new unit checks caught planted faults: default-ON startup, relatching on navigation, catalog never completing its load, reversed hot/cold session order, wrong settings tab, leaked owner subscription, and a stale first-task count. Each plant ran through `bun run test:file -- <exact file>` and failed at its assertion; source bytes were copied aside and restored. The corresponding restored checks are green.
 
@@ -45,19 +46,19 @@ The restored after arm compares **5,022 positions, zero differences, zero pendin
 
 Both browser checks have red controls. Reintroducing the catalog fallback produces 201 legacy selectors/derivations and fails the zero-reader assertion. Reintroducing the original Machines selector fails its mount/activity assertion. The proof resets counters before navigation and waits for the actual Machines heading and row; a composer machine label cannot stand in for the lazy panel having mounted.
 
-Final leased sample, at `ca071d79f9`:
+Final leased sample, at `5fb2d79645`, with the app's Podium theme. A previous sample was replaced after another lane reported approximately four seconds of overlapping test traffic:
 
 | Observation | Before | After |
 | --- | ---: | ---: |
-| Activity main-thread task time | 605.88 ms | 552.92 ms |
-| Activity script time | 17.84 ms | 20.23 ms |
-| Activity React commit time | 15.20 ms | 5.10 ms |
-| Preferences main-thread task time | 314.42 ms | 297.28 ms |
-| Preferences script time | 153.74 ms | 176.44 ms |
-| Preferences React commit time | 97.10 ms | 104.50 ms |
-| Toggle to observed paint | 456 ms | 328 ms |
-| Principal rebuild to observed readiness | 192 ms | 868 ms |
-| JS heap after preferences | 39,977,364 bytes | 135,900,720 bytes |
+| Activity main-thread task time | 490.37 ms | 506.84 ms |
+| Activity script time | 13.78 ms | 19.29 ms |
+| Activity React commit time | 11.40 ms | 5.10 ms |
+| Preferences main-thread task time | 319.17 ms | 290.10 ms |
+| Preferences script time | 193.43 ms | 171.37 ms |
+| Preferences React commit time | 128.40 ms | 103.80 ms |
+| Toggle to observed paint | 266 ms | 275 ms |
+| Principal rebuild to observed readiness | 135 ms | 866 ms |
+| JS heap after preferences | 50,096,928 bytes | 126,338,828 bytes |
 
 These are single development-mode samples. Toggle/rebuild wall time includes automation and two animation-frame waits. Heap snapshots were not forced through GC and do not establish retained memory. The enabled arm constructs the general pool while the before arm has no pool, so these numbers do not isolate the incremental cost of settings on an already-running pool. **POD-5234** proposes that retained-memory and startup attribution work; it remains unclaimed.
 
