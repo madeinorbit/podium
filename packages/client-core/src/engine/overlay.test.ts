@@ -46,8 +46,7 @@ const entry = (kind: string, input: unknown, queuedAt = 1751500800000): OutboxEn
 })
 
 /** The one overlay of record an entry paints on its own row — every kind but
- *  a mixed `issueUpdate` has at most one. An issue entry's old-record part
- *  is covered by the normalized row tests below. */
+ *  a mixed `issueUpdate` has at most one. */
 function overlayForOutboxEntry(e: OutboxEntry): PendingOverlay | null {
   const overlays = overlaysForOutboxEntry(e)
   expect(overlays.length).toBeLessThanOrEqual(1)

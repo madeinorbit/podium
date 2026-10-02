@@ -115,7 +115,7 @@ describe('kind mapping', () => {
   it('maps every engine kind to the singular entity the wire uses, and back', () => {
     for (const kind of [
       'sessions',
-      'issues',
+      'issueProjections',
       'conversations',
       'automations',
       'automationRuns',
@@ -149,7 +149,7 @@ describe('kind mapping', () => {
 
   it('keys sessions on sessionId and everything else on id', () => {
     expect(rowKey('sessions', session('s1'))).toBe('s1')
-    expect(rowKey('issues', issue('i1'))).toBe('i1')
+    expect(rowKey('issueProjections', issue('i1'))).toBe('i1')
   })
 })
 
@@ -157,11 +157,11 @@ describe('read model projection', () => {
   it('projects only its own kind, and in a deterministic order', () => {
     const { cache, replica } = build()
     cache.put('session', 's2', session('s2'))
-    cache.put('issue', 'i1', issue('i1'))
+    cache.put('issueProjection', 'i1', issue('i1'))
     cache.put('session', 's1', session('s1'))
 
     expect(replica.rows('sessions').map((r) => r.sessionId)).toEqual(['s1', 's2'])
-    expect(replica.rows('issues').map((r) => r.id)).toEqual(['i1'])
+    expect(replica.rows('issueProjections').map((r) => r.id)).toEqual(['i1'])
     expect(replica.rows('conversations')).toEqual([])
   })
 
@@ -174,7 +174,7 @@ describe('read model projection', () => {
 
   it('returns a STABLE empty identity so pre-bootstrap snapshots do not churn', () => {
     const { replica } = build()
-    expect(replica.rows('sessions')).toBe(replica.rows('issues'))
+    expect(replica.rows('sessions')).toBe(replica.rows('issueProjections'))
   })
 
   it('reads as empty rather than throwing when the store is unreadable', () => {
@@ -336,7 +336,7 @@ describe('row subscriptions', () => {
     replica.subscribeRows('sessions', () => {
       sessionsFired += 1
     })
-    replica.subscribeRows('issues', () => {
+    replica.subscribeRows('issueProjections', () => {
       issuesFired += 1
     })
   })
@@ -374,11 +374,11 @@ describe('row subscriptions', () => {
     expect(sessionsFired).toBe(2)
     expect(replica.rows('sessions')).toHaveLength(0)
 
-    cache.put('issue', 'i1', issue('i1'))
-    replica.onKernelEvent(upserted('issue', 'i1'))
-    cache.drop('issue', 'i1')
-    replica.onKernelEvent({ type: 'removed', entity: 'issue', entityId: 'i1' })
-    expect(replica.rows('issues')).toHaveLength(0)
+    cache.put('issueProjection', 'i1', issue('i1'))
+    replica.onKernelEvent(upserted('issueProjection', 'i1'))
+    cache.drop('issueProjection', 'i1')
+    replica.onKernelEvent({ type: 'removed', entity: 'issueProjection', entityId: 'i1' })
+    expect(replica.rows('issueProjections')).toHaveLength(0)
   })
 
   it('a WATERMARK-ONLY stretch does not notify, while a data frame does', () => {
@@ -459,11 +459,11 @@ describe('row subscriptions', () => {
   })
 
   it('unsubscribes', () => {
-    const off = replica.subscribeRows('issues', () => {
+    const off = replica.subscribeRows('issueProjections', () => {
       issuesFired += 100
     })
     off()
-    replica.onKernelEvent(upserted('issue', 'i1'))
+    replica.onKernelEvent(upserted('issueProjection', 'i1'))
     expect(issuesFired).toBe(1)
   })
 
@@ -565,7 +565,7 @@ describe('the side cache', () => {
 
   it('folds the raw legacy localStorage keys in once, and leaves the mirrored ones', () => {
     const storage = memoryStorage()
-    storage.setItem('podium.view', 'issues')
+    storage.setItem('podium.view', 'issueProjections')
     storage.setItem('podium.theme.mode', 'dark')
     storage.setItem('podium:sidebar:width', '320')
     storage.setItem('podium.htmlmode:tab-1', 'raw')
@@ -575,7 +575,7 @@ describe('the side cache', () => {
       enumerateKeys: () => ['podium:sidebar:width', 'podium.htmlmode:tab-1'],
     })
     const ui = side.uiState()
-    expect(ui.get('podium.view')).toBe('issues')
+    expect(ui.get('podium.view')).toBe('issueProjections')
     expect(ui.get('podium:sidebar:width')).toBe('320')
     expect(JSON.parse(ui.get('podium.htmlmode') ?? '{}')).toEqual({ 'tab-1': 'raw' })
 
@@ -982,7 +982,7 @@ describe('the side cache', () => {
         storage: denyingStorage(() => true),
         enumerateKeys: () => [],
       })
-      expect(() => side.uiState().set('podium.view', 'issues')).not.toThrow()
+      expect(() => side.uiState().set('podium.view', 'issueProjections')).not.toThrow()
       expect(() => side.putTranscriptWindow('c1', [])).not.toThrow()
     })
   })

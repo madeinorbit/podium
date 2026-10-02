@@ -214,7 +214,7 @@ export interface FixtureCorpus {
   /** POD-4747: every unit, in minting order. */
   units: UnitSpan[]
   fixedNow: number
-  /** Legacy wire rows (`store.issues`, replica `issues` kind for `readAt`). */
+  /** Derived render models for oracle inputs; never replicated as a kind. */
   issues: IssueViewModel[]
   /** Normalized durable rows (replica `issueProjections` kind). */
   issueProjections: IssueProjection[]

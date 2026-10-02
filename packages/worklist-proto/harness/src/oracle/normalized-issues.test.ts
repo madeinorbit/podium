@@ -29,7 +29,6 @@ describe('normalized-only corpus acceptance', () => {
   it('is field-for-field identical across the corpus with and without old rows', () => {
     const full = boot(true),
       normalized = boot(false)
-    expect(normalized.replica.rows('issues')).toEqual([])
     const before = allIssueViewModels(full.replica),
       after = allIssueViewModels(normalized.replica)
     expect(after).toHaveLength(full.corpus.issues.length)

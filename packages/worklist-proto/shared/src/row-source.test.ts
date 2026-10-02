@@ -1249,7 +1249,6 @@ async function runFence(
   engine.start()
   await settle(100)
   // The scale is real: the replica and the runtime hold the whole corpus.
-  expect(replica.rows('issues')).toHaveLength(0)
   expect(replica.rows('issueProjections')).toHaveLength(spec.issues)
   expect(replica.rows('sessions')).toHaveLength(spec.sessions)
   expect(engine.getSnapshot().issues).toHaveLength(0)

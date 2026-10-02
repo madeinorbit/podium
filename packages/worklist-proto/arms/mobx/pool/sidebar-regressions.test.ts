@@ -101,11 +101,11 @@ function replay(data: LiveCollections) {
     })),
     updateIssue: (row: IssueViewModel) => {
       const projection = required(collections([row]).issueProjections[0])
-      for (const [entity, value] of [['issue', row], ['issueProjection', projection]] as const) {
+      for (const [entity, value] of [['issueProjection', projection]] as const) {
         cache.put(entity, row.id, value)
         replica.onKernelEvent({ type: 'upserted', record: { entity, entityId: row.id, value, provenance: { seq: 1 } }, readmitted: false })
       }
-      store = { ...store, issues: replica.rows('issues') as IssueViewModel[], issueProjections: replica.rows('issueProjections') as IssueProjection[] }
+      store = { ...store, issueProjections: replica.rows('issueProjections') as IssueProjection[] }
       publish(); rows.flush(); settle()
     },
     updateRepoPath: (id: string, repoPath: string) => {

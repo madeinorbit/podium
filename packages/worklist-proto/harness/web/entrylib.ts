@@ -760,9 +760,9 @@ export function mountPage(options: MountPageOptions): void {
    *  unread one. */
   function unread(id: string): boolean {
     const store = engine.getSnapshot()
-    const issue = store.issues.find((candidate) => candidate.id === id)
+    const issue = store.issueProjections.find((candidate) => candidate.id === id)
     if (issue === undefined) return false
-    return activityAfterRead(issue.readAt, issueActivityAt(issue, store.sessions, store.issues))
+    return activityAfterRead(store.issueUserStates.find(row => row.entityId === id)?.readAt ?? null, issueActivityAt(issue, store.sessions, store.issueProjections))
   }
 
   /** The page clock: the runtime's own tick (POD-4550). The control derives

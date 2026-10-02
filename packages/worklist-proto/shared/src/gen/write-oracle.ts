@@ -1,3 +1,4 @@
+import { allIssueViewModels } from '@podium/client-core/replica'
 /**
  * POD-4574 (Mc2, coordinator ruling F4) — the oracle for a writable arm:
  * server truth plus the shared reference log.
@@ -339,7 +340,7 @@ export class WriteOracle {
    */
   expectedSnapshot(store: Store<PodiumClientApi>, source: RowSource): SliceSnapshot {
     const feed = this.serverRows(source)
-    const storeIssues = (store.issues ?? []) as readonly Record<string, unknown>[]
+    const storeIssues = allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates) as unknown as readonly Record<string, unknown>[]
     // The pending display per row with pending edits (fresh objects), plus
     // the chained-hold repair against feed truth where the log is empty.
     const displayById = new Map<string, { title: string; stage: string; readAt: string | null }>()

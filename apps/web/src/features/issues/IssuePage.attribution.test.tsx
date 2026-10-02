@@ -58,7 +58,6 @@ afterEach(cleanup)
 
 const show = (over: Parameters<typeof makeIssue>[0]) => {
   world.current = normalizedFixtureStore({ issues: [makeIssue({ id: 'i-1', repoPath: '/r', ...over })], sessions: [] })
-  expect(world.current.replica.rows('issues')).toEqual([])
   const issue = allIssueViewModels(world.current.replica)[0]!
   render(<IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />)
 }

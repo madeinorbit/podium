@@ -66,7 +66,7 @@ export function LegacyControlNativeList({
     () => publisher.read(sliceDef),
   )
   const store = engine.getSnapshot()
-  const issues = store.issues as unknown as readonly { id: string; title: string }[]
+  const issues = store.issueProjections
   const sessions = store.sessions as readonly SessionMeta[]
   const select = (id: string): void => {
     engine.getSnapshot().setSelectedIssueId(asIssueId(id))

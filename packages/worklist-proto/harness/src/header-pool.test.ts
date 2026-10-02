@@ -65,7 +65,6 @@ describe('header pool values', () => {
       f.ctx.engine.getSnapshot().setSelectedIssueId(id)
       await Promise.resolve()
       f.parity('normalized draft')
-      expect(f.ctx.replica.rows('issues')).toEqual([])
       expect(f.pool.headerViews.folded()).toMatchObject({ root: undefined, live: 0, loading: false })
     } finally { f.dispose(); f.ctx.engine.destroy() }
   }, 120_000)

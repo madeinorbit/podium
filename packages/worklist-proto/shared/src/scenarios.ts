@@ -1,3 +1,4 @@
+import { allIssueViewModels } from '@podium/client-core/replica'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { fixtureMarkers, fixtureGitStates, fixtureProjection } from '../../harness/src/fixture/normalized-issues'
 /**
@@ -832,7 +833,7 @@ export interface ScenarioSnapshot {
 export function captureSnapshot(engine: ScenarioEngine['engine']): ScenarioSnapshot {
   const snap = engine.getSnapshot()
   return {
-    issues: snap.issues.map((i) => ({
+    issues: allIssueViewModels(engine.replica, snap.issueProjections, snap.issueUserStates).map((i) => ({
       id: i.id,
       title: (i as { title?: unknown }).title as string,
       stage: (i as { stage?: unknown }).stage as string,

@@ -214,7 +214,6 @@ describe('AgentPanel active wiring', () => {
     selectedIssueId = 'iss-normalized'
     storeSessions = [meta({ issueId: storeIssues[0]!.id })]
     const world = normalizedFixtureStore({ issues: storeIssues, sessions: storeSessions })
-    expect(world.replica.rows('issues')).toEqual([])
     await act(async () => root.render(<AgentPanel sessionId={asSessionId('s1')} active />))
     await flush()
     const stamp = container.querySelector('[data-testid="git-stamp"]')

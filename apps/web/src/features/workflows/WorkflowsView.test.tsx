@@ -163,7 +163,6 @@ describe('run progress', () => {
   it('renders a present subject with only normalized replica rows', async () => {
     subjects = [makeIssue({ id: 'iss-visible', title: 'Projection subject' })]
     const world = normalizedFixtureStore({ issues: subjects })
-    expect(world.replica.rows('issues')).toEqual([])
     runs.mockResolvedValue([run({ subjectId: 'iss-visible' })])
     render(<WorkflowsView />)
     fireEvent.click(screen.getByRole('button', { name: 'Progress' }))
