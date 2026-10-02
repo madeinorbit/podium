@@ -1,3 +1,4 @@
+import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { recordChipWork } from '@podium/client-core/perf'
 import { initializeSettingsDataLayer, settingsDataLayer, settingsCheckRequested } from '@/features/settings/data-layer'
 import { initializePreferencesDataLayer, preferencesDataLayer, preferencesCheckRequested } from '@/lib/preferences-data-layer'
@@ -26,6 +27,7 @@ export const poolBackedScreens: readonly PoolScreen[] = [
     },
   },
   { optional: true, initialize: initializeSidebarDataLayer, enabled: () => sidebarDataLayer() === 'pool',
+    options: () => ({ summaries: MISSION_SUMMARIES }),
     async attach(runtime, pool) {
       const { startSidebarCheck } = await import('@podium/client-graph/diagnostics/runtime-check')
       return startSidebarCheck(runtime, pool, {
