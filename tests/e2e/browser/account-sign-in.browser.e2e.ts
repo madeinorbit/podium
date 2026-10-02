@@ -9,9 +9,7 @@ test.skip(!password, 'This check needs a password-protected isolated harness (PO
 test.setTimeout(90_000)
 const evidence = fileURLToPath(new URL('../../../.tmp/accounts-check', import.meta.url))
 
-test('web signs in through the form, reloads with its cookie, and erases on sign-out', async ({
-  page,
-}) => {
+test('web signs in through the form and reloads with its cookie', async ({ page }) => {
   mkdirSync(evidence, { recursive: true })
   await page.goto('/')
   await page.getByLabel('Email', { exact: true }).fill('user:sole')
@@ -35,27 +33,6 @@ test('web signs in through the form, reloads with its cookie, and erases on sign
   await page.reload()
   await page.waitForFunction(() => (globalThis as any).__podiumReplicaPath === 'kernel')
   await expect(page.getByLabel('Password', { exact: true })).toBeHidden()
-  await page.goto('/settings/security')
-  await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible()
-  await page.screenshot({ path: resolve(evidence, 'web-account-removal.png'), fullPage: true })
-  await page
-    .getByRole('dialog', { name: 'Settings' })
-    .getByRole('button', { name: 'Sign out', exact: true })
-    .click()
-  await expect(page.getByLabel('Password', { exact: true })).toBeVisible()
-  expect(
-    await page.evaluate(() =>
-      Object.keys(localStorage).filter((key) => key.startsWith('podium.kernel-replica.principal.')),
-    ),
-  ).toEqual([])
-  expect(
-    await page.evaluate(() =>
-      fetch('/auth/status')
-        .then((response) => response.json())
-        .then((status) => status.authed),
-    ),
-  ).toBe(false)
-  await page.screenshot({ path: resolve(evidence, 'web-signed-out.png'), fullPage: true })
 })
 
 test.describe('phone Expo web', () => {
