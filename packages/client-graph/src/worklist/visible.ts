@@ -796,7 +796,7 @@ export function nestParentPartOf(
 ): string | null {
   if (candidate === null || candidate > id) return candidate
   const seen = new Set<string>()
-  let walk = candidate
+  let walk: string | null = candidate
   while (walk !== null) {
     if (walk === id) return null
     if (walk > id || seen.has(walk)) break

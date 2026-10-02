@@ -40,7 +40,7 @@ describe('provenance nesting cycles (POD-5179)', () => {
       expect(() => pool.apply({ type: 'replace', rows: rows(reversed ? [...issues].reverse() : issues) })).not.toThrow()
       expect(parents(pool, ['cycle-b', 'cycle-a'])).toEqual({ 'cycle-a': 'cycle-b', 'cycle-b': null })
       expect(tracked(() => [...visibleOrderOf(pool)].sort())).toEqual(['cycle-a', 'cycle-b'])
-      expect(tracked(() => pool.knownIssue('cycle-b')?.nested)).toEqual(['cycle-a'])
+      expect(tracked(() => pool.issue('cycle-b')?.nested)).toEqual(['cycle-a'])
     } finally { pool.dispose() }
   })
 

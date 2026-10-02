@@ -12,7 +12,7 @@ import { legacySidebarRow, legacySidebarSections } from '@podium/client-graph/di
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { asRepoId, asUserId, type GitRepositoryWire, type IssueProjection, type IssueWire, type SessionMeta } from '@podium/model'
+import { asRepoId, asSessionId, asUserId, type GitRepositoryWire, type IssueProjection, type IssueWire, type SessionMeta } from '@podium/model'
 import { reaction, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { fixtureProjection } from '../../../harness/src/fixture/normalized-issues'
@@ -145,25 +145,25 @@ function replay(data: LiveCollections) {
 
 describe('POD-5179 reciprocal provenance in the sidebar check corpus', () => {
   it.each([false, true])('matches the legacy cycle break regardless of export order (reversed=%s)', reversed => {
-    const a = issue('cycle-a', { startedBySession: 'seat-b' })
-    const b = issue('cycle-b', { seq: 2, startedBySession: 'seat-a' })
+    const a = issue('cycle-a', { startedBySession: asSessionId('seat-b') })
+    const b = issue('cycle-b', { seq: 2, startedBySession: asSessionId('seat-a') })
     const ctx = replay(collections(reversed ? [b, a] : [a, b], [session('seat-a', a.id), session('seat-b', b.id)]))
     try {
       const sections = ctx.sections()
       expect(sections.expected.bands[0]?.rowIds).toEqual([b.id])
       expect(sections.actual.bands[0]?.rowIds).toEqual([b.id])
       const root = ctx.row(b.id)
-      expect(runInAction(() => ctx.pool.knownIssue(b.id)?.nested)).toEqual([a.id])
+      expect(runInAction(() => ctx.pool.issue(b.id)?.nested)).toEqual([a.id])
       expect(root.actual.aggregateSessions).toHaveLength(2)
       expect(root.actual.aggregateSessions.map(seat => seat.sessionId)).toEqual(['seat-b', 'seat-a'])
       // The check counts the section root plus both all-visible rows.
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 3 })
       // Breaking and restoring the cycle must update the observed rows, too.
-      ctx.updateIssue({ ...a, startedBySession: null })
-      expect(runInAction(() => ctx.pool.knownIssue(a.id)?.nested)).toEqual([b.id])
+      ctx.updateIssue({ ...a, startedBySession: undefined })
+      expect(runInAction(() => ctx.pool.issue(a.id)?.nested)).toEqual([b.id])
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 3 })
       ctx.updateIssue(a)
-      expect(runInAction(() => ctx.pool.knownIssue(b.id)?.nested)).toEqual([a.id])
+      expect(runInAction(() => ctx.pool.issue(b.id)?.nested)).toEqual([a.id])
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 3 })
     } finally { ctx.dispose() }
   })
