@@ -1,0 +1,594 @@
+{
+  "date": "2026-10-02",
+  "host": "ludovico",
+  "baseline": "11ba47b2d7",
+  "candidate": "4a9bb0798",
+  "method": "RAM-only consistent SQLite image; real CLI dispatcher; client-core Bun JavaScriptCore heap; three paired runs with reversed order in run 2",
+  "measurements": [
+    {
+      "repeat": 0,
+      "revision": "before",
+      "mode": "cli",
+      "counts": {
+        "list": 5175,
+        "show": 1,
+        "tree": 141
+      },
+      "bytes": {
+        "list": 23122573,
+        "show": 37367,
+        "tree": 134721
+      },
+      "samples": {
+        "list": [
+          1146.839911,
+          754.7386470000001,
+          741.0830830000004,
+          735.4872340000002,
+          755.5701850000005,
+          771.1603619999987,
+          764.3036620000003,
+          746.0573889999996
+        ],
+        "show": [
+          14.542144000000008,
+          7.8057950000002165,
+          8.10178900000028,
+          7.3354989999998,
+          8.286957000000257,
+          7.701368000000002,
+          7.575007999999798,
+          8.63874399999986
+        ],
+        "tree": [
+          544.7625129999997,
+          507.9506250000004,
+          531.1437830000004,
+          556.4297909999996,
+          523.4268119999997,
+          533.9853770000009,
+          471.3053200000013,
+          520.1635139999999
+        ]
+      }
+    },
+    {
+      "repeat": 0,
+      "revision": "after",
+      "mode": "cli",
+      "counts": {
+        "list": 5175,
+        "show": 1,
+        "tree": 141
+      },
+      "bytes": {
+        "list": 23122573,
+        "show": 37367,
+        "tree": 134721
+      },
+      "samples": {
+        "list": [
+          1226.2089540000002,
+          887.0671899999998,
+          763.2639019999997,
+          846.1628519999995,
+          839.1202320000011,
+          735.4733830000005,
+          815.3384399999995,
+          1040.7164389999998
+        ],
+        "show": [
+          19.42642399999977,
+          9.972307,
+          11.595702999999958,
+          7.946245000000999,
+          10.297013000001243,
+          8.893387000000075,
+          8.123883000000205,
+          8.109292999999525
+        ],
+        "tree": [
+          592.2916309999996,
+          538.5116099999996,
+          518.1890309999999,
+          566.4738550000002,
+          591.2766069999998,
+          515.2579219999989,
+          499.74112199999945,
+          549.7993219999989
+        ]
+      }
+    },
+    {
+      "repeat": 0,
+      "revision": "before",
+      "mode": "mobile",
+      "counts": {
+        "conversation": 3101,
+        "issue": 5868,
+        "issueProjection": 5868,
+        "userLayout": 50,
+        "automation": 5,
+        "automationRun": 5,
+        "issueDep": 4396,
+        "pendingInteraction": 19,
+        "session": 5111,
+        "message": 162,
+        "issueUserState": 1350,
+        "repo": 10,
+        "issueEvent": 200,
+        "issueGitState": 20
+      },
+      "payloadBytes": 67046425,
+      "renderRows": 5868,
+      "beforeHeap": 166984943,
+      "afterHeap": 335024039,
+      "retainedHeap": 168039096
+    },
+    {
+      "repeat": 0,
+      "revision": "after",
+      "mode": "mobile",
+      "counts": {
+        "conversation": 3101,
+        "issueProjection": 5868,
+        "userLayout": 50,
+        "automation": 5,
+        "automationRun": 5,
+        "issueDep": 4396,
+        "pendingInteraction": 19,
+        "session": 5111,
+        "message": 162,
+        "issueUserState": 1350,
+        "repo": 10,
+        "issueEvent": 200,
+        "issueGitState": 20
+      },
+      "payloadBytes": 39146059,
+      "renderRows": 5868,
+      "beforeHeap": 166704833,
+      "afterHeap": 276617184,
+      "retainedHeap": 109912351
+    },
+    {
+      "repeat": 0,
+      "revision": "before",
+      "mode": "web",
+      "counts": {
+        "conversation": 3101,
+        "issueProjection": 5868,
+        "userLayout": 50,
+        "automation": 5,
+        "automationRun": 5,
+        "issueDep": 4396,
+        "pendingInteraction": 19,
+        "session": 5111,
+        "message": 162,
+        "issueUserState": 1350,
+        "repo": 10,
+        "issueEvent": 200,
+        "issueGitState": 20
+      },
+      "payloadBytes": 39146059,
+      "renderRows": 5868,
+      "beforeHeap": 167011905,
+      "afterHeap": 276937663,
+      "retainedHeap": 109925758
+    },
+    {
+      "repeat": 0,
+      "revision": "after",
+      "mode": "web",
+      "counts": {
+        "conversation": 3101,
+        "issueProjection": 5868,
+        "userLayout": 50,
+        "automation": 5,
+        "automationRun": 5,
+        "issueDep": 4396,
+        "pendingInteraction": 19,
+        "session": 5111,
+        "message": 162,
+        "issueUserState": 1350,
+        "repo": 10,
+        "issueEvent": 200,
+        "issueGitState": 20
+      },
+      "payloadBytes": 39146059,
+      "renderRows": 5868,
+      "beforeHeap": 166709722,
+      "afterHeap": 276577933,
+      "retainedHeap": 109868211
+    },
+    {
+      "repeat": 1,
+      "revision": "after",
+      "mode": "cli",
+      "counts": {
+        "list": 5175,
+        "show": 1,
+        "tree": 141
+      },
+      "bytes": {
+        "list": 23122573,
+        "show": 37367,
+        "tree": 134721
+      },
+      "samples": {
+        "list": [
+          1224.3871630000003,
+          757.8810329999997,
+          792.6283190000004,
+          855.2240070000007,
+          738.9952650000014,
+          753.992350999999,
+          925.7568820000015,
+          860.5784480000002
+        ],
+        "show": [
+          21.864035000000058,
+          9.868905000000268,
+          8.792477999999392,
+          7.814959999999701,
+          9.792699999999968,
+          8.357574999999997,
+          9.215292999999292,
+          8.609332999998514
+        ],
+        "tree": [
+          643.8317069999998,
+          547.9054820000001,
+          564.4342409999999,
+          498.23816799999986,
+          542.4463959999994,
+          488.24971000000005,
+          569.6950749999996,
+          532.9223529999999
+        ]
+      }
+    },
+    {
+      "repeat": 1,
+      "revision": "before",
+      "mode": "cli",
+      "counts": {
+        "list": 5175,
+        "show": 1,
+        "tree": 141
+      },
+      "bytes": {
+        "list": 23122573,
+        "show": 37367,
+        "tree": 134721
+      },
+      "samples": {
+        "list": [
+          1307.4970119999998,
+          894.7841579999995,
+          891.6153439999998,
+          847.3175270000011,
+          860.0856339999991,
+          860.8807149999993,
+          783.2122610000006,
+          743.4555579999997
+        ],
+        "show": [
+          23.76889600000004,
+          8.108960999999908,
+          10.421435000000201,
+          9.426601000001028,
+          8.80685000000085,
+          9.152839000000313,
+          8.292145999999775,
+          7.247896999999284
+        ],
+        "tree": [
+          646.505439,
+          596.8136009999998,
+          562.2883259999999,
+          587.2122319999999,
+          559.0340820000001,
+          511.535249999999,
+          487.3641289999996,
+          533.494451999999
+        ]
+      }
+    },
+    {
+      "repeat": 1,
+      "revision": "after",
+      "mode": "mobile",
+      "counts": {
+        "conversation": 3101,
+        "issueProjection": 5868,
+        "userLayout": 50,
+        "automation": 5,
+        "automationRun": 5,
+        "issueDep": 4396,
+        "pendingInteraction": 19,
+        "session": 5111,
+        "message": 162,
+        "issueUserState": 1350,
+        "repo": 10,
+        "issueEvent": 200,
+        "issueGitState": 20
+      },
+      "payloadBytes": 39146059,
+      "renderRows": 5868,
+      "beforeHeap": 166740260,
+      "afterHeap": 276654796,
+      "retainedHeap": 109914536
+    },
+    {
+      "repeat": 1,
+      "revision": "before",
+      "mode": "mobile",
+      "counts": {
+        "conversation": 3101,
+        "issue": 5868,
+        "issueProjection": 5868,
+        "userLayout": 50,
+        "automation": 5,
+        "automationRun": 5,
+        "issueDep": 4396,
+        "pendingInteraction": 19,
+        "session": 5111,
+        "message": 162,
+        "issueUserState": 1350,
+        "repo": 10,
+        "issueEvent": 200,
+        "issueGitState": 20
+      },
+      "payloadBytes": 67046425,
+      "renderRows": 5868,
+      "beforeHeap": 167017848,
+      "afterHeap": 335070313,
+      "retainedHeap": 168052465
+    },
+    {
+      "repeat": 1,
+      "revision": "after",
+      "mode": "web",
+      "counts": {
+        "conversation": 3101,
+        "issueProjection": 5868,
+        "userLayout": 50,
+        "automation": 5,
+        "automationRun": 5,
+        "issueDep": 4396,
+        "pendingInteraction": 19,
+        "session": 5111,
+        "message": 162,
+        "issueUserState": 1350,
+        "repo": 10,
+        "issueEvent": 200,
+        "issueGitState": 20
+      },
+      "payloadBytes": 39146059,
+      "renderRows": 5868,
+      "beforeHeap": 166705886,
+      "afterHeap": 276648845,
+      "retainedHeap": 109942959
+    },
+    {
+      "repeat": 1,
+      "revision": "before",
+      "mode": "web",
+      "counts": {
+        "conversation": 3101,
+        "issueProjection": 5868,
+        "userLayout": 50,
+        "automation": 5,
+        "automationRun": 5,
+        "issueDep": 4396,
+        "pendingInteraction": 19,
+        "session": 5111,
+        "message": 162,
+        "issueUserState": 1350,
+        "repo": 10,
+        "issueEvent": 200,
+        "issueGitState": 20
+      },
+      "payloadBytes": 39146059,
+      "renderRows": 5868,
+      "beforeHeap": 166981740,
+      "afterHeap": 276927323,
+      "retainedHeap": 109945583
+    },
+    {
+      "repeat": 2,
+      "revision": "before",
+      "mode": "cli",
+      "counts": {
+        "list": 5175,
+        "show": 1,
+        "tree": 141
+      },
+      "bytes": {
+        "list": 23122573,
+        "show": 37367,
+        "tree": 134721
+      },
+      "samples": {
+        "list": [
+          1337.4212749999997,
+          744.56808,
+          791.953837,
+          999.420439999999,
+          1128.5697999999993,
+          918.9452180000008,
+          1087.3951100000013,
+          809.0382430000009
+        ],
+        "show": [
+          20.9207550000001,
+          10.318449999999757,
+          10.21021699999983,
+          9.267359999999826,
+          30.78533200000129,
+          29.589125000000422,
+          7.806656999999177,
+          7.752164999999877
+        ],
+        "tree": [
+          565.214363,
+          523.4762570000003,
+          549.4359979999999,
+          665.6188839999995,
+          869.6775170000001,
+          649.3312430000005,
+          660.6335980000003,
+          712.1111070000024
+        ]
+      }
+    },
+    {
+      "repeat": 2,
+      "revision": "after",
+      "mode": "cli",
+      "counts": {
+        "list": 5175,
+        "show": 1,
+        "tree": 141
+      },
+      "bytes": {
+        "list": 23122573,
+        "show": 37367,
+        "tree": 134721
+      },
+      "samples": {
+        "list": [
+          1372.4805019999994,
+          803.2273210000003,
+          919.7313549999999,
+          820.8401910000002,
+          784.1183099999998,
+          888.4902289999991,
+          767.6977399999996,
+          932.6252569999997
+        ],
+        "show": [
+          36.57949400000052,
+          9.61539300000004,
+          9.160068000000138,
+          8.487508000000162,
+          7.641819000000396,
+          8.761100000001534,
+          8.65494899999976,
+          8.099667000000409
+        ],
+        "tree": [
+          629.0257000000001,
+          553.8285470000001,
+          537.2486499999995,
+          549.9004320000004,
+          524.862341,
+          589.8525680000002,
+          540.8699820000002,
+          554.1291579999997
+        ]
+      }
+    },
+    {
+      "repeat": 2,
+      "revision": "before",
+      "mode": "mobile",
+      "counts": {
+        "conversation": 3101,
+        "issue": 5868,
+        "issueProjection": 5868,
+        "userLayout": 50,
+        "automation": 5,
+        "automationRun": 5,
+        "issueDep": 4396,
+        "pendingInteraction": 19,
+        "session": 5111,
+        "message": 162,
+        "issueUserState": 1350,
+        "repo": 10,
+        "issueEvent": 200,
+        "issueGitState": 20
+      },
+      "payloadBytes": 67046425,
+      "renderRows": 5868,
+      "beforeHeap": 167014284,
+      "afterHeap": 335019820,
+      "retainedHeap": 168005536
+    },
+    {
+      "repeat": 2,
+      "revision": "after",
+      "mode": "mobile",
+      "counts": {
+        "conversation": 3101,
+        "issueProjection": 5868,
+        "userLayout": 50,
+        "automation": 5,
+        "automationRun": 5,
+        "issueDep": 4396,
+        "pendingInteraction": 19,
+        "session": 5111,
+        "message": 162,
+        "issueUserState": 1350,
+        "repo": 10,
+        "issueEvent": 200,
+        "issueGitState": 20
+      },
+      "payloadBytes": 39146059,
+      "renderRows": 5868,
+      "beforeHeap": 166708561,
+      "afterHeap": 276606840,
+      "retainedHeap": 109898279
+    },
+    {
+      "repeat": 2,
+      "revision": "before",
+      "mode": "web",
+      "counts": {
+        "conversation": 3101,
+        "issueProjection": 5868,
+        "userLayout": 50,
+        "automation": 5,
+        "automationRun": 5,
+        "issueDep": 4396,
+        "pendingInteraction": 19,
+        "session": 5111,
+        "message": 162,
+        "issueUserState": 1350,
+        "repo": 10,
+        "issueEvent": 200,
+        "issueGitState": 20
+      },
+      "payloadBytes": 39146059,
+      "renderRows": 5868,
+      "beforeHeap": 167015517,
+      "afterHeap": 276985521,
+      "retainedHeap": 109970004
+    },
+    {
+      "repeat": 2,
+      "revision": "after",
+      "mode": "web",
+      "counts": {
+        "conversation": 3101,
+        "issueProjection": 5868,
+        "userLayout": 50,
+        "automation": 5,
+        "automationRun": 5,
+        "issueDep": 4396,
+        "pendingInteraction": 19,
+        "session": 5111,
+        "message": 162,
+        "issueUserState": 1350,
+        "repo": 10,
+        "issueEvent": 200,
+        "issueGitState": 20
+      },
+      "payloadBytes": 39146059,
+      "renderRows": 5868,
+      "beforeHeap": 166706065,
+      "afterHeap": 276641721,
+      "retainedHeap": 109935656
+    }
+  ]
+}

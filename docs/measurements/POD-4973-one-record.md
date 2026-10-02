@@ -69,7 +69,7 @@ They are context, not the denominator for the isolated candidate comparison.
 The paired comparison opens the live SQLite database in read-only mode and backs
 it up into RAM. One anonymous memfd image supplies both revisions; no operator row
 is written to disk or printed. Only counts, sizes, timing and heap numbers leave
-the process. Baseline `63aa99e972` and candidate bundles are built on flatblock and
+the process. Baseline `11ba47b2d7` and candidate `4a9bb0798` bundles are built on flatblock and
 run on ludovico. Candidate migrations apply only to the anonymous copy. The real
 IssueService, IssueCommandDispatcher and runIssueCli implement list/show/tree,
 with the operator principal and repository scope. CLI commands are `issue list
@@ -84,7 +84,36 @@ it. The reported heap is Bun JavaScriptCore client-core retained heap, **not** a
 measurement of the browser or native UI process. There is no claim about browser
 V8, Expo Hermes, DOM, textures or resident-set size.
 
-Final paired timing and heap results are recorded below after the completed run.
+The final consistent image contains **5,868 issue projections**, **5,175 default
+list results**, and **141 epic tree nodes**. Three process pairs, with order reversed
+in the second pair, each run one cold round and seven warm interleaved list/show/tree
+rounds. The table uses the median of the three within-process warm medians. Full
+cold and warm samples are retained in [the counts-only results](POD-4973-read-replay.json).
+
+| CLI request | Before warm ms | After warm ms | Count, identical on both revisions | JSON bytes, identical |
+| --- | ---: | ---: | ---: | ---: |
+| list | 860.086 | 820.840 | 5,175 | 23,122,573 |
+| show | 8.807 | 8.792 | 1 | 37,367 |
+| tree, max-nodes 1000 | 559.034 | 542.446 | 141 | 134,721 |
+
+None of the warm medians regressed. Per-run medians vary materially with host load:
+list before 754.739–918.945 ms, after 792.628–839.120 ms; tree before
+523.427–660.634 ms, after 538.512–549.900 ms. Cold samples overlap broadly; this
+is not a claim of a statistically significant latency improvement. It shows no
+request-cost regression distinguishable from the observed run noise, alongside
+the deterministic one-pass join guards.
+
+| Retained client-core heap | Before bytes | After bytes | Change |
+| --- | ---: | ---: | ---: |
+| mobile | 168,039,096 | 109,912,351 | −34.59% |
+| web | 109,945,583 | 109,935,656 | −0.009% (flat) |
+
+Those are medians of three samples. All **5,868 rendered issue rows** remain on
+both clients. Retained payload bytes fall **67,046,425 → 39,146,059 (−41.61%)** on
+mobile; web already retained 39,146,059. Baseline heap is sampled only after the
+seed-loading stack has unwound and GC has had timed event-loop turns; an earlier
+probe caught delayed collection of a temporary SQLite image and was discarded
+as invalid rather than reported as a negative heap.
 
 ## Minimum-client and bundled-code compatibility
 
@@ -105,14 +134,33 @@ Final paired timing and heap results are recorded below after the completed run.
   **“Update Podium to continue”**, without reloading. Its three refusal cases fail
   when the origin is deliberately mistaken for an ordinary HTTP page. This fixes
   future packaged-client refusals; it does not retroactively change old bundles.
-- The real-socket check covers the minimum supported version's bootstrap/delta,
+- The real-socket check is written to cover the minimum supported version's bootstrap/delta,
   previous version refusal, unversioned refusal, future-version refusal and the
-  advertised `/version` floor. Normalized field, personal-state, Git, repository,
+  advertised `/version` floor; its execution is blocked by the baseline build
+  budget described below. Normalized field, personal-state, Git, repository,
   dependency and comment-count tests cover what that supported client reads.
 
 ## Validation and deliberate-defect evidence
 
-Final run totals and remaining baseline failures are recorded below.
+Final run totals are recorded below. Restored assertions are checked after every
+planted source change is removed; no deliberate defect is included in the commit.
+
+Additional clean-baseline findings at `11ba47b2d7`:
+
+- `displayed-fields.test.tsx` draws i214 on a sortKey-only change although the
+  oracle changes no drawn row. Unclaimed discovery **POD-5236** records the proof.
+- The old hidden-row plant expectation in `visible.test.tsx` also failed on the
+  unchanged base. **POD-5219** fixed it at `a217dd49c`; this branch rebases that
+  contract unchanged and verifies the file afterward.
+- The web build budget fails before integration tests can start: baseline gzip
+  **528,624**, Brotli **454,064**, parsed source **7,087,032** bytes exceed caps
+  520,000 / 447,000 / 7,000,000. The retirement candidate reduces them to
+  **527,318 / 452,987 / 7,016,355**, still above the inherited caps. The supported
+  integration wrapper unconditionally builds clients and has no skip/prebuilt
+  option. `sync-e2e.test.ts` and `gateway/wire-window.integration.test.ts` are
+  therefore **blocked by the pre-existing bundle budget**, not passed. POD-4286
+  owns budget attribution and explicitly directed continuing the other checks;
+  no budget or runner was weakened.
 
 Existing baseline failures are explicitly outside this retirement's landing gate:
 POD-5223 (the representation audit's serialized delegation capability snapshot)
