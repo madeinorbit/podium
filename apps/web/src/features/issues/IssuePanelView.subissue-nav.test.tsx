@@ -219,3 +219,5 @@ describe('IssuePanelView subissue rows', () => {
     expect(within(relations).getByText('Review dependency')).toBeTruthy()
   })
 })
+import '@/test-support/mock-core-store-handle'
+import '@/test-support/model-catalog-mock'
