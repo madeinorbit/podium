@@ -14,12 +14,18 @@ import type { MobxPool } from '../src/pool'
 import { missionView, readMissionView, readMissionHandoff, readWorkspaceMission, type MissionViewValues, type MissionHandoffValues } from '../src/mission-view'
 import { LOADING } from '../src/worklist/rollup'
 import { ISSUE_CONTENT_FIELDS, sessionComparable } from './oracle'
-import { compareSidebarSnapshots, type CheckSection, type SidebarCheckResult, type SidebarSnapshot } from './sidebar-check'
+import { compareSidebarSnapshots, type CheckSection, type SidebarCheckResult, type SidebarSnapshot, type SidebarDifference } from './sidebar-check'
 
 const ISSUE_FIELDS = [...ISSUE_CONTENT_FIELDS, 'description', 'notes', 'activityNotes', 'notesUpdatedAt',
   'defaultAgent', 'startedBySession', 'coordinatorSessionId', 'deps', 'childCount', 'childDoneCount',
   'ready', 'deferred', 'memberSessionIds']
 const issueFields = (issue: IssueNavigationModel) => Object.fromEntries(ISSUE_FIELDS.map(key => [key, Reflect.get(issue, key) ?? null]))
+const legacyMaps = new WeakMap<readonly IssueNavigationModel[], Map<string, IssueNavigationModel>>()
+function legacyMap(issues: readonly IssueNavigationModel[]) {
+  let map = legacyMaps.get(issues)
+  if (!map) { map = new Map(issues.map(issue => [issue.id, issue])); legacyMaps.set(issues, map) }
+  return map
+}
 const noteFields = (note: ReturnType<typeof issueNote>) => note
 const continuationFields = (value: ReturnType<typeof issueContinuation>) => value ? { ...value, target: value.target?.id ?? null } : null
 const sessionFields = (session: SessionView) => ({ ...sessionComparable(session), model: session.model, effort: session.effort,
@@ -54,7 +60,7 @@ export function legacyMissionViewSnapshot(issues: readonly IssueNavigationModel[
   mode: FlightDeckMode = 'full', worktreePaths: string[] = []): SidebarSnapshot {
   const root = selectedMissionRoot(issues, sessions, selectedId)
   const rows = root ? buildFlightDeckRows(issues, sessions, root.id, mode, worktreePaths) : []
-  const byId = new Map(issues.map(issue => [issue.id, issue]))
+  const byId = legacyMap(issues)
   const seen = new Set<string>(), archived: SessionView[] = []
   for (const row of rows) for (const session of archivedSessionsForIssue(row.issue, sessions, worktreePaths)) {
     if (!seen.has(session.sessionId)) { seen.add(session.sessionId); archived.push(session) }
@@ -80,10 +86,10 @@ export function poolMissionViewSnapshot(pool: MobxPool, selectedId: string | nul
 }
 
 export function checkMissionView(pool: MobxPool, issues: readonly IssueNavigationModel[], sessions: readonly SessionView[], selectedId: string | null,
-  mode: FlightDeckMode = 'full', worktreePaths: string[] = []): SidebarCheckResult {
+  mode: FlightDeckMode = 'full', worktreePaths: string[] = [], onDifference?: (difference: SidebarDifference) => void): SidebarCheckResult {
   const actual = poolMissionViewSnapshot(pool, selectedId, mode)
   if (actual === LOADING) return { differences: 0, first: null, pending: 1, sections: 0, rows: 0 }
-  return compareSidebarSnapshots(legacyMissionViewSnapshot(issues, sessions, selectedId, mode, worktreePaths), actual)
+  return compareSidebarSnapshots(legacyMissionViewSnapshot(issues, sessions, selectedId, mode, worktreePaths), actual, onDifference)
 }
 
 /** Store-facing entry matches POD-4954. Both sides share overlays and clock. */

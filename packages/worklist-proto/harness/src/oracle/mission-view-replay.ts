@@ -74,17 +74,29 @@ async function main() {
     }
     step = 'compare'
     let differences = 0, pending = 0, rowsCompared = 0, selections = 0, first: SidebarCheckResult['first'] = null
+    const locations: { missionId: string; sectionIndex: number; rowIndex: number | null; field: string; expectedId: string | null; actualId: string | null }[] = []
+    const pendingIds = new Set<string>()
+    const opaque = (id: string | null) => id && /^iss_[\w-]+$/.test(id) ? id : null
     const add = (result: SidebarCheckResult) => { differences += result.differences; pending += result.pending; rowsCompared += result.rows; first ??= result.first; selections++ }
     runInAction(() => { for (const id of roots) {
-      for (const mode of ['full', 'working', 'needs-you'] as const) add(checkMissionView(pool, issues, sessions, id, mode))
-      add(checkWorkspaceMission(pool, issues, sessions, id, null))
+      for (const mode of ['full', 'working', 'needs-you'] as const) {
+        const result = checkMissionView(pool, issues, sessions, id, mode, [], difference => {
+          if (locations.length < 40) locations.push({ missionId: opaque(id)!, sectionIndex: difference.sectionIndex, rowIndex: difference.rowIndex,
+            field: difference.field, expectedId: opaque(difference.expectedId), actualId: opaque(difference.actualId) })
+        })
+        if (result.pending) pendingIds.add(id)
+        add(result)
+      }
+      const workspace = checkWorkspaceMission(pool, issues, sessions, id, null)
+      if (workspace.pending) pendingIds.add(id)
+      add(workspace)
     } })
-    const opaque = (id: string | null) => id && /^iss_[\w-]+$/.test(id) ? id : null
     const location = first as SidebarCheckResult['first']
     console.log(JSON.stringify({ persistedTopology: true, displayBodiesCompared: false, issues: issues.length,
       sessions: rawSessions.length, retainedSessions: sessions.length, missions: roots.length, selections,
       rows: rowsCompared, differences, pending, first: location ? { sectionIndex: location.sectionIndex, rowIndex: location.rowIndex,
-        field: location.field, expectedId: opaque(location.expectedId), actualId: opaque(location.actualId) } : null }))
+        field: location.field, expectedId: opaque(location.expectedId), actualId: opaque(location.actualId) } : null,
+      locations, pendingIds: [...pendingIds].map(opaque) }))
     if (differences || pending) process.exitCode = 1
   } finally { pool.dispose() }
 }

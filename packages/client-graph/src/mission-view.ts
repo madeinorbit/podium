@@ -346,7 +346,7 @@ function buildRows(ctx: MissionContext, root: IssueNavigationModel, members: Rea
     children.set(parentId, siblings)
   }
   for (const siblings of children.values()) siblings.sort((a, b) =>
-    a.sortKey && b.sortKey && a.sortKey !== b.sortKey ? a.sortKey.localeCompare(b.sortKey) : a.seq - b.seq)
+    a.sortKey && b.sortKey && a.sortKey !== b.sortKey ? a.sortKey.localeCompare(b.sortKey) : a.seq - b.seq || rowOrder(a, b))
   const parentOf = new Map<string, string>()
   for (const [id, kids] of children) for (const child of kids) if (!parentOf.has(child.id)) parentOf.set(child.id, id)
   const rosters = new Map<string, SessionView[]>()
