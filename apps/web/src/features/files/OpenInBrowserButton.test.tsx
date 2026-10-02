@@ -133,3 +133,4 @@ describe('OpenInBrowserButton', () => {
     expect(toastInfo).toHaveBeenCalledTimes(1)
   })
 })
+import '@/test-support/mock-core-store-handle'

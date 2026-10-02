@@ -92,3 +92,4 @@ describe('DownloadFileButton', () => {
     expect(container.querySelector('a')).toBeNull()
   })
 })
+import '@/test-support/mock-core-store-handle'

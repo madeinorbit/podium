@@ -1,9 +1,8 @@
 // apps/web/src/MarkdownPreview.tsx
 
-import { shallowEqual } from '@podium/client-core/store'
+import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionId } from '@podium/model/browser'
 import { type JSX, useMemo } from 'react'
-import { useStoreSelector } from '@/app/store'
 import { assetUrl } from '@/lib/asset-url'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
@@ -27,10 +26,7 @@ export function MarkdownPreview({
   scrollRef?: React.MutableRefObject<HTMLDivElement | null>
   className?: string
 }): JSX.Element {
-  const { httpOrigin, openFile } = useStoreSelector(
-    (s) => ({ httpOrigin: s.httpOrigin, openFile: s.openFile }),
-    shallowEqual,
-  )
+  const { httpOrigin, openFile } = useStoreHandle().getSnapshot()
   const fileDir = path.replace(/\/[^/]*$/, '') || '/'
   const html = useMemo(
     () =>

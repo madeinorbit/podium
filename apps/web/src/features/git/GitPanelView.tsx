@@ -1,11 +1,10 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { relativeTime } from '@podium/client-core/focus'
-import { shallowEqual } from '@podium/client-core/store'
+import { useStoreHandle } from '@podium/client-core/react'
 import type { MachineId } from '@podium/model/browser'
 import { ChevronRight, GitBranch, Maximize2, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
 import { GitStamp } from '@/components/GitStamp'
 import { Button } from '@/components/ui/button'
 import { DiffSheet } from './DiffSheet'
@@ -104,10 +103,7 @@ export function GitPanelView({
   machineId?: MachineId
   issue?: IssueViewModel
 }): JSX.Element {
-  const { gitStatus, gitLog, gitCommitFiles } = useStoreSelector(
-    (s) => ({ gitStatus: s.gitStatus, gitLog: s.gitLog, gitCommitFiles: s.gitCommitFiles }),
-    shallowEqual,
-  )
+  const { gitStatus, gitLog, gitCommitFiles } = useStoreHandle().getSnapshot()
   const [status, setStatus] = useState<ReturnType<typeof parseStatus> | null>(null)
   const [log, setLog] = useState<LogEntry[] | null>(null)
   const [error, setError] = useState<string | null>(null)

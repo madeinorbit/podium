@@ -1,11 +1,10 @@
-import { shallowEqual } from '@podium/client-core/store'
+import { useStoreHandle } from '@podium/client-core/react'
 import { DIFF_SHEET_WRAP_KEY } from '@podium/client-core/ui-state'
 import type { MachineId } from '@podium/model'
 import { GitBranch, GitCommitHorizontal, RefreshCw, WrapText } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
-import { useStoreSelector } from '@/app/store'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { type DiffRow, type ParsedDiff, parseDiff, splitPath } from './diff-model'
 import { entryBadge, entryStatus, entryTone, type StatusEntry, untrackedDiff } from './git-panel'
@@ -489,14 +488,7 @@ function useDiffs({
   sources?: Record<string, string> | undefined
   commit?: { sha: string } | undefined
 }): Record<string, DiffState> {
-  const { gitDiffFile, gitCommitDiffFile, readFileScoped } = useStoreSelector(
-    (s) => ({
-      gitDiffFile: s.gitDiffFile,
-      gitCommitDiffFile: s.gitCommitDiffFile,
-      readFileScoped: s.readFileScoped,
-    }),
-    shallowEqual,
-  )
+  const { gitDiffFile, gitCommitDiffFile, readFileScoped } = useStoreHandle().getSnapshot()
   // The sha, not the object: the caller builds its commit descriptor inline, so
   // depending on the object would rebuild `load` on every render for a value
   // that never changed.

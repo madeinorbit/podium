@@ -56,3 +56,4 @@ describe('FileBrowserModal', () => {
     expect(onClose).toHaveBeenCalled()
   })
 })
+import '@/test-support/mock-core-store-handle'

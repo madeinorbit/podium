@@ -2,6 +2,7 @@
 
 import type { EditorView } from '@codemirror/view'
 import { EditorView as CMView } from '@codemirror/view'
+import { useStoreHandle } from '@podium/client-core/react'
 import {
   MD_MODE_MAP_KEY,
   readFilePanelMode,
@@ -12,7 +13,6 @@ import { asSessionId, type SessionId } from '@podium/model/browser'
 import { Columns2, Eye, Flower2, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
@@ -41,7 +41,7 @@ export function MarkdownFilePanel({
 }): JSX.Element {
   const doc = useFileDocument(scope, path)
   const saveFeedbackId = useId()
-  const uiState = useStoreSelector((s) => s.uiState)
+  const { uiState } = useStoreHandle().getSnapshot()
   const md = isMarkdownPath(path)
   const mobile = useIsMobile()
   const [calmReading, setCalmReading] = useState(false)

@@ -193,3 +193,4 @@ describe('WorktreeFileTree', () => {
     })
   })
 })
+import '@/test-support/mock-core-store-handle'

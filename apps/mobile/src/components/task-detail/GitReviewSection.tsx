@@ -1,8 +1,7 @@
-import { shallowEqual } from '@podium/client-core/store'
+import { useStoreHandle } from '@podium/client-core/react'
 import type { MachineId } from '@podium/model'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
-import { useStoreSelector } from '../../client/hooks'
 import {
   type DiffRow,
   diffRowAccessibilityLabel,
@@ -39,14 +38,7 @@ interface FileReadResult {
 /** Changed-file inventory and wrapped, per-file diffs on the task page. It uses
  * only the store's existing read-only Git and file contracts. */
 export function GitReviewSection({ root, machineId }: { root: string; machineId?: MachineId }) {
-  const store = useStoreSelector(
-    (s) => ({
-      gitStatus: s.gitStatus,
-      readFileScoped: s.readFileScoped,
-      gitDiffFile: s.gitDiffFile,
-    }),
-    shallowEqual,
-  )
+  const { gitStatus, readFileScoped, gitDiffFile } = useStoreHandle().getSnapshot()
   const [header, setHeader] = useState<ReturnType<typeof parseStatus>['header'] | null>(null)
   const [entries, setEntries] = useState<StatusEntry[]>([])
   const [statusError, setStatusError] = useState<string | null>(null)
@@ -71,7 +63,7 @@ export function GitReviewSection({ root, machineId }: { root: string; machineId?
     setOpenPath(null)
     setDiffs({})
     try {
-      const result = await store.gitStatus(gitArgs())
+      const result = await gitStatus(gitArgs())
       if (generation !== reviewGeneration.current) return
       if (!result.ok) throw new Error(result.output || 'Git status could not be read.')
       const parsed = parseStatus(result.output)
@@ -84,7 +76,7 @@ export function GitReviewSection({ root, machineId }: { root: string; machineId?
     } finally {
       if (generation === reviewGeneration.current) setRefreshing(false)
     }
-  }, [gitArgs, store.gitStatus])
+  }, [gitArgs, gitStatus])
 
   useEffect(() => {
     void refresh()
@@ -99,7 +91,7 @@ export function GitReviewSection({ root, machineId }: { root: string; machineId?
         if (entry.untracked && entry.path.endsWith('/')) {
           next = { kind: 'note', message: 'Open this folder on desktop to review its contents.' }
         } else if (entry.untracked) {
-          const result = (await store.readFileScoped(
+          const result = (await readFileScoped(
             { kind: 'worktree', root, ...(machineId === undefined ? {} : { machineId }) },
             entry.path,
           )) as FileReadResult
@@ -116,12 +108,12 @@ export function GitReviewSection({ root, machineId }: { root: string; machineId?
           // plus a deleted source relative to HEAD. The one-path diff contract
           // cannot include both halves, so combine its source deletion with the
           // destination bytes from the existing scoped read contract.
-          const sourceResult = await store.gitDiffFile({
+          const sourceResult = await gitDiffFile({
             root,
             path: entry.renamedFrom,
             ...(machineId === undefined ? {} : { machineId }),
           })
-          const destinationResult = (await store.readFileScoped(
+          const destinationResult = (await readFileScoped(
             { kind: 'worktree', root, ...(machineId === undefined ? {} : { machineId }) },
             entry.path,
           )) as FileReadResult
@@ -145,7 +137,7 @@ export function GitReviewSection({ root, machineId }: { root: string; machineId?
                       message: destinationResult.error || 'This file could not be read.',
                     }
         } else {
-          const result = await store.gitDiffFile({
+          const result = await gitDiffFile({
             root,
             path: entry.path,
             ...(machineId === undefined ? {} : { machineId }),
@@ -168,7 +160,7 @@ export function GitReviewSection({ root, machineId }: { root: string; machineId?
         }))
       }
     },
-    [machineId, root, store.gitDiffFile, store.readFileScoped],
+    [machineId, root, gitDiffFile, readFileScoped],
   )
 
   const toggle = (entry: StatusEntry): void => {
