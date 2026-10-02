@@ -414,7 +414,10 @@ function coldLevels(rig: FamilyRig, root: string): string[][] {
     for (const child of rig.children(id)) {
       const cold = rig.residency.isCold('issue', child)
       const at = cold ? depth + 1 : depth
-      if (cold) (levels[at - 1] ??= []).push(child)
+      if (cold) {
+        levels[at - 1] ??= []
+        levels[at - 1]!.push(child)
+      }
       walk(child, at)
     }
   }

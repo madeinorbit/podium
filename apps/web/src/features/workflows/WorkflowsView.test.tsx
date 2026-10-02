@@ -57,7 +57,7 @@ const detailOf = (id: string) => ({
 })
 
 vi.mock('@/app/store', () => {
-  const useStore = () =>
+  const fixtureState = () =>
     normalizedFixtureStore({
       machines: [],
       issues: subjects,
@@ -74,12 +74,12 @@ vi.mock('@/app/store', () => {
       },
     })
   return {
-    useStore,
-    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    useStore: fixtureState,
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(fixtureState() as never),
     useSession: (id: string | undefined) =>
       id === undefined
         ? undefined
-        : (useStore().sessions as Array<{ sessionId: string }>).find(
+        : (fixtureState().sessions as Array<{ sessionId: string }>).find(
             (session) => session.sessionId === id,
           ),
     useReplicaIssues: () => normalizedFixtureIssues({ issues: subjects }),

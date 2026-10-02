@@ -182,6 +182,7 @@ export function useIssueActivity(issue: IssueViewModel): IssueActivity {
     }
   }, [issueId, repoPath])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A selected issue or new issue revision must restart the event drain held in the ref.
   useEffect(() => {
     drainEvents.current?.()
   }, [issueId, repoPath, updatedAt])

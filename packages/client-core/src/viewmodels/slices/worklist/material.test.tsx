@@ -201,8 +201,8 @@ describe('worklist material inputs', () => {
       }
       const root = render(
         <>
-          {commits.map((_, index) => (
-            <Reader key={index} index={index} />
+          {[0, 1, 2, 3, 4, 5, 6].map((id) => (
+            <Reader key={id} index={id} />
           ))}
           <Control />
         </>,

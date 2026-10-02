@@ -439,11 +439,6 @@ export interface AuditCheck {
   collect(ctx: AuditContext): AuditSite[]
 }
 
-/** Declaration of one of `names` as an exported interface/type/class. */
-function declRe(names: string[]): RegExp {
-  return new RegExp(`^export (?:interface|type|class) (?:${names.join('|')})\\b`)
-}
-
 /**
  * THE ANCHOR FOR AN ITEM THAT REACHED ZERO (POD-309), exported so its own test can drive
  * it with a BROKEN pattern instead of mutating the product to find out.

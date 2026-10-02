@@ -86,7 +86,10 @@ export function describeSyncConformance(instantiation: SyncInstantiation): void 
     let clock: Clock
     let ids: number
 
-    const nextId = (): never => `m${(ids += 1)}` as never
+    const nextId = (): never => {
+      ids += 1
+      return `m${ids}` as never
+    }
 
     beforeEach(async () => {
       authority = new ConformanceAuthority()

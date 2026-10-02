@@ -231,6 +231,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     }
   }, [issue.id, issue.repoPath])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A selected issue or new issue revision must restart the event drain held in the ref.
   useEffect(() => {
     drainEvents.current?.()
   }, [issue.id, issue.repoPath, issue.updatedAt])
