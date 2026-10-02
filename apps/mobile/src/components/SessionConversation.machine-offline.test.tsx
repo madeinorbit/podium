@@ -77,10 +77,28 @@ function machine(over: Partial<MachineWire>): MachineWire {
   } as unknown as MachineWire
 }
 
-const ONLINE = [machine({ online: true, availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true } as unknown as MachineWire['availability'] })]
+const ONLINE = [
+  machine({
+    online: true,
+    availability: {
+      epoch: 'boot-1',
+      server: false,
+      daemon: true,
+      supervisor: true,
+    } as unknown as MachineWire['availability'],
+  }),
+]
 const OFFLINE_SUPERVISOR = [machine({ online: false })]
 const OFFLINE_DAEMON = [
-  machine({ online: true, availability: { epoch: 'boot-1', server: false, daemon: false, supervisor: true } as unknown as MachineWire['availability'] }),
+  machine({
+    online: true,
+    availability: {
+      epoch: 'boot-1',
+      server: false,
+      daemon: false,
+      supervisor: true,
+    } as unknown as MachineWire['availability'],
+  }),
 ]
 
 async function renderLive(initial: MachineWire[]) {
@@ -174,7 +192,10 @@ describe('phone offline machine label from session homes', () => {
     return row ? <SessionConversation session={row} issue={undefined} /> : null
   }
 
-  it.each([false, true])('uses the replicated name and observes a rename, stripped=%s', async (stripped) => {
+  it.each([
+    false,
+    true,
+  ])('uses the replicated name and observes a rename, stripped=%s', async (stripped) => {
     const row = { ...session, machineName: 'Stale session label' }
     if (stripped) Reflect.deleteProperty(row, 'machineName')
     const { replica } = await renderWithMobileStore(<LiveConversation />, {
@@ -185,7 +206,11 @@ describe('phone offline machine label from session homes', () => {
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain('Replicated desk')
     expect(screen.getByTestId('machine-offline-banner').textContent).not.toContain('Stale')
     await act(async () => {
-      replica.applyChanges('machines', [{ id: 'm1', name: 'Renamed desk', loggedOutHarnesses: [] }], [])
+      replica.applyChanges(
+        'machines',
+        [{ id: 'm1', name: 'Renamed desk', loggedOutHarnesses: [] }],
+        [],
+      )
     })
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain('Renamed desk')
     expect(replica.rows('sessions')[0]).toBe(row)

@@ -1,4 +1,4 @@
-import { sessionValues, sessionViews, type SessionView } from '@podium/client-core/session-values'
+import { type SessionView, sessionValues, sessionViews } from '@podium/client-core/session-values'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
 import { asSessionId, asUserId, type SessionMeta } from '@podium/model'
 import { act, cleanup, screen } from '@testing-library/react'
@@ -47,7 +47,10 @@ function Probe({ seen }: { seen: { rows: SessionView[]; one?: SessionView } }) {
 }
 
 describe('mobile session read seam', () => {
-  it.each([false, true])('reads the same joined and optimistic view, stripped=%s', async (stripped) => {
+  it.each([
+    false,
+    true,
+  ])('reads the same joined and optimistic view, stripped=%s', async (stripped) => {
     const row = stripped ? stripSessionLegacy(raw) : raw
     const seen: { rows: SessionView[]; one?: SessionView } = { rows: [] }
     const personal = { userId: asUserId('user:test'), sessionId: id, readAt: active }
@@ -72,7 +75,11 @@ describe('mobile session read seam', () => {
     expect(seen.one?.offer).toBe(raw.offer)
     expect(seen.one?.queuedMessageCount).toBe(3)
     await act(async () => {
-      replica.applyChanges('sessionUserStates', [{ ...personal, readAt: null, snoozedUntil: null }], [])
+      replica.applyChanges(
+        'sessionUserStates',
+        [{ ...personal, readAt: null, snoozedUntil: null }],
+        [],
+      )
     })
     expect(values()).toMatchObject({ readAt: null, unread: true, snoozedUntil: null })
     expect(replica.rows('sessions')[0]).toBe(row)

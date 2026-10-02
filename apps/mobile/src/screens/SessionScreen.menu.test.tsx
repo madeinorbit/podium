@@ -266,7 +266,10 @@ describe('session menu snooze from the acting user home', () => {
     ...(snoozedUntil !== undefined ? { snoozedUntil } : {}),
   })
 
-  it.each([false, true])('shows null snooze and hides it when cleared, stripped=%s', async (stripped) => {
+  it.each([
+    false,
+    true,
+  ])('shows null snooze and hides it when cleared, stripped=%s', async (stripped) => {
     const raw = session({ snoozedUntil: '2099-01-01T00:00:00.000Z' })
     if (stripped) Reflect.deleteProperty(raw, 'snoozedUntil')
     const clear = vi.fn(async () => {})
@@ -295,10 +298,7 @@ describe('session menu snooze from the acting user home', () => {
     await renderWithMobileStore(<SessionScreen />, {
       sessions: [session({ snoozedUntil: null })],
       issues: [active],
-      sessionUserStates: [
-        personal(),
-        { ...personal(null), userId: asUserId('user:other') },
-      ],
+      sessionUserStates: [personal(), { ...personal(null), userId: asUserId('user:other') }],
     })
     fireEvent.click(await screen.findByLabelText('Session actions'))
     expect(await screen.findByLabelText('Snooze until next message')).toBeTruthy()

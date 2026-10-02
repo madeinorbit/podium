@@ -9,7 +9,7 @@ import {
 import { randomUUID } from '@podium/client-core/id'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { sessionValues, type SessionView } from '@podium/client-core/session-values'
+import { type SessionView, sessionValues } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   createTranscriptController,

@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
 import { sessionView } from '@podium/client-core/session-values'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   followPodiumLink,
   internalPodiumTarget,
@@ -54,7 +54,10 @@ describe('mobilePodiumRoute', () => {
     )
   })
 
-  it.each([false, true])('resolves a joined birth ref after a prefix rename, stripped=%s', (stripped) => {
+  it.each([
+    false,
+    true,
+  ])('resolves a joined birth ref after a prefix rename, stripped=%s', (stripped) => {
     const raw = {
       sessionId: 'sess-born',
       refRepoId: 'repo-birth',
@@ -66,18 +69,25 @@ describe('mobilePodiumRoute', () => {
     const target = (session: string) => ({ kind: 'session' as const, session })
     const before = [sessionView(raw, { repo: { prefix: 'POD' } })]
     const after = [sessionView(raw, { repo: { prefix: 'NEW' } })]
-    expect(mobilePodiumRoute(target('POD-42-B'), { issues: [], sessions: before })).toBe('/session/sess-born')
-    expect(mobilePodiumRoute(target('NEW-42-B'), { issues: [], sessions: after })).toBe('/session/sess-born')
+    expect(mobilePodiumRoute(target('POD-42-B'), { issues: [], sessions: before })).toBe(
+      '/session/sess-born',
+    )
+    expect(mobilePodiumRoute(target('NEW-42-B'), { issues: [], sessions: after })).toBe(
+      '/session/sess-born',
+    )
     expect(mobilePodiumRoute(target('POD-42-B'), { issues: [], sessions: after })).toBeNull()
-    expect(mobilePodiumRoute(target('sess-born'), { issues: [], sessions: after })).toBe('/session/sess-born')
+    expect(mobilePodiumRoute(target('sess-born'), { issues: [], sessions: after })).toBe(
+      '/session/sess-born',
+    )
   })
 
   it('resolves a joined draft ref and honors an absent or cleared repo prefix', () => {
     const raw = { sessionId: 'sess-draft', refDraft: 7, displayRef: 'OLD-D7' }
-    const route = (ref: string, repo?: { prefix: string | null }) => mobilePodiumRoute(
-      { kind: 'session', session: ref },
-      { issues: [], sessions: [sessionView(raw, { repo })] },
-    )
+    const route = (ref: string, repo?: { prefix: string | null }) =>
+      mobilePodiumRoute(
+        { kind: 'session', session: ref },
+        { issues: [], sessions: [sessionView(raw, { repo })] },
+      )
     expect(route('POD-D7', { prefix: 'POD' })).toBe('/session/sess-draft')
     expect(route('OLD-D7')).toBe('/session/sess-draft')
     expect(route('OLD-D7', { prefix: null })).toBeNull()

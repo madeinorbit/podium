@@ -2,8 +2,8 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import { asIssueId, asSessionId, type SessionMeta } from '@podium/model'
 import { act, cleanup, fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { renderWithMobileStore } from '../client/test-support'
 import { useSessions } from '../client/hooks'
+import { renderWithMobileStore } from '../client/test-support'
 
 afterEach(cleanup)
 

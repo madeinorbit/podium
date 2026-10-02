@@ -1,6 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { sessionValues, type SessionView } from '@podium/client-core/session-values'
+import { type SessionView, sessionValues } from '@podium/client-core/session-values'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
   buildFlightDeckRows,

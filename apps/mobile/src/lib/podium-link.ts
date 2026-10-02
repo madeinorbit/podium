@@ -17,13 +17,13 @@
  * active replica. An address the phone cannot show also falls back externally.
  */
 
-import { sessionValues, type SessionValueInput } from '@podium/client-core/session-values'
+import { type SessionValueInput, sessionValues } from '@podium/client-core/session-values'
 import {
-  type PodiumLink,
-  type PodiumTarget,
   canonicalPodiumOrigin,
   formatExternalHttpLink,
   formatPodiumLinkFallback,
+  type PodiumLink,
+  type PodiumTarget,
   parseIssueRef,
   parsePodiumLink,
   parseSessionRef,

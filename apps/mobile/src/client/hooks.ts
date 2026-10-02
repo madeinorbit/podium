@@ -33,12 +33,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import type {
-  GitRepositoryWire,
-  HostMetricsWire,
-  MachineWire,
-  SessionId,
-} from '@podium/model'
+import type { GitRepositoryWire, HostMetricsWire, MachineWire, SessionId } from '@podium/model'
 import { asIssueId } from '@podium/model'
 import { useEffect, useState } from 'react'
 import { demoEnabled } from './demoData'
