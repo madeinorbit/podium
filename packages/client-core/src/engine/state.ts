@@ -30,7 +30,6 @@ import type {
   IssueGitStateProjection,
   IssueDepProjection,
   RepoProjection,
-  IssueWire,
   MachineWire,
   MessageRecordWire,
   SessionId,
@@ -71,7 +70,6 @@ export interface EngineState {
   reposLoaded: boolean
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
   sessions: SessionView[]
-  issues: IssueWire[]
   issueProjections: IssueProjection[]
   issueDeps: IssueDepProjection[]
   issueGitStates: IssueGitStateProjection[]
@@ -669,7 +667,6 @@ export interface EngineStateSeed {
   readonly persisted: WorkspaceUiSnapshot
   readonly route: { settingsTab: string | null; issueId?: IssueId | null }
   readonly sessions: SessionView[]
-  readonly issues: IssueWire[]
   readonly issueProjections: IssueProjection[]
   readonly issueUserStates: IssueUserStateWire[]
   readonly issueGitStates: IssueGitStateProjection[]
@@ -711,7 +708,6 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     reposLoaded: false,
     repoDiagnostics: [],
     sessions: seed.sessions,
-    issues: seed.issues,
     issueProjections: seed.issueProjections,
     issueUserStates: seed.issueUserStates,
     issueGitStates: seed.issueGitStates,

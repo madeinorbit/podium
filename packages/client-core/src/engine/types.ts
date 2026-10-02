@@ -20,7 +20,6 @@ import type {
   IssueEventWire,
   IssueId,
   IssueProjection,
-  IssueWire,
   MachineId,
   MachineWire,
   MutationId,
@@ -154,7 +153,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
   sessions: SessionView[]
   /** Issues (work items) broadcast by the server — full list, refreshed on every mutation. */
-  issues: IssueWire[]
   /** Normalized durable issue rows. Per-user markers live on `issueUserStates`. */
   issueProjections: IssueProjection[]
   /** This principal's per-user issue markers (`readAt`, `tuckedAt`, `pinned`):

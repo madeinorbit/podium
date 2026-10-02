@@ -54,7 +54,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { IssueWire, SessionMeta, SessionUserStateWire, WorkState } from '@podium/model'
+import type { SessionMeta, SessionUserStateWire, WorkState } from '@podium/model'
 import {
   IssueProjection,
   IssueUserStateWire,
@@ -68,7 +68,7 @@ const log = createLogger('client-core:overlay')
 
 /** The entities a per-row reader may ask the ledger about (the pool's row
  *  source reads exactly these). Conversations carry no optimistic writes. */
-export type OverlayEntity = 'sessions' | 'issues' | 'issueProjections'
+export type OverlayEntity = 'sessions' | 'issueProjections'
 
 /**
  * Every entity an overlay can paint (POD-4969). The per-user issue state —
@@ -86,7 +86,6 @@ type OverlayPatch = Record<string, unknown>
 /** The rows a `coveredBy` judges. */
 export type OverlayRow =
   | SessionMeta
-  | IssueWire
   | IssueProjection
   | IssueUserStateWire
   | SessionUserStateWire
@@ -123,7 +122,7 @@ export type PendingOverlay =
       entity: OverlayTarget
       id: string
       /** The whole placeholder row, shown until a base row (same id) lands. */
-      insert: SessionMeta | IssueWire | IssueProjection | IssueUserStateWire | SessionUserStateWire
+      insert: SessionMeta | IssueProjection | IssueUserStateWire | SessionUserStateWire
     }
 
 /** A resolved patch overlay still awaiting covering server truth (rule (a)).
@@ -180,7 +179,7 @@ export function rowFingerprint(row: object): string {
  *
  * `null` and `undefined` are ONE value here, and that is not laziness about
  * types: the wire spells "unset" both ways for the same field. `issues.update`
- * clears a colour with `color: null` while `IssueWire.color` is `optional()` —
+ * clears a colour with `color: null` while `IssueProjection.color` is `optional()` —
  * absent once cleared — so a strict `===` would leave every clear painted until
  * its TTL. `rowFingerprint` above already makes the same collapse for the same
  * reason (JSON.stringify drops undefined-valued keys).
@@ -354,16 +353,12 @@ export function issueUpdateRoute(patch: OverlayPatch): { issue: OverlayPatch; us
  * ONE ENTRY, ONE OVERLAY PER ROW IT LANDS ON (POD-4969). Issue writes target
  * the NORMALIZED rows: the durable fields on `issueProjections`, the per-user
  * markers on `issueUserStates`. Every kind lands on exactly one of them except
- * `issueUpdate`, whose patch may carry `pinned` beside durable fields. While the
- * old issue record still has readers, each issue entry also carries ONE part on
- * it ({@link legacyIssuePart}). All overlays of one entry share its mutationId
- * as `key`, and each is held and retired against its own row.
+ * `issueUpdate`, whose patch may carry personal markers beside durable fields.
+ * All parts share the mutationId and retire against their own rows.
  */
 export function overlaysForOutboxEntry(entry: OutboxEntry): PendingOverlay[] {
   const projected = overlayOf(entry)
-  const overlays = projected === null ? [] : Array.isArray(projected) ? projected : [projected]
-  const legacy = legacyIssuePart(overlays)
-  return legacy === null ? overlays : [...overlays, legacy]
+  return projected === null ? [] : Array.isArray(projected) ? projected : [projected]
 }
 
 function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null {
@@ -830,53 +825,6 @@ export const PRESENCE_REDUCER_KINDS: Record<string, keyof OutboxKinds & string> 
   'snoozes.clear': 'snoozeClear',
 }
 
-/**
- * THE OLD-RECORD PART (POD-4969) — why a reader of the old issue record still
- * sees every edit on the press, and never sees it flicker back.
- *
- * Every issue overlay of record targets the NORMALIZED rows: `issueProjections`
- * for durable fields and `issueUserStates` for the per-user markers. But the old
- * record (`issues`, `IssueWire`) still has readers that have not moved: mobile
- * reads nothing else, the web's view models spread it first, and the pool
- * sidebar joins its per-user cells. For them, an issue entry carries one more
- * part: the same patch on the old row, in the old spelling.
- *
- * IT RETIRES ON ITS OWN ROW, not with the normalized part, because the server
- * does not publish the two together for every command: `markIssueRead`,
- * `markIssueUnread` and `setIssueTucked` commit the per-user row first and
- * republish the old record in a SECOND commit (`IssueCrud`, `writeIssueUserState`
- * then `persist`). A copy that left with the normalized part would hand the old
- * record's readers its pre-edit value for that gap: the unread dot flashing back.
- * So the part is held and retired like any overlay, against the old row, and
- * the entry's durable outbox record stays until every part has retired.
- *
- * Its `coveredBy` is the normalized parts' own, all of them: each reads only the
- * keys its part wrote, and the old record spells every key an overlay writes the
- * same way — except the documents (`{ value }` normalized, plain text here),
- * which `sameCell` compares by text.
- *
- * Nothing is painted on a row the replica no longer stores (a client that drops
- * the old record holds no part), and the part goes with the old record
- * (POD-4973).
- */
-export function legacyIssuePart(overlays: readonly PendingOverlay[]): PendingOverlay | null {
-  const parts = overlays.filter(
-    (o): o is Extract<PendingOverlay, { op: 'patch' }> =>
-      o.op === 'patch' && (o.entity === 'issueProjections' || o.entity === 'issueUserStates'),
-  )
-  const first = parts[0]
-  if (first === undefined) return null
-  const patch: OverlayPatch = {}
-  for (const part of parts) {
-    for (const [key, value] of Object.entries(part.patch)) {
-      patch[key] = ISSUE_DOCUMENT_KEYS.has(key) ? (value as { value: string }).value : value
-    }
-  }
-  return patchOverlay('issues', first.id, first.key, patch, (row) =>
-    parts.every((part) => part.coveredBy(row)),
-  )
-}
-
 /** True when the fold actually moved one of the cells it wrote. Only the patched
  *  keys are looked at — every other cell came straight off `row`. */
 function movedAnyCell(row: object, merged: object, patches: readonly OverlayPatch[]): boolean {
@@ -906,7 +854,7 @@ export interface FoldResult<T> {
  *
  * "NOTHING APPLIES" IS ABOUT VALUES, NOT ABOUT IDS (POD-1053). A patch whose
  * cells already read back equal on the row is observationally a no-op, and a
- * fresh row object for it is not free: `store.issues` is the cache key for the
+ * fresh row object for it is not free: `store.issueProjections` is the cache key for the
  * shared view-model cache and for the published worklist slice, so a gratuitous
  * row identity costs a model rebuild and, absent the value comparison further
  * down, a whole worklist derivation. The commonest shape is composition —

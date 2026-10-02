@@ -1,3 +1,4 @@
+import { allIssueViewModels } from '../replica/issue-view-cache'
 import type { ReplicaKind } from '../replica/contract'
 import { sessionViews } from '../session-values'
 import { beginSidebarUpdate } from '../perf/sidebar-perf'
@@ -353,7 +354,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** The per-user session rows, raw: the ledger paints this principal's and
    *  joins them over `baseSessions` (POD-4974 S3). */
   private baseSessionUserStates: ReplicaPublication['snapshot']['sessionUserStates'] = []
-  private baseIssues: EngineState['issues'] = []
   private baseIssueProjections: EngineState['issueProjections'] = []
   private baseIssueUserStates: EngineState['issueUserStates'] = []
   private prevRoute: RouteState
@@ -483,11 +483,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       base: () => ({
         sessions: this.baseSessions,
         sessionUserStates: this.baseSessionUserStates,
-        issues: this.baseIssues,
         issueProjections: this.baseIssueProjections,
         issueUserStates: this.baseIssueUserStates,
       }),
-      paintedIssues: () => this.state.issues,
+      paintedIssues: () => allIssueViewModels(this.replica, this.state.issueProjections, this.state.issueUserStates),
       publish: (patch) => this.apply(patch),
       batch: (fn) => this.batch(fn),
       ...(init.spawnConfirmGraceMs !== undefined
@@ -533,7 +532,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const replicaSeed = this.replicaBinding.snapshot()
     this.baseSessions = this.readSessionViews(replicaSeed)
     this.baseSessionUserStates = replicaSeed.sessionUserStates
-    this.baseIssues = replicaSeed.issues
     this.baseIssueProjections = replicaSeed.issueProjections
     this.baseIssueUserStates = replicaSeed.issueUserStates
     this.reactions = new Reactions({
@@ -561,13 +559,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       (i) => i.id,
     )
     const seededUserStates = this.optimism.foldSeedUserStates(this.baseIssueUserStates)
-    // The old record's paint is derived from the normalized overlays (POD-4969).
-    const seededIssueFold = this.optimism.foldSeed('issues', this.baseIssues, (i) => i.id)
     this.state = initialEngineState({
       persisted,
       route,
       sessions: seededSessionFold.rows,
-      issues: seededIssueFold.rows,
       issueProjections: seededProjectionFold.rows,
       issueUserStates: seededUserStates,
       issueDeps: replicaSeed.issueDeps,
@@ -728,7 +723,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           if (
             !this.onFeed &&
             snap.sessions.length +
-              snap.issues.length +
               snap.shipOrders.length +
               snap.shipLanes.length +
               snap.conversations.length +
@@ -1418,19 +1412,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           this.baseSessionUserStates = snapshot.sessionUserStates
           this.optimism.recomputeSessions()
         }
-        // Any issue kind repaints all three (POD-4969): the overlays of record
-        // are judged on the normalized rows, a retirement there drops the old
-        // record's derived copy, and the slice decides what an absent per-user
-        // row means.
-        if (changed.has('issues')) this.baseIssues = snapshot.issues
+        // Both issue kinds repaint together: projection presence determines
+        // whether an absent per-user row means untouched or no longer visible.
         if (changed.has('issueProjections')) this.baseIssueProjections = snapshot.issueProjections
         if (changed.has('issueUserStates')) this.baseIssueUserStates = snapshot.issueUserStates
         if (
-          changed.has('issues') ||
           changed.has('issueProjections') ||
           changed.has('issueUserStates')
         ) {
-          this.optimism.recomputeFor(['issueProjections', 'issueUserStates', 'issues'])
+          this.optimism.recomputeFor(['issueProjections', 'issueUserStates'])
         }
         const patch: Partial<EngineState> = {}
         if (changed.has('issueDeps')) patch.issueDeps = snapshot.issueDeps

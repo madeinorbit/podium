@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '../replica/issue-view-models'
 import { sessionById } from '../session-index'
 import { sessionValues, sessionView } from '../session-values'
 /**
@@ -36,7 +37,6 @@ import type {
   AgentKind,
   IssueId,
   IssueUserStateWire,
-  IssueWire,
   MutationId,
   SessionId,
   SessionMeta,
@@ -130,7 +130,6 @@ export interface OptimismBase {
   /** The per-user session markers, raw. As for issues, the ledger only ever
    *  paints the rows whose `userId` is {@link OptimismPorts.userId}. */
   sessionUserStates: SessionUserStateWire[]
-  issues: IssueWire[]
   issueProjections: IssueProjection[]
   /** The per-user issue markers. The ledger only ever paints the rows whose
    *  `userId` is {@link OptimismPorts.userId}. */
@@ -139,22 +138,12 @@ export interface OptimismBase {
 
 type PatchOverlay = Extract<PendingOverlay, { op: 'patch' }>
 
-/** Every issue target, in recompute order: the normalized rows, then the old
- *  record (its part of each entry, and the spawn placeholder). */
-const ISSUE_TARGETS: readonly OverlayTarget[] = ['issueProjections', 'issueUserStates', 'issues']
-
-/** Fields of the normalized issue row, for the spawn placeholder's copy. */
+/** Durable issue fields and this principal's markers repaint together. */
+const ISSUE_TARGETS: readonly OverlayTarget[] = ['issueProjections', 'issueUserStates']
 const PROJECTION_KEYS: readonly string[] = Object.keys(IssueProjection.shape)
 
-/**
- * The spawn placeholder in the NORMALIZED spelling (POD-4969). The builders in
- * `viewmodels/optimistic-spawn.ts` mint the old record, which still has readers;
- * this copies the same facts onto the normalized row: the durable fields by
- * name, the description as a document, and the two keys the old record spells
- * differently (`origin`, `draft`). Per-user cells (`readAt`) and derived ones
- * (`deps`, `ready`, `repoPath`, ...) are not normalized-row fields and drop out.
- */
-export function placeholderProjection(issue: IssueWire): IssueProjection {
+/** Convert a temporary spawn render model to the normalized replicated shape. */
+export function placeholderProjection(issue: IssueViewModel): IssueProjection {
   const source = issue as unknown as Record<string, unknown>
   const row: Record<string, unknown> = {}
   for (const key of PROJECTION_KEYS) {
@@ -163,8 +152,6 @@ export function placeholderProjection(issue: IssueWire): IssueProjection {
   }
   row.description = { value: issue.description ?? '' }
   if (typeof source.notes === 'string') row.notes = { value: source.notes }
-  row.intentOrigin = issue.origin ?? 'human'
-  row.isDraftVessel = issue.draft === true
   return row as unknown as IssueProjection
 }
 
@@ -178,7 +165,7 @@ export interface OptimismPorts<TApi extends PodiumClientApi> {
   /** Server truth, read fresh — the runtime owns these lists. */
   readonly base: () => OptimismBase
   /** The PAINTED issue list, for the draft's sort-key placement. */
-  readonly paintedIssues: () => IssueWire[]
+  readonly paintedIssues: () => IssueViewModel[]
   /** The runtime's state choke point. */
   readonly publish: (patch: Partial<EngineState>) => void
   /** Coalesce every `publish` inside `fn` into ONE snapshot (POD-1645). Optional
@@ -480,8 +467,6 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     switch (entity) {
       case 'sessions':
         return sessionById(base.sessions).get(id)
-      case 'issues':
-        return base.issues.find((i) => i.id === id)
       case 'issueProjections':
         return base.issueProjections.find((i) => i.id === id)
       case 'issueUserStates':
@@ -659,7 +644,6 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       this.recomputeSessions()
       this.recomputeIssueProjections()
       this.recomputeIssueUserStates()
-      this.recomputeIssues()
     })
   }
 
@@ -801,18 +785,6 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     this.notifySpawnConfirmWaiters(pendingInsertIds)
   }
 
-  /** The old record, painted for the readers that have not moved to the
-   *  normalized rows (POD-4969): only the old-record part of each issue entry
-   *  (`legacyIssuePart`) and the spawn placeholder target it. Goes with the old
-   *  record (POD-4973). */
-  recomputeIssues(): void {
-    const base = this.ports.base().issues
-    const keyOf = (i: IssueWire): string => i.id
-    this.retireCovered('issues', base, keyOf)
-    const { rows } = this.foldStable('issues', base, keyOf)
-    this.ports.publish({ issues: rows })
-  }
-
   recomputeIssueProjections(): void {
     const base = this.ports.base().issueProjections
     const keyOf = (i: IssueProjection): string => i.id
@@ -838,7 +810,6 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       if (set.has('sessions') || set.has('sessionUserStates')) this.recomputeSessions()
       if (set.has('issueProjections')) this.recomputeIssueProjections()
       if (set.has('issueUserStates')) this.recomputeIssueUserStates()
-      if (set.has('issues')) this.recomputeIssues()
     })
   }
 
@@ -953,30 +924,14 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     let baseline: string | undefined
     let chained = false
     if (probe.length > 0) {
-      // ONE fingerprint per entry, over every row it lands on. The normalized
-      // rows' patched keys are disjoint by construction (`issueUpdateRoute`
-      // sends each key to exactly one home), and the old record's part repeats
-      // them in its own spelling, which `sameCell` reads as the same value. The
-      // baseline is only ever read by patched key, so merging the rows loses
-      // nothing a reader asks for.
-      //
-      // The OLD RECORD MERGES LAST while the replica holds it. Against a server
-      // that publishes both, the two agree and the order is moot. Against one
-      // that never sends the per-user kind (older than POD-4967), the absent
-      // per-user row reads "nothing set" while the old record carries the real
-      // marker: its value is the true baseline, which keeps the meaning other
-      // readers of `baseline` rely on (`client-graph`'s receipts), and lets the
-      // per-user part see that row as already moved and back off at resolution
-      // instead of masking until its TTL. A client that stops storing the old
-      // record (POD-4970) has no such row, and the normalized rows decide alone.
-      //
+      // One baseline over disjoint normalized cells: durable issue fields and
+      // personal markers each have one home.
       // A per-user SESSION row merges over its session view (POD-4974 S3). The
       // row carries no activity clock, and mark-read paints at least the
       // session's `lastActiveAt`; the per-user cells are the per-user row's own.
       // That is also the shape older builds stored (a session-row fingerprint),
       // so an entry from before S3 reads the same cells off its baseline.
-      const rows = [...probe]
-        .sort((a, b) => Number(a.entity === 'issues') - Number(b.entity === 'issues'))
+      const rows = probe
         .flatMap((o) => [
           ...(o.entity === 'sessionUserStates' ? [this.truthRow('sessions', o.id)] : []),
           this.truthRow(o.entity, o.id),
@@ -1036,7 +991,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     sessionId: SessionId
     issueId: IssueId
     session: StartingSessionRow
-    issue: IssueWire
+    issue: IssueViewModel
     prompt?: string
     create: () => Promise<void>
     failureSubject: 'agent' | 'task'
@@ -1048,14 +1003,9 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     outcome: Promise<TaskSpawnOutcome>
   } {
     const { sessionId, issueId } = args
-    // The placeholder issue lands on the NORMALIZED row (POD-4969), with this
-    // principal's markers beside it (just created by them, so read), and on the
-    // old record for the readers that have not moved. Each insert of record
-    // retires when its own row lands; the per-user one with its issue's, since
-    // the server writes no marker on create. The session's per-user cells are
-    // its own per-user row too (POD-4974 S3c), joined in by `paintSessions`;
-    // the placeholder session carries none (the wire's defaults stand in for a
-    // reader that joins nothing: read, not unread).
+    // A temporary issue projection and personal markers accompany the starting
+    // session. Markers retire with their issue: create need not publish a row
+    // whose markers are all unset.
     this.spawnOverlays = [
       ...this.spawnOverlays,
       insertOverlay('sessions', sessionId, args.session as SessionMeta),
@@ -1076,7 +1026,6 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
         tuckedAt: args.issue.tuckedAt ?? null,
         pinned: args.issue.pinned === true,
       }),
-      insertOverlay('issues', issueId, args.issue),
     ]
     if (args.prompt) this.spawnPrompts = new Map(this.spawnPrompts).set(sessionId, args.prompt)
     this.recomputeFor(['sessions', ...ISSUE_TARGETS])
