@@ -26,7 +26,7 @@ export const IssueProjection = z.object({
   // Main tolerated a second field here, `humanQuestionOptions`. It has no
   // counterpart to tolerate: this tree nests the needs-human pair as
   // `asked: { question, options, at, by, attribution }` (`fields/issue.ts`,
-  // NeedsHuman) precisely so "when" cannot arrive without "who", and `options` is
+  // NeedsHuman) with optional historical attribution, and `options` is
   // a plain `z.array(z.string()).optional()` inside it with no closed vocabulary
   // a newer peer could widen. The tolerance existed for main's enum-typed slot
   // list; it would be decoration here.

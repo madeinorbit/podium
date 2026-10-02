@@ -17,7 +17,7 @@ import { upsertIssue } from '../scenarios'
  * Row changes are server truth: they read the CACHE (the replica's server
  * rows), never the runtime's folded snapshot, which carries the pending
  * overlay — writing a heartbeat from the folded row would broadcast our own
- * pending title as the server's. Issue writes dual-write wire and projection
+ * pending title as the server's. Issue writes update projections and their companions
  * in one `replica.batch()`, as the scenarios do.
  *
  * Edits go through the runtime ACTIONS (`updateIssue`, `markIssueRead`), so
@@ -488,9 +488,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
       case 'setStartedBy':
         return patchIssue(c.id, { startedBySession: c.sessionId })
       case 'setBranch':
-        // `patchIssue` dual-writes wire and projection, as the authority
-        // does for `branch` (POD-4940): the app reads the verdict off the
-        // projection's branch and the wire's git state.
+        // Patch the branch fact and its git observation together.
         return patchIssue(c.id, {
           branch: c.branch,
           gitState: {

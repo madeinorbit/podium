@@ -1,24 +1,6 @@
-/**
- * POD-4971 (step 5a of POD-4949) — MAIL ELIGIBILITY READS THE NORMALIZED RECORD.
- *
- * The relay's `oplog.appended` listener decides which issues to re-examine for
- * held mail. Until this step it listened only for the old record (`issue`,
- * IssueProjection); step 7 stops sending that record, and a listener still keyed on
- * it would then stop mail without an error anywhere. These two tests pin which
- * record is the trigger, over a real registry, by taking one of the two kinds
- * out of the bus before the listener sees it:
- *
- *   - ONLY the normalized record (`issueProjection`) reaches the listener: held
- *     mail is delivered. With the old trigger this fails.
- *   - ONLY the old record reaches it: the issue is not re-examined. This is the
- *     proof that nothing still depends on the old record.
- *
- * The scenario is the one issue-side change the trigger exists for: a session
- * already sits in a directory, unattached; the issue then takes that directory
- * as its worktree, so the session becomes the issue's member and the held mail
- * can go to it. No session row changes, so no session trigger can mask a
- * missing issue trigger.
- */
+/** Mail eligibility follows committed issue projections. Taking a worktree
+ * makes a previously unattached session eligible for its issue's held mail,
+ * without any session row changing to mask a missing issue trigger. */
 
 import type { SessionId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
@@ -40,8 +22,7 @@ const durableSends = (daemon: ControlMessage[], sessionId: SessionId): DurableSe
       message.type === 'runtimeDurableSendRequest' && message.sessionId === sessionId,
   )
 
-/** A registry whose bus drops one issue kind from every `oplog.appended`, so
- *  its listeners see the feed as a server sending only the other kind. */
+/** Observe the registry's committed issue changes and mail delivery. */
 async function heldIssueMail(dropped?: MetadataChange['entity']) {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(reg)

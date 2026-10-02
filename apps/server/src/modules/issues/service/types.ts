@@ -32,12 +32,8 @@ import type { IssueRow, SessionStore } from '../../../store'
  * happens UPSTREAM (router / issue-commands authz) — service-level ops pass no
  * `authorize` stage of their own.
  *
- * ONE MEMBER NOW. `publishComputed` — the legacy full-list snapshot tail every
- * issue fan-out also called — was deleted at the serving-path cutover
- * (POD-1203). The change rows this feature declares at its write seam ARE the
- * fan-out; a legacy client's `issuesChanged` is built from them at the
- * connection boundary. Nothing was moved into this interface to replace it,
- * because there is nothing left for the feature to do after it has committed.
+ * Committed change rows are the publication boundary. The feature does not
+ * perform a separate snapshot fan-out after committing.
  */
 export interface IssueFunnel {
   run<T>(op: { authorize?: () => Promise<void>; write: () => Promise<T> }): Promise<T>
@@ -50,14 +46,7 @@ export interface IssueFunnel {
  *  so tests can fake it. */
 export interface IssueLedger {
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
-  /** 'issueProjection' is the NORMALIZED kind [POD-796] — a SECOND kind
-   *  alongside 'issue', reconciled from the same truth in the same pass, never a
-   *  reshaping of it (the ledger stores one value per (kind, id), so 'issue'
-   *  cannot carry two payload shapes at once). 'issueDep' and 'repo' are the two
-   *  kinds the replica joins the projection against [POD-822] — the dependency
-   *  edges and the repo prefixes the projection cannot carry (see model's
-   *  `issue/dep.ts`, `repo/fields.ts`). All three reconcile the same way and are
-   *  emitted only under the same flag. */
+  /** Reconcile normalized issues, their companions and repository facts. */
   reconcile(
     entity: 'issueProjection' | 'issueUserState' | 'issueGitState' | 'issueDep' | 'repo',
     rows: { id: string; value: unknown }[],

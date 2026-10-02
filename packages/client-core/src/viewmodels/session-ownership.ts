@@ -190,7 +190,7 @@ export function sessionsForWorktree(
 
 /** Sessions living in an issue's worktree — exact cwd match or nested under it.
  *  Mirrors the server's sessionsForIssue membership so the sidebar count stays
- *  live between issuesChanged broadcasts. */
+ *  live as session rows change. */
 export function sessionsForIssueWorktree(
   sessions: SessionView[],
   worktreePath: string | null,

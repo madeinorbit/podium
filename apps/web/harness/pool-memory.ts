@@ -63,7 +63,7 @@ const POOL_MACHINERY: Cut = {
 }
 // The legacy store's own per-row objects: issue view models, the published
 // sorted-issue and issue-view entries, plus its handles, view-model cache and
-// mission index. Rows the kernel replica holds (old record, projection) stay.
+// mission index. Rows the kernel replica holds stay.
 const LEGACY_STORE: Cut = {
   handles: ['snapshot', 'snapshot.*', 'runtime.state', 'runtime.subStore', 'runtime.base*'],
   weakValuesOf: ['replica'],

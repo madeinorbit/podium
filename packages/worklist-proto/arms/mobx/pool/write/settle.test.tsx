@@ -18,7 +18,7 @@ import { upsertIssue } from '../../../../shared/src/scenarios'
  *
  * Truth feed (W12): server rows arrive without the kernel's ledger overlay,
  * so a remote value on a pending field is visible to the log. Server writes
- * go through the replica facade (wire + projection dual-write, as
+ * go through the replica facade (projection + companion update, as
  * `gen/run.ts` does), so the feed emits them like any other server row.
  */
 

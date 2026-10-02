@@ -602,8 +602,8 @@ export class IssueAttentionModule {
   }
 
   /** Archive `row` as the passive auto-archive sweep (issue #127). Reuses the same
-   *  persist machinery `archive()` funnels through (sets archived + broadcasts
-   *  issueUpdated & issuesChanged) but logs a DISTINCT `issue.auto_archived` event
+   *  persist machinery `archive()` funnels through (sets archived and publishes
+   *  its issue projection) but logs a DISTINCT `issue.auto_archived` event
    *  instead of the manual `issue.archived` — the activity log (S3) renders it as
    *  its own line, and nothing downstream mistakes a sweep for a user action. */
   private async autoArchive(row: IssueRow, principal?: SystemCommandPrincipal): Promise<IssueProjection> {

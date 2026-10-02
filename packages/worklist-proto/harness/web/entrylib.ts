@@ -18,11 +18,11 @@ import { upsertIssue } from '../../shared/src/scenarios'
  *   same one-field change of the same row. A click never selects the row.
  *   Heartbeat and visible heartbeat together price "a session nobody sees"
  *   against "a session on screen".
- * - `rename`: title dual-write on a DRAWN open root (#4), from its server
+ * - `rename`: title update on a DRAWN open root (#4), from its server
  *   title to `<title> (renamed)`; the next `prepare` restores its server rows
  *   untimed, so every sample is the same rename of the same row and titles
  *   never grow (POD-4559).
- * - `stagemove`: stage dual-write (open → done/tucked) on a DRAWN childless
+ * - `stagemove`: stage and personal-state update (open → done/tucked) on a DRAWN childless
  *   open root (#5); the next `prepare` reopens it untimed (its server rows
  *   restored), so every sample is the same move of the same row.
  * - `clock`: advance the clock 60 s with no row change, through the runtime's

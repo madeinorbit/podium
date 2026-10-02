@@ -29,7 +29,7 @@ import { repoMatesOf, useIssuePageModel } from './issue-page-model'
  * column (banners → inline-editable title → status strip → description →
  * long-form spec fields → agent activity → sub-issues → mail → activity feed),
  * and a desktop-only properties aside. The `issue` prop is the live store row, so
- * it re-renders as `issuesChanged` broadcasts land. Navigation re-points
+ * it re-renders as normalized issue facts change. Navigation re-points
  * `openIssueId` via `onNavigate`; `onBack` clears it.
  *
  * -------------------------------------------------------------------------
