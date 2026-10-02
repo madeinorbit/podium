@@ -5,7 +5,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { beginSidebarCheck } from '@podium/client-core/perf'
 import { allIssueViewModels, type IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { groupRelations, subIssuesOf } from '@podium/client-core/viewmodels'
+import { groupRelations } from '@podium/client-core/viewmodels'
 import { runInAction } from 'mobx'
 import { knownIssueIds } from '../src/enumerate'
 import { issuePages } from '../src/issue-page'
@@ -23,7 +23,7 @@ export const ISSUE_PAGE_CHECK_FIELDS = [
   'createdBy', 'lastLifecycleActor', 'createdAt', 'updatedAt', 'panel',
   'linearIdentifier', 'linearUrl', 'pinned', 'readAt', 'tuckedAt', 'gitState',
   'deps', 'dependents', 'childIds', 'childCount', 'childDoneCount', 'memberSessionIds',
-  'blocked', 'ready', 'deferred', 'unread',
+  'blocked', 'ready', 'deferred', 'unread', 'sessionSummary',
 ] as const
 const SESSION_FIELDS = ['sessionId', 'issueId', 'refIssueId', 'displayRef', 'name', 'title',
   'agentKind', 'agentColor', 'headless', 'status', 'archived', 'agentState', 'lastActiveAt',
@@ -47,10 +47,23 @@ function snapshot(issue: IssueViewModel, children: IssueViewModel[], roster: Ses
   }
 }
 export function legacyIssuePageSnapshot(issues: readonly IssueViewModel[], sessions: readonly SessionView[]): IssuePageCheckRow[] {
-  return issues.map(issue => ({ id: issue.id, value: snapshot(issue, subIssuesOf(issues, issue.id),
-    sessions.filter(s => s.issueId === issue.id || (issue.memberSessionIds ?? []).includes(s.sessionId)),
-    sessions.filter(s => s.refIssueId === issue.id && s.issueId != null && s.issueId !== issue.id && !s.archived),
-  ) }))
+  // This diagnostic owns full input arrays. Build temporary indexes once;
+  // checking every page must not turn into pages × sessions on the operator corpus.
+  const children = new Map<string, IssueViewModel[]>(), attached = new Map<string, SessionView[]>(), moved = new Map<string, SessionView[]>()
+  const append = <T,>(map: Map<string, T[]>, id: string, row: T) => { const bucket = map.get(id); if (bucket) bucket.push(row); else map.set(id, [row]) }
+  for (const issue of issues) if (issue.parentId && !issue.deletedAt) append(children, issue.parentId, issue)
+  for (const bucket of children.values()) bucket.sort((a, b) => a.seq - b.seq)
+  const byId = new Map(sessions.map((seat, position) => [seat.sessionId as string, { seat, position }]))
+  for (const seat of sessions) {
+    if (seat.issueId) append(attached, seat.issueId, seat)
+    if (seat.refIssueId && seat.issueId != null && seat.issueId !== seat.refIssueId && !seat.archived) append(moved, seat.refIssueId, seat)
+  }
+  return issues.map(issue => {
+    const roster = new Map((attached.get(issue.id) ?? []).map(seat => [seat.sessionId as string, seat]))
+    for (const id of issue.memberSessionIds ?? []) { const seat = byId.get(id)?.seat; if (seat) roster.set(id, seat) }
+    const ordered = [...roster.values()].sort((a, b) => byId.get(a.sessionId)!.position - byId.get(b.sessionId)!.position)
+    return { id: issue.id, value: snapshot(issue, children.get(issue.id) ?? [], ordered, moved.get(issue.id) ?? []) }
+  })
 }
 export function poolIssuePageSnapshot(pool: MobxPool): IssuePageCheckRow[] {
   const views = issuePages(pool)

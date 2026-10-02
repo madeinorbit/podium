@@ -127,7 +127,8 @@ export function IssueContextMenu({
   poolInputs?: MissionActionInputs
 }): JSX.Element | null {
   const page = useIssuePageData()
-  const allIssues = page ? page.views.menuIssues() : suppliedIssues
+  const menuIssues = page?.views.menuIssues()
+  const allIssues = page ? menuIssues && typeof menuIssues !== 'symbol' ? menuIssues : page.data.issues : suppliedIssues
   const {
     trpc,
     markIssueRead,

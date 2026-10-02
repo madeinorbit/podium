@@ -932,11 +932,11 @@ export function IssuePanelBody({
   const showInDeck = (target: IssueViewModel): void => {
     const root = page ? page.views.destination(target.id) : deckDestinationFor(issues, sessions, target.id)
     if (!root || typeof root === 'symbol') return
+    const resolved = page ? page.views.attachedSessions(target.id) : issueSessions(target, sessions)
+    if (!resolved || typeof resolved === 'symbol') return
     setSelectedIssueId(root.id)
     setFocusedIssueId(target.id)
     void markIssueRead(target.id)
-    const resolved = page ? page.views.attachedSessions(target.id) : issueSessions(target, sessions)
-    if (!resolved || typeof resolved === 'symbol') return
     const targetSessions = resolved
       .filter(isOpenSession)
       .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))
