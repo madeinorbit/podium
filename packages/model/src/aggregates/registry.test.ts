@@ -342,7 +342,7 @@ describe('the aggregates carry ownership and attribution, and not their alternat
  */
 const SESSION_AGGREGATE_KEYS = [
   'accountId', 'activityCount', 'agentKind', 'agentState', 'archived', 'createdAt',
-  'createdBy', 'cwd', 'deleted', 'durableLabel', 'effort', 'executionProfileId',
+  'createdBy', 'cwd', 'delegation', 'deleted', 'durableLabel', 'effort', 'executionProfileId',
   'exitCode', 'headless', 'inputCount', 'issueId', 'lastActiveAt', 'lastInputAt',
   'lastOutputAt', 'lastResumedAt', 'machineId', 'model', 'name', 'nameSource',
   'namedBy', 'origin', 'outputCount', 'owner', 'refDraft', 'refIssueId', 'refLetter',
@@ -372,7 +372,7 @@ const ISSUE_AGGREGATE_KEYS = [
 ]
 
 describe('the canonical key sets are pinned exactly', () => {
-  it('SessionAggregate carries exactly these 45 keys and no others', () => {
+  it('SessionAggregate carries exactly these 46 keys and no others', () => {
     expect(Object.keys(SessionAggregate.shape).sort()).toEqual(SESSION_AGGREGATE_KEYS)
   })
 

@@ -32,6 +32,7 @@ interface ModelInputs {
 }
 
 export interface IssueModelsProjection {
+  sourceSnapshot: CachedIssueViewsSnapshot
   snapshot: CachedIssueViewsSnapshot
   projectionRows: readonly IssueProjection[]
   userStateRows: readonly IssueUserStateWire[]
@@ -193,18 +194,27 @@ export function modelsFor(
   suppliedUserStateRows?: readonly IssueUserStateWire[],
 ): IssueModelsProjection {
   const store = storeFor(replica)
-  const snapshot = snapshotFor(replica)
-  const projectionRows = suppliedProjectionRows ?? snapshot.projectionRows
-  const userStateRows = suppliedUserStateRows ?? snapshot.userStateRows
+  const sourceSnapshot = snapshotFor(replica)
+  const projectionRows = suppliedProjectionRows ?? sourceSnapshot.projectionRows
+  const userStateRows = suppliedUserStateRows ?? sourceSnapshot.userStateRows
   const current = store.models
   if (
-    current?.snapshot === snapshot &&
+    current?.sourceSnapshot === sourceSnapshot &&
     current.projectionRows === projectionRows &&
     current.userStateRows === userStateRows
   ) {
     return current
   }
 
+  // Derive structural state from the optimistic projections too: a new draft
+  // has no truth row yet, and a close/reparent must paint before its echo.
+  const snapshot: CachedIssueViewsSnapshot = projectionRows === sourceSnapshot.projectionRows && userStateRows === sourceSnapshot.userStateRows
+    ? sourceSnapshot
+    : {
+        ...deriveIssueViewsSnapshot(replica, current?.snapshot, projectionRows, userStateRows),
+        projectionRows,
+        userStateRows,
+      }
   store.modelBuilds++
   const userStateById = new Map(userStateRows.map(row => [row.entityId, row]))
   const models = new Map<string, IssueViewModel>()
@@ -247,6 +257,7 @@ export function modelsFor(
 
   const unchanged = current !== null && sameIndex(current.index, models)
   const projection: IssueModelsProjection = {
+    sourceSnapshot,
     snapshot,
     projectionRows,
     userStateRows,

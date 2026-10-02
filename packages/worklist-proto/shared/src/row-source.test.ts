@@ -1168,7 +1168,7 @@ function countingWrappers(
     return proxy
   }
   const snapshots = new WeakMap<object, unknown>()
-  const ENTITY_ARRAYS = new Set(['sessions', 'issues', 'issueProjections', 'issueUserStates', 'issueGitStates', 'repos'])
+  const ENTITY_ARRAYS = new Set(['sessions', 'issueProjections', 'issueUserStates', 'issueGitStates', 'repos'])
   const runtime = {
     subscribe: engine.subscribe,
     pendingOverlaysByRow: engine.pendingOverlaysByRow,
@@ -1250,7 +1250,7 @@ async function runFence(
   // The scale is real: the replica and the runtime hold the whole corpus.
   expect(replica.rows('issueProjections')).toHaveLength(spec.issues)
   expect(replica.rows('sessions')).toHaveLength(spec.sessions)
-  expect(engine.getSnapshot().issueProjections).toHaveLength(0)
+  expect(engine.getSnapshot().issueProjections).toHaveLength(spec.issues)
   const wrapped = countingWrappers(engine, replica)
   const handle = createRowSource(wrapped.runtime, wrapped.replica, { mode })
   let rowsEmitted = 0

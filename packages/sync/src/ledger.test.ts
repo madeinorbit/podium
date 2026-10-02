@@ -42,12 +42,12 @@ describe('entityOverlayKey', () => {
   // literal-NUL join) while the SOURCE spells it as an escape so grep can
   // still read the module.
   it('is entity + NUL + id, byte-identical to a raw-NUL join', () => {
-    const key = entityOverlayKey('issueProjection', 'abc')
+    const key = entityOverlayKey('repo', 'abc')
     // Runtime probe: join with a real U+0000 character (not via the helper).
-    const rawJoin = `issue${String.fromCharCode(0)}abc`
+    const rawJoin = `repo${String.fromCharCode(0)}abc`
     expect(key).toBe(rawJoin)
     expect(Buffer.from(key, 'utf8')).toEqual(
-      Buffer.from([0x69, 0x73, 0x73, 0x75, 0x65, 0x00, 0x61, 0x62, 0x63]),
+      Buffer.from([0x72, 0x65, 0x70, 0x6f, 0x00, 0x61, 0x62, 0x63]),
     )
     // Distinct entities must not collide through a separator-less concat.
     expect(entityOverlayKey('iss', 'ue-x')).not.toBe(entityOverlayKey('issueProjection', 'x'))
@@ -352,45 +352,14 @@ describe('Ledger', () => {
     expect((await ledger.reconcile('conversation', [])).map((c) => c.op)).toEqual(['remove'])
   })
 
-  it('issue commits ignore session-heartbeat churn but ship full payloads on stable changes', async () => {
-    const issue = (over: Record<string, unknown> = {}): EntityChangeSpec => ({
-      entity: 'issueProjection',
-      id: 'i1',
-      op: 'upsert',
-      value: {
-        id: 'i1',
-        title: 'fix the thing',
-        stage: 'in_progress',
-        unread: false,
-        sessions: [{ sessionId: 's1', agentState: { phase: 'idle' }, readAt: 'T1' }],
-        sessionSummary: { total: 1, byPhase: { idle: 1 } },
-        ...over,
-      },
-    })
+  it('deduplicates identical issue projections and records each own-field change', async () => {
     const ledger = makeLedger()
-    expect((await commit(ledger, [issue()])).changes).toHaveLength(1) // first sight
-    // Session heartbeats (phase flip / read receipt / roll-up) changed no stable
-    // field -> nothing recorded (the POD-210 ledger churn fix).
-    expect(
-      (await commit(ledger, [
-        issue({
-          unread: true,
-          sessions: [{ sessionId: 's1', agentState: { phase: 'working' }, readAt: 'T2' }],
-          sessionSummary: { total: 1, byPhase: { working: 1 } },
-        }),
-      ])).changes,
-    ).toEqual([])
-    // A stable-field change records — full wire payload, sessions included.
-    const changed = (await commit(ledger, [issue({ stage: 'review', unread: true })])).changes
-    expect(changed).toHaveLength(1)
-    expect(changed[0]).toMatchObject({
-      op: 'upsert',
-      value: { stage: 'review', unread: true },
-    })
-    // Removal and reconcile-driven disappearance still record.
-    expect(
-      (await commit(ledger, [{ entity: 'issueProjection', id: 'i1', op: 'remove' }])).changes.map((c) => c.op),
-    ).toEqual(['remove'])
+    const row: EntityChangeSpec = { entity: 'issueProjection', id: 'i1', op: 'upsert', value: { id: 'i1', title: 'Task', stage: 'in_progress' } }
+    expect((await commit(ledger, [row])).changes).toHaveLength(1)
+    expect((await commit(ledger, [row])).changes).toEqual([])
+    const changed = { ...row, value: { id: 'i1', title: 'Task', stage: 'review' } }
+    expect((await commit(ledger, [changed])).changes).toMatchObject([{ entity: 'issueProjection', id: 'i1', value: changed.value }])
+    expect((await commit(ledger, [{ entity: 'issueProjection', id: 'i1', op: 'remove' }])).changes.map(c => c.op)).toEqual(['remove'])
   })
 
   it('the issue projection baseline survives a restart', async () => {
@@ -401,7 +370,7 @@ describe('Ledger', () => {
         entity: 'issueProjection',
         id: 'i1',
         op: 'upsert',
-        value: { id: 'i1', title: 't', sessions: [{ sessionId: 's1', phase: 'idle' }] },
+        value: { id: 'i1', title: 't' },
       },
     ])
     const after = new Ledger({ repo, now: Date.now, transact: passthrough })
@@ -411,10 +380,10 @@ describe('Ledger', () => {
           entity: 'issueProjection',
           id: 'i1',
           op: 'upsert',
-          value: { id: 'i1', title: 't', sessions: [{ sessionId: 's1', phase: 'working' }] },
+          value: { id: 'i1', title: 't' },
         },
       ])).changes,
-    ).toEqual([]) // heartbeat-only drift across the restart must not re-record
+    ).toEqual([]) // unchanged normalized truth across the restart must not re-record
   })
 
   it('the conversation projection baseline survives a restart', async () => {

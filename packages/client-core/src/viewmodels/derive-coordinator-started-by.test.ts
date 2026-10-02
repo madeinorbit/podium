@@ -462,6 +462,7 @@ describe('sidebar completion decay [spec:SP-6144]', () => {
     const parent: UnifiedIssueRow = {
       kind: 'issue',
       issue: issue({ childCount: 6, childDoneCount: 4 }),
+      missionRollup: { fromChildren: true, progress: { total: 6, done: 4, run: 0, review: 0, stall: 0, block: 0, wait: 2 } },
       sessions: [worker],
       activityAt: NOW,
     }

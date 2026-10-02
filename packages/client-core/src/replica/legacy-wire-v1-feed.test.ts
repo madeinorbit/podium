@@ -201,6 +201,7 @@ describe('SocketHub metadata delta mode', () => {
 
   it('advertises the caps in hello only when a fetcher is wired', () => {
     const { sock, hub } = setup([snapshot(0)])
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     // `syncFeedIdentity` rides with delta mode and is only meaningful with it —
@@ -229,6 +230,7 @@ describe('SocketHub metadata delta mode', () => {
     // freezes. apps/web cannot opt in until POD-822 gives the replica-side views
     // `deps` + `prefix`. If this test ever needs "fixing", read POD-822 first.
     const { sock, hub } = setup([snapshot(0)])
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     expect(sock.parsed().find((m) => m.type === 'hello')?.caps).not.toContain('issuesNormalized')
@@ -258,6 +260,7 @@ describe('SocketHub metadata delta mode', () => {
     const { sock, hub, calls } = setup([snapshot(5, [issue(asIssueId('a'), 'one')])])
     const seen: string[][] = []
     observeIssues(hub, (i) => seen.push(i.map((x) => x.title)))
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -297,6 +300,7 @@ describe('SocketHub metadata delta mode', () => {
     ])
     const seen: string[][] = []
     hub.on('automations', (rows) => seen.push(rows.map((row) => row.name)))
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -341,6 +345,7 @@ describe('SocketHub metadata delta mode', () => {
         cursor: 9,
       },
     ])
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -370,6 +375,7 @@ describe('SocketHub metadata delta mode', () => {
 
   it('accepts filtered source ranges and advances across hidden-only rows', async () => {
     const { sock, hub, calls } = setup([snapshot(5)])
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -399,6 +405,7 @@ describe('SocketHub metadata delta mode', () => {
         applied: () => {},
       }),
     })
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     // Delta lands while the snapshot fetch is still in flight.
@@ -431,6 +438,7 @@ describe('SocketHub metadata delta mode', () => {
       },
     ])
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -474,6 +482,7 @@ describe('SocketHub metadata delta mode', () => {
       // Escalation: the null-cursor refetch answers with the full snapshot.
       snapshot(9, [issue(asIssueId('healed'), 'from snapshot')]),
     ])
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -535,6 +544,7 @@ describe('SocketHub metadata delta mode', () => {
     const captured: { level: string; msg?: unknown; entity?: unknown }[] = []
     setLogLevel('debug')
     const restore = addSink({ name: 'feed-test-capture', write: (r) => captured.push(r) })
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -602,6 +612,7 @@ describe('SocketHub metadata delta mode', () => {
       { initialCursor: 5 },
     )
     const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -645,6 +656,7 @@ describe('SocketHub metadata delta mode', () => {
       ],
       { initialCursor: 5 },
     )
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -690,6 +702,7 @@ describe('SocketHub metadata delta mode', () => {
       repos: [repo],
     }
     const { sock, hub } = setup([result], { issuesNormalized: true, onMetadataApplied: applied })
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -711,6 +724,7 @@ describe('SocketHub metadata delta mode', () => {
       issueProjections: [issue(asIssueId('old'), 'stale seed')],
       conversations: [],
     })
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -748,6 +762,7 @@ describe('SocketHub metadata delta mode', () => {
     // Hydrate-first: the seed is visible before any socket traffic.
     expect(observedIssues(hub).map((i) => i.title)).toEqual(['replica'])
     expect(seen.at(-1)).toEqual(['replica'])
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -791,6 +806,7 @@ describe('SocketHub metadata delta mode', () => {
       ],
       conversations: [],
     })
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -804,6 +820,7 @@ describe('SocketHub metadata delta mode', () => {
       onMetadataApplied: (s) =>
         applied.push({ cursor: s.cursor, issues: s.issueProjections.map((i) => i.title) }),
     })
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -840,6 +857,7 @@ describe('SocketHub metadata delta mode', () => {
           }),
       },
     )
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()
@@ -866,6 +884,7 @@ describe('SocketHub metadata delta mode', () => {
     const { sock, hub } = setup([{ ...snapshot(5), feedId: 'feed_1', epoch: 'epoch_1' }], {
       onMetadataApplied: (s) => applied.push({ feedId: s.feedId, epoch: s.epoch }),
     })
+    hub.on('issueProjections', rows => latestProjections.set(hub, rows))
     hub.connect()
     sock.open()
     await flush()

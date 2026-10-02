@@ -364,12 +364,13 @@ describe('the connection lifecycle', () => {
     const hello = {
       type: 'hello' as const,
       clientId: 'forged-client-id',
+      wireVersion: CLIENT_WIRE_VERSION,
       viewport: { cols: 80, rows: 24, dpr: 1 },
       caps: [CAP_SYNC_HTTP_V1, CAP_TERMINAL_INPUT_BINARY_V1],
     }
 
     expect(h.mux.acceptsClientInputBinary(h.id)).toBe(false)
-    h.mux.routeClientFrame(h.id, hello)
+    await h.mux.routeClientFrame(h.id, hello)
     expect(h.sent.at(-1)).toEqual({
       type: 'welcome',
       wireVersion: CLIENT_WIRE_VERSION,

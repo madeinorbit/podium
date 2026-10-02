@@ -165,7 +165,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     }
   })
 
-  it('git publication targets one issue and appends both records and its observation in one commit', async () => {
+  it('git publication appends only the changed observation and backfills a missing projection', async () => {
     const { svc, store, ledger, appended } = await harness()
     try {
       const issue = await svc.create({ repoPath: '/r', title: 'Git observation', startNow: false })
@@ -188,7 +188,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         value: { id: issue.id, shared: false, ahead: 2, merged: false },
       })
       expect(appended).toHaveLength(1)
-      expect(appended[0]?.some((c) => c.entity === 'issueProjection')).toBe(true)
+      expect(appended[0]?.map((c) => c.entity)).toEqual(['issueGitState'])
       // The unchanged projection is deduped. If its baseline was missing, it is
       // backfilled in this same commit rather than waiting for a full-list emit.
       await ledger.capture([{ entity: 'issueProjection', id: issue.id, op: 'remove' }])
@@ -362,7 +362,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect(redo.changes).toEqual([])
   })
 
-  it('closing an issue reconciles derived ripples: the dependent flips to ready', async () => {
+  it('closing an issue makes the requested dependent report ready without republishing it', async () => {
     const { svc, appended } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
@@ -370,14 +370,9 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect((await svc.get(b.id))?.blocked).toBe(true)
     appended.length = 0
     await svc.close(a.id)
-    // The full-list reconcile caught B's DERIVED flip — no write touched B's
-    // row — and it reached the delta pipe via onAppended.
-    const rippled = appended.flat()
-    const bChange = rippled.find((c) => c.id === b.id && c.op === 'upsert') as
-      | { value?: { ready?: boolean; blocked?: boolean } }
-      | undefined
-    expect(bChange?.value?.ready).toBe(true)
-    expect(bChange?.value?.blocked).toBe(false)
+    expect(appended.flat().some((change) => change.entity === 'issueProjection' && change.id === b.id)).toBe(false)
+    expect(appended.flat()).toContainEqual(expect.objectContaining({ entity: 'issueProjection', id: a.id, op: 'upsert' }))
+    expect(await svc.get(b.id)).toMatchObject({ ready: true, blocked: false })
   })
 
   it('internal draft purge emits the remove and the log replays to live state', async () => {

@@ -9,7 +9,7 @@ it('removes retired replication payloads, preserves current rows, and invalidate
   const db = openDatabase(':memory:')
   try {
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut))
-    db.prepare('INSERT INTO feed_identity (singleton, feed_id, epoch) VALUES (1, ?, ?)').run('f', 'before')
+    db.prepare('INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (1, ?, ?, ?)').run('f', 'before', 1)
     for (const entity of ['issueProjection', 'issueUserState', 'issueGitState', 'session', 'issue']) {
       const payload = JSON.stringify({ id: 'same-id', marker: entity })
       db.prepare('INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES (?, ?, ?, ?, ?)')

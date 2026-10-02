@@ -42,6 +42,11 @@ vi.mock('./operator-focus', () => ({
   useOperatorFocus: () => ({ focusedIssueId: null, setFocusedIssueId: vi.fn() }),
 }))
 
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useHarnessDescriptors: () => ({ served: [] }),
+}))
+
 vi.mock('@/lib/use-feature', () => ({
   useFeature: () => false,
 }))

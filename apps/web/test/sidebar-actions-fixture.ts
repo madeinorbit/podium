@@ -37,7 +37,6 @@ export function createSidebarActionsFixture(count = 12, now = Date.now(), simple
   }
   return Object.assign(fixture, {
     patchIssue(id: string, patch: Record<string, unknown>) {
-      fixture.patch('issue', id, patch)
       const markers = Object.fromEntries(Object.entries(patch).filter(([field]) => ['readAt', 'tuckedAt', 'pinned'].includes(field)))
       if (Object.keys(markers).length) fixture.patch('issueUserState', issueUserStateRowId(asUserId('sidebar-pool-actions'), asIssueId(id)), markers)
       if (patch.gitState && typeof patch.gitState === 'object') fixture.patch('issueGitState', id, patch.gitState as Record<string, unknown>)

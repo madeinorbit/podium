@@ -232,9 +232,8 @@ describe('POD-98 git-state service wiring', () => {
 
     await svc.refreshGitState(id, '/repo')
     expect(repoOp).toHaveBeenCalledTimes(4)
-    // One targeted update carries the old record and its additive observation.
+    // One targeted update carries the observation; the projection is unchanged.
     expect(broadcast.mock.calls.map(([row]) => [row.entity, row.id, row.op])).toEqual([
-      ['issue', id, 'upsert'],
       ['issueGitState', id, 'upsert'],
     ])
   })
@@ -260,7 +259,6 @@ describe('POD-98 git-state service wiring', () => {
     const appended = await ledger.changesSince(cursor) ?? []
     expect(appended.filter((c) => c.op === 'remove')).toEqual([])
     expect(appended.map((c) => [c.entity, c.id, c.op])).toEqual([
-      ['issue', probed, 'upsert'],
       ['issueGitState', probed, 'upsert'],
     ])
   })
@@ -300,9 +298,8 @@ describe('POD-98 git-state service wiring', () => {
     expect(statusCalls).toBe(2)
     expect(repoOp).toHaveBeenCalledTimes(8)
     expect((await svc.get(id))?.gitState?.commits).toEqual(['late-sha'])
-    // Both rows carry the trailing probe's result in one targeted update.
+    // The observation carries the trailing probe's result in one targeted update.
     expect(broadcast.mock.calls.map(([row]) => [row.entity, row.id, row.op])).toEqual([
-      ['issue', id, 'upsert'],
       ['issueGitState', id, 'upsert'],
     ])
   })

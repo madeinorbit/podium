@@ -201,7 +201,7 @@ describe('IssueService CRUD', () => {
     const wire = await svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     expect(wire.seq).toBe(1)
     expect(wire.stage).toBe('backlog')
-    expect(wire.worktreePath).toBeNull()
+    expect(wire.worktreePath).toBeUndefined()
     expect(deps.broadcast).toHaveBeenCalled()
     expect((await svc.list('/r')).length).toBe(1)
   })
@@ -558,22 +558,10 @@ describe('IssueService tuck-away (POD-333)', () => {
 
     await svc.setIssueTucked(w.id, true)
 
-    // The single-issue publish path — the same delivery every issue field uses,
-    // which is precisely what the ui-state key could never reach.
+    // The principal's marker is independently replicated to its other clients.
     const sent = deps.broadcast.mock.calls
-      .map(
-        (c) =>
-          c[0] as { entity?: string; id: string; op: string; value?: { tuckedAt?: string | null } },
-      )
-      // LEGACY rows only: the write is additive since POD-796 and declares an
-      // `issueProjection` row beside the `issue` one. `tuckedAt` is per-user state
-      // and rides the legacy wire, so this is the row the assertion is about.
-      .filter(
-        (row) =>
-          row.id === w.id &&
-          row.op === 'upsert' &&
-          (row.entity === undefined || row.entity === 'issueProjection'),
-      )
+      .map((c) => c[0] as { entity: string; op: string; value?: { entityId: string; tuckedAt?: string | null } })
+      .filter(row => row.entity === 'issueUserState' && row.op === 'upsert' && row.value?.entityId === w.id)
     expect(sent).toHaveLength(1)
     expect(sent[0]?.value?.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
   })

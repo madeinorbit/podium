@@ -73,9 +73,10 @@ export type IssueViewModel = Omit<IssueProjection, 'description' | 'notes' | 'wo
 export function deriveIssueViewsSnapshot(
   replica: Replica,
   previous?: IssueViewsSnapshot,
+  projections: readonly IssueProjection[] = replica.rows('issueProjections'),
+  issueUserStates: readonly IssueUserStateWire[] = replica.rows('issueUserStates'),
 ): IssueViewsSnapshot {
-  const issueUserStates = replica.rows('issueUserStates')
-  const { issues, sessions } = readViewInputs(replica, undefined, issueUserStates)
+  const { issues, sessions } = readViewInputs(replica, projections, issueUserStates)
   const views = deriveIssueViews(issues, sessions, { previous: previous?.views })
   const sessionIndex = new Map(sessions.map((s) => [s.sessionId, s]))
   const issueIndex = new Map(issues.map((i) => [i.id, i]))
@@ -162,5 +163,5 @@ export function issueViewModelsFromReplica(
   projectionRows: readonly IssueProjection[] = replica.rows('issueProjections'),
   userStateRows: readonly IssueUserStateWire[] = replica.rows('issueUserStates'),
 ): Map<string, IssueViewModel> {
-  return buildIssueViewModels(deriveIssueViewsSnapshot(replica), projectionRows, userStateRows)
+  return buildIssueViewModels(deriveIssueViewsSnapshot(replica, undefined, projectionRows, userStateRows), projectionRows, userStateRows)
 }

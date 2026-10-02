@@ -404,8 +404,8 @@ describe('overlayForOutboxEntry projection', () => {
       }),
     )
     expect(overlays.map((o) => o.entity)).toEqual(['issueProjections', 'issueUserStates'])
-    const [issue, user, legacy] = overlays
-    if (issue?.op !== 'patch' || user?.op !== 'patch' || legacy?.op !== 'patch') {
+    const [issue, user] = overlays
+    if (issue?.op !== 'patch' || user?.op !== 'patch') {
       throw new Error('expected patch overlays')
     }
     // One mutation: every part shares its key, so retirement can tell when the

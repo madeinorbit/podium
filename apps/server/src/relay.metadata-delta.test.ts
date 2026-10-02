@@ -1,3 +1,5 @@
+import { firstAdminMemberId } from '@podium/model'
+import { userClientPrincipal } from './gateway/client-principal'
 import type { IssueProjection, IssueUserStateWire, SessionMeta } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type MetadataChange, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -224,7 +226,7 @@ describe('SessionRegistry metadata deltas', () => {
 
   // POD-333: tuck-away used to be a per-browser ui-state key, so a second open
   // client never learned about a dismissal and a reconnecting one came back
-  // showing the row live again. Now it is an issue field and rides this seam.
+  // showing the row live again. Its personal marker now rides this seam.
   it('a tuck reaches other live clients and heals a reconnecting one', async () => {
     const registry = await makeRegistry()
     const w = await registry.issues.create({ repoPath: '/r', title: 'finished', startNow: false })
@@ -232,7 +234,8 @@ describe('SessionRegistry metadata deltas', () => {
     flush(registry)
 
     // The cursor a client held while it was away — nothing tucked yet.
-    const away = await registry.modules.sessions.syncChangesSince(null)
+    const principal = userClientPrincipal('reconnecting', firstAdminMemberId(), 'admin')
+    const away = await registry.modules.sessions.syncChangesSince(null, principal)
     if (away.kind !== 'snapshot') throw new Error('expected snapshot')
     expect(away.issues).toEqual([])
     expect(away.issueUserStates?.find((i) => i.entityId === w.id)?.tuckedAt ?? null).toBeNull()
@@ -250,7 +253,7 @@ describe('SessionRegistry metadata deltas', () => {
 
     // And the client that was disconnected converges through catch-up rather
     // than painting the stale un-tucked row from its own storage.
-    const healed = await registry.modules.sessions.syncChangesSince(away.cursor)
+    const healed = await registry.modules.sessions.syncChangesSince(away.cursor, principal)
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
     const change = healed.changes.find((c) => c.entity === 'issueUserState')

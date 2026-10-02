@@ -82,6 +82,10 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // A client attached from the start observes everything live.
     const witness = sink()
     const witnessId = attachTestClient(reg.clientGateway, witness.send)
+    await reg.clientGateway.routeClientFrame(witnessId, {
+      type: 'hello', clientId: witnessId, wireVersion: CLIENT_WIRE_VERSION,
+      viewport: { cols: 80, rows: 24, dpr: 1 }, caps: ['sync.http.v1'],
+    })
     await reg.clientGateway.routeClientFrame(witnessId, { type: 'attach', sessionId })
 
     // Three frames before the disconnect. The daemon bridge seq (0,1,2) is
@@ -141,6 +145,10 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // resumed:true and EXACTLY the two missed frames, in order.
     const resumer = sink()
     const resumerId = attachTestClient(reg.clientGateway, resumer.send)
+    await reg.clientGateway.routeClientFrame(resumerId, {
+      type: 'hello', clientId: resumerId, wireVersion: CLIENT_WIRE_VERSION,
+      viewport: { cols: 80, rows: 24, dpr: 1 }, caps: ['sync.http.v1'],
+    })
     await reg.clientGateway.routeClientFrame(resumerId, { type: 'attach', sessionId, sinceSeq: 2 })
     expect(resumer.sent.find((m) => m.type === 'attached')).toMatchObject({
       sessionId,
@@ -158,6 +166,10 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // not dropped by the reconnect.
     const fresh = sink()
     const freshId = attachTestClient(reg.clientGateway, fresh.send)
+    await reg.clientGateway.routeClientFrame(freshId, {
+      type: 'hello', clientId: freshId, wireVersion: CLIENT_WIRE_VERSION,
+      viewport: { cols: 80, rows: 24, dpr: 1 }, caps: ['sync.http.v1'],
+    })
     await reg.clientGateway.routeClientFrame(freshId, { type: 'attach', sessionId })
     expect(fresh.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
     expect(fresh.sent.filter((m) => m.type === 'outputFrame').map((f) => f.seq)).toEqual([

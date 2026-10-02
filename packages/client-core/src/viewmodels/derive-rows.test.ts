@@ -71,7 +71,7 @@ function issueRow(
       stage: 'in_progress',
       childCount: 0,
       childDoneCount: 0,
-      draft,
+      isDraftVessel: draft,
       ...issueOver,
     },
     sessions,

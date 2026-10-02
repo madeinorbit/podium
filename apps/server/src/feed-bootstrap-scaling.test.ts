@@ -217,11 +217,8 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     const dependencyId = issueDepId('i1', 'i-target', 'blocks')
     await store.sync.appendChanges(
       [
-        // Both issue kinds, as every issue write declares them: the anchor is
-        // keyed on the normalized record (POD-4971) and re-admits the old one.
+        // One normalized record per issue; visibility anchors use that same row.
         { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
-        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
-        { entity: 'issueProjection', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
         { entity: 'issueProjection', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
         { entity: 'issueDep', entityId: dependencyId, op: 'upsert', payload: '{"dep":true}' },
       ],

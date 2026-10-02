@@ -273,3 +273,18 @@ it('reports actual row builds through the opt-in runtime counter, including cach
     storeStats.reset()
   }
 })
+
+it('paints a provisional projection and structural edits, then rolls them back without retaining a row', () => {
+  const { replica, projections, legacy: markers } = world()
+  const truth = allIssueViewModels(replica, projections, markers)
+  const draft = { ...projectionAt(COUNT), parentId: projections[0]!.id }
+  const pending = [...projections.map((row, index) => index === 1 ? { ...row, stage: 'done' } as IssueProjection : row), draft]
+  const painted = allIssueViewModels(replica, pending, markers)
+  expect(painted.find(row => row.id === draft.id)).toMatchObject({ parentId: projections[0]!.id })
+  expect(painted.find(row => row.id === projections[0]!.id)?.childCount).toBe(1)
+  expect(painted.find(row => row.id === projections[1]!.id)?.stage).toBe('done')
+  expect(allIssueViewModels(replica, pending, markers)).toBe(painted)
+  const rolledBack = allIssueViewModels(replica, projections, markers)
+  expect(rolledBack).toEqual(truth)
+  expect(rolledBack.some(row => row.id === draft.id)).toBe(false)
+})

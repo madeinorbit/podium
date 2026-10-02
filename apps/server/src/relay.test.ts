@@ -1066,7 +1066,7 @@ describe('SessionRegistry', () => {
       data: 'Qg==',
     })
     const c = sink()
-    const id = attachTestClient(reg.clientGateway, c.send)
+    const id = await attachCurrent(reg, c.send)
     await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
     const frames = c.sent.filter((m) => m.type === 'outputFrame')
     expect(frames.map((f) => (f as { data: string }).data)).toEqual(['QQ==', 'Qg=='])
@@ -1091,7 +1091,7 @@ describe('SessionRegistry', () => {
       data: clearFrame,
     })
     const c = sink()
-    const id = attachTestClient(reg.clientGateway, c.send)
+    const id = await attachCurrent(reg, c.send)
     await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
     const frames = c.sent.filter((m) => m.type === 'outputFrame')
     expect(frames.map((f) => (f as { data: string }).data)).toEqual([clearFrame])

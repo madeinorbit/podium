@@ -287,8 +287,8 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
     // Strict append order, batches interleaved — the pipe NEVER reorders.
     expect(serving.rows().map((c) => `${c.entity}:${c.entityId}`)).toEqual([
       'session:s1',
-      'issue:i1',
-      'issue:i2',
+      'issueProjection:i1',
+      'issueProjection:i2',
       'conversation:c1',
       'session:s1',
     ])

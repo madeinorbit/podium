@@ -85,6 +85,7 @@ const fullRow = (): IssueRow => ({
   humanQuestion: 'which branch?',
   humanQuestionOptions: ['main', 'develop'],
   humanQuestionAskedBy: asSessionId('sess_1'),
+  humanQuestionAttribution: null,
   humanQuestionAskedAt: '2026-01-03T00:00:00Z',
   panel: JSON.stringify({ todos: [], artifacts: [], deferred: [] }),
   // The two type-identical enums, deliberately DIFFERENT.
@@ -146,6 +147,7 @@ const emptyRow = (): IssueRow => ({
   humanQuestion: null,
   humanQuestionOptions: null,
   humanQuestionAskedBy: null,
+  humanQuestionAttribution: null,
   humanQuestionAskedAt: null,
   panel: null,
   origin: 'human',

@@ -296,7 +296,8 @@ describe('replica adapter', () => {
     const cold = await r.hydrate()
     expect(cold).toEqual({
       sessions: [],
-      issues: [],
+      machines: [],
+      sessionUserStates: [],
       issueProjections: [],
       issueUserStates: [],
       issueGitStates: [],
@@ -334,7 +335,8 @@ describe('replica adapter', () => {
     const again = createReplica({ storage: throwing, keyPrefix: prefix })
     expect(await again.hydrate()).toEqual({
       sessions: [],
-      issues: [],
+      machines: [],
+      sessionUserStates: [],
       issueProjections: [],
       issueUserStates: [],
       issueGitStates: [],
