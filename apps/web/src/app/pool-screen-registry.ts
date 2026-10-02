@@ -21,7 +21,10 @@ export function screenOptions(screens: readonly PoolScreen[], runtime: ClientRun
   for (const option of options) for (const entity of Object.keys(option.summaries ?? {}) as (keyof typeof summaries)[]) {
     summaries[entity] = [...new Set([...(summaries[entity] ?? []), ...(option.summaries?.[entity] ?? [])])]
   }
-  return { ...Object.assign({}, ...options), summaries }
+  const merged: PoolScreenOptions = Object.assign({}, ...options)
+  if (Object.keys(summaries).length) merged.summaries = summaries
+  else delete merged.summaries
+  return merged
 }
 
 /** Own every async attachment even if principal teardown wins the race. Errors

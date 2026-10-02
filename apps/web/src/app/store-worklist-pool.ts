@@ -98,7 +98,10 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   void import('@podium/client-graph/runtime-pool')
     .then(({ createRuntimeWorklistPool, createPoolProjection }) => {
       if (disposed) return
-      slot.handle = createRuntimeWorklistPool(runtime, screenOptions(poolBackedScreens, runtime))
+      const options = screenOptions(poolBackedScreens, runtime)
+      slot.handle = Object.keys(options).length
+        ? createRuntimeWorklistPool(runtime, options)
+        : createRuntimeWorklistPool(runtime)
       stopScreens = attachPoolScreens(poolBackedScreens, runtime, slot.handle.pool, fail)
       slot.project = createPoolProjection
       notify(slot)

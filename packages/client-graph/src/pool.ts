@@ -195,6 +195,8 @@ export interface WriteSeam {
  *   must not arm the window);
  * - `peek`: the row's current value, read by id through the feed and counted,
  *   nothing queued (the visibility parts decide a cold row without loading it).
+ * - `summary`: the resident row or the declared cold fields, with pending
+ *   edits overlaid; a missing cold summary queues the normal batched load.
  * Unknown rows answer undefined in every mode.
  */
 export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary'
