@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { useStoreHandle } from '@podium/client-core/react'
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 import {
   FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
@@ -70,6 +71,7 @@ import {
 } from './flight-deck-waterfall'
 import { clearHoveredSession, setHoveredSession, useSessionHovered } from './session-hover'
 import { useStoreSelector } from './store'
+import type { Trpc } from './trpc'
 
 const WATERFALL_ROW_ZOOM_MIN = 0.72
 const WATERFALL_ROW_ZOOM_MAX = 1.55
@@ -245,10 +247,10 @@ function sessionReason(row: FlightDeckRow, session: SessionView): string | null 
  * bar's shape could have changed. Absence — old servers, unreadable ids,
  * pruned history — degrades to the solid single-color bar.
  */
-function useWaterfallActivity(
+export function useWaterfallActivity(
   sessions: readonly SessionView[],
 ): ReadonlyMap<string, WaterfallActivitySample[]> {
-  const trpc = useStoreSelector((store) => store.trpc) as {
+  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc as {
     sessions?: {
       activityHistory?: {
         query: (input: {

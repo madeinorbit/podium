@@ -27,8 +27,8 @@ const harness = vi.hoisted(() => {
   }
 })
 
-vi.mock('./store', () => ({
-  useStoreSelector: (select: (store: Record<string, unknown>) => unknown) => select(harness.store),
+vi.mock('@podium/client-core/react', () => ({
+  useStoreHandle: () => ({ getSnapshot: () => harness.store }),
 }))
 
 const session = (id: string, stamp = '2026-09-01T10:00:00.000Z'): SessionMeta =>

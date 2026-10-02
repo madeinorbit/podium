@@ -20,7 +20,7 @@ const history = vi.hoisted(() => vi.fn())
 // A THIRD source since POD-1861: the per-task cost rows behind "Where it went —
 // by task". Its own poll, its own cache, its own stub.
 const tasks = vi.hoisted(() => vi.fn())
-// ONE store object for the whole file. Handing the selector a fresh literal each
+// ONE runtime snapshot for the whole file. Handing the handle a fresh literal each
 // render would change `trpc`'s identity every pass and re-run the feed's effect
 // forever — the real store returns the same client every time.
 const store = vi.hoisted(() => ({
@@ -31,8 +31,8 @@ const store = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('@/app/store', () => ({
-  useStoreSelector: (select: (s: typeof store) => unknown) => select(store),
+vi.mock('@podium/client-core/react', () => ({
+  useStoreHandle: () => ({ getSnapshot: () => store }),
 }))
 
 const bucket = (over: Partial<UsageBucketWire> = {}): UsageBucketWire => ({
