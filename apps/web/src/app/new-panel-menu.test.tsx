@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**
  * THE TAB STRIP'S "+" (POD-1201).

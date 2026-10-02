@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'

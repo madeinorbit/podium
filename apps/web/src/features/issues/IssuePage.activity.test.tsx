@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssueEvent } from '@podium/client-core/viewmodels'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'

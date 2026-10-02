@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { asSessionId } from '@podium/model'
 import { act } from 'react'

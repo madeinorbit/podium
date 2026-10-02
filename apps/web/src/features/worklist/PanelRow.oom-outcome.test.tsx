@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**
  * POD-2413 — a session the kernel killed does not wear the FINISHED colour.

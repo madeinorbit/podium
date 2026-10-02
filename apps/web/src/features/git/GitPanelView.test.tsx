@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 /**
  * What the dock's history has to get right (POD-1289).
  *

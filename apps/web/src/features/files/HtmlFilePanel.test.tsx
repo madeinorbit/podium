@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { HTML_MODE_MAP_KEY } from '@podium/client-core/ui-state'
 import { tabIdFor } from '@podium/client-core/viewmodels'

@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 import { MOBX_SIDEBAR_KEY } from '@podium/client-core/ui-state'
 import { DEFAULT_SETTINGS } from '@podium/runtime'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'

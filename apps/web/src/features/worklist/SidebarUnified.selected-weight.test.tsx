@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 import { existsSync, readFileSync } from 'node:fs'

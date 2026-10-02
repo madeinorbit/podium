@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**
  * MACHINE `use` IN THE SPAWN SURFACE (POD-407, readiness §3.1.4 M5), moved here

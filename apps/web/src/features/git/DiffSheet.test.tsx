@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 /**
  * What the sheet has to get right (POD-787):
  *

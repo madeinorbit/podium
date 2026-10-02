@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /** Agent roster band grammar (POD-170, POD-100 laws L2/L6): band shell,
  *  terracotta-glyphed roster rows, and carried-over row controls. */

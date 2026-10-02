@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'

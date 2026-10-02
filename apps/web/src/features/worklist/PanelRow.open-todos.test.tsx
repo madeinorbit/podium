@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**
  * POD-415 — the row's side of the open-todos verdict.

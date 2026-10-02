@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**
  * THE EMPTY-STATE AGENT MENU WEARS THE SHARED REFUSAL VOCABULARY (POD-1201).

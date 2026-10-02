@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**
  * SESSION ROWS RENDER THE ATTRIBUTION PAIR (POD-1526, closing POD-407 AC 6).

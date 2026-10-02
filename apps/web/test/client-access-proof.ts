@@ -1,10 +1,11 @@
-/** Synthetic-only real Chromium proof. Run on flatblock with bench:flatblock.
+/** Synthetic-only real Chromium proof. Timed runs require bench:flatblock; --counts-only does not.
  * Owns one Vite PID and its browser; never starts a Podium server or daemon. */
 import { mkdir, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { chromium } from '@playwright/test'
 import type {} from './client-access.browser'
+const countsOnly = process.argv.includes('--counts-only')
 const origin = 'http://127.0.0.1:45161', output = '.artifacts/client-access'
 await mkdir(output, { recursive: true })
 const server = spawn(process.execPath, ['apps/web/node_modules/vite/bin/vite.js', '--config', 'apps/web/vite.sidebar-pool-perf.config.ts', '--port', '45161', '--strictPort'], { stdio: ['ignore', 'ignore', 'inherit'] })
@@ -28,16 +29,20 @@ try {
     await page.waitForFunction(() => window.__clientAccess?.ready(), null, { timeout: 60000 })
     await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
     const cdp = await page.context().newCDPSession(page)
-    await cdp.send('Performance.enable')
+    if (!countsOnly) await cdp.send('Performance.enable')
     const metrics = async () => Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((entry) => [entry.name, entry.value]))
     for (const phase of ['activity', 'preferences'] as const) {
       await page.evaluate(() => window.__clientAccess.reset())
-      const initial = await metrics()
+      const initial = countsOnly ? {} : await metrics()
       if (phase === 'activity') await page.evaluate(() => window.__clientAccess.activity(200))
       else await page.evaluate(() => window.__clientAccess.preferences())
-      const final = await metrics(), stats = await page.evaluate(() => window.__clientAccess.stats())
+      const final = countsOnly ? {} : await metrics(), stats = await page.evaluate(() => window.__clientAccess.stats())
       const counts = { selectors: stats.selectors, wakes: stats.wakes, legacyDerivations: stats.legacyDerivations }
-      results[`${mode}.${phase}`] = { taskMs: ((final.TaskDuration ?? 0) - (initial.TaskDuration ?? 0)) * 1000, scriptMs: ((final.ScriptDuration ?? 0) - (initial.ScriptDuration ?? 0)) * 1000, ...counts, legacyReads: stats.legacyReads, pool: stats.pool, commits: stats.commits, commitMs: stats.commitMs }
+      results[`${mode}.${phase}`] = {
+        ...counts, legacyReads: stats.legacyReads, pool: stats.pool, commits: stats.commits,
+        ...(!countsOnly ? { taskMs: ((final.TaskDuration ?? 0) - (initial.TaskDuration ?? 0)) * 1000,
+          scriptMs: ((final.ScriptDuration ?? 0) - (initial.ScriptDuration ?? 0)) * 1000, commitMs: stats.commitMs } : {}),
+      }
       if (mode === 'after' && (counts.selectors !== 0 || stats.legacyReads !== 0 || stats.legacyDerivations !== 0)) throw new Error('Legacy preference/transport reader executed')
       if (mode === 'before' && phase === 'activity' && counts.selectors === 0) throw new Error('Legacy positive control did not execute')
       if (stats.failures.length) throw new Error('Provider failure in synthetic proof')
@@ -53,6 +58,6 @@ try {
     await page.evaluate(() => window.__clientAccess.close())
     await page.close()
   }
-  await writeFile(`${output}/results.json`, JSON.stringify(results, null, 2))
+  await writeFile(`${output}/${countsOnly ? 'counts' : 'results'}.json`, JSON.stringify(results, null, 2))
   console.log(JSON.stringify(results))
 } finally { await browser?.close(); server.kill(); await exited }

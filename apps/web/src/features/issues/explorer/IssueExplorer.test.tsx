@@ -1,3 +1,4 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
