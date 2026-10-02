@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "sourceSha": "1f4c442abb3482d566fbcdbf152efd3900d40f93",
+  "landedRef": "integrate/4286-pilot",
+  "machine": {
+    "host": "flatblock",
+    "cpu": "AMD EPYC Processor (with IBPB)",
+    "cores": 8,
+    "arch": "x64",
+    "platform": "linux",
+    "browser": "153.0.8010.12"
+  },
+  "repetitions": 6,
+  "scale": 4,
+  "seed": 4443,
+  "targets": {
+    "sidebar": [
+      "i13916",
+      "i19016"
+    ],
+    "missions": [
+      "i13916",
+      "i19016"
+    ],
+    "sessions": [
+      "s8608",
+      "s11337"
+    ],
+    "rename": "i13916",
+    "background": "i19016"
+  },
+  "actions": {
+    "sidebar-issue": {
+      "medianMs": 157.236,
+      "worstMs": 221.088
+    },
+    "mission-switch": {
+      "medianMs": 1187.65,
+      "worstMs": 1247.637
+    },
+    "session-pane": {
+      "medianMs": 928.301,
+      "worstMs": 1062.377
+    },
+    "issue-rename": {
+      "medianMs": 650.664,
+      "worstMs": 679.55
+    },
+    "background-update": {
+      "medianMs": 753.593,
+      "worstMs": 804.203
+    }
+  },
+  "noise": {
+    "runs": 2,
+    "medianSpreadPercent": {
+      "sidebar-issue": 10.564,
+      "mission-switch": 7.169,
+      "session-pane": 7.298,
+      "issue-rename": 13.471,
+      "background-update": 20.936
+    },
+    "maxPercent": 20.936
+  }
+}
