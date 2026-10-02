@@ -20,9 +20,9 @@ const entities = Object.keys(SCHEMA) as EntityName[]
 export class LeanPool {
   readonly tables = createTables()
   readonly fenced: typeof this.tables
-  readonly tableSignals = Object.fromEntries(entities.map((e) => [e, createAtom()])) as Record<EntityName, ReturnType<typeof createAtom>>
-  readonly relationSignals = new Map(allRelations().map(({ from, name }) => [`${from}.${name}`, createAtom()]))
-  readonly localSignal = createAtom()
+  readonly tableSignals = Object.fromEntries(entities.map((e) => [e, createAtom('')])) as Record<EntityName, ReturnType<typeof createAtom>>
+  readonly relationSignals = new Map(allRelations().map(({ from, name }) => [`${from}.${name}`, createAtom('')]))
+  readonly localSignal = createAtom('')
   readonly residency: Residency
   readonly engine: PoolRelations
   readonly relations: ReturnType<ReadFence['wrapRelations']>

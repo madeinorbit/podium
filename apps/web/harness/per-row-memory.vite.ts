@@ -16,5 +16,16 @@ export default {
       },
     },
   ],
-  build: { ...config.build, rollupOptions: { input: resolve('apps/web/harness/per-row-memory.browser.html') } },
+  build: {
+    ...config.build,
+    rollupOptions: {
+      input: resolve('apps/web/harness/per-row-memory.browser.html'),
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('/worklist-proto/arms/hand/')) return 'hand-pool'
+          if (id.includes('/worklist-proto/arms/lean/')) return 'lean-pool'
+        },
+      },
+    },
+  },
 }
