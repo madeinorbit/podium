@@ -3867,14 +3867,14 @@ export function FlightDeck({
                     and a double click on the header are the same request. */}
                   {rootIssue && rootRow && (
                     <MissionCostChip
-                      key={rootIssue.id}
+                      key={`cost:${rootIssue.id}`}
                       issueId={rootIssue.id}
                       onOpenInExplorer={() => selectIssue(rootRow, true)}
                     />
                   )}
                   {rootIssue && !rootIssue.closedReason && !rootIssue.deletedAt && (
                     <MissionAgentMenu
-                      key={rootIssue.id}
+                      key={`agent-menu:${rootIssue.id}`}
                       defaultAgent={rootIssue.defaultAgent}
                       repoPath={rootIssue.repoPath}
                       machineId={rootIssue.machineId}

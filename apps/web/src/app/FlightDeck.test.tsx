@@ -1,12 +1,22 @@
 // @vitest-environment happy-dom
+import { dedupeSessions } from '@podium/client-core/engine'
+import {
+  allIssueViewModels,
+  createKernelReplica,
+  createSideCache,
+  memoryStorage,
+} from '@podium/client-core/replica'
 import {
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,
   FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY,
   FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY,
 } from '@podium/client-core/ui-state'
+import { buildFlightDeckRows, missionIssueIds } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture/corpus'
+import { seedCacheFromCorpus } from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { DOUBLE_CLICK_MS } from './click-intent'
@@ -331,6 +341,58 @@ afterEach(() => {
   if (scrollHeightDescriptor)
     Object.defineProperty(HTMLElement.prototype, 'scrollHeight', scrollHeightDescriptor)
   else Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight')
+})
+
+describe('mission key uniqueness', () => {
+  it('keeps header controls distinct when switching missions with no duplicate members', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    harness.issues = [issue('root'), issue('next')]
+    harness.sessions = []
+    const rendered = deck()
+    expect(screen.getByRole('button', { name: 'Add agent to mission' })).toBeTruthy()
+
+    harness.selectedIssueId = 'next'
+    rendered.rerender(<DeckHarness />)
+    expect(screen.getByRole('button', { name: 'Add agent to mission' })).toBeTruthy()
+    expect(
+      errors.mock.calls.filter(([message]) =>
+        String(message).includes('Encountered two children with the same key'),
+      ),
+    ).toEqual([])
+  })
+
+  it('keeps baseline corpus mission membership and deck rows unique', () => {
+    // Use the original buildCorpus(1, 1), normalized replica and runtime session
+    // order. The fixture's resume twins remain intact in the input corpus.
+    const corpus = buildCorpus(1, 1)
+    const replica = createKernelReplica({
+      cache: seedCacheFromCorpus(corpus),
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+    const models = allIssueViewModels(replica)
+    const sessions = dedupeSessions([...replica.rows('sessions')])
+    expect(corpus.issues).toHaveLength(4867)
+    expect(new Set(corpus.issues.map((row) => row.id)).size).toBe(corpus.issues.length)
+    expect(corpus.sessions).toHaveLength(4304)
+    expect(sessions).toHaveLength(4302)
+    expect(models).toHaveLength(corpus.issues.length)
+    expect(new Set(models.map((row) => row.id)).size).toBe(models.length)
+
+    for (const [rootId, rowCount] of [
+      ['i1884', 362],
+      ['i3777', 135],
+      ['i1313', 1],
+    ] as const) {
+      const members = [...missionIssueIds(models, rootId, sessions)]
+      const rows = buildFlightDeckRows(models, sessions, rootId)
+      const rowIds = rows.map((row) => row.issue.id)
+      expect(new Set(members).size, rootId).toBe(members.length)
+      expect(new Set(rowIds).size, rootId).toBe(rowIds.length)
+      expect(rows, rootId).toHaveLength(rowCount)
+      expect(rows.filter((row) => row.issue.id === rootId), rootId).toHaveLength(1)
+      expect(rowIds.every((id) => members.includes(id)), rootId).toBe(true)
+    }
+  })
 })
 
 const chevron = (title: string): HTMLElement =>
