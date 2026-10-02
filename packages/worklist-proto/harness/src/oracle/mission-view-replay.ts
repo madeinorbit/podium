@@ -109,4 +109,11 @@ async function main() {
     if (differences || pending) process.exitCode = 1
   } finally { pool.dispose() }
 }
-if (import.meta.main) main().catch(() => { console.log(JSON.stringify({ replay: 'failed', step, cause: 'execution' })); process.exitCode = 1 })
+if (import.meta.main) main().catch(error => {
+  const positions = error instanceof Error ? (error.stack ?? '').split('\n').flatMap(line => {
+    const position = line.match(/\/(mission-view(?:-replay|-check)?)\.ts:(\d+):(\d+)/)
+    return position ? [{ file: position[1], line: Number(position[2]), column: Number(position[3]) }] : []
+  }) : []
+  console.log(JSON.stringify({ replay: 'failed', step, cause: 'execution', errorKind: error instanceof Error ? error.name : 'unknown', positions }))
+  process.exitCode = 1
+})
