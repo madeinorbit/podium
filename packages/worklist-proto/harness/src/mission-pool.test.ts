@@ -72,7 +72,7 @@ describe('declared pool mission', () => {
     expect(tracked(() => ctx.view.rootFor('below-archived'))).toBe('below-archived')
     expect(tracked(() => ctx.view.rootFor('draft-child'))).toBe('draft')
     expect(tracked(() => ctx.view.rootFor('absent'))).toBeUndefined()
-    expect(tracked(() => ctx.view.rootFor(null))).toBeUndefined()
+    expect(runInAction(() => ctx.view.rootFor(null))).toBeUndefined()
     expect(tracked(() => ctx.view.members('absent'))).toEqual(new Set(['absent', 'missing-parent']))
   })
 
@@ -144,7 +144,7 @@ describe('declared pool mission', () => {
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
     expect(tracked(() => ctx.view.members('root'))).toEqual(new Set(['root', 'child', 'spin']))
     expect(ctx.load.mock.calls.length).toBe(before)
-    expect(read.mock.calls.some(call => call[2] === 'peek')).toBe(false)
+    expect(read.mock.calls.some(call => String(call[2]) === 'peek')).toBe(false)
     expect(runInAction(() => ctx.pool.tables.issue.has('root'))).toBe(false)
     ctx.patchIssue('spin', { stage: 'planning', deps: [{ type: 'discovered-from', id: 'absent' }] })
     expect(tracked(() => ctx.view.contains('root', 'spin'))).toBe(false)
@@ -191,8 +191,8 @@ describe('declared pool mission', () => {
     ctx.pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'root', value: issue('root') }] })
     expect(tracked(() => ctx.view.members('root'))).toEqual(new Set(['root']))
     ctx.pool.dispose()
-    expect(tracked(() => ctx.view.members('root'))).toBe(LOADING)
-    expect(tracked(() => ctx.view.rootFor('root'))).toBe(LOADING)
+    expect(runInAction(() => ctx.view.members('root'))).toBe(LOADING)
+    expect(runInAction(() => ctx.view.rootFor('root'))).toBe(LOADING)
   })
 })
 
