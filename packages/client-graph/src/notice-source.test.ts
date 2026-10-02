@@ -12,7 +12,7 @@ import { LOADING } from './worklist/rollup'
 
 function fixture() {
   const data = noticeFixture()
-  Object.assign(data.sessions[1]!, { privateBody: 'Not a declared summary field' })
+  Object.assign(data.sessions[1]!, { issueId: 'notice-archived', privateBody: 'Not a declared summary field' })
   let messages = data.messages, interactions = data.interactions, deadLetters = data.deadLetters
   const listeners = new Set<(batch: ReplicaAddressedBatch) => void>(), outboxListeners = new Set<() => void>()
   const rows = vi.fn((kind: string) => kind === 'messageRecords' ? messages : interactions)
@@ -23,7 +23,12 @@ function fixture() {
   } as unknown as Pick<ClientRuntime, 'replica' | 'outbox'>
   const pool = new MobxPool({ coarseNow: Date.now(), selectedIssueId: null }, undefined,
     { load: (_entity, id) => data.sessions.find(row => row.sessionId === id) as never, summaries: NOTICE_SUMMARIES, schedule: () => () => {} })
-  pool.apply({ type: 'replace', rows: data.sessions.map(row => ({ kind: 'session', id: row.sessionId, value: row as never })) })
+  pool.apply({ type: 'replace', rows: [
+    ...data.sessions.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })),
+    { kind: 'issue', id: 'notice-archived', value: { id: 'notice-archived', seq: 1, stage: 'done', archived: true,
+      title: 'Archived synthetic task', createdAt: '2020-01-01T00:00:00Z', updatedAt: '2020-01-01T00:00:00Z',
+      repoPath: '/synthetic', deps: [] } as never },
+  ] })
   pool.header.apply([{ kind: 'window', id: 'window', value: { view: 'workspace', paneA: null, fileTabs: [], outboxSize: 3 } }])
   const source = new NoticeSource(runtime)
   pool.sources.register(NOTICE_ENTITIES, source)
