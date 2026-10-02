@@ -340,7 +340,7 @@ describe('IssueService CRUD', () => {
     const { svc } = await harness()
     const wire = await svc.createDraftFor('/r', 'claude-code', asIssueId('iss_draft-client-id'))
     expect(wire.id).toBe('iss_draft-client-id')
-    expect(wire.draft).toBe(true)
+    expect(wire.isDraftVessel).toBe(true)
   })
 
   it('createDraftFor mints an id when omitted (unchanged default behavior)', async () => {
@@ -350,47 +350,28 @@ describe('IssueService CRUD', () => {
   })
 })
 
-/**
- * WHAT A MUTATION PUBLISHES (#22, re-pointed at POD-1203).
- *
- * These cases asserted on the MESSAGE the snapshot tail sent — `issueUpdated`
- * for a self-contained edit, `issueUpdated` then `issuesChanged` for a
- * cross-issue ripple. The tail is deleted, so they assert on the change ROWS
- * instead: the same distinction (one row versus several), observed where a
- * client is actually served from, and no longer able to disagree with it.
- */
-describe('IssueService single-issue publish (#22)', () => {
-  /** The LEGACY `issue` rows only. Every issue write is additive since POD-796 —
-   *  it declares an `issueProjection` row beside the `issue` one — and these
-   *  cases are about how many ISSUES a write publishes, not how many kinds. */
+/** A write publishes only the issue whose durable facts changed. */
+describe('IssueService single-issue publish', () => {
   const rows = (deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> }) =>
     deps.broadcast.mock.calls
       .map((c) => c[0] as { entity?: string; id: string; op: string; value?: unknown })
-      .filter((row) => row.entity === undefined || row.entity === 'issue')
+      .filter((row) => row.entity === undefined || row.entity === 'issueProjection')
 
   it('a self-contained update serializes ONE wire and publishes ONE row', async () => {
     const { svc, deps } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await svc.create({ repoPath: '/r', title: 'B', startNow: false })
     ;(deps.broadcast as ReturnType<typeof vi.fn>).mockClear()
-    const wires = vi.spyOn(svc, 'toWire')
     await svc.update(a.id, { notes: 'note' })
-    // No full-list serialization: exactly one toWire (the mutated row).
-    expect(wires).toHaveBeenCalledTimes(1)
     const published = rows(deps)
     expect(published).toHaveLength(1)
     expect(published[0]).toMatchObject({ id: a.id, op: 'upsert' })
-    expect((published[0]?.value as { notes?: string }).notes).toBe('note')
+    expect((published[0]?.value as { notes?: { value: string } }).notes).toEqual({ value: 'note' })
     // B is untouched — the bystander a full-list rebuild would have re-sent.
     expect(published.some((row) => row.id !== a.id)).toBe(false)
   })
 
-  it('a cross-issue derivation publishes the OTHER row too, with no write on it', async () => {
-    // STRONGER THAN THE MESSAGE-COUNT IT REPLACES. `['issueUpdated',
-    // 'issuesChanged']` said a second message went out; it did not say the
-    // dependent's DERIVED state moved, which is the whole reason the full-list
-    // path exists. Closing the blocker flips the dependent's `blocked`/`ready`
-    // with no write touching it, and here that appears as its own row.
+  it('closing a blocker changes requested readiness without republishing dependents', async () => {
     const { svc, deps } = await harness()
     const blocker = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const dependent = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
@@ -399,9 +380,8 @@ describe('IssueService single-issue publish (#22)', () => {
     await svc.close(blocker.id)
     const published = rows(deps)
     expect(published.map((row) => row.id)).toContain(blocker.id)
-    expect(published.map((row) => row.id)).toContain(dependent.id)
-    const dependentRow = published.filter((row) => row.id === dependent.id).at(-1)
-    expect((dependentRow?.value as { blocked?: boolean }).blocked).toBe(false)
+    expect(published.map((row) => row.id)).not.toContain(dependent.id)
+    expect(await svc.get(dependent.id)).toMatchObject({ blocked: false, ready: true })
   })
 })
 
@@ -592,7 +572,7 @@ describe('IssueService tuck-away (POD-333)', () => {
         (row) =>
           row.id === w.id &&
           row.op === 'upsert' &&
-          (row.entity === undefined || row.entity === 'issue'),
+          (row.entity === undefined || row.entity === 'issueProjection'),
       )
     expect(sent).toHaveLength(1)
     expect(sent[0]?.value?.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
@@ -1472,23 +1452,23 @@ describe('IssueService.undefer (manual unsnooze #133)', () => {
   })
 })
 
-describe('IssueService toWire needs_human (P4)', () => {
+describe('IssueService projection needs_human (P4)', () => {
   it('surfaces needsHuman + humanQuestion set on the row', async () => {
     const { svc, store } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const row = (await store.issues.getIssue(a.id))!
-    const wired = await svc.toWire({ ...row, needsHuman: true, humanQuestion: 'which key?' })
+    const wired = await svc.projection({ ...row, needsHuman: true, humanQuestion: 'which key?' })
     expect(wired.needsHuman).toBe(true)
-    expect(wired.humanQuestion).toBe('which key?')
+    expect(wired.asked?.question).toBe('which key?')
   })
 
   it('reports needsHuman=false and omits humanQuestion when unset', async () => {
     const { svc, store } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
     const row = (await store.issues.getIssue(a.id))!
-    const wired = await svc.toWire({ ...row, needsHuman: false, humanQuestion: null })
+    const wired = await svc.projection({ ...row, needsHuman: false, humanQuestion: null })
     expect(wired.needsHuman).toBe(false)
-    expect(wired.humanQuestion).toBeUndefined()
+    expect(wired.asked?.question).toBeUndefined()
   })
 })
 
@@ -2914,9 +2894,10 @@ describe('IssueService field mutations (P1)', () => {
   it('addComment appends a comment; wire carries the count, comments() the bodies', async () => {
     const { svc } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const w = await svc.addComment(a.id, 'mike', 'looks good', AS_OPERATOR)
+    await svc.addComment(a.id, 'mike', 'looks good', AS_OPERATOR)
+    const w = (await svc.get(a.id))!
     expect(w.commentCount).toBe(1)
-    expect(w.comments).toBeUndefined()
+    expect(w).not.toHaveProperty('comments')
     const thread = await svc.comments(a.id)
     expect(thread.map((c) => c.body)).toEqual(['looks good'])
     expect(thread[0]!.author).toBe('mike')
@@ -2939,7 +2920,7 @@ describe('IssueService field mutations (P1)', () => {
     expect(perIssueCount).not.toHaveBeenCalled()
     expect(batched).toHaveBeenCalledTimes(1)
     expect(wires.find((w) => w.id === a.id)?.commentCount).toBe(2)
-    expect(wires.every((w) => w.comments === undefined)).toBe(true)
+    expect(wires.every((w) => !('comments' in w))).toBe(true)
     expect(JSON.stringify(wires)).not.toContain('secret-body-marker')
   })
 
@@ -3007,10 +2988,10 @@ describe('IssueService field mutations (P1)', () => {
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const flagged = await svc.setNeedsHuman(a.id, 'which key?')
     expect(flagged.needsHuman).toBe(true)
-    expect(flagged.humanQuestion).toBe('which key?')
+    expect(flagged.asked?.question).toBe('which key?')
     const cleared = await svc.clearNeedsHuman(a.id)
     expect(cleared.needsHuman).toBe(false)
-    expect(cleared.humanQuestion).toBeUndefined()
+    expect(cleared.asked?.question).toBeUndefined()
   })
 
   it('setNeedsHuman carries options/askedBy and stamps askedAt; clear resets all (issue #53)', async () => {
@@ -3020,9 +3001,9 @@ describe('IssueService field mutations (P1)', () => {
       options: [' Yes, merge ', 'No', '  '],
       askedBy: asSessionId('sess_asker'),
     })
-    expect(flagged.humanQuestionOptions).toEqual(['Yes, merge', 'No']) // trimmed, blanks dropped
-    expect(flagged.humanQuestionAskedBy).toBe('sess_asker')
-    expect(flagged.humanQuestionAskedAt).toBe('2026-06-30T00:00:00.000Z') // harness now()
+    expect(flagged.asked?.options).toEqual(['Yes, merge', 'No']) // trimmed, blanks dropped
+    expect(flagged.asked?.by).toBe('sess_asker')
+    expect(flagged.asked?.at).toBe('2026-06-30T00:00:00.000Z') // harness now()
     // Persisted, not just in-memory: the row round-trips through the store.
     const row = (await store.issues.getIssue(a.id))!
     expect(row.humanQuestionOptions).toEqual(['Yes, merge', 'No'])
@@ -3030,12 +3011,12 @@ describe('IssueService field mutations (P1)', () => {
     expect(row.humanQuestionAskedAt).toBe('2026-06-30T00:00:00.000Z')
     // A re-flag REPLACES the whole pending question, metadata included.
     const reflagged = await svc.setNeedsHuman(a.id, 'other question?')
-    expect(reflagged.humanQuestionOptions).toBeUndefined()
-    expect(reflagged.humanQuestionAskedBy).toBeUndefined()
+    expect(reflagged.asked?.options).toBeUndefined()
+    expect(reflagged.asked?.by).toBeUndefined()
     const cleared = await svc.clearNeedsHuman(a.id)
-    expect(cleared.humanQuestionOptions).toBeUndefined()
-    expect(cleared.humanQuestionAskedBy).toBeUndefined()
-    expect(cleared.humanQuestionAskedAt).toBeUndefined()
+    expect(cleared.asked?.options).toBeUndefined()
+    expect(cleared.asked?.by).toBeUndefined()
+    expect(cleared.asked?.at).toBeUndefined()
     expect((await store.issues.getIssue(a.id))!.humanQuestionAskedBy).toBeNull()
   })
 

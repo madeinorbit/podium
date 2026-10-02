@@ -614,7 +614,7 @@ export class IssueStore {
   /** blocked = open AND ≥1 `blocks` dep whose target issue is not closed. */
   async computeBlocked(row: IssueRow, batch?: { depsByFrom: ReadonlyMap<string, readonly { toId: IssueId; type: string }[]> }): Promise<boolean> {
     // With a batch this reads nothing: the outgoing deps for the whole set were
-    // fetched once by {@link wireBatch}. Without one it is the single-row case
+    // fetched once by the report batch. Without one it is the single-row case
     // and asks for its own row's deps, as it always did (POD-3257).
     const outgoing = batch
       ? (batch.depsByFrom.get(row.id) ?? [])
@@ -880,11 +880,8 @@ export class IssueStore {
    *  on why that is all-or-nothing). Flag off returns EMPTY, not undefined, and
    *  the difference is the rollback — see {@link EMPTY_NORMALIZED_TRUTH}.
    *
-   *  The normalized parallel to {@link allWire}. Public because it predates
-   *  POD-1576, when the relay's write-less publish tail was its outside caller;
-   *  {@link reconcileAndPublish} is the only caller left, so this is the
-   *  service's own truth now and no publisher unions anything into it. */
-  async allProjections(): Promise<{ id: string; value: IssueProjection }[] | undefined> {
+   *  Used only by boot reconciliation and explicit normalized truth reads. */
+  async allProjections(): Promise<{ id: string; value: IssueProjection }[]> {
     const labelsByIssue = await this.deps.store.issues.listIssueLabelsByIssue()
     return issueProjectionRows(this.rows.values(), (id) => labelsByIssue.get(id) ?? [])
   }

@@ -1,5 +1,5 @@
 import type { EntityRecord } from '@podium/sync/replica'
-import { asMachineId, asRepoId, asSessionId, asUserId, shipLaneId } from '@podium/model'
+import { asIssueId, asMachineId, asRepoId, asSessionId, asUserId, shipLaneId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { createKernelReplica, createSideCache } from '../replica/kernel'
 import type { KernelCacheRead } from '../replica/kernel'
@@ -19,14 +19,7 @@ const session = (id: string, readAt: string | null = null) =>
     snoozedUntil: id === 'alice-session' ? '2026-08-02T12:00:00.000Z' : null,
   }) as never
 
-const issue = (id: string, readAt: string | null = null) =>
-  ({
-    id,
-    title: id,
-    status: 'open',
-    readAt,
-    snoozeUntil: id === 'alice-issue' ? '2026-08-03T12:00:00.000Z' : null,
-  }) as never
+const issue = (id: string) => ({ id, title: id, stage: 'backlog', description: { value: '' } }) as never
 
 describe('replica snapshot binding', () => {
   it('hydrates shipping lanes and publishes lane changes, eviction, readmission, removal and empty rescopes', async () => {
@@ -97,7 +90,9 @@ describe('replica snapshot binding', () => {
     const keyPrefix = 'podium.replica.principal.alice'
     const first = createReplica({ storage, keyPrefix })
     first.applySnapshot('sessions', [session('alice-session', '2026-08-01T09:00:00.000Z')])
-    first.applySnapshot('issues', [issue('alice-issue', '2026-08-01T10:00:00.000Z')])
+    first.applySnapshot('issueProjections', [issue('alice-issue')])
+    const issuePersonal = { userId: asUserId('alice'), entityId: asIssueId('alice-issue'), readAt: '2026-08-01T10:00:00.000Z', tuckedAt: null, pinned: true }
+    first.applySnapshot('issueUserStates', [issuePersonal])
     const personal = { userId: asUserId('alice'), sessionId: asSessionId('alice-session'), readAt: null, snoozedUntil: null }
     const machine = { id: asMachineId('machine:alice'), name: 'Laptop', loggedOutHarnesses: ['codex' as const] }
     first.applySnapshot('sessionUserStates', [personal])
@@ -118,19 +113,15 @@ describe('replica snapshot binding', () => {
         snoozedUntil: '2026-08-02T12:00:00.000Z',
       },
     ])
-    expect(cold.issues).toMatchObject([
-      {
-        id: 'alice-issue',
-        readAt: '2026-08-01T10:00:00.000Z',
-        snoozeUntil: '2026-08-03T12:00:00.000Z',
-      },
-    ])
+    expect(cold.issueProjections).toMatchObject([{ id: 'alice-issue' }])
+    expect(cold.issueUserStates).toEqual([issuePersonal])
+    expect(cold).not.toHaveProperty('issues')
   })
 
   it('publishes an atomic rescope once, ignores cursor-only watermarks, and evicts by absence', async () => {
     const cache = new BindingCache()
     cache.put('session', 'old-session', session('old-session'))
-    cache.put('issue', 'old-issue', issue('old-issue'))
+    cache.put('issueProjection', 'old-issue', issue('old-issue'))
     const replica = createKernelReplica({
       cache,
       side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
@@ -146,7 +137,7 @@ describe('replica snapshot binding', () => {
     // paired with new issues (or the inverse).
     cache.records = []
     cache.put('session', 'new-session', session('new-session'))
-    cache.put('issue', 'new-issue', issue('new-issue'))
+    cache.put('issueProjection', 'new-issue', issue('new-issue'))
     replica.onKernelEvent({
       type: 'bootstrap-installed',
       cause: 'rescope',
@@ -162,7 +153,7 @@ describe('replica snapshot binding', () => {
     // `userLayouts` and a bare count would have only said the number changed).
     expect(new Set(publications[0]!.changed)).toEqual(new Set(REPLICA_BINDING_KINDS))
     expect(publications[0]!.snapshot.sessions.map((row) => row.sessionId)).toEqual(['new-session'])
-    expect(publications[0]!.snapshot.issues.map((row) => row.id)).toEqual(['new-issue'])
+    expect(publications[0]!.snapshot.issueProjections.map((row) => row.id)).toEqual(['new-issue'])
 
     publications.length = 0
     for (let seq = 51; seq <= 350; seq += 1) {

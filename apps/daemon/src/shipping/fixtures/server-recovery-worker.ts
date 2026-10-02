@@ -32,7 +32,7 @@ const ledger = new Ledger({
   now: Date.now,
   transact: (fn) => store.transact(fn),
 })
-const issues = IssueService.create({
+const issues = await IssueService.create({
   store,
   sessionFacts: () => [],
   sessionById: async () => undefined,
@@ -51,10 +51,7 @@ const issues = IssueService.create({
   repoOp: async () => ({ ok: true, output: '' }),
   funnel: { run: (op) => op.write() },
   ledger,
-  publishSpecs: {
-    issueUpdated: (issue) => ({ rows: [{ id: issue.id, value: issue }] }),
-    issuesChanged: (rows) => ({ rows: rows.map((issue) => ({ id: issue.id, value: issue })) }),
-  },
+
 })
 await issues.boot()
 
