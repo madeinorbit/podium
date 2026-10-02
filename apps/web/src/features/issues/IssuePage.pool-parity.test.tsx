@@ -9,7 +9,6 @@ import { deriveIssueViews, deriveIssueRollups, type IssueViewInput, type IssueVi
 import type { SessionView } from '@podium/client-core/session-values'
 import { recordSliceDerivation, storeStats } from '@podium/client-core/perf'
 import { MobxPool } from '@podium/client-graph/pool'
-import { issuePages } from '@podium/client-graph/issue-page'
 import { attachIssuePageSource } from '@podium/client-graph/issue-page-source'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'

@@ -70,6 +70,7 @@ export function useEvictionPresenceGuard(issueId: string, present: boolean | nul
     fired.current = false
   }, [issueId])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the previous effect resets presence on issueId changes, so this effect must observe the new subject even when its presence is unchanged.
   useEffect(() => {
     if (present === null) return
     if (present) {

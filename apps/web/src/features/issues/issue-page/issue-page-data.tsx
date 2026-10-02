@@ -13,15 +13,17 @@ export function useIssuePageData() { return useContext(IssuePageDataContext) }
 export function useIssuePageIssues() {
   const value = useIssuePageData()
   const world = useContext(IssuePageWorldContext)
-  // The provider is fixed for this mounted component tree, like the startup switch.
+  // PoolIssuePage/PoolIssuePanelView and the explorer choose this provider at
+  // their mounting boundary; it cannot appear or disappear within a mounted
+  // legacy reader. Keep the legacy addressed subscription exactly as before.
   if (value) return value.data.issues
   if (world) return world.issues
+  // biome-ignore lint/correctness/useHookAtTopLevel: the mounting boundary fixes this branch; the pool body unmounts before its provider disappears.
   return useReplicaIssues()
 }
 export function useIssuePageSessions(): SessionView[] {
   const value = useIssuePageData()
   const world = useContext(IssuePageWorldContext)
-  if (value) return value.data.sessions
-  if (world) return world.sessions
-  return useStoreSelector(store => store.sessions) ?? []
+  const provided = value?.data.sessions ?? world?.sessions
+  return useStoreSelector(store => provided ?? store.sessions) ?? []
 }

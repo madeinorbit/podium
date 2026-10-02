@@ -111,8 +111,8 @@ export function IssueExitProvider({
  * replica that keeps no exit record (the legacy TanStack one) answers
  * `undefined` and every edge stays `pending`, exactly as before this wiring.
  */
-function useReplicaExitLookup(): IssueExitLookup {
-  const replica = useStoreSelector((s) => s.replica)
+function useReplicaExitLookup(enabled: boolean): IssueExitLookup {
+  const replica = useStoreSelector((s) => enabled ? s.replica : undefined)
   return useMemo(() => (id: string) => replica?.exitKind?.('issueProjection', id), [replica])
 }
 
@@ -125,8 +125,8 @@ export function useIssueEdgeResolver(): (id: string | undefined | null) => Issue
   const override = useContext(IssueExitContext)
   const exits = page?.data.exits
   const fromPool = useMemo(() => (id: string) => exits?.[id], [exits])
-  const fromReplica = page ? fromPool : useReplicaExitLookup()
-  const exitOf = override ?? fromReplica
+  const fromReplica = useReplicaExitLookup(!page)
+  const exitOf = override ?? (page ? fromPool : fromReplica)
   return useMemo(() => {
     const byId = new Map(issues.map((i) => [i.id as string, i]))
     // The slice is typed over `IssueViewModel`; `IssueViewModel` is a superset of it
