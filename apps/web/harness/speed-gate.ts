@@ -6,6 +6,7 @@ import { arch, cpus, hostname, loadavg, platform } from 'node:os'
 import { extname, resolve } from 'node:path'
 import { chromium, type Browser, type Page } from '@playwright/test'
 import { paintOf, traceStart } from './browser-paint'
+import { comparePaneSpeedPair } from './pane-speed-pair'
 import type {} from '../test/sidebar-acceptance.browser'
 
 const ACTIONS = [
@@ -16,6 +17,7 @@ const ACTIONS = [
   'background-update',
 ] as const
 type Action = (typeof ACTIONS)[number]
+type MeasuredAction = Action | 'issue-page-open'
 type Numbers = Record<Action, { medianMs: number; worstMs: number }>
 type Targets = {
   sidebar: string[]
@@ -48,7 +50,7 @@ type Expected = { selector: string; text?: string }
 type Capture = {
   expected: Expected
   trigger: string
-  action: Action
+  action: MeasuredAction
   input: number | null
   dom: number | null
   twoRaf: boolean
@@ -64,6 +66,7 @@ const value = (name: string, fallback: string) =>
   args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback
 const calibrate = args.includes('--calibrate')
 const promote = args.includes('--promote')
+const pairedPane = args.includes('--paired-pane')
 const delayMs = Number(value('plant-delay-ms', '0'))
 const root = resolve('.artifacts/speed-gate')
 const buildDir = resolve(root, 'build')
@@ -88,13 +91,14 @@ async function main() {
         '--calibrate --baseline-ref=<landed SHA/ref>: initial baseline only, two runs to measure noise.\n' +
         '--plant-delay-ms=50: plant a synchronous delay in the sidebar click path (expected red).\n' +
         '--promote: commit-ready baseline from the saved green run after its source lands; no rerun.\n' +
+        '--paired-pane: one build, two fresh captures per pane setting, five clicks plus full-page opening.\n' +
         '--lease-confirmed: caller already holds bench:flatblock (remote capture).',
     )
     process.exit(0)
   }
   for (const arg of args)
     if (
-      !['--calibrate', '--promote', '--lease-confirmed'].includes(arg) &&
+      !['--calibrate', '--promote', '--lease-confirmed', '--paired-pane'].includes(arg) &&
       !arg.startsWith('--plant-delay-ms=') &&
       !arg.startsWith('--baseline-ref=')
     )
@@ -109,6 +113,7 @@ async function main() {
   )
     throw new Error('Invalid planted delay/mode')
   if (calibrate && promote) throw new Error('Choose calibration or promotion')
+  if (pairedPane && (calibrate || promote)) throw new Error('Pane pairing cannot calibrate or promote the landed baseline')
 
   let baseline: Baseline | null = null
   try {
@@ -221,16 +226,16 @@ async function main() {
   }
   const deadline = setTimeout(() => {
     console.error(
-      'speed:gate exceeded 285 seconds; reduce repetitions, keep all five actions. No baseline promoted.',
+      `speed:gate exceeded ${pairedPane ? 570 : 285} seconds. No baseline promoted.`,
     )
     void cleanup().finally(() => process.exit(2))
-  }, 285_000)
+  }, pairedPane ? 570_000 : 285_000)
   for (const signal of ['SIGINT', 'SIGTERM'] as const)
     process.once(signal, () => {
       void cleanup().finally(() => process.exit(130))
     })
 
-  async function openPage(surface: 'sidebar' | 'full', origin: string) {
+  async function openPage(surface: 'sidebar' | 'full' | 'page', origin: string, pane?: 0 | 1, measured = false) {
     const context = await browser!.newContext({
       viewport: { width: 1800, height: 1000 },
       reducedMotion: 'reduce',
@@ -291,10 +296,10 @@ async function main() {
           characterData: true,
         })
       },
-      { delayMs },
+      { delayMs: pairedPane && pane === 0 ? 0 : delayMs },
     )
     await page.goto(
-      `${origin}/test/sidebar-acceptance.browser.html?mobxSidebar=1&scale=4&surface=${surface}&panelMode=chat`,
+      `${origin}/test/sidebar-acceptance.browser.html?mobxSidebar=1&scale=4&surface=${surface}&panelMode=chat${pane === undefined ? '' : `&mobxPane=${pane}`}${measured ? '&measure=1' : ''}`,
     )
     await page.waitForFunction(
       () => window.__acceptance?.ready() && document.querySelector('[data-issue-row]'),
@@ -313,6 +318,8 @@ async function main() {
       (state.sessions ?? 0) < 17_000
     )
       throw new Error(`Wrong 4× pool fixture: ${JSON.stringify(state)}`)
+    if (pane !== undefined && await page.evaluate(() => window.__acceptance.paneMode()) !== (pane ? 'pool' : 'legacy'))
+      throw new Error('Pane startup switch did not select the requested arm')
     return { page, cdp: await context.newCDPSession(page), context, errors }
   }
   async function settle(page: Page) {
@@ -329,7 +336,7 @@ async function main() {
 
   async function capture(
     fixture: Awaited<ReturnType<typeof openPage>>,
-    action: Action,
+    action: MeasuredAction,
     trigger: string,
     expected: Expected,
     perform: () => Promise<unknown>,
@@ -380,9 +387,9 @@ async function main() {
     return result.inputToPaintMs
   }
 
-  async function suite(origin: string, fixed?: Targets) {
-    const sidebar = await openPage('sidebar', origin)
-    const full = await openPage('full', origin)
+  async function suite(origin: string, fixed?: Targets, pane?: 0 | 1) {
+    const sidebar = await openPage('sidebar', origin, pane)
+    const full = await openPage('full', origin, pane)
     const samples = Object.fromEntries(ACTIONS.map((action) => [action, [] as number[]])) as Record<
       Action,
       number[]
@@ -534,11 +541,34 @@ async function main() {
           },
         ]),
       ) as Numbers
+      let pageOpening: { medianMs: number; worstMs: number; firstOpenMs: number; samples: number[] } | undefined
+      if (pairedPane) {
+        const page = await openPage('page', origin, pane)
+        try {
+          await page.page.evaluate(ids => window.__acceptance.preparePageTargets(ids), targets.sidebar)
+          const times: number[] = []
+          let firstOpenMs = 0
+          for (let i = -WARMUPS; i < REPETITIONS; i++) {
+            const back = page.page.getByTitle('Back', { exact: true })
+            if (await back.count()) { await back.click(); await settle(page.page) }
+            const id = targets.sidebar[(i + WARMUPS) % 2]!
+            const ms = await capture(page, 'issue-page-open', `[data-page-target="${id}"]`,
+              { selector: `[data-fixture-issue-page="${id}"] [title="Click to edit title"]` },
+              () => page.page.locator(`[data-page-target="${id}"]`).click())
+            if (i === -WARMUPS) firstOpenMs = ms
+            if (i >= 0) times.push(ms)
+            await settle(page.page)
+          }
+          pageOpening = { medianMs: round(median(times)), worstMs: round(Math.max(...times)), firstOpenMs: round(firstOpenMs), samples: times }
+          console.log(`issue-page-open: median ${pageOpening.medianMs} ms, worst ${pageOpening.worstMs} ms, first ${pageOpening.firstOpenMs} ms`)
+        } finally { await page.context.close() }
+      }
       return {
         targets,
         actions,
         samples,
         load: { min: Math.min(...loads), max: Math.max(...loads) },
+        ...(pageOpening ? { pageOpening } : {}),
       }
     } finally {
       await sidebar.context.close()
@@ -618,7 +648,7 @@ async function main() {
         'acquire',
         'bench:flatblock',
         '--ttl',
-        '6m',
+        pairedPane ? '11m' : '6m',
         '--wait',
         '--timeout',
         '30s',
@@ -627,6 +657,43 @@ async function main() {
       if (!grant?.granted) throw new Error('bench:flatblock was not granted')
       leased = !grant.alreadyHeld
     }
+    if (pairedPane) {
+      const runs: Record<'legacy' | 'pool', Awaited<ReturnType<typeof suite>>[]> = { legacy: [], pool: [] }
+      // ABBA limits systematic warm-host drift; every capture gets a new browser.
+      for (const [index, pane] of ([0, 1, 1, 0] as const).entries()) {
+        if (index) { await browser.close(); browser = await launchBrowser() }
+        const arm = pane ? 'pool' : 'legacy'
+        console.log(`Same-SHA pane ${arm}, capture ${runs[arm].length + 1}/2`)
+        runs[arm].push(await suite(origin, baseline!.targets, pane))
+      }
+      const samples = (arm: 'legacy' | 'pool') => runs[arm].map(run => ({ ...run.samples, 'issue-page-open': run.pageOpening!.samples }))
+      const pair = comparePaneSpeedPair(samples('legacy'), samples('pool'))
+      // Check a measured (untimed) page gesture with the existing store census.
+      const proof = await openPage('page', origin, 1, true)
+      let legacyPageDerivations = 0
+      try {
+        await proof.page.evaluate(ids => window.__acceptance.preparePageTargets(ids), baseline!.targets.sidebar)
+        await proof.page.evaluate(() => window.__acceptance.begin())
+        const id = baseline!.targets.sidebar[0]!
+        await proof.page.locator(`[data-page-target="${id}"]`).click()
+        await proof.page.locator(`[data-fixture-issue-page="${id}"] [title="Click to edit title"]`).waitFor()
+        await settle(proof.page)
+        const stats = await proof.page.evaluate(() => window.__acceptance.stop().stats)
+        if (stats.dropped) throw new Error('Page census overflowed')
+        legacyPageDerivations = stats.runtimes.reduce((total, runtime) => total + Object.entries(runtime.slices)
+          .filter(([name]) => name.startsWith('issue-page.')).reduce((sum, [, count]) => sum + count, 0), 0)
+        if (legacyPageDerivations) throw new Error('Pool page executed a legacy derivation')
+      } finally { await proof.context.close() }
+      const report = { version: 1, sourceSha, captureSha, dirtyProduct, machine, scale: 4, seed: 4443,
+        metric: 'trusted pointerdown (background: feed delivery) to actual Chromium Paint after expected DOM',
+        targets: baseline!.targets, delayMs, pair, runs, legacyPageDerivations,
+        passed: pair.passed && legacyPageDerivations === 0, runtimeSeconds: round((performance.now() - began) / 1000) }
+      await writeFile(resolve(root, 'paired-pane.json'), JSON.stringify(report, null, 2) + '\n')
+      for (const [action, result] of Object.entries(pair.actions)) console.log(
+        `${result.passed ? 'green' : 'RED'} ${action}: ${result.legacy.medianMs} → ${result.pool.medianMs} ms (${result.changePercent}%)`)
+      console.log(`${report.passed ? 'PANE SPEED PAIR GREEN' : 'PANE SPEED PAIR RED'} — ${report.runtimeSeconds}s; legacy page derivations ${legacyPageDerivations}`)
+      exitCode = report.passed ? 0 : 1
+    } else {
     const runs: Awaited<ReturnType<typeof suite>>[] = []
     console.log(`Production build and browser ready: ${round((performance.now() - began) / 1000)}s`)
     for (let i = 0; i < (calibrate ? NOISE_RUNS : 1); i++) {
@@ -721,6 +788,7 @@ async function main() {
       `${report.passed ? 'SPEED GATE GREEN' : 'SPEED GATE RED'} — ${report.runtimeSeconds}s including production build; ${resolve(root, 'last-run.json')}`,
     )
     exitCode = report.passed ? 0 : 1
+    }
   } catch (error) {
     console.error(error)
     exitCode = 2

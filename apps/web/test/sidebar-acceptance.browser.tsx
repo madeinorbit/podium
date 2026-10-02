@@ -3,7 +3,7 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
 import { bindSidebarPerf, createSidebarPerf, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle, useStoreSelector } from '@podium/client-core/react'
+import { StoreProvider, useReplicaIssues, useStoreHandle, useStoreSelector } from '@podium/client-core/react'
 import {
   createKernelReplica,
   createSideCache,
@@ -37,6 +37,9 @@ import { Workspace } from '../src/app/Workspace'
 import { TooltipProvider } from '../src/components/ui/tooltip'
 import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
+import { IssuePage } from '../src/features/issues/IssuePage'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { paneDataLayer } from '../src/lib/pane-data-layer'
 import {
   bindSidebarRowMeasurements,
   createPaintBoundary,
@@ -55,6 +58,7 @@ const corpus =
     : buildCorpus(scale, 4443)
 const targets = pickTargets(corpus)
 const full = params.get('surface') === 'full'
+const pageSurface = params.get('surface') === 'page'
 const measured = params.get('measure') === '1'
 const errors: string[] = []
 initializeSidebarDataLayer({ get: () => null })
@@ -108,6 +112,7 @@ let graph: MobxPool | null = null
 let ready = false
 let assembly: Awaited<ReturnType<typeof assemble>>
 let generation = 0
+let configurePageTargets: (ids: string[]) => void = () => {}
 const retired: { name: string; ref: WeakRef<object> }[] = []
 const root = createRoot(document.getElementById('root')!)
 
@@ -219,6 +224,8 @@ function Fixture() {
   initializePoolScreens(runtime.ui)
   const pool = useWorklistPool()
   const selected = useStoreSelector((s) => s.selectedIssueId)
+  const [pageTargets, setPageTargets] = useState<string[]>([])
+  configurePageTargets = setPageTargets
   owner = runtime
   graph = pool
   useEffect(() => {
@@ -247,6 +254,7 @@ function Fixture() {
             >
               <SidebarUnified />
             </aside>
+            {pageSurface && <IssuePageProbe ids={pageTargets} />}
             {full && (
               <>
                 <div data-fixture-mission={selected ?? ''} className="flex min-h-0 flex-none" style={{ width: 330 }}>
@@ -265,6 +273,30 @@ function Fixture() {
       </IssueExplorerProvider>
     </OperatorFocusProvider>
   )
+}
+
+/** Measurement-only trusted opening controls; both arms render the shipped
+ * page and write through the existing synthetic runtime/outbox. */
+function IssuePageProbe({ ids }: { ids: string[] }) {
+  const { openIssueId, setOpenIssueId, markIssueRead } = useStoreSelector(s => ({
+    openIssueId: s.openIssueId, setOpenIssueId: s.setOpenIssueId, markIssueRead: s.markIssueRead,
+  }))
+  return <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div className="flex gap-2">
+      {ids.map(id => <button type="button" key={id} data-page-target={id}
+        onClick={() => { void markIssueRead(asIssueId(id)); setOpenIssueId(asIssueId(id)) }}>Open {id}</button>)}
+    </div>
+    {openIssueId && <div className="flex min-h-0 flex-1" data-fixture-issue-page={openIssueId}>
+      {paneDataLayer() === 'pool'
+        ? <IssuePage issue={{ id: openIssueId } as IssueViewModel} orderedIds={ids.map(asIssueId)} onBack={() => setOpenIssueId(null)} onNavigate={setOpenIssueId} />
+        : <LegacyIssuePageProbe id={openIssueId} ids={ids} />}
+    </div>}
+  </div>
+}
+function LegacyIssuePageProbe({ id, ids }: { id: string; ids: string[] }) {
+  const issue = useReplicaIssues().find(issue => issue.id === id)
+  const setOpenIssueId = useStoreSelector(s => s.setOpenIssueId)
+  return issue ? <IssuePage issue={issue} orderedIds={ids.map(asIssueId)} onBack={() => setOpenIssueId(null)} onNavigate={setOpenIssueId} /> : null
 }
 
 async function show(name = 'acceptance-alice', rebuild = false) {
@@ -336,6 +368,7 @@ function patch(entity: string, id: string, changes: Record<string, unknown>) {
 const fixture = {
   ready: () => ready,
   mode: sidebarDataLayer,
+  paneMode: paneDataLayer,
   errors: () => [...errors],
   corpus: corpus.stats,
   targets,
@@ -428,6 +461,7 @@ const fixture = {
   rowCount: () =>
     graph ? Object.values(graph.tables).reduce((count, table) => count + table.size, 0) : null,
   select: (id: string) => owner!.getSnapshot().setSelectedIssueId(asIssueId(id)),
+  preparePageTargets: (ids: string[]) => flushSync(() => configurePageTargets(ids)),
 }
 Object.assign(window, { __acceptance: fixture })
 declare global {
