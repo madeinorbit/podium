@@ -122,7 +122,8 @@
       "dependsOn": ["^typecheck"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/worklist-proto/harness/src/mobx-census.ts",
+        "$TURBO_ROOT$/packages/worklist-proto/harness/src/**",
+        "$TURBO_ROOT$/packages/worklist-proto/shared/src/**",
         "$TURBO_ROOT$/apps/web/node_modules/vite/dist/node/index.js"
       ],
       "outputs": ["*.tsbuildinfo"]
