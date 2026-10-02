@@ -61,8 +61,8 @@ describe('shippingPanelModel', () => {
           ids: group.rows.map((row) => row.order.id),
         })),
       ).toEqual([
-        { destination: 'git:origin/main', ids: ['5', '4'] },
-        { destination: 'local:main', ids: ['2', '1', '3'] },
+        { destination: 'git:origin/main', ids: records.length ? ['5', '4'] : ['4', '5'] },
+        { destination: 'local:main', ids: records.length ? ['2', '1', '3'] : ['1', '2', '3'] },
         { destination: 'main', ids: ['6'] },
       ])
       expect(model.unfinishedCount).toBe(6)
@@ -88,7 +88,7 @@ describe('shippingPanelModel', () => {
     expect(model.unfinishedCount).toBe(3)
   })
 
-  it('uses legacy ranks only while that canonical lane row is absent', () => {
+  it('O4 ignores cached order ranks when the lane is absent, evicted or from another repo', () => {
     const orders = [
       order('blocked', { destination: 'main', queueRank: 1 }),
       order('ranked', { destination: 'local:main', queueRank: 7 }),
@@ -101,21 +101,21 @@ describe('shippingPanelModel', () => {
         row.order.id,
         row.queueRank,
       ])
-    const legacy = [
-      ['blocked', 1],
-      ['not-in-lane', 2],
-      ['ranked', 7],
+    const unranked = [
+      ['blocked', undefined],
       ['no-rank', undefined],
+      ['not-in-lane', undefined],
+      ['ranked', undefined],
     ]
-    expect(ranks([])).toEqual(legacy)
+    expect(ranks([])).toEqual(unranked)
     expect(ranks([local])).toEqual([
       ['ranked', 1],
       ['blocked', undefined],
       ['no-rank', undefined],
       ['not-in-lane', undefined],
     ])
-    // A lane disappearing re-enables compatibility; a row from another repo cannot supply rank.
-    expect(ranks([])).toEqual(legacy)
+    // A lane disappearing cannot revive stale ranks from a persisted order.
+    expect(ranks([])).toEqual(unranked)
     expect(
       ranks([
         lane('local:main', [['ranked']], {
@@ -123,7 +123,19 @@ describe('shippingPanelModel', () => {
           repoId: 'repo-b' as never,
         }),
       ]),
-    ).toEqual(legacy)
+    ).toEqual(unranked)
+
+    // Older offline rows still load, but their rank fields have no bearing on
+    // positions before or after the authoritative lane is readmitted.
+    const withoutRanks = orders.map(({ queueRank: _legacyRank, ...row }) => row)
+    for (const records of [[], [local]]) {
+      expect(
+        shippingPanelModel(withoutRanks, [], 'repo-a', records).waiting[0]?.rows.map((row) => [
+          row.order.id,
+          row.queueRank,
+        ]),
+      ).toEqual(ranks(records))
+    }
   })
 
   it('scopes counts to one repository and excludes retained receipts', () => {
@@ -184,7 +196,7 @@ describe('shippingPanelModel', () => {
       ],
       ['1', '2', '3', '4', '5', '6'].map(issue),
       'repo-a',
-      [],
+      [lane('origin/main', [['2'], ['1'], ['6']]), lane('upstream/release', [['3']])],
       1,
     )
 

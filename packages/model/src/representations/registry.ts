@@ -723,7 +723,7 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     purpose:
       'The compact replicated shipping row keyed by order id and joined locally through issueId.',
     distinctSemantics:
-      'It omits execution journals, immutable proof bodies, train and waitEstimate; derives humanState/activity; retains queueRank, which since POD-4974 O2 comes from the same per-lane plan as the server-maintained shipLane row (recomputed only for the lanes a commit touches, native-stack edges included) until O3–O4 move rank readers to that row; and tombstones cancelled orders from the routine feed. Legacy optional train/waitEstimate schemas accept older rows only.',
+      'It omits execution journals, immutable proof bodies, queueRank, train and waitEstimate; derives humanState/activity; and tombstones cancelled orders from the routine feed. Queue rank lives only on the server-maintained shipLane row (POD-4974 O4). Legacy optional queueRank/train/waitEstimate schemas accept older wire rows and offline caches only.',
     composition: {
       state: 'declared-legitimate-restatement',
       reason:

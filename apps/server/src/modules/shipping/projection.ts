@@ -43,8 +43,8 @@ const activity = (
   }
 }
 
-/** Build compact replicated order rows. `queueRank` remains absent here: only
- * the dependency-aware scheduler may supply that optional projection fact. */
+/** Build compact replicated order rows. Queue rank belongs to the lane row,
+ * so scheduling never changes the facts carried by an order (POD-4974 O4). */
 export function shipOrderProjectionRows(
   orders: Iterable<ShipOrder>,
   holds: Iterable<ShipHold>,
@@ -93,23 +93,13 @@ export function shipOrderProjectionRows(
   })
 }
 
-/** One compact row with an optional scheduler-derived rank. The scheduler's
- * trains remain internal; unused train and wait estimates never enter the row. */
+/** One compact order row; scheduler-derived values live only on the lane. */
 export function shipOrderProjectionRow(
   order: ShipOrder,
   hold?: ShipHold,
   receipt?: DeliveryReceipt,
-  queueRank?: number,
 ): { id: string; value: ShipOrderProjectionValue } | null {
-  const row = shipOrderProjectionRows([order], hold ? [hold] : [], receipt ? [receipt] : [])[0]
-  if (!row) return null
-  return {
-    id: row.id,
-    value: ShipOrderProjection.parse({
-      ...row.value,
-      ...(queueRank === undefined ? {} : { queueRank }),
-    }),
-  }
+  return shipOrderProjectionRows([order], hold ? [hold] : [], receipt ? [receipt] : [])[0] ?? null
 }
 
 /** One lane's scheduler input from rows already in hand: its queued orders
@@ -155,11 +145,9 @@ export function scheduledShippingProjection(
 } {
   const orderList = [...orders]
   const orderById = new Map(orderList.map((order) => [order.id, order]))
-  const ranks = new Map<ShipOrder['id'], number>()
   const lanes: { id: string; value: ShipLaneProjection }[] = []
   for (const lane of queuedShippingLanes(orderList)) {
     const scheduled = shipLaneSchedule(shipLaneInput(lane, stackEdges, orderById))
-    for (const [id, rank] of scheduled.ranks) ranks.set(id, rank)
     lanes.push({ id: scheduled.lane.id, value: scheduled.lane })
   }
   const holdByOrder = new Map(
@@ -172,7 +160,6 @@ export function scheduledShippingProjection(
         order,
         holdByOrder.get(order.id),
         receiptByOrder.get(order.id),
-        ranks.get(order.id),
       )
       return row ? [row] : []
     }),

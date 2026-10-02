@@ -60,7 +60,7 @@ const orderInput = (over: Record<string, unknown> = {}) => ({
 })
 
 describe('ShipOrderProjection compatibility', () => {
-  it('O1 accepts both compact current rows and legacy optional extras', () => {
+  it('O4 accepts rankless current rows and legacy optional extras', () => {
     const current = {
       id: asShipOrderId('order-1'),
       issueId: asIssueId('iss_1'),
@@ -72,7 +72,6 @@ describe('ShipOrderProjection compatibility', () => {
       activity: 'waiting',
       queuedAt: '2026-08-13T00:00:00.000Z',
       stateChangedAt: '2026-08-13T00:00:00.000Z',
-      queueRank: 1,
     }
     expect(ShipOrderProjection.parse(current)).toEqual(current)
     const train = { id: 'legacy-train', index: 1, size: 2 }
@@ -82,8 +81,9 @@ describe('ShipOrderProjection compatibility', () => {
       sampleSize: 3,
       basis: 'lane-history',
     }
-    expect(ShipOrderProjection.parse({ ...current, train, waitEstimate })).toEqual({
+    expect(ShipOrderProjection.parse({ ...current, queueRank: 1, train, waitEstimate })).toEqual({
       ...current,
+      queueRank: 1,
       train,
       waitEstimate,
     })

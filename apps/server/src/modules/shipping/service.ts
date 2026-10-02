@@ -3739,7 +3739,7 @@ export class ShippingService {
    *
    * A lane is touched by a written order, and by a written order that has
    * SHIPPED for every queued order that names it: a shipped dependency unblocks
-   * its dependents, and an explicit policy edge may cross lanes. Ranks come from
+   * its dependents, and an explicit policy edge may cross lanes. Lane ranks come from
    * {@link shipLaneSchedule}, the per-lane plan the tick runs, over the recorded
    * native-stack edges the tick schedules with.
    *
@@ -3762,7 +3762,7 @@ export class ShippingService {
     const shipped = written.filter((order) => order.state === 'shipped').map((order) => order.id)
     for (const dependent of await this.deps.repository.queuedDependentsOf(shipped)) noteLane(dependent)
 
-    const ranked = new Map<ShipOrderId, { order: ShipOrder; rank?: number }>()
+    const orderById = new Map<ShipOrderId, ShipOrder>()
     const specs: EntityChangeSpec[] = []
     for (const [laneId, lane] of lanes) {
       const queued = await this.deps.repository.queuedLaneOrders(lane.repoId, lane.destination)
@@ -3770,23 +3770,20 @@ export class ShippingService {
       const merged = withNativeStackEdges(queued, edges)
       const dependencies = await this.deps.repository.ordersByIds(laneDependencyIds(merged))
       const scheduled = shipLaneSchedule({ ...lane, queued: merged, dependencies })
-      for (const order of queued) {
-        const rank = scheduled.ranks.get(order.id)
-        ranked.set(order.id, rank === undefined ? { order } : { order, rank })
-      }
+      for (const order of queued) orderById.set(order.id, order)
       specs.push(
         queued.length > 0
           ? { entity: 'shipLane', id: laneId, op: 'upsert', value: scheduled.lane }
           : { entity: 'shipLane', id: laneId, op: 'remove' },
       )
     }
-    for (const order of written) if (!ranked.has(order.id)) ranked.set(order.id, { order })
+    for (const order of written) orderById.set(order.id, order)
 
-    const rowIds = [...ranked.keys()]
+    const rowIds = [...orderById.keys()]
     const holds = await this.deps.repository.openHoldsForOrders(rowIds)
     const receipts = await this.deps.repository.receiptsForOrders(rowIds)
-    for (const { order, rank } of ranked.values()) {
-      const row = shipOrderProjectionRow(order, holds.get(order.id), receipts.get(order.id), rank)
+    for (const order of orderById.values()) {
+      const row = shipOrderProjectionRow(order, holds.get(order.id), receipts.get(order.id))
       specs.push(
         row
           ? { entity: 'shipOrder', id: row.id, op: 'upsert', value: row.value }

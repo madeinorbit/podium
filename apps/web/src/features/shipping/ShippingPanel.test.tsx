@@ -39,14 +39,13 @@ const commands = (over: Partial<ShippingPanelCommands> = {}): ShippingPanelComma
 afterEach(cleanup)
 
 describe('ShippingPanel', () => {
-  it('renders canonical lanes and lane ranks in badges, status and drill-in after a lane-only update', () => {
+  it('O4 renders lane ranks without order ranks and never revives cached ranks after lane eviction', () => {
     const orders = [
       order({
         state: 'queued',
         humanState: 'waiting',
         activity: 'waiting',
         destination: 'main',
-        queueRank: 8,
       }),
       order({
         id: 'order-b' as never,
@@ -54,7 +53,6 @@ describe('ShippingPanel', () => {
         humanState: 'waiting',
         activity: 'waiting',
         destination: 'refs/heads/main',
-        queueRank: 1,
       }),
     ] as const
     const lane: ShipLaneProjection = {
@@ -101,10 +99,20 @@ describe('ShippingPanel', () => {
     ).toContain('Waiting')
     expect(screen.queryByText('Position 8')).toBeNull()
 
-    rerender(<ShippingPanel {...props} lanes={[]} />)
-    expect(screen.getByRole('button', { name: /Position 8.*main → main/ }).textContent).toContain(
-      '#8',
-    )
+    const cachedOrders = orders.map((row) => ({ ...row, queueRank: 8 }))
+    rerender(<ShippingPanel {...props} orders={cachedOrders} lanes={[]} />)
+    expect(screen.queryByRole('button', { name: /Position/ })).toBeNull()
+    expect(
+      screen.getByRole('button', { name: /Shipping sidebar panel.*main → main/ }).textContent,
+    ).toContain('Waiting')
+    expect(container.textContent).not.toContain('#8')
+    fireEvent.click(screen.getByRole('button', { name: /Shipping sidebar panel.*main → main/ }))
+    expect(screen.getByText(/^Waiting\s*·/)).toBeTruthy()
+    expect(screen.queryByText(/Next/)).toBeNull()
+    // Readmission restores the position from the lane without changing orders.
+    rerender(<ShippingPanel {...props} orders={cachedOrders} lanes={[lane]} />)
+    expect(screen.getByText(/Next/)).toBeTruthy()
+    expect(container.textContent).not.toContain('#8')
   })
 
   it('uses plain activity language and replaces only the dock body for drill-in', () => {
@@ -140,10 +148,9 @@ describe('ShippingPanel', () => {
             state: 'queued',
             humanState: 'waiting',
             activity: 'waiting',
-            queueRank: 2,
             targetBranch: 'release',
           }),
-          order({ state: 'queued', humanState: 'waiting', activity: 'waiting', queueRank: 1 }),
+          order({ state: 'queued', humanState: 'waiting', activity: 'waiting' }),
           order({
             id: 'order-c' as never,
             state: 'queued',
@@ -151,8 +158,23 @@ describe('ShippingPanel', () => {
             activity: 'waiting',
             destination: 'upstream/release',
             targetBranch: 'release',
-            queueRank: 1,
           }),
+        ]}
+        lanes={[
+          {
+            id: shipLaneId(order().repoId, 'origin/main'),
+            repoId: order().repoId,
+            destination: 'origin/main',
+            trains: [{ orderIds: ['order-a' as never] }, { orderIds: ['order-b' as never] }],
+            blockedOrderIds: [],
+          },
+          {
+            id: shipLaneId(order().repoId, 'upstream/release'),
+            repoId: order().repoId,
+            destination: 'upstream/release',
+            trains: [{ orderIds: ['order-c' as never] }],
+            blockedOrderIds: [],
+          },
         ]}
         issues={[issue]}
         repoId="repo-a"

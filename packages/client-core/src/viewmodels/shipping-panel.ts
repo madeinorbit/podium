@@ -48,8 +48,8 @@ const byQueueRank = (a: ShippingPanelRow, b: ShippingPanelRow): number =>
 
 /** The one client projection used by both the Shipping dock and its rail cell.
  * Queue position is server-owned: a train's position in its canonical lane.
- * Older servers and offline caches fall back to the order's stamped rank only
- * while that lane row is absent. A present lane's unranked orders stay unranked. */
+ * An absent lane or unranked order shows Waiting until lane truth arrives;
+ * legacy ranks on cached order rows never supply a position (POD-4974 O4). */
 export function shippingPanelModel(
   orders: readonly ShipOrderProjection[],
   issues: readonly ShippingIssueSummary[],
@@ -86,7 +86,7 @@ export function shippingPanelModel(
       return {
         order,
         issue: issuesById.get(order.issueId),
-        queueRank: ranks === undefined ? order.queueRank : ranks.get(order.id),
+        queueRank: ranks?.get(order.id),
       }
     })
   const needsYou = rows.filter((row) => row.order.humanState === 'needs_you').sort(byChangedAt)

@@ -5,7 +5,9 @@ import {
   asShipStepId,
   firstAdminMemberId,
   type IssueWire,
+  type ShipLaneProjection,
   type ShipOrder,
+  type ShipOrderProjection,
   shipRepairRef,
 } from '@podium/model'
 import { type ShippingJobResult, shippingEvidenceFingerprint } from '@podium/protocol/daemon'
@@ -289,7 +291,7 @@ describe('ShippingService enqueue transaction', () => {
       expect(
         changes.some((change) => change.entity === 'shipOrder' && change.op === 'upsert'),
       ).toBe(true)
-      expect(admitted.projection.queueRank).toBe(1)
+      expect(admitted.projection).not.toHaveProperty('queueRank')
       expect(attempts).not.toHaveBeenCalled()
 
       expect((await service.queue()).map(({ order, queueRank }) => [order.id, queueRank])).toEqual([
@@ -327,9 +329,9 @@ describe('ShippingService enqueue transaction', () => {
       for (const value of [rows[0]!.value, admitted.projection]) {
         expect(value).toMatchObject({
           id: admitted.order.id,
-          queueRank: 1,
           humanState: 'waiting',
         })
+        expect(value).not.toHaveProperty('queueRank')
         expect(value).not.toHaveProperty('train')
         expect(value).not.toHaveProperty('waitEstimate')
       }
@@ -428,10 +430,12 @@ describe('ShippingService enqueue transaction', () => {
         (change) =>
           change.entity === 'shipOrder' &&
           change.id === receipt.order.id &&
-          change.op === 'upsert' &&
-          (change.value as { queueRank?: number }).queueRank === 1,
+          change.op === 'upsert',
       ),
     ).toBe(true)
+    expect(
+      changes.find((change) => change.entity === 'shipOrder' && change.id === receipt.order.id)?.value,
+    ).not.toHaveProperty('queueRank')
 
     await expect(service.enqueue({ issueId: issue.id, ...approval })).resolves.toMatchObject({
       created: false,
@@ -2866,17 +2870,95 @@ describe('POD-4974 O2 ship lanes', () => {
     await ledger.reconcile('shipOrder', truth.orders)
     await ledger.reconcile('shipLane', truth.lanes)
   }
-  const published = async (ledger: Ledger) => ({
-    ranks: new Map(
-      ((await ledger.authority.snapshot('shipOrder')) as { id: string; queueRank?: number }[]).map(
-        (row) => [row.id, row.queueRank],
+  const published = async (ledger: Ledger) => {
+    const lanes = (await ledger.authority.snapshot('shipLane')) as ShipLaneProjection[]
+    return {
+      orders: (await ledger.authority.snapshot('shipOrder')) as ShipOrderProjection[],
+      ranks: new Map(
+        lanes.flatMap((lane) =>
+          lane.trains.flatMap((train, index) => train.orderIds.map((id) => [id, index + 1] as const)),
+        ),
       ),
-    ),
-    lanes: (await ledger.authority.snapshot('shipLane')) as {
-      id: string
-      trains: { orderIds: string[] }[]
-      blockedOrderIds: string[]
-    }[],
+      lanes,
+    }
+  }
+
+  it('O4 boot and reconnect truth omit order ranks while preserving lane positions', async () => {
+    const { store, ledger, issues, service } = await harness(undefined, { checkOrderPlane: false })
+    try {
+      const first = await seedOrder(issues, store, { title: 'first', minute: 1 })
+      const second = await seedOrder(issues, store, { title: 'second', minute: 2 })
+      const truth = await service['fullProjection']()
+      expect(truth.orders.map((row) => row.id)).toEqual([first.id, second.id])
+      for (const row of truth.orders) expect(row.value).not.toHaveProperty('queueRank')
+      expect(truth.lanes[0]?.value.trains).toEqual([
+        { orderIds: [first.id] },
+        { orderIds: [second.id] },
+      ])
+      await publishSeeded(service, ledger)
+      const after = await published(ledger)
+      for (const row of after.orders) expect(row).not.toHaveProperty('queueRank')
+      expect(after.ranks).toEqual(
+        new Map([
+          [first.id, 1],
+          [second.id, 2],
+        ]),
+      )
+    } finally {
+      service.dispose()
+    }
+  })
+
+  it('O4 clears legacy ledger ranks then publishes a lane change without resending unchanged orders', async () => {
+    const { store, ledger, issues, service } = await harness(undefined, { checkOrderPlane: false })
+    try {
+      const first = await seedOrder(issues, store, { title: 'first', minute: 1 })
+      const second = await seedOrder(issues, store, { title: 'second', minute: 2 })
+      const elsewhere = await seedOrder(issues, store, {
+        title: 'elsewhere',
+        minute: 3,
+        repoPath: '/other',
+      })
+      const truth = await service['fullProjection']()
+      // A ledger persisted by O2 still carries ranks. Boot/reconnect must replace
+      // those rows once; subsequent lane movement must not stamp them again.
+      await ledger.reconcile(
+        'shipOrder',
+        truth.orders.map((row, index) => ({
+          ...row,
+          value: { ...row.value, queueRank: index + 1 },
+        })),
+      )
+      await ledger.reconcile('shipLane', truth.lanes)
+      expect((await published(ledger)).orders.every((row) => 'queueRank' in row)).toBe(true)
+      await publishSeeded(service, ledger)
+      const before = await published(ledger)
+      for (const row of before.orders) expect(row).not.toHaveProperty('queueRank')
+
+      const cursor = await ledger.cursor()
+      await service['transition'](first, 'preflight')
+      const changes = ((await ledger.changesSince(cursor)) ?? []).filter(
+        (change) => change.entity === 'shipOrder' || change.entity === 'shipLane',
+      )
+      expect(changes.map((change) => `${change.entity}:${change.id}`).sort()).toEqual(
+        [`shipOrder:${first.id}`, `shipLane:${shipLaneIdOf(first)}`].sort(),
+      )
+      const changedOrder = changes.find((change) => change.entity === 'shipOrder')!
+      expect(changedOrder.value).toMatchObject({ id: first.id, state: 'preflight' })
+      expect(changedOrder.value).not.toHaveProperty('queueRank')
+      const after = await published(ledger)
+      expect(after.ranks.get(second.id)).toBe(1)
+      for (const id of [second.id, elsewhere.id]) {
+        expect(after.orders.find((row) => row.id === id)).toEqual(
+          before.orders.find((row) => row.id === id),
+        )
+      }
+      expect(new Map(after.orders.map((row) => [row.id, row]))).toEqual(
+        new Map((await service['fullProjection']()).orders.map((row) => [row.id, row.value])),
+      )
+    } finally {
+      service.dispose()
+    }
   })
 
   it('O2 publishes the order the scheduler runs, native-stack edges included', async () => {
