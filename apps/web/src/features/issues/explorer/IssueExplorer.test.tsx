@@ -608,7 +608,7 @@ describe('pool explorer target', () => {
   })
 
   it('uses the collapsed roster and headless occupancy summary for an empty draft', () => {
-    const draft = poolIssue('draft', { isDraftVessel: true, sessionFacts: { tipActivityAt: '2026-10-02T00:00:00Z' } })
+    const draft = poolIssue('draft', { isDraftVessel: true, worktreePath: null, sessionFacts: { tipActivityAt: '2026-10-02T00:00:00Z' } })
     const other = poolIssue('other')
     const sessions = [
       { sessionId: 'parked', issueId: 'draft', status: 'exited', lastActiveAt: '2026-10-01T00:00:00Z', resume: { kind: 'codex', value: 'twin' } },
