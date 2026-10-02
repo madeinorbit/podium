@@ -15,7 +15,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
 import { BootstrapSession, snapshotToChunks } from './bootstrap'
 import { advanceCursor, COLD_CURSOR, decideFeedAction, type FeedCursor } from './feed'
-import { createReplica, memoryStorage } from './replica'
+import { createReplica, memoryStorage, type Replica } from './replica'
 
 const at = (feedId: string, epoch: string, seq: number): FeedCursor => ({ feedId, epoch, seq })
 /** Tests pace synchronously — the real yield is a macrotask hop. */
@@ -32,6 +32,171 @@ const userWrite: OutboxEntry = {
   input: { title: 'the thing the user typed' },
   queuedAt: 1,
 }
+
+// Independent fixtures for every replica kind in the authoritative snapshot arm.
+const oldScope = {
+  sessions: [{ sessionId: 'old-session' }],
+  sessionUserStates: [{ userId: 'user-1', sessionId: 'old-session', readAt: 'read', snoozedUntil: null }],
+  machines: [{ id: 'old-machine' }],
+  issues: [{ id: 'old-issue', title: 'old scope' }],
+  issueProjections: [{ id: 'old-issue' }],
+  issueDeps: [{ id: 'old-dep' }],
+  repos: [{ id: 'old-repo' }],
+  shipOrders: [{ id: 'old-order' }],
+  shipLanes: [{ id: 'old-lane' }],
+  conversations: [{ id: 'old-conversation' }],
+  automations: [{ id: 'old-automation' }],
+  automationRuns: [{ id: 'old-run' }],
+}
+const snapshotKinds = Object.keys(oldScope) as Array<keyof typeof oldScope>
+const emptyScope = Object.fromEntries(snapshotKinds.map((kind) => [kind, []]))
+const readScope = (replica: Replica) =>
+  Object.fromEntries(
+    snapshotKinds.map((kind) => [
+      kind,
+      replica.rows(kind).map((row) =>
+        Object.fromEntries(Object.entries(row).filter(([field]) => !field.startsWith('$'))),
+      ),
+    ]),
+  )
+const seedScope = (replica: Replica) => {
+  for (const kind of snapshotKinds) replica.applySnapshot(kind, oldScope[kind] as never)
+  replica.setFeedCursor(at('old-feed', 'old-epoch', 5))
+}
+
+describe('authoritative empty rescope', () => {
+  it.each([
+    { name: 'omitted', snapshot: {} },
+    { name: 'explicitly empty', snapshot: emptyScope },
+  ])('replaces every authoritative kind when the snapshot is $name', async ({ snapshot }) => {
+    const replica = createReplica({ storage: memoryStorage() })
+    seedScope(replica)
+    const session = new BootstrapSession(replica, at('new-feed', 'new-epoch', 10), noYield)
+    for (const chunk of snapshotToChunks(snapshot)) await session.install(chunk)
+    expect(readScope(replica)).toEqual(oldScope)
+
+    session.commit()
+    expect(readScope(replica)).toEqual(emptyScope)
+    expect(replica.getFeedCursor()).toEqual(at('new-feed', 'new-epoch', 10))
+  })
+
+  it('replaces empty siblings of a populated kind and keeps kinds outside the snapshot contract', async () => {
+    const replica = createReplica({ storage: memoryStorage() })
+    seedScope(replica)
+    const supplements = {
+      issueUserStates: [{ userId: 'user-1', entityId: 'old-issue' }],
+      issueGitStates: [{ id: 'old-issue' }],
+      issueEvents: [{ id: 'event-1' }],
+      pendingInteractions: [{ id: 'ask-1', sessionId: 'old-session' }],
+      messageRecords: [{ id: 'message-1', sessionId: 'old-session', senderUserId: 'user-1' }],
+      userLayouts: [{ userId: 'user-1', key: 'sidebar.collapsed', value: true }],
+    }
+    const supplementKinds = Object.keys(supplements) as Array<keyof typeof supplements>
+    for (const kind of supplementKinds) replica.applySnapshot(kind, supplements[kind] as never)
+    for (const kind of supplementKinds) expect(replica.rows(kind)).toMatchObject(supplements[kind])
+    const issues = [{ id: 'new-issue', title: 'new scope' }]
+    const session = new BootstrapSession(replica, at('new-feed', 'new-epoch', 10), noYield)
+    for (const chunk of snapshotToChunks({ issues })) await session.install(chunk)
+    session.commit()
+
+    expect(readScope(replica)).toEqual({ ...emptyScope, issues })
+    for (const kind of supplementKinds) expect(replica.rows(kind)).toMatchObject(supplements[kind])
+  })
+
+  it('an aborted empty snapshot keeps the old rows and cursor, including after reload', async () => {
+    const storage = memoryStorage()
+    const replica = createReplica({ storage })
+    seedScope(replica)
+    await replica.flush()
+    const notified = vi.fn()
+    for (const kind of snapshotKinds) replica.subscribeRows(kind, notified)
+    const session = new BootstrapSession(replica, at('new-feed', 'new-epoch', 10), noYield)
+    for (const chunk of snapshotToChunks({})) await session.install(chunk)
+    session.bufferDelta(11, [upsert('issue', 'new-issue', 11)])
+    expect(readScope(replica)).toEqual(oldScope)
+    session.abort()
+    expect(() => session.commit()).toThrow('bootstrap session already committed')
+
+    expect(readScope(replica)).toEqual(oldScope)
+    expect(replica.getFeedCursor()).toEqual(at('old-feed', 'old-epoch', 5))
+    expect(notified).not.toHaveBeenCalled()
+    await replica.flush()
+    const reloaded = createReplica({ storage })
+    await reloaded.hydrate()
+    expect(readScope(reloaded)).toEqual(oldScope)
+    expect(reloaded.getFeedCursor()).toEqual(at('old-feed', 'old-epoch', 5))
+  })
+
+  it('applies buffered deltas over the empty replacement in sequence order', async () => {
+    const replica = createReplica({ storage: memoryStorage() })
+    seedScope(replica)
+    const session = new BootstrapSession(replica, at('new-feed', 'new-epoch', 10), noYield)
+    for (const chunk of snapshotToChunks({})) await session.install(chunk)
+    expect(session.bufferDelta(10, [upsert('issue', 'snapshot-covered', 10)])).toBe(false)
+    session.bufferDelta(13, [upsert('issue', 'new-issue', 13, { id: 'new-issue', title: 'latest' })])
+    session.bufferDelta(11, [upsert('issue', 'new-issue', 11, { id: 'new-issue', title: 'first' })])
+    session.bufferDelta(12, [upsert('machine', 'new-machine', 12)])
+    expect(readScope(replica)).toEqual(oldScope)
+
+    session.commit()
+    expect(readScope(replica)).toEqual({
+      ...emptyScope,
+      issues: [{ id: 'new-issue', title: 'latest' }],
+      machines: [{ id: 'new-machine', title: 'new-machine' }],
+    })
+    expect(replica.getFeedCursor()).toEqual(at('new-feed', 'new-epoch', 13))
+  })
+
+  it('notifies each changed kind once with the final rows and buffered cursor', async () => {
+    const replica = createReplica({ storage: memoryStorage() })
+    seedScope(replica)
+    const seen = new Map<string, unknown[]>()
+    for (const kind of snapshotKinds) {
+      seen.set(kind, [])
+      replica.subscribeRows(kind, () => {
+        seen.get(kind)?.push({ scope: readScope(replica), cursor: replica.getFeedCursor() })
+      })
+    }
+    const session = new BootstrapSession(replica, at('new-feed', 'new-epoch', 10), noYield)
+    for (const chunk of snapshotToChunks({})) await session.install(chunk)
+    session.bufferDelta(11, [upsert('issue', 'new-issue', 11)])
+    expect([...seen.values()].every((notifications) => notifications.length === 0)).toBe(true)
+    session.commit()
+
+    const final = {
+      scope: { ...emptyScope, issues: [{ id: 'new-issue', title: 'new-issue' }] },
+      cursor: at('new-feed', 'new-epoch', 11),
+    }
+    for (const kind of snapshotKinds) expect(seen.get(kind), kind).toEqual([final])
+  })
+
+  it('keeps the durable outbox family through an empty rescope and reload', async () => {
+    const storage = memoryStorage()
+    const replica = createReplica({ storage })
+    seedScope(replica)
+    const awaiting = { ...userWrite, mutationId: asMutationId('mut_awaiting') }
+    const deadLetter = { ...userWrite, mutationId: asMutationId('mut_dead_letter') }
+    replica.outboxStorage().save([userWrite])
+    replica.outboxAwaitingStorage().save([awaiting])
+    replica.outboxDeadLetterStorage().save([deadLetter])
+    await replica.flush()
+    const session = new BootstrapSession(replica, at('new-feed', 'new-epoch', 10), noYield)
+    for (const chunk of snapshotToChunks({})) await session.install(chunk)
+    session.commit()
+    expect(replica.outboxStorage().load()).toEqual([userWrite])
+    expect(replica.outboxAwaitingStorage().load()).toEqual([awaiting])
+    expect(replica.outboxDeadLetterStorage().load()).toEqual([deadLetter])
+    await replica.flush()
+
+    const reloaded = createReplica({ storage })
+    await reloaded.hydrate()
+    expect(reloaded.outboxStorage().load()).toEqual([userWrite])
+    expect(reloaded.outboxAwaitingStorage().load()).toEqual([awaiting])
+    expect(reloaded.outboxDeadLetterStorage().load()).toEqual([deadLetter])
+    expect(readScope(reloaded)).toEqual(emptyScope)
+    expect(reloaded.getFeedCursor()).toEqual(at('new-feed', 'new-epoch', 10))
+  })
+})
 
 describe('BootstrapSession — staging and the atomic swap', () => {
   it('writes NOTHING until commit — a bootstrap in flight must not blank the UI', async () => {

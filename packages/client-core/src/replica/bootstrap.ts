@@ -43,11 +43,10 @@
  * is a frozen UI rather than a missed watchdog. Same rule, different loop.
  */
 
-import { type SessionId, type SessionUserStateWire, sessionUserStateRowId } from '@podium/model'
-import type { MetadataChangeLenient } from '@podium/protocol'
+import type { MetadataChangeLenient, SyncChangesSinceResultLenient } from '@podium/protocol'
 import { isKnownMetadataChange } from '@podium/protocol'
 import type { FeedCursor } from './feed'
-import { retainReplicaEntity } from './kernel/kinds'
+import { entityForKind, retainReplicaEntity, rowKey } from './kernel/kinds'
 import type { Replica, ReplicaKind, ReplicaRows } from './replica'
 
 /** Wire entity kind → replica collection kind. The feed says `session`, the
@@ -73,6 +72,29 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   automation: 'automations',
   automationRun: 'automationRuns',
 }
+
+type SnapshotKind = Extract<
+  keyof Extract<SyncChangesSinceResultLenient, { kind: 'snapshot' }>,
+  ReplicaKind
+>
+
+/** Only the collections covered by the authoritative snapshot arm. Omitted
+ *  optional arrays mean empty, including on older authorities. Other replica
+ *  kinds have separate loading paths and cannot be cleared by this snapshot. */
+const SNAPSHOT_KINDS: readonly SnapshotKind[] = [
+  'sessions',
+  'sessionUserStates',
+  'machines',
+  'issues',
+  'issueProjections',
+  'issueDeps',
+  'repos',
+  'shipOrders',
+  'shipLanes',
+  'conversations',
+  'automations',
+  'automationRuns',
+]
 
 /** One chunk of the bootstrap stream: ordered rows in the SAME change shape the
  *  delta path uses (D6 — "one shape, one code path"). A new entity kind is free
@@ -108,9 +130,7 @@ export const BOOTSTRAP_BATCH_ROWS = 200
  */
 export class BootstrapSession {
   /** Staged rows per kind. The replica is not touched until commit. */
-  // An absent lane in an empty or older snapshot removes cached lane authority
-  // at commit, so a rescope can return to the order's compatibility rank.
-  private readonly staged = new Map<ReplicaKind, Map<string, unknown>>([['shipLanes', new Map()]])
+  private readonly staged = new Map<ReplicaKind, Map<string, unknown>>()
   /** Deltas that landed with `seq > snapshotSeq` while we streamed. */
   private readonly buffered: MetadataChangeLenient[] = []
   private bufferedSeq = 0
@@ -121,7 +141,16 @@ export class BootstrapSession {
     private readonly replica: Replica,
     readonly cursor: FeedCursor,
     private readonly opts: BootstrapOptions = {},
-  ) {}
+  ) {
+    // Absence is authoritative only at commit. Seed empty staging so a kind
+    // with zero upserts still replaces its old rows, without touching live
+    // state or the outbox if this load is later aborted.
+    for (const kind of SNAPSHOT_KINDS) {
+      if (retainReplicaEntity(entityForKind(kind), replica.dropLegacyIssues)) {
+        this.staged.set(kind, new Map())
+      }
+    }
+  }
 
   /** Stage one chunk, yielding between batches so we never own the loop. */
   async install(chunk: BootstrapChunk): Promise<void> {
@@ -251,50 +280,23 @@ export class BootstrapSession {
  * transfer's own pacing needs the server's chunked stream and arrives with it.
  */
 export function snapshotToChunks(
-  snapshot: {
-    sessions?: unknown[]
-    sessionUserStates?: unknown[]
-    machines?: unknown[]
-    issues?: unknown[]
-    issueProjections?: unknown[]
-    issueDeps?: unknown[]
-    repos?: unknown[]
-    shipOrders?: unknown[]
-    shipLanes?: unknown[]
-    conversations?: unknown[]
-    automations?: unknown[]
-    automationRuns?: unknown[]
-  },
+  snapshot: Partial<Record<SnapshotKind, unknown[]>>,
   chunkRows = BOOTSTRAP_BATCH_ROWS,
 ): BootstrapChunk[] {
-  const entities: Array<[string, unknown[] | undefined, (row: unknown) => string]> = [
-    ['session', snapshot.sessions, (r) => (r as { sessionId: SessionId }).sessionId],
-    [
-      'sessionUserState',
-      snapshot.sessionUserStates,
-      (r) => {
-        const row = r as SessionUserStateWire
-        return sessionUserStateRowId(row.userId, row.sessionId)
-      },
-    ],
-    ['machine', snapshot.machines, (r) => (r as { id: string }).id],
-    ['issue', snapshot.issues, (r) => (r as { id: string }).id],
-    ['issueProjection', snapshot.issueProjections, (r) => (r as { id: string }).id],
-    ['issueDep', snapshot.issueDeps, (r) => (r as { id: string }).id],
-    ['repo', snapshot.repos, (r) => (r as { id: string }).id],
-    ['shipOrder', snapshot.shipOrders, (r) => (r as { id: string }).id],
-    ['shipLane', snapshot.shipLanes, (r) => (r as { id: string }).id],
-    ['conversation', snapshot.conversations, (r) => (r as { id: string }).id],
-    ['automation', snapshot.automations, (r) => (r as { id: string }).id],
-    ['automationRun', snapshot.automationRuns, (r) => (r as { id: string }).id],
-  ]
   const changes: MetadataChangeLenient[] = []
-  for (const [entity, rows, keyOf] of entities) {
-    for (const row of rows ?? []) {
+  for (const kind of SNAPSHOT_KINDS) {
+    const entity = entityForKind(kind)
+    for (const row of snapshot[kind] ?? []) {
       // `seq: 1` is a placeholder with no meaning on this path and the installer
       // never reads it: a snapshot's rows are not feed positions, they are the
       // state AS OF `snapshotSeq`, which the session already holds on its cursor.
-      changes.push({ seq: 1, entity, id: keyOf(row), op: 'upsert', value: row })
+      changes.push({
+        seq: 1,
+        entity,
+        id: rowKey(kind, row as ReplicaRows[typeof kind]),
+        op: 'upsert',
+        value: row,
+      })
     }
   }
   const chunks: BootstrapChunk[] = []
