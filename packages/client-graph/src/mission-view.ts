@@ -350,7 +350,22 @@ function buildRows(ctx: MissionContext, root: IssueNavigationModel, members: Rea
   for (const siblings of children.values()) siblings.sort((a, b) =>
     a.sortKey && b.sortKey && a.sortKey !== b.sortKey ? a.sortKey.localeCompare(b.sortKey) : a.seq - b.seq || rowOrder(a, b))
   const parentOf = new Map<string, string>()
-  for (const [id, kids] of children) for (const child of kids) if (!parentOf.has(child.id)) parentOf.set(child.id, id)
+  // Legacy constructs every formal bucket in replica order before grafting.
+  // A graft can coexist with a raw parent outside this mission; its bucket's
+  // first formal child determines which parent includePath encounters first.
+  const firstChildren = new Map<string, string | undefined>()
+  const firstChild = (id: string) => {
+    if (!firstChildren.has(id)) firstChildren.set(id, [...ctx.view.pool.graph.many('issue', id, 'children')].sort()[0])
+    return firstChildren.get(id)
+  }
+  const earlier = (a: string, b: string) => {
+    const left = firstChild(a), right = firstChild(b)
+    return left !== undefined && (right === undefined || left < right)
+  }
+  for (const [id, kids] of children) for (const child of kids) {
+    const previous = parentOf.get(child.id) ?? child.parentId
+    parentOf.set(child.id, !previous || earlier(id, previous) ? id : previous)
+  }
   const rosters = new Map<string, SessionView[]>()
   for (const id of scope) {
     const issue = ctx.byId.get(id)

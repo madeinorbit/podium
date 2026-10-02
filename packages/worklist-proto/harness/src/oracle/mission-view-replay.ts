@@ -6,7 +6,7 @@ import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { dedupeSessions } from '@podium/client-core/engine'
 import { deriveIssueRollups, deriveIssueViews } from '@podium/client-core/replica'
-import { missionRootFor, type IssueNavigationModel } from '@podium/client-core/viewmodels'
+import { missionProgress, missionRootFor, type IssueNavigationModel } from '@podium/client-core/viewmodels'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph/pool'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
@@ -63,10 +63,11 @@ async function main() {
   })
   try {
     pool.apply({ type: 'replace', rows })
+    const requested = process.argv.find(arg => arg.startsWith('--ids='))?.slice(6).split(',')
     const roots = [...new Set(issues.flatMap(issue => {
       const root = missionRootFor(issues, issue.id)
       return root && !root.archived && !root.deletedAt ? [root.id] : []
-    }))]
+    }))].filter(id => !requested || requested.includes(id))
     step = 'load'
     for (let round = 0; round < 64; round++) {
       runInAction(() => { for (const id of roots) { poolMissionViewSnapshot(pool, id); readWorkspaceMission(missionView(pool), id, null) } })
@@ -76,6 +77,7 @@ async function main() {
     let differences = 0, pending = 0, rowsCompared = 0, selections = 0, first: SidebarCheckResult['first'] = null
     const locations: { missionId: string; sectionIndex: number; rowIndex: number | null; field: string; expectedId: string | null; actualId: string | null }[] = []
     const pendingIds = new Set<string>()
+    const progressCounts: unknown[] = []
     const opaque = (id: string | null) => id && /^iss_[\w-]+$/.test(id) ? id : null
     const add = (result: SidebarCheckResult) => { differences += result.differences; pending += result.pending; rowsCompared += result.rows; first ??= result.first; selections++ }
     runInAction(() => { for (const id of roots) {
@@ -90,13 +92,17 @@ async function main() {
       const workspace = checkWorkspaceMission(pool, issues, sessions, id, null)
       if (workspace.pending) pendingIds.add(id)
       add(workspace)
+      if (locations.some(location => location.missionId === id && location.field.startsWith('progress.'))) {
+        const values = poolMissionViewSnapshot(pool, id)
+        progressCounts.push({ missionId: opaque(id), expected: missionProgress(issues, sessions, id), actual: typeof values === 'symbol' ? null : values.sections[0]?.fields.progress })
+      }
     } })
     const location = first as SidebarCheckResult['first']
     console.log(JSON.stringify({ persistedTopology: true, displayBodiesCompared: false, issues: issues.length,
       sessions: rawSessions.length, retainedSessions: sessions.length, missions: roots.length, selections,
       rows: rowsCompared, differences, pending, first: location ? { sectionIndex: location.sectionIndex, rowIndex: location.rowIndex,
         field: location.field, expectedId: opaque(location.expectedId), actualId: opaque(location.actualId) } : null,
-      locations, pendingIds: [...pendingIds].map(opaque) }))
+      locations, pendingIds: [...pendingIds].map(opaque), progressCounts }))
     if (differences || pending) process.exitCode = 1
   } finally { pool.dispose() }
 }
