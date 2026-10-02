@@ -24,10 +24,18 @@ export function fixtureSessionHomes(corpus: FixtureCorpus, userId = 'operator') 
     corpus.repoProjections.filter((repo) => repo.prefix).map((repo) => [repo.prefix!, repo]),
   )
   const userStates: SessionUserStateWire[] = []
-  const machines = new Map<string, MachineProjection>(corpus.machines.map(machine => [machine.id, {
-    id: machine.id, name: machine.name, loggedOutHarnesses: (machine.inventory?.agents ?? [])
-      .filter(agent => agent.installed === true && agent.login.state === 'out').map(agent => agent.kind),
-  }]))
+  const machines = new Map<string, MachineProjection>(
+    corpus.machines.map((machine) => [
+      machine.id,
+      {
+        id: machine.id,
+        name: machine.name,
+        loggedOutHarnesses: (machine.inventory?.agents ?? [])
+          .filter((agent) => agent.installed === true && agent.login.state === 'out')
+          .map((agent) => agent.kind),
+      },
+    ]),
+  )
   const issues = new Map(corpus.issues.map((row) => [row.id, row]))
   const sessions = corpus.sessions.map((row) => {
     userStates.push({
@@ -48,10 +56,14 @@ export function fixtureSessionHomes(corpus: FixtureCorpus, userId = 'operator') 
     const ref = row.displayRef ? parseSessionRef(row.displayRef) : null
     const repo = ref ? byPrefix.get(ref.prefix) : undefined
     const birth = row.refIssueId ? issues.get(row.refIssueId) : undefined
-    const target = row.handoffTarget ? corpus.machines.find(machine => machine.name === row.handoffTarget) : undefined
+    const target = row.handoffTarget
+      ? corpus.machines.find((machine) => machine.name === row.handoffTarget)
+      : undefined
     return {
       ...row,
-      ...(row.handoffTargetMachineId || target ? { handoffTargetMachineId: row.handoffTargetMachineId ?? target?.id } : {}),
+      ...(row.handoffTargetMachineId || target
+        ? { handoffTargetMachineId: row.handoffTargetMachineId ?? target?.id }
+        : {}),
       ...(row.refRepoId || repo?.id || birth?.repoId
         ? { refRepoId: row.refRepoId ?? repo?.id ?? birth?.repoId }
         : {}),
