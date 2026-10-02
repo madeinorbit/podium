@@ -24,6 +24,10 @@ function requested(): boolean {
   }
 }
 
+// This startup diagnostic switch changes names only, never a derivation's
+// answer. The app leaves it fixed; outside census tools may opt in before
+// constructing the objects they measure.
+// eslint-disable-next-line fence/no-hidden-state -- diagnostic configuration, not pool data
 let enabled = requested()
 
 /** Memory/census tools opt in before constructing the objects they attribute. */
