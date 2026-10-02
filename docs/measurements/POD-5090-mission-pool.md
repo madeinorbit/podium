@@ -57,7 +57,7 @@ The initial invocation stopped during module resolution before opening the datab
 
 ## Paired browser timing
 
-Pending the shared `bench:flatblock` lease. The owned consumer `apps/web/harness/mission-speed-gate.ts` builds the ordinary minified production fixture once and captures four fresh Chromium runs in off/on/on/off order, two per arm on the same SHA, fixed 4× corpus, seed and targets. The metric is trusted pointerdown to the first actual Chromium Paint after the expected DOM change. It rejects a slower paired mission median, any positive pool-path legacy census, or a greater-than-10% regression against the landed five-action click baseline. It also reports recorded mission reader work and its share of switch latency.
+Timing remains a required follow-up after the switch-off code landing, per POD-4286's 2026-10-02 instruction; it is pending the shared `bench:flatblock` lease. The owned consumer `apps/web/harness/mission-speed-gate.ts` builds the ordinary minified production fixture once and captures four fresh Chromium runs in off/on/on/off order, two per arm on the same SHA, fixed 4× corpus, seed and targets. The metric is trusted pointerdown to the first actual Chromium Paint after the expected DOM change. It rejects a slower paired mission median, any positive pool-path legacy census, or a greater-than-10% regression against the landed five-action click baseline. It also reports recorded mission reader work and its share of switch latency.
 
 The timing regression control delays only pool mission clicks, records the delay, and must turn the paired gate red before the undelayed comparison is accepted.
 
@@ -65,4 +65,4 @@ The timing regression control delays only pool mission clicks, records the delay
 
 POD-5299 is covered by the landed shared relation engine; this reader reuses it. Old numerical relation guard expectations remain tracked by POD-5303. The seven inherited UI lint findings are separately proposed in POD-5313; no unrelated styling or reset semantics changed here.
 
-Landing is pending green browser timing. Keep the pane rollback switch until the operator enables the screen by default, then remove the legacy screen path within about a week under the coordinator's rollout plan.
+POD-4286 explicitly authorized fast-forward landing now while the startup switch remains off by default, so the issue-page lane can rebase. The paired mission timing and planted delay control remain required follow-up work; this issue stays active until they are reported. Keep the pane rollback switch until the operator enables the screen by default, then remove the legacy screen path within about a week under the coordinator's rollout plan.
