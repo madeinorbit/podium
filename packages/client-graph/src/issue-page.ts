@@ -144,7 +144,10 @@ export function createIssuePageViews(pool: MobxPool) {
       if (inverse === LOADING) return LOADING
       const p = prefix(id)
       const isDeferred = deferred(value.deferUntil)
-      const readAt = Date.parse(value.readAt ?? '')
+      // Ingest absorbs cursor-only deltas into this existing scalar lane so
+      // a mark does not replace the payload or wake every world projection.
+      const cursor = pool.readCursor(id) ?? null
+      const readAt = Date.parse(cursor ?? '')
       let unread = !Number.isFinite(readAt) || Date.parse(value.updatedAt) > readAt
       const byPhase: Record<string, number> = {}
       let total = 0
@@ -161,7 +164,7 @@ export function createIssuePageViews(pool: MobxPool) {
       return { ...value, id: asIssueId(id),
         description: text(value.description as DocumentValue), notes: value.notes === undefined ? undefined : text(value.notes as DocumentValue),
         branch: value.branch ?? null, worktreePath: value.worktreePath ?? null,
-        readAt: value.readAt ?? null, tuckedAt: value.tuckedAt ?? null, pinned: value.pinned ?? false,
+        readAt: cursor, tuckedAt: value.tuckedAt ?? null, pinned: value.pinned ?? false,
         prefix: p, displayRef: p ? `${p}-${value.seq}` : `#${value.seq}`,
         deps: (value.deps ?? []).map(dep => ({ ...dep, id: asIssueId(dep.id) })), dependents: inverse ?? [],
         memberSessionIds: rawMemberIds.map(asSessionId),

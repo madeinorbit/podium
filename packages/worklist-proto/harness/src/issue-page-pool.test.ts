@@ -78,6 +78,17 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
 }
 
 describe('declared issue page', () => {
+  it('reacts to a cursor-only mark without replacing the issue payload', () => {
+    const ctx = open([task('root', { readAt: null })])
+    const stop = reaction(() => ctx.views.issue('root'), () => {}, { fireImmediately: true })
+    const payload = tracked(() => ctx.pool.row('issue', 'root'))
+    try {
+      ctx.patch('issue', 'root', task('root', { readAt: STAMP }))
+      expect(tracked(() => ctx.pool.row('issue', 'root'))).toBe(payload)
+      expect(tracked(() => ctx.views.issue('root'))).toMatchObject({ readAt: STAMP, unread: false })
+      expect(ctx.check()).toMatchObject({ differences: 0 })
+    } finally { stop() }
+  })
   it('expires a defer at the exact coarse-clock deadline', () => {
     const ctx = open([task('root', { deferUntil: new Date(NOW).toISOString() })])
     expect(tracked(() => ctx.views.issue('root'))).toMatchObject({ ready: true, deferred: false })
