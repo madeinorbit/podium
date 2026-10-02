@@ -225,7 +225,10 @@ export function modelsFor(
     userStateRows === sourceSnapshot.userStateRows
       ? sourceSnapshot
       : {
-          ...deriveIssueViewsSnapshot(replica, current?.snapshot, projectionRows, userStateRows),
+          ...deriveIssueViewsSnapshot(
+            replica, current?.snapshot, projectionRows, userStateRows,
+            (id) => sourceSnapshot.issueInputById.get(id)?.stage,
+          ),
           projectionRows,
           userStateRows,
         }

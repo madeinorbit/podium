@@ -303,7 +303,12 @@ function sameIssueView(a: IssueView, b: IssueView): boolean {
 export function deriveIssueViews(
   issues: readonly IssueViewInput[],
   sessions: readonly SessionViewInput[],
-  opts: { now?: () => number; previous?: ReadonlyMap<string, IssueView> } = {},
+  opts: {
+    now?: () => number
+    previous?: ReadonlyMap<string, IssueView>
+    /** Neighbour blocking changes only when authoritative stages arrive. */
+    dependencyStage?: (id: string) => string | undefined
+  } = {},
 ): Map<string, IssueView> {
   const now = opts.now ?? Date.now
   const sessionsByIssue = indexSessionsByIssue(sessions)
@@ -340,9 +345,10 @@ export function deriveIssueViews(
     // dep id counts as NOT blocking — the alternative is that a replica which
     // has not yet seen a dependency renders every issue blocked, which is worse
     // than briefly rendering one ready.
-    const blocked = (issue.deps ?? []).some(
-      (dep) => dep.type === 'blocks' && stageById.has(dep.id) && stageById.get(dep.id) !== 'done',
-    )
+    const blocked = (issue.deps ?? []).some((dep) => {
+      const stage = opts.dependencyStage ? opts.dependencyStage(dep.id) : stageById.get(dep.id)
+      return dep.type === 'blocks' && stage !== undefined && stage !== 'done'
+    })
     const deferred = issue.deferUntil != null && Date.parse(issue.deferUntil) > now()
     const next: IssueView = {
       id: issueId,

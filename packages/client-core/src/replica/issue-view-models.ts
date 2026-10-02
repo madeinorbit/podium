@@ -88,9 +88,10 @@ export function deriveIssueViewsSnapshot(
   previous?: IssueViewsSnapshot,
   projections: readonly IssueProjection[] = replica.rows('issueProjections'),
   issueUserStates: readonly IssueUserStateWire[] = replica.rows('issueUserStates'),
+  dependencyStage?: (id: string) => string | undefined,
 ): IssueViewsSnapshot {
   const { issues, sessions } = readViewInputs(replica, projections, issueUserStates)
-  const views = deriveIssueViews(issues, sessions, { previous: previous?.views })
+  const views = deriveIssueViews(issues, sessions, { previous: previous?.views, dependencyStage })
   const sessionIndex = new Map(sessions.map((s) => [s.sessionId, s]))
   const issueIndex = new Map(issues.map((i) => [i.id, i]))
   const rollupCache = new Map<string, IssueSessionRollups>()

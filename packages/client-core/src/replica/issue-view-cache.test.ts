@@ -309,3 +309,20 @@ it('paints a provisional projection and structural edits, then rolls them back w
   expect(rolledBack).toEqual(truth)
   expect(rolledBack.some((row) => row.id === draft.id)).toBe(false)
 })
+
+
+it('keeps dependency blocking on server truth while an optimistic stage paints its own row', () => {
+  const { replica, projections, legacy: markers } = world()
+  replica.applySnapshot('issueDeps', [{ id: 'edge', fromId: 'iss_0', toId: 'iss_1', type: 'blocks' } as never])
+  const pending = projections.map(row => row.id === 'iss_1' ? { ...row, stage: 'done' as const } : row)
+  const beforeEcho = allIssueViewModels(replica, pending, markers)
+  expect(beforeEcho.find(row => row.id === 'iss_1')?.stage).toBe('done')
+  expect(beforeEcho.find(row => row.id === 'iss_0')).toMatchObject({ blocked: true, ready: false })
+  replica.applySnapshot('issueProjections', pending)
+  const echoed = allIssueViewModels(replica, replica.rows('issueProjections'), markers)
+  expect(echoed.find(row => row.id === 'iss_0')).toMatchObject({ blocked: false, ready: true })
+  const reopening = pending.map(row => row.id === 'iss_1' ? { ...row, stage: 'review' as const } : row)
+  expect(allIssueViewModels(replica, reopening, markers).find(row => row.id === 'iss_0')?.blocked).toBe(false)
+  replica.applySnapshot('issueProjections', reopening)
+  expect(allIssueViewModels(replica, replica.rows('issueProjections'), markers).find(row => row.id === 'iss_0')?.blocked).toBe(true)
+})

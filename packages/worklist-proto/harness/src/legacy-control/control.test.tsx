@@ -117,7 +117,7 @@ describe('legacy control (armed)', () => {
       )
 
       // POD-4557 — reads = whole corpus. Every session row and every issue
-      // row the store holds (wire and projection twins count once).
+      // row the replica holds, including resume twins collapsed in the rendered store.
       const store = ctx.engine.getSnapshot()
       const issueIds = new Set([
         ...allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates).map(
@@ -130,7 +130,7 @@ describe('legacy control (armed)', () => {
           `(corpus: ${issueIds.size} issues, ${store.sessions.length} sessions); ` +
           `reads=${JSON.stringify(result.reads)}`,
       )
-      expect(result.reads?.byEntity['session']).toBe(store.sessions.length)
+      expect(result.reads?.byEntity['session']).toBe(store.replica.rows('sessions').length)
       expect(result.reads?.byEntity['issue']).toBe(issueIds.size)
       expect(result.readsPerChange).toBeGreaterThanOrEqual(issueIds.size + store.sessions.length)
       // POD-4746: they are reads of the rows' data (the rows cell of the scale
