@@ -243,7 +243,7 @@ export function issueDisplayTitle(
 /** A draft NOBODY HAS NAMED — still wearing the minted placeholder, or wearing
  *  nothing at all.
  *
- *  Not just `issue.draft`, and the difference is one round trip wide. Naming a
+ *  Not just `issue.isDraftVessel`, and the difference is one round trip wide. Naming a
  *  draft is what promotes it (`IssueCrud.update`: a non-empty title patch
  *  clears the flag), but the rename's OPTIMISTIC overlay carries the title
  *  alone — the flag flips only when the server's row comes back. Reading the

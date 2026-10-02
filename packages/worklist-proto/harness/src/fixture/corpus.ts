@@ -2275,7 +2275,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
       archived: m.archived,
       pinned: false,
       readAt: null,
-      origin: 'human',
+      intentOrigin: 'human',
       audience: m.audience,
       draft: drafts.has(i),
       repoPath: m.repoPath,

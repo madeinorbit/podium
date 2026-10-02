@@ -225,7 +225,7 @@ function proposal(
     labels: [],
     deps: [],
     dependents: [],
-    comments: [],
+
     ready: true,
     blocked: false,
     deferred: false,
@@ -234,9 +234,9 @@ function proposal(
     createdAt: min(300),
     updatedAt: min(300),
     archived: false,
-    origin: 'agent',
+    intentOrigin: 'agent',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     readAt: null,
     ...partial,
   } as IssueViewModel
@@ -258,7 +258,7 @@ function missionTask(
   return {
     ...proposal(partial),
     stage: 'backlog',
-    origin: 'agent',
+    intentOrigin: 'agent',
     ...partial,
   } as IssueViewModel
 }
@@ -439,20 +439,12 @@ export const DEMO_ISSUES: IssueViewModel[] = [
     type: 'bug',
     pinned: false,
     needsHuman: true,
-    humanQuestion: 'Should refresh tokens rotate on every use, or only on expiry?',
-    humanQuestionOptions: ['Rotate every use', 'Rotate on expiry only'],
+    asked: { question: 'Should refresh tokens rotate on every use, or only on expiry?',
+      options: ['Rotate every use', 'Rotate on expiry only'] },
     color: 'teal',
     labels: [],
     deps: [],
     dependents: [],
-    comments: [
-      {
-        id: asIssueId('c1'),
-        author: 'till',
-        body: 'Repros on Safari with two tabs open. Backend logs show 401 storms.',
-        createdAt: min(180),
-      },
-    ],
     panel: {
       todos: [
         { text: 'Reproduce the rotation race', done: true },
@@ -470,9 +462,9 @@ export const DEMO_ISSUES: IssueViewModel[] = [
     createdAt: min(600),
     updatedAt: min(20),
     archived: false,
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     readAt: null,
   } as IssueViewModel,
   {
@@ -497,7 +489,7 @@ export const DEMO_ISSUES: IssueViewModel[] = [
     labels: [],
     deps: [],
     dependents: [],
-    comments: [],
+
     ready: true,
     blocked: false,
     deferred: false,
@@ -506,9 +498,9 @@ export const DEMO_ISSUES: IssueViewModel[] = [
     createdAt: min(900),
     updatedAt: min(4),
     archived: false,
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     readAt: null,
   } as IssueViewModel,
   {
@@ -533,7 +525,7 @@ export const DEMO_ISSUES: IssueViewModel[] = [
     labels: [],
     deps: [],
     dependents: [],
-    comments: [],
+
     ready: true,
     blocked: false,
     deferred: false,
@@ -544,9 +536,9 @@ export const DEMO_ISSUES: IssueViewModel[] = [
     closedAt: min(30),
     closedReason: 'merged to main · 52769669',
     archived: false,
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     readAt: null,
   } as IssueViewModel,
 ]

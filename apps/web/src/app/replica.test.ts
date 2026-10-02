@@ -123,7 +123,7 @@ function issue(id: string, title = id): IssueViewModel {
     labels: [],
     deps: [],
     dependents: [],
-    comments: [],
+
     ready: true,
     blocked: false,
     deferred: false,
@@ -133,9 +133,9 @@ function issue(id: string, title = id): IssueViewModel {
     updatedAt: '2026-07-01T00:00:00.000Z',
     archived: false,
     readAt: null,
-    origin: 'human' as const,
+    intentOrigin: 'human' as const,
     audience: 'human' as const,
-    draft: false,
+    isDraftVessel: false,
   } as unknown as IssueViewModel
 }
 

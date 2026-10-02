@@ -21,9 +21,9 @@ function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {
     updatedAt: '2026-07-23T10:00:00.000Z',
     archived: false,
     needsHuman: false,
-    origin: 'human',
+    intentOrigin: 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     childCount: 0,
     childDoneCount: 0,
     ...over,
@@ -36,8 +36,8 @@ describe('boardIssues (the one board population, POD-338)', () => {
   it('drops DRAFT session vessels — the phone board showed them, the desktop never did', () => {
     const rows = [
       issue({ id: 'real' }),
-      issue({ id: 'draft-a', draft: true, title: 'Draft' }),
-      issue({ id: 'draft-b', draft: true, title: 'Draft' }),
+      issue({ id: 'draft-a', isDraftVessel: true, title: 'Draft' }),
+      issue({ id: 'draft-b', isDraftVessel: true, title: 'Draft' }),
     ]
     expect(ids(boardIssues(rows))).toEqual(['real'])
   })
@@ -62,7 +62,7 @@ describe('boardIssues (the one board population, POD-338)', () => {
   })
 
   it('a deleted draft stays reachable through the tombstone filter', () => {
-    const rows = [issue({ id: 'd', draft: true, deletedAt: '2026-07-20T00:00:00.000Z' })]
+    const rows = [issue({ id: 'd', isDraftVessel: true, deletedAt: '2026-07-20T00:00:00.000Z' })]
     // filterBoardScope keeps it (Show deleted can reveal it); boardIssues, which
     // is the live population, does not.
     expect(ids(filterBoardScope(rows, false))).toEqual(['d'])

@@ -82,7 +82,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { MetadataEntityKind } from '@podium/protocol'
+import { MetadataEntityKind } from '@podium/protocol'
 import { type Principal, principalRoutingId } from '@podium/protocol'
 import {
   type BaselineFold,
@@ -390,7 +390,7 @@ export class Authority implements AuthorityPort {
     await this.ready
     const state: SequencedChange[] = []
     for (const row of await this.deps.store.latestChangeStates()) {
-      if (row.op !== 'upsert' || row.payload === null) continue
+      if (row.op !== 'upsert' || row.payload === null || !MetadataEntityKind.safeParse(row.entity).success) continue
       try {
         state.push({
           seq: row.seq,

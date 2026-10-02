@@ -37,7 +37,7 @@ function issue(id: string, patch: Partial<IssueViewModel> = {}): IssueViewModel 
   return { id, seq: 1, title: 'Synthetic task', stage: 'in_progress', audience: 'human',
     repoId: 'synthetic-repo', repoPath: ROOT, worktreePath: ROOT, parentId: null,
     archived: false, deletedAt: null, closedReason: null, closedAt: null,
-    pinned: false, draft: false, origin: 'human', needsHuman: false, deps: [],
+    pinned: false, isDraftVessel: false, intentOrigin: 'human', needsHuman: false, deps: [],
     createdAt: STAMP, updatedAt: STAMP, readAt: STAMP, ...patch } as unknown as IssueViewModel
 }
 function session(sessionId: string, owner: string, patch: Partial<SessionMeta> = {}): SessionMeta {

@@ -34,7 +34,7 @@ function issue(index: number): IssueViewModel {
     labels: [],
     deps: [],
     dependents: [],
-    comments: [],
+
     ready: true,
     blocked: false,
     deferred: false,
@@ -44,8 +44,8 @@ function issue(index: number): IssueViewModel {
     updatedAt: '2026-07-18T00:00:00.000Z',
     archived: false,
     sessions: [],
-    origin: 'human',
-    draft: false,
+    intentOrigin: 'human',
+    isDraftVessel: false,
   } as unknown as IssueViewModel
 }
 

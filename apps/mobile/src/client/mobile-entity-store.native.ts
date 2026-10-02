@@ -1,3 +1,4 @@
+import { retainReplicaEntity } from '@podium/client-core/replica'
 import { fromExpoSqlite, SqliteSyncStore } from '@podium/sync/adapters/mobile-sqlite'
 import * as SQLite from 'expo-sqlite'
 
@@ -11,6 +12,7 @@ export function openMobileEntityStore(databaseName: string, onDegraded: (cause: 
   return SqliteSyncStore.open({
     openDatabase: () => fromExpoSqlite(SQLite.openDatabaseSync(databaseName)),
     deleteDatabase: () => SQLite.deleteDatabaseSync(databaseName),
+    retainEntity: retainReplicaEntity,
     onDegraded: (degradation) => onDegraded(String(degradation.cause)),
   })
 }

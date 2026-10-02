@@ -1,3 +1,4 @@
+import type { IssueCommandResult } from './service/reads'
 import {
   type CommandAction,
   type ConflictClass,
@@ -223,10 +224,14 @@ function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
     target?: (input: Record<string, unknown>) => string | undefined
     handler: (ctx: IssueCommandCtx, input: ContractInput<(typeof ISSUE_CONTRACTS)[N]>) => Out
   } & (K extends 'mutation' ? ContractDeclaresConflict<(typeof ISSUE_CONTRACTS)[N]> : unknown),
-): IssueCommandDef<K, (typeof ISSUE_CONTRACTS)[N]['input'], Out> {
+): IssueCommandDef<K, (typeof ISSUE_CONTRACTS)[N]['input'], Promise<K extends 'mutation' ? IssueCommandResult<Awaited<Out>> : Awaited<Out>>> {
   const contract = ISSUE_CONTRACTS[name]
   return {
     ...d,
+    handler: async (ctx: IssueCommandCtx, input: ContractInput<(typeof ISSUE_CONTRACTS)[N]>) => {
+      const result = await d.handler(ctx, input)
+      return d.kind === 'mutation' ? await ctx.reports.commandResult(result) : result
+    },
     input: contract.input,
     action: contract.policy.action,
     // Every contract declares a class since POD-1250, so this is an
@@ -234,7 +239,7 @@ function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
     // conditional because it belongs to `cmd` rows alone.
     conflict: contract.conflict,
     ...('conflictRule' in contract ? { conflictRule: contract.conflictRule } : {}),
-  } as unknown as IssueCommandDef<K, (typeof ISSUE_CONTRACTS)[N]['input'], Out>
+  } as unknown as IssueCommandDef<K, (typeof ISSUE_CONTRACTS)[N]['input'], Promise<K extends 'mutation' ? IssueCommandResult<Awaited<Out>> : Awaited<Out>>>
 }
 
 async function shippingOrderResult<T>(operation: () => T | Promise<T>): Promise<T> {

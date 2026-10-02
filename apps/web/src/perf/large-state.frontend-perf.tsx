@@ -98,7 +98,7 @@ function issueAt(index: number): IssueViewModel {
     labels: [`area-${index % 8}`, `lane-${index % 3}`],
     deps: [],
     dependents: [],
-    comments: [],
+
     ready: true,
     blocked: false,
     deferred: false,

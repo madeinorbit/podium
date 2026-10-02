@@ -4,7 +4,7 @@ import type { IssueUpdatePatch } from '@podium/commands'
 import {
   type IssueCloseReason,
   type IssueId,
-  type IssueProjection,
+  type IssueReport,
   parseIssueStatusValue,
   type SessionMeta,
 } from '@podium/model'
@@ -72,7 +72,7 @@ interface IssueDetailProcs {
     mailInbox: Mutate<{ id: string }, IssueMailMessage[]>
     create: Mutate<
       { repoPath: string; title: string; parentId?: string; startNow: boolean },
-      IssueProjection
+      IssueReport
     >
     supersede: Mutate<{ oldId: string; newId: string }>
     duplicate: Mutate<{ id: string; canonicalId: string }>

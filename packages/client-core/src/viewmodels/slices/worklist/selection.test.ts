@@ -44,8 +44,8 @@ function issue(id: string, repo: string, over: Partial<IssueViewModel> = {}): Is
     updatedAt: AT,
     archived: false,
     audience: 'human',
-    origin: 'human',
-    draft: false,
+    intentOrigin: 'human',
+    isDraftVessel: false,
     pinned: false,
     needsHuman: false,
     blocked: false,
@@ -53,7 +53,7 @@ function issue(id: string, repo: string, over: Partial<IssueViewModel> = {}): Is
     deps: [],
     dependents: [],
     labels: [],
-    comments: [],
+
     blockedByNotes: [],
     ...over,
   } as IssueViewModel

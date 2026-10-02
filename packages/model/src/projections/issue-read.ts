@@ -39,9 +39,17 @@ import type { IssueUserOverlay } from '../user-state/issue-state'
 /** An on-demand tracker report. The feed carries only IssueProjection and its
  * independently keyed companions; a CLI without a replica requests these joins.
  * This report is never stored, cached, or published on the entity feed. */
-export type IssueReport = Omit<IssueProjection, 'description' | 'notes'> & IssueUserOverlay & {
+export type IssueReport = Omit<IssueProjection, 'description' | 'notes' | 'asked' | 'intentOrigin' | 'isDraftVessel' | 'worktreePath' | 'branch' | 'owner' | 'visibility' | 'createdBy' | 'lastLifecycleActor'> & IssueUserOverlay & {
   description: string
   humanQuestion?: string
+  humanQuestionOptions?: string[]
+  humanQuestionAskedBy?: SessionId
+  humanQuestionAskedAt?: string
+  origin: IssueProjection['intentOrigin']
+  draft: boolean
+  worktreePath: string | null
+  branch: string | null
+  commentCount: number
   notes?: string
   repoPath: string
   prefix?: string

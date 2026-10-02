@@ -158,7 +158,7 @@ describe('the Origin block says who made this, in words', () => {
     // A row that predates per-write attribution still carries `origin`, which
     // genuinely says "a person" or "an agent" and claims nothing more. Printing
     // a name here would be the synthesis §3.1.3 A3 forbids.
-    show({ origin: 'agent', owner: 'alice' })
+    show({ intentOrigin: 'agent', owner: 'alice' })
     const line = screen.getAllByTestId('about-created-by')[0]
     expect(line?.textContent).toBe('An agent')
     expect(line?.textContent).not.toContain('alice')

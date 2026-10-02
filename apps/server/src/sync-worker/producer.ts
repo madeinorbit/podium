@@ -1,6 +1,6 @@
 import { setImmediate as yieldLoop } from 'node:timers/promises'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import { CLIENT_WIRE_VERSION, wireSchemaDigest, SYNC_BATCH_TARGET_BYTES, SYNC_BATCH_MAX_ROWS, SYNC_LINE_MAX_BYTES, type SyncComplete } from '@podium/protocol'
+import { MetadataEntityKind, CLIENT_WIRE_VERSION, wireSchemaDigest, SYNC_BATCH_TARGET_BYTES, SYNC_BATCH_MAX_ROWS, SYNC_LINE_MAX_BYTES, type SyncComplete } from '@podium/protocol'
 import { scopeChangesRange, DEFAULT_RESCOPE_THRESHOLD, ChangeRangeBootstrapRequired } from '@podium/sync/bootstrap-worker'
 import type { EntityRef } from '@podium/sync'
 import { createLogger } from '@podium/logger'
@@ -124,6 +124,7 @@ async function* produceRecords(
     const pass1 = performance.now()
     const refs: EntityRef[] = []
     for (const row of iterate<RefRow>(db, 'SELECT seq, entity, entity_id FROM change_latest ORDER BY seq')) {
+      if (!MetadataEntityKind.safeParse(row.entity).success) continue
       refs.push({ entity: row.entity, entityId: row.entity_id })
       if (refs.length % 256 === 0) { await yieldLoop(); check() }
     }

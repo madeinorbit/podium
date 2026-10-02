@@ -3,14 +3,14 @@ import {
   EpicStatus,
   IssueGraph,
   IssueGraphNode,
-  IssueWire,
+  IssueAggregate,
   LintFinding,
   OrphanIssue,
 } from '../index'
 
 /**
  * KEY-ORDER PINS for the issue read projections that POD-367 re-derived from
- * `IssueWireCore` instead of restating.
+ * `IssueAggregate` instead of restating.
  *
  * Why order and not just the field set: zod emits keys in SHAPE order, so a
  * projection assembled by APPENDING a picked group rather than splicing it at
@@ -55,15 +55,15 @@ describe('composed issue projections emit their historical key order', () => {
   })
 })
 
-describe('composed issue projections inherit their constraints from IssueWire', () => {
+describe('composed issue projections inherit their constraints from IssueAggregate', () => {
   /**
    * The point of the composition: a projection cannot drift from the aggregate's
    * own definition of a field. Each case feeds a value the AGGREGATE rejects and
    * asserts the projection rejects it too — a restated `z.number()` would accept
    * the non-integer seq, and a restated `z.string()` id would accept a bare one.
    */
-  it('rejects a non-integer seq, because IssueWire constrains seq to an int', () => {
-    expect(IssueWire.shape.seq.safeParse(1.5).success).toBe(false)
+  it('rejects a non-integer seq, because IssueAggregate constrains seq to an int', () => {
+    expect(IssueAggregate.shape.seq.safeParse(1.5).success).toBe(false)
     for (const s of [IssueGraphNode, OrphanIssue, LintFinding]) {
       expect(s.shape.seq.safeParse(1.5).success).toBe(false)
       expect(s.shape.seq.safeParse(7).success).toBe(true)

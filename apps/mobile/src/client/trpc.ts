@@ -12,7 +12,6 @@ import type {
   IssueColorSlot,
   IssueStage,
   IssueType,
-  IssueProjection,
   IssueReport,
   MachineId,
   MessageRecordWire,
@@ -159,10 +158,10 @@ interface MobileTrpcExtras {
         startNow: boolean
         mutationId?: MutationId
       },
-      IssueProjection
+      IssueReport
     >
     /** Spawn the issue's default agent on it (issue-as-workspace). */
-    start: MutationProcedure<{ id: string; agentKind?: string }, IssueProjection>
+    start: MutationProcedure<{ id: string; agentKind?: string }, IssueReport>
     /**
      * Put ANOTHER agent into an already-started issue's worktree [POD-724].
      *
@@ -172,11 +171,11 @@ interface MobileTrpcExtras {
      * needs both because the mission screen can now launch an agent from inside
      * the conversation, where the task is usually already running.
      */
-    addSession: MutationProcedure<{ id: string; agentKind?: string }, IssueProjection>
+    addSession: MutationProcedure<{ id: string; agentKind?: string }, IssueReport>
     /** Operator-only: accept an agent proposal into the backlog [spec:SP-6144]. */
-    promote: MutationProcedure<{ id: string }, IssueProjection>
+    promote: MutationProcedure<{ id: string }, IssueReport>
     /** Close an issue — the server writes stage `done` + the closure reason. */
-    close: MutationProcedure<{ id: string; reason?: string; mutationId?: MutationId }, IssueProjection>
+    close: MutationProcedure<{ id: string; reason?: string; mutationId?: MutationId }, IssueReport>
     update: MutationProcedure<{
       id: string
       patch: {
@@ -211,7 +210,7 @@ interface MobileTrpcExtras {
     /** Toggle one agent-published todo; the positional API is 1-based. */
     panelApply: MutationProcedure<
       { id: string; op: 'todo-done' | 'todo-undone'; index: number },
-      IssueProjection
+      IssueReport
     >
     /** Mark a task-owned human question resolved. */
     clearNeedsHuman: MutationProcedure<{ id: string }>

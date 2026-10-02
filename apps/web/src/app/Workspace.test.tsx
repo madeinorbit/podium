@@ -1261,7 +1261,7 @@ describe('Workspace with no mission on screen', () => {
   })
 
   it('falls back to the cold deck for a draft vessel nobody filled', () => {
-    replicaIssues = [{ ...task, draft: true, worktreePath: null } as IssueViewModel]
+    replicaIssues = [{ ...task, isDraftVessel: true, worktreePath: null } as IssueViewModel]
     state.sessions = []
     state.workspaces = emptyPane()
     render(<Workspace />)

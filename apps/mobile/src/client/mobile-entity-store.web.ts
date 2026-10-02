@@ -1,3 +1,4 @@
+import { retainReplicaEntity } from '@podium/client-core/replica'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 
 /**
@@ -10,6 +11,7 @@ export function openMobileEntityStore(databaseName: string, onDegraded: (cause: 
   return IndexedDbSyncStore.open({
     factory: globalThis.indexedDB as unknown as IdbFactoryLike,
     databaseName,
+    retainEntity: retainReplicaEntity,
     onDegraded: (degradation) => onDegraded(String(degradation.cause)),
   })
 }

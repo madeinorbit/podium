@@ -7,7 +7,7 @@ import {
   type IssueCount,
   type IssueGraph,
   type IssueId,
-  type IssueProjection,
+  IssueProjection,
   type IssueSearchFilter,
   type IssueStats,
   type IssueReport,
@@ -39,7 +39,13 @@ import { issueRowToProjection } from '../projection'
 import { IssueNotFound } from './not-found'
 import { countContextAwarePendingMail } from './mail-pending'
 
+export type IssueCommandResult<T> = T extends IssueProjection ? IssueReport & Omit<T, keyof IssueProjection>
+  : T extends readonly (infer E)[] ? IssueCommandResult<E>[]
+  : T extends object ? { [K in keyof T]: IssueCommandResult<T[K]> }
+  : T
+
 interface IssueReportBatch {
+  commentCounts: Map<string, number>
   labelsByIssue: Map<string, string[]>
   depsByFrom: Map<string, { toId: IssueId; type: string }[]>
   dependentsByTo: Map<string, { fromId: IssueId; type: string }[]>
@@ -100,6 +106,38 @@ export class IssueReportsModule {
     readonly visibilityPolicy: Readonly<IssueReportVisibilityPolicy> = DEFAULT_ISSUE_REPORT_VISIBILITY,
   ) {}
 
+  /** Convert only requested command results. The mutation/publish path never builds reports. */
+  async commandResult<T>(value: T): Promise<IssueCommandResult<T>> {
+    const projections = new Map<string, IssueProjection>()
+    const collect = (item: unknown): void => {
+      if (!item || typeof item !== 'object') return
+      const row = item as Record<string, unknown>
+      if (typeof row.id === 'string' && typeof row.isDraftVessel === 'boolean' &&
+          typeof row.description === 'object' && row.description !== null && 'value' in row.description) {
+        projections.set(row.id, row as unknown as IssueProjection)
+      } else for (const child of Object.values(row)) collect(child)
+    }
+    collect(value)
+    if (projections.size === 0) return value as IssueCommandResult<T>
+    const batch = projections.size > 1 ? await this.reportBatch() : undefined
+    const reports = new Map<string, IssueReport>()
+    for (const projection of projections.values()) {
+      const row = this.store.rows.get(projection.id)
+      if (row) reports.set(projection.id, await this.report(row, batch, projection))
+    }
+    const replace = (item: unknown): unknown => {
+      if (Array.isArray(item)) return item.map(replace)
+      if (!item || typeof item !== 'object') return item
+      const row = item as Record<string, unknown>
+      if (typeof row.id === 'string' && projections.has(row.id) && reports.has(row.id)) {
+        const extras = Object.fromEntries(Object.entries(row).filter(([key]) => !Object.hasOwn(IssueProjection.shape, key)))
+        return { ...reports.get(row.id), ...extras }
+      }
+      return Object.fromEntries(Object.entries(row).map(([key, child]) => [key, replace(child)]))
+    }
+    return replace(value) as IssueCommandResult<T>
+  }
+
   async list(repoPath?: string): Promise<IssueReport[]> {
     const batch = await this.reportBatch()
     const inScope = await this.store.repoScopeFilter(repoPath)
@@ -112,9 +150,11 @@ export class IssueReportsModule {
   }
 
   /** Joins only for a requested report. No publication path calls this method. */
-  private async report(row: IssueRow, batch?: IssueReportBatch): Promise<IssueReport> {
+  private async report(row: IssueRow, batch?: IssueReportBatch, own?: IssueProjection): Promise<IssueReport> {
     const labels = batch ? batch.labelsByIssue.get(row.id) ?? [] : await this.store.deps.store.issues.getIssueLabels(row.id)
-    const projection = issueRowToProjection(row, labels)
+    const projection = own ?? issueRowToProjection(row, labels)
+    const { asked, intentOrigin, isDraftVessel, owner: _owner, visibility: _visibility,
+      createdBy: _createdBy, lastLifecycleActor: _lastLifecycleActor, ...facts } = projection
     const children = batch ? batch.childrenByParent.get(row.id) ?? [] :
       [...this.store.rows.values()].filter(child => child.parentId === row.id && !child.deletedAt)
     const outgoing = batch ? batch.depsByFrom.get(row.id) ?? [] : await this.store.deps.store.issues.listIssueDeps(row.id)
@@ -124,10 +164,21 @@ export class IssueReportsModule {
       prefix = await this.store.deps.store.repos.prefixForPath(row.repoPath)
       batch?.prefixesByRepoPath.set(row.repoPath, prefix)
     }
+    const graph = batch ?? { depsByFrom: new Map([[row.id, outgoing]]) }
+    const blocked = await this.store.computeBlocked(row, graph)
+    const deferred = this.store.isDeferred(row)
     return {
-      ...projection,
+      ...facts,
+      origin: intentOrigin,
+      draft: isDraftVessel,
+      worktreePath: projection.worktreePath ?? null,
+      branch: projection.branch ?? null,
       description: projection.description.value,
-      humanQuestion: projection.asked?.question,
+      humanQuestion: asked?.question,
+      humanQuestionOptions: asked?.options,
+      humanQuestionAskedBy: asked?.by,
+      humanQuestionAskedAt: asked?.at,
+      commentCount: batch ? batch.commentCounts.get(row.id) ?? 0 : await this.store.deps.store.issues.countIssueComments(row.id),
       notes: projection.notes?.value,
       ...this.store.issueOverlay(row.id),
       repoPath: row.repoPath,
@@ -137,9 +188,9 @@ export class IssueReportsModule {
         ...(row.parentId ? [{ id: row.parentId, type: 'parent-child' }] : [])],
       dependents: [...incoming.map(dep => ({ id: dep.fromId, type: dep.type })),
         ...children.map(child => ({ id: child.id, type: 'parent-child' }))],
-      blocked: await this.store.computeBlocked(row, batch),
-      ready: await this.store.isReady(row, batch),
-      deferred: this.store.isDeferred(row),
+      blocked,
+      ready: isIssueStage(row.stage) && isReadyIssueStage(row.stage) && !this.store.isClosed(row) && !deferred && !blocked,
+      deferred,
       childCount: children.length,
       childDoneCount: children.filter(child => this.store.isClosed(child)).length,
       ...(row.deletedAt ? {} : { gitState: this.store.gitStates.get(row.id) }),
@@ -166,6 +217,7 @@ export class IssueReportsModule {
       else childrenByParent.set(row.parentId, [row])
     }
     return {
+      commentCounts: await this.store.deps.store.issues.countIssueCommentsByIssue(),
       labelsByIssue,
       depsByFrom,
       dependentsByTo,

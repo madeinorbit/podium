@@ -79,7 +79,7 @@ import ts from 'typescript'
 import { IssueAggregate } from '../packages/model/src/aggregates/issue'
 import { PER_USER_STATE_KEYS } from '../packages/model/src/aggregates/registry'
 import { SessionAggregate } from '../packages/model/src/aggregates/session'
-import { IssueWire } from '../packages/model/src/entities/issue'
+import { IssueProjection } from '../packages/model/src/projections/issue-projection'
 import { SessionMeta } from '../packages/model/src/entities/session'
 import { RETAINED_REPRESENTATIONS } from '../packages/model/src/representations/registry'
 import type { AuditContext, AuditSite } from './rearch-audit'
@@ -97,7 +97,7 @@ export const SESSION_VOCABULARY: ReadonlySet<string> = new Set([
 /** Every key the canonical issue aggregate or its wire projection declares. */
 export const ISSUE_VOCABULARY: ReadonlySet<string> = new Set([
   ...Object.keys(IssueAggregate.shape),
-  ...Object.keys(IssueWire.shape),
+  ...Object.keys(IssueProjection.shape),
 ])
 
 /**
@@ -735,14 +735,6 @@ export const NOT_A_REPRESENTATION: readonly {
       'for both arms. That is the distinction this detector structurally cannot draw — it reads ' +
       'key NAMES in a declaration and cannot see whether the values beside them are the shared ' +
       'schemas or fresh restatements (reported to POD-368, which owns the detector).',
-  },
-  {
-    file: 'packages/model/src/entities/issue.ts',
-    symbol: 'IssueWireCore',
-    reason:
-      'the provenance-free half that `IssueWire` composes, and the head every composed issue ' +
-      'projection picks from. Same class as `SessionMetaEntity`; the representation is ' +
-      '`IssueWire`, which IS registered.',
   },
 
   // --- Adjacent entities and their rows: OTHER aggregates that happen to carry a

@@ -4,7 +4,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   asUserId,
   type IssueGitStateProjection,
-  type IssueProjection,
+  IssueProjection,
   type IssueUserStateWire,
   } from '@podium/model'
 
@@ -21,32 +21,12 @@ export function fixtureGitStates(issues: readonly IssueViewModel[]): IssueGitSta
   return issues.flatMap((issue) => (issue.gitState ? [{ id: issue.id, ...issue.gitState }] : []))
 }
 export function fixtureProjection(issue: IssueViewModel, projection?: IssueProjection): IssueProjection {
-  const {
-    draft: _draft,
-    origin: _origin,
-    humanQuestion: _question,
-    humanQuestionOptions: _options,
-    humanQuestionAskedAt: _at,
-    humanQuestionAskedBy: _by,
-    ...row
-  } = (projection ?? issue) as unknown as Record<string, unknown>
+  if (projection) return projection
+  const row = issue as unknown as Record<string, unknown>
+  const own = Object.fromEntries(Object.entries(row).filter(([key]) => Object.hasOwn(IssueProjection.shape, key)))
   return {
-    ...row,
-    description:
-      typeof row.description === 'string'
-        ? { value: row.description }
-        : (row.description ?? { value: '' }),
-    isDraftVessel: projection?.isDraftVessel ?? issue.draft ?? false,
-    intentOrigin: projection?.intentOrigin ?? issue.origin ?? 'human',
-    asked:
-      projection?.asked ??
-      (issue.humanQuestion
-        ? {
-            question: issue.humanQuestion,
-            options: issue.humanQuestionOptions,
-            at: issue.humanQuestionAskedAt,
-            by: issue.humanQuestionAskedBy,
-          }
-        : undefined),
+    ...own,
+    description: { value: issue.description },
+    ...(issue.notes === undefined ? {} : { notes: { value: issue.notes } }),
   } as IssueProjection
 }

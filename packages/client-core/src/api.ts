@@ -28,7 +28,7 @@ import type {
   GitRepositoryWire,
   HarnessAgent,
   IssueId,
-  IssueProjection,
+  IssueReport,
   LayoutSnapshot,
   MachineId,
   MachineQuotaWire,
@@ -245,7 +245,7 @@ export interface PodiumClientApi {
         defaultEffort?: string
         startNow: boolean
       }>,
-      IssueProjection
+      IssueReport
     >
     markRead: ApiMutation<WithMutationId<{ id: string }>>
     markUnread: ApiMutation<WithMutationId<{ id: string }>>

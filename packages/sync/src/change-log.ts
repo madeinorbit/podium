@@ -1,4 +1,4 @@
-import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
+import { type MetadataChange, MetadataEntityKind } from '@podium/protocol'
 import { runTimeBudgetedJob, type TimeBudgetedJobMetrics } from '@podium/runtime/time-budget'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from './authority/change-lifecycle'
 import type { BaselineFoldPort } from './authority/ports'
@@ -417,6 +417,7 @@ export async function* readChangesRange(
     if (rows.length === 0) return
     const changes: MetadataChange[] = []
     for (const r of rows) {
+      if (!MetadataEntityKind.safeParse(r.entity).success) continue
       const base = { seq: r.seq, id: r.entityId, op: r.op, entity: r.entity as MetadataEntityKind }
       if (r.op === 'upsert') {
         if (r.payload == null) throw new ChangeRangeBootstrapRequired('corrupt-payload')

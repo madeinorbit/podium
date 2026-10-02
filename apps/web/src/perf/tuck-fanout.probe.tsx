@@ -90,7 +90,7 @@ function issueAt(index: number): IssueViewModel {
     needsHuman: index % 19 === 0,
     origin: index % 7 === 0 ? 'agent' : 'human',
     audience: 'human',
-    draft: false,
+    isDraftVessel: false,
     childCount: 0,
     childDoneCount: 0,
     priority: index % 5,
@@ -99,7 +99,7 @@ function issueAt(index: number): IssueViewModel {
     labels: [`area-${index % 8}`, `lane-${index % 3}`],
     deps: [],
     dependents: [],
-    comments: [],
+
     ready: true,
     blocked: false,
     deferred: false,

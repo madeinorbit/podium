@@ -879,7 +879,7 @@ describe('the cold deck (POD-1112)', () => {
    *  to live. After a reload the selection can still point at one whose session
    *  never started. */
   const vessel = (over: Issue = {}): Issue =>
-    issue('v1', { title: 'Draft', stage: 'backlog', draft: true, ...over })
+    issue('v1', { title: 'Draft', stage: 'backlog', isDraftVessel: true, ...over })
 
   it('shows the empty state for a selection left on an empty draft vessel', () => {
     harness.issues = [vessel()]
@@ -2184,7 +2184,7 @@ describe('flight deck task menu (POD-771)', () => {
   it('uses the shared draft name in the strip and its rename editor', () => {
     harness.issues = harness.issues.map((candidate) =>
       (candidate as Issue).id === 't1'
-        ? { ...(candidate as Issue), title: 'Draft', draft: true }
+        ? { ...(candidate as Issue), title: 'Draft', isDraftVessel: true }
         : candidate,
     )
     harness.sessions = harness.sessions.map((candidate) => {
