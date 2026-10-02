@@ -226,7 +226,10 @@ export function modelsFor(
       ? sourceSnapshot
       : {
           ...deriveIssueViewsSnapshot(
-            replica, current?.snapshot, projectionRows, userStateRows,
+            replica,
+            current?.snapshot,
+            projectionRows,
+            userStateRows,
             (id) => sourceSnapshot.issueInputById.get(id)?.stage,
           ),
           projectionRows,

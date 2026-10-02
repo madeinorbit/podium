@@ -55,14 +55,16 @@
  */
 
 import { isDeepStrictEqual } from 'node:util'
-import { act } from 'react'
-import type { ArmHandle, LazyArmHandle, LocalsSource, RowSource } from '../../shared/src/arm'
+import type { MobxPool } from '@podium/client-graph/pool'
 import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-source'
 import {
   createRowSource,
   type RowSourceHandle,
   type RowSourceMode,
 } from '@podium/client-graph/shared/row-source'
+import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
+import { act } from 'react'
+import type { ArmHandle, LazyArmHandle, LocalsSource, RowSource } from '../../shared/src/arm'
 import {
   armMarkReadRejection,
   pendingWrites,
@@ -82,7 +84,6 @@ import {
   writeStageMove,
   writeTitleRename,
 } from '../../shared/src/scenarios'
-import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import {
   ancestorCount,
   burstReadBudget,
@@ -99,9 +100,13 @@ import {
 } from './count-harness'
 import { createEngineLocals, localsOfEngine } from './engine-locals'
 import { type Neighbourhood, type NeighbourhoodState, neighbourhoodOf } from './neighbourhood'
-import { legacyDerivationFromStore, rowViewsFromStore, snapshotFromStore, visibleIssueRows } from './oracle/index'
+import {
+  legacyDerivationFromStore,
+  rowViewsFromStore,
+  snapshotFromStore,
+  visibleIssueRows,
+} from './oracle/index'
 import { legacySidebarRow } from './oracle/sidebar'
-import type { MobxPool } from '@podium/client-graph/pool'
 import { insideArm, outsideArm } from './work-meter'
 
 export interface FenceScenario {
@@ -482,20 +487,29 @@ export async function runFenceStep(
   // observer. Its exact redraw set and work neighbourhood must therefore
   // include the same complete oracle surface, never only the old RowView.
   const pool = (mounted.handle as Partial<{ pool: MobxPool }>).pool
-  const content = pool?.sidebar === undefined ? undefined : () => {
-    const locals = engineLocals(ctx)
-    const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), locals.coarseNow)
-    return Object.fromEntries(visibleIssueRows(derivation, locals).map(row =>
-      [row.issue.id, legacySidebarRow(row, derivation, locals.coarseNow)]))
-  }
+  const content =
+    pool?.sidebar === undefined
+      ? undefined
+      : () => {
+          const locals = engineLocals(ctx)
+          const derivation = legacyDerivationFromStore(ctx.engine.getSnapshot(), locals.coarseNow)
+          return Object.fromEntries(
+            visibleIssueRows(derivation, locals).map((row) => [
+              row.issue.id,
+              legacySidebarRow(row, derivation, locals.coarseNow),
+            ]),
+          )
+        }
   const publications: Readonly<Record<string, unknown>>[] = []
   feeds.takeNamed()
   const result = await runCountScenario(mounted, {
     scenario: entry.scenario,
     methodology: entry.methodology,
     apply: async () => {
-      const stop = content === undefined ? undefined : feeds.rows.source.subscribe(() =>
-        outsideArm(() => publications.push(content())))
+      const stop =
+        content === undefined
+          ? undefined
+          : feeds.rows.source.subscribe(() => outsideArm(() => publications.push(content())))
       try {
         // The write is the engine's work, the drain the feed's (its listener
         // calls are the arm's): neither counts as the arm's (POD-4746).
@@ -506,7 +520,9 @@ export async function runFenceStep(
         const hooks = loadHooks(mounted.handle, feeds, step)
         if (hooks !== null) await insideArm(() => hooks.settleLoads())
         settledAt = feeds.rowReads()
-      } finally { stop?.() }
+      } finally {
+        stop?.()
+      }
     },
     expected: () => {
       const oracle = snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx))

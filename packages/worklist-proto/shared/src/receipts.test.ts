@@ -167,7 +167,10 @@ describe('write transport on the kernel queue', () => {
     const network = switchableNetwork()
     const ctx = await startScenarioEngine(1, { outbox: 'kernel', network })
     const id = ctx.targets.markReadId
-    const marker = ctx.cache.read('issueUserState', issueUserStateRowId(ctx.engine.principal.userId, asIssueId(id)))?.value as { readAt?: string | null } | undefined
+    const marker = ctx.cache.read(
+      'issueUserState',
+      issueUserStateRowId(ctx.engine.principal.userId, asIssueId(id)),
+    )?.value as { readAt?: string | null } | undefined
     const readAtBefore = marker?.readAt ?? null
     const transport = createWriteTransport(ctx.engine)
     const events: ReceiptEvent[] = []
