@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "sourceSha": "1f4c442abb3482d566fbcdbf152efd3900d40f93",
+  "sourceSha": "75cc58cd06e24e8572dfcdc9c9f7ba5e9c9b24a2",
   "landedRef": "integrate/4286-pilot",
   "machine": {
     "host": "flatblock",
@@ -31,35 +31,35 @@
   },
   "actions": {
     "sidebar-issue": {
-      "medianMs": 157.236,
-      "worstMs": 221.088
+      "medianMs": 177.29,
+      "worstMs": 210.53
     },
     "mission-switch": {
-      "medianMs": 1187.65,
-      "worstMs": 1247.637
+      "medianMs": 1295.483,
+      "worstMs": 1404.559
     },
     "session-pane": {
-      "medianMs": 928.301,
-      "worstMs": 1062.377
+      "medianMs": 1033.272,
+      "worstMs": 1238.588
     },
     "issue-rename": {
-      "medianMs": 650.664,
-      "worstMs": 679.55
+      "medianMs": 807.647,
+      "worstMs": 941.174
     },
     "background-update": {
-      "medianMs": 753.593,
-      "worstMs": 804.203
+      "medianMs": 878.028,
+      "worstMs": 947.005
     }
   },
   "noise": {
     "runs": 2,
     "medianSpreadPercent": {
-      "sidebar-issue": 10.564,
-      "mission-switch": 7.169,
-      "session-pane": 7.298,
-      "issue-rename": 13.471,
-      "background-update": 20.936
+      "sidebar-issue": 17.639,
+      "mission-switch": 10.037,
+      "session-pane": 9.866,
+      "issue-rename": 1.325,
+      "background-update": 3.56
     },
-    "maxPercent": 20.936
+    "maxPercent": 17.639
   }
 }
