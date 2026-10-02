@@ -29,7 +29,13 @@ import {
   type RowSourceReplica,
   type RowSourceRuntime,
 } from '@podium/client-graph/shared/row-source'
-import { asIssueId, asUserId, issueUserStateRowId } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  asUserId,
+  issueUserStateRowId,
+  sessionUserStateRowId,
+} from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { legacyDerivationFromStore } from '../../harness/src/oracle/index'
@@ -69,6 +75,39 @@ const sessionValue = (id: string, extra: Record<string, unknown> = {}) =>
 const issueValue = (id: string, extra: Record<string, unknown> = {}) =>
   ({ id, ...extra }) as unknown as { id: string }
 
+const joinedSessionValues = {
+  readAt: '2026-09-20T11:00:00Z',
+  unread: true,
+  snoozedUntil: '2026-09-21T12:00:00Z',
+  displayRef: 'POD-7-A',
+  machineName: 'Source',
+  condition: 'logged-out',
+  handoffTarget: 'Target',
+} as const
+
+/** S6 keeps display and personal cells in companions, never in the raw session. */
+function sessionWithCompanions(cache: FakeCache, id: string, extra: Record<string, unknown> = {}) {
+  cache.put('sessionUserState', sessionUserStateRowId(asUserId('operator'), asSessionId(id)), {
+    userId: 'operator',
+    sessionId: id,
+    readAt: joinedSessionValues.readAt,
+    snoozedUntil: joinedSessionValues.snoozedUntil,
+  })
+  cache.put('repo', 'r1', { id: 'r1', prefix: 'POD' })
+  cache.put('machine', 'm1', { id: 'm1', name: 'Source', loggedOutHarnesses: ['codex'] })
+  cache.put('machine', 'm2', { id: 'm2', name: 'Target', loggedOutHarnesses: [] })
+  return sessionValue(id, {
+    lastActiveAt: '2026-09-20T12:00:00Z',
+    agentKind: 'codex',
+    refRepoId: 'r1',
+    refSeq: 7,
+    refLetter: 'A',
+    machineId: 'm1',
+    handoffTargetMachineId: 'm2',
+    ...extra,
+  })
+}
+
 type Entity = OverlayTarget
 
 /** Controllable runtime: the test sets the ledger's pending overlays by row,
@@ -89,6 +128,7 @@ function fakeRuntime(
   }
   const listeners = new Set<() => void>()
   return {
+    principal: { userId: 'operator' },
     subscribe: (listener: () => void) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -256,9 +296,9 @@ describe('row-source over the real facade (fake runtime)', () => {
     })
   }
 
-  it('one upsert yields one update carrying the replica row by identity', () => {
+  it('one upsert yields one update carrying the composed session by identity', () => {
     const { cache, replica } = fixture()
-    const value = sessionValue('s1', { lastActiveAt: '2026-09-20T12:00:00Z' })
+    const value = sessionWithCompanions(cache, 's1')
     const runtime = fakeRuntime()
     const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     const events: RowSourceEvent[] = []
@@ -271,7 +311,10 @@ describe('row-source over the real facade (fake runtime)', () => {
       expect(event?.type).toBe('update')
       expect(event?.rows).toHaveLength(1)
       expect(event?.rows[0]).toMatchObject({ kind: 'session', id: 's1' })
-      expect(event?.rows[0]?.value).toBe(value)
+      expect(event?.rows[0]?.value).toEqual({ ...value, ...joinedSessionValues })
+      expect(event?.rows[0]?.value).not.toBe(value)
+      expect(event?.rows[0]?.value).toBe(handle.source.row?.('session', 's1'))
+      expect(replica.row?.('sessions', 's1')).toBe(value)
       expect(events).toHaveLength(1)
     } finally {
       off()
@@ -543,27 +586,39 @@ describe('row-source over the real facade (fake runtime)', () => {
 
   it('a no-op patch paints nothing; an insert shows until its server row lands', () => {
     const { cache, replica } = fixture()
-    const existing = sessionValue('s1', { title: 'same' })
+    const existing = sessionWithCompanions(cache, 's1', { title: 'same' })
+    const placeholder = sessionWithCompanions(cache, 's2', { title: 'Starting' })
     cache.put('session', 's1', existing)
     const runtime = fakeRuntime()
     const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     try {
+      const before = handle.source.row?.('session', 's1')
       runtime.setPending('sessions', 's1', [patch('sessions', 's1', { title: 'same' })])
       runtime.publish()
       expect(handle.flush()).toBeNull()
+      expect(handle.source.row?.('session', 's1')).toBe(before)
 
-      const placeholder = sessionValue('s2', { title: 'Starting' })
       runtime.setPending('sessions', 's2', [insert('sessions', 's2', placeholder)])
       runtime.publish()
-      expect(handle.flush()?.rows).toEqual([{ kind: 'session', id: 's2', value: placeholder }])
+      const inserted = handle.flush()
+      expect(inserted?.rows).toEqual([
+        { kind: 'session', id: 's2', value: { ...placeholder, ...joinedSessionValues } },
+      ])
+      expect(handle.source.row?.('session', 's2')).toBe(inserted?.rows[0]?.value)
 
       // The server row lands in the same drain the ledger retires the insert.
-      const real = sessionValue('s2', { title: 'Real' })
+      const real = { ...placeholder, title: 'Real' }
       cache.put('session', 's2', real)
       runtime.setPending('sessions', 's2', null)
       replica.onKernelEvent(upserted('session', 's2'))
       runtime.publish()
-      expect(handle.flush()?.rows).toEqual([{ kind: 'session', id: 's2', value: real }])
+      const landed = handle.flush()
+      expect(landed?.rows).toEqual([
+        { kind: 'session', id: 's2', value: { ...real, ...joinedSessionValues } },
+      ])
+      expect(landed?.rows[0]?.value).not.toBe(inserted?.rows[0]?.value)
+      expect(handle.source.row?.('session', 's2')).toBe(landed?.rows[0]?.value)
+      expect(handle.source.row?.('session', 's1')).toBe(before)
     } finally {
       handle.dispose()
     }
@@ -579,11 +634,12 @@ describe('row-source over the real facade (fake runtime)', () => {
         entityId: 'i1',
         readAt: null,
       })
-      const session = sessionValue('s1')
+      const session = sessionWithCompanions(cache, 's1')
       cache.put('session', 's1', session)
       const runtime = fakeRuntime()
       const handle = createRowSource(runtime, replica, { mode })
       const truth = handle.source.row?.('issue', 'i1')
+      const composedSession = handle.source.row?.('session', 's1')
       try {
         runtime.setPending('issueUserStates', 'i1', [
           patch('issueUserStates', 'i1', { readAt: '2026-09-20T12:00:01Z' }),
@@ -597,8 +653,10 @@ describe('row-source over the real facade (fake runtime)', () => {
         )
         expect(one).toEqual(all)
         if (mode === 'truth') expect(one).toBe(truth)
-        // A row with no overlay is the replica's object itself (borrowed).
-        expect(handle.source.row?.('session', 's1')).toBe(session)
+        // Unchanged normalized inputs keep the same composed session object.
+        expect(composedSession).toEqual({ ...session, ...joinedSessionValues })
+        expect(handle.source.row?.('session', 's1')).toBe(composedSession)
+        expect(replica.row?.('sessions', 's1')).toBe(session)
         expect(handle.source.row?.('session', 'gone')).toBeUndefined()
         // Three keyed reads, one enumeration (the snapshot() above).
         expect(handle.stats.rowsVisited).toBe(3 + 1)
@@ -614,14 +672,20 @@ describe('row-source over the real facade (fake runtime)', () => {
 
   it('snapshot() serves current rows by kind for arm bootstrap', () => {
     const { cache, replica } = fixture()
-    const s = sessionValue('s1')
+    const s = sessionWithCompanions(cache, 's1')
     const i = issueValue('i1')
     cache.put('session', 's1', s)
     cache.put('issueProjection', 'i1', i)
     const runtime = fakeRuntime()
     const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     try {
-      expect(handle.source.snapshot('session')).toEqual([{ kind: 'session', id: 's1', value: s }])
+      const sessions = handle.source.snapshot('session')
+      expect(sessions).toEqual([
+        { kind: 'session', id: 's1', value: { ...s, ...joinedSessionValues } },
+      ])
+      expect(handle.source.snapshot('session')[0]?.value).toBe(sessions[0]?.value)
+      expect(handle.source.row?.('session', 's1')).toBe(sessions[0]?.value)
+      expect(replica.row?.('sessions', 's1')).toBe(s)
       expect(handle.source.snapshot('issue')).toMatchObject([{ kind: 'issue', id: 'i1', value: i }])
     } finally {
       handle.dispose()
