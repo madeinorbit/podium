@@ -1,4 +1,4 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import {
   asSubscriberId,

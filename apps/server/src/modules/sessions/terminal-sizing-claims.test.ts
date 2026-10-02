@@ -1,4 +1,4 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 /**
  * SIZING PLAN ASSUMPTION TESTS — server half (POD-3235, spec artifact SPEC-0b.md rev 2).
  *

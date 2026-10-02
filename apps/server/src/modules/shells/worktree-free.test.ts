@@ -1,4 +1,4 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 /**
  * Freeing a worktree removes the dock-shell mapping (POD-4436 step 4), and the
  * stop path answers the policy's owning worktree from the mapping (step 3).

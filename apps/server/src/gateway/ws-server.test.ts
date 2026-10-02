@@ -1,4 +1,4 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 /**
  * THE I/O-COMPLETION SEAM FEEDS ITS COST BUCKET (§6.1).
  *

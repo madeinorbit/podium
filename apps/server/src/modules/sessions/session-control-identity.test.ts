@@ -1,4 +1,4 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 /**
  * POD-1081 integration-shaped tests over SessionClientControl:
  * attach visibility + machine use, take-control policy, agent revoke at apply.

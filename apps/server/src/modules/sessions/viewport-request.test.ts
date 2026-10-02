@@ -1,4 +1,4 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 /**
  * The server's statement path (POD-3239 B6, reshaped by POD-4771).
  *

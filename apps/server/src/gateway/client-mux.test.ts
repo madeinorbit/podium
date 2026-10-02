@@ -1,4 +1,3 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 import { attachTestClient } from '../test-support/client-transport'
 /**
  * THE CLIENT MUX (POD-390): the routing table is TOTAL, the gate FAILS CLOSED,

@@ -1,4 +1,4 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 /**
  * VIEWER CATCH-UP FROM THE HOST'S PICTURES — server half (POD-4912, SPEC v4 B2).
  *

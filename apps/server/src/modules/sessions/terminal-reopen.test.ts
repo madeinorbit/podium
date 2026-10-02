@@ -1,4 +1,4 @@
-import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 /** Live-only attaches on sessions without pictures (SPEC v4 B3, H6). */
 
 import { asSessionId, type Geometry } from '@podium/model'
