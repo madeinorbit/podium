@@ -379,7 +379,7 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
-    line: 132,
+    line: 131,
     why: 'the property that HOLDS the transact port; the port itself is named by its own entry in packages/sync/src/authority/ports.ts.',
   },
   {
