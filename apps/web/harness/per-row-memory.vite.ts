@@ -19,6 +19,7 @@ export default {
     ...config.plugins!,
     {
       name: 'existing-memory-collector-url',
+      enforce: 'post' as const,
       generateBundle(_options: unknown, bundle: Record<string, { fileName: string }>) {
         const entry = bundle['harness/per-row-memory.browser.html']!
         delete bundle[entry.fileName]
