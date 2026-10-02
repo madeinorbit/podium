@@ -139,12 +139,13 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
           })
         }).catch(() => {})
       }
-      if (sidebarCheckRequested()) {
+      if (sidebarDataLayer() === 'pool') {
         const pool = slot.handle.pool
         void import('@podium/client-graph/diagnostics/runtime-check')
           .then(({ startSidebarCheck }) => {
             if (disposed) return
             stopCheck = startSidebarCheck(runtime, pool, {
+              startup: sidebarCheckRequested(),
               state: (store) => {
                 const base = {
                   pinnedRepos: store.pins.repos,

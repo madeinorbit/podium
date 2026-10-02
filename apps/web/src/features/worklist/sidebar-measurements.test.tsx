@@ -129,6 +129,55 @@ describe('sidebar measurement boundary', () => {
     expect(screen.getByTestId('perf-check').textContent).toContain('Off')
   })
 
+  it('shows the last check cost/result after the rolling window and only requests when clicked', () => {
+    let at = 0
+    const perf = createSidebarPerf(() => at)
+    perf.check({ state: 'different', differences: 1, checkedAt: 42, durationMs: 456.7, checks: 1,
+      first: { section: 'pinned', sectionIndex: 0, rowIndex: 0, expectedId: 'one', actualId: 'one', field: 'color' } })
+    const request = vi.fn()
+    const props = { report: perf.read(), mode: 'pool' as const, heap: null, legacyBuilds: null, onClose: () => {}, onRunCheck: request }
+    const view = render(<SidebarPerfReadout {...props} />)
+    expect(screen.getByTestId('perf-check').textContent).toContain('Difference found')
+    expect(screen.getByTestId('perf-check-duration').textContent).toContain('456.7 ms')
+    expect(screen.getByTestId('sidebar-check-first').textContent).toContain('color')
+    expect(request).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Run check' }))
+    expect(request).toHaveBeenCalledTimes(1)
+    at = 60_001
+    view.rerender(<SidebarPerfReadout {...props} report={perf.read()} />)
+    expect(screen.getByTestId('perf-check-duration').textContent).toContain('456.7 ms')
+    for (const state of ['queued', 'checking', 'off'] as const) {
+      perf.check({ ...perf.read().check, state })
+      view.rerender(<SidebarPerfReadout {...props} report={perf.read()} />)
+      expect((screen.getByRole('button', { name: 'Run check' }) as HTMLButtonElement).disabled).toBe(true)
+      fireEvent.click(screen.getByRole('button', { name: 'Run check' }))
+    }
+    expect(request).toHaveBeenCalledTimes(1)
+    view.rerender(<SidebarPerfReadout {...props} mode="legacy" />)
+    expect(screen.queryByRole('button', { name: 'Run check' })).toBeNull()
+  })
+
+  it('routes the panel button to its runtime without requesting comparison work on render', async () => {
+    vi.doMock('@/lib/sidebar-data-layer', () => ({ sidebarDataLayer: () => 'pool', sidebarCheckRequested: () => false }))
+    const { SidebarPerfSession: Session } = await import('./SidebarPerfPanel')
+    const owner = {}
+    const request = vi.fn(() => true)
+    const { bindSidebarCheckRequest, reportSidebarCheck } = await import('@podium/client-core/perf')
+    const stop = bindSidebarCheckRequest(owner, request)
+    // A request owner is separate from passive telemetry: only the button dispatches it.
+    reportSidebarCheck(owner, { state: 'ready', differences: 0, checkedAt: null })
+    try {
+      render(<Session owner={owner} onClose={() => {}} />)
+      expect(request).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: 'Run check' }))
+      expect(request).toHaveBeenCalledTimes(1)
+    } finally {
+      cleanup()
+      stop()
+      vi.doUnmock('@/lib/sidebar-data-layer')
+    }
+  })
+
   it('starts the reused switch trace at the captured input and preserves the paint mark', () => {
     const sessionId = asSessionId('synthetic-sidebar-input')
     const paint = captureSidebarSwitchInput(performance.now() - 50)

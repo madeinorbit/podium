@@ -113,12 +113,13 @@ afterEach(() => {
 })
 
 describe('StoreProvider owns the sidebar pool', () => {
-  it('attaches the requested timer to the same runtime and disposes it before the pool', async () => {
+  it('attaches the one-shot startup check to the same runtime and disposes it before the pool', async () => {
     choice.check = true
     render()
     const pool = await ready()
     await vi.waitFor(() => expect(startSidebarCheck).toHaveBeenCalledTimes(1))
     expect(vi.mocked(startSidebarCheck).mock.calls[0]!.slice(0, 2)).toEqual([runtime, pool])
+    expect(vi.mocked(startSidebarCheck).mock.calls[0]![2]).toMatchObject({ startup: true })
     const stop = vi.mocked(startSidebarCheck).mock.results[0]!.value
     const original = pool.dispose.bind(pool)
     vi.spyOn(pool, 'dispose').mockImplementation(() => { expect(stop).toHaveBeenCalledTimes(1); original() })
@@ -137,7 +138,8 @@ describe('StoreProvider owns the sidebar pool', () => {
     expect(await ready()).toBe(pool)
     expect(create).toHaveBeenCalledTimes(1)
     expect(errors).toEqual([])
-    expect(startSidebarCheck).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(startSidebarCheck).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(startSidebarCheck).mock.calls[0]![2]).toMatchObject({ startup: false })
   })
 
   it.each([
