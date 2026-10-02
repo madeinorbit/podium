@@ -39,6 +39,7 @@ declare global {
   interface Window {
     __speedReact: { renderer: Record<string, unknown> | null; commits: Commit[] }
     __speedFunctions: Function[]
+    __speedFunctionNames: string[]
     __speedPaneMode(): 'legacy' | 'pool'
   }
 }
@@ -49,11 +50,13 @@ declare global {
 export async function installCommitObserver(page: Page) {
   await page.addInitScript(() => {
     const functions: Function[] = []
+    const functionNames: string[] = []
     const ids = new WeakMap<Function, number>()
     let previousFibers = new WeakSet<Fiber>()
     const state = { renderer: null as Record<string, unknown> | null, commits: [] as Commit[] }
     window.__speedReact = state
     window.__speedFunctions = functions
+    window.__speedFunctionNames = functionNames
     Object.assign(window, {
       __REACT_DEVTOOLS_GLOBAL_HOOK__: {
         supportsFiber: true,
@@ -94,6 +97,8 @@ export async function installCommitObserver(page: Page) {
             if (id === undefined) {
               id = functions.length
               functions.push(type)
+              functionNames.push((fiber.type as { displayName?: string } | null)?.displayName ??
+                (type as { displayName?: string }).displayName ?? type.name)
               ids.set(type, id)
             }
             components[id] = (components[id] ?? 0) + 1
@@ -125,6 +130,7 @@ export async function saveComponentLocations(page: Page, cdp: CDPSession, path: 
   await cdp.send('Debugger.enable')
   try {
     const count = await page.evaluate(() => window.__speedFunctions.length)
+    const functionNames = await page.evaluate(() => window.__speedFunctionNames)
     const components = []
     for (let id = 0; id < count; id++) {
       const { result } = await cdp.send('Runtime.evaluate', {
@@ -137,8 +143,8 @@ export async function saveComponentLocations(page: Page, cdp: CDPSession, path: 
         (entry) => entry.name === '[[FunctionLocation]]',
       )?.value?.value as { scriptId: string; lineNumber: number; columnNumber: number } | undefined
       if (!location) throw new Error(`Missing component FunctionLocation ${id}`)
-      const name = properties.result.find((entry) => entry.name === 'displayName')?.value?.value ??
-        properties.result.find((entry) => entry.name === 'name')?.value?.value
+      const name = functionNames[id] || (properties.result.find((entry) => entry.name === 'displayName')?.value?.value ??
+        properties.result.find((entry) => entry.name === 'name')?.value?.value)
       // Minification can erase an observer wrapper's name. Its closure keeps
       // the original render function; capture only function coordinates (no
       // scope values), after all timed samples, for unambiguous source mapping.
