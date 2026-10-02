@@ -53,7 +53,7 @@ async function main() {
   const sessions = dedupeSessions(rawSessions), views = deriveIssueViews(issues, rawSessions)
   const sessionById = new Map(rawSessions.map(session => [session.sessionId, session]))
   issues = issues.map(issue => { const view = views.get(issue.id)!; return { ...issue, ...view,
-    ...deriveIssueRollups(issue, view.memberSessionIds, id => sessionById.get(id)),
+    ...deriveIssueRollups(issue, view.memberSessionIds, id => sessionById.get(id)), id: issue.id,
   } })
   const rows = [...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
     ...rawSessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value }))]

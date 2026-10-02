@@ -60,7 +60,7 @@ export default function PoolFlightDeck(props: FlightDeckProps & { preferences: F
       sessions: [...values.mission.sessions], allWorktreePaths: [],
       issue: id => { const issue = reader.issue(id); return issue === LOADING ? undefined : issue },
       session: id => { const session = reader.session(id); return session === LOADING ? undefined : session },
-      rootFor: id => { const root = missions(pool).rootFor(id); return root === LOADING ? null : root },
+      rootFor: id => { const root = missions(pool).rootFor(id); return root === LOADING ? null : root ?? id },
       attached: id => { const sessions = reader.attached(id); return sessions === LOADING ? [] : sessions },
     }
   }, [pool, values])

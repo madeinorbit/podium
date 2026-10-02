@@ -67,7 +67,8 @@ beforeEach(() => {
     issues: { events: { query: async () => [] } }, sessions: { transcriptRead: { query: async () => ({ items: [], hasMore: false }) } } }
   pool = new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow })
   pool.apply({ type: 'replace', rows: [
-    ...replica.rows('repos').map(value => ({ kind: 'repo' as const, id: value.id, value })),
+    ...replica.rows('repos').flatMap(value => value.repoPath ? [{ kind: 'worktree' as const, id: value.repoPath,
+      value: { path: value.repoPath, repoId: value.id, repoPath: value.repoPath, prefix: value.prefix } }] : []),
     ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
     ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
   ] })

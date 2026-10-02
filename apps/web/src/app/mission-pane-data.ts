@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { asIssueId } from '@podium/model/browser'
 import { missionIssueIds, missionRootFor, selectedMissionRoot } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph'
 import type { readWorkspaceMission } from '@podium/client-graph/mission-view'
@@ -39,7 +40,7 @@ function useLegacyWorkspaceMission(selectedId: string | null, focusedId: string 
   const missionIds = missionRoot ? missionIssueIds(issues, missionRoot.id, sessions) : new Set<string>()
   const missionIssues = missionRoot ? issues.filter(candidate => missionIds.has(candidate.id)) : []
   const issue = (focusedId && missionIds.has(focusedId) ? issues.find(candidate => candidate.id === focusedId) : undefined) ?? missionRoot
-  return { missionRoot, missionIds, missionIssues, issue, missionOnScreen: selectedMissionRoot(issues, sessions, selectedId),
+  return { missionRoot, missionIds, missionIssues, issue, missionOnScreen: selectedMissionRoot(issues, sessions, selectedId ? asIssueId(selectedId) : null),
     hasAnyTask: issues.some(candidate => !candidate.deletedAt), loading: false }
 }
 export function useWorkspaceMission(selectedId: string | null, focusedId: string | null, sessions: readonly SessionView[]): WorkspaceMission {

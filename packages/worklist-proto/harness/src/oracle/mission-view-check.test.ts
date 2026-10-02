@@ -9,6 +9,7 @@ import { missionView, readMissionView, readWorkspaceMission } from '@podium/clie
 import { LOADING } from '@podium/client-graph'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import type { MobxPool } from '@podium/client-graph/pool'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type { Store } from '@podium/client-core/engine'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { startScenarioEngine, writeRescopeGrow, writeRescopeBack } from '../../../shared/src/scenarios'
@@ -112,7 +113,7 @@ describe('mission pane value differential', () => {
     try {
       const before = { ...reader.stats }
       const other = ids.find(id => id !== selected)!
-      const raw = tracked(() => handle.pool.row('issue', other))
+      const raw = tracked(() => handle.pool.row('issue', other)) as SliceIssue | typeof LOADING | undefined
       if (!raw || raw === LOADING) throw new Error('Addressed synthetic row is not loaded')
       runInAction(() => handle.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: other, value: { ...raw, title: 'Unrelated title' } }] }))
       expect(reader.stats).toEqual(before)

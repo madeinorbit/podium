@@ -8,7 +8,7 @@ it('attributes a legacy derivation inside a pool read to its existing store owne
   expect(measurePoolMission(owner, () => 42)).toBe(42)
   expect(missionLegacyCountsFor(owner)).toEqual({})
   const id = asIssueId('census-control')
-  const derived = measurePoolMission(owner, () => missionRootFor([{ id, stage: 'backlog' }], id))
+  const derived = measurePoolMission(owner, () => missionRootFor([{ id, stage: 'backlog', archived: false }], id))
   expect(derived?.id).toBe(id)
   expect(missionLegacyCountsFor(owner)['pool.mission.builds']).toBe(1)
   expect(missionLegacyCountsFor(other)).toEqual({})
