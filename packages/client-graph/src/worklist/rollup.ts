@@ -65,6 +65,7 @@
  * the legacy line each follows cited, as `views.ts` does.
  */
 
+import { LOADING, type Loaded } from '../loading'
 import type { RowView } from '../shared/row-view'
 import { unmergedDeliveryOf } from '../shared/schema'
 import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
@@ -599,9 +600,7 @@ export function latestOf(input: {
 
 // ------------------------------------------------------------ node parts
 
-/** A cold row asked for: its load is queued. */
-export const LOADING = Symbol('loading')
-export type Loaded<T> = T | typeof LOADING | undefined
+export { LOADING, type Loaded } from '../loading'
 
 /** What the roll-up parts read. Tracked in the live pool; plain in the rebuild. */
 export interface RollupInputs {

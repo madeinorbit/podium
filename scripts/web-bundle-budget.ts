@@ -25,6 +25,7 @@ import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
 import { duplicateReport } from './web-bundle-duplicates'
+import { type BuildManifest, eagerClientGraphSources, eagerJsFiles } from './web-bundle-boundaries'
 
 interface SourceMap {
   readonly sources: readonly string[]
@@ -200,6 +201,8 @@ const POST_PAINT_VENDOR_PACKAGES = [
  * with no runtime import at all — the split those two modules exist to keep.
  */
 const BROWSER_HOSTILE_SOURCES = [
+  // Operator replay reads local credentials and must never be a product import.
+  'file-viewer-replay.ts',
   'packages/runtime/src/sqlite/',
   'packages/harness/src/',
 ] as const
@@ -385,7 +388,10 @@ function matchingSources(chunks: readonly SourcesReport[], fragment: string): st
   ].sort()
 }
 
-const eagerChunks = htmlJsReferences(indexHtml).map(chunkReport)
+const manifest = JSON.parse(
+  readFileSync(join(dist, '.vite/manifest.json'), 'utf8'),
+) as BuildManifest
+const eagerChunks = eagerJsFiles(htmlJsReferences(indexHtml), manifest).map(chunkReport)
 const eagerBytes = eagerChunks.reduce<Bytes>(addBytes, { raw: 0, gzip: 0, brotli: 0 })
 const settings = chunkReport(findChunk('SettingsView-'))
 const allChunks = readdirSync(join(dist, 'assets'))
@@ -452,6 +458,7 @@ const report = {
     postPaintVendorSources: POST_PAINT_VENDOR_PACKAGES.flatMap((pkg) =>
       matchingSources(eagerChunks, `node_modules/${pkg}/`),
     ),
+    clientGraphSources: eagerClientGraphSources(eagerChunks.flatMap((chunk) => chunk.sources)),
     /** Every eager byte, attributed. See ownerOf — this is what a breach prints. */
     bytesByOwner: bytesByOwner(eagerChunks),
   },
@@ -832,6 +839,14 @@ if (checkBudget) {
   if (report.eager.updateEngineSources.length > 0)
     errors.push(
       `update engine is eager, so the panel is back on the first paint: ${report.eager.updateEngineSources.join(', ')}`,
+    )
+
+  if (report.eager.clientGraphSources.length > 0)
+    errors.push(
+      `client-graph pool code is eager with its startup switches off: ` +
+        `${report.eager.clientGraphSources.map(readableSource).join(', ')}. ` +
+        `Use type-only imports or @podium/client-graph/loading in the shell; ` +
+        `load pool code through the switch-gated dynamic import.`,
     )
 
   if (report.eager.interactionOnlySources.length > 0)

@@ -1,6 +1,6 @@
 export { createWorklistPool, type WorklistPoolHandle } from './create'
 export { MobxPool, type PoolLazyOptions } from './pool'
-export { LOADING } from './worklist/rollup'
+export { LOADING } from './loading'
 export type { IssueModel, SessionModel, ModelOf } from './models'
 export type { RowSource, RowRecord, RowSourceEvent, LocalsSource } from './shared/source'
 export type { SliceLocals } from './shared/slice-types'

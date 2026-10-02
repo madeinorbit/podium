@@ -14,7 +14,7 @@ import {
   type CheckRow,
   compareSidebarSnapshots,
 } from '@podium/client-graph/diagnostics/sidebar-check'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { LOADING } from '@podium/client-graph/loading'
 
 export const FILE_VIEWER_PREFERENCE_KEYS = [
   HTML_MODE_MAP_KEY,

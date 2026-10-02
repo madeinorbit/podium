@@ -1,4 +1,5 @@
-import { LOADING, type MobxPool } from '@podium/client-graph'
+import type { MobxPool } from '@podium/client-graph'
+import { LOADING } from '@podium/client-graph/loading'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import {
   createContext,

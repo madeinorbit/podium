@@ -86,6 +86,50 @@ function mobileEntryRedirectPlugin(): Plugin {
   }
 }
 
+/** Build evidence for import-boundary regressions; never loaded by the app. */
+function importGraphPlugin(): Plugin {
+  return {
+    name: 'podium-import-graph',
+    generateBundle(_options, bundle) {
+      const relative = (id: string) => (id.startsWith(repoRoot) ? id.slice(repoRoot.length) : id)
+      const modules = Object.fromEntries(
+        [...this.getModuleIds()].map((id) => {
+          const info = this.getModuleInfo(id)
+          return [
+            relative(id),
+            {
+              imports: info?.importedIds.map(relative) ?? [],
+              dynamicImports: info?.dynamicallyImportedIds.map(relative) ?? [],
+            },
+          ]
+        }),
+      )
+      const chunks = Object.fromEntries(
+        Object.values(bundle).flatMap((output) =>
+          output.type === 'chunk'
+            ? [
+                [
+                  output.fileName,
+                  {
+                    entry: output.isEntry,
+                    imports: output.imports,
+                    dynamicImports: output.dynamicImports,
+                    modules: output.moduleIds.map(relative),
+                  },
+                ],
+              ]
+            : [],
+        ),
+      )
+      this.emitFile({
+        type: 'asset',
+        fileName: '.vite/import-graph.json',
+        source: JSON.stringify({ modules, chunks }),
+      })
+    },
+  }
+}
+
 export default defineConfig(({ command, mode }) => {
   /**
    * A DEVELOPMENT BUILD (`bun run build:dev`, i.e. `vite build --mode development`)
@@ -109,6 +153,7 @@ export default defineConfig(({ command, mode }) => {
   return {
     plugins: [
       mobileEntryRedirectPlugin(),
+      importGraphPlugin(),
       react(),
       tailwindcss(),
       VitePWA({
@@ -489,6 +534,7 @@ export default defineConfig(({ command, mode }) => {
     // scripts/archive-web-sourcemaps.ts. That step only ever reads dist, so nothing
     // here changes, nothing new is served, and the maps stay `hidden`.
     build: {
+      manifest: true,
       sourcemap: isDevBuild || process.env.PODIUM_SOURCEMAP === 'linked' ? true : 'hidden',
       ...(isDevBuild ? { minify: false as const } : {}),
     },
