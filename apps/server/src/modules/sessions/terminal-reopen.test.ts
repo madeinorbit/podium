@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 /** Live-only attaches on sessions without pictures (SPEC v4 B3, H6). */
 
 import { asSessionId, type Geometry } from '@podium/model'
@@ -26,7 +27,7 @@ function makeClient(id: string): Sent {
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
-    wireVersion: 1,
+    wireVersion: CLIENT_WIRE_VERSION,
     transcriptSubs: new Set(),
     visible: true,
     viewVisible: new Set(),

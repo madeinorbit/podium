@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 import {
   type ConversationSummaryWire,
   type ConversationSummaryWireInput,
@@ -78,7 +79,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       // Every hello must carry sync.http.v1 (the mux refuses one without it);
       // a spread `caps` used to REPLACE it, so a delta client never got feedResume.
       caps: ['sync.http.v1', ...caps],
-      wireVersion: 2,
+      wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })

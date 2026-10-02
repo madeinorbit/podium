@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 import {
   asAgentIdentityId,
   asCapabilityRef,
@@ -65,7 +66,7 @@ async function drive(): Promise<{ registry: SessionRegistry; inbox: unknown[] }>
   const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
   registry.clientGateway.routeClientFrame(id, {
     type: 'hello',
-    wireVersion: 2,
+    wireVersion: CLIENT_WIRE_VERSION,
     clientId: '',
     viewport: { cols: 80, rows: 24, dpr: 1 },
     caps: ['metadataDelta', 'sync.http.v1'],

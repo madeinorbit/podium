@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 /**
  * THE I/O-COMPLETION SEAM FEEDS ITS COST BUCKET (§6.1).
  *
@@ -96,13 +97,13 @@ describe('HTTP sync capability cutover', () => {
     const upgrade = vi.fn(() => true)
     const server = { upgrade, port: 0, stop() {} }
     try {
-      for (const query of ['', '?v=2', '?v=3', '?v=3&cap=other']) {
+      for (const query of ['', '?v=2', '?v=3', `?v=${CLIENT_WIRE_VERSION}&cap=other`, '?v=3&cap=sync.http.v1']) {
         const response = await handle.handleRequest(new Request(`http://localhost/client${query}`), server)
         expect(response?.status).toBe(426)
       }
       expect(upgrade).not.toHaveBeenCalled()
       expect(await handle.handleRequest(
-        new Request('http://localhost/client?v=3&cap=sync.http.v1'), server,
+        new Request(`http://localhost/client?v=${CLIENT_WIRE_VERSION}&cap=sync.http.v1`), server,
       )).toBeUndefined()
       expect(upgrade).toHaveBeenCalledTimes(1)
       for (const path of ['/daemon?v=1', '/machine?v=2']) {

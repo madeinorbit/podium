@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 /**
  * VIEWER CATCH-UP FROM THE HOST'S PICTURES — server half (POD-4912, SPEC v4 B2).
  *
@@ -68,7 +69,7 @@ function viewer(id: string, opts: { lazy?: boolean; dropLive?: boolean } = {}): 
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
-    wireVersion: 1,
+    wireVersion: CLIENT_WIRE_VERSION,
     transcriptSubs: new Set(),
     visible: true,
     viewVisible: new Set(),

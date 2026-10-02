@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 /**
  * SHELL LIFETIME TRIGGERS (POD-4435): the tab-release edge and the
  * issue-close / worktree-free upgrade, against a real registry.
@@ -84,7 +85,7 @@ function stubClient(id: string): ClientConn & { sent: ServerMessage[] } {
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
-    wireVersion: 1,
+    wireVersion: CLIENT_WIRE_VERSION,
     transcriptSubs: new Set(),
     visible: true,
     viewVisible: new Set(),

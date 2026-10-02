@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 /**
  * The server's two sizing rules (POD-4771, POD-3190 design rev 3).
  *
@@ -53,7 +54,7 @@ function makeClient(id: string): Sent {
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
-    wireVersion: 1,
+    wireVersion: CLIENT_WIRE_VERSION,
     transcriptSubs: new Set(),
     visible: true,
     viewVisible: new Set(),

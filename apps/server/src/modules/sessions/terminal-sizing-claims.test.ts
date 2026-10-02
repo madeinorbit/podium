@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 /**
  * SIZING PLAN ASSUMPTION TESTS — server half (POD-3235, spec artifact SPEC-0b.md rev 2).
  *
@@ -52,7 +53,7 @@ function makeClient(id: string): Sent {
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
-    wireVersion: 1,
+    wireVersion: CLIENT_WIRE_VERSION,
     transcriptSubs: new Set(),
     visible: true,
     viewVisible: new Set(),

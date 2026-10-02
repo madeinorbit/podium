@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 import {
   firstAdminMemberId,
   type ConversationSummaryWire,
@@ -60,7 +61,7 @@ describe('SessionRegistry conversation registry', () => {
     await registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
     caps: ['sync.http.v1'],
-      wireVersion: 2,
+      wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })

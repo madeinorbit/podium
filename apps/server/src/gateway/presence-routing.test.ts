@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 import { asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import {
   asSubscriberId,
@@ -38,7 +39,7 @@ function connection(
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
-    wireVersion: 2,
+    wireVersion: CLIENT_WIRE_VERSION,
     transcriptSubs: new Set(),
     visible: false,
     viewVisible: new Set(),

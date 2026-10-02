@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 import { attachTestClient } from '../test-support/client-transport'
 /**
  * THE CLIENT MUX (POD-390): the routing table is TOTAL, the gate FAILS CLOSED,
@@ -372,7 +373,7 @@ describe('the connection lifecycle', () => {
     h.mux.routeClientFrame(h.id, hello)
     expect(h.sent.at(-1)).toEqual({
       type: 'welcome',
-      wireVersion: 1,
+      wireVersion: CLIENT_WIRE_VERSION,
       clientId: h.id,
       caps: [CAP_TERMINAL_INPUT_BINARY_V1],
     })

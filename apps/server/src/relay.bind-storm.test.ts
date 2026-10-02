@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 import { firstAdminMemberId, asUserId, asMachineId } from '@podium/model'
 import type { SessionId, SessionMeta } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
@@ -65,7 +66,7 @@ describe('bind-storm regression', () => {
     await registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
     caps: ['sync.http.v1'],
-      wireVersion: 2,
+      wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })

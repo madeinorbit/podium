@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 /**
  * Freeing a worktree removes the dock-shell mapping (POD-4436 step 4), and the
  * stop path answers the policy's owning worktree from the mapping (step 3).
@@ -222,7 +223,7 @@ describe('freeWorktreeKeepBranch runs the shell lifetime policy (POD-4525)', () 
       viewports: new Map(),
       attached: new Set(),
       caps: new Set(),
-      wireVersion: 1,
+      wireVersion: CLIENT_WIRE_VERSION,
       transcriptSubs: new Set(),
       visible: true,
       viewVisible: new Set(),

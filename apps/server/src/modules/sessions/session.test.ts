@@ -1,3 +1,4 @@
+import { CLIENT_WIRE_VERSION } from '@podium/protocol/version'
 import { firstAdminMemberId } from '@podium/model'
 import type { AgentRuntimeState, Geometry, SessionUserOverlay } from '@podium/model'
 import { asMachineId, asSessionId, NO_SESSION_USER_STATE } from '@podium/model'
@@ -52,7 +53,7 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
-    wireVersion: 1,
+    wireVersion: CLIENT_WIRE_VERSION,
     transcriptSubs: new Set(),
     visible: true,
     viewVisible: new Set(),
