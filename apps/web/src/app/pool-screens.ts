@@ -1,3 +1,4 @@
+import { sessionPanePoolScreen } from '@/features/terminal/session-pane-pool-screen'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import type { UiState } from '@podium/client-core/ui-state'
 import { initializeSettingsDataLayer, settingsDataLayer, settingsCheckRequested } from '@/features/settings/data-layer'
@@ -21,6 +22,7 @@ export function initializePoolScreens(ui: UiState): void {
  * stays behind startup choices; every entry uses the existing runtime/pool. */
 export const poolBackedScreens: readonly PoolScreen[] = [
   panePoolScreen,
+  sessionPanePoolScreen,
   commandLaunchScreen,
   noticePoolScreen,
   { optional: true, initialize: initializeSettingsDataLayer, enabled: () => settingsDataLayer() === 'pool',
