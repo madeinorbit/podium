@@ -127,14 +127,12 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
       if (before === undefined || before === LOADING) throw new Error('roster head fixture did not load')
       const next = before.sessions.find(session => session.sessionId !== before.firstSessionId)?.sessionId
       expect(next, 'fixture has a different own session to promote').toBeDefined()
-      const wire = ctx.cache.read('issue', id)!.value as object
       const projection = ctx.cache.read('issueProjection', id)!.value as object
       const moved = await runCountScenario(mounted, {
         scenario: 'coordinatorRosterHead',
         methodology: 'sidebar roster head',
         apply: () => {
           ctx.replica.batch(() => {
-            upsert(ctx, 'issue', id, { ...wire, coordinatorSessionId: next })
             upsert(ctx, 'issueProjection', id, { ...projection, coordinatorSessionId: next })
           })
           feeds.flush()
