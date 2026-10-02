@@ -60,7 +60,7 @@ async function main() {
   }
   const replica = createKernelReplica({ cache: { readCursor: () => null, readEntities: () => [...records.values()], read: (entity, id) => records.get(`${entity}:${id}`), durability: () => 'durable' },
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
-  const state = { automations: replica.rows('automations'), automationRuns: replica.rows('automationRuns'), sessions: dedupeSessions([...replica.rows('sessions')]),
+  const state = { automations: [...replica.rows('automations')], automationRuns: [...replica.rows('automationRuns')], sessions: dedupeSessions([...replica.rows('sessions')]),
     repos, machines, settingsTab: 'general', coarseNow: Date.now(), selectedIssueId: null, paneA: null,
     pins: { repos: [], worktrees: [] }, sidebarSettings: { repoOrder: [] },
   } as unknown as Store
@@ -70,6 +70,16 @@ async function main() {
   const handle = createRuntimeWorklistPool(runtime as never, { settings: true })
   handle.pool.sources.register(AUTOMATION_ENTITIES, new AutomationSource(replica))
   try {
+    if (process.argv.includes('--red-control')) {
+      const value = AutomationWire.parse({ id: 'planted-automation', name: 'Planted red control', enabled: true,
+        repoPath: null, scheduleKind: 'cron', cron: '0 9 * * *', runAt: null, targetSessionId: null,
+        agentKind: 'codex', model: 'auto', effort: 'auto', prompt: 'Synthetic control', sessionMode: 'fresh',
+        nextRunAt: null, lastRunAt: null, createdAt: new Date().toISOString(),
+      })
+      const record = { entity: 'automation', entityId: value.id, value, provenance: { seq: 2 } }
+      records.set(`automation:${value.id}`, record)
+      replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
+    }
     // Keep the offline executable out of the web/graph project dependency
     // cycle, while still calling the actual legacy screen policy at replay.
     const policyModule = '../../../apps/web/src/features/automations/automation-form.ts'
