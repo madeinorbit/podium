@@ -10,3 +10,13 @@ export function measureLegacyMission<T>(owner: object, operation: string, read: 
   current[operation] = (current[operation] ?? 0) + 1
   return read()
 }
+export function useMissionPaneCensus(): void {
+  const owner = useStoreHandle()
+  useEffect(() => {
+    const api = { read: () => missionLegacyCountsFor(owner), reset: () => resetMissionLegacyCounts(owner) }
+    Object.assign(window, { __missionPaneLegacy: api })
+    return () => { if (Reflect.get(window, '__missionPaneLegacy') === api) Reflect.deleteProperty(window, '__missionPaneLegacy') }
+  }, [owner])
+}
+import { useStoreHandle } from '@podium/client-core/react'
+import { useEffect } from 'react'

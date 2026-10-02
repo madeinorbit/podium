@@ -13,6 +13,8 @@ import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fix
 import { seedCacheFromCorpus } from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { FlightDeck, type FlightDeckView } from './FlightDeck'
 import { OperatorFocusProvider } from './operator-focus'
+import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
+import { missionLegacyCountsFor, resetMissionLegacyCounts } from './mission-pane-perf'
 
 const state = vi.hoisted(() => ({
   layer: 'legacy' as 'legacy' | 'pool', pool: null as unknown,
@@ -24,13 +26,14 @@ const state = vi.hoisted(() => ({
   focusIssueSession: vi.fn(), setPanelMode: vi.fn(), preferPanelMode: vi.fn(), setView: vi.fn(), markIssueRead: vi.fn(),
   markSessionRead: vi.fn(), setIssueTucked: vi.fn(), closeIssue: vi.fn(), updateIssue: vi.fn(), renameSession: vi.fn(),
 }))
+const owner = { getSnapshot: () => state, subscribe: () => () => {} }
 vi.mock('./store', () => ({
   useStoreSelector: (read: (store: typeof state) => unknown) => read(state),
   useReplicaIssues: () => { if (state.layer === 'pool') throw new Error('Pool pane read legacy issue models'); return state.issues },
   useSessionDraft: () => '',
 }))
 vi.mock('@podium/client-core/react', async original => ({ ...await original<typeof import('@podium/client-core/react')>(),
-  useStoreHandle: () => ({ getSnapshot: () => state, subscribe: () => () => {} }),
+  useStoreHandle: () => owner,
 }))
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPool: () => state.pool,
@@ -46,14 +49,16 @@ vi.mock('@/lib/use-harness-descriptors', () => ({ useHarnessDescriptors: () => (
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => true }))
 
 const corpus = buildCorpus(1, 1)
-const replica = createKernelReplica({ cache: seedCacheFromCorpus(corpus), side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
-const issues = allIssueViewModels(replica)
-const sessions = dedupeSessions(sessionViews([...replica.rows('sessions')], {
-  userId: 'operator', userStates: [...replica.rows('sessionUserStates')], machines: [...replica.rows('machines')], repos: [...replica.rows('repos')],
-}))
+let issues: ReturnType<typeof allIssueViewModels>
+let sessions: SessionView[]
 let pool: MobxPool
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true }); vi.setSystemTime(corpus.fixedNow)
+  const replica = createKernelReplica({ cache: seedCacheFromCorpus(corpus), side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
+  issues = allIssueViewModels(replica)
+  sessions = dedupeSessions(sessionViews([...replica.rows('sessions')], {
+    userId: 'operator', userStates: [...replica.rows('sessionUserStates')], machines: [...replica.rows('machines')], repos: [...replica.rows('repos')],
+  }))
   state.layer = 'legacy'; state.issues = issues; state.sessions = sessions; state.coarseNow = corpus.fixedNow
   state.replica = replica
   state.trpc = { cost: { task: { query: async () => null }, tasks: { query: async () => [] } },
@@ -69,6 +74,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); pool.dispose(); state.pool = null; vi.useRealTimers(); vi.clearAllMocks() })
 
 function mount(view: FlightDeckView) {
+  vi.setSystemTime(corpus.fixedNow)
   state.uiState.get = key => key === 'podium.flightDeck.mode' ? view : null
   return render(<ConfirmProvider><OperatorFocusProvider missionId={state.selectedIssueId}>
     <IssueExplorerProvider><FlightDeck onCollapse={() => {}} /></IssueExplorerProvider>
@@ -96,13 +102,16 @@ describe('rendered mission pane parity', () => {
     state.selectedIssueId = root.id
     const legacy = mount(view); await settled()
     const expected = renderedOutput(legacy.container)
+    expect(missionLegacyCountsFor(owner)['root']).toBeGreaterThan(0)
     cleanup()
     state.layer = 'pool'
+    resetMissionLegacyCounts(owner)
     const baseline = missionIndexStats(), ownership = sessionOwnershipStats()
     const current = mount(view); await settled()
     expect(renderedOutput(current.container)).toEqual(expected)
     expect(missionIndexStats()).toEqual(baseline)
     expect(sessionOwnershipStats()).toEqual(ownership)
+    expect(missionLegacyCountsFor(owner)).toEqual({})
   }, 120_000)
 
   it('keeps archived-session reveal names/order and opens the same session', async () => {
@@ -119,5 +128,17 @@ describe('rendered mission pane parity', () => {
     const first = current.container.querySelector<HTMLElement>('[data-flight-session]')!
     fireEvent.doubleClick(first); await settled()
     expect(state.openSessionTab).toHaveBeenCalled()
+  }, 120_000)
+
+  it('preserves folded bar words, labels, tick order and layout', async () => {
+    state.selectedIssueId = 'i1884'
+    const legacy = render(<FoldedFlightDeckBar onExpand={() => {}} />)
+    const expected = renderedOutput(legacy.container)
+    cleanup(); state.layer = 'pool'
+    const baseline = missionIndexStats(), ownership = sessionOwnershipStats()
+    const current = render(<FoldedFlightDeckBar onExpand={() => {}} />)
+    await waitFor(() => expect(current.container.querySelector('[data-testid="flight-deck-gauge"]')).not.toBeNull())
+    expect(renderedOutput(current.container)).toEqual(expected)
+    expect(missionIndexStats()).toEqual(baseline); expect(sessionOwnershipStats()).toEqual(ownership)
   }, 120_000)
 })

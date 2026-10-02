@@ -140,7 +140,7 @@ import {
 import { useReplicaIssues, useSessionDraft, useStoreSelector } from './store'
 import { paneDataLayer } from '@/lib/pane-data-layer'
 import type { MissionViewValues, MissionRowPresentation, MissionHandoffValues } from '@podium/client-graph/mission-view'
-import { measureLegacyMission } from './mission-pane-perf'
+import { measureLegacyMission, useMissionPaneCensus } from './mission-pane-perf'
 
 const PoolFlightDeck = lazy(() => import('./FlightDeckPool'))
 
@@ -2973,6 +2973,7 @@ export interface FlightDeckSource {
 }
 
 export function FlightDeck(props: FlightDeckProps): JSX.Element {
+  useMissionPaneCensus()
   const developmentEnabled = useFeature('podium-development')
   const [preferredView, setPreferredView] = usePersistedUiState<FlightDeckView>(
     FLIGHT_DECK_MODE_KEY,
@@ -4127,6 +4128,7 @@ export function FlightDeckContent({
               <FlightDeckHandoff
                 rootIssue={root}
                 poolValues={source.handoff}
+                legacyRead={source.legacyRead}
                 issues={issues}
                 sessions={sessions}
                 visitReadAt={

@@ -120,7 +120,8 @@ export class MissionViewReader {
       ...this.pool.graph.many('issue', id, 'spinOffs').map(id => ({ id: asIssueId(id), type: 'discovered-from' })),
       ...MISSION_VIEW_DEPS.flatMap(([type, , inverse]) => this.pool.graph.many('issue', id, inverse).map(id => ({ id: asIssueId(id), type }))),
     ].sort(rowOrder)
-    const deferred = Boolean(row.deferUntil && !this.pool.clock.passed(Date.parse(row.deferUntil)))
+    const deferAt = row.deferUntil ? Date.parse(row.deferUntil) : NaN
+    const deferred = Number.isFinite(deferAt) && !this.pool.clock.reached(deferAt)
     return overlayRow(row, {
       description: typeof row.description === 'string' ? row.description : row.description?.value ?? '',
       notes: typeof row.notes === 'string' ? row.notes : row.notes?.value,

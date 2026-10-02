@@ -247,6 +247,7 @@ export function FlightDeckHandoff({
   onOpenSession,
   onOpenIssue,
   poolValues,
+  legacyRead,
 }: {
   rootIssue: IssueNavigationModel
   issues: readonly IssueNavigationModel[]
@@ -257,18 +258,19 @@ export function FlightDeckHandoff({
   onOpenSession: (issueId: IssueId, sessionId: SessionId) => void
   onOpenIssue: (issueId: IssueId) => void
   poolValues?: MissionHandoffValues
+  legacyRead?: <T>(operation: string, read: () => T) => T
 }): JSX.Element {
   const crew = useMemo(
-    () => poolValues ? poolValues.crew : missionSessions(issues, sessions, rootIssue.id, true),
+    () => poolValues ? poolValues.crew : legacyRead ? legacyRead('handoffCrew', () => missionSessions(issues, sessions, rootIssue.id, true)) : missionSessions(issues, sessions, rootIssue.id, true),
     [issues, sessions, rootIssue.id, poolValues],
   )
   const transcript = useHandoffTranscript(true, crew)
   const current = useMemo(
-    () => poolValues ? poolValues.current : deriveHandoffNow(issues, sessions, rootIssue.id),
+    () => poolValues ? poolValues.current : legacyRead ? legacyRead('handoffNow', () => deriveHandoffNow(issues, sessions, rootIssue.id)) : deriveHandoffNow(issues, sessions, rootIssue.id),
     [issues, sessions, rootIssue.id, poolValues],
   )
   const next = useMemo(
-    () => poolValues ? poolValues.next : deriveHandoffNext(issues, sessions, rootIssue.id),
+    () => poolValues ? poolValues.next : legacyRead ? legacyRead('handoffNext', () => deriveHandoffNext(issues, sessions, rootIssue.id)) : deriveHandoffNext(issues, sessions, rootIssue.id),
     [issues, sessions, rootIssue.id, poolValues],
   )
   const summary = useMemo(() => summarizeHandoffSessions(crew), [crew])

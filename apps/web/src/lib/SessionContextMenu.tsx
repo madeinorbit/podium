@@ -24,7 +24,7 @@ import {
   Square,
   Trash2,
 } from 'lucide-react'
-import { type JSX, type ComponentProps, useContext, useState } from 'react'
+import { type JSX, useContext, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'

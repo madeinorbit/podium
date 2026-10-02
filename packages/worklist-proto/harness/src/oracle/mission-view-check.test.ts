@@ -1,11 +1,12 @@
 import { autorun, runInAction } from 'mobx'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import { missionIndexStats, missionRootFor, sessionOwnershipStats } from '@podium/client-core/viewmodels'
 import { createWorklistPool } from '@podium/client-graph/create'
 import { checkMissionViewFromStore, poolMissionViewSnapshot } from '@podium/client-graph/diagnostics/mission-view-check'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { missionView, readMissionView } from '@podium/client-graph/mission-view'
+import { LOADING } from '@podium/client-graph'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { Store } from '@podium/client-core/engine'
@@ -16,8 +17,11 @@ import { startGenRun } from '../../../shared/src/gen/run'
 import { FENCE_SCENARIOS, openFenceFeeds } from '../fence-scenarios'
 import { tracked } from '../adapters/mobx-pool'
 import { installMobxWarnTrap } from '../mobx-trap'
+import { FIXED_NOW } from '../fixture/corpus'
 
 installMobxWarnTrap({ errors: true })
+beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(FIXED_NOW) })
+afterEach(() => vi.useRealTimers())
 
 function roots(store: Store<PodiumClientApi>): string[] {
   const issues = allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates)
@@ -90,6 +94,7 @@ describe('mission pane value differential', () => {
       const before = { ...reader.stats }
       const other = ids.find(id => id !== selected)!
       const raw = tracked(() => handle.pool.row('issue', other))
+      if (!raw || raw === LOADING) throw new Error('Addressed synthetic row is not loaded')
       runInAction(() => handle.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: other, value: { ...raw, title: 'Unrelated title' } }] }))
       expect(reader.stats).toEqual(before)
       expect(row.mock.calls.filter(([kind, id]) => kind === 'session').length).toBeLessThan(ctx.engine.getSnapshot().sessions.length)
