@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { useStoreHandle } from '@podium/client-core/react'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -139,6 +140,7 @@ import {
 import { useReplicaIssues, useSessionDraft, useStoreSelector } from './store'
 import { paneDataLayer } from '@/lib/pane-data-layer'
 import type { MissionViewValues, MissionRowPresentation, MissionHandoffValues } from '@podium/client-graph/mission-view'
+import { measureLegacyMission } from './mission-pane-perf'
 
 const PoolFlightDeck = lazy(() => import('./FlightDeckPool'))
 
@@ -2966,6 +2968,7 @@ export interface FlightDeckSource {
   session: (id: string) => SessionView | undefined
   rootFor: (id: string) => string | null
   attached: (id: string) => readonly SessionView[]
+  legacyRead?: <T>(operation: string, read: () => T) => T
 }
 
 export function FlightDeck(props: FlightDeckProps): JSX.Element {
@@ -2991,6 +2994,7 @@ export function FlightDeck(props: FlightDeckProps): JSX.Element {
 }
 
 function LegacyFlightDeck(props: FlightDeckProps & { preferences: FlightDeckPreferences }): JSX.Element {
+  const owner = useStoreHandle()
   const { sessions, repos } = useStoreSelector(store => ({ sessions: store.sessions, repos: store.repos }), shallowEqual)
   const issues = useReplicaIssues()
   const allWorktreePaths = useMemo(() => reposToViews(repos).flatMap(repo => repo.worktrees.map(worktree => worktree.path)), [repos])
@@ -2999,7 +3003,8 @@ function LegacyFlightDeck(props: FlightDeckProps & { preferences: FlightDeckPref
     session: id => sessions.find(session => session.sessionId === id),
     rootFor: id => missionRootFor(issues, asIssueId(id))?.id ?? id,
     attached: id => sessions.filter(session => session.issueId === id),
-  }), [issues, sessions, allWorktreePaths])
+    legacyRead: (operation, read) => measureLegacyMission(owner, operation, read),
+  }), [issues, sessions, allWorktreePaths, owner])
   return <FlightDeckContent {...props} source={source} />
 }
 
@@ -3009,6 +3014,11 @@ export function FlightDeckContent({
   const { issues, sessions, allWorktreePaths } = source
   const { view, mode, modes, setPreferredView } = preferences
   const poolValues = source.mission
+  if (source.kind === 'pool' && !poolValues) throw new Error('Pool mission pane has no supplied values')
+  const legacyRead = <T,>(operation: string, read: () => T): T => {
+    if (source.kind === 'pool') throw new Error('Pool mission pane reached a legacy reader')
+    return source.legacyRead?.(operation, read) ?? read()
+  }
   const {
     selectedIssueId,
     paneA,
@@ -3113,7 +3123,7 @@ export function FlightDeckContent({
   // `selectedMissionRoot`, not `missionRootFor`: a persisted selection left
   // pointing at an empty draft vessel is not a mission, and this column shows
   // `EmptyDeck` for it rather than a header and a gauge over nothing (POD-1112).
-  const root = poolValues ? poolValues.root : selectedMissionRoot(issues, sessions, selectedIssueId)
+  const root = poolValues ? poolValues.root : legacyRead('root', () => selectedMissionRoot(issues, sessions, selectedIssueId))
   const rootIssue = root ? source.issue(root.id) : undefined
   // Every strip's status glyph is a picker (POD-1271). The deck holds the apply
   // and its close guard once; a strip carries the id, and the REPLICA's model is
@@ -3125,7 +3135,7 @@ export function FlightDeckContent({
     if (issue) rowStatus.pick(issue, value)
   }
   const computedRows = useMemo(
-    () => poolValues ? poolValues.rows : (root ? buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths) : []),
+    () => poolValues ? poolValues.rows : legacyRead('rows', () => root ? buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths) : []),
     [issues, sessions, root, mode, allWorktreePaths, poolValues],
   )
   const stableRowsRef = useRef<FlightDeckRow[]>([])
@@ -3137,7 +3147,7 @@ export function FlightDeckContent({
   const rowDisplayTitles = useMemo(
     () =>
       new Map(
-        rows.map((row) => [row.issue.id, poolValues ? (poolValues.titles.get(row.issue.id) ?? row.issue.title) : issueDisplayTitle(row.issue, sessions, allWorktreePaths)]),
+        rows.map((row) => [row.issue.id, poolValues ? (poolValues.titles.get(row.issue.id) ?? row.issue.title) : legacyRead('title', () => issueDisplayTitle(row.issue, sessions, allWorktreePaths))]),
       ),
     [allWorktreePaths, rows, sessions, poolValues],
   )
@@ -3160,15 +3170,15 @@ export function FlightDeckContent({
   // does: resolving against the mode-filtered rows let a switch to "Needs you"
   // silently move the highlight — and the Task dock with it — to the root.
   const missionMembers = useMemo(
-    () => poolValues ? poolValues.members : (root ? missionIssueIds(issues, root.id, sessions) : new Set<string>()),
+    () => poolValues ? poolValues.members : legacyRead('members', () => root ? missionIssueIds(issues, root.id, sessions) : new Set<string>()),
     [issues, root, sessions, poolValues],
   )
   const focused = resolveFocus(focusedIssueId, missionMembers, root?.id)
-  const progress = poolValues ? poolValues.progress : missionProgress(issues, sessions, root?.id)
+  const progress = poolValues ? poolValues.progress : legacyRead('progress', () => missionProgress(issues, sessions, root?.id))
   // What this mission discovered and no longer owns. Derived beside the rows
   // from the same membership set, so a departure can never also be a strip.
   const allDepartures = useMemo(
-    () => poolValues ? poolValues.departures : missionDepartures(issues, sessions, root?.id, allWorktreePaths),
+    () => poolValues ? poolValues.departures : legacyRead('departures', () => missionDepartures(issues, sessions, root?.id, allWorktreePaths)),
     [issues, sessions, root, allWorktreePaths, poolValues],
   )
   const liveCount = rows[0]?.liveAgentCount ?? 0
@@ -3209,7 +3219,7 @@ export function FlightDeckContent({
    * hiding what that view had just promised to show.
    */
   const rootRow = rows[0]
-  const rootContinuation = poolValues ? poolValues.continuation : root ? issueContinuation(root, byId, sessions) : null
+  const rootContinuation = poolValues ? poolValues.continuation : legacyRead('continuation', () => root ? issueContinuation(root, byId, sessions) : null)
   /**
    * THE CONTINUATION IS A DEPARTURE — the one with an action attached.
    *
@@ -3230,7 +3240,7 @@ export function FlightDeckContent({
   )
   const continuationState =
     allDepartures.find((departure) => departure.issue.id === continuationTargetId)?.state ?? null
-  const rootNote = poolValues ? poolValues.note : root ? issueNote(root, byId, sessions) : null
+  const rootNote = poolValues ? poolValues.note : legacyRead('note', () => root ? issueNote(root, byId, sessions) : null)
   /**
    * The mission header's roster — content, and therefore the view bar's (POD-1356).
    *
@@ -3249,7 +3259,7 @@ export function FlightDeckContent({
   // The whole slice as the fourth argument — the root's OWN sessions cannot see
   // a spin-off its agent hopped to (see `staffedSpinOff`).
   const rootSeat = rootRow
-    ? seatFor(poolValues ? poolValues.presence : presenceNote(rootRow.issue, rootRow.sessions, byId, sessions))
+    ? seatFor(poolValues ? poolValues.presence : legacyRead('presence', () => presenceNote(rootRow.issue, rootRow.sessions, byId, sessions)))
     : null
   /**
    * Why the spine is empty, when it is — and the root's OWN sessions answer it,
@@ -3257,7 +3267,7 @@ export function FlightDeckContent({
    * filtered the column down to working agents is the POD-1233 bug in a new
    * costume; a parked agent still holds the task and this must keep saying so.
    */
-  const rootEmptyNote = poolValues ? poolValues.presence : root ? presenceNote(root, rootRow?.sessions ?? [], byId, sessions) : null
+  const rootEmptyNote = poolValues ? poolValues.presence : legacyRead('presence', () => root ? presenceNote(root, rootRow?.sessions ?? [], byId, sessions) : null)
   /** `done` is the note's word for "closed, and nobody is on it" — the one
    *  empty-spine state that still has a decision left in it. */
   const rootRetired = rootEmptyNote?.kind === 'done'
@@ -3386,7 +3396,7 @@ export function FlightDeckContent({
     const seen = new Set<string>()
     const found: SessionView[] = []
     for (const row of rows) {
-      for (const session of archivedSessionsForIssue(row.issue, sessions, allWorktreePaths)) {
+      for (const session of legacyRead('archivedRow', () => archivedSessionsForIssue(row.issue, sessions, allWorktreePaths))) {
         if (seen.has(session.sessionId)) continue
         seen.add(session.sessionId)
         found.push(session)
@@ -3405,7 +3415,7 @@ export function FlightDeckContent({
   // Naming and lifecycle answer different questions. `draftFilling` governs
   // the temporary mission brief; the title switches as soon as the optimistic
   // rename carries a non-placeholder value, before the server clears `draft`.
-  const rootDisplayTitle = root ? poolValues ? (poolValues.titles.get(root.id) ?? root.title) : issueDisplayTitle(root, sessions, allWorktreePaths) : ''
+  const rootDisplayTitle = root ? poolValues ? (poolValues.titles.get(root.id) ?? root.title) : legacyRead('title', () => issueDisplayTitle(root, sessions, allWorktreePaths)) : ''
   const rootDraft = useSessionDraft(draftFilling ? rootSession?.sessionId : undefined)
   /**
    * The header's one paragraph, resolved and rendered in one place (POD-1455).
