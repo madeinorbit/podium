@@ -182,7 +182,11 @@
     },
     "@podium/mobile#typecheck": {
       "dependsOn": ["^typecheck"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/src/features/setup/**"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/web/src/features/setup/**",
+        "$TURBO_ROOT$/packages/worklist-proto/harness/src/fixture/**"
+      ],
       "outputs": ["*.tsbuildinfo"]
     },
     "@podium/web#test": {
@@ -499,7 +503,8 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
-        "$TURBO_ROOT$/packages/*/src/**"
+        "$TURBO_ROOT$/packages/*/src/**",
+        "$TURBO_ROOT$/packages/worklist-proto/harness/src/fixture/**"
       ],
       "outputs": []
     },
