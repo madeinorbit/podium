@@ -36,7 +36,7 @@ async function main() {
   }
   phase = 2
   const cache = new ScenarioCache(), byEntity = new Map<string, unknown[]>()
-  const response = await fetch(`${origin}/sync/bootstrap`, { headers: { cookie }, signal: AbortSignal.timeout(30000) })
+  const response = await fetch(`${origin}/sync/bootstrap`, { headers: { cookie }, signal: AbortSignal.timeout(120000) })
   if (!response.ok || !response.body || !response.headers.get('content-type')?.startsWith('application/x-ndjson')) throw new Error('Bootstrap unavailable')
   let operatorWireVersion = 0
   // This offline comparison consumes row fixtures, not a connected client.
@@ -106,6 +106,7 @@ async function main() {
   } finally { handle.dispose() }
 }
 if (import.meta.main) main().catch(error => {
-  console.error(JSON.stringify({ failed: 1, phase, reason: error instanceof SyncStreamFailed ? error.reason : 'replay-failed' }))
+  const native = error instanceof Error && ['AbortError', 'TimeoutError', 'TypeError', 'SyntaxError'].includes(error.name) ? error.name : 'replay-failed'
+  console.error(JSON.stringify({ failed: 1, phase, reason: error instanceof SyncStreamFailed ? error.reason : native }))
   process.exitCode = 1
 })
