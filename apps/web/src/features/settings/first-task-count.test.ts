@@ -6,8 +6,10 @@ let pool: MobxPool | undefined
 afterEach(() => pool?.dispose())
 
 it('keeps the first-task count current across duplicate deltas, hydration, removal and replacement', () => {
-  const archived = { id: 'cold', title: 'Cold task', stage: 'done', archived: true } as SliceIssue
-  const draft = { id: 'draft', title: 'Draft', stage: 'in_progress', isDraftVessel: true } as SliceIssue
+  const fields = { seq: 1, repoPath: '/synthetic/project', audience: 'human' as const,
+    createdAt: '2020-01-01T00:00:00.000Z', updatedAt: '2020-01-02T00:00:00.000Z' }
+  const archived = { ...fields, id: 'cold', title: 'Cold task', stage: 'done', archived: true } as SliceIssue
+  const draft = { ...fields, id: 'draft', title: 'Draft', stage: 'in_progress', isDraftVessel: true } as SliceIssue
   const load = vi.fn(() => archived)
   pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, { load, schedule: () => () => {} })
   pool.apply({ type: 'replace', rows: [archived, draft].map(value => ({ kind: 'issue', id: value.id, value })) })
