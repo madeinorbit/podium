@@ -139,6 +139,17 @@ describe('sidebar readiness', () => {
     expect(compareSidebarSnapshots(expected, settled)).toMatchObject({ differences: 3, pending: 0, first: { rowIndex: 0, field: 'id' } })
   })
 
+  it('compares settled header facts while the empty-project affordance awaits a roster', () => {
+    const expected: SidebarSnapshot = { pending: 0, sections: [{ key: 'roster', fields: { startFirstTask: true, collapsed: false }, rows: [] }] }
+    const actual: SidebarSnapshot = { pending: 1, sections: [{ key: 'roster', fields: { startFirstTask: false, collapsed: true },
+      pendingFields: ['startFirstTask'], rows: [],
+    }] }
+    expect(compareSidebarSnapshots(expected, actual)).toMatchObject({ differences: 1, pending: 1, first: { rowIndex: null, field: 'collapsed' } })
+    const settled: SidebarSnapshot = { pending: 0, sections: [{ key: 'roster', fields: { startFirstTask: false, collapsed: false }, rows: [] }] }
+    expect(compareSidebarSnapshots(expected, settled)).toMatchObject({ differences: 1, pending: 0, first: { field: 'startFirstTask' } })
+    expect(compareSidebarSnapshots(expected, expected)).toMatchObject({ differences: 0, first: null, pending: 0 })
+  })
+
   for (const scale of [1, 4] as const) it(`reports cold ${scale}x rows separately without draining their batched loads`, async () => {
     const ctx = await startScenarioEngine(scale)
     const feeds = openFenceFeeds(ctx, 'overlaid')

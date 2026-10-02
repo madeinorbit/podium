@@ -26,6 +26,8 @@ export interface CheckRow {
 export interface CheckSection {
   readonly key: string
   readonly fields: Readonly<Record<string, unknown>>
+  /** Header facts whose inputs are explicitly awaiting a batched load. */
+  readonly pendingFields?: readonly string[]
   readonly rows: readonly CheckRow[]
 }
 export interface SidebarSnapshot {
@@ -73,7 +75,9 @@ export function compareSidebarSnapshots(expected: SidebarSnapshot, actual: Sideb
     const e = expected.sections[sectionIndex], a = actual.sections[sectionIndex]
     const location = { section: e?.key ?? a?.key ?? '', sectionIndex, rowIndex: null, expectedId: e?.key ?? null, actualId: a?.key ?? null }
     if (!e || !a || e.key !== a.key) { flag({ ...location, field: 'section' }); continue }
-    const field = differingField(e.fields, a.fields)
+    const pendingFields = new Set([...(e.pendingFields ?? []), ...(a.pendingFields ?? [])])
+    const settledFields = (fields: CheckSection['fields']) => Object.fromEntries(Object.entries(fields).filter(([key]) => !pendingFields.has(key)))
+    const field = differingField(settledFields(e.fields), settledFields(a.fields))
     if (field !== null) flag({ ...location, field })
     const provisional = new Set([...e.rows, ...a.rows].filter(row => row.placementPending).map(row => row.id))
     const expectedRows = e.rows.map((row, index) => ({ row, index })).filter(({ row }) => !provisional.has(row.id))
@@ -98,8 +102,14 @@ function sectionSnapshot(sections: SidebarSections, issue: (id: string) => Check
     { key: 'pinned', fields: { collapsed: sections.pinnedCollapsed, foldKey: sections.pinnedFoldKey }, rows: sections.pinnedIds.map(issue) },
     ...sections.bands.flatMap(band => {
       const { rowIds, worktreeIds, snoozedIds, closedIds, ...fields } = band
+      const worktreeRows = worktreeIds.map(worktree)
+      // The empty-project affordance depends on whether any work survives.
+      // Issue membership is known from placement summaries; a provisional
+      // worktree-only lane cannot decide this fact until its roster settles.
+      const pendingFields = !rowIds.length && !snoozedIds.length && !closedIds.length
+        && worktreeRows.length > 0 && worktreeRows.every(row => row.placementPending) ? ['startFirstTask'] : []
       return [
-        { key: `${band.key}:open`, fields, rows: [...rowIds.map(issue), ...worktreeIds.map(worktree)] },
+        { key: `${band.key}:open`, fields, pendingFields, rows: [...rowIds.map(issue), ...worktreeRows] },
         { key: `${band.key}:snoozed`, fields: {}, rows: snoozedIds.map(issue) },
         { key: `${band.key}:closed`, fields: {}, rows: closedIds.map(issue) },
       ]
