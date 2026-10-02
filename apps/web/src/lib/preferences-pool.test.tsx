@@ -34,7 +34,7 @@ function port() {
   const values = new Map<string, string>()
   const listeners = new Set<() => void>()
   const emit = () => { for (const wake of [...listeners]) wake() }
-  return { values, listeners, emit,
+  return { values, listeners, emit, hydrate: async () => {},
     get: vi.fn((key: string) => values.get(key) ?? null),
     set: (key: string, value: string | null) => { value === null ? values.delete(key) : values.set(key, value); emit() },
     clear: (key: string) => { values.delete(key); emit() },

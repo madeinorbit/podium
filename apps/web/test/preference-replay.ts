@@ -22,7 +22,7 @@ const readonly = () => { throw new Error('Replay cannot write preferences') }
 const none = () => () => {}
 const ui = createRoutedUiState({
   local: { get: () => null, set: readonly, subscribe: none },
-  replicated: { get: (key) => values[key], set: readonly, clear: readonly, subscribe: none },
+  replicated: { hydrate: async () => {}, get: (key) => values[key], set: readonly, clear: readonly, subscribe: none },
 })
 const known = [...Object.values(UI_STATE_KEYS), 'podium:sidebar:collapsed', 'podium:superagent:mode']
 const keys = Object.keys(values).map((canonical) => known.find((key) => layoutKeyFromLegacy(key) === canonical)
