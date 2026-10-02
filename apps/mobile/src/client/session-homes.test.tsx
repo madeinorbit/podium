@@ -16,7 +16,7 @@ afterEach(cleanup)
 
 const id = asSessionId('sess-homes')
 const active = '2026-10-01T12:00:00.000Z'
-const raw = {
+const raw: SessionMeta = {
   sessionId: id,
   agentKind: 'claude-code',
   cwd: '/repo',
@@ -30,11 +30,11 @@ const raw = {
   createdAt: active,
   origin: { kind: 'spawn' },
   lastActiveAt: active,
-  refRepoId: 'repo-born',
+  refRepoId: asRepoId('repo-born'),
   refSeq: 42,
   refLetter: 'B',
-  machineId: 'machine-born',
-  handoffTargetMachineId: 'machine-target',
+  machineId: asMachineId('machine-born'),
+  handoffTargetMachineId: asMachineId('machine-target'),
   readAt: null,
   unread: true,
   snoozedUntil: null,
@@ -43,8 +43,8 @@ const raw = {
   condition: 'logged-out',
   handoffTarget: 'Old target',
   queuedMessageCount: 3,
-  offer: { message: 'Choose the next step', actions: [] },
-} as SessionMeta
+  offer: { message: 'Choose the next step', actions: [], createdAt: active },
+}
 
 function Probe({ seen }: { seen: { rows: SessionView[]; one?: SessionView } }) {
   seen.rows = useSessions()
