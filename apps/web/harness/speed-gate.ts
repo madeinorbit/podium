@@ -168,7 +168,8 @@ async function main() {
     ? git('rev-parse', value('baseline-ref', 'integrate/4286-pilot'))
     : captureSha
   const dirtyProduct =
-    git('diff', '--name-only', 'HEAD', '--', 'apps/web/src', 'packages').length > 0
+    git('status', '--porcelain', '--untracked-files=normal', '--', 'apps/web/src', 'packages')
+      .length > 0
   if (calibrate) {
     if (dirtyProduct)
       throw new Error('First baseline must measure the unchanged landed integration product tree')
@@ -588,7 +589,7 @@ async function main() {
     })
     await new Promise<void>((done) => server!.listen(0, '127.0.0.1', done))
     const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
-    browser = await chromium.launch({
+    const launchBrowser = () => chromium.launch({
       headless: true,
       executablePath: `${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`,
       env: {
@@ -599,6 +600,7 @@ async function main() {
       },
       args: ['--no-sandbox', '--disable-dev-shm-usage'],
     })
+    browser = await launchBrowser()
     const machine: Machine = {
       host: hostname(),
       cpu: cpus()[0]!.model,
@@ -627,11 +629,17 @@ async function main() {
     const runs: Awaited<ReturnType<typeof suite>>[] = []
     console.log(`Production build and browser ready: ${round((performance.now() - began) / 1000)}s`)
     for (let i = 0; i < (calibrate ? NOISE_RUNS : 1); i++) {
+      if (i) {
+        await browser.close()
+        browser = await launchBrowser()
+      }
       console.log(`4× corpus, five actions; capture ${i + 1}/${calibrate ? NOISE_RUNS : 1}`)
       runs.push(await suite(origin, baseline?.targets ?? runs[0]?.targets))
       console.log(`Capture complete; elapsed ${round((performance.now() - began) / 1000)}s`)
     }
-    const latest = runs[runs.length - 1]!
+    // Every ordinary gate has exactly one fresh-browser suite. The extra initial
+    // suite estimates noise; it must not give the baseline a warmer lifecycle.
+    const latest = runs[0]!
     const noise = calibrate
       ? (() => {
           const medianSpreadPercent = Object.fromEntries(
