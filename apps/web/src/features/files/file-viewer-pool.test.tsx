@@ -215,7 +215,9 @@ it('mounts actual file and Git surfaces with zero legacy derivations and adopts 
     expect(
       within(view.getByTestId(path)).getByRole('textbox', { name: path, hidden: true }),
     ).toBeTruthy()
-  expect(checkFileViewerPreferences(pool!, owner.ui, VIEWER_TABS)).toMatchObject({
+  const attachedPool = pool as MobxPool | null
+  if (!attachedPool) throw new Error('Pool did not attach')
+  expect(checkFileViewerPreferences(attachedPool, owner.ui, VIEWER_TABS)).toMatchObject({
     differences: 0,
     pending: 0,
     positions: 7,
@@ -231,7 +233,7 @@ it('mounts actual file and Git surfaces with zero legacy derivations and adopts 
 
 it('keeps scoped read and write ownership, base hashes, and immutable artifact documents', async () => {
   const fixture = createFileViewerFixture()
-  const scopes: FileScope[] = [
+  const scopes: [FileScope, FileScope, FileScope] = [
     { kind: 'session', sessionId: asSessionId('synthetic-session-0') },
     VIEWER_SCOPE,
     { kind: 'artifact', issueId: asIssueId('synthetic-0'), artifactId: asArtifactId('snapshot') },
@@ -246,7 +248,7 @@ it('keeps scoped read and write ownership, base hashes, and immutable artifact d
           value={doc.content}
           onChange={(event) => doc.setContent(event.target.value)}
         />
-        <button onClick={() => void doc.save()}>Save document</button>
+        <button type="button" onClick={() => void doc.save()}>Save document</button>
         <span>{doc.saveFeedback?.message}</span>
       </>
     )
@@ -263,7 +265,7 @@ it('keeps scoped read and write ownership, base hashes, and immutable artifact d
       <Document scope={scope} />
     </StoreProvider>
   )
-  const view = render(tree(scopes[0]!))
+  const view = render(tree(scopes[0]))
   for (const [index, scope] of scopes.entries()) {
     if (index) view.rerender(tree(scope))
     await waitFor(() => expect(view.getByText('ready')).toBeTruthy())

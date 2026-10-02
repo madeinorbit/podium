@@ -38,17 +38,18 @@ preferenceReadStats.enable()
 
 function Surface() {
   owner = useStoreHandle() as ClientRuntime
-  pool = useWorklistPool()
+  const currentPool = useWorklistPool()
+  pool = currentPool
   const [browsing, setBrowsing] = useState(false),
     [reviewing, setReviewing] = useState(false)
   browse = setBrowsing
   review = setReviewing
   useEffect(() => {
-    ready = preferencesDataLayer() === 'legacy' || pool !== null
+    ready = preferencesDataLayer() === 'legacy' || currentPool !== null
     return () => {
       ready = false
     }
-  }, [pool])
+  }, [currentPool])
   return (
     <main style={{ padding: 20 }}>
       <h1>File and Git viewers</h1>
@@ -115,7 +116,9 @@ function Surface() {
     </main>
   )
 }
-const root = createRoot(document.getElementById('root')!)
+const host = document.getElementById('root')
+if (!host) throw new Error('Missing viewer fixture mount')
+const root = createRoot(host)
 root.render(
   <StoreProvider
     principal={asClientPrincipal(asUserId('viewer-synthetic'))}
