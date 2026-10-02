@@ -27,7 +27,8 @@ export function sessionPaneFixture(): SessionView[] {
     { agentKind: 'shell', status: 'hibernated' },
     { driverFamily: undefined, attachKinds: undefined },
     { machineId: 'machine-b', machineName: 'Offline host' },
-    { archived: true, status: 'exited', lastActiveAt: '2020-01-01T00:00:00Z' },
+    { archived: true, status: 'exited', lastActiveAt: '2020-01-01T00:00:00Z', stoppedAt: '2020-01-01T00:00:00Z',
+      readAt: '2020-01-02T00:00:00Z', unread: false },
   ]
   return variants.map((patch, i) => ({ sessionId: asSessionId(`pane-${i}`), agentKind: 'claude-code',
     title: `Synthetic pane ${i}`, name: i % 2 ? `Named pane ${i}` : undefined, cwd: `/synthetic/w${i}`, status: 'live',

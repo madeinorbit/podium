@@ -83,7 +83,7 @@ function useLegacyPaneOwnership(session: SessionView | undefined) {
       (i.worktreePath !== null && session?.cwd !== undefined &&
         (session.cwd === i.worktreePath || session.cwd.startsWith(`${i.worktreePath}/`)))))
     return { selectedIssueId, stampIssue: stamp, issueHex: effectiveIssueColorHex(selected, id => issues.find(i => i.id === id)) }
-  })), (a, b) => a.selectedIssueId === b.selectedIssueId && a.stampIssue === b.stampIssue && a.issueHex === b.issueHex)
+  }), (a, b) => a.selectedIssueId === b.selectedIssueId && a.stampIssue === b.stampIssue && a.issueHex === b.issueHex)
 }
 function usePoolPaneOwnership(session: SessionView | undefined) {
   const read = useCallback((pool: MobxPool) => pool.sessionPanes.ownership(session, issueColorHex), [session])

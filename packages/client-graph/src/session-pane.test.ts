@@ -142,7 +142,10 @@ it('inherits the selected issue tint through summary fields and stops on a paren
       f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'root', value: issue('root', null) as never }] })
       expect(checkSessionPanes(f.pool, f.state(), undefined, rows as never, hex).first?.section).toBe(3)
     } finally { f.pool.dispose() }
-    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'root', value: issue('root', null, { parentId: 'child' }) as never }] })
-    expect(paneIssueColor(pool, 'child', hex)).toBeUndefined()
+    // Tint traversal owns its cycle guard; unrelated sidebar presence reactions
+    // need not consume this malformed parent graph in the focused reader proof.
+    const cycle = { row: (_entity: string, id: string) =>
+      id === 'child' ? issue('child', null, { parentId: 'root' }) : issue('root', null, { parentId: 'child' }) } as unknown as MobxPool
+    expect(paneIssueColor(cycle, 'child', hex)).toBeUndefined()
   } finally { pool.dispose() }
 })
