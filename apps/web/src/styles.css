@@ -850,6 +850,39 @@ html[data-density="balanced"] .header-quota-pools {
   background: var(--engraved);
   transition: background-color 150ms ease;
 }
+/* Machine pressure is one vertical instrument: memory, load, then disk.
+   Compact retains the existing marks/numbers; balanced shows the three tracks. */
+.header-machine-meters {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.header-machine-chip:has(.header-machine-meters) {
+  height: 36px;
+}
+.header-machine-meters > .header-readout {
+  display: grid;
+  grid-template-columns: 4ch 36px 4.6ch;
+  gap: 4px;
+  height: 10px;
+}
+.header-machine-meters :is(.header-mark, .header-value) {
+  line-height: 10px;
+}
+.header-machine-meters .header-meter {
+  height: 3px;
+}
+html[data-density="balanced"] .header-machine-chip {
+  height: 26px;
+}
+html[data-density="balanced"] .header-machine-meters {
+  gap: 3px;
+}
+html[data-density="balanced"] .header-machine-meters > .header-readout {
+  display: inline-flex;
+  height: 3px;
+}
+
 .header-quota-meter {
   width: 30px;
   transform-origin: left center;

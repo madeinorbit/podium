@@ -450,6 +450,7 @@ const HeaderMachineChip = memo(function HeaderMachineChip({ host, machine, aggre
                     aria-label="Update available"
                   />
                 )}
+                <span className="header-machine-meters">
                 <span className="header-readout">
                   <span className="header-mark">MEM</span>
                   <span className="header-meter" role="presentation">
@@ -473,6 +474,7 @@ const HeaderMachineChip = memo(function HeaderMachineChip({ host, machine, aggre
                   <span className="header-value" data-tone={TONE_KEY[load.severity]}>
                     {load.label}
                   </span>
+                </span>
                 </span>
                 <span className="header-readout header-agent-readout">
                   <span className="header-mark">AGT</span>
