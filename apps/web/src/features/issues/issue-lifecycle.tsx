@@ -8,7 +8,7 @@ import {
 import { ISSUE_STATUS_LABELS, type IssueCloseReason} from '@podium/model/browser'
 import { AlertTriangle, GitBranch, GitCommit, MessageCircleQuestion, Users } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useIssuePageSessions } from './issue-page/issue-page-data'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -81,7 +81,7 @@ export function issueMemberSessions(
  * is being closed until the press — the palette closes whatever the command was
  * run against, the menu is mounted over a selection.
  */
-function useLegacyCloseSessions(_supplied?: readonly SessionView[]) { return useStoreSelector(store => store.sessions) ?? [] }
+function useLegacyCloseSessions(_supplied?: readonly SessionView[]) { return useIssuePageSessions() }
 function useSuppliedCloseSessions(supplied?: readonly SessionView[]) { return supplied ?? [] }
 /** A host chooses its reader once per mount; pool hosts never subscribe here. */
 function useCloseSessions(supplied?: readonly SessionView[]) {

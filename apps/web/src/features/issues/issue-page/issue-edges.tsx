@@ -57,7 +57,8 @@ import type { CrossBoundaryPolicy, IssueEdge } from '@podium/client-core/viewmod
 import { type ReferentExit, resolveIssueEdge } from '@podium/client-core/viewmodels'
 import type { IssueId, } from '@podium/model/browser'
 import { createContext, type JSX, type ReactNode, useContext, useMemo } from 'react'
-import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useStoreSelector } from '@/app/store'
+import { useIssuePageIssues } from './issue-page-data'
 import { issueRefLong } from '../issue-card'
 
 /**
@@ -119,7 +120,7 @@ function useReplicaExitLookup(): IssueExitLookup {
  *  holds. One resolver per render, closed over the issue rows and the exit
  *  lookup, so a section resolving five edges does one index build. */
 export function useIssueEdgeResolver(): (id: string | undefined | null) => IssueEdge<IssueViewModel> {
-  const issues = useReplicaIssues()
+  const issues = useIssuePageIssues()
   const override = useContext(IssueExitContext)
   const fromReplica = useReplicaExitLookup()
   const exitOf = override ?? fromReplica

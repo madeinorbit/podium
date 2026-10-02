@@ -15,7 +15,8 @@ import type { IssueId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ArrowLeft, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
 import { Fragment, type JSX } from 'react'
-import { type IssueViewModel, useReplicaIssues } from '@/app/store'
+import type { IssueViewModel } from '@/app/store'
+import { useIssuePageIssues } from './issue-page-data'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -63,7 +64,7 @@ export function IssueDetailHeader({
   onBack: () => void
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
-  const issues = useReplicaIssues()
+  const issues = useIssuePageIssues()
   const parent = issue.parentId ? issues.find((i) => i.id === issue.parentId) : undefined
   const phases = sessions.map((s) => motionPhase(s, issue as unknown as IssueViewModel))
   const working = phases.filter((p) => p === 'working').length

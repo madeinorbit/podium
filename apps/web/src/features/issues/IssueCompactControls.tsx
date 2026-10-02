@@ -29,7 +29,8 @@ import {
 import { Fragment, type JSX, lazy, Suspense, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
-import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useStoreSelector } from '@/app/store'
+import { useIssuePageIssues, useIssuePageSessions } from './issue-page/issue-page-data'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -339,10 +340,11 @@ export function IssueSessionRow({
  * session that asked (see {@link IssueSessionRow}), inside the scroll.
  */
 export function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Element | null {
-  const { trpc, sessions } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, sessions: s.sessions }),
+  const { trpc } = useStoreSelector(
+    (s) => ({ trpc: s.trpc }),
     shallowEqual,
   )
+  const sessions = useIssuePageSessions()
   const active = issueSessions(issue, sessions).filter(isOpenSession)
   if (!issueNeedsHuman(issue, active)) return null
 
@@ -505,17 +507,17 @@ export function IssueCompactControls({
   // NAVIGATION, so it left the action row entirely: it is now a named link in
   // the panel's head (`InspectHead`), above the title, where the trail and the
   // other "where am I" chrome lives.
-  const { trpc, sessions, machines, updateIssue, closeIssue } = useStoreSelector(
+  const { trpc, machines, updateIssue, closeIssue } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
-      sessions: s.sessions,
       machines: s.machines,
       updateIssue: s.updateIssue,
       closeIssue: s.closeIssue,
     }),
     shallowEqual,
   )
-  const issues = useReplicaIssues()
+  const issues = useIssuePageIssues()
+  const sessions = useIssuePageSessions()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
   const needsCloseGuard = useIssueCloseGuard()

@@ -3,7 +3,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations, isEmptyDraftVessel, issueDisplayTitle, presenceNote } from '@podium/client-core/viewmodels'
 import { asIssueId, asSessionId } from '@podium/model/browser'
 import { compareStructural, computed, onBecomeUnobserved, _isComputingDerivation, type IComputedValue } from 'mobx'
-import { knownIssueIds, knownSessionIds, residentWorktreeIds } from './enumerate'
+import { knownIssueIds, residentWorktreeIds } from './enumerate'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
@@ -47,17 +47,21 @@ export function createIssuePageViews(pool: MobxPool) {
     if (pool.graph.isCollapsed('session', id)) return undefined
     return pool.row('session', id) as Loaded<SessionView>
   }
-  function memberSessions(id: string): Loaded<SessionView[]> {
+  function attachedSessions(id: string): Loaded<SessionView[]> {
     return memo(`members:${id}`, () => {
       const result: SessionView[] = []
       let pending = false
       for (const sid of [...pool.graph.many('issue', id, 'missionSessions')].sort(byId)) {
         const value = session(sid)
         if (value === LOADING) pending = true
-        else if (value && value.agentKind !== 'shell') result.push(value)
+        else if (value) result.push(value)
       }
       return pending ? LOADING : result
     })
+  }
+  function memberSessions(id: string): Loaded<SessionView[]> {
+    const members = attachedSessions(id)
+    return members && members !== LOADING ? members.filter(s => s.agentKind !== 'shell') : members
   }
   function prefix(id: string): string | undefined {
     const repoId = pool.graph.one('issue', id, 'repo')
@@ -74,7 +78,7 @@ export function createIssuePageViews(pool: MobxPool) {
       const fields = Object.fromEntries(ISSUE_PAGE_SUMMARIES.issue.map(key => [key, value[key]]))
       const p = prefix(id)
       return { ...fields, id, prefix: p, displayRef: p ? `${p}-${value.seq}` : `#${value.seq}`,
-        labels: value.labels ?? [], deps: [], dependents: [], memberSessionIds: [], childIds: [],
+        labels: value.labels ?? [], deps: value.deps ?? [], dependents: [], memberSessionIds: [], childIds: [],
         childCount: 0, childDoneCount: 0,
       } as unknown as IssueViewModel
     })
@@ -123,6 +127,21 @@ export function createIssuePageViews(pool: MobxPool) {
       }
     })
   }
+  function menuIssues(): IssueViewModel[] {
+    return issues().map(value => {
+      const childIds = [...pool.graph.many('issue', value.id, 'treeChildren')].sort(byId)
+      const memberSessionIds = [...pool.graph.many('issue', value.id, 'missionSessions')].sort(byId).filter(id => {
+        const seat = pool.row('session', id, 'summary') as Loaded<{ agentKind?: string }>
+        return seat && seat !== LOADING && seat.agentKind !== 'shell'
+      }).map(asSessionId)
+      return { ...value, memberSessionIds, childIds: childIds.map(asIssueId), childCount: childIds.length,
+        childDoneCount: childIds.filter(id => {
+          const child = pool.row('issue', id, 'summary') as Loaded<{ stage?: string }>
+          return child && child !== LOADING && child.stage === 'done'
+        }).length,
+      }
+    })
+  }
   function data(id: string): Loaded<IssuePageData> {
     return memo(`page:${id}`, () => {
       stats.pages++
@@ -150,13 +169,15 @@ export function createIssuePageViews(pool: MobxPool) {
       if (members === LOADING) return LOADING
       const world = issues()
       const worldById = new Map(world.map(row => [row.id as string, row]))
+      const own = attachedSessions(id)
+      if (own === LOADING) return LOADING
       const worktreePaths = residentWorktreeIds(pool).flatMap(path => {
         const lane = pool.row('worktree', path) as { path?: string; projectRoot?: boolean } | undefined
         return lane?.path && !lane.projectRoot ? [lane.path] : []
       })
       return { issue: value, issues: world, children, memberSessions: members, sessions,
         relations: groupRelations(value), title: issueDisplayTitle(value, sessions, worktreePaths),
-        presence: presenceNote(value, members, worldById, sessions), worktreePaths,
+        presence: presenceNote(value, own ?? [], worldById, sessions), worktreePaths,
       }
     })
   }
@@ -197,10 +218,10 @@ export function createIssuePageViews(pool: MobxPool) {
     if (!rootId || rootId === LOADING) return rootId
     const root = issue(rootId)
     if (!root || root === LOADING) return root
-    const members = memberSessions(rootId)
+    const members = attachedSessions(rootId)
     return members === LOADING ? LOADING : isEmptyDraftVessel(root, members) ? undefined : root
   }
-  return { issue, summary, issues, data, panel, destination, memberSessions, stats,
+  return { issue, summary, issues, menuIssues, data, panel, destination, memberSessions, attachedSessions, stats,
     dispose() { disposed = true; cache.clear() },
   }
 }

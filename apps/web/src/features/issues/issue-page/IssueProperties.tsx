@@ -70,7 +70,8 @@ import {
 import { Plus, X } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
-import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useStoreSelector } from '@/app/store'
+import { useIssuePageData, useIssuePageIssues } from './issue-page-data'
 import { Button } from '@/components/ui/button'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
@@ -103,18 +104,19 @@ export function IssueProperties({
   onNavigate: (id: IssueId) => void
   onRequestClose: (reason: IssueCloseReason) => void
 }): JSX.Element {
+  const pooled = useIssuePageData()?.data
   const { trpc, machines, sessions, navigateToSession } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
-      sessions: s.sessions,
+      sessions: pooled ? pooled.sessions : s.sessions,
       machines: s.machines,
       navigateToSession: s.navigateToSession,
     }),
     shallowEqual,
   )
-  const issues = useReplicaIssues()
+  const issues = useIssuePageIssues()
   const resolve = useIssueEdgeResolver()
-  const memberSessions = (issue.memberSessionIds ?? [])
+  const memberSessions = pooled?.memberSessions ?? (issue.memberSessionIds ?? [])
     .map((id) => sessionById(sessions).get(id))
     .filter((session) => session !== undefined)
   const mergeStyle = useMergeStyle(trpc)

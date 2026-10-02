@@ -41,7 +41,8 @@
  * and renders the restore banner.
  */
 import { useEffect, useRef } from 'react'
-import { type IssueViewModel, useReplicaIssues } from '@/app/store'
+import type { IssueViewModel } from '@/app/store'
+import { useIssuePageIssues } from './issue-page-data'
 
 /**
  * Navigate away, once and silently, if the open issue leaves this principal's
@@ -51,7 +52,7 @@ import { type IssueViewModel, useReplicaIssues } from '@/app/store'
  * @param onLeave what to do when it goes — the page passes its `onBack`
  */
 export function useEvictionGuard(issue: IssueViewModel, onLeave: () => void): void {
-  const issues = useReplicaIssues()
+  const issues = useIssuePageIssues()
   const wasPresent = useRef(false)
   const fired = useRef(false)
 

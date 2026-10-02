@@ -26,6 +26,7 @@ import { Fragment, type JSX, type ReactNode, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { useStoreSelector } from '@/app/store'
+import { useIssuePageData } from './issue-page/issue-page-data'
 import { IssueColorSwatches } from '@/components/IssueColorSwatches'
 import { useConfirm } from '@/lib/hooks/use-confirm'
 import { issueAgentIcon } from '@/lib/issue-agents'
@@ -94,7 +95,7 @@ const SECTION_LABEL: Record<IssueMenuSection, string | null> = {
 /** A cursor-anchored menu whose tree is projected from issue-menu-config.ts. */
 export function IssueContextMenu({
   issues,
-  allIssues,
+  allIssues: suppliedIssues,
   anchor,
   onClose,
   onOpen,
@@ -125,6 +126,8 @@ export function IssueContextMenu({
   primaryStart?: boolean
   poolInputs?: MissionActionInputs
 }): JSX.Element | null {
+  const page = useIssuePageData()
+  const allIssues = page ? page.views.menuIssues() : suppliedIssues
   const {
     trpc,
     markIssueRead,
@@ -153,7 +156,7 @@ export function IssueContextMenu({
       setIssueLabels: s.setIssueLabels,
       setIssuePlacement: s.setIssuePlacement,
       restoreIssue: s.restoreIssue,
-      sessions: poolInputs ? undefined : s.sessions,
+      sessions: poolInputs ? undefined : page ? page.data.sessions : s.sessions,
       repos: poolInputs ? undefined : s.repos,
       machines: poolInputs ? undefined : s.machines,
     }),
