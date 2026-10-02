@@ -1,6 +1,6 @@
 {
-  "updatedBy": "POD-4968",
-  "reason": "The normalized row source no longer joins the old issue record. With three pending title edits, bootstrap performs 24 fewer row reads at both scales; every tracking-object count and all other read counts are unchanged.",
+  "updatedBy": "POD-5100",
+  "reason": "The complete sidebar payload reuses immutable session ordering, offer and roster-head facts from the existing seat verdict and OwnAttention. Issue-only owner updates leave resident sidebar seats in place. Seventeen measured read cells decrease; all other 613 cells, including every tracking-object count, are unchanged. The rename and click budgets remain 3, with constant 1x/4x reads.",
   "counts": {
     "1x.firstPaint.byOwner.GroupNode.computeds": 64,
     "1x.firstPaint.byOwner.GroupNode.owners": 8,
@@ -53,7 +53,7 @@
     "1x.phases.firstPaint.computedRuns": 1080,
     "1x.phases.firstPaint.distinctRows": 128,
     "1x.phases.firstPaint.reactionRuns": 61,
-    "1x.phases.firstPaint.rowReads": 5131,
+    "1x.phases.firstPaint.rowReads": 4992,
     "1x.phases.firstReactiveRun.built.array": 45,
     "1x.phases.firstReactiveRun.built.atom": 780,
     "1x.phases.firstReactiveRun.built.computed": 11703,
@@ -63,7 +63,7 @@
     "1x.phases.firstReactiveRun.computedRuns": 11703,
     "1x.phases.firstReactiveRun.distinctRows": 3807,
     "1x.phases.firstReactiveRun.reactionRuns": 2389,
-    "1x.phases.firstReactiveRun.rowReads": 125847,
+    "1x.phases.firstReactiveRun.rowReads": 124596,
     "1x.phases.ingest.built.atom": 56,
     "1x.phases.ingest.built.observableValue": 19548,
     "1x.phases.ingest.built.set": 56,
@@ -155,9 +155,9 @@
     "4x.phases.firstPaint.built.reaction": 61,
     "4x.phases.firstPaint.changes": 64,
     "4x.phases.firstPaint.computedRuns": 1431,
-    "4x.phases.firstPaint.distinctRows": 210,
+    "4x.phases.firstPaint.distinctRows": 209,
     "4x.phases.firstPaint.reactionRuns": 61,
-    "4x.phases.firstPaint.rowReads": 8415,
+    "4x.phases.firstPaint.rowReads": 8198,
     "4x.phases.firstReactiveRun.built.array": 54,
     "4x.phases.firstReactiveRun.built.atom": 2981,
     "4x.phases.firstReactiveRun.built.computed": 46742,
@@ -167,7 +167,7 @@
     "4x.phases.firstReactiveRun.computedRuns": 46742,
     "4x.phases.firstReactiveRun.distinctRows": 15526,
     "4x.phases.firstReactiveRun.reactionRuns": 9616,
-    "4x.phases.firstReactiveRun.rowReads": 503064,
+    "4x.phases.firstReactiveRun.rowReads": 497564,
     "4x.phases.ingest.built.atom": 169,
     "4x.phases.ingest.built.observableValue": 78871,
     "4x.phases.ingest.built.set": 169,
@@ -261,7 +261,7 @@
     "write-idle.1x.phases.firstPaint.computedRuns": 1080,
     "write-idle.1x.phases.firstPaint.distinctRows": 128,
     "write-idle.1x.phases.firstPaint.reactionRuns": 61,
-    "write-idle.1x.phases.firstPaint.rowReads": 5131,
+    "write-idle.1x.phases.firstPaint.rowReads": 4992,
     "write-idle.1x.phases.firstReactiveRun.built.array": 45,
     "write-idle.1x.phases.firstReactiveRun.built.atom": 780,
     "write-idle.1x.phases.firstReactiveRun.built.computed": 11703,
@@ -271,7 +271,7 @@
     "write-idle.1x.phases.firstReactiveRun.computedRuns": 11703,
     "write-idle.1x.phases.firstReactiveRun.distinctRows": 3807,
     "write-idle.1x.phases.firstReactiveRun.reactionRuns": 2389,
-    "write-idle.1x.phases.firstReactiveRun.rowReads": 125847,
+    "write-idle.1x.phases.firstReactiveRun.rowReads": 124596,
     "write-idle.1x.phases.ingest.built.atom": 56,
     "write-idle.1x.phases.ingest.built.observableValue": 19548,
     "write-idle.1x.phases.ingest.built.set": 56,
@@ -363,9 +363,9 @@
     "write-idle.4x.phases.firstPaint.built.reaction": 61,
     "write-idle.4x.phases.firstPaint.changes": 64,
     "write-idle.4x.phases.firstPaint.computedRuns": 1431,
-    "write-idle.4x.phases.firstPaint.distinctRows": 210,
+    "write-idle.4x.phases.firstPaint.distinctRows": 209,
     "write-idle.4x.phases.firstPaint.reactionRuns": 61,
-    "write-idle.4x.phases.firstPaint.rowReads": 8415,
+    "write-idle.4x.phases.firstPaint.rowReads": 8198,
     "write-idle.4x.phases.firstReactiveRun.built.array": 54,
     "write-idle.4x.phases.firstReactiveRun.built.atom": 2981,
     "write-idle.4x.phases.firstReactiveRun.built.computed": 46742,
@@ -375,7 +375,7 @@
     "write-idle.4x.phases.firstReactiveRun.computedRuns": 46742,
     "write-idle.4x.phases.firstReactiveRun.distinctRows": 15526,
     "write-idle.4x.phases.firstReactiveRun.reactionRuns": 9616,
-    "write-idle.4x.phases.firstReactiveRun.rowReads": 503064,
+    "write-idle.4x.phases.firstReactiveRun.rowReads": 497564,
     "write-idle.4x.phases.ingest.built.atom": 169,
     "write-idle.4x.phases.ingest.built.observableValue": 78871,
     "write-idle.4x.phases.ingest.built.set": 169,
@@ -472,7 +472,7 @@
     "write-pending.1x.phases.firstPaint.computedRuns": 1080,
     "write-pending.1x.phases.firstPaint.distinctRows": 128,
     "write-pending.1x.phases.firstPaint.reactionRuns": 61,
-    "write-pending.1x.phases.firstPaint.rowReads": 5127,
+    "write-pending.1x.phases.firstPaint.rowReads": 4988,
     "write-pending.1x.phases.firstReactiveRun.built.array": 45,
     "write-pending.1x.phases.firstReactiveRun.built.atom": 780,
     "write-pending.1x.phases.firstReactiveRun.built.computed": 11703,
@@ -482,7 +482,7 @@
     "write-pending.1x.phases.firstReactiveRun.computedRuns": 11703,
     "write-pending.1x.phases.firstReactiveRun.distinctRows": 3807,
     "write-pending.1x.phases.firstReactiveRun.reactionRuns": 2389,
-    "write-pending.1x.phases.firstReactiveRun.rowReads": 125847,
+    "write-pending.1x.phases.firstReactiveRun.rowReads": 124596,
     "write-pending.1x.phases.ingest.built.atom": 56,
     "write-pending.1x.phases.ingest.built.observableValue": 19548,
     "write-pending.1x.phases.ingest.built.set": 56,
@@ -568,8 +568,8 @@
     "write-pending.4x.phases.create.built.set": 1,
     "write-pending.4x.phases.create.changes": 10,
     "write-pending.4x.phases.create.computedRuns": 5,
-    "write-pending.4x.phases.create.distinctRows": 5,
-    "write-pending.4x.phases.create.rowReads": 415,
+    "write-pending.4x.phases.create.distinctRows": 4,
+    "write-pending.4x.phases.create.rowReads": 412,
     "write-pending.4x.phases.firstPaint.built.atom": 3512,
     "write-pending.4x.phases.firstPaint.built.computed": 1435,
     "write-pending.4x.phases.firstPaint.built.object": 8,
@@ -577,9 +577,9 @@
     "write-pending.4x.phases.firstPaint.built.reaction": 61,
     "write-pending.4x.phases.firstPaint.changes": 64,
     "write-pending.4x.phases.firstPaint.computedRuns": 1431,
-    "write-pending.4x.phases.firstPaint.distinctRows": 210,
+    "write-pending.4x.phases.firstPaint.distinctRows": 209,
     "write-pending.4x.phases.firstPaint.reactionRuns": 61,
-    "write-pending.4x.phases.firstPaint.rowReads": 8411,
+    "write-pending.4x.phases.firstPaint.rowReads": 8194,
     "write-pending.4x.phases.firstReactiveRun.built.array": 54,
     "write-pending.4x.phases.firstReactiveRun.built.atom": 2981,
     "write-pending.4x.phases.firstReactiveRun.built.computed": 46742,
@@ -589,7 +589,7 @@
     "write-pending.4x.phases.firstReactiveRun.computedRuns": 46742,
     "write-pending.4x.phases.firstReactiveRun.distinctRows": 15526,
     "write-pending.4x.phases.firstReactiveRun.reactionRuns": 9616,
-    "write-pending.4x.phases.firstReactiveRun.rowReads": 503064,
+    "write-pending.4x.phases.firstReactiveRun.rowReads": 497564,
     "write-pending.4x.phases.ingest.built.atom": 169,
     "write-pending.4x.phases.ingest.built.observableValue": 78871,
     "write-pending.4x.phases.ingest.built.set": 169,
@@ -5502,6 +5502,111 @@
       "after": 9616,
       "delta": -1361,
       "reason": "Excluded history and agent children without a potential nesting path no longer construct resident issue filings and their observed models."
+    }
+  },
+  "readBudgetComparisonBase": "integrate/4286-pilot@520d68c316 (POD-4968 tracking baseline)",
+  "readBudgetPerKeyChanges": {
+    "1x.phases.firstPaint.rowReads": {
+      "before": 5131,
+      "after": 4992,
+      "delta": -139,
+      "reason": "Reuse seat ordering, offer facts and the sorted firstSessionId from OwnAttention when the complete sidebar payload paints; lazy facts preserve short-circuited comparisons."
+    },
+    "1x.phases.firstReactiveRun.rowReads": {
+      "before": 125847,
+      "after": 124596,
+      "delta": -1251,
+      "reason": "Reuse lazy ordering and offer facts from the cached seat verdict, join verdicts by borrowed record identity, and stop rereading resident sidebar seat issueId on an issue-only owner update."
+    },
+    "4x.phases.firstPaint.distinctRows": {
+      "before": 210,
+      "after": 209,
+      "delta": -1,
+      "reason": "The cached OwnAttention firstSessionId removes the last raw session read for one painted 4x roster."
+    },
+    "4x.phases.firstPaint.rowReads": {
+      "before": 8415,
+      "after": 8198,
+      "delta": -217,
+      "reason": "Reuse seat ordering, offer facts and the sorted firstSessionId from OwnAttention when the complete sidebar payload paints; lazy facts preserve short-circuited comparisons."
+    },
+    "4x.phases.firstReactiveRun.rowReads": {
+      "before": 503064,
+      "after": 497564,
+      "delta": -5500,
+      "reason": "Reuse lazy ordering and offer facts from the cached seat verdict, join verdicts by borrowed record identity, and stop rereading resident sidebar seat issueId on an issue-only owner update."
+    },
+    "write-idle.1x.phases.firstPaint.rowReads": {
+      "before": 5131,
+      "after": 4992,
+      "delta": -139,
+      "reason": "Reuse seat ordering, offer facts and the sorted firstSessionId from OwnAttention when the complete sidebar payload paints; lazy facts preserve short-circuited comparisons."
+    },
+    "write-idle.1x.phases.firstReactiveRun.rowReads": {
+      "before": 125847,
+      "after": 124596,
+      "delta": -1251,
+      "reason": "Reuse lazy ordering and offer facts from the cached seat verdict, join verdicts by borrowed record identity, and stop rereading resident sidebar seat issueId on an issue-only owner update."
+    },
+    "write-idle.4x.phases.firstPaint.distinctRows": {
+      "before": 210,
+      "after": 209,
+      "delta": -1,
+      "reason": "The cached OwnAttention firstSessionId removes the last raw session read for one painted 4x roster."
+    },
+    "write-idle.4x.phases.firstPaint.rowReads": {
+      "before": 8415,
+      "after": 8198,
+      "delta": -217,
+      "reason": "Reuse seat ordering, offer facts and the sorted firstSessionId from OwnAttention when the complete sidebar payload paints; lazy facts preserve short-circuited comparisons."
+    },
+    "write-idle.4x.phases.firstReactiveRun.rowReads": {
+      "before": 503064,
+      "after": 497564,
+      "delta": -5500,
+      "reason": "Reuse lazy ordering and offer facts from the cached seat verdict, join verdicts by borrowed record identity, and stop rereading resident sidebar seat issueId on an issue-only owner update."
+    },
+    "write-pending.1x.phases.firstPaint.rowReads": {
+      "before": 5127,
+      "after": 4988,
+      "delta": -139,
+      "reason": "Reuse seat ordering, offer facts and the sorted firstSessionId from OwnAttention when the complete sidebar payload paints; lazy facts preserve short-circuited comparisons."
+    },
+    "write-pending.1x.phases.firstReactiveRun.rowReads": {
+      "before": 125847,
+      "after": 124596,
+      "delta": -1251,
+      "reason": "Reuse lazy ordering and offer facts from the cached seat verdict, join verdicts by borrowed record identity, and stop rereading resident sidebar seat issueId on an issue-only owner update."
+    },
+    "write-pending.4x.phases.create.distinctRows": {
+      "before": 5,
+      "after": 4,
+      "delta": -1,
+      "reason": "The pending-title bootstrap no longer opens the unchanged session that was read only to rebuild sidebar roster facts."
+    },
+    "write-pending.4x.phases.create.rowReads": {
+      "before": 415,
+      "after": 412,
+      "delta": -3,
+      "reason": "The pending-title bootstrap reuses the existing seat verdict and cached roster head instead of reopening an unchanged session for the sidebar payload."
+    },
+    "write-pending.4x.phases.firstPaint.distinctRows": {
+      "before": 210,
+      "after": 209,
+      "delta": -1,
+      "reason": "The cached OwnAttention firstSessionId removes the last raw session read for one painted 4x roster."
+    },
+    "write-pending.4x.phases.firstPaint.rowReads": {
+      "before": 8411,
+      "after": 8194,
+      "delta": -217,
+      "reason": "Reuse seat ordering, offer facts and the sorted firstSessionId from OwnAttention when the complete sidebar payload paints; lazy facts preserve short-circuited comparisons."
+    },
+    "write-pending.4x.phases.firstReactiveRun.rowReads": {
+      "before": 503064,
+      "after": 497564,
+      "delta": -5500,
+      "reason": "Reuse lazy ordering and offer facts from the cached seat verdict, join verdicts by borrowed record identity, and stop rereading resident sidebar seat issueId on an issue-only owner update."
     }
   }
 }
