@@ -27,6 +27,7 @@ import {
   useHostMetrics as useCoreHostMetrics,
   useIssueViewModel,
   useStore,
+  useStoreHandle,
   useStoreSelector,
 } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -35,7 +36,7 @@ import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { GitRepositoryWire, HostMetricsWire, MachineWire, SessionId } from '@podium/model'
 import { asIssueId } from '@podium/model'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { demoEnabled } from './demoData'
 import type { MobileTrpc, TranscriptPage } from './trpc'
 
@@ -71,10 +72,8 @@ function shallowEqualPick<T extends Record<string, unknown>>(a: T, b: T): boolea
 
 /**
  * THE MUTATION SURFACE the phone's screens use, picked once. Every field is an
- * identity-stable engine action, so components that subscribe here — instead of
- * `useMobileStore()` — stop re-rendering on hostMetrics frames (every 5s),
- * outbox flips, the coarse clock and every feed delta. That whole-snapshot
- * subscription in ~14 components was the round's biggest render multiplier.
+ * identity-stable engine action. Acquire them from the current owner without a
+ * snapshot subscription; a principal/provider rebuild supplies a new owner.
  */
 const pickActions = (s: MobileStore) => ({
   markIssueRead: s.markIssueRead,
@@ -104,12 +103,13 @@ const pickActions = (s: MobileStore) => ({
 export type StoreActions = ReturnType<typeof pickActions>
 
 export function useStoreActions(): StoreActions {
-  return useStoreSelector<StoreActions, MobileTrpc>(pickActions, shallowEqualPick)
+  const owner = useStoreHandle<MobileTrpc>()
+  return useMemo(() => pickActions(owner.getSnapshot()), [owner])
 }
 
-/** The local replica handle — a static; subscribers never re-render for it. */
+/** The existing replica handle, acquired without a snapshot subscription. */
 export function useReplica(): MobileStore['replica'] {
-  return useStoreSelector<MobileStore['replica'], MobileTrpc>((s) => s.replica)
+  return useStoreHandle<MobileTrpc>().getSnapshot().replica
 }
 
 /** The coarse shared clock used for stable working/progress projections. */
@@ -145,17 +145,17 @@ export function useSuperThreadId(): MobileStore['superThreadId'] {
 
 /** The server this app is talking to, e.g. `http://ludovico:18787`. */
 export function useHttpOrigin(): string {
-  return useStoreSelector<string, MobileTrpc>((s) => s.httpOrigin)
+  return useStoreHandle<MobileTrpc>().getSnapshot().httpOrigin
 }
 
 export function useTrpc(): MobileTrpc {
-  return useStoreSelector<MobileTrpc, MobileTrpc>((s) => s.trpc)
+  return useStoreHandle<MobileTrpc>().getSnapshot().trpc
 }
 
 /** The app-wide transport hub; terminal views share it instead of opening a
  *  second socket. */
 export function useHub(): SocketHub {
-  return useStoreSelector<SocketHub, MobileTrpc>((s) => s.hub)
+  return useStoreHandle<MobileTrpc>().getSnapshot().hub
 }
 
 /** S2 joins the replica homes before publishing this optimistic read view. */
@@ -235,7 +235,7 @@ export function useSpawnPrompt(id: SessionId | undefined): string | undefined {
 /** ONE UI persistence mechanism: the replica's per-principal ui-state
  *  collection. No screen writes raw AsyncStorage (doc §3.3 / POD-329). */
 export function useUiState(): RoutedUiState {
-  return useStoreSelector<RoutedUiState, MobileTrpc>((s) => s.uiState)
+  return useStoreHandle<MobileTrpc>().getSnapshot().uiState
 }
 
 function hubIsConnected(hub: SocketHub): boolean {

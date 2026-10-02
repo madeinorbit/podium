@@ -1,6 +1,6 @@
 import type { TerminalAppearance } from '@podium/terminal-client/appearance'
 import { useMemo, useSyncExternalStore } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useStoreHandle } from '@podium/client-core/react'
 import {
   parseTerminalAppearance,
   TERMINAL_APPEARANCE_KEY,
@@ -20,7 +20,7 @@ export interface UseTerminalAppearanceResult {
  *  appearance.ts). All native panels and the settings section share this, so a
  *  change applies everywhere, live — including across tabs. */
 export function useTerminalAppearance(): UseTerminalAppearanceResult {
-  const ui = useStoreSelector((s) => s.uiState)
+  const ui = useStoreHandle().getSnapshot().uiState
   const raw = useSyncExternalStore(
     (cb) => ui.subscribe(cb),
     () => ui.get(TERMINAL_APPEARANCE_KEY),

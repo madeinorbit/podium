@@ -1,7 +1,7 @@
 import type { UiState } from '@podium/client-core/replica'
 import { STICKY_PROMPTS_KEY } from '@podium/client-core/ui-state'
 import { useSyncExternalStore } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useStoreHandle } from '@podium/client-core/react'
 
 export { STICKY_PROMPTS_KEY }
 
@@ -22,7 +22,7 @@ export function useStickyPromptsPreference(): {
   // Lightweight consumers (tests, embeds, transitional stores) may not expose
   // the device-local UI collection. Preserve the default-on behavior instead
   // of making chat rendering depend on optional preference storage.
-  const ui = useStoreSelector((s) => s.uiState) as UiState | undefined
+  const ui = useStoreHandle().getSnapshot().uiState as UiState | undefined
   const raw = useSyncExternalStore(
     ui ? (cb) => ui.subscribe(cb) : subscribeUnavailable,
     ui ? () => ui.get(STICKY_PROMPTS_KEY) : readUnavailable,

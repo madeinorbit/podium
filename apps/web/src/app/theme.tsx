@@ -3,7 +3,7 @@ import { THEME_UI_KEYS } from '@podium/model/browser'
 import type { JSX, ReactNode } from 'react'
 import { createContext, useContext, useEffect, useState } from 'react'
 import { nativeDesktopBridge } from '../lib/nativeDesktop'
-import { useStoreSelector } from './store'
+import { useStoreHandle } from '@podium/client-core/react'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 export interface ThemeState {
@@ -101,7 +101,7 @@ export function useTheme(): ThemeContextValue {
  */
 export function ThemeUiStateMirror(): null {
   const { mode } = useTheme()
-  const ui = useStoreSelector((s) => s.uiState)
+  const ui = useStoreHandle().getSnapshot().uiState
   useEffect(() => {
     ui.set(THEME_MODE_KEY, mode)
   }, [ui, mode])

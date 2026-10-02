@@ -5,7 +5,8 @@ import {
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { MachineId } from '@podium/model/browser'
 import { useEffect, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import type { Trpc } from '@/app/trpc'
+import { useStoreHandle } from '@podium/client-core/react'
 
 /**
  * Resolved harness descriptors for components (POD-4475): the served
@@ -22,7 +23,7 @@ import { useStoreSelector } from '@/app/store'
 export function useResolvedDescriptors(
   machineIds: readonly (MachineId | undefined)[],
 ): HarnessDescriptorWire[] {
-  const trpc = useStoreSelector((store) => store.trpc)
+  const trpc = useStoreHandle<Trpc>().getSnapshot().trpc
   const [served, setServed] = useState<HarnessDescriptorWire[][]>([])
   const key = machineIds.join(',')
   // The transport is read through a ref: some test stores hand out a fresh

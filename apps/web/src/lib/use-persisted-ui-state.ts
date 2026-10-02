@@ -1,6 +1,6 @@
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useStoreHandle } from '@podium/client-core/react'
 
 /**
  * SUBSCRIBE to a persisted ui-state key — never seed it into local state.
@@ -33,7 +33,7 @@ export function usePersistedUiValue<T>(key: string, parse: (raw: string | null) 
   // Lightweight consumers (tests, embeds) may not expose the UI collection at
   // all; fall back to the parsed default rather than making a surface depend on
   // optional preference storage. Same guard as chat-verbosity / sticky-prompts.
-  const ui = useStoreSelector((s) => s.uiState) as RoutedUiState | undefined
+  const ui = useStoreHandle().getSnapshot().uiState as RoutedUiState | undefined
   const raw = useSyncExternalStore(
     ui ? (cb) => ui.subscribe(cb) : subscribeUnavailable,
     ui ? () => ui.get(key) : readUnavailable,
@@ -55,7 +55,7 @@ export function usePersistedUiState<T>(
   parse: (raw: string | null) => T,
   serialize: (value: T) => string | null,
 ): [T, (next: T) => void] {
-  const ui = useStoreSelector((s) => s.uiState) as RoutedUiState | undefined
+  const ui = useStoreHandle().getSnapshot().uiState as RoutedUiState | undefined
   const value = usePersistedUiValue(key, parse)
   const set = useCallback(
     (next: T) => {

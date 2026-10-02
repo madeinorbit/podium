@@ -2,7 +2,7 @@ import type { MachineId } from '@podium/model'
 import { MODEL_CATALOG_MAX_AGE_MS, type ModelChoiceWire } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import type { PodiumClientApi } from '../api'
-import { useStoreSelector } from './provider'
+import { useStoreHandle } from './provider'
 
 export type ModelCatalog = Record<string, ModelChoiceWire[]>
 export type ModelCatalogStatus = 'loading' | 'ready' | 'unavailable'
@@ -126,7 +126,7 @@ async function fetchCatalog(
 export function useModelCatalogState<TApi extends PodiumClientApi = PodiumClientApi>(
   machineId?: MachineId,
 ): ModelCatalogState {
-  const trpc = useStoreSelector<TApi, TApi>((store) => store.trpc)
+  const trpc = useStoreHandle<TApi>().getSnapshot().trpc
   const [revision, forceRender] = useState(0)
   const key = cacheKey(machineId)
   const scope = catalogScope(trpc)

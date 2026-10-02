@@ -25,9 +25,10 @@ const store = vi.hoisted(() => {
   return { data, uiState, available: { value: true } }
 })
 
-vi.mock('@/app/store', () => ({
-  useStoreSelector: (sel: (s: unknown) => unknown) =>
-    sel({ uiState: store.available.value ? store.uiState : undefined }),
+vi.mock('@podium/client-core/react', () => ({
+  useStoreHandle: () => ({
+    getSnapshot: () => ({ uiState: store.available.value ? store.uiState : undefined }),
+  }),
 }))
 
 const { usePersistedUiState, usePersistedUiValue } = await import('./use-persisted-ui-state')
