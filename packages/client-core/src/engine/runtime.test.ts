@@ -1488,9 +1488,6 @@ describe('unified optimistic overlay (#263)', () => {
     // Later rename wins over the earlier one; the mark-unread composes with it.
     expect(row?.name).toBe('second')
     expect(row?.unread).toBe(true)
-    expect(
-      engine.getSnapshot().sessionUserStates.find((state) => state.sessionId === 's1'),
-    ).toMatchObject({ userId: 'operator', readAt: null })
     expect(engine.replica.rows('sessionUserStates')[0]).toMatchObject(personal)
     expect(engine.getSnapshot().outboxSize).toBe(3)
     engine.dispose()

@@ -98,7 +98,6 @@ describe('metadata oplog e2e (live server)', () => {
     expect(heal.kind).toBe('delta')
     if (heal.kind !== 'delta') return
     expect(heal.changes.map((c) => [c.entity, c.op]).sort()).toEqual([
-      ['issue', 'upsert'],
       ['issueProjection', 'upsert'],
     ])
     expect(heal.cursor).toBe(delta.seq)

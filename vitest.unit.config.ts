@@ -22,7 +22,6 @@ import { ptySmokeTests, realAgentSmokeTests } from './vitest.smoke-requirements'
  */
 export const normalizedWireTests = [
   'apps/server/src/issues.normalized-wire.test.ts',
-  'apps/server/src/issues.normalized-wire.bench.test.ts',
 ]
 
 /**

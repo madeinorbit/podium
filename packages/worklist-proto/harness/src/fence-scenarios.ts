@@ -337,7 +337,7 @@ export const FENCE_SCENARIOS: readonly FenceScenario[] = [
     methodology: '#9a',
     write: (ctx) => writeOptimisticPress(ctx),
     readsBudget: () => READ_BUDGETS.markRead,
-    leavesPending: (ctx) => [`issues:${ctx.targets.markReadId}`],
+    leavesPending: (ctx) => [`issueUserStates:${ctx.targets.markReadId}`],
   },
   {
     scenario: 'optimisticEcho',
