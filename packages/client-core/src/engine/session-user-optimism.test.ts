@@ -172,13 +172,27 @@ function publish(
   })
 }
 
-/** This principal's per-user row as the per-row reader sees it: the replica's
- *  row folded with the ledger's pending overlays for it. */
-function homeRow(engine: Engine, userId = ME): SessionUserStateWire | undefined {
+/** A user's per-user row as the pool's per-row reader sees it: the replica's
+ *  row, data cells only, folded with the ledger's pending overlays for this
+ *  principal's row (the ledger keys them by session id, and paints no one
+ *  else's). */
+function homeRow(engine: Engine, userId = ME, me = ME): SessionUserStateWire | undefined {
   const truth = engine.replica
     .rows('sessionUserStates')
     .find((row) => row.userId === userId && row.sessionId === S)
-  return foldRowOverlays(truth, engine.pendingOverlaysByRow('sessionUserStates').get(S) ?? [])
+  const data =
+    truth === undefined
+      ? undefined
+      : (Object.fromEntries(
+          Object.entries(truth).filter(([key, value]) => !key.startsWith('$') && value !== undefined),
+        ) as SessionUserStateWire)
+  if (userId !== me) return data
+  const folded = foldRowOverlays(data, engine.pendingOverlaysByRow('sessionUserStates').get(S) ?? [])
+  return folded === undefined
+    ? undefined
+    : (Object.fromEntries(
+        Object.entries(folded).filter(([, value]) => value !== undefined),
+      ) as SessionUserStateWire)
 }
 
 const viewOf = (engine: Engine) => engine.getSnapshot().sessions.find((s) => s.sessionId === S)
@@ -533,10 +547,10 @@ describe('principal isolation of per-user session overlays', () => {
 
     void a.engine.getSnapshot().setSnooze(S, LATER)
     await settle()
-    expect(homeRow(a.engine, 'alice')?.snoozedUntil).toBe(LATER)
+    expect(homeRow(a.engine, 'alice', 'alice')?.snoozedUntil).toBe(LATER)
     expect(viewOf(a.engine)?.snoozedUntil).toBe(LATER)
     // Bob holds Alice's row as the server sent it, and his view is not hers.
-    expect(homeRow(b.engine, 'alice')?.snoozedUntil).toBeUndefined()
+    expect(homeRow(b.engine, 'alice', 'bob')?.snoozedUntil).toBeUndefined()
     expect(b.engine.pendingOverlaysByRow('sessionUserStates').size).toBe(0)
     expect(viewOf(b.engine)?.snoozedUntil).toBeUndefined()
     a.engine.dispose()
