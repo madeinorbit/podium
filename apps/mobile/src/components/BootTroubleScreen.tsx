@@ -1,3 +1,4 @@
+import { type ReplicaFailure, replicaBootCopy } from '@podium/client-core/replica-assembly'
 import { StyleSheet, Text, View } from 'react-native'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { PressableScale } from './PressableScale'
@@ -25,24 +26,22 @@ import { PressableScale } from './PressableScale'
 export function BootTroubleScreen({
   kind,
   detail,
+  cause,
   onRetry,
 }: {
   kind: 'failed' | 'stalled'
   detail: string | null
+  cause?: ReplicaFailure | undefined
   onRetry: () => void
 }) {
-  const failed = kind === 'failed'
+  const copy = replicaBootCopy(
+    kind === 'stalled' ? { kind: 'boot-stalled' } : (cause ?? { kind: 'unknown' }),
+  )
   return (
     <View style={styles.root}>
-      <Text style={styles.label}>{failed ? 'CANNOT START' : 'STILL STARTING'}</Text>
-      <Text style={styles.headline}>
-        {failed ? 'Podium could not finish starting.' : 'This is taking longer than it should.'}
-      </Text>
-      <Text style={styles.body}>
-        {failed
-          ? 'The server connection or on-device storage stopped before the app could load. Your on-device data has not been changed.'
-          : 'The app is still trying to start. You can wait, or retry now.'}
-      </Text>
+      <Text style={styles.label}>{copy.label}</Text>
+      <Text style={styles.headline}>{copy.headline}</Text>
+      <Text style={styles.body}>{copy.body}</Text>
       {detail ? (
         <Text style={styles.detail} numberOfLines={4}>
           {detail}

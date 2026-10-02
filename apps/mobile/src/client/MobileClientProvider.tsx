@@ -34,51 +34,40 @@ import { seedIssueFixtures } from './issue-fixtures'
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import {
-  type CreateEngineOutbox,
-  OUTBOX_COMMANDS,
-  openKernelEngineOutbox,
-  outboxCommandFor,
-} from '@podium/client-core/engine'
+import { type CreateEngineOutbox, OUTBOX_COMMANDS } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreSelector } from '@podium/client-core/react'
 import {
   createAsyncStorageReplicaStorage,
-  createKernelReplica,
   createReplica,
-  createSideCache,
-  FeedSink,
   isTranscriptWindowStorageKey,
   parseReplicaNamespaceKey,
-  preparePrincipalNamespace,
   REPLICA_KEY_PREFIX,
   type Replica,
   type StorageApi,
 } from '@podium/client-core/replica'
+import {
+  classifyAuthStatus,
+  openReplicaAssembly,
+  type ReplicaDataStore,
+  type ReplicaFailure,
+  ReplicaGateError,
+  STORE_REFRESH_NOTICE,
+  startReplicaBoot,
+} from '@podium/client-core/replica-assembly'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
-import {
-  createSyncTransferTelemetry,
-  HttpBootstrapSource,
-  HttpDeltaSource,
-  type HttpSyncSourceDeps,
-} from '@podium/client-core/sync-stream'
+import type { HttpSyncSourceDeps } from '@podium/client-core/sync-stream'
 import { createLogger } from '@podium/logger'
-import { actorUser, asUserId, type SessionId } from '@podium/model'
+import { asUserId, type SessionId } from '@podium/model'
 import {
-  decideLegacyAdoption,
   LEGACY_STANDALONE_OUTBOX_KEY,
   type LegacyIdentityEvidence,
   type LegacyMigrationOutcome,
-  migrateLegacyReplica,
 } from '@podium/sync/adapters/legacy-replica'
-import type { OutboxAttribution, OutboxCommand, OutboxStorePort } from '@podium/sync/outbox'
-import {
-  Replica as KernelReplica,
-  type ReplicaCacheStore,
-  type ReplicaEvent,
-  type SyncUnitOfWork,
-} from '@podium/sync/replica'
+
+export { BOOT_STALL_MS, STORE_REFRESH_NOTICE } from '@podium/client-core/replica-assembly'
+
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Platform } from 'react-native'
@@ -109,19 +98,11 @@ import {
   completePendingProfileCleanup,
   loadPendingProfileCleanups,
   type PendingProfileCleanup,
-  profilePrincipal,
 } from './server-profiles'
 import type { MobileShell, NoticeTone } from './shell'
 import { MobileShellSurface, useShellErrorChannel } from './shell-surface'
 
 const log = createLogger('mobile:replica')
-
-/**
- * What the user reads when the entity cache is being re-derived from the server
- * (POD-4002). A bootstrap after an upgrade is expected, not a failure: plain
- * words, neutral tone, and the reason code stays in the log line beside it.
- */
-export const STORE_REFRESH_NOTICE = 'Refreshing your data after the upgrade — this happens once.'
 
 import { type MobileTrpc, makeMobileTrpc, readServerConfig } from './trpc'
 
@@ -138,17 +119,6 @@ installMobileMetadataStorage(AsyncStorage)
 /** The SQLite file the durable outbox and entity cache live in. */
 export const MOBILE_REPLICA_DB = 'podium-replica.db'
 
-/**
- * How long the boot may run before the app admits something is wrong (POD-712).
- *
- * Deliberately generous: this is a REAL cold start on a phone — an auth
- * round-trip, an AsyncStorage hydrate, a storage-engine open and a legacy
- * migration — and the watchdog does not cancel any of it. It only stops the
- * splash from being the last word, so the number needs to sit well clear of a
- * slow-but-healthy start rather than track it closely.
- */
-export const BOOT_STALL_MS = 15_000
-
 /** Test-only/legacy fallback. Production passes AuthStatus.userId explicitly; an
  * unattributed pre-identity store is accepted only through the injected gate. */
 export const MOBILE_REPLICA_PRINCIPAL = 'default'
@@ -158,8 +128,6 @@ export const MOBILE_REPLICA_PRINCIPAL = 'default'
  *  surface reads the same one — two copies would drift, and the thing that
  *  drifts is which contract a queued write is replayed under. */
 export const MOBILE_OUTBOX_COMMANDS = OUTBOX_COMMANDS
-
-const resolveMobileCommand = (kind: string): OutboxCommand | undefined => outboxCommandFor(kind)
 
 /**
  * WHICH KEYS THE BRIDGE MUST HYDRATE, and why the default is not enough.
@@ -172,38 +140,7 @@ const resolveMobileCommand = (kind: string): OutboxCommand | undefined => outbox
  */
 export const LEGACY_HYDRATE_PREFIXES = [REPLICA_KEY_PREFIX, LEGACY_STANDALONE_OUTBOX_KEY] as const
 
-/**
- * Empty import plan for the entity-cache attribution decision. The decision and
- * the records are two things `decideLegacyAdoption` returns; only the decision
- * applies here. Re-deriving the rule locally would fork a privacy rule.
- */
-const EMPTY_ADOPTION_PLAN = {
-  verdict: 'import' as const,
-  outbox: [],
-  retireKeys: [],
-  rejected: [],
-  cursorDiscarded: false,
-}
-
-/**
- * The durable entity/outbox/cursor store, as openMobileReplica needs it.
- *
- * Both adapters (SQLite native, IndexedDB web) satisfy this. POD-541 switched
- * the web path off expo-sqlite because its OPFS worker times out under the
- * Playwright Chromium the e2e drives — IndexedDB is the durable engine ADR 6
- * already names for web.
- */
-export interface MobileEntityStore {
-  viewFor(principal: string): {
-    cache: ReplicaCacheStore
-    outbox: OutboxStorePort
-  }
-  erasePrincipal(principal: string): Promise<void>
-  readonly unitOfWork: SyncUnitOfWork
-  durability(): 'durable' | 'degraded-memory' | 'unavailable'
-  settled(): Promise<void>
-  close(): void
-}
+export type MobileEntityStore = ReplicaDataStore
 
 export interface MobileReplicaDeps {
   /**
@@ -255,9 +192,12 @@ export interface MobileReplicaDeps {
   /** Surfaced, never swallowed (ADR 6 D4.4). */
   readonly onDegraded: (message: string, tone?: NoticeTone) => void
   readonly now?: () => number
+  readonly onAuthExpired?: () => void
 }
 
 export interface MobileReplica {
+  readonly createReplicaFn: import('@podium/client-core/engine').CreateReplicaForPrincipal
+  dispose(): Promise<void>
   /** What the engine reads through — the kernel-backed facade. */
   readonly replica: Replica
   /** Wire-v2 feed sink. Supplied WITH the replica; neither half is meaningful alone. */
@@ -286,277 +226,43 @@ export interface MobileReplica {
   erase(): Promise<void>
 }
 
-async function eraseLocalPrincipal(args: {
-  namespace: { erase(): void }
-  store: MobileEntityStore
-  principal: string
-  flushStorage?: () => Promise<void>
-}): Promise<void> {
-  args.namespace.erase()
-  await Promise.all([
-    args.store.erasePrincipal(args.principal),
-    args.flushStorage?.() ?? Promise.resolve(),
-  ])
-}
-
-/**
- * Open the durable store, run the attribution gate, assemble the v2 feed path,
- * and return the replica the engine reads through.
- *
- * POD-1220 landed the durable half: SqliteSyncStore, migrateLegacyReplica, and
- * the SQLite outbox binding. This issue (POD-1241) lands the READ half: the
- * kernel Replica, HTTP sources, FeedSink, and the facade that projects
- * entity rows into the engine's Replica interface.
- *
- * THE HAZARD THIS ASSEMBLY EXISTS TO CLOSE. Before the wire cutover, pointing
- * the facade at a cache whose frames never arrive painted an EMPTY SLICE on
- * every cold start — indistinguishable from a working offline cold start until
- * you have data. The feed sink is therefore required, and the cold-start test
- * proves rows paint from a populated store when the authority delivers nothing.
- */
+/** Platform adapters and the mobile presentation of the shared assembly. */
 export async function openMobileReplica(deps: MobileReplicaDeps): Promise<MobileReplica> {
   const principal = deps.principal ?? MOBILE_REPLICA_PRINCIPAL
-  const clientPrincipal = deps.clientPrincipal ?? principal
-  const now = deps.now ?? Date.now
-  const store = await deps.openStore()
-  try {
-    for (const cleanup of deps.pendingPrincipalCleanups ?? []) {
-      // preparePrincipalNamespace owns the exact AsyncStorage root calculation.
-      // Its cleanup policy disables retention eviction because this pass must
-      // erase only the tombstoned principal, never another saved profile.
-      const staleNamespace = preparePrincipalNamespace({
-        storage: deps.storage,
-        enumerateKeys: deps.enumerateKeys ?? (() => []),
-        basePrefix: REPLICA_KEY_PREFIX,
-        principal: cleanup.principal,
-        now: deps.now,
-        policy: {
-          signOut: 'erase',
-          maxRetainedPrincipals: Number.MAX_SAFE_INTEGER,
-          maxInactiveMs: Number.MAX_SAFE_INTEGER,
-        },
-      })
-      // Use the same principal eraser as signed-out active replicas. Only the
-      // tombstone source differs; the namespace and SQLite boundaries do not.
-      await eraseLocalPrincipal({
-        namespace: staleNamespace,
-        store,
-        principal: cleanup.principal,
-        flushStorage: deps.flushStorage,
-      })
-      // Last operation: a crash or failure above keeps the durable intent for
-      // an idempotent retry on the next successful provider boot.
-      await cleanup.complete()
-    }
-  } catch (cause) {
-    store.close()
-    throw cause
-  }
-  const namespace = preparePrincipalNamespace({
-    storage: deps.storage,
-    enumerateKeys: deps.enumerateKeys ?? (() => []),
-    basePrefix: REPLICA_KEY_PREFIX,
-    principal,
-    now: deps.now,
-  })
-  if (!namespace.durable) {
-    deps.onDegraded('Offline entity storage is unavailable; this session will stay in memory.')
-  }
-  for (const stalePrincipal of namespace.evictedPrincipals) {
-    await store.erasePrincipal(stalePrincipal)
-  }
-  const view = store.viewFor(principal)
-  const attribution: OutboxAttribution = {
-    actor: actorUser(asUserId(clientPrincipal)),
-    onBehalfOf: asUserId(clientPrincipal),
-  }
-
-  // Default evidence is the per-principal namespace ledger assembled above.
-  // A caller may inject unknown/foreign evidence to exercise the refusal arm.
-  const evidence: LegacyIdentityEvidence =
-    deps.evidence ??
-    (namespace.durable
-      ? {
-          kind: 'multi-user',
-          signedInAs: principal,
-          identitiesEverSignedIn: namespace.knownPrincipals,
-        }
-      : { kind: 'unknown' })
-
-  // ---- THE ATTRIBUTION GATE, before a single entity row is read ------------
-  //
-  // Same rule as web's openKernelAssembly: an unattributable store is discarded
-  // and re-bootstrapped, never adopted. The outbox migration below is a separate
-  // call that parks unattributable queued work; this one governs the entity
-  // cache the cold-start paint reads.
-  const adoption = decideLegacyAdoption(
-    EMPTY_ADOPTION_PLAN,
-    evidence,
-    now(),
-    // WHAT IS IN FRONT OF THE GATE (POD-4000): this principal's own view, which
-    // `viewFor` lets nobody else write. Stated from the store's shape; a second
-    // person in the namespace ledger puts no row here. Without a durable
-    // namespace the claim cannot be made, so the default (unattributed) stands.
-    namespace.durable ? { kind: 'principal-scoped', writtenUnder: [principal] } : undefined,
-  )
-  if (!adoption.adopt) {
-    view.cache.discardCache()
-    // The reason code is diagnostic, not copy (POD-4002): it goes to the log,
-    // and the user reads one plain sentence in the neutral tone.
-    log.warn('entity cache not adopted — refreshing from the server', { reason: adoption.reason })
-    deps.onDegraded(STORE_REFRESH_NOTICE, 'info')
-  }
-
-  const outcome = await migrateLegacyReplica({
-    legacy: deps.storage,
-    outbox: view.outbox,
-    transact: store.unitOfWork.transact,
-    resolveCommand: resolveMobileCommand,
-    attribution,
-    evidence,
-    now,
-  })
-
-  // ---- THE WRITE QUEUE (POD-2073) -----------------------------------------
-  //
-  // The kernel `Outbox` state machine, over the SAME SQLite rows the migration
-  // above just wrote into — which is why it is opened HERE and not a line
-  // earlier: `KernelOutbox.open` reads the store once and reconciles what it
-  // finds, so a legacy entry that arrived after the open would sit in the file
-  // unseen until the next cold start.
-  //
-  // It REPLACES the compatibility queue mobile used to drive over these same
-  // rows through `createKernelOutboxStorage`. Both drivers writing one store was
-  // never an option (`facade.ts`'s header says why: two writers over records the
-  // kernel Outbox owns), and the compatibility one is the weaker of the two — a
-  // flat 5-second retry, one global ordering partition, and no age horizon, so a
-  // phone that had been offline for a fortnight replayed writes whose receipts
-  // the server had already pruned. What arrives with this driver is what web has
-  // had since POD-1232: per-target partitions with collapse keys, exponential
-  // backoff, and D10's expiry sweep resolving aged work into recoverable
-  // dead letters instead of retrying it forever.
-  const createOutboxFn = await openKernelEngineOutbox({
-    store: view.outbox,
-    // ADR 3 D7: the AUTHENTICATED principal, which is also what stamped the
-    // attribution on every row the migration just adopted. The Outbox binds to
-    // it, and another principal's rows in the same file are invisible to this
-    // instance by construction rather than by a filter someone remembers.
-    principal: clientPrincipal,
-    api: deps.api,
-    onDegraded: (detail) => deps.onDegraded(String(detail)),
-    // ONE clock across the assembly. `migrateLegacyReplica` stamped `queuedAt`
-    // from `now` moments ago and D10 measures the age horizon from it, so a
-    // second clock here could sweep a just-migrated row into dead-letter
-    // recovery for being a fortnight old.
-    now,
-  })
-
-  // Side cache: ui-state + transcript windows on the AsyncStorage bridge. The
-  // outbox is not here and is not reachable from here (ADR 6 D1) — its rows are
-  // in SQLite and the kernel Outbox above is the only thing that drives them.
-  const side = createSideCache({
-    storage: deps.storage,
-    enumerateKeys: deps.enumerateKeys ?? (() => []),
-    keyPrefix: namespace.keyPrefix,
-    // Legacy outbox migration already ran above into SQLite; do not also fold
-    // a second copy into the side-cache blob store.
-    adoptLegacyOutbox: false,
-    onDegraded: (error) => deps.onDegraded(String(error)),
-  })
-
-  const facade = createKernelReplica({
-    cache: view.cache,
-    side,
-    // POD-1510, same closure-deferred edge as web: the kernel Replica is built
-    // below (it needs `facade.onKernelEvent`), so the facade takes its exit
-    // record as a function rather than a value. Wired on BOTH platforms
-    // deliberately — an exit distinction that existed on web only would make
-    // "unshared" render as "deleted" on mobile, which is the defect, not a
-    // smaller version of it.
-    exits: (entity, entityId) => kernel.exitKind(entity, entityId),
-  })
-
-  // ---- WIRE v2 (POD-1241) — the feed that populates entity rows ------------
-  const syncProgress = new MobileSyncProgressStore()
-  // POD-4071 — the same debug transfer timeline web emits. It matters more here:
-  // `mobile-sync-fetch` deliberately leaves Accept-Encoding to the native HTTP
-  // stack, and RN may hand back a buffered body, so the `opened` line is the only
-  // place the coding and the streaming/buffered answer are ever stated.
-  const syncTelemetry = createSyncTransferTelemetry()
-  const sourceDeps = {
-    ...deps.httpSync,
-    onMeta: (totalRows: number | undefined) => syncProgress.noteMeta(totalRows),
-    onChunk: (rows: number) => syncProgress.noteReceived(rows),
-    telemetry: syncTelemetry,
-  }
-  const bootstraps = new HttpBootstrapSource(sourceDeps)
-  const deltas = new HttpDeltaSource(sourceDeps)
-  const kernel = new KernelReplica({
-    store: view.cache,
-    authority: {
-      async *bootstrap(signal) {
-        syncProgress.beginAttempt()
-        for await (const chunk of bootstraps.bootstrap(signal)) {
-          if (chunk.last) syncProgress.noteSaving()
-          yield chunk
-        }
-      },
-      async changesRange(cursor, signal, onTarget) {
-        syncProgress.beginAttempt()
-        return deltas.changesRange(cursor, signal, onTarget)
-      },
-    },
-    onEvent: (event: ReplicaEvent) => {
-      // Before the progress store, for the same reason web takes it first: the
-      // `heal` cause is emitted before the request it explains opens.
-      syncTelemetry.noteReplicaEvent(event)
-      syncProgress.noteEvent(event)
-      facade.onKernelEvent(event)
-    },
-    // ONE DRAIN PER COMMIT, matching the web assembly. A bootstrap install
-    // emits one event per row; without this hook every event synchronously
-    // drained React subscribers and a large mobile world froze input for tens
-    // of seconds after content had already painted.
-    batchEvents: (emitAll) => facade.batch(emitAll),
-  })
-
-  // The initial posture is fixed synchronously from the persisted cursor, so
-  // the UI can distinguish a truly empty cold start from a stale-visible warm
-  // catch-up before the first network frame arrives.
-  syncProgress.begin(kernel.posture)
-  const sink = new FeedSink({ replica: kernel })
-  const feed: FeedSinkPort = {
-    syncHttp: sink.syncHttp,
-    requestRebootstrap: () => sink.requestRebootstrap(),
-    helloFields: () => sink.helloFields(),
-    connected: () => sink.connected(),
-    disconnected: () => sink.disconnected(),
-    frame: (frame) => {
-      sink.frame(frame)
-    },
-  }
-
-  return {
-    replica: facade,
-    feed,
-    syncProgress,
-    createOutboxFn,
-    outcome,
-    store,
+  const clientPrincipal =
+    deps.clientPrincipal ?? parseReplicaNamespaceKey(principal)?.memberId ?? principal
+  const assembly = await openReplicaAssembly({
+    ...deps,
     principal,
     clientPrincipal,
-    settled: async () => {
-      await Promise.all([store.settled(), deps.flushStorage?.() ?? Promise.resolve()])
+    settings: {
+      storage: deps.storage,
+      enumerateKeys: deps.enumerateKeys ?? (() => []),
+      flush: deps.flushStorage,
+      basePrefix: REPLICA_KEY_PREFIX,
     },
-    erase: async () => {
-      side.dispose()
-      await eraseLocalPrincipal({
-        namespace,
-        store,
-        principal,
-        flushStorage: deps.flushStorage,
-      })
+    onDegraded: (detail) => {
+      const report = detail as { kind?: string; notice?: string }
+      if (report?.kind === 'store-not-adopted') deps.onDegraded(STORE_REFRESH_NOTICE, 'info')
+      else if (report?.kind === 'legacy-outbox-migrated' && report.notice)
+        deps.onDegraded(report.notice)
+      else deps.onDegraded(String(detail))
     },
+    onAuthExpired: deps.onAuthExpired,
+  })
+  return {
+    replica: assembly.replica,
+    createReplicaFn: assembly.createReplicaFn,
+    feed: assembly.feed,
+    syncProgress: new MobileSyncProgressStore(assembly.progress),
+    createOutboxFn: assembly.createOutboxFn,
+    outcome: assembly.migrations[0]!,
+    store: assembly.store,
+    principal,
+    clientPrincipal,
+    settled: assembly.settled,
+    erase: assembly.erasePrincipalData,
+    dispose: assembly.dispose,
   }
 }
 
@@ -778,8 +484,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     authExpiryHandled.current = false
   }, [bearer, config.httpOrigin, config.workspaceId])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new credential needs a fresh expiry handler
   const expireLiveCredential = useCallback(() => {
-    if (!bearer || !updateCredential || authExpiryHandled.current) return
+    if (!updateCredential || authExpiryHandled.current) return
     authExpiryHandled.current = true
     void updateCredential(null).catch((cause: unknown) => {
       authExpiryHandled.current = false
@@ -842,11 +549,13 @@ function LiveProvider({ children }: { children: ReactNode }) {
   // and a boot that was merely slow both rendered `null`, which the launch
   // boundary above shows as the wordmark splash — forever, and identically.
   const [bootFailure, setBootFailure] = useState<string | null>(null)
+  const [bootCause, setBootCause] = useState<ReplicaFailure | null>(null)
   const [bootStalled, setBootStalled] = useState(false)
   // Bumped to run the effect again: the Retry button on a failed boot.
   const [bootAttempt, setBootAttempt] = useState(0)
   const retryBoot = useCallback(() => {
     setBootFailure(null)
+    setBootCause(null)
     setBootStalled(false)
     setOpenedReplica(null)
     setBootAttempt((n) => n + 1)
@@ -859,30 +568,15 @@ function LiveProvider({ children }: { children: ReactNode }) {
     // pagehide mid-boot therefore made the resolved replica close itself and
     // skip `setOpenedReplica`, and since the effect's deps never changed there
     // was no path back: the splash stayed up for the life of the page.
-    let alive = true
     let replicaForCleanup: MobileReplica | null = null
-    const closeReplica = () => {
-      replicaForCleanup?.store.close()
-      replicaForCleanup = null
-    }
-    // Flush in-flight writes. Do NOT close: iOS Safari fires pagehide on every
-    // background, and closing IndexedDB there is the ~60s lock on the next
-    // open. The socket is woken separately in MobileHubAttach.
     const onPageHide = () => {
-      void replicaForCleanup?.settled()
+      void replicaForCleanup
+        ?.settled()
+        .catch((cause) => log.warn('replica flush failed', { cause }))
     }
-    // Web only — Hermes has a `window` global without DOM listener methods, so
-    // an existence check passes on a phone and then dies calling the method.
-    if (Platform.OS === 'web') {
-      window.addEventListener('pagehide', onPageHide)
-    }
-    // A boot that is still running may still succeed, so the watchdog only
-    // OFFERS a way out; it never cancels the attempt in flight.
-    const stallTimer = setTimeout(() => {
-      if (alive) setBootStalled(true)
-    }, BOOT_STALL_MS)
-    void (async () => {
-      try {
+    if (Platform.OS === 'web') window.addEventListener('pagehide', onPageHide)
+    const stopBoot = startReplicaBoot({
+      open: async () => {
         const [bridge, status, pendingCleanups] = await Promise.all([
           createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES, {
             coalesce: isTranscriptWindowStorageKey,
@@ -890,8 +584,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
           inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin, bearer, config.workspaceId),
           Platform.OS === 'web' ? Promise.resolve([]) : loadPendingProfileCleanups(),
         ])
-        if (!status.memberId || !status.syncBoundaryId)
-          throw new Error('authenticated replica identity is unavailable')
+        const identity = classifyAuthStatus(status)
+        if (!('principal' in identity))
+          throw new ReplicaGateError('authenticated replica identity is unavailable', identity)
         const opened = await openMobileReplica({
           // POD-541: web uses IndexedDB (ADR 6 D1). expo-sqlite's OPFS worker
           // times out under Chromium even with COOP/COEP + correct wasm MIME, so
@@ -920,10 +615,11 @@ function LiveProvider({ children }: { children: ReactNode }) {
           api: trpc,
           storage: bridge.storage,
           enumerateKeys: bridge.keys,
-          flushStorage: bridge.flush,
+          flushStorage: bridge.flushDurable,
           // Re-pairing changes the credential handle, not the server-authored replica identity.
-          principal: profilePrincipal(status.syncBoundaryId, status.memberId),
+          principal: identity.principal,
           clientPrincipal: status.memberId,
+          onAuthExpired: expireLiveCredential,
           pendingPrincipalCleanups: pendingCleanups.map((cleanup: PendingProfileCleanup) => ({
             principal: cleanup.principal,
             complete: () => completePendingProfileCleanup(cleanup),
@@ -932,7 +628,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
             origin: config.httpOrigin,
             streamingFetch: createMobileSyncFetch(
               bearer,
-              expireLiveCredential,
+              undefined,
               config.workspaceId
                 ? { workspaceId: config.workspaceId }
                 : config.workspaceSlug
@@ -942,55 +638,42 @@ function LiveProvider({ children }: { children: ReactNode }) {
           },
           onDegraded: (message, tone) => setNotice({ message, tone: tone ?? 'warning' }),
         })
-        await recordUserRef.current?.(status.memberId, {
-          syncBoundaryId: status.syncBoundaryId,
-          memberId: status.memberId,
-        })
-        if (!alive) {
-          opened.store.close()
-          return
-        }
-        replicaForCleanup = opened
-        // ADR 6 D4.4 — never silent, in order of how much it costs the user.
-        //
-        // PARKED and REJECTED are both work that will never be sent, and both are
-        // reported: parked entries lost the attribution question, rejected ones never
-        // reached it (undecodable, or naming a command no contract in
-        // MOBILE_OUTBOX_COMMANDS resolves). Reporting only the first would leave a
-        // whole class of lost writes announced nowhere, which is the posture D4.4
-        // rules out — and `rejected` is the class a stale contract table produces, so
-        // it is exactly the one a silent path would hide from the person who could
-        // fix it. A discarded cursor is milder: one re-bootstrap, visible as a slow
-        // first paint, so it only speaks when nothing louder has.
-        const lost = opened.outcome.parked + opened.outcome.rejected.length
-        if (lost > 0) {
-          setNotice({
-            message: `${lost} queued change(s) from an earlier session could not be carried over and were not sent.`,
-            tone: 'warning',
+        try {
+          await recordUserRef.current?.(status.memberId!, {
+            syncBoundaryId: status.syncBoundaryId!,
+            memberId: status.memberId!,
           })
-        } else if (opened.outcome.cursorDiscarded) {
-          setNotice({ message: STORE_REFRESH_NOTICE, tone: 'info' })
+        } catch (error) {
+          await opened.dispose()
+          throw error
         }
-        setOpenedReplica(opened)
-        setBootStalled(false)
-      } catch (cause) {
-        // The boot is the ONE path with no store, no screens and therefore no
-        // other way to speak: `shell.error` is drawn under the store a failed
-        // boot never opens. Swallowing here (or leaving the rejection unhandled, as
-        // this fire-and-forget IIFE did) is what made a broken start look exactly
-        // like a slow one.
-        if (alive) setBootFailure(cause instanceof Error ? cause.message : String(cause))
-      } finally {
-        clearTimeout(stallTimer)
-      }
-    })()
+        return opened
+      },
+      dispose: (replica) => replica.dispose(),
+      onCleanupError: (cause) => log.warn('replica cleanup failed', { cause }),
+      onState: (state) => {
+        if (state.status === 'ready') {
+          replicaForCleanup = state.value
+          setOpenedReplica(state.value)
+          setBootFailure(null)
+          setBootCause(null)
+          setBootStalled(false)
+        } else if (state.status === 'failed') {
+          setBootFailure(state.failure)
+          setBootCause(state.cause)
+          setBootStalled(false)
+        } else {
+          setOpenedReplica(null)
+          setBootFailure(null)
+          setBootCause(null)
+          setBootStalled(state.status === 'stalled')
+        }
+      },
+    })
     return () => {
-      alive = false
-      clearTimeout(stallTimer)
-      closeReplica()
-      if (Platform.OS === 'web') {
-        window.removeEventListener('pagehide', onPageHide)
-      }
+      stopBoot()
+      replicaForCleanup = null
+      if (Platform.OS === 'web') window.removeEventListener('pagehide', onPageHide)
     }
   }, [
     bearer,
@@ -1030,6 +713,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
         <BootTroubleScreen
           kind={bootFailure !== null ? 'failed' : 'stalled'}
           detail={bootFailure}
+          cause={bootCause ?? undefined}
           onRetry={retryBoot}
         />
       </LaunchReadyView>
@@ -1062,18 +746,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
         asUserId(openedReplica.clientPrincipal),
         parseReplicaNamespaceKey(openedReplica.principal)?.syncBoundaryId,
       )}
-      createReplicaFn={(principal) => {
-        if (
-          principal.userId !== openedReplica.clientPrincipal ||
-          principal.syncBoundaryId !==
-            parseReplicaNamespaceKey(openedReplica.principal)?.syncBoundaryId
-        ) {
-          throw new Error(
-            `mobile replica belongs to a different principal (opened for ${openedReplica.clientPrincipal})`,
-          )
-        }
-        return openedReplica.replica
-      }}
+      createReplicaFn={openedReplica.createReplicaFn}
       // Wire v2 advertisement + frame sink (POD-1241). Providing this is how
       // the hub sends wireVersion and receives feedDelta/feedBootstrap/…
       feed={openedReplica.feed}
@@ -1096,7 +769,10 @@ function LiveProvider({ children }: { children: ReactNode }) {
         onDisconnected={verifyLiveCredential}
       />
       <MobileShellSurface value={shell}>
-        <MobileSyncBoundary store={openedReplica.syncProgress} onRetry={retryBoot}>
+        <MobileSyncBoundary
+          store={openedReplica.syncProgress}
+          onRetry={openedReplica.syncProgress.retry}
+        >
           {children}
         </MobileSyncBoundary>
       </MobileShellSurface>

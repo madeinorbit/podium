@@ -1,3 +1,7 @@
+import { COLD_SYNC_STALL_MS, watchReplicaBoot } from '@podium/client-core/replica-assembly'
+
+export { COLD_SYNC_STALL_MS } from '@podium/client-core/replica-assembly'
+
 import { type ReactNode, useEffect, useState, useSyncExternalStore } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
@@ -35,7 +39,6 @@ function warmLabel(phase: MobileSyncPhase): string {
 
 const count = (value: number): string => value.toLocaleString('en-US')
 export const WARM_SYNC_STATUS_DELAY_MS = 400
-export const COLD_SYNC_STALL_MS = 30_000
 
 /**
  * Cold starts have no trustworthy content to operate on, so the launch surface
@@ -87,17 +90,17 @@ export function MobileSyncBoundary({
     const id = setTimeout(() => setShowWarmStatus(true), WARM_SYNC_STATUS_DELAY_MS)
     return () => clearTimeout(id)
   }, [warmStatusActive])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `sync.attempt` re-arms the stall timer for each new attempt
   useEffect(() => {
+    setColdStalled(false)
     if (!sync.blocking || sync.failure !== null || onRetry === undefined) {
-      setColdStalled(false)
       return
     }
     // The replica's own bounded retry ladder keeps running. This timer only
     // retires the opaque splash and offers a recovery action if a cold network
     // sync has made no usable world available for an unusually long time.
-    const id = setTimeout(() => setColdStalled(true), stallAfterMs)
-    return () => clearTimeout(id)
-  }, [onRetry, stallAfterMs, sync.blocking, sync.failure])
+    return watchReplicaBoot(() => setColdStalled(true), stallAfterMs)
+  }, [onRetry, stallAfterMs, sync.blocking, sync.failure, sync.attempt])
 
   if (sync.blocking && onRetry !== undefined && (sync.failure !== null || coldStalled)) {
     return (
@@ -105,6 +108,13 @@ export function MobileSyncBoundary({
         <BootTroubleScreen
           kind={sync.failure === null ? 'stalled' : 'failed'}
           detail={sync.failure}
+          cause={
+            sync.error === 'auth'
+              ? { kind: 'signed-out' }
+              : sync.error === 'format'
+                ? { kind: 'sync-invalid' }
+                : undefined
+          }
           onRetry={onRetry}
         />
       </LaunchReadyView>

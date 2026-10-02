@@ -12,85 +12,14 @@
  * whoever will file the bug [POD-1304].
  */
 
-import { replicaNamespaceKey } from '@podium/client-core/replica'
-import type { ServerReadiness } from '@podium/model'
+import type { ReplicaFailure } from '@podium/client-core/replica-assembly'
 
-export type ReplicaFailure =
-  /** No session on this device. Not an error — the operator has to sign in. */
-  | { readonly kind: 'signed-out' }
-  /** The server answered, but its data plane is still blocked. Clears itself. */
-  | { readonly kind: 'server-starting'; readonly readiness: ServerReadiness }
-  /** Reachable, open, ready — and no account row to attach the work to. */
-  | { readonly kind: 'account-missing' }
-  /** A bearer credential was offered over plain HTTP and refused. */
-  | { readonly kind: 'auth-insecure' }
-  /** The status route refused outright. */
-  | { readonly kind: 'auth-refused'; readonly status: number }
-  /** 200, but the body was not the answer — a proxy or SPA fallback replied. */
-  | { readonly kind: 'auth-intercepted' }
-  /** Offline, and this browser has never held a synced copy. */
-  | { readonly kind: 'offline-unknown' }
-  /** Offline, and more than one account has used this browser. */
-  | { readonly kind: 'offline-ambiguous'; readonly count: number }
-  /** The principal resolved; the browser's own database would not open. */
-  | { readonly kind: 'replica-blocked' }
-  /** Anything the gate could not place. */
-  | { readonly kind: 'unknown' }
-
-/**
- * The gate's error, carrying its cause.
- *
- * `message` stays the string the gate has always thrown, so a caller that only
- * logs it — or a test that asserts on it — is unaffected. The classification
- * rides alongside rather than replacing it.
- */
-export class ReplicaGateError extends Error {
-  readonly failure: ReplicaFailure
-  constructor(message: string, failure: ReplicaFailure) {
-    super(message)
-    this.name = 'ReplicaGateError'
-    this.failure = failure
-  }
-}
-
-export function replicaFailureOf(error: unknown): ReplicaFailure {
-  return error instanceof ReplicaGateError ? error.failure : { kind: 'unknown' }
-}
-
-/**
- * Classify a parsed `/auth/status` answer.
- *
- * ORDER IS THE POINT. A blocked data plane is checked BEFORE a missing session,
- * because a server that has not finished starting reports no principal for
- * everyone — including an operator who is perfectly signed in. Reading that as
- * "signed out" would hand them a password box that the readiness boundary is
- * about to refuse anyway.
- */
-export function classifyAuthStatus(status: {
-  userId?: unknown
-  syncBoundaryId?: unknown
-  memberId?: unknown
-  needsAuth?: unknown
-  readiness?: unknown
-}): { readonly principal: string } | ReplicaFailure {
-  const readiness = status.readiness as ServerReadiness | undefined
-  if (readiness && readiness.dataPlane === 'blocked') return { kind: 'server-starting', readiness }
-  if (
-    typeof status.memberId === 'string' &&
-    status.memberId.length > 0 &&
-    typeof status.syncBoundaryId === 'string' &&
-    status.syncBoundaryId.length > 0
-  ) {
-    return {
-      principal: replicaNamespaceKey({
-        syncBoundaryId: status.syncBoundaryId,
-        memberId: status.memberId,
-      }),
-    }
-  }
-  if (status.needsAuth === true) return { kind: 'signed-out' }
-  return { kind: 'account-missing' }
-}
+export type { ReplicaFailure } from '@podium/client-core/replica-assembly'
+export {
+  classifyAuthStatus,
+  ReplicaGateError,
+  replicaFailureOf,
+} from '@podium/client-core/replica-assembly'
 
 /** A field in the console panel: the machine's own account of what it tried. */
 export interface FailureField {
@@ -142,6 +71,13 @@ export function describeReplicaFailure(
 ): FailureCopy {
   const target: FailureField = { label: 'Server', value: context.endpoint }
   switch (failure.kind) {
+    case 'boot-stalled':
+      return {
+        eyebrow: 'Interface / starting',
+        headline: 'This is taking longer\nthan it should.',
+        prose: 'The app is still trying to start. You can wait, or retry now.',
+        fields: [target],
+      }
     case 'server-starting': {
       const copy = STILL_STARTING[failure.readiness.reason ?? ''] ?? {
         headline: 'Podium is still\ncoming up.',

@@ -1,4 +1,4 @@
-import type { StreamingFetchPort } from '@podium/client-core/sync-stream'
+import { type StreamingFetchPort, SyncFormatError } from '@podium/client-core/sync-stream'
 import type { WorkspaceSelector } from '@podium/client-core/transport'
 import { fetch as expoFetch } from 'expo/fetch'
 import { Platform } from 'react-native'
@@ -14,14 +14,19 @@ export async function requireMobileSyncStream(response: Response): Promise<Respo
   const length = response.headers.get('content-length')?.trim()
   const encoding = response.headers.get('content-encoding')?.trim().toLowerCase()
   if (
-    !length || !/^\d+$/.test(length) || !Number.isSafeInteger(Number(length)) ||
-    Number(length) > MOBILE_SYNC_BUFFER_CAP || (encoding && encoding !== 'identity')
+    !length ||
+    !/^\d+$/.test(length) ||
+    !Number.isSafeInteger(Number(length)) ||
+    Number(length) > MOBILE_SYNC_BUFFER_CAP ||
+    (encoding && encoding !== 'identity')
   ) {
-    throw new Error('Sync requires streaming fetch; this response cannot be buffered safely.')
+    throw new SyncFormatError(
+      'Sync requires streaming fetch; this response cannot be buffered safely.',
+    )
   }
   const bytes = await response.arrayBuffer()
   if (bytes.byteLength > MOBILE_SYNC_BUFFER_CAP || bytes.byteLength !== Number(length)) {
-    throw new Error('Sync response exceeded its declared size.')
+    throw new SyncFormatError('Sync response exceeded its declared size.')
   }
   const buffered = new Response(null, {
     status: response.status,
@@ -29,9 +34,14 @@ export async function requireMobileSyncStream(response: Response): Promise<Respo
     headers: response.headers,
   })
   // RN's global Response need not expose a stream, even for a bounded body.
-  Object.defineProperty(buffered, 'body', { value: new ReadableStream<Uint8Array>({
-    start(controller) { controller.enqueue(new Uint8Array(bytes)); controller.close() },
-  }) })
+  Object.defineProperty(buffered, 'body', {
+    value: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(bytes))
+        controller.close()
+      },
+    }),
+  })
   return buffered
 }
 

@@ -1,3 +1,4 @@
+import { classifyAuthStatus, ReplicaGateError } from '@podium/client-core/replica-assembly/failure'
 import { UserId } from '@podium/model'
 import { NativeClientLoginResponse } from '@podium/protocol'
 import { Platform } from 'react-native'
@@ -63,7 +64,11 @@ export async function fetchAuthStatus(
     headers: bearerHeaders(bearer, undefined, workspaceId ? { workspaceId } : undefined),
     signal: timeoutSignal(AUTH_STATUS_TIMEOUT_MS),
   })
-  if (!res.ok) throw new Error('auth status failed: ' + res.status)
+  if (!res.ok)
+    throw new ReplicaGateError(
+      'auth status failed: ' + res.status,
+      res.status === 400 ? { kind: 'auth-insecure' } : { kind: 'auth-refused', status: res.status },
+    )
   const body = (await res.json().catch(() => null)) as Record<string, unknown> | null
   if (
     body === null ||
@@ -76,7 +81,11 @@ export async function fetchAuthStatus(
       (typeof body.userId === 'string' && body.userId.length > 0)
     )
   ) {
-    throw new Error('auth status response was invalid')
+    throw new ReplicaGateError('auth status response was invalid', { kind: 'auth-intercepted' })
+  }
+  const decision = classifyAuthStatus(body)
+  if (!('principal' in decision) && decision.kind === 'server-starting') {
+    throw new ReplicaGateError('authenticated replica identity is unavailable', decision)
   }
   return {
     ...(body.mode === 'cloud' ? { mode: 'cloud' as const } : {}),

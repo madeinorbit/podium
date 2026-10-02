@@ -1,77 +1,22 @@
-/**
- * THE WEB COMPOSITION ROOT FOR THE KERNEL REPLICA (POD-1223).
- *
- * The browser now has one supported replica path. This module composes its frame
- * consumer, wire mapping, bootstrap seam, authority port, IndexedDB adapter,
- * read facade, and durable outbox. The retired rollout resolver and TanStack
- * shadow path no longer sit in front of this root. The module assembles the pieces
- * and hands the engine its two ends:
- *
- *   `createReplicaFn`  the kernel-backed `Replica` facade (the read model)
- *   `feed`             the `FeedSinkPort` the hub pushes v2 frames into
- *
- * WHY IT IS ASYNC AND WHY THE STORE WAITS ON IT. `IndexedDbSyncStore.open` is a
- * database open, and the engine reads rows synchronously at construction. A
- * store mounted before the open resolved would paint a cold slice and then jump
- * — losing exactly the cold-start paint the acceptance list protects. The
- * desktop SQLite replica already gates its mount the same way for the same
- * reason (`useDesktopReplica`); this follows that precedent rather than inventing
- * a second one.
- *
- */
-
-import {
-  type CreateEngineOutbox,
-  type CreateReplicaForPrincipal,
-  openKernelEngineOutbox,
-  outboxCommandFor,
-} from '@podium/client-core/engine'
-import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'
-import {
-  createKernelReplica,
-  createSideCache,
-  FeedSink,
-  parseReplicaNamespaceKey,
-  preparePrincipalNamespace,
-  retainReplicaEntity,
-} from '@podium/client-core/replica'
+/** Web storage and cross-tab adapters for the shared replica assembly. */
+import type { CreateEngineOutbox, CreateReplicaForPrincipal } from '@podium/client-core/engine'
+import type { ClientPrincipal } from '@podium/client-core/principal'
+import { parseReplicaNamespaceKey, retainReplicaEntity } from '@podium/client-core/replica'
+import { openReplicaAssembly } from '@podium/client-core/replica-assembly'
 import type { FeedServerFrame, FeedSinkPort } from '@podium/client-core/socket-transport'
-import {
-  createSyncTransferTelemetry,
-  HttpBootstrapSource,
-  HttpDeltaSource,
-  SyncAuthExpiredError,
-  SyncCancelledError,
-  SyncNetworkError,
-} from '@podium/client-core/sync-stream'
 import { createLogger } from '@podium/logger'
-import { actorUser, asUserId } from '@podium/model/browser'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
-import {
-  decideLegacyAdoption,
-  LEGACY_OUTBOX_AWAITING_KEY,
-  LEGACY_OUTBOX_KEY,
-  LEGACY_QUARANTINE_SUFFIX,
-  type LegacyIdentityEvidence,
-  type LegacyKeyValueStore,
-  type LegacyMigrationOutcome,
-  migrateLegacyReplica,
-} from '@podium/sync/adapters/legacy-replica'
-import type { OutboxAttribution } from '@podium/sync/outbox'
-import { Replica as KernelReplica } from '@podium/sync/replica'
+import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'
 import type { Trpc } from '@/app/trpc'
-import { SyncProgressStore } from './sync-progress'
+import { type SyncProgressStore, WebSyncProgressStore } from './sync-progress'
 import { workspaceFetch } from './workspace-request'
 
+export type { OutboxMigrationSummary as WebOutboxMigrationSummary } from '@podium/client-core/replica-assembly'
+export { sideCacheQueueAsLegacy, summarizeMigrations } from '@podium/client-core/replica-assembly'
+
 const log = createLogger('web:kernel-replica')
-
-/** The IndexedDB database the web client's kernel replica lives in. */
 export const KERNEL_REPLICA_DB = 'podium-kernel-replica'
-/** Root below which every localStorage side-cache key is principal-bound. */
 export const KERNEL_SIDE_CACHE_PREFIX = 'podium.kernel-replica'
-
-/** The caller supplies the authenticated principal. Every cache and side-cache
- * address below is bound to it before the first row is read. */
 
 export interface KernelAssembly {
   /** WHOSE ASSEMBLY THIS IS. The whole thing — IndexedDB region, side cache,
@@ -155,391 +100,53 @@ function isCrossTabFeedMessage(value: unknown, principal: string): value is Cros
   return message.frame.type === 'feedDelta' || message.frame.type === 'feedRescope'
 }
 
-/** What the app is owed about a migration that ran — see `summarizeMigrations`. */
-export interface WebOutboxMigrationSummary {
-  readonly adopted: number
-  readonly parked: number
-  readonly quarantined: readonly string[]
-  readonly rejected: number
-  /** Absent when nothing happened; a sentence for the user when it did. */
-  readonly notice?: string
-}
-
-/**
- * The two migration passes, as ONE thing to tell the user.
- *
- * ADR 6 D4.4's posture is that a degradation is explained, never silent, and
- * "some of your unsent work could not be carried across" is the sharpest form of
- * that. The three outcomes read differently on purpose: adopted work is now
- * drainable and needs no sentence of its own beyond the count; PARKED work is
- * visible in the dead-letter recovery surface; QUARANTINED work is neither — it
- * is on disk under `<key>.unmigrated` and no build reads it, so the sentence has
- * to say that rather than imply a queue will get to it.
- */
-export function summarizeMigrations(
-  outcomes: readonly LegacyMigrationOutcome[],
-): WebOutboxMigrationSummary {
-  const adopted = outcomes.reduce((n, o) => n + o.adopted, 0)
-  const parked = outcomes.reduce((n, o) => n + o.parked, 0)
-  const rejected = outcomes.reduce((n, o) => n + o.rejected.length, 0)
-  const quarantined = outcomes.flatMap((o) => [...o.quarantined])
-  const parts: string[] = []
-  if (adopted > 0) parts.push(`${adopted} queued ${plural(adopted)} moved to secure storage`)
-  if (parked > 0)
-    parts.push(
-      `${parked} could not be attributed to this account and ${wasWere(parked)} parked for review`,
-    )
-  if (rejected > 0) {
-    parts.push(
-      `${rejected} could not be matched to a known action and ${wasWere(rejected)} kept on this device unsent`,
-    )
-  }
-  return {
-    adopted,
-    parked,
-    rejected,
-    quarantined,
-    ...(parts.length === 0 ? {} : { notice: `${parts.join('; ')}.` }),
-  }
-}
-
-const plural = (n: number): string => (n === 1 ? 'change' : 'changes')
-const wasWere = (n: number): string => (n === 1 ? 'was' : 'were')
-
-/**
- * The side-cache queue keys, presented UNDER THE LEGACY NAMES the importer scans.
- *
- * A shipped kernel build folded the pre-kernel localStorage queue into
- * `<principal-prefix>.outbox.v1` and `.outbox-awaiting.v1` — the same blob shape
- * (a JSON array of entries), a different address. Rather than teach the importer a
- * second key inventory, the addresses are translated here: the importer keeps ONE
- * key set, and the sequencing rule it enforces (retire only after a durable commit)
- * applies to these keys unchanged, because they are retired through this same map.
- *
- * Keys it does not translate read as ABSENT, deliberately: this pass must not see
- * entity rows, a cursor or the standalone pre-replica blob — the raw pass already
- * owns those, and a second importer touching them would retire keys whose entries
- * the first one is responsible for.
- */
-export function sideCacheQueueAsLegacy(storage: Storage, keyPrefix: string): LegacyKeyValueStore {
-  const map = new Map<string, string>([
-    [LEGACY_OUTBOX_KEY, `${keyPrefix}.outbox.v1`],
-    [LEGACY_OUTBOX_AWAITING_KEY, `${keyPrefix}.outbox-awaiting.v1`],
-  ])
-  /** Quarantine writes land beside the key they preserve, on the side-cache
-   *  address — otherwise the copy would be written to a legacy name that this
-   *  device may not even have, and the evidence would be filed under someone
-   *  else's key. */
-  const translate = (key: string): string | undefined => {
-    const direct = map.get(key)
-    if (direct !== undefined) return direct
-    if (!key.endsWith(LEGACY_QUARANTINE_SUFFIX)) return undefined
-    const base = map.get(key.slice(0, -LEGACY_QUARANTINE_SUFFIX.length))
-    return base === undefined ? undefined : `${base}${LEGACY_QUARANTINE_SUFFIX}`
-  }
-  return {
-    getItem: (key) => {
-      const at = translate(key)
-      if (at === undefined) return null
-      try {
-        return storage.getItem(at)
-      } catch {
-        return null
-      }
-    },
-    setItem: (key, value) => {
-      const at = translate(key)
-      // A write with nowhere to go must THROW, not succeed silently: the caller
-      // treats a failed quarantine as "leave the original in place", and a
-      // no-op that reported success would delete it.
-      if (at === undefined) throw new Error(`no side-cache address for ${key}`)
-      storage.setItem(at, value)
-    },
-    removeItem: (key) => {
-      const at = translate(key)
-      if (at === undefined) return
-      storage.removeItem(at)
-    },
-  }
-}
-
 export async function openKernelAssembly(
   options: OpenKernelAssemblyOptions,
 ): Promise<KernelAssembly> {
-  const { trpc } = options
-  const identity = parseReplicaNamespaceKey(options.principal)
-  if (!identity) throw new Error('replica requires a server-authored boundary and member')
-  const memberId = identity.memberId
-  let unavailableCause: unknown
+  if (!parseReplicaNamespaceKey(options.principal))
+    throw new Error('replica requires a server-authored boundary and member')
   const databaseName = options.databaseName ?? KERNEL_REPLICA_DB
-  const store = await IndexedDbSyncStore.open({
-    factory: options.factory ?? (globalThis.indexedDB as unknown as IdbFactoryLike),
-    databaseName,
-    retainEntity: retainReplicaEntity,
-    onDegraded: (detail: unknown) => {
-      // Recoverable corruption may cold-start in memory. An unavailable store
-      // is captured here and rejected below; the supported private replica must
-      // never mount without durability.
-      options.onDegraded?.(detail)
-      const report = detail as { mode?: unknown; error?: unknown }
-      if (report?.mode === 'unavailable') unavailableCause = report.error
-      log.warn('kernel replica storage degraded', { detail })
-    },
-  })
-  if (store.durability() === 'unavailable') {
-    store.close()
-    throw unavailableCause instanceof Error
-      ? unavailableCause
-      : new Error('private replica storage is unavailable')
-  }
-  const enumerateLocalKeys = (): string[] => Object.keys(globalThis.localStorage)
-  const namespace = preparePrincipalNamespace({
-    storage: globalThis.localStorage,
-    enumerateKeys: enumerateLocalKeys,
-    basePrefix: KERNEL_SIDE_CACHE_PREFIX,
+  const assembly = await openReplicaAssembly({
+    api: options.trpc,
     principal: options.principal,
-  })
-  if (!namespace.durable) {
-    store.close()
-    throw new Error('principal namespace marker is unavailable')
-  }
-  // Apply the same bounded-retention decision to transactional regions before
-  // the acting slice is read.
-  for (const stalePrincipal of namespace.evictedPrincipals) {
-    await store.erasePrincipal(stalePrincipal)
-  }
-  // Identity evidence now lives in per-principal namespace markers. Retire the
-  // old raw ledger; theme is the sole raw pre-auth exception.
-  globalThis.localStorage.removeItem('podium-kernel-identity-ledger')
-  // Namespace-format migration is a one-time cold start, not a copy. Old
-  // member-only namespaces (including queued work) stay inactive under POD-401.
-  // Opening the same tuple again reuses its marker and transactional region.
-  const view = store.viewFor(options.principal)
-
-  // ---- THE ATTRIBUTION GATE, before a single row is read ------------------
-  //
-  // `decideLegacyAdoption` is called with an EMPTY plan on purpose: the decision
-  // and the records are two things it returns, and only the decision applies
-  // here. Re-deriving the rule locally would fork it, and a second copy of a
-  // privacy rule is worse than an off-label call to the first.
-  const evidence: LegacyIdentityEvidence = options.evidence
-  const adoption = decideLegacyAdoption(
-    { verdict: 'import', outbox: [], retireKeys: [], rejected: [], cursorDiscarded: false },
-    evidence,
-    Date.now(),
-    // WHAT IS IN FRONT OF THE GATE (POD-4000): this principal's own view of the
-    // store, which by `viewFor`'s construction can only ever have been written
-    // under it. Stated from the store's shape, not from the ledger — the ledger
-    // is about the device, and a second person on the device puts no row here.
-    { kind: 'principal-scoped', writtenUnder: [options.principal] },
-  )
-  if (!adoption.adopt) {
-    // FAIL CLOSED. The cache is re-derivable at will, so discarding costs one
-    // bootstrap; adopting rows that may be someone else's costs the property the
-    // whole privacy model rests on. `discardCache()` structurally cannot reach
-    // the outbox (ADR 2 D7), so the user's unsent work survives this.
-    view.cache.discardCache()
-    log.warn('kernel replica store not adopted — discarded and re-bootstrapping', {
-      reason: adoption.reason,
-    })
-    options.onDegraded?.({ kind: 'store-not-adopted', reason: adoption.reason })
-  }
-
-  // ---- THE QUEUED WRITES ALREADY ON THIS DISK (POD-1232) ------------------
-  //
-  // The engine's outbox is the kernel one, over `view.outbox`, in the same
-  // IndexedDB transaction domain as the entity rows (ADR 6 D4.3). Everything a
-  // user queues from here on lands there. What did NOT was everything already
-  // queued: a build before this one wrote its queue to localStorage, and the
-  // side cache's own fold only moved those blobs to ANOTHER localStorage key —
-  // one the kernel Outbox never reads. A rename made on a train, by a user who
-  // then updated, was still on the disk and drained by nobody.
-  //
-  // So the ADR 6 D6 migration runs here, exactly as mobile runs it, and the side
-  // cache's fold is switched OFF below: two things folding one queue in
-  // different directions is how a duplicate becomes a re-send.
-  //
-  // TWO SOURCES, because there are two places the entries can be. The raw legacy
-  // keys are the pre-kernel build's; the side-cache namespace holds whatever an
-  // ALREADY-SHIPPED kernel build folded there before this fix existed, and those
-  // are the entries most likely to still exist, because that build is the one
-  // people are running.
-  const attribution: OutboxAttribution = {
-    // ADR 3 D7: identity from the authenticated transport, never a frame payload.
-    // `options.principal` is the boot gate's `/auth/status` answer (offline: a
-    // single durable namespace marker, ambiguity failing closed) — it is not
-    // asserted by anything the queue itself carries. A legacy entry carries NO
-    // identity at all, which is why this pair is stamped by the importer from the
-    // authenticated principal rather than read out of the blob.
-    actor: actorUser(asUserId(memberId)),
-    onBehalfOf: asUserId(memberId),
-  }
-  const migrations: LegacyMigrationOutcome[] = []
-  for (const legacy of [
-    globalThis.localStorage as unknown as LegacyKeyValueStore,
-    sideCacheQueueAsLegacy(globalThis.localStorage, namespace.keyPrefix),
-  ]) {
-    migrations.push(
-      await migrateLegacyReplica({
-        legacy,
-        outbox: view.outbox,
-        transact: store.unitOfWork.transact,
-        // The contract table, never a guess (ADR 3 D9). A kind it does not know
-        // is REJECTED and its blob quarantined, not replayed under a made-up
-        // version — see `migrateLegacyReplica`'s header.
-        resolveCommand: outboxCommandFor,
-        attribution,
-        evidence,
-        now: Date.now,
+    evidence: options.evidence,
+    openStore: (onDegraded) =>
+      IndexedDbSyncStore.open({
+        factory: options.factory ?? (globalThis.indexedDB as unknown as IdbFactoryLike),
+        databaseName,
+        retainEntity: retainReplicaEntity,
+        onDegraded,
       }),
-    )
-  }
-  const migration = summarizeMigrations(migrations)
-  if (migration.notice !== undefined) {
-    log.warn('legacy queued writes migrated', { ...migration })
-    options.onDegraded?.({ kind: 'legacy-outbox-migrated', ...migration })
-  }
-
-  const createOutboxFn = await openKernelEngineOutbox({
-    store: view.outbox,
-    principal: memberId,
-    api: trpc,
-    onDegraded: (detail) => options.onDegraded?.(detail),
+    settings: {
+      storage: globalThis.localStorage,
+      enumerateKeys: () => Object.keys(globalThis.localStorage),
+      storageEventApi: globalThis.window,
+      basePrefix: KERNEL_SIDE_CACHE_PREFIX,
+    },
+    httpSync: {
+      origin: options.httpOrigin ?? '',
+      streamingFetch: { fetch: workspaceFetch, credentials: 'include' },
+    },
+    onDegraded: (detail) => {
+      options.onDegraded?.(detail)
+      log.warn('kernel replica degradation', { detail })
+    },
+    onAuthExpired: () => window.dispatchEvent(new Event('podium:sync-auth-expired')),
+    createProgress: (now) => new WebSyncProgressStore(now),
   })
-  const side = createSideCache({
-    storage: globalThis.localStorage,
-    storageEventApi: globalThis.window,
-    enumerateKeys: enumerateLocalKeys,
-    keyPrefix: namespace.keyPrefix,
-    // OFF (POD-1232). The queue's home is the kernel store now, and the fold
-    // above already carried every legacy blob into it — including the one this
-    // flag used to write. Leaving it on would re-fold entries the migration has
-    // retired, into a key nothing drains, and the attribution verdict it used to
-    // carry is applied where it belongs: `migrateLegacyReplica` takes the same
-    // `evidence` and parks an unattributable device's work as dead letters
-    // rather than adopting it.
-    adoptLegacyOutbox: false,
-    // ADR 6 D4.4 clause 3 (POD-1231). Mobile passed this from the start; web did
-    // not, so a denied outbox write threw and logged and then died at the seam
-    // with nothing above it any the wiser. The legacy-queue fold at construction
-    // writes through this same guard, which is the one outbox write on web that
-    // happens before anything else could report it.
-    onDegraded: (error) => options.onDegraded?.(error),
-  })
-  const facade = createKernelReplica({
-    cache: view.cache,
-    side,
-    // POD-1510: the read model's answer to "was this row DELETED or did it leave
-    // MY view?". Deferred through a closure because the kernel Replica is
-    // constructed below — it needs `facade.onKernelEvent`, and the facade needs
-    // its exit record, so one of the two edges has to be lazy. Nothing calls
-    // this before the assembly returns.
-    exits: (entity, entityId) => kernel.exitKind(entity, entityId),
-  })
-
-  const progress = new SyncProgressStore()
   let stopped = false
-  const reportFailure = (error: unknown): void => {
-    if (error instanceof SyncCancelledError || stopped) return
-    const kind =
-      error instanceof SyncAuthExpiredError
-        ? 'auth'
-        : error instanceof SyncNetworkError
-          ? 'network'
-          : 'format'
-    progress.noteError(kind)
-    if (kind !== 'network') {
-      stopped = true
-      kernel.disconnect()
-    }
-    if (kind === 'auth') window.dispatchEvent(new Event('podium:sync-auth-expired'))
-  }
-  // POD-4071. Debug-level timing for the client half of a sync transfer, joined
-  // to the server's own line on `Podium-Transfer-Id`. The desktop shell loads
-  // this same bundle from `apps/web/dist`, so the Mac app's webview is covered
-  // by this one wiring and not by a second copy of it.
-  const syncTelemetry = createSyncTransferTelemetry()
-  const sourceDeps = {
-    origin: options.httpOrigin ?? '',
-    streamingFetch: { fetch: workspaceFetch, credentials: 'include' as const },
-    onMeta: (totalRows: number | undefined) => progress.noteMeta(totalRows),
-    onChunk: (rows: number, bytes: number) => progress.noteReceived(rows, bytes),
-    telemetry: syncTelemetry,
-  }
-  const bootstraps = new HttpBootstrapSource(sourceDeps)
-  const deltas = new HttpDeltaSource(sourceDeps)
-  progress.retry = () => {
-    stopped = false
-    kernel.connect()
-  }
-  const kernel = new KernelReplica({
-    store: view.cache,
-    authority: {
-      async *bootstrap(signal) {
-        progress.beginAttempt()
-        try {
-          for await (const chunk of bootstraps.bootstrap(signal)) {
-            if (chunk.last) progress.noteSaving()
-            yield chunk
-          }
-        } catch (error) {
-          reportFailure(error)
-          throw error
-        }
-      },
-      async changesRange(cursor, signal, onTarget) {
-        progress.beginAttempt()
-        try {
-          const range = await deltas.changesRange(cursor, signal, onTarget)
-          if ('kind' in range) return range
-          return (async function* () {
-            try {
-              yield* range
-            } catch (error) {
-              reportFailure(error)
-              throw error
-            }
-          })()
-        } catch (error) {
-          reportFailure(error)
-          throw error
-        }
-      },
-    },
-    onEvent: (event) => {
-      // FIRST, and before anything that could throw: this is where the Replica's
-      // own reason for a walk (`heal`) and its commit (`bootstrap-installed`)
-      // reach the transfer log. The cause is emitted before the request opens,
-      // so a listener that ran late would label the wrong attempt.
-      syncTelemetry.noteReplicaEvent(event)
-      // The install is the ONE moment the first sync becomes durable and
-      // renderable; the loading screen keys off it (POD-1249).
-      if (event.type === 'bootstrap-installed') progress.noteInstalled(event.entityCount)
-      if (event.type === 'heal-progress')
-        progress.noteCommitted(event.framesCommitted, event.seq, event.targetSeq)
-      if (event.type === 'posture' && event.posture === 'live') progress.noteReady()
-      if (event.type === 'bootstrap-failed') progress.noteError('network')
-      facade.onKernelEvent(event)
-    },
-    // ONE DRAIN PER FRAME. The kernel emits one event per change (and one
-    // upserted per row on an install); unbatched, each event drained the
-    // facade's listeners — and the engine's derivations behind them — once per
-    // row. The kernel wraps each post-commit burst in this call, and the
-    // facade's own batch() coalesces it to a single notification per kind.
-    batchEvents: (emitAll) => facade.batch(emitAll),
-  })
-
-  const sink = new FeedSink({ replica: kernel })
-  // Cold = no persisted cursor = this launch is the machine's first sync. The
-  // posture is decided synchronously in the Replica's constructor, so reading
-  // it here (before any frame can arrive) races nothing.
-  if (kernel.posture === 'cold') progress.beginFirstSync()
   const createBroadcastChannel =
     options.broadcastChannelFactory ??
     (typeof globalThis.BroadcastChannel === 'function'
       ? (name: string) => new globalThis.BroadcastChannel(name)
       : undefined)
-  const crossTab = createBroadcastChannel?.(`podium.kernel-replica.feed.v1:${databaseName}`)
+  let crossTab: KernelBroadcastChannel | undefined
+  try {
+    crossTab = createBroadcastChannel?.(`podium.kernel-replica.feed.v1:${databaseName}`)
+  } catch (error) {
+    await assembly.dispose()
+    throw error
+  }
   const seenFrames = new Map<string, undefined>()
   const remember = (key: string): boolean => {
     if (seenFrames.has(key)) return false
@@ -557,13 +164,13 @@ export async function openKernelAssembly(
     // tab's socket delivery reaches its in-memory replica.
     if (frame.type !== 'feedDelta' && frame.type !== 'feedRescope') {
       if (fromSocket) {
-        sink.frame(frame)
+        assembly.feed.frame(frame)
       }
       return
     }
     const key = crossTabFrameKey(frame)
     if (!remember(key)) return
-    sink.frame(frame)
+    assembly.feed.frame(frame)
     if (fromSocket) {
       crossTab?.postMessage({
         kind: 'podium-kernel-feed',
@@ -585,45 +192,30 @@ export async function openKernelAssembly(
     // nothing in the replica holds.
     syncHttp: true,
     requestRebootstrap: () => {
-      if (!stopped) sink.requestRebootstrap()
+      if (!stopped) assembly.feed.requestRebootstrap?.()
     },
-    helloFields: () => sink.helloFields(),
+    helloFields: () => assembly.feed.helloFields(),
     connected: (worldPromised) => {
-      if (!stopped) sink.connected()
+      if (!stopped) assembly.feed.connected(worldPromised)
     },
-    disconnected: () => sink.disconnected(),
+    disconnected: () => assembly.feed.disconnected(),
     frame: (frame) => {
       if (!stopped) relayFrame(frame, true)
     },
   }
 
   return {
-    principal: asClientPrincipal(asUserId(memberId), identity.syncBoundaryId),
-    createReplicaFn: (principal: ClientPrincipal) => {
-      if (principal.userId !== memberId || principal.syncBoundaryId !== identity.syncBoundaryId) {
-        throw new Error(
-          `kernel replica assembly belongs to a different principal (opened for ${options.principal}); ` +
-            'a new principal needs a new assembly, never this one',
-        )
-      }
-      return facade
-    },
+    ...assembly,
     feed,
-    createOutboxFn,
-    store,
-    progress,
     erasePrincipalData: async () => {
-      side.dispose()
-      namespace.erase()
-      await store.erasePrincipal(options.principal)
+      stopped = true
+      crossTab?.close()
+      await assembly.erasePrincipalData()
     },
     dispose: async () => {
       stopped = true
-      kernel.disconnect()
       crossTab?.close()
-      side.dispose()
-      await store.settled()
-      store.close()
+      await assembly.dispose()
     },
   }
 }

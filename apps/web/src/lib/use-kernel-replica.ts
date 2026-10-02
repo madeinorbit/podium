@@ -11,6 +11,10 @@ import { workspaceFetch } from '@/lib/workspace-request'
  * explicit retryable error and never mounts a different store.
  */
 
+import { STORE_REFRESH_NOTICE, startReplicaBoot } from '@podium/client-core/replica-assembly'
+
+export { STORE_REFRESH_NOTICE } from '@podium/client-core/replica-assembly'
+
 import type { ClientPrincipal } from '@podium/client-core/principal'
 import { inspectPrincipalNamespaces, parseReplicaNamespaceKey } from '@podium/client-core/replica'
 import { createLogger } from '@podium/logger'
@@ -131,6 +135,8 @@ function replicaFailureSemantics(failure: ReplicaFailure): readonly (string | nu
     case 'offline-unknown':
     case 'replica-blocked':
     case 'unknown':
+    case 'boot-stalled':
+    case 'sync-invalid':
       return [failure.kind]
   }
 }
@@ -196,7 +202,6 @@ export async function resolveReplicaPrincipal(
  * expected, not a failure: plain words, no reason code — that stays in the
  * `kernel replica store not adopted` log line beside the decision.
  */
-export const STORE_REFRESH_NOTICE = 'Refreshing your data after the upgrade — this happens once.'
 
 export function recordIdentityEvidence(principal: string): LegacyIdentityEvidence {
   try {
@@ -239,24 +244,17 @@ export function useKernelReplica(args: {
   } = args
   const [gate, setGate] = useState<KernelReplicaGate>({ status: 'resolving' })
   const authSemantics = authBootstrapSemantics(auth)
+  const principalResolver =
+    auth === undefined || auth.kind === 'provisional-failure' ? resolvePrincipal : undefined
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: authSemantics includes every auth field read below and excludes throwaway object identity.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: authSemantics includes every auth field read below and excludes throwaway object identity; principalResolver matters only without an authoritative handoff.
   useEffect(() => {
-    let alive = true
-    let opened: KernelAssembly | undefined
-    void (async () => {
-      if (!alive) return
-      try {
-        // A successful LoginGate answer remains the one-request fast path. A
-        // provisional first answer gets one retry with the cookie before a
-        // network failure may authorize retained offline data.
+    return startReplicaBoot({
+      open: async () => {
         const principal =
           auth === undefined || auth.kind === 'provisional-failure'
-            ? await resolvePrincipal({ httpOrigin })
+            ? await (principalResolver ?? resolveReplicaPrincipal)({ httpOrigin })
             : principalFromAuthBootstrap(auth)
-        // Captured DURING the open: the migration runs inside `openKernelAssembly`
-        // and reports through `onDegraded`, which is the only channel that exists
-        // before the store (and its toasts) are mounted.
         let notice: string | undefined
         const assembly = await openAssembly({
           trpc,
@@ -264,54 +262,46 @@ export function useKernelReplica(args: {
           principal,
           evidence: recordIdentityEvidence(principal),
           onDegraded: (detail) => {
-            const report = detail as { kind?: unknown; notice?: unknown }
-            if (report?.kind === 'legacy-outbox-migrated' && typeof report.notice === 'string') {
+            const report = detail as { kind?: unknown; notice?: unknown; reason?: unknown }
+            if (report?.kind === 'legacy-outbox-migrated' && typeof report.notice === 'string')
               notice = report.notice
-            } else if (report?.kind === 'store-not-adopted' && notice === undefined) {
-              // Milder than a migration loss, so it never overwrites one.
+            else if (
+              report?.kind === 'store-not-adopted' &&
+              report.reason !== 'legacy-cursor-discarded' &&
+              notice === undefined
+            )
               notice = STORE_REFRESH_NOTICE
-            }
           },
         }).catch((error: unknown) => {
-          // The principal resolved, so whatever went wrong here is the browser's
-          // own store refusing to open — a private window, a full disk, blocked
-          // site data. A different sentence from anything upstream of it.
+          if (replicaFailureOf(error).kind !== 'unknown') throw error
           throw new ReplicaGateError(error instanceof Error ? error.message : String(error), {
             kind: 'replica-blocked',
           })
         })
-        if (!alive) {
-          void assembly.dispose()
-          return
-        }
-        opened = assembly
-        globalThis.__podiumReplicaPath = 'kernel'
-        setGate({
-          status: 'kernel',
-          principal: assembly.principal,
-          assembly,
-          ...(notice === undefined ? {} : { notice }),
-        })
-      } catch (error) {
-        // Visible, and never silently degraded: there is no compatibility replica
-        // to fall back to. What the operator SEES depends on the cause — see
-        // `replica-failure.ts` — but the store never mounts either way.
-        log.error('private replica unavailable', { err: error })
-        if (alive) {
-          globalThis.__podiumReplicaPath = undefined
+        return { assembly, notice }
+      },
+      dispose: ({ assembly }) => assembly.dispose(),
+      onCleanupError: (error) => log.warn('replica cleanup failed', { err: error }),
+      // Web has no boot watchdog, and a re-run keeps the current gate until the
+      // new open settles: only an outcome changes what the shell renders.
+      stallAfterMs: null,
+      onState: (state) => {
+        if (state.status === 'ready') {
+          globalThis.__podiumReplicaPath = 'kernel'
           setGate({
-            status: 'failed',
-            failure: error instanceof Error ? error.message : String(error),
-            cause: replicaFailureOf(error),
+            status: 'kernel',
+            principal: state.value.assembly.principal,
+            assembly: state.value.assembly,
+            ...(state.value.notice === undefined ? {} : { notice: state.value.notice }),
           })
+        } else if (state.status === 'failed') {
+          log.error('private replica unavailable', { failure: state.failure, cause: state.cause })
+          globalThis.__podiumReplicaPath = undefined
+          setGate(state)
         }
-      }
-    })()
-    return () => {
-      alive = false
-      if (opened) void opened.dispose()
-    }
-  }, [authSemantics, httpOrigin, openAssembly, resolvePrincipal, trpc])
+      },
+    })
+  }, [authSemantics, httpOrigin, openAssembly, principalResolver, trpc])
 
   return gate
 }

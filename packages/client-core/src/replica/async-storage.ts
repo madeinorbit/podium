@@ -34,6 +34,8 @@ export interface AsyncReplicaStorage {
   keys(): string[]
   /** Resolves when every write issued so far has flushed to the async backing. */
   flush(): Promise<void>
+  /** Boot/erasure fence: unlike best-effort flush, refuses failed native storage. */
+  flushDurable(): Promise<void>
 }
 
 export interface AsyncReplicaStorageOptions {
@@ -59,6 +61,8 @@ export async function createAsyncStorageReplicaStorage(
   options: AsyncReplicaStorageOptions = {},
 ): Promise<AsyncReplicaStorage> {
   const cache = new Map<string, string>()
+  let storageFailed = false
+  let storageFailure: unknown
   try {
     const keys = (await backing.getAllKeys()).filter((k) =>
       prefixes.some((p) => k === p || k.startsWith(p)),
@@ -69,7 +73,9 @@ export async function createAsyncStorageReplicaStorage(
         if (v !== null) cache.set(k, v)
       }),
     )
-  } catch {
+  } catch (error) {
+    storageFailed = true
+    storageFailure = error
     // A failed hydrate cold-starts (spec invariant 2) — the cache stays empty
     // and the session runs write-through from scratch.
   }
@@ -102,7 +108,9 @@ export async function createAsyncStorageReplicaStorage(
         for (const operation of batch) {
           try {
             await operation.run()
-          } catch {
+          } catch (error) {
+            storageFailed = true
+            storageFailure = error
             // Best-effort, matching the bridge's previous write-behind queue.
           }
         }
@@ -172,6 +180,13 @@ export async function createAsyncStorageReplicaStorage(
     queueBatch([next])
   }
 
+  const flush = (): Promise<void> => {
+    const through = issuedSequence
+    sealPending()
+    if (completedSequence >= through) return Promise.resolve()
+    return new Promise<void>((resolve) => flushWaiters.add({ sequence: through, resolve }))
+  }
+
   return {
     storage: {
       getItem: (k) => cache.get(k) ?? null,
@@ -185,11 +200,11 @@ export async function createAsyncStorageReplicaStorage(
       },
     },
     keys: () => [...cache.keys()],
-    flush: () => {
-      const through = issuedSequence
-      sealPending()
-      if (completedSequence >= through) return Promise.resolve()
-      return new Promise<void>((resolve) => flushWaiters.add({ sequence: through, resolve }))
+    flush,
+    flushDurable: async () => {
+      await flush()
+      if (storageFailed)
+        throw new Error('Small-settings storage is unavailable', { cause: storageFailure })
     },
   }
 }

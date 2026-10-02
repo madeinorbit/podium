@@ -1,5 +1,10 @@
 import type { PodiumClientApi, SuperagentTurnFailure } from '@podium/client-core/api'
 import {
+  DEFAULT_RECOVERY_DELAYS_MS,
+  reportingFetch,
+  restartRecoveryLink,
+} from '@podium/client-core/replica-assembly/server-calls'
+import {
   parseServer,
   parseServerOrigin,
   resolveServerConfig,
@@ -21,7 +26,7 @@ import type {
   TranscriptItem,
 } from '@podium/model'
 import type { HostMemoryBreakdown } from '@podium/protocol'
-import { createTRPCClient, httpBatchLink } from '@trpc/client'
+import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client'
 import { Platform } from 'react-native'
 import { MobileAuthExpiredError } from './auth'
 
@@ -366,12 +371,23 @@ export function makeMobileTrpc(
   bearer: string | null = null,
   onAuthExpired?: (error: MobileAuthExpiredError) => void,
   selector?: WorkspaceSelector,
+  options: { fetch?: typeof fetch; recoveryDelaysMs?: readonly number[] } = {},
 ): MobileTrpc {
+  const base: typeof fetch =
+    options.fetch ??
+    ((url, init) => fetchMobileTransport(url, init, bearer, onAuthExpired, selector))
   return createTRPCClient<any>({
     links: [
+      restartRecoveryLink<any>({
+        base,
+        httpOrigin,
+        report: true,
+        recoveryDelaysMs: options.recoveryDelaysMs ?? DEFAULT_RECOVERY_DELAYS_MS,
+        errorType: TRPCClientError,
+      }),
       httpBatchLink({
         url: httpOrigin + '/trpc',
-        fetch: (url, opts) => fetchMobileTransport(url, opts, bearer, onAuthExpired, selector),
+        fetch: reportingFetch(base),
       }),
     ],
   }) as unknown as MobileTrpc

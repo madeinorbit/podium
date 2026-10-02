@@ -60,6 +60,7 @@ async function request(deps: HttpSyncSourceDeps, path: string, attempt: SyncTran
     })
   } catch (cause) {
     checkAbort(signal)
+    if (cause instanceof SyncStreamFailed) throw cause
     throw new SyncNetworkError('fetch-failed', { cause })
   }
   // BEFORE the refusal ladder below, so a 401/426/500 still gets its `opened`
