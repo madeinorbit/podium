@@ -105,7 +105,11 @@ export const BOOTSTRAP_BATCH_ROWS = 200
  */
 export class BootstrapSession {
   /** Staged rows per kind. The replica is not touched until commit. */
-  private readonly staged = new Map<ReplicaKind, Map<string, unknown>>()
+  // An absent lane in an empty or older snapshot removes cached lane authority
+  // at commit, so a rescope can return to the order's compatibility rank.
+  private readonly staged = new Map<ReplicaKind, Map<string, unknown>>([
+    ['shipLanes', new Map()],
+  ])
   /** Deltas that landed with `seq > snapshotSeq` while we streamed. */
   private readonly buffered: MetadataChangeLenient[] = []
   private done = false
