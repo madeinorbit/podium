@@ -47,13 +47,17 @@ export function createHeaderFixture(count: number, sessionCount = count) {
   }
   let metrics: HostMetricsWire[] = []
   let deliver = hub.emit.bind(hub)
+  function publishHostMetrics(next: HostMetricsWire[]) {
+    metrics = next
+    deliver('hostMetrics', metrics)
+  }
   function publishMetrics(step: number) {
-    metrics = machineIds.map((machineId, index) => ({ machineId, hostname: `host-${index}`,
+    const next = machineIds.map((machineId, index) => ({ machineId, hostname: `host-${index}`,
       sampledAt: new Date(now + (index === 0 ? step * 5000 : 0)).toISOString(),
       disk: { path: '/synthetic/home', totalBytes: 100e9, usedBytes: 54e9 + index * 9e9, availableBytes: 36e9 - index * 9e9 },
       memory: { totalBytes: 16e9, availableBytes: index === 0 ? 8e9 + (step % 5) * 1e8 : 8e9, swapTotalBytes: 0, swapFreeBytes: 0 },
       load: { one: 0.3 + (index === 0 ? (step % 5) / 10 : 0), five: 0.3, fifteen: 0.2, cpuCount: 4 } }))
-    deliver('hostMetrics', metrics)
+    publishHostMetrics(next)
   }
   return { ...base, get replica() { return base.replica }, hub: hub as unknown as SocketHub,
     // Exercise the real runtime's already-subscribed channels. No second hub
@@ -62,7 +66,7 @@ export function createHeaderFixture(count: number, sessionCount = count) {
       deliver = (real as unknown as { emit: typeof hub.emit }).emit.bind(real)
       Object.assign(real, { connectionHealth: hub.connectionHealth, onConnectionHealth: hub.onConnectionHealth })
     },
-    publishMetrics, publishMachines: () => deliver('machines', machines),
+    publishMetrics, publishHostMetrics, publishMachines: () => deliver('machines', machines),
     inputs: () => ({ metrics, quotas: quota, connection: health, afterDays: 14, history, lifecycle }),
     activity(step: number) {
       const index = step % Math.min(12, sessionCount)

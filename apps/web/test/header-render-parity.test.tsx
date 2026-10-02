@@ -113,14 +113,14 @@ describe('old and pool header rendering', () => {
     await act(async () => {
       const metrics = header.runtime.hostMetrics.getSnapshot()
       const { disk: _disk, ...unknown } = metrics[0]!
-      header.runtime.hostMetrics.publish([unknown, ...metrics.slice(1)])
+      header.fixture.publishHostMetrics([unknown, ...metrics.slice(1)])
     })
     expect(disk().textContent).toBe('DISKN/A')
     expect(disk().querySelector('.header-meter > span')).toBeNull()
     expect(chip.getAttribute('aria-label')).toContain('disk usage unavailable')
     await act(async () => {
       const metrics = header.runtime.hostMetrics.getSnapshot()
-      header.runtime.hostMetrics.publish([
+      header.fixture.publishHostMetrics([
         { ...metrics[0]!, disk: { path: '/synthetic', totalBytes: 100, usedBytes: 0, availableBytes: 90 } },
         ...metrics.slice(1),
       ])
