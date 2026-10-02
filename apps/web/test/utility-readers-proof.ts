@@ -79,7 +79,7 @@ export async function runUtilityReadersProof(options: { countsOnly?: boolean; re
         ...(!options.countsOnly ? { taskMs: ((final.TaskDuration ?? 0) - (initial.TaskDuration ?? 0)) * 1000,
           scriptMs: ((final.ScriptDuration ?? 0) - (initial.ScriptDuration ?? 0)) * 1000, commitMs } : {}),
       }
-      if (stats.runtimeCount !== 1 || stats.publishes !== 200 || failures.length || pageErrors) throw new Error('Utility runtime proof failed')
+      if (stats.runtimeCount !== 1 || stats.publishes !== 200 || failures.length || pageErrors) throw new Error(`Utility runtime proof failed: ${JSON.stringify({ runtimeCount: stats.runtimeCount, publishes: stats.publishes, failures: failures.length, pageErrors })}`)
       if (JSON.stringify(initialCalls) !== JSON.stringify(stats.calls)) throw new Error('Unrelated activity refetched utility RPCs')
       if (arm === 'after' && (stats.selectors || stats.wakes || stats.legacyDerivations)) throw new Error('Legacy utility reader executed')
       if (arm === 'before' && stats.selectors < 1200) throw new Error('Six-selector baseline did not execute')
