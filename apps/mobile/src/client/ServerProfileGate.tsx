@@ -1,4 +1,11 @@
 import {
+  activateServerProfile,
+  clearProfileIdentity,
+  drainProfileCleanups,
+  removeServerProfile,
+  singleServerProfile,
+} from '@podium/client-core/accounts'
+import {
   parseServerOrigin,
   workspaceSelectorFromLocation,
   type ServerConfig,
@@ -34,6 +41,9 @@ import { PressableScale } from '../components/PressableScale'
 import { setKnownPodiumOrigins } from '../lib/podium-link'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { fetchAuthStatus, logout } from './auth'
+import { mobileAccountCredentials } from './account-credentials'
+import { mobileAccountEraser } from './account-data'
+import { mobileBrowserAccounts } from './browser-accounts'
 import { HostedSignInButton } from '../components/HostedSignInButton'
 import {
   HostedSignInCanceledError,
@@ -87,8 +97,8 @@ import {
   classifyServerTransport,
   createProfileId,
   defaultProfileName,
-  enqueuePendingProfileCleanup,
   loadServerProfiles,
+  mobileServerProfiles,
   reusableProfileAtOrigin,
   type ServerProfile,
   type ServerProfileState,
@@ -117,19 +127,9 @@ function webProfile(): { profile: ServerProfile; config: ServerConfig } {
   const origin = explicitOverride ?? sameSiteBuildServer() ?? window.location.origin
   const selector = workspaceSelectorFromLocation(window.location)
   const config = configFor(origin, origin !== window.location.origin, selector)
-  const now = new Date().toISOString()
   return {
     config,
-    profile: {
-      id: `web:${config.httpOrigin}`,
-      name: defaultProfileName(config.httpOrigin),
-      httpOrigin: config.httpOrigin,
-      ...(config.workspaceId ? { workspaceId: config.workspaceId } : {}),
-      mode: 'protected',
-      transport: config.httpOrigin.startsWith('https:') ? 'trusted-https' : 'insecure-lan',
-      createdAt: now,
-      updatedAt: now,
-    },
+    profile: singleServerProfile(config.httpOrigin, config.workspaceId),
   }
 }
 
@@ -198,25 +198,6 @@ interface ActivationFailure {
   detail: string
 }
 
-/** Keeps AsyncStorage profile ownership changes in one durable order. */
-class ProfileWriteQueue {
-  private tail = Promise.resolve()
-
-  async run<T>(work: () => Promise<T>): Promise<T> {
-    const previous = this.tail
-    let release = () => {}
-    this.tail = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    await previous
-    try {
-      return await work()
-    } finally {
-      release()
-    }
-  }
-}
-
 function profileReplacementFailure(profile: ServerProfile): ActivationFailure {
   return {
     title: 'This server was replaced',
@@ -247,7 +228,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   // run's `alive` before setReady(true) landed, leaving the launch splash up
   // forever on any cold start that raced a render (found 2026-08-27).
   const credentialWrites = useMemo(() => new CredentialWriteQueue(), [])
-  const profileWrites = useMemo(() => new ProfileWriteQueue(), [])
+  const profileWrites = useMemo(() => new CredentialWriteQueue(), [])
   const consumedInitialPairing = initialWebPairing
   const initialWeb = Platform.OS === 'web' ? webProfile() : null
   const [profileState, setProfileState] = useState<ServerProfileState>(() =>
@@ -508,6 +489,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       // A restart must not observe the transient half of an older queued
       // activation write. The older owner restores its saved state before this
       // read is allowed to choose any profile or release any credential.
+      await profileWrites.run(() =>
+        drainProfileCleanups({
+          profiles: mobileServerProfiles,
+          credentials: mobileAccountCredentials,
+          erasePrincipal: mobileAccountEraser.erase,
+        }),
+      )
       const stored = await profileWrites.run(() => loadServerProfiles())
       // Pairing can finish while cold startup is still draining. Keep orphan
       // cleanup in the same order as every credential read/write so a purge
@@ -975,69 +963,23 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         setBearer(null)
         setCredentialReleased(false)
         try {
-          const result = await preflightServer(selected.httpOrigin, selected.workspaceId)
-          if (operation !== switchOperation.current) return
-          if (!result.ok) {
-            if (!canOpenProfileOffline(selected, result.kind)) {
-              throw new Error(`${result.title}: ${result.detail}`)
-            }
-            const next = await profileWrites.run(async () => {
-              const current = await loadServerProfiles()
-              const durableSelected = current.profiles.find((row) => row.id === selected.id)
-              if (!durableSelected || operation !== switchOperation.current) return null
-              const candidate: ServerProfileState = {
-                activeProfileId: selected.id,
-                profiles: current.profiles,
-              }
-              await saveServerProfiles(candidate)
-              if (operation === switchOperation.current) return candidate
-              await saveServerProfiles(current)
-              return null
-            })
-            if (!next) return
-            setProfileState(next)
-            setBearer(null)
-            setActivation('offline-cache')
-            setCredentialReleased(true)
-            setRevision((value) => value + 1)
-            return
-          }
-          if (selected.instanceId && selected.instanceId !== result.instanceId) {
-            const failure = profileReplacementFailure(selected)
-            throw new Error(`${failure.title}: ${failure.detail}`)
-          }
-          const credential = await credentialWrites.run(() => getProfileCredential(selected.id))
-          if (operation !== switchOperation.current) return
-          const next = await profileWrites.run(async () => {
-            const current = await loadServerProfiles()
-            const durableSelected = current.profiles.find((row) => row.id === selected.id)
-            if (!durableSelected || operation !== switchOperation.current) return null
-            const validated: ServerProfile = {
-              ...durableSelected,
-              httpOrigin: result.httpOrigin,
-              instanceId: result.instanceId,
-              ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
-              mode: result.mode,
-              transport: result.transport,
-              updatedAt: new Date().toISOString(),
-            }
-            const candidate: ServerProfileState = {
-              activeProfileId: selected.id,
-              profiles: current.profiles.map((row) => (row.id === selected.id ? validated : row)),
-            }
-            await saveServerProfiles(candidate)
-            if (operation === switchOperation.current) return candidate
-            await saveServerProfiles(current)
-            return null
+          const selectedAccount = await activateServerProfile({
+            profile: selected,
+            profiles: { ...mobileServerProfiles, loadServerProfiles, saveServerProfiles },
+            credentials: mobileAccountCredentials,
+            preflight: preflightServer,
+            profileWrites,
+            credentialWrites,
+            isCurrent: () => operation === switchOperation.current,
           })
-          if (!next) return
-          setProfileState(next)
-          setBearer(credential)
-          setActivation('verified')
+          setProfileState(selectedAccount.state)
+          setBearer(selectedAccount.bearer)
+          setActivation(selectedAccount.activation)
           setActivationFailure(null)
           setCredentialReleased(true)
           setRevision((value) => value + 1)
         } catch (cause) {
+          if (cause instanceof StaleCredentialOwnerError) return
           if (operation === switchOperation.current) {
             setBearer(priorBearer)
             setCredentialReleased(true)
@@ -1064,15 +1006,33 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         })
       },
       removeProfile: async (profileId) => {
+        if (Platform.OS === 'web') {
+          await mobileBrowserAccounts(
+            config.httpOrigin,
+            config.workspaceId,
+            config.workspaceSlug,
+          ).remove()
+          setRevision((value) => value + 1)
+          return
+        }
         if (config.override) return
         switchOperation.current += 1
-        await credentialWrites.run(() => deleteProfileCredential(profileId))
-        const profiles = profileState.profiles.filter((row) => row.id !== profileId)
-        const nextId =
-          profileState.activeProfileId === profileId
-            ? (profiles[0]?.id ?? null)
-            : profileState.activeProfileId
-        let next: ServerProfileState = { profiles, activeProfileId: nextId }
+        const removed = profileState.profiles.find((row) => row.id === profileId)
+        if (!removed) return
+        const removedState = await profileWrites.run(() =>
+          removeServerProfile({
+            profile: removed,
+            profiles: { ...mobileServerProfiles, loadServerProfiles, saveServerProfiles },
+            erasePrincipal: mobileAccountEraser.erase,
+            credentials: {
+              ...mobileAccountCredentials,
+              remove: (id) => credentialWrites.run(() => deleteProfileCredential(id)),
+            },
+          }),
+        )
+        const profiles = removedState.profiles
+        const nextId = removedState.activeProfileId
+        let next: ServerProfileState = removedState
         if (profileState.activeProfileId !== profileId) {
           await profileWrites.run(() => saveServerProfiles(next))
           setProfileState(next)
@@ -1154,14 +1114,37 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         if (switchOperation.current !== operation || activeProfileIdRef.current !== profile.id) {
           throw new StaleCredentialOwnerError()
         }
+        if (token === null && Platform.OS !== 'web' && !config.override) {
+          const next = await profileWrites.run(() =>
+            clearProfileIdentity(
+              { ...mobileServerProfiles, loadServerProfiles, saveServerProfiles },
+              profile.id,
+              () =>
+                switchOperation.current === operation && activeProfileIdRef.current === profile.id,
+            ),
+          )
+          setProfileState(next)
+        }
         setBearer(token)
         setActivation('verified')
         setCredentialReleased(true)
         setRevision((value) => value + 1)
       },
       recordUser: async (userId, identity) => {
+        if (Platform.OS === 'web') {
+          await mobileBrowserAccounts(
+            config.httpOrigin,
+            config.workspaceId,
+            config.workspaceSlug,
+          ).recordPrincipal(
+            JSON.stringify([identity.syncBoundaryId, identity.memberId]),
+            () =>
+              switchOperation.current === credentialOwnerOperation &&
+              activeProfileIdRef.current === profile.id,
+          )
+          return
+        }
         if (
-          Platform.OS === 'web' ||
           (profile.userId === userId &&
             profile.syncBoundaryId === identity.syncBoundaryId &&
             profile.memberId === identity.memberId) ||
@@ -1368,31 +1351,19 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           onForget={async () => {
             if (!profile) return
             switchOperation.current += 1
-            const profiles = config?.override
-              ? []
-              : profileState.profiles.filter((row) => row.id !== profile.id)
-            const next: ServerProfileState = {
-              profiles,
-              activeProfileId: profiles[0]?.id ?? null,
-            }
-            if (!config?.override) {
-              if (!profile.userId) {
-                throw new Error(
-                  "Podium cannot identify this profile's local account data. Retry the connection instead of deleting it incompletely.",
+            const next: ServerProfileState = config?.override
+              ? { profiles: [], activeProfileId: null }
+              : await profileWrites.run(() =>
+                  removeServerProfile({
+                    profile,
+                    profiles: { ...mobileServerProfiles, loadServerProfiles, saveServerProfiles },
+                    credentials: {
+                      ...mobileAccountCredentials,
+                      remove: (id) => credentialWrites.run(() => deleteProfileCredential(id)),
+                    },
+                    erasePrincipal: mobileAccountEraser.erase,
+                  }),
                 )
-              }
-              // Commit the exact local-erasure intent before making either the
-              // profile or its credential unreachable. A failure leaves the
-              // saved profile intact and the tombstone retryable.
-              await enqueuePendingProfileCleanup(
-                profile.id,
-                profile.userId,
-                profile.syncBoundaryId && profile.memberId
-                  ? { syncBoundaryId: profile.syncBoundaryId, memberId: profile.memberId }
-                  : undefined,
-              )
-              await profileWrites.run(() => saveServerProfiles(next))
-            }
             // This recovery path deliberately does not call logout: identity
             // preflight failed, so the saved bearer must never reach whatever
             // now answers at the old origin.
@@ -1400,11 +1371,6 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             configureNativeWebSocketCredential(null, null)
             setBearer(null)
             setCredentialReleased(false)
-            if (!config?.override) {
-              // Metadata is already durable. If SecureStore refuses here,
-              // startup's orphan purge retries without making the bearer live.
-              await credentialWrites.run(() => deleteProfileCredential(profile.id)).catch(() => {})
-            }
             if (next.activeProfileId) {
               setReady(false)
             }

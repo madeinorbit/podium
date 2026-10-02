@@ -159,6 +159,21 @@
       "@podium/source": "./src/replica-assembly/failure.ts",
       "types": "./src/replica-assembly/failure.ts",
       "import": "./src/replica-assembly/failure.ts"
+    },
+    "./accounts": {
+      "@podium/source": "./src/accounts/index.ts",
+      "types": "./src/accounts/index.ts",
+      "import": "./src/accounts/index.ts"
+    },
+    "./accounts/server-profiles": {
+      "@podium/source": "./src/accounts/server-profiles.ts",
+      "types": "./src/accounts/server-profiles.ts",
+      "import": "./src/accounts/server-profiles.ts"
+    },
+    "./accounts/pairing": {
+      "@podium/source": "./src/accounts/pairing.ts",
+      "types": "./src/accounts/pairing.ts",
+      "import": "./src/accounts/pairing.ts"
     }
   },
   "scripts": {

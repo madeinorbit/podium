@@ -147,6 +147,7 @@ import {
   consumePendingMobileHandoff,
   pendingMobileHandoffSnapshot,
 } from './mobile-handoff'
+import { installMobileMetadataStorage } from './mobile-metadata-storage'
 
 function ProfileProbe() {
   const context = useServerProfile()
@@ -234,6 +235,14 @@ async function mountActiveProfileA() {
 }
 
 beforeEach(() => {
+  // The gate retries durable removal intents before selecting a saved server.
+  const metadata = new Map<string, string>()
+  installMobileMetadataStorage({
+    getItem: async (key) => metadata.get(key) ?? null,
+    setItem: async (key, value) => {
+      metadata.set(key, value)
+    },
+  })
   resetInitialNativeLinkConsumptionForTests()
   consumePendingMobileHandoff(pendingMobileHandoffSnapshot().id)
   seams.activeContext = null

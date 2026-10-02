@@ -1,10 +1,7 @@
-/** Web-mobile authenticates with the server's HttpOnly cookie and persists no bearer. */
-export async function getProfileCredential(_profileId: string): Promise<string | null> {
-  return null
-}
+import { cookieCredentials } from '@podium/client-core/accounts'
 
-export async function setProfileCredential(_profileId: string, _bearer: string): Promise<void> {}
-
-export async function deleteProfileCredential(_profileId: string): Promise<void> {}
-
+/** The browser owns its HttpOnly cookie; no token is read or persisted by either app. */
+export const getProfileCredential = cookieCredentials.get
+export const setProfileCredential = cookieCredentials.set
+export const deleteProfileCredential = cookieCredentials.remove
 export async function purgeOrphanedProfileCredentials(_validProfileIds: string[]): Promise<void> {}

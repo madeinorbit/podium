@@ -9,7 +9,12 @@ afterEach(() => {
 })
 
 it('signs out a browser through the Better Auth session endpoint', async () => {
-  const fetchMock = vi.fn().mockResolvedValue(Response.json({ ok: true }))
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({ needsAuth: true, authed: true, userId: 'member', mode: 'cloud' }),
+    )
+    .mockResolvedValue(Response.json({ ok: true }))
   vi.stubGlobal('fetch', fetchMock)
 
   await logout('https://api.podium.do')

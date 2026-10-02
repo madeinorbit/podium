@@ -1,3 +1,4 @@
+import { MEMBERSHIP_DENIED_COPY } from '@podium/client-core/accounts'
 import { Text, View } from 'react-native'
 import { color, font, sans, space } from '../theme/theme'
 import { HostedSignInButton } from './HostedSignInButton'
@@ -23,18 +24,16 @@ export function MembershipDeniedView({
   return (
     <View style={styles.root} accessibilityLiveRegion="polite">
       <Text style={styles.eyebrow}>WORKSPACE ACCESS</Text>
-      <Text style={styles.title}>Workspace access is missing</Text>
+      <Text style={styles.title}>{MEMBERSHIP_DENIED_COPY.title}</Text>
       <Text style={styles.reason} accessibilityRole="alert">
         {reason}
       </Text>
-      <Text style={styles.body}>
-        Use another Podium Cloud account, or accept an invitation to this workspace in your browser.
-      </Text>
+      <Text style={styles.body}>{MEMBERSHIP_DENIED_COPY.body}</Text>
       <HostedSignInButton
         server={server}
         signInUrl={signInUrl}
         workspaceId={workspaceId}
-        label="Use another account"
+        label={MEMBERSHIP_DENIED_COPY.action}
         onBegin={onBegin}
       />
       <Text style={styles.help}>

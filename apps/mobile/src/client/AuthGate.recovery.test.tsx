@@ -13,12 +13,18 @@ vi.mock('react-native', async (original) => ({
   Platform: { OS: 'ios', select: (values: any) => values.ios ?? values.default },
 }))
 vi.mock('./auth', () => ({
-  fetchAuthStatus: async () => ({
-    needsAuth: true,
-    authed: false,
-    providerSignedIn: true,
-    deniedReason: 'not a member of this workspace',
-    signInUrl: 'https://app.example/account/sign-in',
+  probeAuth: async () => ({
+    kind: 'membership-denied',
+    reason: 'not a member of this workspace',
+    status: {
+      needsAuth: true,
+      userId: null,
+      mode: 'cloud',
+      authed: false,
+      providerSignedIn: true,
+      deniedReason: 'not a member of this workspace',
+      signInUrl: 'https://app.example/account/sign-in',
+    },
   }),
   logout: mocks.logout,
 }))

@@ -118,7 +118,10 @@ installMobileMetadataStorage(AsyncStorage)
 // ---------------------------------------------------------------------------
 
 /** The SQLite file the durable outbox and entity cache live in. */
-export const MOBILE_REPLICA_DB = 'podium-replica.db'
+export { MOBILE_REPLICA_DB } from './replica-storage-constants'
+import { MOBILE_REPLICA_DB } from './replica-storage-constants'
+import { mobileAccountEraser } from './account-data'
+import { mobileBrowserAccounts } from './browser-accounts'
 
 /** Test-only/legacy fallback. Production passes AuthStatus.userId explicitly; an
  * unattributed pre-identity store is accepted only through the injected gate. */
@@ -251,6 +254,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     },
     onAuthExpired: deps.onAuthExpired,
   })
+  const ownership = mobileAccountEraser.register(principal, assembly)
   return {
     replica: assembly.replica,
     createReplicaFn: assembly.createReplicaFn,
@@ -263,7 +267,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     clientPrincipal,
     settled: assembly.settled,
     erase: assembly.erasePrincipalData,
-    dispose: assembly.dispose,
+    dispose: ownership.dispose,
   }
 }
 
@@ -578,6 +582,12 @@ function LiveProvider({ children }: { children: ReactNode }) {
     if (Platform.OS === 'web') window.addEventListener('pagehide', onPageHide)
     const stopBoot = startReplicaBoot({
       open: async () => {
+        if (Platform.OS === 'web')
+          await mobileBrowserAccounts(
+            config.httpOrigin,
+            config.workspaceId,
+            config.workspaceSlug,
+          ).drain()
         const [bridge, status, pendingCleanups] = await Promise.all([
           createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES, {
             coalesce: isTranscriptWindowStorageKey,

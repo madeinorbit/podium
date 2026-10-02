@@ -1,14 +1,15 @@
-import { UserId } from '@podium/model'
+import { offlineProfileStatus, type AuthBootstrap } from '@podium/client-core/accounts'
 import { type ReactNode, useEffect, useState } from 'react'
+import { BootTroubleScreen } from '../components/BootTroubleScreen'
 import { MembershipDeniedView } from '../components/MembershipDeniedView'
 import { LoginScreen } from '../screens/LoginScreen'
-import { type AuthStatus, fetchAuthStatus, logout } from './auth'
+import { type AuthStatus, probeAuth, logout } from './auth'
 import { AuthStatusContext } from './auth-context'
 import { demoEnabled } from './demoData'
 import { LaunchReadyView } from './launch-ready'
 import { useServerProfile } from './server-profile-context'
 
-type GateState = 'checking' | 'open' | 'login' | 'membership-denied' | 'unreachable'
+type GateState = 'checking' | 'open' | 'login' | 'membership-denied' | 'failed'
 
 /**
  * Mounts the app only once the server is reachable and (when a password is set)
@@ -21,56 +22,44 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const demo = demoEnabled()
   const [state, setState] = useState<GateState>(() => (demo ? 'open' : 'checking'))
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
+  const [failure, setFailure] = useState<Extract<AuthBootstrap, { kind: 'failure' }>>()
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     if (demo) return
-    if (
-      activation === 'offline-cache' &&
-      profile.userId &&
-      profile.syncBoundaryId &&
-      profile.memberId
-    ) {
-      // The server cannot answer, but this profile already names the exact
-      // sync boundary + member namespace the replica was written under. This is a
-      // cached identity assertion for local reads only. The first live 401 or
-      // unauthenticated status response retires it and returns to sign-in.
-      setAuthStatus({
-        needsAuth: profile.mode === 'protected',
-        authed: true,
-        userId: UserId.parse(profile.memberId),
-        syncBoundaryId: profile.syncBoundaryId,
-        memberId: profile.memberId,
-      })
+    const offline = activation === 'offline-cache' ? offlineProfileStatus(profile) : undefined
+    if (offline) {
+      setAuthStatus(offline)
       setState('open')
       return
     }
     let alive = true
-    fetchAuthStatus(config.httpOrigin, bearer, profile.workspaceId)
-      .then((status) => {
+    probeAuth(config.httpOrigin, bearer, profile.workspaceId)
+      .then((decision) => {
         if (!alive) return
-        setAuthStatus(status)
-        setState(
-          !status.authed && status.providerSignedIn === true && status.deniedReason
-            ? 'membership-denied'
-            : status.needsAuth && !status.authed
-              ? 'login'
-              : 'open',
-        )
+        setAuthStatus(decision.status ?? null)
+        if (decision.kind === 'ready') {
+          if (decision.auth.kind === 'failure') {
+            setFailure(decision.auth)
+            setState('failed')
+          } else setState('open')
+        } else setState(decision.kind)
       })
-      .catch(() => {
-        // /auth/status is unauthenticated; failure means the server is down.
-        // Open anyway: the provider's connection banner tells the story and
-        // recovers on its own, which beats a dead gate screen.
-        if (alive) setState('open')
+      .catch((cause) => {
+        if (!alive) return
+        setFailure({ kind: 'failure', message: String(cause), failure: { kind: 'unknown' } })
+        setState('failed')
       })
     return () => {
       alive = false
     }
   }, [
+    attempt,
     activation,
     bearer,
     config.httpOrigin,
     demo,
+    profile.instanceId,
     profile.mode,
     profile.userId,
     profile.syncBoundaryId,
@@ -81,6 +70,21 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // The persistent LaunchBoundary above this gate owns the visible splash.
   // Returning null keeps it mounted instead of starting the reveal over here.
   if (state === 'checking') return null
+  if (state === 'failed' && failure) {
+    return (
+      <LaunchReadyView>
+        <BootTroubleScreen
+          kind="failed"
+          detail={failure.message}
+          cause={failure.failure}
+          onRetry={() => {
+            setState('checking')
+            setAttempt((value) => value + 1)
+          }}
+        />
+      </LaunchReadyView>
+    )
+  }
   if (state === 'login') {
     return (
       <LaunchReadyView>
@@ -109,7 +113,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
             // Revoke/clear the refused account before starting a new handoff.
             // The new account must never inherit this profile's bearer.
             await logout(config.httpOrigin, bearer, profile.workspaceId).catch(() => {})
-            await removeProfile(profile.id).catch(() => {})
+            await removeProfile(profile.id)
           }}
         />
       </LaunchReadyView>
