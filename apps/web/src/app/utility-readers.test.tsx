@@ -54,7 +54,10 @@ function setup() {
   const reads = {
     usage: vi.fn(async () => ({ hostname: 'synthetic', buckets: [] })),
     quota: vi.fn(async () => []), tasks: vi.fn(async () => []),
-    cost: vi.fn(async () => ({ state: 'pending' })), ledger: vi.fn(async () => []),
+    cost: vi.fn(async () => ({ issueId: issue.id, state: 'pending',
+      own: { models: [], messages: 0, sessionCount: 0 }, rollup: { models: [], messages: 0, sessionCount: 0 },
+      descendantCount: 0, provisional: false, floor: 'none', harnesses: [], sessions: [] })),
+    ledger: vi.fn(async () => []),
     events: vi.fn(async () => []),
     history: vi.fn(async () => ({ sessions: { [session.sessionId]: [{ at: session.createdAt, phase: 'working' }] } })),
     transcript: vi.fn(async () => ({ items: [{ id: 'prompt', role: 'user', text: 'Synthetic prompt' }], hasMore: false })),
