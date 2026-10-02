@@ -1,5 +1,5 @@
 import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
-import type { PoolScreen } from '@/app/pool-screen-registry'
+import type { PoolScreen } from '@podium/client-graph/host'
 import { initializePaneDataLayer, paneDataLayer } from '@/lib/pane-data-layer'
 
 let check: boolean | undefined
