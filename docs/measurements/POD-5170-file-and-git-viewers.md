@@ -108,7 +108,9 @@ bun run test:file -- <the five corrected web paths>
 bun run test:file -- apps/web/src/features/files/file-viewer-pool.test.tsx apps/mobile/src/components/task-detail/GitReviewSection.test.tsx
 ```
 
-Final affected typecheck: 17 successful tasks, 15 cached. Scoped Biome comparison
+After a clean rebase onto integration, the new web/mobile files reran green
+(7 tests) and the affected typecheck completed with 17 successful tasks, 16 cached.
+Scoped Biome comparison
 against the same base found 19 baseline diagnostics and 17 candidate diagnostics,
 with no new diagnostics. The scoped lint command still exits nonzero on existing
 findings; separately shippable cleanup is Proposed POD-5231, left unclaimed.
@@ -166,9 +168,9 @@ All changed files were restored afterward, with a clean candidate diff verified.
 | Check | Planted fault | Observed failure |
 | --- | --- | --- |
 | Mode matrix | Wrong pool preference value | 4 unexpected differences |
-| Mounted web readers | Original `useFileDocument` selector restored | 147 legacy reads/derivations counted instead of zero |
+| Mounted web readers | Original `useFileDocument` selector restored | Combined selector/slice counter 147 instead of zero |
 | Save owner/base hash | Wrong hash passed to existing writer | Scoped write-argument assertion |
-| Mobile readers | Snapshot selector restored | 22 selector/derivation counts instead of zero |
+| Mobile readers | Snapshot selector restored | Combined selector/slice counter 22 instead of zero |
 | Chromium enabled arm | Original `useFileDocument` selector restored | `Legacy file/Git reader executed during mount` |
 | Saved-mode replay | Wrong pool preference value | 4 unexpected differences |
 
