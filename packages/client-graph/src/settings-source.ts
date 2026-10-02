@@ -25,11 +25,11 @@ export class SettingsSource {
     this.unsubscribe = owner.subscribe(() => { if (this.demanded) this.schedule() })
   }
 
-  read<E extends SettingsEntity>(entity: E, id: string): Loaded<SettingsRows[E]> {
+  read(entity: SettingsEntity, id: string): Loaded<SettingsRows[SettingsEntity]> {
     if (this.disposed) return LOADING
     this.demanded = true
     if (!this.loaded.get()) { this.schedule(); return LOADING }
-    return this.rows.get(`${entity}:${id}`) as SettingsRows[E] | undefined
+    return this.rows.get(`${entity}:${id}`) as SettingsRows[SettingsEntity] | undefined
   }
 
   private schedule(): void {

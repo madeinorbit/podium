@@ -1,12 +1,19 @@
 import { expect, it, vi } from 'vitest'
 import { autorun, configure, observable, runInAction } from 'mobx'
-import { PoolSources, type PoolSource } from './source-registry'
-import { LOADING } from './worklist/rollup'
+import { PoolSources, type PoolSource, type PoolSourceRows } from './source-registry'
+import { SettingsSource } from './settings-source'
+import { LOADING, type Loaded } from './worklist/rollup'
 
 interface NumericSourceRows { sourceTypeProbe: { count: number } }
 interface TextSourceRows { sourceTextProbe: { label: string } }
 declare module './source-registry' {
   interface PoolSourceRows extends NumericSourceRows, TextSourceRows {}
+}
+
+class SourceProbe<E extends keyof NumericSourceRows | keyof TextSourceRows> implements PoolSource<E> {
+  constructor(private readonly values: Pick<PoolSourceRows, E>) {}
+  read<K extends E>(entity: K, _id: string): Loaded<PoolSourceRows[K]> { return this.values[entity] }
+  dispose() {}
 }
 
 function source() {
@@ -67,10 +74,12 @@ it('source teardown honors the strict observable read trap', async () => {
 
 it('independent row declarations preserve a typed public reader', () => {
   const registry = new PoolSources()
-  const custom: PoolSource<'sourceTypeProbe'> = { read: () => ({ count: 3 }), dispose() {} }
-  const independent: PoolSource<'sourceTextProbe'> = { read: () => ({ label: 'Second source' }), dispose() {} }
+  const custom = new SourceProbe<'sourceTypeProbe'>({ sourceTypeProbe: { count: 3 } })
+  const independent = new SourceProbe<'sourceTextProbe'>({ sourceTextProbe: { label: 'Second source' } })
+  const settings = new SettingsSource({ getSnapshot: () => ({ machines: [], repos: [], settingsTab: 'general' }), subscribe: () => () => {} })
   registry.register(['sourceTypeProbe'], custom)
   registry.register(['sourceTextProbe'], independent)
+  registry.register(['settingsWindow', 'settingsCatalog', 'settingsMachine', 'settingsRepository'], settings)
   const value = registry.read('sourceTypeProbe', 'probe')
   const text = registry.read('sourceTextProbe', 'probe')
   expect(value && value !== LOADING ? value.count : undefined).toBe(3)
