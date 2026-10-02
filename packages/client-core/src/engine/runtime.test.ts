@@ -1227,7 +1227,8 @@ describe('replica snapshot coalescing (#262 review)', () => {
       expect(rank()).toBe(2)
       expect(engine.getSnapshot().shipOrders).toBe(before)
       replica.applyChanges('shipLanes', [], [lane.id])
-      expect(rank()).toBe(9)
+      // The lane owns ranks; evicting it must not revive a cached order rank.
+      expect(rank()).toBeUndefined()
       replica.applyChanges('shipLanes', [lane], [])
       expect(rank()).toBe(1)
     } finally {
