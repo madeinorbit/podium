@@ -20,7 +20,7 @@ const fixture = createHeaderFixture(5600, 5014), data = noticeFixture()
 function put(entity: string, id: string, value: object) {
   fixture.records.set(`${entity}:${id}`, { entity, entityId: id, value, provenance: { seq: 1 } })
 }
-for (const row of data.messages) put('messageRecord', row.id, row)
+for (const row of data.messages) put('message', row.id, row)
 for (const row of data.interactions) put('pendingInteraction', row.id, row)
 for (const row of data.sessions) {
   const previous = fixture.records.get(`session:${row.sessionId}`)?.value ?? {}
@@ -30,8 +30,8 @@ const actions = { dismissed: 0, answered: 0 }, failures: string[] = []
 Object.assign(fixture.api, {
   messages: { dismissNotice: { mutate: async ({ id }: { id: string }) => {
     actions.dismissed++
-    const record = fixture.records.get(`messageRecord:${id}`)!
-    fixture.records.delete(`messageRecord:${id}`)
+    const record = fixture.records.get(`message:${id}`)!
+    fixture.records.delete(`message:${id}`)
     fixture.replica.onKernelEvent({ type: 'evicted', entity: record.entity, entityId: id } as never)
     return { ok: true }
   } } },
@@ -84,7 +84,7 @@ const driver = {
   async activity(count: number) { for (let step = 1; step <= count; step++) { fixture.activity(step); await frame() } },
   async updates(count: number) {
     for (let step = 0; step < count; step++) {
-      fixture.patch('messageRecord', 'notice-message-0', { status: step % 2 ? 'failed' : 'unknown' })
+      fixture.patch('message', 'notice-message-0', { status: step % 2 ? 'failed' : 'unknown' })
       fixture.patch('pendingInteraction', 'notice-ask-8', { payload: { v: 1, provider: `Synthetic ${step}`, reason: 're-auth' } })
       await frame()
     }
