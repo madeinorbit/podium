@@ -118,6 +118,27 @@ describe('Claude pasted content recorded text (POD-4982)', () => {
     ).toEqual([{ id: 'queued', role: 'user', ts: undefined, text: expected }])
   })
 
+  // A prompt the busy turn absorbs (`queue-operation remove
+  // reason=absorbed_mid_turn`) never becomes a `user` record: its only history
+  // entry is the queued_command attachment, carrying the same trimmed wrapper
+  // (live: POD-5270 audit, 7 cases on 2.1.283).
+  it('unwraps the trimmed wrapper in an absorbed queued_command', () => {
+    const record = {
+      type: 'attachment',
+      uuid: 'absorbed',
+      timestamp: '2026-10-02T00:00:00.000Z',
+      attachment: {
+        type: 'queued_command',
+        commandMode: 'prompt',
+        origin: { kind: 'human' },
+        prompt: '<pasted_content id="abcd">\nqueued synthetic body\n</pasted_content id="abcd">',
+      },
+    }
+    expect(claudeRecordToItems(record)).toEqual([
+      { id: 'absorbed', ts: '2026-10-02T00:00:00.000Z', role: 'user', text: 'queued synthetic body' },
+    ])
+  })
+
   it.each([
     '<pasted_content id="abcd">\nqueued synthetic body\n</pasted_content id="abcd">',
     '\n\n<pasted_content id="abcd">\nqueued synthetic body\n</pasted_content id="abcd">',
