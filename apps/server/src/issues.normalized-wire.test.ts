@@ -224,7 +224,7 @@ async function client(registry: SessionRegistry, caps: string[] | undefined): Pr
  * standing behind its relevance.
  *
  * The window opens only AFTER every client has said hello: `attachClient` paints
- * a bootstrap `issuesChanged` built fresh (a legitimate O(issues) build, but not
+ * a fresh normalized bootstrap (a legitimate O(issues) build, but not
  * the one under test), and a client that has not yet negotiated caps counts as
  * legacy — so creating a client inside the window measured the bootstrap AND
  * suppressed the very bypass under test.

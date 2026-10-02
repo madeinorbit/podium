@@ -114,16 +114,14 @@ export function optimisticDraftSortKey(
   return sortKeyBetween(null, min)
 }
 
-export function optimisticDraftIssue(args: {
-  userId: UserId
-  issueId: IssueId
-  repoPath: string
-  repoId?: RepoId
-  machineId?: MachineId
-  sortKey: string
-  agentKind: AgentKind
-  nowIso: string
-}): IssueViewModel {
+export function optimisticDraftIssue(
+  args: Pick<OptimisticSpawnArgs, 'issueId' | 'machineId' | 'agentKind' | 'nowIso'> & {
+    userId: UserId
+    repoPath: string
+    repoId?: RepoId
+    sortKey: string
+  },
+): IssueViewModel {
   return {
     id: args.issueId,
     owner: args.userId,
