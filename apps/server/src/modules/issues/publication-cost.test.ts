@@ -75,7 +75,7 @@ it.each([16, 64])('publishes only the changed normalized issue among %i rows', a
     }
     console.log('issue-publication-cost', JSON.stringify({ count, samples }))
     for (const changes of emitted) {
-      expect(changes.filter(change => change.entity === 'issueProjection').map(change => change.entityId)).toEqual([target])
+      expect(changes.filter(change => change.entity === 'issueProjection').map(change => change.id)).toEqual([target])
       expect(changes.every(change => change.entity !== 'issue')).toBe(true)
     }
     for (const sample of samples) {
