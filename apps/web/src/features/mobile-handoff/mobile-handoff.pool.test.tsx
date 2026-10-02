@@ -84,16 +84,21 @@ describe('declared pool first-task value', () => {
     expect(makePool([]).pool.hasFirstTask).toBe(false)
   })
 
-  it('uses the one reader for resident rows and stops at the first task', () => {
+  it('reads the maintained value without walking resident or cold history', () => {
     const { pool } = makePool([issue(), issue({ id: 'second-task' })], false)
     const read = vi.spyOn(pool, 'row')
+    const coldIds = vi.spyOn(pool.residency ?? { ids: () => [] }, 'ids')
     expect(pool.hasFirstTask).toBe(true)
-    expect(read.mock.calls).toEqual([['issue', 'first-task']])
+    expect(read).not.toHaveBeenCalled()
+    expect(coldIds).not.toHaveBeenCalled()
   })
 
   it('keeps a missing cold summary LOADING and batches the row load', () => {
-    const { pool, load, schedule } = makePool([issue({ archived: true })])
+    const archived = issue({ archived: true })
+    const { pool, source, load, schedule } = makePool([])
     vi.spyOn(pool.residency!, 'summary').mockReturnValue(undefined)
+    source.set(archived.id, archived)
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: archived.id, value: archived }] })
     expect(pool.hasFirstTask).toBe(LOADING)
     expect(pool.hasFirstTask).toBe(LOADING)
     expect(load).not.toHaveBeenCalled()

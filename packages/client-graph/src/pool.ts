@@ -213,6 +213,8 @@ export class MobxPool {
   private settingsSequence = 0
   private readonly settingsEnabled: boolean
   readonly settingsViews = createSettingsViews(this)
+  private readonly firstTaskCount = observable.box(0)
+  private readonly firstTaskPending = observable.box(0)
   private headerState: ReturnType<typeof createHeaderEntities> | undefined
   /** Off means no extra observable maps, relations or sidebar census objects. */
   get header() { return this.headerState ??= createHeaderEntities() }
@@ -494,6 +496,10 @@ export class MobxPool {
       | 'settingsSource'
       | 'settingsSequence'
       | 'settingsEnabled'
+      | 'firstTaskCount'
+      | 'firstTaskPending'
+      | 'firstTaskState'
+      | 'updateFirstTaskCount'
       | 'target'
       | 'selectedId'
       | 'select'
@@ -519,6 +525,10 @@ export class MobxPool {
       settingsSequence: false,
       settingsEnabled: false,
       settingsViews: false,
+      firstTaskCount: false,
+      firstTaskPending: false,
+      firstTaskState: false,
+      updateFirstTaskCount: false,
       attachSettings: false,
       attachPreferences: false,
       preferenceKeys: false,
@@ -633,23 +643,25 @@ export class MobxPool {
     return pending === undefined ? server : overlayRow(server, pending)
   }
 
-  /** Any nondeleted issue, including archived issues and draft vessels.
-   * Resident fields use the one reader; cold issues use the declared summary.
-   * No row models or index are built. A missing summary queues the usual load. */
+  /** Scalar maintained at issue deltas and hydration, including archived and
+   * draft rows. Getter cost is independent of both hot and cold history. */
   get hasFirstTask(): Loaded<boolean> {
-    for (const id of this.tables.issue.keys()) {
-      const row = this.row('issue', id) as Loaded<SliceIssue>
-      if (row && row !== LOADING && !row.deletedAt) return true
-    }
-    let loading = false
-    for (const id of this.residency?.ids('issue', true) ?? []) {
-      const summary = this.hidden('issue', id)
-      // stage is required in the declared summary; hidden() uses {} when absent.
-      const row = summary && 'stage' in summary ? summary : this.row('issue', id)
-      if (row === LOADING) loading = true
-      else if (row && !(row as Partial<SliceIssue>).deletedAt) return true
-    }
-    return loading ? LOADING : false
+    return this.firstTaskCount.get() > 0 ? true : this.firstTaskPending.get() > 0 ? LOADING : false
+  }
+
+  private firstTaskState(id: string): Loaded<boolean> {
+    const resident = this.row('issue', id, 'mark') as Loaded<SliceIssue>
+    if (resident !== LOADING) return resident && !resident.deletedAt
+    const summary = this.hidden('issue', id)
+    if (summary && 'stage' in summary) return !summary['deletedAt']
+    // Missing declared summary: the existing window loads it in one batch.
+    void this.row('issue', id)
+    return LOADING
+  }
+
+  private updateFirstTaskCount(before: Loaded<boolean>, after: Loaded<boolean>): void {
+    this.firstTaskCount.set(this.firstTaskCount.get() + Number(after === true) - Number(before === true))
+    this.firstTaskPending.set(this.firstTaskPending.get() + Number(after === LOADING) - Number(before === LOADING))
   }
 
   rosterCandidates(path: string): Iterable<string> { return this.sidebarRosters.candidates(path) }
@@ -806,7 +818,9 @@ export class MobxPool {
     const out = ingestOut()
     this.graph.begin()
     return runInAction(() => {
+      const before = new Map(batch.filter(([entity]) => entity === 'issue').map(([, id]) => [id, this.firstTaskState(id)]))
       const rows = residency.install(this.target, batch, out)
+      for (const [id, previous] of before) this.updateFirstTaskCount(previous, this.firstTaskState(id))
       this.graph.flush()
       this.sidebarRosters.flush()
       return rows
@@ -828,7 +842,16 @@ export class MobxPool {
       event = { ...event, rows }
     }
     runInAction(() => {
+      // Only this publication's ids are retained, until its action finishes.
+      // Cold values come from the declared summary; no all-issue index.
+      const before = new Map<string, Loaded<boolean>>()
+      for (const record of event.rows) {
+        if (record.kind === 'issue' && !before.has(record.id)) before.set(record.id,
+          event.type === 'replace' ? undefined : this.firstTaskState(record.id))
+      }
       if (event.type === 'replace') {
+        this.firstTaskCount.set(0)
+        this.firstTaskPending.set(0)
         this.referenceReader?.resetUnresolved()
         reseed(this.target, event.rows, out)
       }
@@ -841,6 +864,7 @@ export class MobxPool {
         // shown warms it, once every row of the update is in.
         this.residency?.settle(this.target, out)
       }
+      for (const [id, previous] of before) this.updateFirstTaskCount(previous, this.firstTaskState(id))
       this.graph.flush()
       for (const record of event.rows) {
         if (record.kind === 'session') this.sidebarRosters.queueSession(record.id)
@@ -906,6 +930,8 @@ export class MobxPool {
       this.selection.clear()
       this.readStates.clear()
       this.sidebarRosters.clear()
+      this.firstTaskCount.set(0)
+      this.firstTaskPending.set(0)
     })
     for (const entity of ENTITIES) this.models[entity].clear()
     this.residency?.clear()

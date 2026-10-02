@@ -1,0 +1,29 @@
+import { afterEach, expect, it, vi } from 'vitest'
+import { MobxPool } from '@podium/client-graph'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
+
+let pool: MobxPool | undefined
+afterEach(() => pool?.dispose())
+
+it('keeps the first-task count current across duplicate deltas, hydration, removal and replacement', () => {
+  const archived = { id: 'cold', title: 'Cold task', stage: 'done', archived: true } as SliceIssue
+  const draft = { id: 'draft', title: 'Draft', stage: 'in_progress', isDraftVessel: true } as SliceIssue
+  const load = vi.fn(() => archived)
+  pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, { load, schedule: () => () => {} })
+  pool.apply({ type: 'replace', rows: [archived, draft].map(value => ({ kind: 'issue', id: value.id, value })) })
+  expect(pool.hasFirstTask).toBe(true)
+  pool.row('issue', archived.id)
+  expect(pool.hydrate()).toBe(1)
+  pool.apply({ type: 'update', rows: [
+    { kind: 'issue', id: draft.id, value: undefined },
+    { kind: 'issue', id: draft.id, value: undefined },
+  ] })
+  expect(pool.hasFirstTask).toBe(true)
+  pool.apply({ type: 'update', rows: [{ kind: 'issue', id: archived.id, value: { ...archived, deletedAt: 'deleted' } }] })
+  expect(pool.hasFirstTask).toBe(false)
+  pool.apply({ type: 'update', rows: [{ kind: 'issue', id: archived.id, value: { ...archived, deletedAt: '' } }] })
+  expect(pool.hasFirstTask).toBe(true)
+  pool.apply({ type: 'replace', rows: [] })
+  expect(pool.hasFirstTask).toBe(false)
+  expect(load).toHaveBeenCalledTimes(1)
+})
