@@ -818,7 +818,7 @@ export class MobxPool {
     const out = ingestOut()
     this.graph.begin()
     return runInAction(() => {
-      const before = new Map(batch.filter(([entity]) => entity === 'issue').map(([, id]) => [id, this.firstTaskState(id)]))
+      const before = new Map<string, Loaded<boolean>>(batch.filter(([entity]) => entity === 'issue').map(([, id]) => [id, this.firstTaskState(id)]))
       const rows = residency.install(this.target, batch, out)
       for (const [id, previous] of before) this.updateFirstTaskCount(previous, this.firstTaskState(id))
       this.graph.flush()
