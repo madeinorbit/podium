@@ -162,6 +162,16 @@ function rowPaint() {
   })
 }
 
+/** Drive the same runtime publication as the wall clock without faking DOM polling timers. */
+async function advanceClock(byMs: number) {
+  const now = runtime.getSnapshot().coarseNow + byMs
+  await act(async () => {
+    vi.setSystemTime(now)
+    const clockPublisher = runtime as unknown as { apply(patch: { coarseNow: number }): void }
+    clockPublisher.apply({ coarseNow: now })
+  })
+}
+
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
@@ -169,7 +179,7 @@ afterEach(() => {
 
 describe('real sidebar pool cutover', () => {
   it.each(LAYERS)('%s guest rows preserve the clock behavior of their data layer', async (layer) => {
-    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
     const fixture = await mount(layer)
     await act(async () => {
@@ -178,17 +188,17 @@ describe('real sidebar pool cutover', () => {
       })
     })
     mode.commits.clear()
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    await advanceClock(60_000)
     expect(runtime.getSnapshot().coarseNow).toBe(NOW + 60_000)
     const guests = Object.fromEntries([...mode.commits].filter(([id]) => id.startsWith('synthetic-guest-')))
     expect(guests).toEqual(layer === 'pool' ? {} : { 'synthetic-guest-0': 1, 'synthetic-guest-1': 1 })
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    await advanceClock(60_000)
     expect(document.querySelector('[data-session="synthetic-guest-0"]')!.textContent).toContain('Unsnoozed')
     if (layer === 'pool') expect(mode.reads).toBe(0)
   })
 
   it('expires a pool guest snooze only at its deadline and handles a clock rewind', async () => {
-    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
     const fixture = await mount('pool')
     await act(async () => {
@@ -198,19 +208,16 @@ describe('real sidebar pool cutover', () => {
     expect(guest().textContent).not.toContain('Unsnoozed')
     expect(guest().querySelector('button[aria-haspopup="menu"]')).not.toBeNull()
     mode.commits.clear()
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    await advanceClock(60_000)
     expect(Object.fromEntries(mode.commits)).toEqual({})
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    await advanceClock(60_000)
     expect(Object.fromEntries(mode.commits)).toEqual({ 'synthetic-guest-0': 1 })
     expect(guest().textContent).toContain('Unsnoozed')
     expect(guest().querySelector('button[aria-haspopup="menu"]')).toBeNull()
     mode.commits.clear()
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    await advanceClock(60_000)
     expect(Object.fromEntries(mode.commits)).toEqual({})
-    // Use the runtime's existing publication seam to test the non-monotone clock.
-    await act(async () => {
-      ;(runtime as unknown as { apply(patch: { coarseNow: number }): void }).apply({ coarseNow: NOW + 60_000 })
-    })
+    await advanceClock(-120_000)
     expect(Object.fromEntries(mode.commits)).toEqual({ 'synthetic-guest-0': 1 })
     expect(guest().textContent).not.toContain('Unsnoozed')
     expect(guest().querySelector('button[aria-haspopup="menu"]')).not.toBeNull()
@@ -218,19 +225,19 @@ describe('real sidebar pool cutover', () => {
   })
 
   it.each([null, 'not-a-date'])('keeps a pool guest with snooze %s cold across ticks', async (snoozedUntil) => {
-    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
     const fixture = await mount('pool')
     await act(async () => { fixture.patch('session', 'synthetic-guest-0', { snoozedUntil }) })
     mode.commits.clear()
-    await act(async () => { await vi.advanceTimersByTimeAsync(120_000) })
+    await advanceClock(120_000)
     expect(Object.fromEntries(mode.commits)).toEqual({})
     expect(document.querySelector('[data-session="synthetic-guest-0"]')!.textContent).not.toContain('Unsnoozed')
     expect(mode.reads).toBe(0)
   })
 
   it('redraws only the folded pool row whose displayed age crosses an hour boundary', async () => {
-    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
     const fixture = await mount('pool')
     const stamp = new Date(NOW - (2 * 60 + 28) * 60_000).toISOString()
@@ -241,13 +248,13 @@ describe('real sidebar pool cutover', () => {
     fireEvent.click(screen.getByTestId('closed-fold-toggle'))
     expect(screen.getByTestId('folded-work-row').textContent).toContain('2h ago')
     mode.commits.clear()
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    await advanceClock(60_000)
     expect(Object.fromEntries(mode.commits)).toEqual({})
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    await advanceClock(60_000)
     expect(Object.fromEntries(mode.commits)).toEqual({ 'synthetic-5': 1 })
     expect(screen.getByTestId('folded-work-row').textContent).toContain('3h ago')
     mode.commits.clear()
-    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    await advanceClock(60_000)
     expect(Object.fromEntries(mode.commits)).toEqual({})
     expect(mode.reads).toBe(0)
   })
