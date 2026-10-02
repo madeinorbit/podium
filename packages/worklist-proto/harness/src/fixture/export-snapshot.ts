@@ -1,3 +1,4 @@
+import { fixtureViewModels } from './normalized-issues'
 /**
  * POD-4552 — export an anonymised snapshot of a running Podium server and
  * compare its shape with the fixture at 1x.
@@ -141,9 +142,8 @@ export async function readLive(origin: string): Promise<{
   const api = clientApi(origin, cookie)
   const scan = await api.discovery.refreshRepos.mutate()
   const pins = await api.pins.list.query()
-  return {
-    raw: {
-      issues: rowsOf('issue'),
+  const raw = {
+      issues: [],
       issueProjections: rowsOf('issueProjection'),
       issueUserStates: rowsOf('issueUserState'),
       issueGitStates: rowsOf('issueGitState'),
@@ -153,7 +153,10 @@ export async function readLive(origin: string): Promise<{
       repos: scan.repositories,
       machines: scan.machines,
       pins,
-    },
+  } as LiveCollections
+  raw.issues = fixtureViewModels(raw)
+  return {
+    raw,
     snapshotSeq,
     bootstrapEntityCounts,
   }

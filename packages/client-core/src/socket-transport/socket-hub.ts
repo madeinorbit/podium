@@ -848,7 +848,6 @@ export class SocketHub {
         // Legacy feed capability negotiation is keyed only by the presence of the
         // opaque Replica sink. Transport never reads its position or stamp.
         // CAP_ISSUES_NORMALIZED is opt-in on top (see `issuesNormalized`): it
-        // promises the server this client no longer needs IssueWire, which is
         // what licenses the server to skip the O(issues x sessions) rebuild on
         // session churn [POD-796].
         ...(this.opts.feed?.syncHttp || this.legacyFeed || acceptsBinaryOutput || acceptsBinaryInput

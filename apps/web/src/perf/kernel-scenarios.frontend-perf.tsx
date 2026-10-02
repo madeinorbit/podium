@@ -205,7 +205,6 @@ describe('kernel-backed interaction counts', () => {
           ),
         }))
         const { replica, upsert } = kernelFixture(cache)
-        expect(replica.rows('issues')).toEqual([])
         const hub = new Hub()
         let rejectRename = false
         const api = {

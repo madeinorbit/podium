@@ -47,7 +47,6 @@ const ROOT = join(import.meta.dirname, '..')
 const FUNNEL_FILE = 'apps/server/src/modules/funnel.ts'
 const MUX_FILE = 'apps/server/src/gateway/client-mux.ts'
 const SERVING_FILE = 'apps/server/src/gateway/feed-serving.ts'
-const ADAPTER_FILE = 'apps/server/src/gateway/legacy-wire-v1-adapter.ts'
 
 /**
  * The five message shapes the pre-cutover serving path produced, and the ONLY
@@ -64,7 +63,7 @@ const FULL_LIST_MESSAGES = [
   'automationRunsChanged',
 ] as const
 
-const FULL_LIST_ALLOWED = [ADAPTER_FILE]
+const FULL_LIST_ALLOWED: readonly string[] = []
 
 /** Authorized feed producers, not alternate repository projections. HTTP delta
  * uses Authority.changesRange; HTTP bootstrap relays opaque worker bytes. The
@@ -178,7 +177,7 @@ export function runChecks(input: AuditInput): Finding[] {
         where: path,
         detail:
           `constructs a '${message}' message. The pre-cutover full-list shapes are produced ONLY ` +
-          `by the expiring v1 translation (${ADAPTER_FILE}). ` +
+          `by no supported transport. ` +
           'Building one anywhere else re-creates the dual read path POD-1203 deleted — it will ' +
           'work, and it will disagree with the feed the first time the two are computed from ' +
           'different state.',
@@ -268,11 +267,6 @@ export function runChecks(input: AuditInput): Finding[] {
   // tree. Each control is a site KNOWN to contain what a detector looks for, and
   // a miss throws. A throw cannot be mistaken for a clean tree; a zero can.
   const controls: { path: string; pattern: RegExp; what: string }[] = [
-    {
-      path: ADAPTER_FILE,
-      pattern: constructionOf('sessionsChanged'),
-      what: 'the full-list construction pattern, against the translation that legitimately uses it',
-    },
     {
       path: SERVING_FILE,
       pattern: /\bpublishTo\(/,
@@ -422,13 +416,6 @@ export const PROBES: { name: string; input: AuditInput; expect: string }[] = (()
       name: 'the funnel grows a second tail',
       expect: 'funnel-has-one-tail',
       input: overlay({ [FUNNEL_FILE]: 'export class WriteFunnel {}\n' }),
-    },
-    {
-      name: 'the full-list detector stops matching its control',
-      expect: 'detector-throws',
-      input: overlay({
-        [ADAPTER_FILE]: (base.read(ADAPTER_FILE) ?? '').replace(/type: 'sessionsChanged'/g, 'x'),
-      }),
     },
     {
       // The SECOND control, broken on its own: two controls that only ever fail

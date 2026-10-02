@@ -29,17 +29,7 @@ import { z } from 'zod'
  * compilation".
  */
 
-/**
- * The R1/R3 → R4 nullability convention, at the type level: a `T | null` durable
- * field becomes an OPTIONAL (absent-when-unset) wire field.
- *
- * Why the roles differ at all: `IssueRow` spells absence `null` (a sqlite column
- * holds a value or NULL — there is no "absent"), while `IssueWire` spells it by
- * omitting the key (a smaller payload, and the convention every existing
- * consumer already reads through truthiness checks). Preserving both encodings —
- * rather than flattening them to one — is what keeps the POD-796 cutover
- * mechanical for both the store and the client.
- */
+
 type WireField<F> = F extends z.ZodNullable<infer Inner> ? z.ZodOptional<Inner> : F
 export type WireShape<S extends z.ZodRawShape> = { [K in keyof S]: WireField<S[K]> }
 

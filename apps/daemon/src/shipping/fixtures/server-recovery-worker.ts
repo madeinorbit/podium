@@ -7,7 +7,7 @@ import {
   asMachineId,
   asShipAttemptId,
   firstAdminMemberId,
-  type IssueWire,
+  type IssueReport,
   type MachineId,
 } from '@podium/model'
 import { shippingJobRequestFingerprint, type ControlMessage } from '@podium/protocol/daemon'
@@ -78,7 +78,7 @@ replies.on('line', (line) => {
 })
 
 const issuePort = {
-  async get(id: string): Promise<IssueWire> {
+  async get(id: string): Promise<IssueReport> {
     const issue = await issues.get(id)
     if (!issue) throw new Error(`unknown issue ${id}`)
     return issue
@@ -97,7 +97,7 @@ const recoveryPolicy = {
   // restart-recovery test measures -- so the test could not prove recovery.
   // TypeScript does not object because a spread of a Promise structurally
   // preserves its methods in the type, even though nothing is copied at runtime.
-  resolve: async (issue: IssueWire) => ({
+  resolve: async (issue: IssueReport) => ({
     ...(await compatibilityPolicy.resolve(issue)),
     validationProfileId: 'recovery-proof',
     validationProfile: {

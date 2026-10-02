@@ -706,32 +706,6 @@ export function isDeclaredPackageEntrypoint(file: string): boolean {
 
 export const CHECKS: AuditCheck[] = [
   {
-    /*
-     * PORTED FROM MAIN in the catch-up merge. Main's POD-797 deleted the legacy
-     * local issue wire; this branch rebuilt that surface independently, so this
-     * detector is EXPECTED TO REPORT NON-ZERO here and that number is a real
-     * finding rather than merge noise. Kept because a detector this branch lacks
-     * is a guard this branch lacks.
-     */
-    id: 'issues-legacy-local-wire',
-    title: 'Legacy local issue membership wire path',
-    phase: 'POD-797',
-    unit: 'production site that embeds or scans sessions for an issue payload, gates normalized issue emission, or retains a POD-722/723 issue shim',
-    collect: (ctx) => [
-      ...grep(ctx, {
-        roots: ['packages/protocol/src/messages/issues.ts'],
-        pattern:
-          /IssueSessionSummary|sessions:\s*z[.]array[(]SessionMeta[)]|sessionSummary:\s*IssueSessionSummary|unread:\s*z[.]boolean/,
-      }),
-      ...grep(ctx, {
-        roots: ['apps/server/src'],
-        skip: (file) => file === 'apps/server/src/modules/issues/instrumentation.ts',
-        pattern:
-          /issueRelevantSessionProjection|lastIssueSessionProjection|legacyIssueWireNeeded|issuesNormalizedWire|toWireMemo|wireCache|bumpIssueInputs|memberSessionFingerprint|countIssueMembershipScan[(]|issues-normalized-wire/,
-      }),
-    ],
-  },
-  {
     id: 'publish-computed-fanout',
     title: 'publishComputed snapshot fan-out',
     phase: 'POD-308',
@@ -774,52 +748,6 @@ export const CHECKS: AuditCheck[] = [
         pattern: PUBLISH_COMPUTED_PATTERN,
       })
     },
-  },
-  {
-    /**
-     * The CONCRETE N-1 wire adapter (POD-308) — a scheduled deletion, tracked
-     * here for the reason POD-1077's placeholder is: temporary code that keeps
-     * everything working survives by default, because nothing ever forces the
-     * conversation about removing it.
-     *
-     * This item is EXPECTED to be non-zero for one rollout window and must reach
-     * 0 by Phase 7. `scripts/audit-wire-adapters.ts` owns the condition (the
-     * support floor reaching 2) and the allowlist; this counts the sites, so the
-     * ratchet shows the cost of the window growing if anyone adds a dependency
-     * on it.
-     */
-    /*
-     * RE-PHASED POD-308 -> POD-337 by the POD-279 coordinator, with the reason
-     * recorded here because a re-phase is the move that can launder debt.
-     *
-     * POD-310's Phase 2 exit gate found a CONTRADICTION IN THE PLAN, not a
-     * defect in the tree: POD-308's job was to BIRTH this adapter, its expiry
-     * is declared as DATA (expiresWhenMinSupportedReaches: 2, deleteByPhase
-     * Phase 7) and that condition has not arrived because MIN_CLIENT_WIRE_VERSION
-     * is still 1 — yet the item was mapped to a Phase-2 issue graded by a rule
-     * saying its phase may not close while the count is non-zero. So a closed,
-     * correct child could never pass its own phase-close gate, and the only ways
-     * out were to falsify the gate or to leave Phase 2 permanently unclosable.
-     *
-     * POD-310 did NOT re-phase it to let itself close, escalating instead — an
-     * exit gate that edits this mapping to pass is a detector that cannot say NO
-     * one level up. This edit is the coordinator's answer, not the gate's, which
-     * is the same separation POD-423 established for per-user-singletons.
-     *
-     * POD-337 is the right owner: it is where the expiry condition is actually
-     * evaluated, and it CANNOT close while this is non-zero — so the
-     * anti-laundering property is preserved rather than spent. Check with
-     * `bun scripts/rearch-audit.ts --phase POD-337`.
-     */
-    id: 'legacy-wire-v1-adapter',
-    title: 'Concrete pre-cutover (wire v1) translation adapter',
-    phase: 'POD-337',
-    unit: 'declaration or reference to the expiring LegacyWireV1Adapter',
-    collect: (ctx) =>
-      grep(ctx, {
-        roots: ['apps', 'packages'],
-        pattern: /\bLegacyWireV1Adapter\b|\bLEGACY_WIRE_V1_EXPIRY\b/,
-      }),
   },
   {
     id: 'upstream-sync-forwarder',
@@ -1495,31 +1423,7 @@ export const CHECKS: AuditCheck[] = [
       ),
   },
   {
-    /**
-     * THE TWO DIRTY-SCOPING SHIMS (POD-722/POD-723), COUNTED AT LAST.
-     *
-     * These were named as deletion-audit items when POD-736 was written and were
-     * never actually registered — so "delete the shims at the cutover" was an
-     * instruction with no instrument behind it, and an item nobody counts is an
-     * item nobody has to reach zero on. Registering them is the point even
-     * though POD-736 MEASURED that they must not be deleted yet (18x switch
-     * regression at 588 sessions / 800 issues — see
-     * docs/agents/pod-736-harness-evidence.md): the difference between a comment
-     * saying "interim" and a scheduled deletion is exactly a gate counting the
-     * sites, and this run has paid for that distinction more than once.
-     *
-     * THE EXPIRY CONDITION, NAMED SO IT CAN ARRIVE: both shims exist to suppress
-     * the O(issues x sessions) `allWire()` rebuild that a SESSION-driven publish
-     * triggers. They become deletable when the issue projection stops being
-     * rebuilt from a session list at all — i.e. when IssueWire stops embedding
-     * SessionMeta[] and a session change reaches issue clients as its own change
-     * row. That is a representation change (ADR 4), not a timing one, and it is
-     * what POD-337 must see at zero.
-     *
-     * Anchored on the STATE each shim keeps rather than on its comment marker: a
-     * comment can be deleted while the mechanism stays, which is the shape of a
-     * detector that reports a win for a rename.
-     */
+    
     id: 'issue-wire-dirty-scoping-shims',
     title: 'Interim dirty-scoping shims on the issue wire rebuild (POD-722/723)',
     phase: 'POD-337',

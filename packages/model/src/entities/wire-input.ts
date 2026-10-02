@@ -36,11 +36,7 @@ import type { AutomationRunWire, AutomationWire } from './automation'
 import type { ConversationSummaryWire } from './conversation'
 import type { SessionMeta } from './session'
 
-/**
- * Widen every BRANDED string in `T` back to `string`, recursing through arrays
- * and nested objects (`IssueWire.sessions` is the one nested entity, and it
- * carries branded ids of its own).
- */
+
 export type UnbrandIds<T> = { [K in keyof T]: Unbrand<T[K]> }
 
 type Unbrand<V> =

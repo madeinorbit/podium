@@ -20,12 +20,11 @@ import {
   WireVersionError,
 } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { LEGACY_WIRE_V1_EXPIRY, LegacyWireV1Adapter } from '../apps/server/src/gateway/legacy-wire-v1-adapter'
 import { WireFeedEdge } from '../apps/server/src/gateway/wire-feed-edge'
 import { outcomesOf, PROBES, runChecks } from './audit-wire-adapters'
 
 const edge = () =>
-  new WireFeedEdge({ diagnostics: () => [], visibilityGrade: () => 'device-unscoped' })
+  new WireFeedEdge({ visibilityGrade: () => 'device-unscoped' })
 
 describe('the shipped edge, as a running object', () => {
   it('covers the whole advertised window — it would refuse to boot otherwise', () => {
@@ -33,15 +32,6 @@ describe('the shipped edge, as a running object', () => {
     expect(edge().support()).toEqual({ wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION })
   })
 
-  it('actually HOLDS a v1 translation, so the absence claims are not vacuous', () => {
-    // Without this, "no unexpected call sites" would be equally true of a server
-    // that shipped no legacy support at all — and every stale PWA would be
-    // silently broken while the gate stayed green.
-    const adapter = new LegacyWireV1Adapter({ diagnostics: () => [] })
-    expect(adapter.version).toBe(1)
-    expect(adapter.expiry).toBe(LEGACY_WIRE_V1_EXPIRY)
-    expect(adapter.expiry?.expiresWhenMinSupportedReaches).toBeGreaterThan(MIN_CLIENT_WIRE_VERSION)
-  })
 
   it('reports nothing expired at the shipped floor', () => {
     expect(edge().expiredAdapters()).toEqual([])

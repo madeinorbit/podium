@@ -11,7 +11,7 @@
  * broken <img> lays out at a different size than a loaded one and would make
  * every measurement in this harness a lie.
  */
-import type { IssueWire } from '@podium/model/browser'
+import type { IssueViewModel } from '@podium/client-core/replica'
 
 const ARTIFACTS = [
   {
@@ -45,7 +45,7 @@ const ISSUE = {
   deps: [],
   worktreePath: '/tmp/wt',
   panel: { artifacts: ARTIFACTS },
-} as unknown as IssueWire
+} as unknown as IssueViewModel
 
 const STATE = {
   // Same-origin: the harness serves `/harness/thumb-*.svg` itself.
@@ -58,6 +58,6 @@ export function useStoreSelector<T>(selector: (s: typeof STATE) => T): T {
   return selector(STATE)
 }
 
-export function useReplicaIssues(): IssueWire[] {
+export function useReplicaIssues(): IssueViewModel[] {
   return [ISSUE]
 }

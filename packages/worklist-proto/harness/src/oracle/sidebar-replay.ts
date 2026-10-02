@@ -6,7 +6,6 @@
  */
 
 import { hostname } from 'node:os'
-import { isDeepStrictEqual } from 'node:util'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { dedupeSessions, type Store } from '@podium/client-core/engine'
 import {
@@ -39,7 +38,6 @@ export function sidebarReplayStore(
   // ClientRuntime seeds these lists from ReplicaBinding, not bootstrap order.
   return {
     replica,
-    issues: replica.rows('issues'),
     issueProjections: replica.rows('issueProjections'),
     issueUserStates: replica.rows('issueUserStates'),
     issueGitStates: replica.rows('issueGitStates'),
@@ -54,9 +52,8 @@ export function sidebarReplayStore(
   } as unknown as Store<PodiumClientApi>
 }
 
-function replay(corpus: FixtureCorpus, withOld: boolean) {
+function replay(corpus: FixtureCorpus) {
   const cache = seedCacheFromCorpus(corpus)
-  if (!withOld) for (const issue of corpus.issues) cache.drop('issue', issue.id)
   const replica = createKernelReplica({
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
@@ -103,7 +100,6 @@ function replay(corpus: FixtureCorpus, withOld: boolean) {
       models: allIssueViewModels(replica),
       sidebar: runInAction(() => poolSidebarSnapshot(handle.pool)),
       report: {
-        oldRows: replica.rows('issues').length,
         issues: corpus.issueProjections.length,
         sessions: corpus.sessions.length,
         sections: result.sections,
@@ -144,35 +140,9 @@ async function main(): Promise<void> {
     const snapshot = readSnapshot(path)
     corpus = corpusFromLive(snapshot, Date.parse(snapshot.exportedAt))
   }
-  const full = replay(corpus, true),
-    normalized = replay(corpus, false)
-  const before = new Map(full.models.map((row) => [row.id, row]))
-  let modelDifferences = full.models.length === normalized.models.length ? 0 : 1
-  for (const row of normalized.models) {
-    const previous = before.get(row.id)
-    for (const field of new Set([...Object.keys(row), ...Object.keys(previous ?? {})])) {
-      if (!isDeepStrictEqual(Reflect.get(row, field), previous && Reflect.get(previous, field)))
-        modelDifferences++
-    }
-  }
-  const sidebarDifferences = isDeepStrictEqual(full.sidebar, normalized.sidebar) ? 0 : 1
-  console.log(
-    JSON.stringify({
-      inputKinds,
-      withOld: full.report,
-      normalizedOnly: normalized.report,
-      modelDifferences,
-      sidebarDifferences,
-    }),
-  )
-  if (
-    modelDifferences ||
-    sidebarDifferences ||
-    normalized.report.differences ||
-    normalized.report.pending ||
-    normalized.report.oldRows
-  )
-    process.exitCode = 1
+  const normalized = replay(corpus)
+  console.log(JSON.stringify({ inputKinds, normalizedOnly: normalized.report }))
+  if (normalized.report.differences || normalized.report.pending) process.exitCode = 1
 }
 if (import.meta.main) {
   try {

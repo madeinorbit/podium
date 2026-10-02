@@ -140,22 +140,7 @@ const FeedIdShape = {
 
 export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('session'), SessionMeta),
-  /** The NORMALIZED issue projection [POD-796, ADR 4 D7.1] — a SECOND kind
-   *  alongside 'issue', not a reshaping of it, and that is the whole transition
-   *  strategy.
-   *
-   *  The ledger stores one value per (kind, id), so 'issue' cannot carry two
-   *  payload shapes at once: flipping it in place would break every delta client
-   *  whose build still expects `IssueWire` — and a lagging PWA bundle is exactly
-   *  that client (see version.ts on rolling upgrades). A new kind is the
-   *  mechanism this file's own lenient-parsing note was written for: an older
-   *  build's `MetadataEntityKind` does not list 'issueProjection', so these rows
-   *  fall to {@link UnknownMetadataChange}, get ignored with a debug log, and the
-   *  cursor ADVANCES past them — no quarantine, no heal loop. Additive per ADR 2
-   *  D4; `CLIENT_WIRE_VERSION` stays 1.
-   *
-   *  Emitted unconditionally after POD-797; CAP_ISSUES_NORMALIZED tells clients
-   *  which issue collection to render. */
+  
   metadataChangeArm(z.literal('issueProjection'), IssueProjection),
   /** An issue dependency EDGE [POD-822, ADR 4 D7.1] — `issue_deps` rows as
    *  first-class entities, keyed by their own primary key (`issueDepId`).

@@ -1232,10 +1232,6 @@ export class IssueCrudModule {
     // out mid-gesture, to fix a board whose drags already worked. The keys stay
     // long in such a repo until its next create, which is a storage wart nobody
     // can see, and the right trade against latency on the gesture itself.
-    // Cross-issue derived effects (#22): a closed-predicate flip changes the
-    // dependents' blocked/ready and the parent's childDoneCount; a reparent
-    // changes both parents' childCount. Those rows' wires must reach clients too.
-    if (wasClosed !== this.store.isClosed(row) || 'parentId' in patch) await this.store.broadcastList()
     // Transitions into done log as issue.closed below, not stage_changed.
     if (patch.stage != null && patch.stage !== prevStage && patch.stage !== 'done') {
       await this.store.emitEvent('issue.stage_changed', row.id, {
@@ -1562,7 +1558,7 @@ export class IssueCrudModule {
     // `ledger.reconcile`. That is a durable write, and it belongs where it rolls
     // back with the transaction. Moving it to a commit application would put a
     // durable write after the outermost commit, outside any transaction at all.
-    // It reads `allWire()` off the map, which is why the removal above has to be
+    // It reads the normalized rows from the map, which is why the removal above has to be
     // visible in-window rather than merely deferred — otherwise the full-truth
     // diff would declare the purged issue still present.
     await this.store.reconcileAndPublish()

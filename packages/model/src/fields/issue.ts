@@ -1,45 +1,10 @@
-/**
- * The ISSUE field schemas — `docs/rearch-field-schema-inventory.md` §6.3.
- *
- * POD-364 counted **17 issue-shaped representations** carrying **91 distinct
- * keys**. This file is the vocabulary that collapses them: thirteen named field
- * groups, defined once, composed by the canonical aggregate
- * (`../aggregates/issue.ts`) and by every projection (POD-367).
- *
- * `IssueWire` in `../entities/issue.ts` is untouched and stays byte-identical;
- * **no consumer changes in this issue**.
- *
- * ---------------------------------------------------------------------------
- * TWO RENAMES ON COMPOSITION, AND WHY THEY ARE NOT COSMETIC (inventory D-2)
- * ---------------------------------------------------------------------------
- *
- * D-2 catalogues five cases where THE SAME KEY NAME MEANS A DIFFERENT FACT
- * across the two entities. Two of them are resolved here, at the vocabulary
- * level, because a shared field-schema set in which one name means two things is
- * the drift it exists to delete:
- *
- *   - **`blockedBy` → `blockedByNotes`.** Today `IssueWire.blockedBy` is a list
- *     of ids that is NOT the dependency edge set — the real edges live in
- *     `issue_deps` and are derived. Two things called "blocked by", one of which
- *     is authoritative, is how a tracker comes to lie about why something is
- *     blocked.
- *   - **`origin` / `draft` → `intentOrigin` / `isDraftVessel`.** Issue `origin`
- *     is *whose intent this captures*; session `origin` is *how the session was
- *     started*. Issue `draft` is *a placeholder-titled vessel*; session draft is
- *     *unsent composer text*. The session keeps the unqualified names because it
- *     is the one whose meaning matches the plain word.
- *
- * These renames are ON COMPOSITION ONLY. The wire keeps its key names until
- * POD-367 re-derives `IssueWire`, and the mapping lives in that one documented
- * `toWire` / `fromWire` pair (ADR 4 §4.1) — not scattered across call sites.
- */
+
 
 import { z } from 'zod'
 // The shared vocabulary layer (POD-1141). Imported from the LEAF module, never
 // from `../entities/issue`: that import is what made the two files mutually
 // dependent, and because these are zod schema VALUES evaluated at module load it
 // failed at RUNTIME rather than at lint — which is why POD-367 could not compose
-// `IssueWire` from the groups below. See `../entities/issue-vocabulary.ts`.
 import {
   IssueColor,
   IssueGitState,
@@ -70,35 +35,7 @@ export const IssueIdentity = z.object({
 })
 export type IssueIdentity = z.infer<typeof IssueIdentity>
 
-/**
- * THE AUTHORITY-ASSIGNED CONCURRENCY TOKEN — link 3 of the expected-revision
- * chain, ported from main at the POD-1246 catch-up.
- *
- * The chain has five links: the `issues.revision` COLUMN (migration
- * `20260717092407`), the INCREMENT on every accepted write
- * (`store/issues.ts#upsertIssue`), THIS FIELD on the entity and its wire
- * projection, the per-command `conflict: 'exp-rev'` DECLARATION, and the
- * registry's 409 ENFORCEMENT. The column landed on both branches; the other four
- * existed only on main, and a PARTIAL preservation is strictly worse than none —
- * with the column defaulting to `1 NOT NULL` and nothing incrementing it, every
- * row reads revision 1 forever, so a guard wired against it would ACCEPT exactly
- * the stale writes it exists to refuse while looking like it works.
- *
- * Its own group rather than a member of {@link IssueIdentity} or
- * {@link IssueLifecycle} because it is a fact the AUTHORITY stamps about the row's
- * write history, not about which issue this is or where it stands. The comparison is
- * owned by the sync Authority arbitration policy; see `./primitives.ts` for why this
- * token is not `fields/change.ts`'s `ChangeRevisionField`.
- *
- * OPTIONAL, matching main's `IssueWire.revision` and today's `IssueRow.revision`:
- * a row LITERAL that has never been written has no revision yet. That optionality
- * is a concession to literals, never a licence to FABRICATE one — a made-up `1`
- * is not a neutral placeholder but a CLAIM that the row is at its first write,
- * which a client can echo back as an `expectedRevision` the authority then accepts
- * against a row at revision 47. The publish seam
- * (`apps/server/src/modules/issues/projection.ts`) therefore REFUSES an absent
- * revision rather than filling one in.
- */
+
 export const IssueConcurrency = z.object({
   revision: Revision.optional(),
 })

@@ -12,27 +12,7 @@ import { z } from 'zod'
  * expected-revision token the issues concurrency contract is written against.
  */
 
-/**
- * THE clock representation [ADR 4 D3, rejected alternative "ISO and epoch dual
- * semantics in model"; POD-299 "collapse twin predicate families to one clock
- * representation; adapters at edges"].
- *
- * An instant, encoded as an ISO-8601 string. ISO (not epoch-ms) is the canonical
- * form because every timestamp in the issue vocabulary is already an ISO string
- * in both `IssueRow` and `IssueWire` today, so the Issues cutover needs no clock
- * adapter at all. Representations that speak epoch-ms convert at their own edge.
- *
- * NOT the same thing as `clock.ts`'s `Instant`, and the two are not rivals:
- * `Instant` is the RUNTIME representation (epoch-ms) with `toInstant`/`toIso`
- * adapters at the edges; `Timestamp` is the FIELD SCHEMA a vocabulary composes
- * from. Integration's field groups currently inline `z.string()` at each `*At`
- * field — precisely the restatement this symbol exists to collapse. Migrating
- * those call sites onto it is deliberate follow-up work, not a merge edit.
- *
- * NOT validated as a strict datetime: existing rows are written by many call
- * sites and a stricter schema here would reject durable data this slice does not
- * own. Tightening is a deliberate later decision, made in one place.
- */
+
 export const Timestamp = z.string()
 export type Timestamp = z.infer<typeof Timestamp>
 

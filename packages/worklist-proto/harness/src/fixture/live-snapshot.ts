@@ -1,5 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { fixtureProjection, fixtureMarkers, fixtureGitStates } from './normalized-issues'
+import { fixtureViewModels } from './normalized-issues'
 /**
  * POD-4552 — an anonymised snapshot of a live Podium workspace, and the
  * adapter that feeds it to the same oracle and shape measures the fixture uses.
@@ -293,24 +293,19 @@ export function anonymiseCollections(
  * fixture-only markers are empty: nothing here reads them.
  */
 export function corpusFromLive(live: LiveCollections, coarseNow: number): FixtureCorpus {
-  const oldById = new Map(live.issues.map(issue => [issue.id, issue]))
+  const issues = fixtureViewModels(live)
   return {
     seed: 0,
     scale: 1 as CorpusScale,
     cell: null,
     units: [],
     fixedNow: coarseNow,
-    issues: live.issues,
-    issueProjections: live.issueProjections.map(projection => {
-      const old = oldById.get(projection.id)
-      return old ? fixtureProjection(old, projection) : projection
-    }),
-    issueUserStates: live.issueUserStates ?? fixtureMarkers(live.issues),
-    issueGitStates: live.issueGitStates ?? fixtureGitStates(live.issues),
+    issues,
+    issueProjections: live.issueProjections,
+    issueUserStates: live.issueUserStates ?? [],
+    issueGitStates: live.issueGitStates ?? [],
     sessions: live.sessions,
-    repoProjections: live.repoProjections.map(repo => repo.repoPath !== undefined ? repo : {
-      ...repo, repoPath: live.issues.find(issue => issue.repoId === repo.id)?.repoPath ?? '',
-    }),
+    repoProjections: live.repoProjections,
     issueDeps: live.issueDeps,
     repos: live.repos,
     machines: live.machines,
@@ -322,7 +317,7 @@ export function corpusFromLive(live: LiveCollections, coarseNow: number): Fixtur
     resumeTwins: [],
     edgedAskers: [],
     stats: {
-      issues: live.issues.length,
+      issues: issues.length,
       sessions: live.sessions.length,
       repos: live.repos.length,
       worktrees: 0,

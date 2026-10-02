@@ -69,20 +69,7 @@ export const CAP_METADATA_DELTA = 'metadataDelta'
  *  unconditionally. That is safe in the same way the whole additive rule is —
  *  zod objects STRIP unknown keys, so an older client's parse drops them. */
 export const CAP_SYNC_FEED_IDENTITY = 'syncFeedIdentity'
-/** Client capability: the client consumes the NORMALIZED issue projection
- *  (`IssueProjection` from `@podium/model`) rather than `IssueWire` — issues
- *  carry no embedded `sessions: SessionMeta[]`, no cross-entity rollups, and no
- *  member ids at all; the client joins sessions locally by indexing them on
- *  `issueId` (ADR 4 D7.1/D7.3). [POD-796]
- *
- *  The cap tells a client to render the normalized collection. The server emits
- *  it unconditionally; a capless client receives the registered, session-free
- *  transitional IssueWire residue for attach paint and rolling compatibility.
- *
- *  Additive per ADR 2 D4 — negotiated by capability, `CLIENT_WIRE_VERSION` stays 1.
- *  Unlike {@link CAP_SYNC_FEED_IDENTITY}, this capability selects which of the
- *  two unconditionally emitted collections the client consumes.
- */
+
 export const CAP_ISSUES_NORMALIZED = 'issuesNormalized'
 /** Client capability: this connection accepts v1 binary PTY output envelopes.
  * Missing capability data is the legacy JSON/base64 output contract. */

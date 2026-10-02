@@ -829,27 +829,11 @@ export class IssueStore {
 
   // ---- The normalized issue projection [POD-796, ADR 4 D7.1] ----
   //
-  /** The `issueProjection` change ONE issue's write declares.
-   *  Returned as an array so a call site can spread it into its `changes()` and
-   *  stay a single expression when the flag is off. */
-  async projectionChanges(
-    row: IssueRow,
-  ): Promise<{ entity: 'issueProjection'; id: string; op: 'upsert'; value: IssueProjection }[]> {
-    return [
-      {
-        entity: 'issueProjection',
-        id: row.id,
-        op: 'upsert',
-        value: issueRowToProjection(row, await this.deps.store.issues.getIssueLabels(row.id)),
-      },
-    ]
-  }
-
-  /** One issue's additive companions, declared beside its old record. */
-  async companionChanges(row: IssueRow): Promise<EntityChangeSpec[]> {
+  /** An issue's own row and independently keyed companions in the same commit. */
+  async companionChanges(row: IssueRow, projection?: IssueProjection): Promise<EntityChangeSpec[]> {
     const states = await this.deps.store.issues.listIssueUserStateRows(row.id)
     return [
-      ...(await this.projectionChanges(row)),
+      { entity: 'issueProjection', id: row.id, op: 'upsert', value: projection ?? await this.projection(row) },
       this.gitStateChange(row),
       ...states.map((state) => ({
         entity: 'issueUserState' as const,
@@ -982,10 +966,7 @@ export class IssueStore {
     }
   }
 
-  /** THE full-list reconcile + fan-out tail every write-less issue publish runs
-   *  (broadcastList, purgeEmptyDraft). Both kinds reconcile against the same
-   *  truth in the same pass, so the legacy feed and the normalized feed can
-   *  never disagree about which issues exist. */
+  /** Reconcile own rows and companions at boot or after a hard delete. */
   async reconcileAndPublish(): Promise<void> {
     const projections = await this.allProjections()
     if (projections) await this.deps.ledger.reconcile('issueProjection', projections)
@@ -1010,13 +991,7 @@ export class IssueStore {
       })
     } catch {}
   }
-  /** Persist ONE row and broadcast it as a single-issue delta (issue #22).
-   *  Historically every persist() also broadcast the FULL allWire() list —
-   *  N × toWire (4 store queries each + an O(N) children scan) per mutation,
-   *  O(N²) under load. Mutations whose effect stays within the row now cost one
-   *  toWire; mutations that change OTHER issues' derived wire data (closed flips
-   *  → dependents' blocked/ready + parent childDoneCount, hierarchy/dep edits,
-   *  membership changes) additionally call {@link broadcastList}. */
+  /** Persist one row and publish only its normalized data. */
   async persist(row: IssueRow, opts?: { touch?: boolean }): Promise<IssueProjection> {
     return await this.persistWith(row, undefined, opts)
   }
@@ -1084,34 +1059,22 @@ export class IssueStore {
             row,
             pin === undefined ? undefined : { expectedRevision: pin },
           )
-          // toWire never looks `row` itself up in the map (children/blocked scan
-          // OTHER rows), so it is safe to serialize before the map install below.
+          // The projection depends only on the committed draft and its labels.
           const committedWire = await this.projection(row)
-          committedProjectionChanges = await this.companionChanges(row)
+          committedProjectionChanges = await this.companionChanges(row, committedWire)
           committedExtraChanges =
             typeof opts?.extraChanges === 'function'
               ? await opts.extraChanges()
               : (opts?.extraChanges ?? [])
           return committedWire
         },
-        // Both kinds are declared by the SAME commit, so they land in one
-        // transact span: a cap client and a legacy client can never observe an
-        // issue at two different truths, and neither feed can record a write
-        // the other rolled back. The projection is built from `row` (post-write,
-        // so it carries the revision upsertIssue just assigned — the same
-        // ordering `w` depends on), not from `w`.
-        changes: (w) => [
+        // Own facts and companions commit and roll back together.
+        changes: () => [
           ...committedProjectionChanges,
           ...committedExtraChanges,
         ],
       })
     ).result
-    // The commit changed an issue-side input feeding toWire (row / label / dep /
-    // comment via extraWrite, or read state) — invalidate the wire memo
-    // [POD-723]. LOST IN THE POD-1246 MERGE and restored here: without it a
-    // label or dep write served the previous payload from cache, which no test
-    // outside `wire-memo.test.ts` could see because every other suite reads the
-    // single-issue path that bypasses the memo.
     // Install into the map only AFTER the commit succeeded (#247): a throw in
     // the transact span (write or change append) rolls the durable state back,
     // and the map must not keep a row the store never accepted — a phantom row
@@ -1177,7 +1140,7 @@ export class IssueStore {
           }
           wires = await Promise.all(rows.map(row => this.projection(row)))
           committedProjectionChanges = await Promise.all(
-            rows.map(async (row) => await this.companionChanges(row)),
+            rows.map(async (row, index) => await this.companionChanges(row, wires[index])),
           )
           committedExtraChanges = await extraChanges(result)
           const committedEvents = await events(result)
@@ -1223,11 +1186,6 @@ export class IssueStore {
       for (const eventId of eventIds) await this.deps.store.events.announceEvent(eventId)
     }, 'issue-persist-many-events')
     return { issues: wires, result }
-  }
-
-  /** Full truth is needed only for boot and hard-delete reconciliation. */
-  async broadcastList(): Promise<void> {
-    await this.reconcileAndPublish()
   }
 
   /** A git observation changes only its independently keyed companion. */

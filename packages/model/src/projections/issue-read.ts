@@ -108,20 +108,7 @@ export interface IssueTree<S = IssueTreeSession> {
   maxNodes: number
 }
 
-/**
- * The issue as the `show` renderer reads it — inventory §3 #8.
- *
- * A TOLERANT READ, not a `Pick` of `IssueWire`, and the difference is the point.
- * This client also talks to a REMOTE relay, so it can meet a server that sends
- * `null` where the current one omits the key; every optional member is therefore
- * `| null` as well. A straight `Pick<IssueWire, …>` would declare a contract this
- * client cannot actually rely on, and tightening the read here would be a
- * behaviour change dressed as a refactor.
- *
- * What it is NOT is a restatement: the key SET is the projection, spelled once.
- *
- * Generic in its session element for the same reason {@link IssueTreeNode} is.
- */
+
 export interface IssueShowWire<S = IssueTreeSession> {
   id: string
   seq: number

@@ -136,13 +136,6 @@ export class ScenarioCache implements KernelCacheRead {
     return 'durable'
   }
   put(entity: KernelEntity, entityId: string, value: unknown): void {
-    if (entity === 'issue') {
-      const issue = value as import('@podium/client-core/replica').IssueViewModel
-      const state = fixtureMarkers([issue])[0]!
-      this.put('issueUserState', issueUserStateRowId(state.userId, issue.id), state)
-      if (issue.gitState) this.put('issueGitState', issue.id, { id: issue.id, ...issue.gitState })
-      else this.drop('issueGitState', issue.id)
-    }
     const key = keyOf(entity, entityId)
     // Re-insert at the end, like an upsert into an append log.
     this.byKey.delete(key)
@@ -177,8 +170,6 @@ export function seedCacheFromCorpus(
   const cache = new ScenarioCache()
   const own = <T>(value: T): T => (options.ownRows === true ? structuredClone(value) : value)
   const rows: { entity: KernelEntity; entityId: string; value: unknown }[] = []
-  for (const issue of corpus.issues)
-    rows.push({ entity: 'issue', entityId: issue.id, value: own(issue) })
   for (const projection of corpus.issueProjections)
     rows.push({ entity: 'issueProjection', entityId: projection.id, value: own(projection) })
   for (const state of corpus.issueUserStates ?? fixtureMarkers(corpus.issues))
@@ -999,22 +990,8 @@ export function upsert(
   seq = 2,
   readmitted = false,
 ): void {
-  const previousGit = entity === 'issue' ? ctx.cache.read('issueGitState', entityId) : undefined
   ctx.cache.put(entity, entityId, value)
-  ctx.replica.onKernelEvent({
-    type: 'upserted',
-    record: { entity, entityId, value, provenance: { seq } },
-    readmitted,
-  } as never)
-  if (entity === 'issue') {
-    const issue = value as import('@podium/client-core/replica').IssueViewModel
-    const state = fixtureMarkers([issue])[0]!
-    const markerId = issueUserStateRowId(state.userId, issue.id)
-    ctx.replica.onKernelEvent({ type: 'upserted', record: { entity: 'issueUserState', entityId: markerId, value: state, provenance: { seq } }, readmitted })
-    const git = ctx.cache.read('issueGitState', entityId)
-    if (git) ctx.replica.onKernelEvent({ type: 'upserted', record: git, readmitted })
-    else if (previousGit) ctx.replica.onKernelEvent({ type: 'removed', entity: 'issueGitState', entityId })
-  }
+  ctx.replica.onKernelEvent({ type: 'upserted', record: { entity, entityId, value, provenance: { seq } }, readmitted } as never)
 }
 
 /** The authority's snapshot omitted the row: `evicted`, not `removed`. */
@@ -1042,27 +1019,23 @@ function patchSession(ctx: ScenarioEngine, sessionId: string, patch: Record<stri
   upsert(ctx, 'session', sessionId, { ...current, ...patch })
 }
 
-/** Dual-write an issue change across wire + projection in one replica batch. */
-function patchIssue(
-  ctx: ScenarioEngine,
-  id: string,
-  wirePatch: Record<string, unknown>,
-  projectionPatch: Record<string, unknown> = {},
-): void {
-  const wire = ctx.cache.read('issue', id)?.value as object | undefined
-  if (!wire) throw new Error(`issue ${id} missing from the server cache`)
+/** Apply own facts and personal markers through their independent feed rows. */
+function patchIssue(ctx: ScenarioEngine, id: string, modelPatch: Record<string, unknown>, projectionPatch: Record<string, unknown> = {}): void {
   const projection = ctx.cache.read('issueProjection', id)?.value as object | undefined
+  if (!projection) throw new Error(`issue ${id} missing from the server cache`)
   ctx.replica.batch(() => {
-    upsert(ctx, 'issue', id, { ...wire, ...wirePatch })
-    upsert(ctx, 'issueProjection', id, { ...(projection ?? {}), ...projectionPatch })
+    upsert(ctx, 'issueProjection', id, { ...projection, ...projectionPatch })
+    const markers = Object.fromEntries(Object.entries(modelPatch).filter(([key]) => ['readAt', 'tuckedAt', 'pinned'].includes(key)))
+    if (Object.keys(markers).length) patchIssueMarkers(ctx, id, markers)
   })
 }
-
+function patchIssueMarkers(ctx: ScenarioEngine, id: string, patch: Record<string, unknown>, seq = 2): void {
+  const rowId = issueUserStateRowId(asUserId('u-bench'), asIssueId(id))
+  const state = ctx.cache.read('issueUserState', rowId)?.value as object | undefined
+  upsert(ctx, 'issueUserState', rowId, { userId: 'u-bench', entityId: id, readAt: null, tuckedAt: null, pinned: false, ...state, ...patch }, seq)
+}
 function evictIssueRows(ctx: ScenarioEngine, id: string): void {
-  ctx.replica.batch(() => {
-    evict(ctx, 'issue', id)
-    evict(ctx, 'issueProjection', id)
-  })
+  evict(ctx, 'issueProjection', id)
 }
 
 function liveSession(
@@ -1161,7 +1134,7 @@ export async function writePhaseChange(ctx: ScenarioEngine): Promise<string> {
 }
 
 /** The ledger entities an optimistic write can paint. */
-const OVERLAY_ENTITIES = ['sessions', 'sessionUserStates', 'issues', 'issueProjections'] as const
+const OVERLAY_ENTITIES = ['sessions', 'sessionUserStates', 'issueUserStates', 'issueProjections'] as const
 
 /**
  * The rows the runtime's optimism ledger still holds a write for — queued,
@@ -1183,9 +1156,7 @@ export function pendingWrites(ctx: ScenarioEngine): string[] {
 
 /** The server echoes an issue's read cursor at its own clock. */
 function echoIssueRead(ctx: ScenarioEngine, id: string, readAt: string, seq = 2): void {
-  const wire = ctx.cache.read('issue', id)?.value as Record<string, unknown> | undefined
-  if (!wire) throw new Error(`issue ${id} missing from the server cache`)
-  upsert(ctx, 'issue', id, { ...wire, readAt }, seq)
+  patchIssueMarkers(ctx, id, { readAt }, seq)
 }
 
 /** #3 — a selection click: locals, plus the eager mark-read of the clicked
@@ -1247,7 +1218,7 @@ export async function writeNewIssue(ctx: ScenarioEngine, id = 'i-new'): Promise<
     title: 'Session new',
   })
   ctx.replica.batch(() => {
-    upsert(ctx, 'issue', id, wire)
+    patchIssueMarkers(ctx, id, { readAt: wire.readAt ?? null, pinned: wire.pinned ?? false })
     upsert(ctx, 'issueProjection', id, projection)
     upsert(ctx, 'session', sessionId, session)
   })
@@ -1348,7 +1319,8 @@ export async function writeRescopeGrow(ctx: ScenarioEngine): Promise<void> {
   ctx.replica.batch(() => {
     for (let n = 0; n < 10; n += 1) {
       const { wire, projection } = freshIssue(ctx, `i-grow-${n}`, base + n + 1, `Grown ${n}`)
-      ctx.cache.put('issue', wire.id as string, wire)
+      const marker = fixtureMarkers([wire as never])[0]!
+      ctx.cache.put('issueUserState', issueUserStateRowId(marker.userId, marker.entityId), marker)
       ctx.cache.put('issueProjection', projection.id as string, projection)
     }
   })
@@ -1360,7 +1332,7 @@ export async function writeRescopeGrow(ctx: ScenarioEngine): Promise<void> {
 export async function writeRescopeBack(ctx: ScenarioEngine): Promise<void> {
   ctx.replica.batch(() => {
     for (let n = 0; n < 10; n += 1) {
-      ctx.cache.drop('issue', `i-grow-${n}`)
+      ctx.cache.drop('issueUserState', issueUserStateRowId(asUserId('u-bench'), asIssueId(`i-grow-${n}`)))
       ctx.cache.drop('issueProjection', `i-grow-${n}`)
     }
   })

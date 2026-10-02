@@ -1,29 +1,4 @@
-/**
- * Deterministic zod → sample-value walker, for the golden wire fixtures
- * (POD-360, characterization step of POD-301's branded-id chain).
- *
- * WHY A WALKER RATHER THAN HAND-WRITTEN SAMPLES
- * ---------------------------------------------
- * The fixtures have to cover EVERY message family, and stay complete as the
- * protocol grows: a new message type that lands without a fixture is exactly
- * the gap a characterization suite exists to close. Hand-written samples decay
- * the moment someone adds a field. A walker over the schema itself cannot: the
- * sample is derived from the schema, so a new field shows up in the golden the
- * next time it is regenerated, and CI fails until someone looks at the diff.
- *
- * DETERMINISM IS THE WHOLE CONTRACT. No randomness, no clock, no counters that
- * depend on traversal order across files. Every scalar is derived from the
- * value's PATH, so the same schema always produces byte-identical output and a
- * golden diff means a schema change, never sampler weather.
- *
- * Values are also self-describing: a string is its own path
- * (`"IssueWire.humanQuestionAskedBy"`), which makes the golden files readable
- * as documentation of the wire shape and makes a mis-sorted field obvious.
- *
- * This walks the zod v3 classic API (`_def.typeName`); the package pins
- * zod ^3.24. It is test-only support code and is not exported from the
- * package index.
- */
+
 
 import type { z } from 'zod'
 import { SAMPLE_FIXUPS, SAMPLE_OVERRIDES } from './sample-overrides'

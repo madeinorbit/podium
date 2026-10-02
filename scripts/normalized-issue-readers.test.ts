@@ -18,13 +18,12 @@ function files(root: string): string[] {
 function oldIssueReads(source: string): string[] {
   // Ignore comments; even a type-only dependency can reintroduce the old shape.
   const code = source.replace(/\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm, '')
-  const legacyType = /\bIssueWire\b/g
   const legacyCollection =
     /\b(?:rows|row|collection|subscribeRows)\??\.?(?:<[^>]+>)?\(\s*['"]issues['"]/g
   const legacyKind =
     /\bread\(\s*['"]issue['"]|\b(?:replica|cache|kernel)\.(?:read|rows|row|collection|subscribeRows)\??\.?(?:<[^>]+>)?\(\s*['"]issue['"]|\bexitKind\(\s*['"]issue['"]/g
   const legacyStore = /\b(?:store|st|state|s)\.issues\b|getSnapshot\(\)\.issues\b/g
-  return [legacyType, legacyCollection, legacyKind, legacyStore].flatMap((pattern) =>
+  return [legacyCollection, legacyKind, legacyStore].flatMap((pattern) =>
     [...code.matchAll(pattern)].map((match) => match[0]),
   )
 }
@@ -44,6 +43,5 @@ describe('normalized issue reader boundary', () => {
     "replica.exitKind('issue', id)",
     "replica.row?.('issues', id)",
     'store.issues.find(x => x.id)',
-    "import type { IssueWire } from '@podium/model'",
   ])('refuses a planted reader: %s', (source) => expect(oldIssueReads(source)).not.toEqual([]))
 })

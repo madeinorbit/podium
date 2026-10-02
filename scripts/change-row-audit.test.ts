@@ -204,7 +204,7 @@ describe('the detector leaves composition alone', () => {
         z.object({ seq: ChangeSeqField, entity, id: ChangeEntityIdField, op: MetadataChangeOp, value: value.optional() })
       export const Union = z.discriminatedUnion('entity', [
         arm(z.literal('session'), SessionMeta),
-        arm(z.literal('issue'), IssueWire),
+        arm(z.literal('issueProjection'), IssueProjection),
         arm(z.literal('conversation'), ConversationSummaryWire),
       ])`
     expect(count(source)).toBe(1)
@@ -260,10 +260,10 @@ export const MetadataChange = z.discriminatedUnion('entity', [
   }),
   z.object({
     seq: z.number().int().positive(),
-    entity: z.literal('issue'),
+    entity: z.literal('issueProjection'),
     id: z.string(),
     op: MetadataChangeOp,
-    value: IssueWire.optional(),
+    value: IssueProjection.optional(),
   }),
   z.object({
     seq: z.number().int().positive(),
@@ -302,7 +302,7 @@ const metadataChangeArm = (entity, value) =>
   })
 export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('session'), SessionMeta),
-  metadataChangeArm(z.literal('issue'), IssueWire),
+  metadataChangeArm(z.literal('issueProjection'), IssueProjection),
   metadataChangeArm(z.literal('conversation'), ConversationSummaryWire),
 ])
 export const UnknownMetadataChange = metadataChangeArm(z.string(), z.unknown())
