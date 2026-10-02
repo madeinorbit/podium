@@ -244,7 +244,13 @@ function PaletteDialogBody({
     hibernateSession, resurrectSession, startBtw, spawnDraftAgent } = useCommandLaunchActions()
   const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard(undefined, undefined,
     'repoViews' in data ? sessions : undefined)
-  const repoViews = 'repoViews' in data ? data.repoViews : reposToViews(repos)
+  const suppliedRepoViews = 'repoViews' in data ? data.repoViews : undefined
+  // A fresh fallback array rebuilds commands and retriggers the highlight-reset
+  // effect on every render, even when the repository data has not changed.
+  const repoViews = useMemo(
+    () => suppliedRepoViews ?? reposToViews(repos),
+    [suppliedRepoViews, repos],
+  )
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')
