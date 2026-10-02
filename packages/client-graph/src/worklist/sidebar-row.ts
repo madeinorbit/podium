@@ -76,20 +76,42 @@ interface SidebarSessionOrder {
 /** Feed records are immutable. Issue title/cursor changes may rebuild their
  * roster, but do not change these ordering and rail facts. A replacement seat
  * gets new facts; weak keys release them when the borrowed record is released.
- * Clock thresholds are still read by the sorting caller on every run. */
+ * Facts are lazy so a singleton roster or a short-circuited comparison reads
+ * only the fields it uses. Clock thresholds are read by the sorting caller
+ * on every run. */
 const sessionOrders = new WeakMap<SliceSession, SidebarSessionOrder>()
 export function sidebarSessionOrder(session: SliceSession): SidebarSessionOrder {
   let order = sessionOrders.get(session)
   if (order === undefined) {
-    const activeAt = session.lastActiveAt
-    const draftAt = session.draftUpdatedAt
+    let id: string | undefined
+    let working: boolean | undefined
+    let hasSnoozedUntil = false
+    let snoozedUntil: SliceSession['snoozedUntil']
+    let recency: string | undefined
+    let createdAt: string | undefined
+    let offerOnly: boolean | undefined
     order = {
-      id: session.sessionId,
-      working: attentionGroup(session) === 'working',
-      snoozedUntil: session.snoozedUntil,
-      recency: draftAt && draftAt > activeAt ? draftAt : activeAt,
-      createdAt: session.createdAt ?? '',
-      offerOnly: Boolean(session.offer) && attentionGroup(session, false) !== 'needsYou',
+      get id() { return id ??= session.sessionId },
+      get working() { return working ??= attentionGroup(session) === 'working' },
+      get snoozedUntil() {
+        if (!hasSnoozedUntil) {
+          snoozedUntil = session.snoozedUntil
+          hasSnoozedUntil = true
+        }
+        return snoozedUntil
+      },
+      get recency() {
+        if (recency === undefined) {
+          const activeAt = session.lastActiveAt
+          const draftAt = session.draftUpdatedAt
+          recency = draftAt && draftAt > activeAt ? draftAt : activeAt
+        }
+        return recency
+      },
+      get createdAt() { return createdAt ??= session.createdAt ?? '' },
+      get offerOnly() {
+        return offerOnly ??= Boolean(session.offer) && attentionGroup(session, false) !== 'needsYou'
+      },
     }
     sessionOrders.set(session, order)
   }
