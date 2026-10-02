@@ -1,7 +1,7 @@
 import { createLogger } from '@podium/logger'
 import type {
   IssueComment,
-  IssueProjection,
+  IssueReport,
   SessionId,
   SessionMeta,
   UserId,
@@ -203,8 +203,8 @@ interface ChildParentSub {
   marker: (childSeq: number) => string
   /** The excerpt appended to the marker (agent-authored, first line, capped).
    *  `childComments` is the child's thread, fetched by the caller — comment
-   *  bodies no longer ride IssueProjection (#175). */
-  excerpt: (e: StewardEvent, child: IssueProjection | undefined, childComments: IssueComment[]) => string
+   *  bodies no longer ride IssueReport (#175). */
+  excerpt: (e: StewardEvent, child: IssueReport | undefined, childComments: IssueComment[]) => string
   /** The single-line nudge; `counts` is meaningful for close, ignored otherwise. */
   nudge: (childSeq: number, counts: { remaining: number; total: number }) => string
 }
@@ -415,8 +415,8 @@ export interface StewardTickOptions {
 
 /** The closed issue's latest completion-note comment body (tag stripped), else its
  *  title. `comments` is the issue's thread, fetched by the caller via
- *  IssueService.comments — bodies no longer ride IssueProjection (#175). */
-function completionNote(closed: IssueProjection | undefined, comments: IssueComment[]): string {
+ *  IssueService.comments — bodies no longer ride IssueReport (#175). */
+function completionNote(closed: IssueReport | undefined, comments: IssueComment[]): string {
   if (!closed) return ''
   const note = [...comments].reverse().find((c) => c.body.includes(COMPLETION_NOTE_TAG))?.body
   return (note ? note.replace(COMPLETION_NOTE_TAG, '').trim() : closed.title).trim()
@@ -945,7 +945,7 @@ export class StewardService {
       // assumption: this read-then-write dedup is a cross-process race — fine
       // while live is one server; revisit for multi-server.
       const marker = `Unblocked by #${closedSeq}:`
-      // Comment bodies left IssueProjection (#175) — dedup reads the thread directly.
+      // Comment bodies left IssueReport (#175) — dedup reads the thread directly.
       const already = (await this.deps.issues
         .comments(dependent.id))
         .some((c) => c.author === 'steward' && c.body.includes(marker))
@@ -1122,7 +1122,7 @@ export class StewardService {
       // Colon-anchored so '#5' never matches a prior '#55' comment (see the
       // matching note on handleUnblock — same single-server dedup assumption).
       const marker = sub.marker(childSeq)
-      // Comment bodies left IssueProjection (#175) — dedup reads the thread directly.
+      // Comment bodies left IssueReport (#175) — dedup reads the thread directly.
       const already = (await this.deps.issues
         .comments(parent.id))
         .some((c) => c.author === 'steward' && c.body.includes(marker))

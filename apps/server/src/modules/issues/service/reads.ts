@@ -1,3 +1,4 @@
+import { fromStorage } from '../../../store/issue-storage'
 import { readResourceGrants } from '../../world-index/grant-reader'
 import {
   type DoctorReport,
@@ -155,6 +156,7 @@ export class IssueReportsModule {
     const projection = own ?? issueRowToProjection(row, labels)
     const { asked, intentOrigin, isDraftVessel, owner: _owner, visibility: _visibility,
       createdBy: _createdBy, lastLifecycleActor: _lastLifecycleActor, ...facts } = projection
+    const question = asked ?? fromStorage(row).askedLegacy
     const children = batch ? batch.childrenByParent.get(row.id) ?? [] :
       [...this.store.rows.values()].filter(child => child.parentId === row.id && !child.deletedAt)
     const outgoing = batch ? batch.depsByFrom.get(row.id) ?? [] : await this.store.deps.store.issues.listIssueDeps(row.id)
@@ -174,10 +176,10 @@ export class IssueReportsModule {
       worktreePath: projection.worktreePath ?? null,
       branch: projection.branch ?? null,
       description: projection.description.value,
-      humanQuestion: asked?.question,
-      humanQuestionOptions: asked?.options,
-      humanQuestionAskedBy: asked?.by,
-      humanQuestionAskedAt: asked?.at,
+      humanQuestion: question?.question,
+      humanQuestionOptions: question?.options,
+      humanQuestionAskedBy: question?.by,
+      humanQuestionAskedAt: question?.at,
       commentCount: batch ? batch.commentCounts.get(row.id) ?? 0 : await this.store.deps.store.issues.countIssueComments(row.id),
       notes: projection.notes?.value,
       ...this.store.issueOverlay(row.id),
@@ -222,7 +224,7 @@ export class IssueReportsModule {
       depsByFrom,
       dependentsByTo,
       childrenByParent,
-      prefixesByRepoPath: new Map(),
+      prefixesByRepoPath: new Map(await Promise.all([...new Set([...this.store.rows.values()].map(row => row.repoPath))].map(async path => [path, await this.store.deps.store.repos.prefixForPath(path)] as const))),
     }
   }
 

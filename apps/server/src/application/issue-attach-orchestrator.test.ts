@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, asUserId, type IssueWire } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, type IssueProjection } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../command-principal'
 import { OPERATOR } from '../test-support/capabilities'
@@ -6,7 +6,7 @@ import { type IssueAttachInput, IssueAttachOrchestrator } from './issue-attach-o
 
 const RESULT = {
   id: asIssueId('iss_target'),
-} as unknown as IssueWire
+} as unknown as IssueProjection
 
 describe('IssueAttachOrchestrator', () => {
   it('carries one transport principal through one transaction', async () => {

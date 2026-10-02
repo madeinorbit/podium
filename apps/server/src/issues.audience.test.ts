@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/model'
+import type { IssueReport } from '@podium/model'
 /**
  * #198 — origin is derived from the caller (deterministic, unforgeable) and
  * audience is agent-declared, and the orphan-internal warning fires when an
@@ -39,7 +39,7 @@ const ctx = (registry: SessionRegistry, rawCapability: Capability) => {
 }
 
 /** Issue mutations are typed loosely at this seam; these cases assert on the wire. */
-const asWire = (v: unknown): IssueWire => v as IssueWire
+const asWire = (v: unknown): IssueReport => v as IssueReport
 
 const withWarning = (v: unknown): string | undefined => (v as { warning?: string }).warning
 

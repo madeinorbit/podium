@@ -3,7 +3,7 @@
  * the cross-repo digest that opens a fresh 'global' thread, and the
  * client-reported "what's on screen" block prepended to every turn.
  */
-import type { IssueProjection } from '@podium/model'
+import type { IssueReport } from '@podium/model'
 import { eventLine, type ConciergeEvent, type ConciergeSessionInfo } from './concierge'
 
 // ---- global-thread seeding ------------------------------------------------------
@@ -103,14 +103,14 @@ export interface FocusSessionInfo extends ConciergeSessionInfo {
 
 /**
  * The issue members the superagent's focus block renders. Composed from
- * `IssueProjection` (POD-367) — `seq` and `title` are always known to the caller,
+ * `IssueReport` (POD-367) — `seq` and `title` are always known to the caller,
  * `stage` and `repoPath` are optional because a lean focus payload may omit them.
  *
  * The `stage` type tightens as a side effect of composing: it was a bare `string`
  * here and is `IssueStage` on the aggregate. That is the drift this removes.
  */
-export type FocusIssueInfo = Pick<IssueProjection, 'seq' | 'title'> &
-  Partial<Pick<IssueProjection, 'stage' | 'repoPath'>>
+export type FocusIssueInfo = Pick<IssueReport, 'seq' | 'title'> &
+  Partial<Pick<IssueReport, 'stage' | 'repoPath'>>
 
 /** One issue, as the focus block names it. Shared by the selected issue and the
  *  peek overlay so the two cannot describe the same entity differently. */

@@ -3,8 +3,8 @@ import {
   asThreadId,
   asUserId,
   firstAdminMemberId,
-  type IssueWire,
-  type IssueWireInput,
+  type IssueReport,
+  type UnbrandIds,
   type SessionId,
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -199,7 +199,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
   return { registry, repos, sa, turnReqs, settle }
 }
 
-const wire = (o: Partial<IssueWireInput>): IssueWire =>
+const wire = (o: Partial<UnbrandIds<IssueReport>>): IssueReport =>
   ({
     id: 'iss_x',
     repoPath: '/r',
@@ -209,7 +209,7 @@ const wire = (o: Partial<IssueWireInput>): IssueWire =>
     blockedByNotes: [],
     needsHuman: false,
     ...o,
-  }) as IssueWire
+  }) as IssueReport
 
 describe('conciergeThreadId', () => {
   it('is deterministic and reversible', () => {

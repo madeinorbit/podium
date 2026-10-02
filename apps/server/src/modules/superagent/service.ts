@@ -22,7 +22,7 @@ import {
   HarnessAgent,
   type HarnessAgent as HarnessAgentKind,
   type IssueId,
-  type IssueProjection,
+  type IssueReport,
   type MachineId,
   type SessionId,
   spawnedByTag,
@@ -1731,11 +1731,11 @@ export class SuperagentService {
     const repoPaths = await this.repos.list()
     const repos: GlobalRepoDigest[] = []
     const questions: GlobalQuestion[] = []
-    const issueByWorktree = new Map<string, IssueProjection>()
+    const issueByWorktree = new Map<string, IssueReport>()
     // Index every fetched issue by id so the live-session pass below reuses
     // them instead of re-listing per session (N+1 that stalled the first turn
     // for minutes on a real database: S sessions × R repos × issues.list).
-    const issueByIdCache = new Map<IssueId, IssueProjection>()
+    const issueByIdCache = new Map<IssueId, IssueReport>()
     for (const repoPath of repoPaths) {
       const all = await issues.list(repoPath)
       for (const i of all) {
@@ -1783,7 +1783,7 @@ export class SuperagentService {
   /** One live session, digested for a seed / focus block. */
   private async sessionInfo(
     sessionId: SessionId,
-    issueLookup?: (id: IssueId) => IssueProjection | undefined | Promise<IssueProjection | undefined>,
+    issueLookup?: (id: IssueId) => IssueReport | undefined | Promise<IssueReport | undefined>,
   ): Promise<FocusSessionInfo | undefined> {
     const s = await this.sessionById(sessionId)
     if (!s) return undefined
@@ -1805,7 +1805,7 @@ export class SuperagentService {
   }
 
   /** An issue by id, across every registered repo (ids are globally unique). */
-  private async issueById(issueId: IssueId): Promise<IssueProjection | undefined> {
+  private async issueById(issueId: IssueId): Promise<IssueReport | undefined> {
     for (const repoPath of await this.repos.list()) {
       const found = (await this.modules.issues.list(repoPath)).find((i) => i.id === issueId)
       if (found) return found

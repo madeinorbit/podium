@@ -10,6 +10,7 @@ import {
   type DeliveryReceipt,
   type DescendantTip,
   type IssueId,
+  type IssueReport,
   type IssueProjection,
   integrationReceiptMatchesOrder,
   shipRepairRef,
@@ -163,8 +164,8 @@ export class ShippingOrderAccessError extends Error {
 }
 
 export interface ShippingIssuePort {
-  get(id: string): Promise<IssueProjection>
-  children(id: string, recursive?: boolean): Promise<IssueProjection[]>
+  get(id: string): Promise<IssueReport>
+  children(id: string, recursive?: boolean): Promise<IssueReport[]>
   shippingCommit<T>(
     id: IssueId,
     mutation: ShippingIssueMutation,
@@ -174,7 +175,7 @@ export interface ShippingIssuePort {
     entries: readonly { id: IssueId; mutation: ShippingIssueMutation }[],
     write: () => T | Promise<T>,
   ): Promise<{ issues: IssueProjection[]; result: T }>
-  takeBranchCustody?(issue: IssueProjection): Promise<{ ok: boolean; detail: string }>
+  takeBranchCustody?(issue: IssueReport): Promise<{ ok: boolean; detail: string }>
 }
 
 export interface ShippingLedgerPort {
@@ -194,12 +195,12 @@ export interface ShippingAuthorizationPort {
   authorize(input: {
     principal: CommandPrincipal
     action: 'enqueue' | 'resolve-hold' | 'cancel' | 'read-receipt'
-    issue: IssueProjection
+    issue: IssueReport
     overrideScope: boolean
   }): void
   reauthorize(input: {
     order: ShipOrder
-    issue: IssueProjection
+    issue: IssueReport
     machineId: MachineId
     effect:
       | 'preflight'
@@ -217,21 +218,21 @@ export interface ShippingResourceAdmissionPort {
   acquire(input: {
     order: ShipOrder
     attempt: ShipAttempt
-    issue: IssueProjection
+    issue: IssueReport
     names: readonly string[]
     ttlSeconds: number
   }): boolean | Promise<boolean>
   renew(input: {
     order: ShipOrder
     attempt: ShipAttempt
-    issue: IssueProjection
+    issue: IssueReport
     names: readonly string[]
     ttlSeconds: number
   }): boolean | Promise<boolean>
   release(input: {
     order: ShipOrder
     attempt: ShipAttempt
-    issue: IssueProjection
+    issue: IssueReport
     names: readonly string[]
   }): void | Promise<void>
 }
@@ -268,11 +269,11 @@ export interface ShippingServiceDeps {
   evidence: ShippingEvidencePort
   policy: ShippingPolicyResolver
   resourceAdmission?: ShippingResourceAdmissionPort
-  machineFor(issue: IssueProjection): MachineId | Promise<MachineId>
+  machineFor(issue: IssueReport): MachineId | Promise<MachineId>
   machineCapabilities?(machineId: MachineId): readonly string[] | Promise<readonly string[]>
-  resolveBranchTip(issue: IssueProjection): Promise<string>
-  resolveRefTip(issue: IssueProjection, ref: string): Promise<string>
-  isAncestor(issue: IssueProjection, ancestorSha: string, descendantSha: string): Promise<boolean>
+  resolveBranchTip(issue: IssueReport): Promise<string>
+  resolveRefTip(issue: IssueReport, ref: string): Promise<string>
+  isAncestor(issue: IssueReport, ancestorSha: string, descendantSha: string): Promise<boolean>
   now?: () => string
   /**
    * Append-only audit trail for a shipping order. PROMISE-TYPED BECAUSE IT
@@ -1481,7 +1482,7 @@ export class ShippingService {
   private async settleCancellation(
     order: ShipOrder,
     attempt: ShipAttempt,
-    issue: IssueProjection,
+    issue: IssueReport,
   ): Promise<ShipOrder> {
     const intentKey = `cancel:${attempt.leaseGeneration}`
     const intent = await this.deps.repository.latestStepForEffect(attempt.id, intentKey)
@@ -2177,7 +2178,7 @@ export class ShippingService {
     }
   }
 
-  private async assertAdmission(issue: IssueProjection): Promise<void> {
+  private async assertAdmission(issue: IssueReport): Promise<void> {
     if (issue.parentId) {
       let root = await this.deps.issues.get(issue.parentId)
       while (root.parentId) root = await this.deps.issues.get(root.parentId)
@@ -2313,7 +2314,7 @@ export class ShippingService {
   /** Freeze the nearest authorized native Git-stack predecessors as delivery
    * edges. Issue hierarchy remains untouched; explicit policy edges always win. */
   private async deliveryDependencies(
-    issue: IssueProjection,
+    issue: IssueReport,
     repoId: ShipOrder['repoId'],
     destination: string,
     targetBranch: string,
@@ -2418,7 +2419,7 @@ export class ShippingService {
   private async runEffect(
     order: ShipOrder,
     attempt: ShipAttempt,
-    issue: IssueProjection,
+    issue: IssueReport,
     operation: ShippingJobResult['operation'],
     nextState?: Exclude<ShipOrderState, 'held' | 'shipped'>,
     resourceLease?: ResourceLease,
@@ -2599,7 +2600,7 @@ export class ShippingService {
   private async isolateValidationFailure(
     order: ShipOrder,
     attempt: ShipAttempt,
-    issue: IssueProjection,
+    issue: IssueReport,
     failed: ShippingJobResult,
     effect: Awaited<ReturnType<ShippingService['effectCommit']>>,
     resourceLease?: ResourceLease,
@@ -2784,7 +2785,7 @@ export class ShippingService {
   private async repairContext(
     order: ShipOrder,
     attempt: ShipAttempt,
-    issue: IssueProjection,
+    issue: IssueReport,
     failure: ShippingRepairContext['failure'],
   ): Promise<ShippingRepairContext> {
     const context = {
@@ -2840,7 +2841,7 @@ export class ShippingService {
   private async handleRepairFailure(
     order: ShipOrder,
     attempt: ShipAttempt,
-    issue: IssueProjection,
+    issue: IssueReport,
     result: ShippingJobResult,
     effect: { effectKey: string; operation: ShipStep['kind']; terminalStep: ShipStep },
   ): Promise<boolean> {
@@ -3237,7 +3238,7 @@ export class ShippingService {
   }
 
   private async assertLiveAdmissionSnapshot(
-    issue: IssueProjection,
+    issue: IssueReport,
     targetBranch: string,
     expectedSourceHead: string,
     expectedTargetHead: string,
@@ -3292,7 +3293,7 @@ export class ShippingService {
   private async jobInput(
     order: ShipOrder,
     attempt: ShipAttempt,
-    issue: IssueProjection,
+    issue: IssueReport,
     operation: ShippingJobResult['operation'],
     action: 'start' | 'status' | 'cancel' | 'acknowledge',
     execution?: {
@@ -3438,7 +3439,7 @@ export class ShippingService {
   private async acquireResources(
     order: ShipOrder,
     attempt: ShipAttempt,
-    issue: IssueProjection,
+    issue: IssueReport,
     names: readonly string[],
     ttlSeconds: number,
   ): Promise<ResourceLease | null> {
@@ -3514,7 +3515,7 @@ export class ShippingService {
   private async releaseResources(
     order: ShipOrder,
     attempt: ShipAttempt,
-    issue: IssueProjection,
+    issue: IssueReport,
     names: readonly string[],
     lease: ResourceLease,
   ): Promise<void> {
@@ -3582,7 +3583,7 @@ export class ShippingService {
   private async acknowledgeEffect(
     order: ShipOrder,
     attempt: ShipAttempt,
-    issue: IssueProjection,
+    issue: IssueReport,
     operation: ShippingJobResult['operation'],
     authorityRequest?: Omit<ShippingJobRequestMessage, 'type' | 'requestId'>,
   ): Promise<void> {
@@ -3603,7 +3604,7 @@ export class ShippingService {
     }
   }
 
-  private requiredBranch(issue: IssueProjection): string {
+  private requiredBranch(issue: IssueReport): string {
     if (!issue.branch) throw new Error(`shipping issue ${issue.id} no longer has a source branch`)
     return issue.branch
   }
@@ -3693,10 +3694,10 @@ export class ShippingService {
     principal: CommandPrincipal,
     action: 'resolve-hold' | 'cancel' | 'read-receipt',
     overrideScope: boolean,
-  ): Promise<{ order: ShipOrder; issue: IssueProjection }> {
+  ): Promise<{ order: ShipOrder; issue: IssueReport }> {
     const order = await this.deps.repository.getOrder(id)
     if (!order) throw new ShippingOrderAccessError()
-    let issue: IssueProjection
+    let issue: IssueReport
     try {
       issue = await this.deps.issues.get(order.issueId)
     } catch {

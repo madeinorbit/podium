@@ -1,4 +1,4 @@
-import type { IssueProjection, ProviderPullRequestRef, ShipOrderId } from '@podium/model'
+import type { IssueReport, ProviderPullRequestRef, ShipOrderId } from '@podium/model'
 import type { ShippingValidationProfile } from '@podium/protocol/daemon'
 
 export interface ResolvedShippingPolicy {
@@ -18,7 +18,7 @@ export interface ShippingPolicyResolver {
    *  typechecked whether or not it awaited, and a test resolver that spread the
    *  result got the promise's own (empty) properties instead of the policy —
    *  a policy with no `validationProfile` at all (POD-3499). */
-  resolve(issue: IssueProjection): Promise<ResolvedShippingPolicy>
+  resolve(issue: IssueReport): Promise<ResolvedShippingPolicy>
 }
 
 /** First-slice policy: only the guarded local ff-only compatibility executor.
@@ -26,7 +26,7 @@ export interface ShippingPolicyResolver {
 export class CompatibilityShippingPolicyResolver implements ShippingPolicyResolver {
   constructor(private readonly defaultTargetBranch: () => string | Promise<string>) {}
 
-  async resolve(issue: IssueProjection): Promise<ResolvedShippingPolicy> {
+  async resolve(issue: IssueReport): Promise<ResolvedShippingPolicy> {
     const targetBranch =
       issue.parentBranch.trim() || (await this.defaultTargetBranch()).trim() || 'main'
     return {

@@ -1,3 +1,4 @@
+import type { IssueViewModel } from '../../../replica'
 // @vitest-environment happy-dom
 import { act, cleanup, render } from '@testing-library/react'
 import { Profiler, useSyncExternalStore } from 'react'
@@ -6,7 +7,6 @@ import {
   asIssueId,
   asMachineId,
   asSessionId,
-  type IssueWire,
   type SessionMeta,
 } from '@podium/model'
 import type { Store } from '../../../engine/types'
@@ -56,7 +56,7 @@ function session(id = 's1', patch: Partial<SessionMeta> = {}): SessionMeta {
     ...patch,
   }
 }
-function issue(id = 'i1', patch: Partial<IssueWire> = {}): IssueWire {
+function issue(id = 'i1', patch: Partial<IssueViewModel> = {}): IssueViewModel {
   return {
     id,
     seq: 1,
@@ -71,8 +71,8 @@ function issue(id = 'i1', patch: Partial<IssueWire> = {}): IssueWire {
     updatedAt: AT,
     archived: false,
     audience: 'human',
-    origin: 'human',
-    draft: false,
+    intentOrigin: 'human',
+    isDraftVessel: false,
     pinned: false,
     needsHuman: false,
     blocked: false,
@@ -80,10 +80,9 @@ function issue(id = 'i1', patch: Partial<IssueWire> = {}): IssueWire {
     deps: [],
     dependents: [],
     labels: [],
-    comments: [],
     blockedByNotes: [],
     ...patch,
-  } as IssueWire
+  } as IssueViewModel
 }
 function world(): Store {
   return {

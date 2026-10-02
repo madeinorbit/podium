@@ -4,7 +4,7 @@ import {
   asShipOrderId,
   asShipStepId,
   firstAdminMemberId,
-  type IssueWire,
+  type IssueReport,
   type ShipLaneProjection,
   type ShipOrder,
   type ShipOrderProjection,
@@ -145,7 +145,7 @@ async function harness(
       return result
     }
   const issuePort = {
-    async get(id: string): Promise<IssueWire> {
+    async get(id: string): Promise<IssueReport> {
       const issue = await issues.get(id)
       if (!issue) throw new Error(`unknown issue ${id}`)
       return {
@@ -2622,7 +2622,7 @@ describe('ShippingService resource lease boundary re-check (POD-3488)', () => {
       expectedSourceBaseSha: 'base-sha',
       approvedHeadSha: 'head-sha',
     }
-    const issue = { id: 'iss_boundary', repoPath: '/repo', branch: 'issue/boundary' } as IssueWire
+    const issue = { id: 'iss_boundary', repoPath: '/repo', branch: 'issue/boundary' } as IssueReport
     // Echoes the request it was given, so the post-effect authority fence passes
     // and the test can reach the second boundary. `running` keeps the effect from
     // committing anything afterwards.
@@ -2680,7 +2680,7 @@ describe('ShippingService resource lease boundary re-check (POD-3488)', () => {
           runEffect(
             order: unknown,
             attempt: unknown,
-            issue: IssueWire,
+            issue: IssueReport,
             operation: ShippingJobResult['operation'],
             nextState: undefined,
             resourceLease: ResourceLease,
