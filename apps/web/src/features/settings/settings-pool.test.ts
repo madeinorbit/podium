@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { dedupeSessionsByResume } from '@podium/model/browser'
+import { dedupeSessionsByResume } from '@podium/model'
 import { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { checkSettings } from '@podium/client-graph/diagnostics/settings-check'

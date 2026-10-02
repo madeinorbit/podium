@@ -1,4 +1,5 @@
-import { dedupeSessionsByResume, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
+import { dedupeSessionsByResume } from '@podium/model'
+import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { _isComputingDerivation, compareStructural, computed, onBecomeUnobserved, type IComputedValue } from 'mobx'
 import type { MobxPool } from './pool'
 import { knownSessionIds } from './enumerate'
