@@ -296,8 +296,8 @@ describe('session menu snooze from the acting user home', () => {
       sessions: [session({ snoozedUntil: null })],
       issues: [active],
       sessionUserStates: [
-        { ...personal(null), userId: asUserId('user:other') },
         personal(),
+        { ...personal(null), userId: asUserId('user:other') },
       ],
     })
     fireEvent.click(await screen.findByLabelText('Session actions'))
