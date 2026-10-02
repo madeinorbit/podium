@@ -6,8 +6,9 @@ import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { HttpBootstrapSource, SyncStreamFailed } from '@podium/client-core/sync-stream'
+import { NdjsonLineReader, readSyncStream, SyncStreamFailed } from '@podium/client-core/sync-stream'
 import { asIssueId } from '@podium/model/browser'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { runInAction } from 'mobx'
 import { createRuntimeWorklistPool } from '../src/runtime-pool'
 import { attachCommandLaunchSource } from '../src/command-launch-source'
@@ -35,14 +36,30 @@ async function main() {
   }
   phase = 2
   const cache = new ScenarioCache(), byEntity = new Map<string, unknown[]>()
-  const source = new HttpBootstrapSource({ origin, streamingFetch: {
-    fetch: (input, init) => fetch(input, { ...init, headers: { ...(init.headers as object), cookie } }),
-  } })
-  for await (const chunk of source.bootstrap()) for (const change of chunk.changes) {
-    if (change.op !== 'upsert') continue
-    cache.put(change.entity as Parameters<ScenarioCache['put']>[0], change.entityId, change.payload)
-    const rows = byEntity.get(change.entity) ?? []
-    rows.push(change.payload); byEntity.set(change.entity, rows)
+  const response = await fetch(`${origin}/sync/bootstrap`, { headers: { cookie }, signal: AbortSignal.timeout(30000) })
+  if (!response.ok || !response.body || !response.headers.get('content-type')?.startsWith('application/x-ndjson')) throw new Error('Bootstrap unavailable')
+  let operatorWireVersion = 0
+  // This offline comparison consumes row fixtures, not a connected client.
+  // The installed operator may precede the pilot's wire bump. Normalize only
+  // that metadata for the existing strict frame/count parser; row payloads,
+  // transfer identity and completion checks retain their actual values.
+  async function* fixtureLines() {
+    for await (const line of NdjsonLineReader(response.body!)) {
+      const record = JSON.parse(line)
+      if (record.type === 'syncMeta') {
+        operatorWireVersion = record.wireVersion
+        yield JSON.stringify({ ...record, wireVersion: CLIENT_WIRE_VERSION })
+      } else yield line
+    }
+  }
+  for await (const chunk of readSyncStream(fixtureLines())) {
+    if (chunk.type !== 'feedBootstrap') continue
+    for (const change of chunk.changes) {
+      if (change.op !== 'upsert') continue
+      cache.put(change.entity as Parameters<ScenarioCache['put']>[0], change.entityId, change.value)
+      const rows = byEntity.get(change.entity) ?? []
+      rows.push(change.value); byEntity.set(change.entity, rows)
+    }
   }
   phase = 3
   const [scan, pins] = await Promise.all([
@@ -81,7 +98,7 @@ async function main() {
         rowIndex: result.first.rowIndex, field: result.first.field }
     }
     console.log(JSON.stringify({ issues: corpus.issues.length, sessions: corpus.sessions.length, machines: corpus.machines.length,
-      repositories: corpus.repos.length, checks, positions, differences, pending, first }))
+      repositories: corpus.repos.length, operatorWireVersion, checks, positions, differences, pending, first }))
     if (differences || pending || !positions) process.exitCode = 1
   } finally { handle.dispose() }
 }
