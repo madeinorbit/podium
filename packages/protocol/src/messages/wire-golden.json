@@ -1,8 +1,8 @@
 {
-  "sync.meta.snapshot": "{\"type\":\"syncMeta\",\"formatVersion\":1,\"mode\":\"snapshot\",\"transferId\":\"transfer-1\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"seq\":10,\"minAvailableSeq\":0,\"wireVersion\":3,\"wireSchemaDigest\":\"0123456789abcdef\",\"totalRows\":0}",
-  "sync.meta.delta": "{\"type\":\"syncMeta\",\"formatVersion\":1,\"mode\":\"delta\",\"transferId\":\"transfer-1\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"seq\":10,\"fromSeq\":5,\"minAvailableSeq\":0,\"wireVersion\":3,\"wireSchemaDigest\":\"0123456789abcdef\"}",
+  "sync.meta.snapshot": "{\"type\":\"syncMeta\",\"formatVersion\":1,\"mode\":\"snapshot\",\"transferId\":\"transfer-1\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"seq\":10,\"minAvailableSeq\":0,\"wireVersion\":4,\"wireSchemaDigest\":\"0123456789abcdef\",\"totalRows\":0}",
+  "sync.meta.delta": "{\"type\":\"syncMeta\",\"formatVersion\":1,\"mode\":\"delta\",\"transferId\":\"transfer-1\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"seq\":10,\"fromSeq\":5,\"minAvailableSeq\":0,\"wireVersion\":4,\"wireSchemaDigest\":\"0123456789abcdef\"}",
   "sync.bootstrap": "{\"type\":\"feedBootstrap\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"fromSeq\":0,\"seq\":10,\"minAvailableSeq\":0,\"changes\":[],\"last\":true}",
-  "sync.delta": "{\"type\":\"feedDelta\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"fromSeq\":5,\"seq\":10,\"minAvailableSeq\":0,\"changes\":[{\"seq\":8,\"entity\":\"issue\",\"entityId\":\"issue-1\",\"op\":\"evict\"}]}",
+  "sync.delta": "{\"type\":\"feedDelta\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"fromSeq\":5,\"seq\":10,\"minAvailableSeq\":0,\"changes\":[{\"seq\":8,\"entity\":\"issueProjection\",\"entityId\":\"issue-1\",\"op\":\"evict\"}]}",
   "sync.complete": "{\"type\":\"syncComplete\",\"transferId\":\"transfer-1\",\"seq\":10,\"records\":1,\"rows\":1}",
   "sync.error": "{\"type\":\"syncError\",\"transferId\":\"transfer-1\",\"reason\":\"read-failed\"}",
   "SessionUserStateWire.never-read": "{\"userId\":\"user-b\",\"sessionId\":\"sess-1\",\"readAt\":null}",
@@ -124,5 +124,5 @@
   "frame.serverTransferResult.minimal": "{\"type\":\"serverTransferResult\",\"requestId\":\"st-status-idle\",\"operation\":\"status\",\"ok\":true,\"state\":\"idle\"}",
   "frame.codexCompleteRequest": "{\"type\":\"codexCompleteRequest\",\"requestId\":\"cc-1\",\"model\":\"gpt-5.5\",\"messages\":[{\"role\":\"system\",\"content\":\"You are an orchestrator.\"},{\"role\":\"user\",\"content\":\"status please\"},{\"role\":\"assistant\",\"content\":\"checking\",\"toolCalls\":[{\"id\":\"c1\",\"name\":\"git\",\"arguments\":\"{}\"}]},{\"role\":\"tool\",\"content\":\"clean\",\"toolCallId\":\"c1\",\"name\":\"git\"}],\"tools\":[{\"name\":\"git\",\"description\":\"run git\",\"parameters\":{\"type\":\"object\"}}],\"effort\":\"medium\"}",
   "frame.codexCompleteResult": "{\"type\":\"codexCompleteResult\",\"requestId\":\"cc-1\",\"ok\":true,\"text\":\"all clean\",\"toolCalls\":[]}",
-  "frame.codexCompleteResult.failed": "{\"type\":\"codexCompleteResult\",\"requestId\":\"cc-2\",\"ok\":false,\"error\":\"Codex is not logged in on this machine \u2014 run `codex login`.\"}"
+  "frame.codexCompleteResult.failed": "{\"type\":\"codexCompleteResult\",\"requestId\":\"cc-2\",\"ok\":false,\"error\":\"Codex is not logged in on this machine — run `codex login`.\"}"
 }
