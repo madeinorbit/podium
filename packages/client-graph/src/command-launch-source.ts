@@ -28,13 +28,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     this.catalog = computed((): CommandLaunchRows['commandCatalog'] => ({
       repositories: this.orders.get('commandRepository') ?? [], repos: this.orders.get('commandRepo') ?? [],
       worktrees: this.orders.get('commandWorktree') ?? [], machines: this.orders.get('commandMachine') ?? [],
-      issues: knownIssueIds(pool).sort(), sessions: knownSessionIds(pool).filter(id => {
-        // Collapse maintenance is keyed, not an observable collection. Track
-        // each addressed row through the one reader so a changed twin reranks
-        // the catalog even when its key set stays the same.
-        pool.row('session', id, 'summary')
-        return !pool.graph.isCollapsed('session', id)
-      }),
+      issues: knownIssueIds(pool).sort(), sessions: this.sessionOrder(),
     }), { equals: compareStructural })
     const locals = () => {
       if (this.disposed) return
@@ -63,6 +57,29 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
       this.counts.sessionChanges++
       runInAction(() => this.change('session', change.name, change.type === 'delete' ? undefined : pool.row('session', change.name) as object | undefined))
     }))
+  }
+
+  private sessionOrder(): readonly string[] {
+    const ids = knownSessionIds(this.pool), groups = new Map<string, string>()
+    const first = new Map<string, string>(), collapsed = new Set<string>()
+    // Transient placement from the declared two-string resume identity. The
+    // existing pool alone chooses winners; no cold relation index is retained.
+    for (const id of ids) {
+      const row = this.pool.row('session', id, 'summary')
+      if (!row || row === LOADING || row.headless || !row.resume) continue
+      const key = JSON.stringify([row.resume.kind, row.resume.value])
+      groups.set(id, key)
+      if (!first.has(key)) first.set(key, id)
+      if (this.pool.graph.isCollapsed('session', id)) collapsed.add(key)
+    }
+    const placed: [string, string][] = []
+    for (const id of ids) {
+      if (this.pool.graph.isCollapsed('session', id)) continue
+      const key = groups.get(id)
+      placed.push([key && collapsed.has(key) ? first.get(key)! : id, id])
+    }
+    // Today's deduped list replaces the group's first slot with its winner.
+    return placed.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, id]) => id)
   }
 
   private replace(entity: CommandEntity, rows: readonly (readonly [string, object])[]): void {

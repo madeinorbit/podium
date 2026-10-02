@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { autorun, runInAction } from 'mobx'
-import { asIssueId } from '@podium/model/browser'
+import { asIssueId, asSessionId } from '@podium/model/browser'
 import { storeStats } from '@podium/client-core/perf'
 import { createRuntimeWorklistPool } from './runtime-pool'
 import { attachCommandLaunchSource } from './command-launch-source'
@@ -94,6 +94,23 @@ describe('declared command and launch targets', () => {
       expect(f.pool.sources.related('commandIssue', row.issueId, 'sessions')).not.toContain(id)
       expect(f.pool.sources.related('commandIssue', nextIssueId, 'sessions')).toContain(id)
       f.parity('addressed session relation move')
+    } finally { f.close() }
+  }, 120_000)
+
+  it('keeps parked resume winners in their groups first slot without warming cold twins', async () => {
+    const f = await fixture()
+    try {
+      const template = f.ctx.cache.read('session', f.ctx.targets.phaseSessionId)!.value as object
+      for (const [id, status, active, resume] of [
+        ['command-a-parked', 'exited', '2026-01-01T00:00:00.000Z', { kind: 'codex-thread', value: 'command-order-group' }],
+        ['command-middle', 'live', '2026-01-01T00:00:00.000Z', undefined],
+        ['command-z-parked', 'hibernated', '2026-01-02T00:00:00.000Z', { kind: 'codex-thread', value: 'command-order-group' }],
+      ] as const) upsert(f.ctx, 'session', id, { ...template, sessionId: asSessionId(id), status, lastActiveAt: active, resume })
+      await new Promise(resolve => setTimeout(resolve, f.ctx.settleMs))
+      const catalog = f.pool.row('commandCatalog', 'catalog')
+      expect(catalog && catalog !== LOADING ? catalog.sessions.filter(id => id.startsWith('command-')) : []).toEqual(['command-z-parked', 'command-middle'])
+      expect(f.pool.hydrate()).toBe(0)
+      f.parity('parked resume first-slot order')
     } finally { f.close() }
   }, 120_000)
 
