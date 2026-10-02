@@ -262,16 +262,16 @@ export function FlightDeckHandoff({
 }): JSX.Element {
   const crew = useMemo(
     () => poolValues ? poolValues.crew : legacyRead ? legacyRead('handoffCrew', () => missionSessions(issues, sessions, rootIssue.id, true)) : missionSessions(issues, sessions, rootIssue.id, true),
-    [issues, sessions, rootIssue.id, poolValues],
+    [issues, sessions, rootIssue.id, poolValues, legacyRead],
   )
   const transcript = useHandoffTranscript(true, crew)
   const current = useMemo(
     () => poolValues ? poolValues.current : legacyRead ? legacyRead('handoffNow', () => deriveHandoffNow(issues, sessions, rootIssue.id)) : deriveHandoffNow(issues, sessions, rootIssue.id),
-    [issues, sessions, rootIssue.id, poolValues],
+    [issues, sessions, rootIssue.id, poolValues, legacyRead],
   )
   const next = useMemo(
     () => poolValues ? poolValues.next : legacyRead ? legacyRead('handoffNext', () => deriveHandoffNext(issues, sessions, rootIssue.id)) : deriveHandoffNext(issues, sessions, rootIssue.id),
-    [issues, sessions, rootIssue.id, poolValues],
+    [issues, sessions, rootIssue.id, poolValues, legacyRead],
   )
   const summary = useMemo(() => summarizeHandoffSessions(crew), [crew])
   const [currentLimit, setCurrentLimit] = useState(INITIAL_ROWS)

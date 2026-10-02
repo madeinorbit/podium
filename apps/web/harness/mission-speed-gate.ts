@@ -311,7 +311,7 @@ async function main() {
       { expected, trigger, action },
     )
     const stop = await traceStart(cdp)
-    let events
+    let events: Awaited<ReturnType<typeof stop>>
     try {
       await perform()
       await page.waitForFunction(() => window.__speedCapture?.twoRaf)

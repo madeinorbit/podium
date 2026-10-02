@@ -3018,10 +3018,10 @@ export function FlightDeckContent({
   const poolValues = source.mission
   const IssueMenu = source.IssueMenu ?? IssueContextMenu
   if (source.kind === 'pool' && !poolValues) throw new Error('Pool mission pane has no supplied values')
-  const legacyRead = <T,>(operation: string, read: () => T): T => {
+  const legacyRead = useCallback(<T,>(operation: string, read: () => T): T => {
     if (source.kind === 'pool') throw new Error('Pool mission pane reached a legacy reader')
     return source.legacyRead ? source.legacyRead(operation, read) : read()
-  }
+  }, [source.kind, source.legacyRead])
   const {
     selectedIssueId,
     paneA,
@@ -3139,7 +3139,7 @@ export function FlightDeckContent({
   }
   const computedRows = useMemo(
     () => poolValues ? poolValues.rows : legacyRead('rows', () => root ? buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths) : []),
-    [issues, sessions, root, mode, allWorktreePaths, poolValues],
+    [issues, sessions, root, mode, allWorktreePaths, poolValues, legacyRead],
   )
   const stableRowsRef = useRef<FlightDeckRow[]>([])
   const rows = useMemo(() => {
@@ -3152,7 +3152,7 @@ export function FlightDeckContent({
       new Map(
         rows.map((row) => [row.issue.id, poolValues ? (poolValues.titles.get(row.issue.id) ?? row.issue.title) : legacyRead('title', () => issueDisplayTitle(row.issue, sessions, allWorktreePaths))]),
       ),
-    [allWorktreePaths, rows, sessions, poolValues],
+    [allWorktreePaths, rows, sessions, poolValues, legacyRead],
   )
   const byId = useMemo(() => poolValues ? poolValues.byId : new Map(issues.map((issue) => [issue.id, issue])), [issues, poolValues])
   /**
@@ -3174,7 +3174,7 @@ export function FlightDeckContent({
   // silently move the highlight — and the Task dock with it — to the root.
   const missionMembers = useMemo(
     () => poolValues ? poolValues.members : legacyRead('members', () => root ? missionIssueIds(issues, root.id, sessions) : new Set<string>()),
-    [issues, root, sessions, poolValues],
+    [issues, root, sessions, poolValues, legacyRead],
   )
   const focused = resolveFocus(focusedIssueId, missionMembers, root?.id)
   const progress = poolValues ? poolValues.progress : legacyRead('progress', () => missionProgress(issues, sessions, root?.id))
@@ -3182,7 +3182,7 @@ export function FlightDeckContent({
   // from the same membership set, so a departure can never also be a strip.
   const allDepartures = useMemo(
     () => poolValues ? poolValues.departures : legacyRead('departures', () => missionDepartures(issues, sessions, root?.id, allWorktreePaths)),
-    [issues, sessions, root, allWorktreePaths, poolValues],
+    [issues, sessions, root, allWorktreePaths, poolValues, legacyRead],
   )
   const liveCount = rows[0]?.liveAgentCount ?? 0
   const workingCount = rows[0]?.workingAgentCount ?? 0
@@ -3406,7 +3406,7 @@ export function FlightDeckContent({
       }
     }
     return found
-  }, [rows, sessions, allWorktreePaths, poolValues])
+  }, [rows, sessions, allWorktreePaths, poolValues, legacyRead])
   const [archivedOpen, setArchivedOpen] = useState(false)
   const missionSessionIds = useMemo(() => {
     const ids = new Set<string>()
