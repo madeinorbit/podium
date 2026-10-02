@@ -21,6 +21,7 @@ const response = (body: unknown, status = 200): Response =>
 const replicaPathDescriptor = Object.getOwnPropertyDescriptor(globalThis, '__podiumReplicaPath')
 
 afterEach(() => {
+  localStorage.clear()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   if (replicaPathDescriptor === undefined) {
@@ -196,7 +197,7 @@ describe('private replica boot failure', () => {
     expect(openAssembly).toHaveBeenCalledOnce()
     expect(dispose).not.toHaveBeenCalled()
     unmount()
-    expect(dispose).toHaveBeenCalledOnce()
+    await waitFor(() => expect(dispose).toHaveBeenCalledOnce())
   })
 
   it('a store that was not adopted surfaces as a plain refresh notice, never as the reason code (POD-4002)', async () => {
@@ -269,7 +270,7 @@ describe('private replica boot failure', () => {
     expect(bobDispose).not.toHaveBeenCalled()
 
     unmount()
-    expect(bobDispose).toHaveBeenCalledOnce()
+    await waitFor(() => expect(bobDispose).toHaveBeenCalledOnce())
   })
 
   it('recovers a provisional first auth failure before opening the replica', async () => {
@@ -303,7 +304,7 @@ describe('private replica boot failure', () => {
     expect(openAssembly).toHaveBeenCalledOnce()
     expect(dispose).not.toHaveBeenCalled()
     unmount()
-    expect(dispose).toHaveBeenCalledOnce()
+    await waitFor(() => expect(dispose).toHaveBeenCalledOnce())
   })
 
   it('does not re-probe or open after an authoritative auth refusal', async () => {

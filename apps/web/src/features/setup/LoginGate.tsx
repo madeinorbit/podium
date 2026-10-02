@@ -1,5 +1,5 @@
+import { webAuth } from '@/lib/accounts'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
-import { workspaceFetch } from '@/lib/workspace-request'
 import { InviteView } from './InviteView'
 import {
   type CSSProperties,
@@ -12,7 +12,6 @@ import {
 import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
-import { classifyAuthStatus } from '@/lib/replica-failure'
 import type { AuthBootstrap } from '@/lib/use-kernel-replica'
 import { AsciiWordmark, prefersReducedMotion } from './podium-wordmark'
 
@@ -45,88 +44,6 @@ const GLOW = {
 
 const MONO = "'Geist Mono Variable', ui-monospace, Menlo, monospace"
 
-/**
- * Ask the server whether authentication is needed, including cloud admission refusals.
- * Other answers go to the replica gate to preserve authoritative refusals and offline
- * namespace selection without another request.
- */
-type AuthDecision =
-  | { readonly kind: 'login'; mode: 'local' | 'cloud'; signInUrl?: string; deniedReason?: string }
-  | { readonly kind: 'ready'; auth: AuthBootstrap }
-
-async function probeAuth(httpOrigin: string): Promise<AuthDecision> {
-  let res: Response
-  try {
-    res = await workspaceFetch(`${httpOrigin}/auth/status`, { credentials: 'include' })
-  } catch {
-    // This request alone cannot distinguish a dead server from a transient
-    // failure. Let the replica gate re-probe before it considers retained data.
-    return { kind: 'ready', auth: { kind: 'provisional-failure' } }
-  }
-  if (!res.ok) {
-    // A 4xx answer is the auth endpoint's decision. A server or proxy failure is
-    // provisional, so give startup one recovery probe before failing closed.
-    if (res.status < 400 || res.status >= 500) {
-      return { kind: 'ready', auth: { kind: 'provisional-failure' } }
-    }
-    return {
-      kind: 'ready',
-      auth: {
-        kind: 'failure',
-        message: 'authenticated account is unavailable',
-        failure:
-          res.status === 400
-            ? { kind: 'auth-insecure' }
-            : { kind: 'auth-refused', status: res.status },
-      },
-    }
-  }
-  let data: {
-    userId?: unknown
-    needsAuth?: unknown
-    authed?: unknown
-    readiness?: unknown
-    mode?: unknown
-    signInUrl?: unknown
-    providerSignedIn?: unknown
-    deniedReason?: unknown
-  }
-  try {
-    data = (await res.json()) as {
-      userId?: unknown
-      needsAuth?: unknown
-      authed?: unknown
-      readiness?: unknown
-    }
-  } catch {
-    return { kind: 'ready', auth: { kind: 'provisional-failure' } }
-  }
-  if (data.needsAuth === true && data.authed !== true)
-    return {
-      kind: 'login',
-      mode: data.mode === 'cloud' ? 'cloud' : 'local',
-      signInUrl: typeof data.signInUrl === 'string' ? data.signInUrl : undefined,
-      deniedReason:
-        data.mode === 'cloud' &&
-        data.providerSignedIn === true &&
-        typeof data.deniedReason === 'string' &&
-        data.deniedReason.length > 0
-          ? data.deniedReason
-          : undefined,
-    }
-  const outcome = classifyAuthStatus(data)
-  return 'principal' in outcome
-    ? { kind: 'ready', auth: { kind: 'principal', principal: outcome.principal } }
-    : {
-        kind: 'ready',
-        auth: {
-          kind: 'failure',
-          message: 'authenticated account is unavailable',
-          failure: outcome,
-        },
-      }
-}
-
 /** The host you're signing in to, shown for reassurance on a self-hosted install. */
 function originHost(httpOrigin: string): string {
   try {
@@ -155,6 +72,24 @@ export function CloudLoginView({
   const destination = new URL(signInUrl ?? '/account/sign-in', window.location.origin)
   destination.searchParams.set('returnTo', returnTo)
   if (desktop) destination.searchParams.set('handoff', 'desktop')
+  const openDesktopSignIn = async () => {
+    if (!desktop?.beginCloudSignIn)
+      throw new Error('Update Podium Desktop to sign in through your browser.')
+    const response = await fetch(
+      `${serverConfig(window.location).httpOrigin}/platform/auth/handoff/begin`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      },
+    )
+    if (!response.ok) throw new Error('Could not start sign-in')
+    const { challenge } = await response.json()
+    if (typeof challenge !== 'string' || !/^[a-f0-9]{64}$/.test(challenge))
+      throw new Error('Invalid sign-in challenge')
+    await desktop.beginCloudSignIn(destination.href, challenge)
+  }
   return (
     <main
       style={{
@@ -165,10 +100,6 @@ export function CloudLoginView({
         color: C.text,
       }}
     >
-      {/* A refused member gets the reason and NOTHING to click: offering sign-in
-          again to somebody who just signed in successfully is the loop this
-          state exists to end. Everyone else gets the sign-in affordance, which
-          on the desktop hands off to the system browser. */}
       {deniedReason ? (
         <p
           role="alert"
@@ -190,22 +121,7 @@ export function CloudLoginView({
                       setError('Update Podium Desktop to sign in through your browser.')
                       return
                     }
-                    void (async () => {
-                      const response = await fetch(
-                        `${serverConfig(window.location).httpOrigin}/platform/auth/handoff/begin`,
-                        {
-                          method: 'POST',
-                          credentials: 'include',
-                          headers: { 'content-type': 'application/json' },
-                          body: '{}',
-                        },
-                      )
-                      if (!response.ok) throw new Error('Could not start sign-in')
-                      const { challenge } = await response.json()
-                      if (typeof challenge !== 'string' || !/^[a-f0-9]{64}$/.test(challenge))
-                        throw new Error('Invalid sign-in challenge')
-                      await desktop.beginCloudSignIn!(destination.href, challenge)
-                    })().catch(() => {
+                    void openDesktopSignIn().catch(() => {
                       setError('Could not open your browser. Please try again.')
                     })
                   }
@@ -269,37 +185,14 @@ export function LoginView({
     setBusy(true)
     setError(null)
     try {
-      const res = await workspaceFetch(`${httpOrigin}/auth/login`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email: email.trim(), password }),
-      })
-      if (res.ok) {
-        let body: { userId?: unknown }
-        try {
-          body = (await res.json()) as { userId?: unknown }
-        } catch {
-          setError("✗ couldn't verify the signed-in account")
-          setShaking(true)
-          return
-        }
-        const outcome = classifyAuthStatus(body)
-        if (!('principal' in outcome)) {
-          setError("✗ couldn't verify the signed-in account")
-          setShaking(true)
-          return
-        }
+      const result = await webAuth.login(httpOrigin, password, undefined, email)
+      if (result.ok && result.principal) {
         setBusy(false)
         setOk(true)
-        onLoggedIn(outcome.principal)
+        onLoggedIn(result.principal)
         return
       }
-      setError(
-        res.status === 429
-          ? '✗ too many attempts — wait a moment, then try again'
-          : '✗ incorrect email or password — try again',
-      )
+      setError('✗ ' + (result.ok ? "couldn't verify the signed-in account" : result.error))
       setShaking(true)
     } catch {
       setError("✗ couldn't reach the server")
@@ -599,12 +492,12 @@ export function LoginGate({
   useEffect(() => {
     if (inviteToken) return
     let alive = true
-    probeAuth(httpOrigin).then((decision) => {
+    webAuth.probeAuth(httpOrigin).then((decision) => {
       if (!alive) return
-      if (decision.kind === 'login') {
-        setMode(decision.mode)
-        setSignInUrl(decision.signInUrl)
-        setDeniedReason(decision.deniedReason)
+      if (decision.kind !== 'ready') {
+        setMode(decision.status.mode ?? 'local')
+        setSignInUrl(decision.status.signInUrl)
+        setDeniedReason(decision.kind === 'membership-denied' ? decision.reason : undefined)
         setPhase('login')
         return
       }

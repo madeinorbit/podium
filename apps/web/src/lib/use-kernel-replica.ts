@@ -1,3 +1,6 @@
+import { resolveAccountPrincipal, type AuthBootstrap } from '@podium/client-core/accounts'
+
+export type { AuthBootstrap } from '@podium/client-core/accounts'
 import { workspaceFetch } from '@/lib/workspace-request'
 /**
  * THE BOOT GATE FOR THE PRIVATE REPLICA.
@@ -16,18 +19,13 @@ import { STORE_REFRESH_NOTICE, startReplicaBoot } from '@podium/client-core/repl
 export { STORE_REFRESH_NOTICE } from '@podium/client-core/replica-assembly'
 
 import type { ClientPrincipal } from '@podium/client-core/principal'
-import { inspectPrincipalNamespaces, parseReplicaNamespaceKey } from '@podium/client-core/replica'
+import { inspectPrincipalNamespaces } from '@podium/client-core/replica'
 import { createLogger } from '@podium/logger'
 import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'
 import { useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import { KERNEL_SIDE_CACHE_PREFIX, type KernelAssembly, openKernelAssembly } from './kernelReplica'
-import {
-  classifyAuthStatus,
-  type ReplicaFailure,
-  ReplicaGateError,
-  replicaFailureOf,
-} from './replica-failure'
+import { type ReplicaFailure, ReplicaGateError, replicaFailureOf } from './replica-failure'
 
 const log = createLogger('web:replica')
 
@@ -71,41 +69,6 @@ export interface ResolveReplicaPrincipalOptions {
   readonly httpOrigin?: string
   readonly fetchStatus?: () => Promise<Response>
   readonly inspectNamespaces?: () => readonly string[]
-}
-
-/** LoginGate's auth probe handoff to the private-replica gate. */
-export type AuthBootstrap =
-  | { readonly kind: 'principal'; readonly principal: string }
-  /** The first status request failed without an authoritative auth answer. The
-   * replica gate must re-probe before it fails or retained data chooses an owner. */
-  | { readonly kind: 'provisional-failure' }
-  | {
-      readonly kind: 'failure'
-      readonly message: string
-      readonly failure: ReplicaFailure
-    }
-
-function offlineReplicaPrincipal(inspectNamespaces?: () => readonly string[]): string {
-  const inspect =
-    inspectNamespaces ??
-    (() =>
-      inspectPrincipalNamespaces({
-        storage: globalThis.localStorage,
-        enumerateKeys: () => Object.keys(globalThis.localStorage),
-        basePrefix: KERNEL_SIDE_CACHE_PREFIX,
-      }))
-  const identities = [...new Set(inspect())].filter(
-    (key) => parseReplicaNamespaceKey(key) !== undefined,
-  )
-  if (identities.length === 1 && identities[0] !== undefined) return identities[0]
-  throw identities.length === 0
-    ? new ReplicaGateError('offline replica has no authenticated principal namespace', {
-        kind: 'offline-unknown',
-      })
-    : new ReplicaGateError('offline replica principal is ambiguous on this shared device', {
-        kind: 'offline-ambiguous',
-        count: identities.length,
-      })
 }
 
 function principalFromAuthBootstrap(
@@ -163,37 +126,17 @@ export async function resolveReplicaPrincipal(
   const fetchStatus =
     options.fetchStatus ??
     (() => workspaceFetch(`${options.httpOrigin ?? ''}/auth/status`, { credentials: 'include' }))
-  let response: Response
-  try {
-    response = await fetchStatus()
-  } catch {
-    return offlineReplicaPrincipal(options.inspectNamespaces)
-  }
-
-  // A refusal is authoritative, and its SHAPE is information the operator needs:
-  // the route emits 400 for exactly one thing — a bearer credential offered over
-  // a link that is not secure — and that is a different sentence from a server
-  // that simply said no [POD-1304].
-  if (!response.ok) {
-    throw new ReplicaGateError(
-      'authenticated account is unavailable',
-      response.status === 400
-        ? { kind: 'auth-insecure' }
-        : { kind: 'auth-refused', status: response.status },
-    )
-  }
-  // A 200 whose body is not JSON (an SPA fallback or a proxy's HTML page) is a
-  // backend that cannot vouch for an account. Same fail-closed answer as a
-  // refusal — never a raw parse error, and never a fall back to device data.
-  let status: { userId?: unknown; needsAuth?: unknown; readiness?: unknown }
-  try {
-    status = (await response.json()) as { userId?: unknown }
-  } catch {
-    throw new ReplicaGateError('authenticated account is unavailable', { kind: 'auth-intercepted' })
-  }
-  const outcome = classifyAuthStatus(status)
-  if ('principal' in outcome) return outcome.principal
-  throw new ReplicaGateError('authenticated account is unavailable', outcome)
+  return resolveAccountPrincipal({
+    fetchStatus,
+    inspectNamespaces:
+      options.inspectNamespaces ??
+      (() =>
+        inspectPrincipalNamespaces({
+          storage: globalThis.localStorage,
+          enumerateKeys: () => Object.keys(globalThis.localStorage),
+          basePrefix: KERNEL_SIDE_CACHE_PREFIX,
+        })),
+  })
 }
 
 /**

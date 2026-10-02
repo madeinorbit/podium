@@ -4,6 +4,7 @@ import { LoginGate, LoginView } from './LoginGate'
 
 afterEach(() => {
   cleanup()
+  localStorage.clear()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -26,6 +27,26 @@ describe('LoginGate', () => {
     render(<LoginGate>{child}</LoginGate>)
     expect(await screen.findByLabelText(/password/i)).toBeTruthy()
     expect(screen.queryByText('APP-READY')).toBeNull()
+  })
+
+  it.each([
+    { needsAuth: true },
+    { needsAuth: true, authed: false, readiness: { dataPlane: 'blocked' } },
+  ])('preserves the existing web login choice for %j', async (body) => {
+    vi.stubGlobal('fetch', statusFetch(body))
+    render(<LoginGate>{child}</LoginGate>)
+    expect(await screen.findByLabelText(/password/i)).toBeTruthy()
+    expect(screen.queryByText('APP-READY')).toBeNull()
+  })
+
+  it('preserves a minimal server-authored identity envelope on web', async () => {
+    vi.stubGlobal('fetch', statusFetch({ memberId: 'alice', syncBoundaryId: 'installation-a' }))
+    render(
+      <LoginGate>
+        {(auth) => <div>{auth.kind === 'principal' ? auth.principal : 'APP-WRONG'}</div>}
+      </LoginGate>,
+    )
+    expect(await screen.findByText('["installation-a","alice"]')).toBeTruthy()
   })
 
   it('renders the app when already authed', async () => {
@@ -113,6 +134,7 @@ describe('LoginGate', () => {
       expect.stringContaining('/auth/status'),
       expect.objectContaining({ credentials: 'include' }),
     )
+    expect((f.mock.calls[0]![1] as RequestInit).signal).toBeUndefined()
   })
 })
 
@@ -157,7 +179,9 @@ describe('LoginView', () => {
     const onLoggedIn = vi.fn()
     render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
     typePasswordAndSubmit('wrong')
-    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      '✗ incorrect email or password — try again',
+    )
     expect(onLoggedIn).not.toHaveBeenCalled()
   })
 
@@ -169,7 +193,7 @@ describe('LoginView', () => {
     render(<LoginView httpOrigin="http://x" onLoggedIn={vi.fn()} />)
     typePasswordAndSubmit('x')
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent?.toLowerCase()).toContain('too many')
+    expect(alert.textContent).toBe('✗ too many attempts — wait a moment, then try again')
   })
 
   it('clears the error on the next keystroke', async () => {
@@ -312,6 +336,8 @@ describe('cloud login gate', () => {
     render(<LoginGate>{renderApp}</LoginGate>)
     expect((await screen.findByRole('alert')).textContent).toBe(deniedReason)
     expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.getByRole('main').textContent).toBe(deniedReason)
     expect(screen.queryByLabelText(/password/i)).toBeNull()
     expect(renderApp).not.toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledOnce()
