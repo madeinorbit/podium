@@ -1,7 +1,11 @@
 import { expect, it, vi } from 'vitest'
-import { autorun, observable, runInAction } from 'mobx'
+import { autorun, configure, observable, runInAction } from 'mobx'
 import { PoolSources, type PoolSource } from './source-registry'
 import { LOADING } from './worklist/rollup'
+
+declare module './source-registry' {
+  interface PoolSourceRows { sourceTypeProbe: { count: number } }
+}
 
 function source() {
   const rows = observable.map([['window', { settingsTab: 'general' as const }]], { deep: false })
@@ -41,4 +45,29 @@ it('conflicting registrations are atomic and every source and view disposes once
   const late = source()
   expect(() => registry.register(['settingsWindow'], late.value)).toThrow('conflicts')
   expect(late.dispose).toHaveBeenCalledTimes(1)
+})
+
+it('source teardown honors the strict observable read trap', async () => {
+  configure({ enforceActions: 'always', observableRequiresReaction: true })
+  const warn = vi.spyOn(console, 'warn').mockImplementation((message) => { throw new Error(String(message)) })
+  try {
+    const registry = new PoolSources(), owned = source()
+    registry.register(['settingsWindow'], owned.value)
+    expect(() => registry.dispose()).not.toThrow()
+    await Promise.resolve()
+    expect(owned.dispose).toHaveBeenCalledTimes(1)
+    expect(warn).not.toHaveBeenCalled()
+  } finally {
+    configure({ enforceActions: 'never', observableRequiresReaction: false })
+    warn.mockRestore()
+  }
+})
+
+it('independent row declarations preserve a typed public reader', () => {
+  const registry = new PoolSources()
+  const custom: PoolSource<'sourceTypeProbe'> = { read: () => ({ count: 3 }), dispose() {} }
+  registry.register(['sourceTypeProbe'], custom)
+  const value = registry.read('sourceTypeProbe', 'probe')
+  expect(value && value !== LOADING ? value.count : undefined).toBe(3)
+  registry.dispose()
 })
