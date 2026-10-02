@@ -30,6 +30,7 @@ import {
   useStoreSelector,
 } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type {
@@ -37,7 +38,6 @@ import type {
   HostMetricsWire,
   MachineWire,
   SessionId,
-  SessionMeta,
 } from '@podium/model'
 import { asIssueId } from '@podium/model'
 import { useEffect, useState } from 'react'
@@ -163,8 +163,9 @@ export function useHub(): SocketHub {
   return useStoreSelector<SocketHub, MobileTrpc>((s) => s.hub)
 }
 
-export function useSessions(): SessionMeta[] {
-  return useStoreSelector<SessionMeta[], MobileTrpc>((s) => s.sessions)
+/** S2 joins the replica homes before publishing this optimistic read view. */
+export function useSessions(): SessionView[] {
+  return useStoreSelector<SessionView[], MobileTrpc>((s) => s.sessions)
 }
 
 /** The runtime's folded sources include normalized optimism and personal markers. */
@@ -199,8 +200,8 @@ export function useIssue(id: string | undefined): IssueViewModel | undefined {
   return id === undefined ? undefined : model
 }
 
-export function useSession(id: SessionId | undefined): SessionMeta | undefined {
-  return useStoreSelector<SessionMeta | undefined, MobileTrpc>((s) =>
+export function useSession(id: SessionId | undefined): SessionView | undefined {
+  return useStoreSelector<SessionView | undefined, MobileTrpc>((s) =>
     id === undefined ? undefined : s.sessions.find((session) => session.sessionId === id),
   )
 }

@@ -10,8 +10,8 @@ import type { IssueViewModel } from '@podium/client-core/replica'
  * including transcript search.
  */
 import type { SessionMeta } from '@podium/model'
-import { asIssueId, asSessionId } from '@podium/model'
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { asIssueId, asSessionId, asUserId } from '@podium/model'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -254,5 +254,63 @@ describe('the active-session chat menu', () => {
     expect(screen.getByLabelText('Archive')).toBeTruthy()
     expect(screen.getByLabelText('Set work state…')).toBeTruthy()
     expect(screen.getByLabelText('Kill session')).toBeTruthy()
+  })
+})
+
+describe('session menu snooze from the acting user home', () => {
+  const active = vessel({ isDraftVessel: false, worktreePath: '/tmp/wt/vessel' })
+  const personal = (snoozedUntil?: string | null) => ({
+    userId: asUserId('user:test'),
+    sessionId: asSessionId('sess_menu'),
+    readAt: null,
+    ...(snoozedUntil !== undefined ? { snoozedUntil } : {}),
+  })
+
+  it.each([false, true])('shows null snooze and hides it when cleared, stripped=%s', async (stripped) => {
+    const raw = session({ snoozedUntil: '2099-01-01T00:00:00.000Z' })
+    if (stripped) Reflect.deleteProperty(raw, 'snoozedUntil')
+    const clear = vi.fn(async () => {})
+    const { replica } = await renderWithMobileStore(<SessionScreen />, {
+      sessions: [raw],
+      issues: [active],
+      sessionUserStates: [personal(null)],
+      api: { snoozes: { clear: { mutate: clear } } },
+    })
+    fireEvent.click(await screen.findByLabelText('Session actions'))
+    expect(await screen.findByLabelText('Clear snooze')).toBeTruthy()
+    await act(async () => {
+      replica.applyChanges('sessionUserStates', [personal()], [])
+    })
+    expect(screen.queryByLabelText('Clear snooze')).toBeNull()
+    await act(async () => {
+      replica.applyChanges('sessionUserStates', [personal(null)], [])
+    })
+    fireEvent.click(await screen.findByLabelText('Clear snooze'))
+    await waitFor(() => expect(clear).toHaveBeenCalled())
+    expect(screen.queryByLabelText('Clear snooze')).toBeNull()
+    expect(replica.rows('sessions')[0]).toBe(raw)
+  })
+
+  it('does not substitute another user’s snooze for the acting user’s cleared row', async () => {
+    await renderWithMobileStore(<SessionScreen />, {
+      sessions: [session({ snoozedUntil: null })],
+      issues: [active],
+      sessionUserStates: [
+        { ...personal(null), userId: asUserId('user:other') },
+        personal(),
+      ],
+    })
+    fireEvent.click(await screen.findByLabelText('Session actions'))
+    expect(await screen.findByLabelText('Snooze until next message')).toBeTruthy()
+    expect(screen.queryByLabelText('Clear snooze')).toBeNull()
+  })
+
+  it('shows the legacy snooze before any personal home arrives', async () => {
+    await renderWithMobileStore(<SessionScreen />, {
+      sessions: [session({ snoozedUntil: null })],
+      issues: [active],
+    })
+    fireEvent.click(await screen.findByLabelText('Session actions'))
+    expect(await screen.findByLabelText('Clear snooze')).toBeTruthy()
   })
 })

@@ -9,6 +9,7 @@ import {
 import { randomUUID } from '@podium/client-core/id'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { sessionValues, type SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   createTranscriptController,
@@ -28,7 +29,6 @@ import {
   isAgentComputing,
   isMachineOfflineForLiveTerminal,
   type MessageDeliveryStatus,
-  type SessionMeta,
 } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
@@ -72,9 +72,9 @@ import { WORKING_MARK_DOTS, workingMarkRadius } from './WorkingMark.shared'
 
 /** The session as the operator has just left it — the answered offer removed,
  *  so every derivation over it agrees with what is on screen. */
-function withoutOffer(session: SessionMeta): SessionMeta {
+function withoutOffer(session: SessionView): SessionView {
   const { offer: _answered, ...rest } = session
-  return rest as SessionMeta
+  return rest as SessionView
 }
 
 /** The working mark's dot grid at rest, drawn as SVG so device fonts cannot
@@ -140,7 +140,7 @@ export function SessionConversation({
   onInitialPendingSettled,
   deferInitialTranscript = false,
 }: {
-  session: SessionMeta
+  session: SessionView
   /** The task this session belongs to; drives task context and the plan bridge. */
   issue: IssueViewModel | undefined
   /** Where a tapped `POD-…` ref in the transcript should go when it is NOT this
@@ -175,6 +175,7 @@ export function SessionConversation({
   const allSessions = useSessions()
   const machines = useMachines()
   const sessionId = session.sessionId
+  const machineName = sessionValues(session).machineName
   // LIVE machine presence (this issue, POD-4830's desktop banner):
   // session.machineId -> the store's live machines list, via the same
   // live-terminal predicate (online OR daemon). Unknown (no row) reads as no
@@ -184,8 +185,8 @@ export function SessionConversation({
     if (!id) return null
     const machine = machines.find((m) => m.id === id)
     if (!machine || !isMachineOfflineForLiveTerminal(machine)) return null
-    return machine.name || session.machineName || 'This machine'
-  }, [machines, session.machineId, session.machineName])
+    return machineName || 'This machine'
+  }, [machines, session.machineId, machineName])
   const currentQuestion = useStoreSelector((s) =>
     (s.pendingInteractions ?? []).find(
       (row) => row.sessionId === sessionId && row.kind === 'question' && row.status === 'asked',
@@ -375,7 +376,7 @@ export function SessionConversation({
     [conversation.bubbles],
   )
   const justSent = conversation.justSent
-  const pendingSeedSession = useRef<SessionMeta['sessionId'] | null>(
+  const pendingSeedSession = useRef<SessionView['sessionId'] | null>(
     initialPendingText ? sessionId : null,
   )
   const attachments = useComposerAttachments(sessionId)

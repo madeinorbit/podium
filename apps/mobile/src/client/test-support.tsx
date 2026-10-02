@@ -30,9 +30,11 @@ import {
   type IssueUserStateWire,
   type IssueWire,
   type MachineWire,
+  type MachineProjection,
   type MessageRecordWire,
   type RepoProjection,
   type SessionMeta,
+  type SessionUserStateWire,
 } from '@podium/model'
 import { render } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -44,6 +46,8 @@ import type { MobileTrpc } from './trpc'
 
 export interface MobileStoreFixture {
   sessions?: SessionMeta[]
+  sessionUserStates?: SessionUserStateWire[]
+  machineProjections?: MachineProjection[]
   issues?: (IssueWire | IssueViewModel)[]
   /** Explicit feed homes bypass the compatibility fixture adapter. */
   issueProjections?: IssueProjection[]
@@ -156,6 +160,9 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   // attribution gate here, and this one must never quietly become that.
   const replica = createReplica({ storage: memoryStorage() })
   replica.applySnapshot('sessions', fixture.sessions ?? [])
+  if (fixture.sessionUserStates)
+    replica.applySnapshot('sessionUserStates', fixture.sessionUserStates)
+  if (fixture.machineProjections) replica.applySnapshot('machines', fixture.machineProjections)
   seedIssueFixtures(replica, fixture.issues ?? [], asUserId(fixture.principal ?? 'user:test'))
   if (fixture.issueProjections) replica.applySnapshot('issueProjections', fixture.issueProjections)
   if (fixture.issueUserStates) replica.applySnapshot('issueUserStates', fixture.issueUserStates)

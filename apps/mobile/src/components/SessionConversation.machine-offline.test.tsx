@@ -53,6 +53,7 @@ vi.mock('./TranscriptList', () => ({
 }))
 
 const { SessionConversation } = await import('./SessionConversation')
+const { useSession } = await import('../client/hooks')
 
 const session = {
   sessionId: 'sess-offline',
@@ -164,5 +165,41 @@ describe('phone session offline banner (POD-4873)', () => {
     })
 
     await waitFor(() => expect(screen.queryByTestId('machine-offline-banner')).toBeNull())
+  })
+})
+
+describe('phone offline machine label from session homes', () => {
+  function LiveConversation() {
+    const row = useSession(session.sessionId)
+    return row ? <SessionConversation session={row} issue={undefined} /> : null
+  }
+
+  it.each([false, true])('uses the replicated name and observes a rename, stripped=%s', async (stripped) => {
+    const row = { ...session, machineName: 'Stale session label' }
+    if (stripped) Reflect.deleteProperty(row, 'machineName')
+    const { replica } = await renderWithMobileStore(<LiveConversation />, {
+      sessions: [row],
+      machines: [machine({ online: false, name: 'Stale live label' })],
+      machineProjections: [{ id: 'm1', name: 'Replicated desk', loggedOutHarnesses: [] }],
+    })
+    expect(screen.getByTestId('machine-offline-banner').textContent).toContain('Replicated desk')
+    expect(screen.getByTestId('machine-offline-banner').textContent).not.toContain('Stale')
+    await act(async () => {
+      replica.applyChanges('machines', [{ id: 'm1', name: 'Renamed desk', loggedOutHarnesses: [] }], [])
+    })
+    expect(screen.getByTestId('machine-offline-banner').textContent).toContain('Renamed desk')
+    expect(replica.rows('sessions')[0]).toBe(row)
+    await act(async () => {
+      replica.applyChanges('machines', [{ id: 'm1', name: '', loggedOutHarnesses: [] }], [])
+    })
+    expect(screen.getByTestId('machine-offline-banner').textContent).toContain('This machine')
+  })
+
+  it('falls back to the legacy session label before the machine home arrives', async () => {
+    await renderWithMobileStore(<LiveConversation />, {
+      sessions: [session],
+      machines: OFFLINE_SUPERVISOR,
+    })
+    expect(screen.getByTestId('machine-offline-banner').textContent).toContain('desk')
   })
 })

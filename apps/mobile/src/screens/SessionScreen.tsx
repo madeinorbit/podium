@@ -1,4 +1,5 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
+import { sessionValues } from '@podium/client-core/session-values'
 import { isDraftAgentVessel, sessionTitle } from '@podium/client-core/viewmodels'
 import type { SessionId, WorkState } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
@@ -196,7 +197,7 @@ export function SessionScreen() {
         onPress: () => void store.setSnooze(session.sessionId, snoozeUntilTomorrow5am(Date.now())),
       },
     ]
-    if (session.snoozedUntil !== undefined) {
+    if (sessionValues(session).snoozedUntil !== undefined) {
       actions.push({
         label: 'Clear snooze',
         onPress: () => void store.clearSnooze(session.sessionId),
