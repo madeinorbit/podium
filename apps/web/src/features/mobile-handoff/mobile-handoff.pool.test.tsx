@@ -1,4 +1,3 @@
-import '@/test-support/mock-core-store-handle'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
