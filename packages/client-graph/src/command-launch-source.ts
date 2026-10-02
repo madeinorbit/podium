@@ -81,19 +81,19 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     const scans: [string, object][] = [], groups: [string, object][] = [], trees: [string, object][] = []
     this.worktreesByPath.clear(); this.repositoriesByRoot.clear()
     const add = (index: Map<string, string[]>, key: string, value: string) => index.set(key, [...(index.get(key) ?? []), value])
-    for (const repo of repos) {
-      const id = JSON.stringify([repo.machineId ?? '', repo.path])
-      const origin = normalizeOriginUrl(repo.originUrl)
-      const groupId = repo.repoId ?? (origin || `__no_remote__:${repo.machineId ?? ''}:${repo.path}`)
-      scans.push([id, { ...repo, groupId, linked: linked.has(repo.path) }])
-      for (const root of [repo.path, ...repo.worktrees.map(tree => tree.path)]) add(this.repositoriesByRoot, root, id)
-      if (linked.has(repo.path)) continue
+    for (const discovery of repos) {
+      const id = JSON.stringify([discovery.machineId ?? '', discovery.path])
+      const origin = normalizeOriginUrl(discovery.originUrl)
+      const groupId = discovery.repoId ?? (origin || `__no_remote__:${discovery.machineId ?? ''}:${discovery.path}`)
+      scans.push([id, { ...discovery, groupId, linked: linked.has(discovery.path) }])
+      for (const root of [discovery.path, ...discovery.worktrees.map(tree => tree.path)]) add(this.repositoriesByRoot, root, id)
+      if (linked.has(discovery.path)) continue
       if (!groups.some(([key]) => key === groupId)) groups.push([groupId, { id: groupId }])
-      for (const tree of [{ path: repo.path, branch: repo.branch, isMain: true }, ...repo.worktrees.map(tree => ({ ...tree, isMain: false }))]) {
+      for (const tree of [{ path: discovery.path, branch: discovery.branch, isMain: true }, ...discovery.worktrees.map(tree => ({ ...tree, isMain: false }))]) {
         const treeId = JSON.stringify([id, tree.path])
         trees.push([treeId, { path: tree.path, ...(tree.branch !== undefined ? { branch: tree.branch } : {}),
-          repoPath: repo.path, isMain: tree.isMain, ...(repo.machineId ? { machineId: repo.machineId } : {}),
-          ...(repo.repoId ? { repoId: repo.repoId } : {}), repositoryId: id, groupId }])
+          repoPath: discovery.path, isMain: tree.isMain, ...(discovery.machineId ? { machineId: discovery.machineId } : {}),
+          ...(discovery.repoId ? { repoId: discovery.repoId } : {}), repositoryId: id, groupId }])
         add(this.worktreesByPath, tree.path, treeId)
       }
     }
