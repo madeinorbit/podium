@@ -19,6 +19,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -28,6 +29,33 @@ import time
 HERE = Path(__file__).resolve().parent
 FAKE = HERE.parent / "pod-4834-receipt-proof/fake-model-server.ts"
 KEY = "fake-key-for-the-local-fake-server-not-a-credential"
+
+
+def find_bun():
+    # BUN env wins (flatblock test checkouts use .toolchain/bun, no mise).
+    env_bun = os.environ.get("BUN")
+    if env_bun and Path(env_bun).exists():
+        return env_bun
+    which = shutil.which("bun")
+    if which:
+        return which
+    # Checkout-local .toolchain (HERE = docs/measurements/<lane>).
+    for candidate in [
+        HERE / "../../.." / ".toolchain" / "bun",
+        Path.home() / "podium-test-5269" / ".toolchain" / "bun",
+        Path.home() / "podium-test-4982" / ".toolchain" / "bun",
+    ]:
+        try:
+            resolved = candidate.resolve()
+        except Exception:
+            continue
+        if resolved.exists():
+            return str(resolved)
+    # Last resort: the historical mise spelling (local dev checkouts).
+    try:
+        return subprocess.check_output(["mise", "which", "bun"], text=True).strip()
+    except Exception as e:
+        raise RuntimeError("no bun found (BUN env, PATH, .toolchain, mise)") from e
 
 # Synthetic queued input: 4+ lines and ~950 chars to trigger the paste gate,
 # distinct from every existing case and never the live user's text.
@@ -71,7 +99,7 @@ def run(version, port):
     }
     with socket.socket() as check:
         check.bind(("127.0.0.1", port))
-    bun = subprocess.check_output(["mise", "which", "bun"], text=True).strip()
+    bun = find_bun()
     fake_env = {**env, "FAKE_PORT": str(port), "FAKE_LOG": str(scratch / "requests.jsonl")}
     fake_out = (scratch / "fake.log").open("w")
     fake = subprocess.Popen([bun, str(FAKE)], env=fake_env, stdout=fake_out, stderr=fake_out)
