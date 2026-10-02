@@ -184,6 +184,8 @@
       "dependsOn": ["^typecheck"],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
+        "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
         "$TURBO_ROOT$/apps/web/src/features/setup/**",
         "$TURBO_ROOT$/packages/worklist-proto/harness/src/fixture/**"
       ],
@@ -193,6 +195,8 @@
       "dependsOn": [],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
+        "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
         "$TURBO_ROOT$/vitest.config.ts",
         "$TURBO_ROOT$/vitest.unit.config.ts",
         "$TURBO_ROOT$/vitest.smoke-requirements.ts",
@@ -496,6 +500,8 @@
       "dependsOn": [],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
+        "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
         "$TURBO_ROOT$/vitest.config.ts",
         "$TURBO_ROOT$/vitest.unit.config.ts",
         "$TURBO_ROOT$/vitest.smoke-requirements.ts",
