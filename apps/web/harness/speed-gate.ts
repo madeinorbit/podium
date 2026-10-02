@@ -469,6 +469,7 @@ async function main() {
       if (targets.sessions.length !== 2) throw new Error('Need two distinct open session panes')
       // Establish the opposite pane before the first sample so opening is never a no-op.
       await full.page.locator(deckSession(targets.sessions[1]!)).first().click()
+      await full.page.waitForFunction((id) => window.__acceptance.state().pane === id, targets.sessions[1]!)
       await settle(full.page)
       await measure('session-pane', async (i) => {
         const id = targets.sessions[i % 2]!
