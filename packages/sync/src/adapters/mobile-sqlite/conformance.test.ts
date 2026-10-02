@@ -52,7 +52,7 @@ describe('the guard fires FIRST: this instantiation is backed by a real SQLite e
       operations: [
         {
           kind: 'upsert',
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: 'ADA-1',
           value: { n: 1 },
           provenance: { seq: 1 },
@@ -63,7 +63,7 @@ describe('the guard fires FIRST: this instantiation is backed by a real SQLite e
 
     // …then YES, read through a CONNECTION OF ITS OWN. A mirror cannot satisfy this.
     expect(readDurable(storage.databaseFile).entities).toEqual([
-      { principal: 'ada', entity: 'issue', entityId: 'ADA-1', value: { n: 1 } },
+      { principal: 'ada', entity: 'issueProjection', entityId: 'ADA-1', value: { n: 1 } },
     ])
   })
 })

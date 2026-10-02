@@ -121,7 +121,7 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
           operations: [
             {
               kind: 'upsert',
-              entity: 'issue',
+              entity: 'issueProjection',
               entityId: 'ADA-1',
               value: { v: 0 },
               provenance: { seq: 1 },
@@ -148,7 +148,7 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
           operations: [
             {
               kind: 'upsert',
-              entity: 'issue',
+              entity: 'issueProjection',
               entityId: 'ADA-1',
               value: { v: 1 },
               provenance: { seq: 2 },
@@ -234,7 +234,7 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
       // published, so nothing in memory outlived the transaction that failed.
       const reopened = await open()
       const view = reopened.viewFor(PRINCIPAL)
-      expect(view.cache.read('issue', 'ADA-1')?.value).toEqual({ v: 0 })
+      expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 0 })
       expect(view.cache.readCursor()).toEqual(CURSOR_1)
       expect((await view.outbox.read()).map((r) => r.mutationId)).toEqual([M])
       reopened.close()
@@ -253,7 +253,7 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
     expectPost()
     const reopened = await open()
     const view = reopened.viewFor(PRINCIPAL)
-    expect(view.cache.read('issue', 'ADA-1')?.value).toEqual({ v: 1 })
+    expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 1 })
     expect(view.cache.readCursor()).toEqual(CURSOR_2)
     expect(await view.outbox.read()).toEqual([])
     reopened.close()

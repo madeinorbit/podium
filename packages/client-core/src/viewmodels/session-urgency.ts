@@ -1,4 +1,3 @@
-import type { IssueViewModel } from '../replica/issue-view-models'
 import type { SessionView } from '../session-values'
 /**
  * F3 — *what order sessions are presented in.*
@@ -11,7 +10,7 @@ import type { SessionView } from '../session-values'
  *
  *   SHAPE (checkable): **a collection of sessions in, an order or a rank out.**
  *   No issues, no rows, no repos, no presentation strings. It depends on
- *   `@podium/model` and `../focus` and on nothing else in `viewmodels/`, so it
+ *   `@podium/model`, `../session-values` and `../focus` and on nothing else in `viewmodels/`, so it
  *   cannot participate in a cycle.
  *
  *   QUESTION (not checkable): **what order sessions are presented in** —

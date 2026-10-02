@@ -84,7 +84,7 @@ describe('IndexedDB adapter — quota-full (ADR 6 D4.4)', () => {
           operations: [
             {
               kind: 'upsert',
-              entity: 'issue',
+              entity: 'issueProjection',
               entityId: 'ADA-1',
               value: { v },
               provenance: { seq: cursor.seq },
@@ -164,7 +164,7 @@ describe('IndexedDB adapter — quota-full (ADR 6 D4.4)', () => {
     // The session CONTINUES: the write applied in memory and reached IndexedDB not
     // at all. That is what `degraded-memory` means — not "every write now throws".
     const view = store.viewFor(PRINCIPAL)
-    expect(view.cache.read('issue', 'ADA-1')?.value).toEqual({ v: 1 })
+    expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 1 })
     expect((await view.outbox.read()).map((r) => r.mutationId)).toEqual([M2])
     expect(factory.writesIssued).toBe(afterFirst)
     store.close()
@@ -187,7 +187,7 @@ describe('IndexedDB adapter — quota-full (ADR 6 D4.4)', () => {
     const reopened = await open()
     const view = reopened.viewFor(PRINCIPAL)
     expect(reopened.durability()).toBe('durable')
-    expect(view.cache.read('issue', 'ADA-1')?.value).toEqual({ v: 0 })
+    expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 0 })
     expect(view.cache.readCursor()).toEqual(CURSOR_1)
     expect((await view.outbox.read()).map((r) => r.mutationId)).toEqual([M1])
     reopened.close()

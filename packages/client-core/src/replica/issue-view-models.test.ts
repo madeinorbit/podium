@@ -60,7 +60,6 @@ function world() {
   replica.applySnapshot('repos', [
     { id: 'repo', repoPath: '/normalized-repo', prefix: 'POD' } as never,
   ])
-  replica.applySnapshot('issueProjections', [])
   return replica
 }
 
@@ -80,12 +79,10 @@ describe('normalized issue render models', () => {
     })
     expect(allIssueViewModels(replica)[0]).toMatchObject({ readAt: markers.readAt,
       tuckedAt: markers.tuckedAt, pinned: true, gitState: { ahead: 3 }, repoPath: '/normalized-repo' })
-    expect(replica.rows('issueProjections')).toEqual([])
   })
 
-  it('publishes every issue field with no old rows', () => {
+  it('joins each issue field from its normalized kind', () => {
     const replica = world()
-    expect(replica.rows('issueProjections')).toEqual([])
     const model = issueViewModelsFromReplica(replica).get(projection.id)!
     expect(model).toMatchObject({
       title: projection.title,
@@ -121,26 +118,6 @@ describe('normalized issue render models', () => {
     const model = issueViewModelsFromReplica(world()).get(projection.id)!
     expect(model[field]).toBe(projection[field])
     expect(model).not.toHaveProperty(field === 'intentOrigin' ? 'origin' : 'draft')
-  })
-  it('is identical with poisoned old rows present and after they are emptied', () => {
-    const replica = world()
-    replica.applySnapshot('issueProjections', [
-      {
-        id: projection.id,
-        title: 'WRONG',
-        repoPath: '/WRONG',
-        readAt: null,
-        pinned: false,
-        tuckedAt: null,
-        gitState: { ahead: 999 },
-        humanQuestion: 'WRONG',
-        origin: 'human',
-        draft: false,
-      } as never,
-    ])
-    const withOld = issueViewModelsFromReplica(replica)
-    replica.applySnapshot('issueProjections', [])
-    expect(issueViewModelsFromReplica(replica)).toEqual(withOld)
   })
   it('uses safe defaults when marker/git/repo rows are absent and never revives them', () => {
     const replica = world()

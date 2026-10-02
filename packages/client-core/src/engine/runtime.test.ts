@@ -1441,7 +1441,7 @@ describe('unified optimistic overlay (#263)', () => {
     const { engine } = makeEngine({ api })
     engine.start()
     await settle(40)
-    engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
+    engine.replica.applyChanges('sessions', [{ ...session('s1', '/w'), readAt: '2026-07-01T00:00:00.000Z' }], [])
     await settle()
     void engine.getSnapshot().renameSession(asSessionId('s1'), 'first')
     void engine.getSnapshot().markSessionUnread(asSessionId('s1'))

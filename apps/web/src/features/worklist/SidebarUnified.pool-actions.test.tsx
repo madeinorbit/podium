@@ -1159,11 +1159,11 @@ describe('real pool row mutations and receipts', () => {
       runtime.getSnapshot().setSelectedIssueId(asIssueId(TARGET))
     })
     expect(runtime.getSnapshot().selectedIssueId).toBe(TARGET)
-    const records = ['issue', 'issueProjection'].map(
+    const records = ['issueProjection'].map(
       (entity) => fixture.records.get(`${entity}:${TARGET}`)!,
     )
     await act(async () => {
-      for (const entity of ['issue', 'issueProjection']) {
+      for (const entity of ['issueProjection']) {
         fixture.records.delete(`${entity}:${TARGET}`)
         fixture.replica.onKernelEvent({ type: 'evicted', entity, entityId: TARGET })
       }

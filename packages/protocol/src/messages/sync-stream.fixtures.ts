@@ -19,7 +19,7 @@ export const SYNC_WIRE_FIXTURES: WireFixture[] = [
   { name: 'sync.delta', schema: SyncRecord, value: {
     type: 'feedDelta', feedId: 'feed-1', epoch: 'epoch-1', fromSeq: 5,
     seq: 10, minAvailableSeq: 0,
-    changes: [{ seq: 8, entity: 'issue', entityId: 'issue-1', op: 'evict' }],
+    changes: [{ seq: 8, entity: 'issueProjection', entityId: 'issue-1', op: 'evict' }],
   } },
   { name: 'sync.complete', schema: SyncRecord, value: {
     type: 'syncComplete', transferId: 'transfer-1', seq: 10, records: 1, rows: 1,

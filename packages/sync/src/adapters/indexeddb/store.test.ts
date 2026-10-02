@@ -253,7 +253,7 @@ describe('IndexedDbSyncStore', () => {
         operations: [
           {
             kind: 'upsert',
-            entity: 'issue',
+            entity: 'issueProjection',
             entityId: 'ADA-1',
             value: { v: 0 },
             provenance: { seq: 1 },
@@ -261,7 +261,7 @@ describe('IndexedDbSyncStore', () => {
         ],
         cursor: CURSOR,
       })
-      expect(view.cache.read('issue', 'ADA-1')?.value).toEqual({ v: 0 })
+      expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 0 })
       expect(view.cache.readCursor()).toEqual(CURSOR)
       await expect(store.settled()).resolves.toBeUndefined()
     })
@@ -289,7 +289,7 @@ describe('IndexedDbSyncStore', () => {
         operations: [
           {
             kind: 'upsert',
-            entity: 'issue',
+            entity: 'issueProjection',
             entityId: 'ADA-1',
             value: { v: 1 },
             provenance: { seq: 1 },
@@ -324,7 +324,7 @@ describe('IndexedDbSyncStore', () => {
           operations: [
             {
               kind: 'upsert',
-              entity: 'issue',
+              entity: 'issueProjection',
               entityId: 'SHARED',
               value: { owner: principal },
               provenance: { seq: 1 },
@@ -340,8 +340,8 @@ describe('IndexedDbSyncStore', () => {
 
       store.viewFor('ada').cache.discardCache()
       await store.settled()
-      expect(store.viewFor('ada').cache.read('issue', 'SHARED')).toBeUndefined()
-      expect(store.viewFor('grace').cache.read('issue', 'SHARED')?.value).toEqual({
+      expect(store.viewFor('ada').cache.read('issueProjection', 'SHARED')).toBeUndefined()
+      expect(store.viewFor('grace').cache.read('issueProjection', 'SHARED')?.value).toEqual({
         owner: 'grace',
       })
       expect((await readDurable(factory))[ENTITY_STORE]).toHaveLength(1)
@@ -356,7 +356,7 @@ describe('IndexedDbSyncStore', () => {
           operations: [
             {
               kind: 'upsert',
-              entity: 'issue',
+              entity: 'issueProjection',
               entityId: 'SHARED',
               value: { owner: principal },
               provenance: { seq: 1 },
@@ -379,7 +379,7 @@ describe('IndexedDbSyncStore', () => {
       expect(ada.cache.readCursor()).toBeNull()
       expect(await ada.outbox.read()).toEqual([])
       const grace = reopened.viewFor('grace')
-      expect(grace.cache.read('issue', 'SHARED')?.value).toEqual({ owner: 'grace' })
+      expect(grace.cache.read('issueProjection', 'SHARED')?.value).toEqual({ owner: 'grace' })
       expect(grace.cache.readCursor()).toEqual(CURSOR)
       expect((await grace.outbox.read()).map((row) => row.mutationId)).toEqual(['m-grace'])
       reopened.close()
@@ -434,7 +434,7 @@ describe('IndexedDbSyncStore', () => {
       operations: [
         {
           kind: 'upsert',
-          entity: 'issue',
+          entity: 'issueProjection',
           entityId: 'ADA-1',
           value: { v: 0 },
           provenance: { seq: 1 },
@@ -446,7 +446,7 @@ describe('IndexedDbSyncStore', () => {
     // A memory-only implementation would have nothing to re-read from.
     const rows = await view.outbox.read()
     expect(rows.map((r) => r.mutationId)).toEqual(['m-guard'])
-    expect(view.cache.read('issue', 'ADA-1')?.value).toEqual({ v: 0 })
+    expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 0 })
     expect(indexedDbInstantiation.name).toBe('indexeddb')
   })
 })

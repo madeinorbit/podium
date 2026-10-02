@@ -35,7 +35,7 @@ const attribution = { actor: actorUser(ADA), onBehalfOf: ADA } as const
 const PAD = 'x'.repeat(2_600)
 const rows = (generation: string): EntityRecord[] =>
   Array.from({ length: ROWS }, (_, i) => ({
-    entity: 'issue',
+    entity: 'issueProjection',
     entityId: `POD-${i}`,
     value: { id: `POD-${i}`, title: `issue ${i} ${generation}`, body: PAD, stage: 'backlog' },
     revision: 1,

@@ -79,7 +79,7 @@ describe('the change log', () => {
     // The chunking is the reason `lastInsertRowid` is read at all: each chunk is
     // one statement, and the seqs of the rows before the last are DERIVED from
     // it. A conversion that lost the run result would still return an array.
-    const rows = Array.from({ length: 250 }, (_, i) => change('issue', `i${i}`, 'upsert', '{}'))
+    const rows = Array.from({ length: 250 }, (_, i) => change('issueProjection', `i${i}`, 'upsert', '{}'))
     expect(await repo.appendChanges(rows, 7)).toEqual(Array.from({ length: 250 }, (_, i) => i + 1))
     expect(stored('SELECT COUNT(*) AS n FROM changes')).toEqual([{ n: 250 }])
   })
@@ -88,7 +88,7 @@ describe('the change log', () => {
     // Spec rule 43 in the direction that is SAFE here and must stay safe: three
     // nullable columns with no DEFAULT clause, which the original INSERT omitted
     // and the builder binds an explicit null for.
-    await repo.appendChanges([change('issue', 'i1', 'upsert', '{"a":1}')], 11)
+    await repo.appendChanges([change('issueProjection', 'i1', 'upsert', '{"a":1}')], 11)
     expect(
       stored(
         'SELECT seq, entity, entity_id, op, payload, event_time, origin_id, causation_id, mutation_id FROM changes',
@@ -96,7 +96,7 @@ describe('the change log', () => {
     ).toEqual([
       {
         seq: 1,
-        entity: 'issue',
+        entity: 'issueProjection',
         entity_id: 'i1',
         op: 'upsert',
         payload: '{"a":1}',
@@ -109,7 +109,7 @@ describe('the change log', () => {
   })
 
   it('reads back exactly the five columns changesSince projects', async () => {
-    await repo.appendChanges([change('issue', 'i1', 'upsert', '{"a":1}')], 11)
+    await repo.appendChanges([change('issueProjection', 'i1', 'upsert', '{"a":1}')], 11)
     const [row] = await repo.changesSince(0)
     // The KEY SET, not just the values: a widened projection (rule 39) shows up
     // here and nowhere else, because every other assertion reads named fields.
@@ -122,7 +122,7 @@ describe('the change log', () => {
     ])
     expect(row).toEqual({
       seq: 1,
-      entity: 'issue',
+      entity: 'issueProjection',
       entityId: 'i1',
       op: 'upsert',
       payload: '{"a":1}',
@@ -132,9 +132,9 @@ describe('the change log', () => {
   it('honours the cursor, the seq order and the limit', async () => {
     await repo.appendChanges(
       [
-        change('issue', 'i1', 'upsert', '1'),
-        change('issue', 'i2', 'upsert', '2'),
-        change('issue', 'i3', 'upsert', '3'),
+        change('issueProjection', 'i1', 'upsert', '1'),
+        change('issueProjection', 'i2', 'upsert', '2'),
+        change('issueProjection', 'i3', 'upsert', '3'),
       ],
       1,
     )
@@ -153,7 +153,7 @@ describe('the change log', () => {
     // inside a caller's transaction, and would leave the first 100 rows behind
     // when nobody had opened one. The batch is 100 rows per statement, so a bad
     // row at 150 fails the SECOND chunk after the first has already been written.
-    const rows = Array.from({ length: 200 }, (_, i) => change('issue', `i${i}`, 'upsert', '{}'))
+    const rows = Array.from({ length: 200 }, (_, i) => change('issueProjection', `i${i}`, 'upsert', '{}'))
     rows[150] = { entity: null, entityId: 'bad', op: 'upsert', payload: '{}' } as never
     await expect(repo.appendChanges(rows, 1)).rejects.toThrow()
     expect(stored('SELECT COUNT(*) AS n FROM changes')).toEqual([{ n: 0 }])
@@ -161,9 +161,9 @@ describe('the change log', () => {
   })
 
   it('carries a `remove` through with a null payload', async () => {
-    await repo.appendChanges([change('issue', 'i1', 'remove', null)], 3)
+    await repo.appendChanges([change('issueProjection', 'i1', 'remove', null)], 3)
     expect(await repo.changesSince(0)).toEqual([
-      { seq: 1, entity: 'issue', entityId: 'i1', op: 'remove', payload: null },
+      { seq: 1, entity: 'issueProjection', entityId: 'i1', op: 'remove', payload: null },
     ])
   })
 })
@@ -245,7 +245,7 @@ describe('the head and tail of the sequence', () => {
 
   it('keeps the high-water mark after the rows behind it are pruned', async () => {
     await repo.appendChanges(
-      Array.from({ length: 5 }, (_, i) => change('issue', `i${i}`, 'upsert', '{}')),
+      Array.from({ length: 5 }, (_, i) => change('issueProjection', `i${i}`, 'upsert', '{}')),
       1,
     )
     expect(await repo.pruneChangeBatch({ thresholdSeq: 3 })).toBe(3)
@@ -257,7 +257,7 @@ describe('the head and tail of the sequence', () => {
 describe('retention', () => {
   const append = async (n: number, eventTime: number): Promise<void> => {
     await repo.appendChanges(
-      Array.from({ length: n }, (_, i) => change('issue', `${eventTime}-${i}`, 'upsert', '{}')),
+      Array.from({ length: n }, (_, i) => change('issueProjection', `${eventTime}-${i}`, 'upsert', '{}')),
       eventTime,
     )
   }
@@ -305,7 +305,7 @@ describe('the installed world', () => {
     // statements: grouped by op, the upsert would be applied last and the entity
     // would stay installed.
     await repo.appendChanges(
-      [change('issue', 'i1', 'upsert', '{"v":1}'), change('issue', 'i1', 'remove', null)],
+      [change('issueProjection', 'i1', 'upsert', '{"v":1}'), change('issueProjection', 'i1', 'remove', null)],
       1,
     )
     expect(await repo.latestChangeStates()).toEqual([])
@@ -313,27 +313,27 @@ describe('the installed world', () => {
 
   it('takes the LAST upsert of one entity in a batch', async () => {
     await repo.appendChanges(
-      [change('issue', 'i1', 'upsert', '{"v":1}'), change('issue', 'i1', 'upsert', '{"v":2}')],
+      [change('issueProjection', 'i1', 'upsert', '{"v":1}'), change('issueProjection', 'i1', 'upsert', '{"v":2}')],
       1,
     )
     expect(await repo.latestChangeStates()).toEqual([
-      { seq: 2, entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
+      { seq: 2, entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
     ])
   })
 
   it('treats a payload-less upsert as "not installed"', async () => {
-    await repo.appendChanges([change('issue', 'i1', 'upsert', '{}')], 1)
-    await repo.appendChanges([change('issue', 'i1', 'upsert', null)], 2)
+    await repo.appendChanges([change('issueProjection', 'i1', 'upsert', '{}')], 1)
+    await repo.appendChanges([change('issueProjection', 'i1', 'upsert', null)], 2)
     expect(await repo.latestChangeStates()).toEqual([])
     expect(stored('SELECT COUNT(*) AS n FROM change_latest')).toEqual([{ n: 0 }])
   })
 
   it('returns the world in seq order', async () => {
     await repo.appendChanges(
-      [change('issue', 'i1', 'upsert', '1'), change('issue', 'i2', 'upsert', '2')],
+      [change('issueProjection', 'i1', 'upsert', '1'), change('issueProjection', 'i2', 'upsert', '2')],
       1,
     )
-    await repo.appendChanges([change('issue', 'i1', 'upsert', '3')], 2)
+    await repo.appendChanges([change('issueProjection', 'i1', 'upsert', '3')], 2)
     expect((await repo.latestChangeStates()).map((r) => [r.entityId, r.seq])).toEqual([
       ['i2', 2],
       ['i1', 3],
@@ -342,7 +342,7 @@ describe('the installed world', () => {
 
   it('bumps the generation on append and NOT on prune', async () => {
     const before = await repo.latestChangeStatesGeneration()
-    await repo.appendChanges([change('issue', 'i1', 'upsert', '{}')], 1)
+    await repo.appendChanges([change('issueProjection', 'i1', 'upsert', '{}')], 1)
     const afterAppend = await repo.latestChangeStatesGeneration()
     expect(afterAppend).toBeGreaterThan(before)
     await repo.pruneChangeBatch({ thresholdSeq: 1 })

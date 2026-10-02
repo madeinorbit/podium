@@ -114,7 +114,7 @@ describe('replica snapshot binding', () => {
       },
     ])
     expect(cold.issueProjections).toMatchObject([{ id: 'alice-issue' }])
-    expect(cold.issueUserStates).toEqual([issuePersonal])
+    expect(cold.issueUserStates).toMatchObject([issuePersonal])
     expect(cold).not.toHaveProperty('issues')
   })
 

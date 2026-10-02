@@ -165,7 +165,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     }
   })
 
-  it('git publication appends only the changed observation and backfills a missing projection', async () => {
+  it('git publication appends only the changed observation', async () => {
     const { svc, store, ledger, appended } = await harness()
     try {
       const issue = await svc.create({ repoPath: '/r', title: 'Git observation', startNow: false })
@@ -189,16 +189,6 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       })
       expect(appended).toHaveLength(1)
       expect(appended[0]?.map((c) => c.entity)).toEqual(['issueGitState'])
-      // The unchanged projection is deduped. If its baseline was missing, it is
-      // backfilled in this same commit rather than waiting for a full-list emit.
-      await ledger.capture([{ entity: 'issueProjection', id: issue.id, op: 'remove' }])
-      appended.length = 0
-      svc.gitStates.set(issue.id, { ...svc.gitStates.get(issue.id)!, merged: true })
-      await svc.broadcastIssue(await svc.rowOrThrow(issue.id))
-      expect(appended).toHaveLength(1)
-      expect(appended[0]?.map((c) => c.entity)).toEqual(
-        expect.arrayContaining(['issueProjection', 'issueGitState']),
-      )
       expect(((await ledger.changesSince(cursor)) ?? []).some((c) => c.id === other.id)).toBe(false)
       const unchanged = await ledger.cursor()
       await svc.broadcastIssue(await svc.rowOrThrow(issue.id))

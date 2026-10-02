@@ -91,6 +91,7 @@ describe('targets picked by rule, checked against the oracle (1x)', () => {
     issueProjections: base.issueProjections.map((p) =>
       p.id === id ? ({ ...p, ...patch } as typeof p) : p,
     ),
+    issueUserStates: base.issueUserStates?.map(row => row.entityId === id ? { ...row, ...Object.fromEntries(Object.entries(patch).filter(([key]) => ['readAt', 'tuckedAt', 'pinned'].includes(key))) } : row),
   })
 
   it('is deterministic in the corpus', () => {
@@ -234,11 +235,11 @@ describe('#2 target moves its row at every scale (oracle)', () => {
 })
 
 describe('scenarios on the fixture at 1x', () => {
-  it('#1 unrelatedHeartbeat: one update, one row; session delta only', async () => {
+  it('#1 unrelatedHeartbeat: one update for the session and its owner summary', async () => {
     const result = await unrelatedHeartbeat()
     expect(result.corpus).toEqual({ scale: 1, seed: FIXTURE_SEED, issues: 4867, sessions: 4304 })
-    expect(summarize(result)).toBe('#1 unrelatedHeartbeat: 1 events, rows [update:1]')
-    expect(result.events[0]?.rows[0]).toMatchObject({
+    expect(summarize(result)).toBe('#1 unrelatedHeartbeat: 1 events, rows [update:2]')
+    expect(result.events[0]?.rows.find(row => row.kind === 'session')).toMatchObject({
       kind: 'session',
       id: result.targets.heartbeatSessionId,
     })
@@ -249,11 +250,11 @@ describe('scenarios on the fixture at 1x', () => {
     expect(result.after.issues).toEqual(result.before.issues)
   }, 60_000)
 
-  it('#2 visibleSessionPhaseChange: one update, one session row', async () => {
+  it('#2 visibleSessionPhaseChange: one update for the session and its owner summary', async () => {
     const result = await visibleSessionPhaseChange()
-    expect(summarize(result)).toBe('#2 visibleSessionPhaseChange: 1 events, rows [update:1]')
+    expect(summarize(result)).toBe('#2 visibleSessionPhaseChange: 1 events, rows [update:2]')
     const id = result.targets.phaseSessionId
-    expect(result.events[0]?.rows[0]).toMatchObject({ kind: 'session', id })
+    expect(result.events[0]?.rows.find(row => row.kind === 'session')).toMatchObject({ kind: 'session', id })
     expect(result.after.sessions.find((s) => s.sessionId === id)?.phase).toBe('idle')
     expect(result.before.sessions.find((s) => s.sessionId === id)?.phase).toBe('working')
   }, 60_000)
@@ -373,9 +374,9 @@ describe('scenarios on the fixture at 1x', () => {
     expect(result.after.issues.find((i) => i.id === id)?.readAt).toBe(OPTIMISTIC_ECHO_READ_AT)
   }, 60_000)
 
-  it('#10 burst50: exactly one update with 50 rows', async () => {
+  it('#10 burst50: one update with 50 sessions and 50 owner summaries', async () => {
     const result = await burst50()
-    expect(summarize(result)).toBe('#10 burst50: 1 events, rows [update:50]')
+    expect(summarize(result)).toBe('#10 burst50: 1 events, rows [update:100]')
     expect(result.after.sessions.length - result.before.sessions.length).toBe(50)
   }, 60_000)
 
@@ -542,15 +543,15 @@ describe('browser heartbeats: unrelated and visible (POD-4560)', () => {
 })
 
 describe('heartbeat cost on the fixture at 1x, 2x, 4x (counts only)', () => {
-  it('visits 1 row at every scale', async () => {
+  it('visits one session and its owner summary at every scale', async () => {
     const table: Record<string, { rowsVisited: number; enumerations: number; rows: number }> = {}
     for (const scale of [1, 2, 4] as const) {
       table[`${scale}x`] = await measureHeartbeat(scale)
     }
     console.info(`[scenarios] heartbeat cost: ${JSON.stringify(table)}`)
     for (const [scale, cost] of Object.entries(table)) {
-      expect(cost.rows, `${scale}: one addressed row`).toBe(1)
-      expect(cost.rowsVisited, `${scale}: O(addresses) visits`).toBe(1)
+      expect(cost.rows, `${scale}: session and its bounded owner summary`).toBe(2)
+      expect(cost.rowsVisited, `${scale}: O(addresses) visits`).toBe(2)
       // POD-4553: the per-row feed reads the addressed row by id; no kind is
       // re-indexed, so no whole-slice pass happens at any scale.
       expect(cost.enumerations, `${scale}: no whole-slice pass`).toBe(0)

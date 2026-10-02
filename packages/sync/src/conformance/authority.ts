@@ -272,7 +272,7 @@ export class StubVisibilityPolicy implements VisibilityStatePort, DelegationScop
    * produce (and does, for any kind not in this map) rather than paper over.
    */
   private readonly classes = new Map<string, VisibilityClass>([
-    ['issue', 'personal'],
+    ['issueProjection', 'personal'],
     ['session', 'personal'],
     ['conversation', 'personal'],
   ])

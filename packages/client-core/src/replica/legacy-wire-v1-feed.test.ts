@@ -550,7 +550,7 @@ describe('SocketHub metadata delta mode', () => {
     await flush()
     expect(calls).toEqual([null])
     // A NEWER server streams a batch with a kind this build doesn't know
-    // ('machine'). The known changes apply, the unknown row is ignored (never
+    // ('futureEntity'). The known changes apply, the unknown row is ignored (never
     // folded into the conversation list), and the cursor advances past it.
     sock.onmessage?.({
       data: JSON.stringify({
@@ -558,7 +558,7 @@ describe('SocketHub metadata delta mode', () => {
         seq: 8,
         changes: [
           { seq: 6, entity: 'issueProjection', id: 'a', op: 'upsert', value: issue(asIssueId('a'), 'known') },
-          { seq: 7, entity: 'machine', id: 'm1', op: 'upsert', value: { id: 'm1', os: 'linux' } },
+          { seq: 7, entity: 'futureEntity', id: 'm1', op: 'upsert', value: { id: 'm1', os: 'linux' } },
           {
             seq: 8,
             entity: 'issueProjection',
@@ -575,7 +575,7 @@ describe('SocketHub metadata delta mode', () => {
     // The kind is a structured FIELD now, not interpolated into the message —
     // so assert on the field, which is what makes the record queryable at all.
     expect(
-      captured.some((r) => String(r.msg).includes('unknown entity kind') && r.entity === 'machine'),
+      captured.some((r) => String(r.msg).includes('unknown entity kind') && r.entity === 'futureEntity'),
     ).toBe(true)
     // No heal loop: the cursor moved to 8, so the NEXT contiguous batch applies
     // cleanly and changesSince was never re-fetched.

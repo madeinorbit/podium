@@ -94,7 +94,7 @@ describe('fromExpoSqlite — the mapping, over a real engine', () => {
         operations: [
           {
             kind: 'upsert',
-            entity: 'issue',
+            entity: 'issueProjection',
             entityId: 'ADA-1',
             value: { via: 'expo' },
             provenance: { seq: 1 },
@@ -109,7 +109,7 @@ describe('fromExpoSqlite — the mapping, over a real engine', () => {
       // execute is lazy and a `run` that never reads its result never applies the
       // statement — leaves this empty.
       expect(readDurable(file).entities).toEqual([
-        { principal: 'ada', entity: 'issue', entityId: 'ADA-1', value: { via: 'expo' } },
+        { principal: 'ada', entity: 'issueProjection', entityId: 'ADA-1', value: { via: 'expo' } },
       ])
 
       // Every prepared statement was released, including on the read paths.

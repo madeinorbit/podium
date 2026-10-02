@@ -30,6 +30,8 @@ import {
   IssueUserStateWire,
   RepoProjection,
   SessionMeta,
+  SessionUserStateWire,
+  MachineProjection,
   ShipLaneProjection,
   ShipOrderProjection,
 } from '@podium/model'
@@ -59,6 +61,8 @@ const arms = FeedChange.options as unknown as Arm[]
  *  entity kind cannot arrive unchecked. */
 const PAYLOAD_OF_KIND: Record<string, z.ZodTypeAny> = {
   session: SessionMeta,
+  sessionUserState: SessionUserStateWire,
+  machine: MachineProjection,
   issueProjection: IssueProjection,
   issueUserState: IssueUserStateWire,
   issueGitState: IssueGitStateProjection,
@@ -89,10 +93,10 @@ const delta = (over: Partial<z.input<typeof FeedDeltaMessage>> = {}) => ({
 })
 
 describe('the v2 change row composes the shared vocabulary', () => {
-  it('has all eleven entity arms, so the per-arm loops below are not vacuous', () => {
+  it('has all thirteen entity arms, so the per-arm loops below are not vacuous', () => {
     // The counterfactual guard POD-305 named: if `.options` stopped resolving,
     // every loop here would iterate nothing and pass silently.
-    expect(arms).toHaveLength(11)
+    expect(arms).toHaveLength(13)
     expect(arms.map(kindOf).sort()).toEqual(Object.keys(PAYLOAD_OF_KIND).sort())
   })
 

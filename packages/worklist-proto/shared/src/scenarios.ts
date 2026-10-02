@@ -49,10 +49,8 @@ import { fixtureMarkers, fixtureGitStates, fixtureProjection } from '../../harne
  * | coldBootstrap | #12 | full once | 1 update, discovery lanes only; arms snapshot (finding) |
  * | rescopeGrowth | #13 | full each | 2 replaces |
  *
- * DUAL-WRITE. Issue writes update wire AND projection rows together, as the
- * authority does during the normalized migration: a projection change always
- * arrives with its wire change in the same batch and dedupes to one `issue`
- * row (see `row-source.ts`).
+ * Issue writes update normalized facts and, when needed, personal markers or
+ * git observations. The row source joins these into one render input.
  *
  * EVICT. `evictWithoutRevision` drops the rows from the cache and fires
  * `evicted` (not `removed`): an authority snapshot omitting the row. Evict
@@ -716,7 +714,8 @@ export async function startEngineOnCorpus(
   corpus: FixtureCorpus,
   opts: EngineOptions = {},
 ): Promise<ScenarioEngine> {
-  const cache = seedCacheFromCorpus(corpus, { ownRows: opts.ownRows === true })
+  const principal = opts.principal ?? 'u-bench'
+  const cache = seedCacheFromCorpus({ ...corpus, issueUserStates: (corpus.issueUserStates ?? fixtureMarkers(corpus.issues)).map(row => ({ ...row, userId: asUserId(principal) })) }, { ownRows: opts.ownRows === true })
   await opts.stage?.('cache')
   const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
   const newReplica = () => createKernelReplica({ cache, side })
@@ -733,7 +732,6 @@ export async function startEngineOnCorpus(
     ...(opts.server ? { server: opts.server } : {}),
   })
   const clock = manualClock(corpus.fixedNow)
-  const principal = opts.principal ?? 'operator'
   const outboxStore = opts.outbox === 'kernel' ? new InMemoryOutboxStore() : null
   const boot = async (replica: ReturnType<typeof createKernelReplica>) => {
     const hub = new FakeHub()
@@ -1051,9 +1049,9 @@ function patchIssue(ctx: ScenarioEngine, id: string, modelPatch: Record<string, 
   })
 }
 function patchIssueMarkers(ctx: ScenarioEngine, id: string, patch: Record<string, unknown>, seq = 2): void {
-  const rowId = issueUserStateRowId(asUserId('u-bench'), asIssueId(id))
+  const rowId = issueUserStateRowId(ctx.engine.principal.userId, asIssueId(id))
   const state = ctx.cache.read('issueUserState', rowId)?.value as object | undefined
-  upsert(ctx, 'issueUserState', rowId, { userId: 'u-bench', entityId: id, readAt: null, tuckedAt: null, pinned: false, ...state, ...patch }, seq)
+  upsert(ctx, 'issueUserState', rowId, { userId: ctx.engine.principal.userId, entityId: id, readAt: null, tuckedAt: null, pinned: false, ...state, ...patch }, seq)
 }
 function evictIssueRows(ctx: ScenarioEngine, id: string): void {
   evict(ctx, 'issueProjection', id)
