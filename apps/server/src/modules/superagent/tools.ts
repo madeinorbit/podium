@@ -133,9 +133,11 @@ export async function buildSuperagentTools(
       },
       run: async () => {
         if (!listPrincipal) return '[]'
+        const listed = await sessions.listSessions(listPrincipal, 'listAllTool')
+        const snoozes = await store.sessions.listSnoozes(listPrincipal.userId)
         return JSON.stringify(
           await Promise.all(
-            (await sessions.listSessions(listPrincipal, 'listAllTool')).map(
+            listed.map(
               async (s) => {
                 // Reverse of issue_show's session list (issue #72): session cwd →
                 // bound issue, via the same worktree-containment rule as authz scope.
@@ -153,7 +155,7 @@ export async function buildSuperagentTools(
                   // Provenance + snooze (issue #62): who created it, and whether it's
                   // parked out of the attention flow (null = until next message).
                   spawnedBy: s.spawnedBy,
-                  snoozedUntil: (await store.sessions.sessionUserStateFor(listPrincipal.userId, s.sessionId)).snoozedUntil,
+                  snoozedUntil: Object.hasOwn(snoozes, s.sessionId) ? snoozes[s.sessionId] : undefined,
                   ...(issue ? { boundIssue: { seq: issue.seq, title: issue.title } } : {}),
                 }
               },
