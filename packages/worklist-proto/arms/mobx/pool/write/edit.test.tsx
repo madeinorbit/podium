@@ -18,7 +18,7 @@
 
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
-import { mountArmForCounts, runCountScenario } from '../../../../harness/src/count-harness'
+import { assertReads, mountArmForCounts, runCountScenario } from '../../../../harness/src/count-harness'
 import { engineLocals, openFenceFeeds } from '../../../../harness/src/fence-scenarios'
 import { snapshotFromStore } from '../../../../harness/src/oracle/index'
 import { startScenarioEngine } from '../../../../shared/src/scenarios'
@@ -96,8 +96,7 @@ describe('Mc1 MobX edits on the model', () => {
       expect(transport.sent[0]!.command.kind).toBe('issueUpdate')
       expect(edited.rowsCommitted).toBe(1)
       expect(edited.commitsByRow).toEqual({ [id]: 1 })
-      expect(edited.readsPerChange).not.toBeNull()
-      expect(edited.readsPerChange!).toBeLessThanOrEqual(3)
+      assertReads(edited, { readsPerChange: 3 })
       // Optimism paints ahead of server truth: the server oracle still shows
       // the old title, so parity is false while pending.
       expect(edited.parity).toBe(false)
