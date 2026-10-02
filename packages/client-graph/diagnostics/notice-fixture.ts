@@ -1,7 +1,7 @@
 /** Synthetic words only; used by focused parity checks and browser evidence. */
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import type { SessionView } from '@podium/client-core/session-values'
-import { asMutationId, asSessionId, type MessageRecordWire } from '@podium/model/browser'
+import { asMutationId, asSessionId, type MessageRecordWire } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 
 export function noticeFixture(sessionId = 'synthetic-session-0') {

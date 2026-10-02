@@ -1,5 +1,5 @@
 import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/viewmodels'
-import { deadLetterDeliveryLine, isMessageRecordAttention } from '@podium/model/browser'
+import { deadLetterDeliveryLine, isMessageRecordAttention } from '@podium/model'
 import type { MobxPool } from './pool'
 import { pendingInteractionCard } from './notice-card'
 import type { NoticeRows } from './notice-schema'

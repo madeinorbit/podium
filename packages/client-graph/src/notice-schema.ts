@@ -1,5 +1,5 @@
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
-import type { MessageRecordWire } from '@podium/model/browser'
+import type { MessageRecordWire } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 
 export interface NoticeRows {
