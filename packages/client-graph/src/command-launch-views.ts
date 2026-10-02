@@ -1,4 +1,5 @@
 import type { SpawnTarget } from '@podium/client-core'
+import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RepoView } from '@podium/client-core/viewmodels'
@@ -9,12 +10,12 @@ import type { CommandLaunchRows } from './command-launch-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export type CommandLaunchData = CommandLaunchRows['commandWindow'] & {
-  repos: CommandLaunchRows['commandRepository'][]
+  repos: Store['repos']
   repoViews: RepoView[]
   machines: CommandLaunchRows['commandMachine'][]
   sessions: SessionView[]
   issues: IssueViewModel[]
-  repoChoices: CommandLaunchRows['commandRepository'][]
+  repoChoices: Store['repos']
   initialRepoPath: string
   spawnTargets: SpawnTarget[]
   usage: Readonly<Record<string, number>>
@@ -58,19 +59,24 @@ export function createCommandLaunchViews(pool: MobxPool) {
       if (value === LOADING) { pending++; return [] }
       return value ? [value as SessionView] : []
     })
-    const usage: Record<string, number> = {}
+    const usage: Record<string, number> = {}, visibleSessions = new Set(catalog.sessions)
+    const coldSessions = sessions.filter(session => !pool.resident('session', session.sessionId))
     for (let index = 0; index < repos.length; index++) {
-      const repo = repos[index]!, key = catalog.repositories[index]!
-      const resident = new Set(pool.sources.related('commandRepository', key, 'sessions'))
+      const repo = repos[index]!, key = JSON.stringify([repo.machineId ?? '', repo.path])
       let at = 0
-      for (const session of sessions) {
+      for (const id of pool.sources.related('commandRepository', key, 'sessions')) {
+        if (!visibleSessions.has(id)) continue
+        const session = pool.row('session', id, 'summary') as Loaded<SessionView>
+        if (session && session !== LOADING) at = Math.max(at, Date.parse(session.lastActiveAt) || 0)
+      }
+      for (const session of coldSessions) {
         // Cold summaries are intentionally not inserted in resident buckets.
-        if (!resident.has(session.sessionId) && ![repo.path, ...repo.worktrees.map(tree => tree.path)].some(root => session.cwd === root || session.cwd.startsWith(`${root}/`))) continue
+        if (![repo.path, ...repo.worktrees.map(tree => tree.path)].some(root => session.cwd === root || session.cwd.startsWith(`${root}/`))) continue
         at = Math.max(at, Date.parse(session.lastActiveAt) || 0)
       }
       usage[key] = at
     }
-    const repoTime = (repo: CommandLaunchRows['commandRepository']) => usage[JSON.stringify([repo.machineId ?? '', repo.path])] ?? 0
+    const repoTime = (repo: Store['repos'][number]) => usage[JSON.stringify([repo.machineId ?? '', repo.path])] ?? 0
     const choices = repos.filter(repo => repo.kind !== 'worktree')
     const initialRepoPath = [...choices].sort((a, b) => repoTime(b) - repoTime(a))[0]?.path ?? repos[0]?.path ?? ''
     const repoChoices = [...choices].sort((a, b) => repoTime(b) - repoTime(a) ||
@@ -94,9 +100,11 @@ export function createCommandLaunchViews(pool: MobxPool) {
           if (detail === LOADING) pending++
           else if (detail && (detail as { stage: string }).stage === 'done') childDoneCount++
         }
+        const members = new Set(pool.sources.related('commandIssue', id, 'sessions'))
+        for (const session of coldSessions) if (session.issueId === id && session.agentKind !== 'shell') members.add(session.sessionId)
         issues.push({ ...full, displayRef: node?.displayRef ?? row.displayRef ?? `#${row.seq}`,
           readAt: pool.readCursor(id) ?? null, unread: node?.unread ?? false,
-          memberSessionIds: catalog.sessions.filter(sid => pool.sources.related('commandIssue', id, 'sessions').includes(sid) || (!pool.resident('session', sid) && sessions.some(session => session.sessionId === sid && session.issueId === id && session.agentKind !== 'shell'))), childCount: children.length, childDoneCount } as unknown as IssueViewModel)
+          memberSessionIds: catalog.sessions.filter(sid => members.has(sid)), childCount: children.length, childDoneCount } as unknown as IssueViewModel)
       } else {
         const repoId = pool.graph.one('issue', id, 'repo'), repo = repoId ? pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
         issues.push({ ...row, displayRef: row.displayRef ?? (repo?.prefix ? `${repo.prefix}-${row.seq}` : `#${row.seq}`) } as IssueViewModel)

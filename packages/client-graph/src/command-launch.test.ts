@@ -7,8 +7,7 @@ import { createRuntimeWorklistPool } from './runtime-pool'
 import { attachCommandLaunchSource } from './command-launch-source'
 import { COMMAND_SUMMARIES } from './command-launch-schema'
 import { commandLaunchViews } from './command-launch-views'
-import { checkCommandLaunch, legacyCommandLaunchSnapshot, poolCommandLaunchSnapshot } from '../diagnostics/command-launch-check'
-import { compareSidebarSnapshots } from '../diagnostics/sidebar-check'
+import { checkCommandLaunch, compareCommandLaunchSnapshots, legacyCommandLaunchSnapshot, poolCommandLaunchSnapshot } from '../diagnostics/command-launch-check'
 import { LOADING } from './worklist/rollup'
 import { startScenarioEngine, writeHeartbeat, writePhaseChange, writeSelectionClick, writeTitleRename, writeStageMove,
   writeNewIssue, writeArchiveIssue, writeEvictIssue, writeParentReassignment, writeClockTick, writeBurst50,
@@ -43,6 +42,10 @@ describe('declared command and launch targets', () => {
     const f = await fixture(), stop = autorun(() => poolCommandLaunchSnapshot(f.pool))
     try {
       f.parity()
+      const actions = f.ctx.engine.getSnapshot()
+      actions.setPaletteOpen(true)
+      actions.openFileInWorktree({ root: f.ctx.corpus.repos[0]!.path, path: 'README.md' })
+      await Promise.resolve(); f.parity('palette and recent-file locals')
       for (const write of [writeHeartbeat, writePhaseChange, writeSelectionClick, writeTitleRename, writeStageMove,
         writeNewIssue, writeArchiveIssue, writeEvictIssue, writeParentReassignment, writeClockTick, writeBurst50, writeRescopeGrow, writeRescopeBack]) {
         await write(f.ctx); await Promise.resolve(); f.parity(write.name)
@@ -95,7 +98,7 @@ describe('declared command and launch targets', () => {
         if (fault === 'value') (section.fields as Record<string, unknown>).fault = true
         if (fault === 'order') (section.rows as unknown[]).reverse()
         if (fault === 'membership') (section.rows as unknown[]).pop()
-        const result = compareSidebarSnapshots(expected, damaged)
+        const result = compareCommandLaunchSnapshots(expected, damaged)
         expect(result.differences, fault).toBeGreaterThan(0)
         expect(result.first?.section, fault).toBe('machines')
       }

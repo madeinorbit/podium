@@ -3,7 +3,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { storeStats } from '@podium/client-core/perf'
-import { asUserId, asSessionId, asIssueId } from '@podium/model/browser'
+import { asUserId, asSessionId, asIssueId, asMachineId } from '@podium/model/browser'
 import { Profiler, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
@@ -45,7 +45,7 @@ function Surface() {
     <button onClick={() => setNewIssue(true)}>New task composer</button>
     <Profiler id="menus" onRender={(_id, _phase, duration) => { commits++; commitMs += duration }}>
       <CommandPaletteBoundary />
-      <NewPanelMenu worktree={{ path: '/synthetic/project', repoPath: '/synthetic/project', isMain: true, machineId: asSessionId(machine.id) as never }} onOpened={id => setOpened(id)} />
+      <NewPanelMenu worktree={{ path: '/synthetic/project', repoPath: '/synthetic/project', isMain: true, machineId: asMachineId(machine.id) }} onOpened={id => setOpened(id)} />
       {newIssue && <NewIssueDialog onClose={() => setNewIssue(false)} />}
     </Profiler>
     <output data-launched>{opened}</output>

@@ -28,7 +28,13 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     this.catalog = computed((): CommandLaunchRows['commandCatalog'] => ({
       repositories: this.orders.get('commandRepository') ?? [], repos: this.orders.get('commandRepo') ?? [],
       worktrees: this.orders.get('commandWorktree') ?? [], machines: this.orders.get('commandMachine') ?? [],
-      issues: knownIssueIds(pool).sort(), sessions: knownSessionIds(pool).filter(id => !pool.graph.isCollapsed('session', id)),
+      issues: knownIssueIds(pool).sort(), sessions: knownSessionIds(pool).filter(id => {
+        // Collapse maintenance is keyed, not an observable collection. Track
+        // each addressed row through the one reader so a changed twin reranks
+        // the catalog even when its key set stays the same.
+        pool.row('session', id, 'summary')
+        return !pool.graph.isCollapsed('session', id)
+      }),
     }), { equals: compareStructural })
     const locals = () => {
       if (this.disposed) return

@@ -84,6 +84,7 @@ export function useCommandRecentFiles() {
 /** Registered by the shared provider seam; imports happen before any async
  * turn can outlive the pool. Its registry owns this source's disposal. */
 export const commandLaunchScreen = {
+  id: 'commands',
   initialize: initializeCommandLaunchDataLayer,
   enabled: () => commandLaunchDataLayer() === 'pool',
   options: () => ({ summaries: COMMAND_SUMMARIES }),

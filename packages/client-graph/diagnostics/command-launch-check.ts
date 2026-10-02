@@ -47,8 +47,11 @@ export function legacyCommandLaunchSnapshot(store: Store<PodiumClientApi>): Side
   return snapshot({ ...store, repoViews, repos, sessions, issues: legacy.models as CommandLaunchData['issues'], repoChoices, initialRepoPath,
     spawnTargets: [...(current ? [current] : []), ...(primary && primary.path !== current?.path ? [primary] : [])] })
 }
+export function compareCommandLaunchSnapshots(expected: SidebarSnapshot, actual: SidebarSnapshot) {
+  return compareSidebarSnapshots(expected, actual)
+}
 export function checkCommandLaunch(pool: MobxPool, store: Store<PodiumClientApi>) {
-  return compareSidebarSnapshots(legacyCommandLaunchSnapshot(store), poolCommandLaunchSnapshot(pool))
+  return compareCommandLaunchSnapshots(legacyCommandLaunchSnapshot(store), poolCommandLaunchSnapshot(pool))
 }
 export function startCommandLaunchCheck(runtime: ClientRuntime<PodiumClientApi>, pool: MobxPool, intervalMs = 5000): () => void {
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) throw new Error('Command check interval must be positive')
