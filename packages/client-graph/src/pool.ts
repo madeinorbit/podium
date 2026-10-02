@@ -1,6 +1,7 @@
 import { SettingsSource, type SettingsOwner } from './settings-source'
-import { isSettingsEntity, SETUP_SESSION_SUMMARY_FIELDS, setupSessionSummary, type SettingsEntity, type SettingsRows, type SetupSession } from './settings-schema'
+import { isSettingsEntity, SETTINGS_SCHEMA, SETUP_SESSION_SUMMARY_FIELDS, setupSessionSummary, type SetupSession } from './settings-schema'
 import { createSettingsViews } from './settings-views'
+import { PoolSources, mergePoolSummaries, type PoolSourceRows, type PoolSummaryFields, type SourceEntity } from './source-registry'
 /**
  * POD-4565 (Ma1) — the MobX pool: one per principal. Entity tables from the
  * declared schema (`tables.ts`), models built on first access (`models.ts`),
@@ -162,6 +163,8 @@ export interface PoolLazyOptions {
   /** Add the header's declared cold summaries only for its startup switch. */
   readonly header?: boolean
   readonly settings?: boolean
+  /** Additional named cold fields, declared before the first row ingest. */
+  readonly summaries?: PoolSummaryFields
   readonly windowMs?: number
   readonly schedule?: Schedule
 }
@@ -194,7 +197,7 @@ export interface WriteSeam {
  *   nothing queued (the visibility parts decide a cold row without loading it).
  * Unknown rows answer undefined in every mode.
  */
-export type AbsentRead = 'load' | 'mark' | 'peek'
+export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary'
 
 /** Where a row stands, for a reader that asked for it by id (tracked). */
 export type Residence = 'resident' | 'loading' | 'absent'
@@ -210,7 +213,7 @@ export class MobxPool {
   readonly sidebar: SidebarIndex
   readonly sidebarRosters: SidebarRosterIndex
   private preferenceSource: PreferenceSource | undefined
-  private settingsSource: SettingsSource | undefined
+  readonly sources = new PoolSources()
   private settingsSequence = 0
   private readonly settingsEnabled: boolean
   readonly settingsViews = createSettingsViews(this)
@@ -303,7 +306,7 @@ export class MobxPool {
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
             // What visibility reads of a hidden issue (POD-4753), never the row.
-            summaries: { issue: lazy.header ? [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS] : HIDDEN_ISSUE_FIELDS, session: [...COLD_SESSION_FIELDS, ...(lazy.header ? HEADER_SESSION_SUMMARY_FIELDS : []), ...(lazy.settings ? SETUP_SESSION_SUMMARY_FIELDS : [])] },
+            summaries: mergePoolSummaries({ issue: lazy.header ? [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS] : HIDDEN_ISSUE_FIELDS, session: [...COLD_SESSION_FIELDS, ...(lazy.header ? HEADER_SESSION_SUMMARY_FIELDS : []), ...(lazy.settings ? SETUP_SESSION_SUMMARY_FIELDS : [])] }, lazy.summaries ?? {}),
             // The rule's lane source (R3, POD-4745) reads the engine, built below.
             lanes: () => this.graph,
           })
@@ -494,7 +497,6 @@ export class MobxPool {
       | 'models'
       | 'headerState'
       | 'preferenceSource'
-      | 'settingsSource'
       | 'settingsSequence'
       | 'settingsEnabled'
       | 'firstTaskCount'
@@ -522,7 +524,7 @@ export class MobxPool {
       header: false,
       headerState: false,
       preferenceSource: false,
-      settingsSource: false,
+      sources: false,
       settingsSequence: false,
       settingsEnabled: false,
       settingsViews: false,
@@ -610,37 +612,38 @@ export class MobxPool {
   preferenceCounts() { return this.preferenceSource?.counts ?? null }
 
   attachSettings(owner: SettingsOwner): void {
-    if (this.settingsSource) throw new Error('Settings already attached to this pool')
-    this.settingsSource = new SettingsSource(owner)
+    this.sources.register(Object.keys(SETTINGS_SCHEMA).filter(isSettingsEntity), new SettingsSource(owner))
   }
 
-  row<E extends SettingsEntity>(entity: E, id: string): Loaded<SettingsRows[E]>
+  row<E extends SourceEntity>(entity: E, id: string): Loaded<PoolSourceRows[E]>
   row(entity: 'setupSession', id: string): Loaded<SetupSession>
   row(entity: 'preference', id: string): Loaded<PreferenceRow>
   row(entity: HeaderEntity, id: string): object | undefined
   row(entity: EntityName, id: string, absent: 'peek'): object | undefined
-  row(entity: EntityName, id: string, absent?: 'load' | 'mark'): Loaded<object>
-  row(entity: EntityName | HeaderEntity | SettingsEntity | 'setupSession' | 'preference', id: string, absent: AbsentRead = 'load'): Loaded<object> {
-    if (isSettingsEntity(entity)) return this.settingsSource ? this.settingsSource.read(entity, id) : LOADING
+  row(entity: EntityName, id: string, absent?: 'load' | 'mark' | 'summary'): Loaded<object>
+  row(entity: EntityName | HeaderEntity | SourceEntity | 'setupSession' | 'preference', id: string, absent: AbsentRead = 'load'): Loaded<object> {
     if (entity === 'setupSession') {
-      const cold = this.residency?.summary('session', id)
-      if (cold && typeof cold['setupOrder'] === 'number') return setupSessionSummary(cold)
-      const row = this.row('session', id)
+      const row = this.row('session', id, 'summary')
       return row && row !== LOADING ? setupSessionSummary(row as Readonly<Record<string, unknown>>) : row
     }
     if (entity === 'preference') return this.preferenceSource?.read(id) ?? LOADING
     if (isHeaderEntity(entity)) return this.header.get(entity, id)
-    let server = this.tables[entity].get(id) as object | undefined
+    if (!Object.hasOwn(this.tables, entity)) return this.sources.read(entity as SourceEntity, id)
+    const core = entity as EntityName
+    let server = this.tables[core].get(id) as object | undefined
     if (server === undefined) {
       const residency = this.residency
       if (residency === null) return undefined
-      if (absent === 'load') return residency.loading(entity, id) ? LOADING : undefined
-      if (!residency.known(entity, id)) return undefined
+      if (absent === 'load') return residency.loading(core, id) ? LOADING : undefined
+      if (!residency.known(core, id)) return undefined
       if (absent === 'mark') return LOADING
-      server = entity === 'session' ? residency.summary(entity, id) ?? residency.read(entity, id) : residency.read(entity, id)
+      if (absent === 'summary') {
+        server = residency.summary(core, id)
+        if (server === undefined) return residency.loading(core, id) ? LOADING : undefined
+      } else server = core === 'session' ? residency.summary(core, id) ?? residency.read(core, id) : residency.read(core, id)
       if (server === undefined) return undefined
     }
-    const pending = this.writes?.pending(entity, id)
+    const pending = this.writes?.pending(core, id)
     return pending === undefined ? server : overlayRow(server, pending)
   }
 
@@ -917,7 +920,7 @@ export class MobxPool {
   dispose(): void {
     this.disposed = true
     this.preferenceSource?.dispose()
-    this.settingsSource?.dispose()
+    this.sources.dispose()
     this.settingsViews.clear()
     this.referenceReader?.dispose()
     runInAction(() => {
