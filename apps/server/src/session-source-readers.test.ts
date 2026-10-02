@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { disposeOracles, makeOracle } from './modules/sessions/oracle-support'
 import { readSessionRefs, type SessionRefFacts } from './modules/sessions/refs'
 import { buildSuperagentTools } from './modules/superagent/tools'
+import { RepoRegistry } from './repo-registry'
 import type { IssueRow } from './store'
 
 afterEach(async () => {
@@ -193,8 +194,9 @@ describe('S4 server consumers', () => {
   it('the wired toolkit observes prefix and machine renames from source while old records remain intact', async () => {
     const o = await makeOracle()
     const machineId = o.store.hostMachineId
+    const repos = new RepoRegistry(o.reg, o.store)
     await o.store.repos.addRepo('/source', machineId)
-    await o.repos.setPrefix('/source', 'SRC', machineId)
+    await repos.setPrefix('/source', 'SRC', machineId)
     const issue = await o.reg.issues.create({
       repoPath: '/source',
       title: 'Source refs',
@@ -232,7 +234,7 @@ describe('S4 server consumers', () => {
     ])
     const before = await o.reg.changeLedger.authority.snapshot('session')
     const cursor = await o.reg.changeLedger.cursor()
-    await o.repos.setPrefix('/source', 'NEW', machineId)
+    await repos.setPrefix('/source', 'NEW', machineId)
     const nextRef = `NEW-${issue.seq}-B`
     expect(await toolkit.resolveIdentifier(sourceRef)).toEqual({ kind: 'absent' })
     expect(await toolkit.resolveIdentifier(nextRef)).toEqual({
