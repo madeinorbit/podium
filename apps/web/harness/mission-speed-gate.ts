@@ -63,8 +63,6 @@ declare global {
 const args = process.argv.slice(2).filter((arg) => arg !== '--')
 const value = (name: string, fallback: string) =>
   args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback
-const calibrate = args.includes('--calibrate')
-const promote = args.includes('--promote')
 const delayMs = Number(value('plant-delay-ms', '0'))
 const root = resolve('.artifacts/mission-speed-gate')
 const buildDir = resolve(root, 'build')
@@ -72,7 +70,6 @@ const baselinePath = resolve('docs/measurements/click-speed-baseline.json')
 // Ten samples in each of the three initial captures exceeded 285 s on flatblock.
 const REPETITIONS = 6
 const WARMUPS = 2
-const NOISE_RUNS = 2
 let paneArm: 0 | 1 = 0
 type WorkSamples = Record<Action, { ms: number; legacy: Record<string, number> }[]>
 const paneWork = Object.fromEntries(ACTIONS.map(action => [action, []])) as WorkSamples
@@ -88,19 +85,15 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 async function main() {
   if (args.includes('--help')) {
     console.log(
-      'bun run speed:gate — flatblock, five actions × six samples; median > landed +10% exits 1.\n' +
-        '--calibrate --baseline-ref=<landed SHA/ref>: initial baseline only, two runs to measure noise.\n' +
+      'bun apps/web/harness/mission-speed-gate.ts — same-SHA pane off/on, two runs per arm.\n' +
         '--plant-delay-ms=50: plant a synchronous delay in the sidebar click path (expected red).\n' +
-        '--promote: commit-ready baseline from the saved green run after its source lands; no rerun.\n' +
         '--lease-confirmed: caller already holds bench:flatblock (remote capture).',
     )
     process.exit(0)
   }
   for (const arg of args)
     if (
-      !['--calibrate', '--promote', '--lease-confirmed'].includes(arg) &&
-      !arg.startsWith('--plant-delay-ms=') &&
-      !arg.startsWith('--baseline-ref=')
+      arg !== '--lease-confirmed' && !arg.startsWith('--plant-delay-ms=')
     )
       throw new Error(`Unknown argument ${arg}`)
   if (hostname() !== 'flatblock')
@@ -108,11 +101,9 @@ async function main() {
   if (
     !Number.isFinite(delayMs) ||
     delayMs < 0 ||
-    delayMs > 1000 ||
-    (delayMs && (calibrate || promote))
+    delayMs > 1000
   )
     throw new Error('Invalid planted delay/mode')
-  if (calibrate && promote) throw new Error('Choose calibration or promotion')
 
   let baseline: Baseline | null = null
   try {
@@ -120,10 +111,7 @@ async function main() {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
   }
-  if (calibrate && baseline)
-    throw new Error('Initial baseline already exists; a red run cannot replace it')
-  if (!calibrate && !baseline)
-    throw new Error('Missing landed baseline; initialize at integrate/4286-pilot with --calibrate')
+  if (!baseline) throw new Error('Missing landed click speed baseline')
   if (
     baseline &&
     (baseline.version !== 1 ||
@@ -138,48 +126,12 @@ async function main() {
   )
     throw new Error('Incompatible or incomplete landed baseline')
 
-  if (promote) {
-    const report = JSON.parse(await readFile(resolve(root, 'passed.json'), 'utf8'))
-    if (!report.passed || report.delayMs || !same(report.machine, baseline!.machine))
-      throw new Error('Promotion needs an unmodified green same-machine capture')
-    const landedRef = value('baseline-ref', baseline!.landedRef)
-    git('merge-base', '--is-ancestor', report.sourceSha, landedRef)
-    // Do not promote an older green result over a newer product landing.
-    git('diff', '--exit-code', report.sourceSha, landedRef, '--', 'apps/web/src', 'packages')
-    if (report.dirtyProduct)
-      throw new Error('Commit the product change before capturing the run to promote')
-    await writeFile(
-      baselinePath,
-      JSON.stringify(
-        {
-          ...baseline,
-          sourceSha: report.sourceSha,
-          actions: report.actions,
-          targets: report.targets,
-        },
-        null,
-        2,
-      ) + '\n',
-    )
-    console.log(
-      `Landed numbers promoted from ${report.sourceSha}; commit ${baselinePath}. No browser rerun.`,
-    )
-    process.exit(0)
-  }
-
   const captureSha = git('rev-parse', 'HEAD')
-  const sourceSha = calibrate
-    ? git('rev-parse', value('baseline-ref', 'integrate/4286-pilot'))
-    : captureSha
+  const sourceSha = captureSha
   const dirtyProduct =
     git('status', '--porcelain', '--untracked-files=normal', '--', 'apps/web/src', 'packages')
       .length > 0
-  if (calibrate) {
-    if (dirtyProduct)
-      throw new Error('First baseline must measure the unchanged landed integration product tree')
-    // The committed measurement code may sit above the landing being measured.
-    git('diff', '--exit-code', sourceSha, captureSha, '--', 'apps/web/src', 'packages')
-  }
+  if (dirtyProduct) throw new Error('Commit the product change before paired capture')
   await mkdir(root, { recursive: true })
   const began = performance.now()
   let leased = false
@@ -650,8 +602,7 @@ async function main() {
       runs.push(await suite(origin, baseline?.targets ?? runs[0]?.targets))
       console.log(`Capture complete; elapsed ${round((performance.now() - began) / 1000)}s`)
     }
-    // Every ordinary gate has exactly one fresh-browser suite. The extra initial
-    // suite estimates noise; it must not give the baseline a warmer lifecycle.
+    // Both arms have two independent fresh-browser captures of one build.
     const off = runs.filter(run => run.paneArm === 0), on = runs.filter(run => run.paneArm === 1)
     const paired = Object.fromEntries(ACTIONS.map(action => {
       const offMs = median(off.flatMap(run => run.samples[action])), onMs = median(on.flatMap(run => run.samples[action]))
@@ -666,27 +617,8 @@ async function main() {
     const latest = { ...on[0]!, actions: Object.fromEntries(ACTIONS.map(action => [action, {
       medianMs: paired[action].onMs, worstMs: round(Math.max(...on.flatMap(run => run.samples[action])))
     }])) as Numbers }
-    const noise = calibrate
-      ? (() => {
-          const medianSpreadPercent = Object.fromEntries(
-            ACTIONS.map((action) => {
-              const medians = runs.map((run) => run.actions[action].medianMs)
-              return [
-                action,
-                round(((Math.max(...medians) - Math.min(...medians)) / median(medians)) * 100),
-              ]
-            }),
-          ) as Record<Action, number>
-          return {
-            runs: runs.length,
-            medianSpreadPercent,
-            maxPercent: Math.max(...Object.values(medianSpreadPercent)),
-          }
-        })()
-      : baseline!.noise
-    const regressions = calibrate
-      ? []
-      : ACTIONS.filter(
+    const noise = baseline.noise
+    const regressions = ACTIONS.filter(
           (action) => latest.actions[action].medianMs > baseline!.actions[action].medianMs * 1.1,
         )
     const report = {
@@ -704,7 +636,6 @@ async function main() {
       delayMs,
       ...latest,
       noise,
-      calibrationMedians: calibrate ? runs.map((run) => run.actions) : undefined,
       baselineSha: baseline?.sourceSha,
       baselineActions: baseline?.actions,
       regressions,
@@ -713,26 +644,6 @@ async function main() {
       runtimeSeconds: round((performance.now() - began) / 1000),
     }
     await writeFile(resolve(root, 'last-run.json'), JSON.stringify(report, null, 2) + '\n')
-    if (calibrate)
-      await writeFile(
-        baselinePath,
-        JSON.stringify(
-          {
-            version: 1,
-            sourceSha,
-            landedRef: 'integrate/4286-pilot',
-            machine,
-            repetitions: REPETITIONS,
-            scale: 4,
-            seed: 4443,
-            targets: latest.targets,
-            actions: latest.actions,
-            noise,
-          } satisfies Baseline,
-          null,
-          2,
-        ) + '\n',
-      )
     if (report.passed && !delayMs)
       await writeFile(resolve(root, 'passed.json'), JSON.stringify(report, null, 2) + '\n')
     console.log(

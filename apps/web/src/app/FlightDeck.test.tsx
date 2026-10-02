@@ -122,7 +122,7 @@ const uiState = {
   },
 }
 
-const owner = { getSnapshot: () => ({ trpc: harness.trpc, uiState }), subscribe: () => () => {} }
+const owner = { getSnapshot: () => ({ trpc: harness.trpc, replica: harness.replica, uiState }), subscribe: () => () => {} }
 vi.mock('@podium/client-core/react', async original => ({ ...await original<typeof import('@podium/client-core/react')>(),
   useStoreHandle: () => owner,
 }))

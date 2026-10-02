@@ -71,3 +71,29 @@ it('reads only the selected mission attachment edges as unrelated sessions grow'
   if (moved === LOADING) throw new Error('Unsettled fixture')
   expect(moved.rows[0]?.sessions).toEqual([])
 })
+
+it('counts every same-type dependency while preserving first-origin navigation', () => {
+  const deps = [
+    { id: 'first', type: 'discovered-from' }, { id: 'second', type: 'discovered-from' },
+    { id: 'first', type: 'related' }, { id: 'second', type: 'related' },
+  ]
+  const { pool, reader } = open([issue('first', { stage: 'backlog' }), issue('second', { stage: 'backlog' }),
+    issue('source', { stage: 'proposed', deps })], [])
+  expect(tracked(() => pool.graph.one('issue', 'source', 'discoveredFrom'))).toBe('first')
+  expect(tracked(() => [...pool.graph.many('issue', 'source', 'viewOrigins')]).sort()).toEqual(['first', 'second'])
+  expect(tracked(() => [...pool.graph.many('issue', 'source', 'viewRelated')]).sort()).toEqual(['first', 'second'])
+  expect(tracked(() => reader.issue('second'))).toMatchObject({ dependents: [
+    { id: 'source', type: 'discovered-from' }, { id: 'source', type: 'related' },
+  ] })
+  const values = tracked(() => readMissionView(reader, 'second'))
+  expect(values).not.toBe(LOADING)
+  if (values === LOADING) throw new Error('Unsettled fixture')
+  expect(values.progress.total).toBe(0)
+  runInAction(() => pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'source',
+    value: issue('source', { stage: 'proposed', deps: deps.filter(dep => dep.id !== 'second') }) }] }))
+  expect(tracked(() => pool.graph.size('issue', 'second', 'viewDiscoveries'))).toBe(0)
+  expect(tracked(() => reader.issue('second'))).toMatchObject({ dependents: [] })
+  const removed = tracked(() => readMissionView(reader, 'second'))
+  if (removed === LOADING) throw new Error('Unsettled fixture')
+  expect(removed.progress.total).toBe(1)
+})

@@ -3,6 +3,7 @@ import type { EdgeSpec, FieldSpec, RelationSpec } from './shared/schema'
 /** The pane's declarations extend the core graph, never maintain an ownership
  * index. Display summaries are registered before ingest by the pane screen. */
 export const MISSION_VIEW_DEPS = [
+  ['discovered-from', 'viewOrigins', 'viewDiscoveries'],
   ['blocks', 'viewPrerequisites', 'viewWaitingIssues'],
   ['related', 'viewRelated', 'viewRelatedFrom'],
   ['tracks', 'viewTracks', 'viewTrackedBy'],
@@ -20,7 +21,7 @@ export const MISSION_VIEW_RELATIONS: Readonly<Record<string, RelationSpec>> = {
   ...Object.fromEntries(MISSION_VIEW_DEPS.flatMap(([type, out, incoming]) => {
     const edge = (direction: 'out' | 'in', inverse: string): EdgeSpec => ({
       kind: 'edge', to: 'issue', edgeField: 'deps', edgeIdKey: 'id', edgeTypeKey: 'type',
-      edgeType: type, direction, inverse, lazy: true,
+      edgeType: type, many: true, direction, inverse, lazy: true,
       why: 'Addressed mission notes, handoff prerequisites and dependent counts; inverse maintained by the core relation engine.',
     })
     return [[out, edge('out', incoming)], [incoming, edge('in', out)]]

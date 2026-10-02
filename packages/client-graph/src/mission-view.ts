@@ -129,7 +129,6 @@ export class MissionViewReader {
       unread ||= Date.parse(session.lastActiveAt) > Date.parse(row.readAt ?? '')
     }
     const dependents = [
-      ...[...this.pool.graph.many('issue', id, 'spinOffs')].map(id => ({ id: asIssueId(id), type: 'discovered-from' })),
       ...MISSION_VIEW_DEPS.flatMap(([type, , inverse]) => [...this.pool.graph.many('issue', id, inverse)].map(id => ({ id: asIssueId(id), type }))),
     ].sort(rowOrder)
     const deferAt = row.deferUntil ? Date.parse(row.deferUntil) : NaN
@@ -192,8 +191,7 @@ export class MissionViewReader {
     for (const id of tips) {
       addressed.add(id)
       for (const [, relation] of MISSION_VIEW_DEPS) {
-        const target = this.pool.graph.one('issue', id, relation)
-        if (target) addressed.add(target)
+        for (const target of this.pool.graph.many('issue', id, relation)) addressed.add(target)
       }
       for (const relation of ['treeParent', 'viewSupersededBy', 'viewDuplicateOf']) {
         const target = this.pool.graph.one('issue', id, relation)
@@ -291,8 +289,9 @@ class MissionContext {
     })
   }
   continuation(issue: IssueNavigationModel, local = false): IssueContinuation | null {
-    const targetId = this.view.pool.graph.one('issue', issue.id, 'viewSupersededBy') ??
-      this.view.pool.graph.one('issue', issue.id, 'viewDuplicateOf')
+    const targetId = issue.supersededBy
+      ? this.view.pool.graph.one('issue', issue.id, 'viewSupersededBy') ?? issue.supersededBy
+      : this.view.pool.graph.one('issue', issue.id, 'viewDuplicateOf') ?? issue.duplicateOf
     if (targetId) {
       const target = this.issue(targetId), ref = target ? issueDisplayRef(target) : 'another task'
       return issue.supersededBy ? { kind: 'superseded', ...(target ? { target } : {}), short: ref,
@@ -491,7 +490,7 @@ function progressFor(ctx: MissionContext, root: IssueNavigationModel, members: R
   const scope = [...members].flatMap(id => { const issue = ctx.byId.get(id); return issue && visible(issue) ? [issue] : [] })
   const accepted = scope.filter(issue => formal.has(issue.id) && issue.stage !== 'proposed' && !issueAbandoned(issue))
   const units = (accepted.length ? accepted : [root]).filter(issue => !issueAbandoned(issue) &&
-    (ctx.live(issue.id) || (ctx.tips(issue.id, true).length === 0 && ctx.view.pool.graph.size('issue', issue.id, 'spinOffs') === 0)))
+    (ctx.live(issue.id) || (ctx.tips(issue.id, true).length === 0 && ctx.view.pool.graph.size('issue', issue.id, 'viewDiscoveries') === 0)))
   const staffed = new Set<string>()
   for (const issue of scope) {
     if (!ctx.live(issue.id)) continue

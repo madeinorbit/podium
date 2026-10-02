@@ -4,7 +4,7 @@ import { allIssueViewModels, createKernelReplica, createSideCache, memoryStorage
 import { sessionViews, type SessionView } from '@podium/client-core/session-values'
 import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/viewmodels'
 import { MobxPool } from '@podium/client-graph/pool'
-import { autorun } from 'mobx'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
@@ -39,8 +39,10 @@ vi.mock('./store-worklist-pool', () => ({
   useWorklistPool: () => state.pool,
   useWorklistPoolProjection: (read: (pool: MobxPool) => unknown, empty: unknown) => {
     if (!state.pool) return empty
-    let result: unknown
-    const stop = autorun(() => { result = read(state.pool as MobxPool) }); stop()
+    const projection = createPoolProjection(state.pool as MobxPool, read)
+    const stop = projection.subscribe(() => {})
+    const result = projection.getSnapshot()
+    stop()
     return result
   },
 }))
