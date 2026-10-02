@@ -1,19 +1,14 @@
-import { initializeSettingsDataLayer, settingsDataLayer, settingsCheckRequested } from '@/features/settings/data-layer'
-import { initializePreferencesDataLayer, preferencesDataLayer, preferencesCheckRequested } from '@/lib/preferences-data-layer'
-import { headerDataLayer, headerCheckRequested, initializeHeaderDataLayer } from '@/lib/header-data-layer'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { chipCheckFor, chipPerf, recordChipWork, reportSidebarPool } from '@podium/client-core/perf'
+import { chipCheckFor, chipPerf, reportSidebarPool } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool, WorklistPoolHandle } from '@podium/client-graph'
 import type { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { useMemo, useSyncExternalStore } from 'react'
-import {
-  initializeSidebarDataLayer,
-  sidebarCheckRequested,
-  sidebarDataLayer,
-} from '@/lib/sidebar-data-layer'
-import { chipsCheckRequested, chipsDataLayer, chipsPerfRequested, initializeChipsDataLayer } from '@/lib/chips-data-layer'
+import { sidebarDataLayer } from '@/lib/sidebar-data-layer'
+import { chipsPerfRequested } from '@/lib/chips-data-layer'
+import { attachPoolScreens, screenOptions } from './pool-screen-registry'
+import { poolBackedScreens } from './pool-screens'
 
 interface PoolSlot {
   handle: WorklistPoolHandle | null
@@ -21,19 +16,6 @@ interface PoolSlot {
   listeners: Set<() => void>
   project: typeof createPoolProjection | null
 }
-
-// Each screen freezes its choice at startup. Later migrations add one entry
-// here; all enabled screens still share the provider's existing single pool.
-const poolBackedScreens: readonly {
-  initialize(ui: ClientRuntime['ui']): void
-  enabled(): boolean
-}[] = [
-  { initialize: initializeSettingsDataLayer, enabled: () => settingsDataLayer() === 'pool' },
-  { initialize: initializePreferencesDataLayer, enabled: () => preferencesDataLayer() === 'pool' },
-  { initialize: initializeSidebarDataLayer, enabled: () => sidebarDataLayer() === 'pool' },
-  { initialize: initializeHeaderDataLayer, enabled: () => headerDataLayer() === 'pool' },
-  { initialize: initializeChipsDataLayer, enabled: () => chipsDataLayer() === 'pool' },
-]
 
 // The store handle IS the runtime. Weak keys never retain a departed principal;
 // clearing the slot also releases the pool from React's subscription closures.
@@ -103,125 +85,31 @@ export function attachWorklistPool<TApi extends PodiumClientApi>(
   const slot = slotFor(runtime)
   slot.error = null
   let disposed = false
-  let stopCheck: (() => void) | undefined
-  let stopHeaderCheck: (() => void) | undefined
-  let stopSettingsCheck: (() => void) | undefined
-  let stopPreferenceCheck: (() => void) | undefined
-  let stopChipCheck: (() => void) | undefined
+  let stopScreens: (() => void) | undefined
+  const fail = (cause: unknown): void => {
+    if (disposed) return
+    slot.error = cause instanceof Error ? cause : new Error(String(cause))
+    onError(slot.error)
+    notify(slot)
+  }
   if (import.meta.env.DEV && typeof window !== 'undefined') {
     Object.assign(window, { __sidebarPool: { survivors: worklistPoolSurvivors } })
   }
   void import('@podium/client-graph/runtime-pool')
     .then(({ createRuntimeWorklistPool, createPoolProjection }) => {
       if (disposed) return
-      const settings = settingsDataLayer() === 'pool'
-      const preferences = preferencesDataLayer() === 'pool'
-      const chips = chipsDataLayer() === 'pool'
-      const header = headerDataLayer() === 'pool'
-      slot.handle = preferences || settings || chips || header
-        ? createRuntimeWorklistPool(runtime, { ...(settings ? { settings: true } : {}), ...(preferences ? { preferences: true } : {}), ...(header ? { header: true } : {}), ...(chips ? {
-          resolveReferences: async (refs) => {
-            recordChipWork(runtime, 'resolveBatches')
-            recordChipWork(runtime, 'resolveRefs', refs.length)
-            return await runtime.getSnapshot().trpc.issues.resolveRefs.query({ refs: [...refs] })
-          },
-        } : {}) })
-        : createRuntimeWorklistPool(runtime)
-      // Build the resident identity index once on attachment, before a
-      // conversation opens. No reference reader exists for other screens.
-      const references = chips ? slot.handle.pool.references : null
+      slot.handle = createRuntimeWorklistPool(runtime, screenOptions(poolBackedScreens, runtime))
+      stopScreens = attachPoolScreens(poolBackedScreens, runtime, slot.handle.pool, fail)
       slot.project = createPoolProjection
       notify(slot)
-      if (settingsCheckRequested()) {
-        void import('@podium/client-graph/diagnostics/settings-check').then(({ installSettingsCheck }) => {
-          if (disposed || !slot.handle) return
-          stopSettingsCheck = installSettingsCheck(slot.handle.pool, runtime)
-        }).catch(() => {})
-      }
-      if (preferencesCheckRequested()) {
-        void import('@podium/client-graph/diagnostics/preference-check').then(({ installPreferenceCheck }) => {
-          if (disposed || !slot.handle) return
-          stopPreferenceCheck = installPreferenceCheck(slot.handle.pool, runtime.ui)
-        }).catch(() => {})
-      }
-      if (chipsCheckRequested() && references) {
-        void import('@podium/client-graph/diagnostics/chip-check').then(({ startChipCheck }) => {
-          if (disposed) return
-          stopChipCheck = startChipCheck(runtime, references, () => [...document.querySelectorAll('a.ref-link--issue[data-ref], [data-issue-reference]')]
-            .map(node => node.getAttribute('data-ref') ?? node.getAttribute('data-issue-reference')!))
-        }).catch(() => {})
-      }
-      if (headerCheckRequested()) {
-        void import('@podium/client-graph/diagnostics/header-runtime-check').then(({ startHeaderCheck }) => {
-          if (disposed || !slot.handle) return
-          stopHeaderCheck = startHeaderCheck(runtime, slot.handle.pool, (report) => {
-            if (typeof window !== 'undefined') Object.assign(window, { __headerCheck: report })
-          })
-        }).catch(() => {})
-      }
-      if (sidebarDataLayer() === 'pool') {
-        const pool = slot.handle.pool
-        void import('@podium/client-graph/diagnostics/runtime-check')
-          .then(({ startSidebarCheck }) => {
-            if (disposed) return
-            stopCheck = startSidebarCheck(runtime, pool, {
-              startup: sidebarCheckRequested(),
-              state: (store) => {
-                const base = {
-                  pinnedRepos: store.pins.repos,
-                  pinnedWorktrees: store.pins.worktrees,
-                  projectOrder: store.sidebarSettings.repoOrder,
-                }
-                const keys = [
-                  'podium:sidebar:pinned-fold',
-                  ...pool.sidebar
-                    .sections(base)
-                    .bands.flatMap((band) => [
-                      band.foldKey,
-                      band.snoozedFoldKey,
-                      band.closedFoldKey,
-                    ]),
-                ]
-                return {
-                  pinnedRepos: store.pins.repos,
-                  pinnedWorktrees: store.pins.worktrees,
-                  projectOrder: store.sidebarSettings.repoOrder,
-                  paneA: store.paneA,
-                  selectedWorktree: store.selectedWorktree,
-                  collapsed: Object.fromEntries(
-                    keys.flatMap((key) => {
-                      const raw = runtime.ui.get(key)
-                      return raw === null ? [] : [[key, raw === 'true']]
-                    }),
-                  ),
-                }
-              },
-            })
-          })
-          .catch(() => {
-            /* Optional diagnostics must not take down the sidebar. */
-          })
-      }
     })
-    .catch((cause: unknown) => {
-      if (disposed) return
-      slot.error = cause instanceof Error ? cause : new Error(String(cause))
-      onError(slot.error)
-    })
+    .catch(fail)
   return () => {
     if (disposed) return
     disposed = true
     stopCensus()
-    stopSettingsCheck?.()
-    stopSettingsCheck = undefined
-    stopPreferenceCheck?.()
-    stopPreferenceCheck = undefined
-    stopChipCheck?.()
-    stopChipCheck = undefined
-    stopHeaderCheck?.()
-    stopHeaderCheck = undefined
-    stopCheck?.()
-    stopCheck = undefined
+    stopScreens?.()
+    stopScreens = undefined
     const handle = slot.handle
     slot.handle = null
     slot.project = null

@@ -8,6 +8,7 @@ import { createEngineLocals, type LocalsEngine } from './shared/engine-locals'
 import { createRowSource, type RowSourceReplica, type RowSourceRuntime } from './shared/row-source'
 import { measureWorklistPoolDelivery, observeWorklistPoolPerf } from './sidebar-perf'
 import type { ResolveIssueReferences } from './residency'
+import type { PoolSummaryFields } from './source-registry'
 
 /** React's scalar/layout readers share MobX tracking without eagerly loading
  * the graph in legacy mode. Rows use observer directly; this seam is for the
@@ -35,7 +36,7 @@ export type WorklistRuntime = RowSourceRuntime &
   LocalsEngine & { readonly replica: RowSourceReplica; readonly ui?: RoutedUiState }
 
 /** A read-only attachment: optimism and every write still belong to the runtime. */
-export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { preferences?: boolean; settings?: boolean; header?: boolean; resolveReferences?: ResolveIssueReferences } = {}): WorklistPoolHandle {
+export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { preferences?: boolean; settings?: boolean; header?: boolean; summaries?: PoolSummaryFields; resolveReferences?: ResolveIssueReferences } = {}): WorklistPoolHandle {
   const rows = createRowSource(runtime, runtime.replica, { mode: 'overlaid' })
   let locals: ReturnType<typeof createEngineLocals> | undefined
   let handle: WorklistPoolHandle | undefined
@@ -52,7 +53,7 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { p
           }),
       },
       locals.source,
-      { header: options.header, settings: options.settings, ...(options.resolveReferences ? { resolveReferences: options.resolveReferences } : {}) },
+      { header: options.header, settings: options.settings, summaries: options.summaries, ...(options.resolveReferences ? { resolveReferences: options.resolveReferences } : {}) },
     )
     if (options.preferences || options.settings) {
       if (!runtime.ui) throw new Error('Preferences require the existing runtime UI owner')
