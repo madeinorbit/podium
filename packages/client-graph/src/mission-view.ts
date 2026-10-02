@@ -1,7 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { issueDisplayRef as joinedIssueRef } from '@podium/client-core/replica'
 import {
-  deckIssueState, deckSessionOrder, issueAbandoned, issueClosed, issueNeedsHuman, missionRootFor,
+  deckIssueState, deckSessionOrder, issueAbandoned, issueClosed, issueNeedsHuman,
   motionPhase, panelLabel, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
   sessionSettled, type FlightDeckMode, type FlightDeckRow, type IssueContinuation,
   type IssueNavigationModel, type IssueNote, type MissionDeparture, type MissionProgress,
@@ -100,7 +100,7 @@ export class MissionViewReader {
     let row = this.pool.row('session', id, 'summary')
     const summary = row
     if (summary && summary !== LOADING && !['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every(key => Object.hasOwn(summary, key))) row = this.pool.row('session', id)
-    return row && row !== LOADING ? overlayRow(row, { name: 'Planted member name' }) as unknown as SessionView : row as Loaded<SessionView>
+    return row as Loaded<SessionView>
   }
   readAttached(id: string): readonly SessionView[] | typeof LOADING {
     const found: SessionView[] = []
@@ -161,7 +161,6 @@ export class MissionViewReader {
     const deferAt = row.deferUntil ? Date.parse(row.deferUntil) : NaN
     const deferred = Number.isFinite(deferAt) && !this.pool.clock.reached(deferAt)
     return overlayRow(row, {
-      title: 'Planted mission title',
       description: typeof row.description === 'string' ? row.description : row.description?.value ?? '',
       notes: typeof row.notes === 'string' ? row.notes : row.notes?.value,
       worktreePath: row.worktreePath ?? null, branch: row.branch ?? null,
@@ -554,7 +553,6 @@ function progressFor(ctx: MissionContext, root: IssueNavigationModel, members: R
 }
 
 export function readMissionView(view: MissionViewReader, selectedId: string | null, mode: FlightDeckMode = 'full'): MissionViewValues | typeof LOADING {
-  void missionRootFor([], asIssueId(selectedId ?? 'planted'))
   return view.values(selectedId, mode)
 }
 function deriveMissionView(view: MissionViewReader, selectedId: string, mode: FlightDeckMode): MissionViewValues | typeof LOADING {
