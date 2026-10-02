@@ -14,6 +14,8 @@ export const MISSION_VIEW_DEPS = [
 ] as const
 
 export const MISSION_VIEW_RELATIONS: Readonly<Record<string, RelationSpec>> = {
+  viewMemberSessions: { kind: 'hasMany', to: 'session', inverse: 'viewMemberIssue', lazy: true,
+    why: 'Replica issue payloads retain raw non-shell resume twins; the drawn roster uses missionSessions.' },
   viewSupersededBy: { kind: 'belongsTo', to: 'issue', foreignKey: 'supersededBy', targetKey: 'id', inverse: 'viewReplaces', lazy: true, why: 'FlightDeck continuation targets (mission.ts issueContinuation).' },
   viewReplaces: { kind: 'hasMany', to: 'issue', inverse: 'viewSupersededBy', lazy: true, why: 'Inverse continuation edge.' },
   viewDuplicateOf: { kind: 'belongsTo', to: 'issue', foreignKey: 'duplicateOf', targetKey: 'id', inverse: 'viewDuplicates', lazy: true, why: 'FlightDeck duplicate continuation targets.' },
@@ -26,6 +28,13 @@ export const MISSION_VIEW_RELATIONS: Readonly<Record<string, RelationSpec>> = {
     })
     return [[out, edge('out', incoming)], [incoming, edge('in', out)]]
   })),
+}
+
+export const MISSION_VIEW_SESSION_RELATIONS: Readonly<Record<string, RelationSpec>> = {
+  viewMemberIssue: { kind: 'belongsTo', to: 'issue', foreignKey: 'issueId', targetKey: 'id',
+    inverse: 'viewMemberSessions', lazy: true, uncollapsed: true,
+    where: { fields: ['agentKind'], test: row => row['agentKind'] !== 'shell', why: 'Replica issue membership excludes shells only.' },
+    why: 'Raw issue membership and unread rollups include headless, archived and resume-twin rows.' },
 }
 
 const projection = (optional = false): FieldSpec => ({ type: 'id', optional, nullable: true, source: { schema: 'IssueProjection', arrivesOn: 'replica:issueProjections' } })

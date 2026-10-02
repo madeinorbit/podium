@@ -108,3 +108,22 @@ it('counts every same-type dependency while preserving first-origin navigation',
   if (removed === LOADING) throw new Error('Unsettled fixture')
   expect(removed.progress.total).toBe(1)
 })
+
+it('keeps raw issue member IDs and the collapsed winner in its original roster position', () => {
+  const resume = { kind: 'codex-thread', value: 'same-thread' }
+  const { pool, reader } = open([issue('root')], [
+    session('a-old', 'root', { archived: false, status: 'hibernated', resume }),
+    session('m-other', 'root', { archived: false, status: 'hibernated' }),
+    session('z-winner', 'root', { archived: false, status: 'hibernated', resume,
+      lastActiveAt: '2026-10-01T12:01:00Z' }),
+  ])
+  expect(tracked(() => reader.issue('root'))).toMatchObject({ memberSessionIds: ['a-old', 'm-other', 'z-winner'],
+    sessionSummary: { total: 3, byPhase: { unknown: 3 } } })
+  expect(tracked(() => reader.attached('root'))).not.toBe(LOADING)
+  const attached = tracked(() => reader.attached('root'))
+  if (attached === LOADING) throw new Error('Unsettled fixture')
+  expect(attached.map(session => session.sessionId)).toEqual(['z-winner', 'm-other'])
+  runInAction(() => pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'root',
+    value: issue('root', { readAt: '2026-10-01T12:02:00Z' }) }] }))
+  expect(tracked(() => reader.issue('root'))).toMatchObject({ readAt: '2026-10-01T12:02:00Z', unread: false })
+})

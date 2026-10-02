@@ -1,4 +1,4 @@
-import { MISSION_VIEW_ISSUE_FIELDS, MISSION_VIEW_SESSION_FIELDS, MISSION_VIEW_RELATIONS } from '../mission-view-schema'
+import { MISSION_VIEW_ISSUE_FIELDS, MISSION_VIEW_SESSION_FIELDS, MISSION_VIEW_RELATIONS, MISSION_VIEW_SESSION_RELATIONS } from '../mission-view-schema'
 
 /**
  * POD-4546 (L1a) — the ONE declared model schema both round-three substrates
@@ -1091,6 +1091,7 @@ const DECLARED = defineSchema({
           why: 'Replica issue membership includes raw headless/archived/resume-twin rows, excluding shells.' },
         why: 'The replica page membership contract before visual resume collapse.',
       }),
+      ...MISSION_VIEW_SESSION_RELATIONS,
       startedIssues: hasMany({
         to: 'issue',
         inverse: 'startedBy',

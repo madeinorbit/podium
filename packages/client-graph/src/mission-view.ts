@@ -54,7 +54,6 @@ class MissionNode {
 const issueValue = cachedGroup('missionIssue', (node: MissionNode) => node.view.readIssue(node.id))
 const attachedValue = cachedGroup('missionAttachments', (node: MissionNode) => node.view.readAttached(node.id))
 const rowOrder = (a: { id: string }, b: { id: string }) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0
-const sessionOrder = (a: SessionView, b: SessionView) => a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0
 const visible = (issue: { archived?: boolean; deletedAt?: string | null }) => !issue.archived && !issue.deletedAt
 const openSession = sessionPresentOnTask
 const underway = new Set(['planning', 'in_progress', 'shipping'])
@@ -83,6 +82,10 @@ export class MissionViewReader {
     return overlayRow(row, { prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }) }) as IssueNavigationModel
   }
   attached(id: string): readonly SessionView[] | typeof LOADING { return attachedValue(this.node(id)) }
+  sessionOrder = (a: SessionView, b: SessionView): number => {
+    const left = this.pool.graph.orderKey('session', a.sessionId), right = this.pool.graph.orderKey('session', b.sessionId)
+    return (left < right ? -1 : left > right ? 1 : 0) || (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0)
+  }
   session(id: string): Loaded<SessionView> {
     this.stats.sessionReads++
     let row = this.pool.row('session', id, 'summary')
@@ -99,7 +102,7 @@ export class MissionViewReader {
       if (session === LOADING) pending = true
       else if (session) found.push(session)
     }
-    return pending ? LOADING : found.sort(sessionOrder)
+    return pending ? LOADING : found.sort(this.sessionOrder)
   }
   readIssue(id: string): Loaded<IssueNavigationModel> {
     this.stats.issueReads++
@@ -110,9 +113,16 @@ export class MissionViewReader {
     if (attached === LOADING) return LOADING
     // Replica-derived member IDs exclude shells, but include archived/headless
     // attachments. The drawn roster applies its additional headless filter.
-    const members = attached.filter(session => session.agentKind !== 'shell')
+    const memberIds = [...this.pool.graph.many('issue', id, 'viewMemberSessions')].sort()
+    const members: SessionView[] = []
+    let pending = false
+    for (const sessionId of memberIds) {
+      const session = this.session(sessionId)
+      if (session === LOADING) pending = true
+      else if (session) members.push(session)
+    }
     const childIds = [...this.pool.graph.many('issue', id, 'treeChildren')]
-    let childDoneCount = 0, pending = false
+    let childDoneCount = 0
     for (const childId of childIds) {
       const child = this.pool.row('issue', childId, 'summary') as Loaded<{ stage: string }>
       if (child === LOADING) pending = true
@@ -122,11 +132,12 @@ export class MissionViewReader {
     const repoId = this.pool.graph.one('issue', id, 'repo')
     const repo = repoId ? this.pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
     const byPhase: Record<string, number> = {}
-    let unread = !row.readAt || !Number.isFinite(Date.parse(row.readAt)) || Date.parse(row.updatedAt) > Date.parse(row.readAt)
+    const readAt = this.pool.readCursor(id) ?? null
+    let unread = !readAt || !Number.isFinite(Date.parse(readAt)) || Date.parse(row.updatedAt) > Date.parse(readAt)
     for (const session of members) {
       const phase = session.agentState?.phase ?? 'unknown'
       byPhase[phase] = (byPhase[phase] ?? 0) + 1
-      unread ||= Date.parse(session.lastActiveAt) > Date.parse(row.readAt ?? '')
+      unread ||= Date.parse(session.lastActiveAt) > Date.parse(readAt ?? '')
     }
     const dependents = [
       ...MISSION_VIEW_DEPS.flatMap(([type, , inverse]) => [...this.pool.graph.many('issue', id, inverse)].map(id => ({ id: asIssueId(id), type }))),
@@ -138,7 +149,7 @@ export class MissionViewReader {
       notes: typeof row.notes === 'string' ? row.notes : row.notes?.value,
       worktreePath: row.worktreePath ?? null, branch: row.branch ?? null,
       prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }),
-      memberSessionIds: members.map(session => asSessionId(session.sessionId)),
+      readAt, memberSessionIds: memberIds.map(asSessionId),
       childIds: [...childIds].sort().map(asIssueId), childCount: childIds.length, childDoneCount,
       deferred, ready: !row.blocked && !deferred && row.stage !== 'done', dependents,
       unread: row.deletedAt ? false : unread, sessionSummary: { total: members.length, byPhase },
@@ -569,7 +580,7 @@ export function readMissionView(view: MissionViewReader, selectedId: string | nu
     const progress = progressFor(ctx, root, members)
     // API/handoff/gesture consumers need explicit members, archived included.
     // Never reconstruct ownership by scanning a global session array.
-    const sessions = [...new Map([...ctx.byId.keys()].flatMap(id => ctx.attached(id)).map(session => [session.sessionId, session])).values()].sort(sessionOrder)
+    const sessions = [...new Map([...ctx.byId.keys()].flatMap(id => ctx.attached(id)).map(session => [session.sessionId, session])).values()].sort(view.sessionOrder)
     return { root, rows, members, byId: ctx.byId, sessions, archived, titles, progress,
       departures: departures.sort((a, b) => a.issue.seq - b.issue.seq), continuation, note, presence, rowPresentation }
   } catch (error) { if (error === LOADING) return LOADING; throw error }
@@ -831,7 +842,7 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
     const repo = view.pool.headerViews.row('repository', id)
     return repo ? [repo] : []
   })
-  return { issues: selected, allIssues, sessions: [...seats.values()].sort(sessionOrder), repos,
+  return { issues: selected, allIssues, sessions: [...seats.values()].sort(view.sessionOrder), repos,
     machines: view.pool.headerViews.machines(), session, issue: selected[0] }
 }
 export function readMissionHandoff(view: MissionViewReader, rootId: string): MissionHandoffValues | typeof LOADING {
@@ -841,7 +852,7 @@ export function readMissionHandoff(view: MissionViewReader, rootId: string): Mis
     if (!view.prepare(members)) return LOADING
     const ctx = new MissionContext(view)
     const issues = [...members].sort().flatMap(id => { const issue = ctx.issue(id); return issue ? [issue] : [] })
-    const crew = [...new Map([...members].flatMap(id => ctx.attached(id)).map(session => [session.sessionId, session])).values()].sort(sessionOrder)
+    const crew = [...new Map([...members].flatMap(id => ctx.attached(id)).map(session => [session.sessionId, session])).values()].sort(view.sessionOrder)
     return { crew, current: poolHandoffNow(ctx, issues, members), next: poolHandoffNext(ctx, issues, members) }
   } catch (error) { if (error === LOADING) return LOADING; throw error }
 }
