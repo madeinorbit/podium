@@ -161,13 +161,30 @@ describe('terminal receipt operator regressions', () => {
     // Claude was busy: all three prompts are recorded together after our typing
     // started, framed first, ours last verbatim. (Queue records covered below.)
     w.post(framedA)
+    console.log('TEST5294: posted A')
     w.post(framedB)
+    console.log('TEST5294: posted B')
     const oursEntryId = `entry-${w.history.length}`
     w.post(words)
+    console.log('TEST5294: posted ours', oursEntryId)
     await vi.advanceTimersByTimeAsync(10_000)
-    expect(await sentA).toMatchObject({ outcome: 'accepted' })
-    expect(await sentB).toMatchObject({ outcome: 'accepted' })
-    expect(await ours).toMatchObject({ outcome: 'accepted' })
+    console.log('TEST5294: after 10s')
+    const withTimeout = async <T>(p: Promise<T>, name: string): Promise<T> => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        return await Promise.race([
+          p.then((v) => { console.log(`TEST5294: ${name} resolved`); return v }),
+          new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new Error(`${name} hung`)), 1000); }),
+        ])
+      } finally { if (timer) clearTimeout(timer) }
+    }
+    // Use real timers for the race timeout above (fake timers would freeze it).
+    vi.useRealTimers()
+    try {
+      expect(await withTimeout(sentA, 'sentA')).toMatchObject({ outcome: 'accepted' })
+      expect(await withTimeout(sentB, 'sentB')).toMatchObject({ outcome: 'accepted' })
+      expect(await withTimeout(ours, 'ours')).toMatchObject({ outcome: 'accepted' })
+    } finally { vi.useFakeTimers(); vi.setSystemTime(Date.now()) }
     expect(outcomes(w.frames)).toContainEqual(expect.objectContaining({
       rowId: 'msg_d0117333', outcome: 'delivered', transcriptItem: expect.objectContaining({ id: oursEntryId }),
     }))
