@@ -11,6 +11,7 @@ import { checkMissions, compareMissionSnapshots, type MissionCheckRow } from '@p
 import { LOADING } from '@podium/client-graph'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import { installMobxWarnTrap } from './mobx-trap'
+import { tracked } from './adapters/mobx-pool'
 
 installMobxWarnTrap({ errors: true })
 const NOW = Date.parse('2026-10-01T12:00:00Z'), STAMP = '2026-09-01T12:00:00Z'
@@ -67,12 +68,12 @@ describe('declared pool mission', () => {
     const ctx = open(rows, [session('headless', 'child', { headless: true }),
       session('archived-sender', 'spin', { archived: true }), session('cold-sender', 'cold-spin', { archived: true })])
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
-    expect(ctx.view.members('root')).toEqual(new Set(['root', 'child', 'formal-departed', 'spin', 'cold-spin', 'next-spin']))
-    expect(ctx.view.rootFor('below-archived')).toBe('below-archived')
-    expect(ctx.view.rootFor('draft-child')).toBe('draft')
-    expect(ctx.view.rootFor('absent')).toBeUndefined()
-    expect(ctx.view.rootFor(null)).toBeUndefined()
-    expect(ctx.view.members('absent')).toEqual(new Set(['absent', 'missing-parent']))
+    expect(tracked(() => ctx.view.members('root'))).toEqual(new Set(['root', 'child', 'formal-departed', 'spin', 'cold-spin', 'next-spin']))
+    expect(tracked(() => ctx.view.rootFor('below-archived'))).toBe('below-archived')
+    expect(tracked(() => ctx.view.rootFor('draft-child'))).toBe('draft')
+    expect(tracked(() => ctx.view.rootFor('absent'))).toBeUndefined()
+    expect(tracked(() => ctx.view.rootFor(null))).toBeUndefined()
+    expect(tracked(() => ctx.view.members('absent'))).toEqual(new Set(['absent', 'missing-parent']))
   })
 
   it('keeps roots and member sets invariant under issue order, provenance rounds and ties', () => {
@@ -96,21 +97,21 @@ describe('declared pool mission', () => {
     const ctx = open([issue('a'), issue('b'), issue('c'), issue('child', { parentId: 'a' }),
       issue('spin', { startedBySession: 'sender' })], [session('sender', 'child'), session('unrelated', 'c')])
     const legacy = missionIndexStats()
-    const c = ctx.view.members('c'), a = ctx.view.members('a'), b = ctx.view.members('b')
-    ctx.view.rootFor('child')
+    const c = tracked(() => ctx.view.members('c')), a = tracked(() => ctx.view.members('a')), b = tracked(() => ctx.view.members('b'))
+    tracked(() => ctx.view.rootFor('child'))
     const count = { ...ctx.view.stats }
     ctx.patchIssue('child', { title: 'A new title', readAt: STAMP })
     ctx.patchSession('unrelated', { lastActiveAt: new Date(NOW).toISOString() })
-    expect(ctx.view.members('a')).toBe(a)
-    expect(ctx.view.members('b')).toBe(b)
+    expect(tracked(() => ctx.view.members('a'))).toBe(a)
+    expect(tracked(() => ctx.view.members('b'))).toBe(b)
     expect(ctx.view.stats).toEqual(count)
     ctx.patchSession('sender', { issueId: 'b' })
-    expect(ctx.view.members('a')).toEqual(new Set(['a', 'child']))
-    expect(ctx.view.members('b')).toEqual(new Set(['b', 'spin']))
-    expect(ctx.view.members('c')).toBe(c)
+    expect(tracked(() => ctx.view.members('a'))).toEqual(new Set(['a', 'child']))
+    expect(tracked(() => ctx.view.members('b'))).toEqual(new Set(['b', 'spin']))
+    expect(tracked(() => ctx.view.members('c'))).toBe(c)
     expect(ctx.view.stats.members - count.members).toBe(2)
     ctx.patchIssue('child', { parentId: 'b' })
-    expect(ctx.view.rootFor('child')).toBe('b')
+    expect(tracked(() => ctx.view.rootFor('child'))).toBe('b')
     expect(missionIndexStats()).toEqual(legacy)
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
     expect(missions(ctx.pool)).toBe(ctx.view)
@@ -123,16 +124,16 @@ describe('declared pool mission', () => {
     for (const stage of ['proposed', 'backlog', 'planning', 'in_progress', 'review', 'shipping', 'done', 'cancelled', 'backlog']) {
       ctx.patchIssue('spin', { stage })
       expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
-      expect(ctx.view.contains('root', 'spin')).toBe(stage === 'proposed' || stage === 'backlog')
+      expect(tracked(() => ctx.view.contains('root', 'spin'))).toBe(stage === 'proposed' || stage === 'backlog')
     }
     ctx.patchSession('twin', { status: 'hibernated', lastActiveAt: new Date(NOW).toISOString() })
-    expect(ctx.view.contains('root', 'spin')).toBe(false)
+    expect(tracked(() => ctx.view.contains('root', 'spin'))).toBe(false)
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
     ctx.patchSession('sender', { headless: true, archived: true })
-    expect(ctx.view.contains('root', 'spin')).toBe(true)
+    expect(tracked(() => ctx.view.contains('root', 'spin'))).toBe(true)
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
     ctx.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'sender', value: undefined }] })
-    expect(ctx.view.contains('root', 'spin')).toBe(false)
+    expect(tracked(() => ctx.view.contains('root', 'spin'))).toBe(false)
   })
 
   it('answers cold missions through declared summaries without loading or peeking', () => {
@@ -141,12 +142,12 @@ describe('declared pool mission', () => {
     expect(runInAction(() => ctx.pool.tables.issue.has('root'))).toBe(false)
     const before = ctx.load.mock.calls.length, read = vi.spyOn(ctx.pool, 'row')
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
-    expect(ctx.view.members('root')).toEqual(new Set(['root', 'child', 'spin']))
+    expect(tracked(() => ctx.view.members('root'))).toEqual(new Set(['root', 'child', 'spin']))
     expect(ctx.load.mock.calls.length).toBe(before)
     expect(read.mock.calls.some(call => call[2] === 'peek')).toBe(false)
     expect(runInAction(() => ctx.pool.tables.issue.has('root'))).toBe(false)
     ctx.patchIssue('spin', { stage: 'planning', deps: [{ type: 'discovered-from', id: 'absent' }] })
-    expect(ctx.view.contains('root', 'spin')).toBe(false)
+    expect(tracked(() => ctx.view.contains('root', 'spin'))).toBe(false)
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
   })
 
@@ -154,44 +155,44 @@ describe('declared pool mission', () => {
     const ctx = open([issue('root', { archived: true })], [], true)
     const original = ctx.pool.row.bind(ctx.pool)
     vi.spyOn(ctx.pool, 'row').mockImplementation(((kind: string, id: string, absent?: string) =>
-      absent === 'summary' && ctx.pool.residence('issue', id) !== 'resident'
+      absent === 'summary' && original('issue', id, 'mark') === LOADING
         ? {} : original(kind as 'issue', id, absent as 'load')) as typeof ctx.pool.row)
-    expect(ctx.view.rootFor('root')).toBe(LOADING)
-    expect(ctx.view.members('root')).toBe(LOADING)
-    expect(ctx.view.contains('root', 'root')).toBe(LOADING)
+    expect(tracked(() => ctx.view.rootFor('root'))).toBe(LOADING)
+    expect(tracked(() => ctx.view.members('root'))).toBe(LOADING)
+    expect(tracked(() => ctx.view.contains('root', 'root'))).toBe(LOADING)
     const count = ctx.load.mock.calls.length
     ctx.pool.hydrate()
     expect(ctx.load.mock.calls.length - count).toBe(1)
-    expect(ctx.view.rootFor('root')).toBe('root')
-    expect(ctx.view.members('root')).toEqual(new Set(['root']))
+    expect(tracked(() => ctx.view.rootFor('root'))).toBe('root')
+    expect(tracked(() => ctx.view.members('root'))).toEqual(new Set(['root']))
   })
 
   it('tracks added, archived, deleted and removed ancestors and a late sender', () => {
     const ctx = open([issue('root'), issue('child', { parentId: 'missing' }), issue('spin', { startedBySession: 'late' })])
-    expect(ctx.view.rootFor('child')).toBe('child')
-    expect(ctx.view.contains('root', 'spin')).toBe(false)
+    expect(tracked(() => ctx.view.rootFor('child'))).toBe('child')
+    expect(tracked(() => ctx.view.contains('root', 'spin'))).toBe(false)
     const parent = issue('missing', { parentId: 'root' })
     ctx.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: parent.id, value: parent },
       { kind: 'session', id: 'late', value: session('late', 'root') }] })
-    expect(ctx.view.rootFor('child')).toBe('root')
-    expect(ctx.view.contains('root', 'spin')).toBe(true)
+    expect(tracked(() => ctx.view.rootFor('child'))).toBe('root')
+    expect(tracked(() => ctx.view.contains('root', 'spin'))).toBe(true)
     for (const patch of [{ archived: true }, { deletedAt: STAMP }]) {
       ctx.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: parent.id, value: { ...parent, ...patch } }] })
-      expect(ctx.view.rootFor('child')).toBe('child')
-      expect(ctx.view.contains('root', 'child')).toBe(false)
+      expect(tracked(() => ctx.view.rootFor('child'))).toBe('child')
+      expect(tracked(() => ctx.view.contains('root', 'child'))).toBe(false)
     }
     ctx.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: parent.id, value: undefined }] })
-    expect(ctx.view.rootFor('child')).toBe('child')
+    expect(tracked(() => ctx.view.rootFor('child'))).toBe('child')
   })
 
   it('drops stale members on replace and releases caches on pool disposal', () => {
     const ctx = open([issue('root'), issue('child', { parentId: 'root' })])
-    expect(ctx.view.members('root')).toEqual(new Set(['root', 'child']))
+    expect(tracked(() => ctx.view.members('root'))).toEqual(new Set(['root', 'child']))
     ctx.pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'root', value: issue('root') }] })
-    expect(ctx.view.members('root')).toEqual(new Set(['root']))
+    expect(tracked(() => ctx.view.members('root'))).toEqual(new Set(['root']))
     ctx.pool.dispose()
-    expect(ctx.view.members('root')).toBe(LOADING)
-    expect(ctx.view.rootFor('root')).toBe(LOADING)
+    expect(tracked(() => ctx.view.members('root'))).toBe(LOADING)
+    expect(tracked(() => ctx.view.rootFor('root'))).toBe(LOADING)
   })
 })
 

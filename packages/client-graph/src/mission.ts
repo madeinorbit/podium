@@ -5,6 +5,7 @@ import { LOADING, type Loaded } from './worklist/rollup'
 
 interface RootFacts {
   readonly hidden: boolean
+  readonly resident: boolean
 }
 
 /** A mission member set has no ordering contract. Consumers needing issue or
@@ -54,7 +55,7 @@ export function createMissionViews(pool: MobxPool): MissionViews {
       if (row && row !== LOADING && !Object.hasOwn(row, 'stage')) row = pool.row('issue', id)
       if (row === undefined || row === LOADING) return row
       const value = row as { parentId?: string | null; archived?: boolean; deletedAt?: string | null }
-      return { hidden: Boolean(value.archived || value.deletedAt) }
+      return { hidden: Boolean(value.archived || value.deletedAt), resident: pool.row('issue', id, 'mark') !== LOADING }
     })
   }
 
@@ -74,6 +75,9 @@ export function createMissionViews(pool: MobxPool): MissionViews {
         const parent = rootFacts(parentId)
         if (parent === LOADING) return LOADING
         if (parent === undefined || parent.hidden) break
+        // Navigation waits for a live ancestor's full row, as the sidebar did
+        // before this cache. Archived/deleted ancestors stop at the summary.
+        if (!parent.resident) { pool.row('issue', parentId); return LOADING }
         current = parentId
       }
       return current
