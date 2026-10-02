@@ -38,6 +38,7 @@ const stops = [autorun(() => {
   }
   void pool.header
   void pool.headerViews.selectedIssue()
+  void pool.settingsViews.setup()
   void pool.sidebar.sections()
   pool.clock.reached(now + 60_000)
 })]

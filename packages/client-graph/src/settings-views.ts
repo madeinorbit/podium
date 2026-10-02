@@ -1,6 +1,7 @@
 import { dedupeSessionsByResume } from '@podium/model'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { _isComputingDerivation, compareStructural, computed, onBecomeUnobserved, type IComputedValue } from 'mobx'
+import { debugName } from './debug-name'
 import type { MobxPool } from './pool'
 import { knownSessionIds } from './enumerate'
 import type { SetupSession } from './settings-schema'
@@ -14,7 +15,7 @@ export function createSettingsViews(pool: MobxPool) {
     if (!_isComputingDerivation()) return read()
     let value = cache.get(key)
     if (!value) {
-      value = computed(read, { equals: compareStructural, name: `settings.${key}` })
+      value = computed(read, { equals: compareStructural, name: debugName(() => `settings.${key}`) })
       cache.set(key, value)
       onBecomeUnobserved(value, () => cache.delete(key))
     }

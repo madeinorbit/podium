@@ -76,7 +76,7 @@ function nameCounts(heap: Heap) {
     assert(a !== undefined && b !== undefined, 'Concatenated name has both parts')
     return flat(a, depth + 1) + flat(b, depth + 1)
   }
-  const custom = /^(pool[.@]|residency\.ids\.|header\.|write\.overlays|(?:Issue|Session|Worktree|Repo)Model@)/
+  const custom = /^(pool[.@]|residency\.ids\.|header\.|settings\.|write\.overlays|(?:Issue|Session|Worktree|Repo)Model@)/
   const strings = new Set<number>()
   let namedObjects = 0, models = 0, reactions = 0, bytes = 0
   for (let node = 0; node < heap.nodes.length; node += width) {

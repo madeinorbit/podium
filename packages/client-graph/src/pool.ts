@@ -48,6 +48,7 @@ import { createSettingsViews } from './settings-views'
  */
 
 import type { RoutedUiState } from '@podium/client-core/ui-state'
+import { debugName } from './debug-name'
 import { PreferenceSource } from './preference-source'
 import type { PreferenceRow } from './preference-schema'
 import { SidebarIndex } from './worklist/sidebar'
@@ -322,7 +323,7 @@ export class MobxPool {
      */
     const seats = observable.map<string, IObservableArray<string>>(undefined, {
       deep: false,
-      name: 'pool.seats',
+      name: debugName(() => 'pool.seats'),
     })
     this.clearSeats = () => {
       seats.clear()
@@ -359,7 +360,7 @@ export class MobxPool {
           if (list === undefined) {
             list = observable.array<string>([], {
               deep: false,
-              name: 'pool.seats.bucket',
+              name: debugName(() => 'pool.seats.bucket'),
             })
             seats.set(target, list)
           }
@@ -390,11 +391,11 @@ export class MobxPool {
     this.relations = this.graph
     this.selection = observable.map<string, true>(undefined, {
       deep: false,
-      name: 'pool.selection',
+      name: debugName(() => 'pool.selection'),
     })
     this.readStates = observable.map<string, string | null>(undefined, {
       deep: false,
-      name: 'pool.reads',
+      name: debugName(() => 'pool.reads'),
     })
     this.clock = new DeadlineClock(locals.coarseNow)
     this.models = Object.fromEntries(
@@ -480,7 +481,7 @@ export class MobxPool {
       fileSidebarOwner: (id, owner) => this.sidebarRosters.fileOwner(id, owner),
     })
     this.foldLatch = observable.box(locals.selectedIssueWasFolded === true, {
-      name: 'pool.foldLatch',
+      name: debugName(() => 'pool.foldLatch'),
     })
     this.groups = new WorklistGroups({
       node: (id) => this.knownIssue(id),
