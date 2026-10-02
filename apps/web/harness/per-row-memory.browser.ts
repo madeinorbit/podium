@@ -5,7 +5,7 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource, type RowSourceReplica } from '@podium/client-graph/shared/row-source'
-import { handPoolArm } from '../../../packages/worklist-proto/arms/hand/pool/arm'
+import { HandPool } from '../../../packages/worklist-proto/arms/hand/pool/pool'
 import { LeanPool } from '../../../packages/worklist-proto/arms/lean/src/pool'
 import {
   handWindow,
@@ -31,9 +31,28 @@ const feed = createRowSource(runtime, owners.replica as unknown as RowSourceRepl
   mode: 'overlaid',
 })
 const locals = createEngineLocals(runtime)
-const handle = requested === 'hand' ? handPoolArm.create(feed.source, locals.source) : null
-const pool = handle?.pool ?? new LeanPool(feed.source, locals.source)
-const windowPool = handle ? handWindow(handle.pool) : leanWindow(pool as LeanPool)
+// Same constructor, seed and subscriptions as handPoolArm.create, without its
+// unused web/native list imports. Both arms mount the common window below.
+const hand =
+  requested === 'hand'
+    ? new HandPool(undefined, locals.source.get(), undefined, {
+        load: feed.source.row!.bind(feed.source),
+      })
+    : null
+if (hand) {
+  hand.apply({
+    type: 'replace',
+    rows: [
+      ...feed.source.snapshot('session'),
+      ...feed.source.snapshot('issue'),
+      ...feed.source.snapshot('worktree'),
+    ],
+  })
+  feed.source.subscribe((event) => hand.apply(event))
+  locals.source.subscribe((changed) => hand.applyLocals(locals.source.get(), changed))
+}
+const pool = hand ?? new LeanPool(feed.source, locals.source)
+const windowPool = hand ? handWindow(hand) : leanWindow(pool as LeanPool)
 const element = document.createElement('section')
 element.dataset.prototypeWindow = requested
 element.style.cssText = 'width:300px;height:600px;overflow:auto;font:12px monospace'
