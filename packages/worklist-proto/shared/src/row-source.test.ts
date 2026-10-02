@@ -10,7 +10,7 @@
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { createClientRuntime, type PendingOverlay } from '@podium/client-core/engine'
+import { createClientRuntime, type OverlayTarget, type PendingOverlay } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {
   createKernelReplica,
@@ -65,7 +65,7 @@ const sessionValue = (id: string, extra: Record<string, unknown> = {}) =>
 const issueValue = (id: string, extra: Record<string, unknown> = {}) =>
   ({ id, ...extra }) as unknown as { id: string }
 
-type Entity = 'sessions' | 'issues' | 'issueProjections' | 'issueUserStates'
+type Entity = OverlayTarget
 
 /** Controllable runtime: the test sets the ledger's pending overlays by row,
  *  then publishes. Entity rows are NOT here — the row source reads them from
@@ -79,6 +79,7 @@ function fakeRuntime(
   const repos = initial.repos ?? []
   const pending: Record<Entity, Map<string, PendingOverlay[]>> = {
     sessions: new Map(),
+    sessionUserStates: new Map(),
     issues: new Map(),
     issueUserStates: new Map(),
     issueProjections: new Map(),

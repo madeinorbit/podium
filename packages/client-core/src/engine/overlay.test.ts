@@ -983,11 +983,12 @@ describe('the presence contracts and their optimistic reducers', () => {
       snoozeSet: { sessionId: 's1', until: null },
       snoozeClear: { sessionId: 's1' },
     }
+    const perUser = new Set(['sessionMarkRead', 'sessionMarkUnread', 'snoozeSet', 'snoozeClear'])
     for (const name of Object.keys(PRESENCE_REDUCER_KINDS)) {
       const kind = PRESENCE_REDUCER_KINDS[name] as string
       const overlay = overlayForOutboxEntry(entry(kind as never, inputs[kind] as never))
       expect(overlay, `${name} -> ${kind}`).not.toBeNull()
-      expect(overlay?.entity, name).toBe('sessions')
+      expect(overlay?.entity, name).toBe(perUser.has(kind) ? 'sessionUserStates' : 'sessions')
     }
   })
 
