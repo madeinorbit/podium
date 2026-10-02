@@ -135,7 +135,17 @@ try {
             const state = await page.evaluate(() => window.__memory.state())
             if (state.oldRecords !== (drop ? 0 : state.projections))
               throw new Error('Retention guard RED')
-            const fingerprint = await page.evaluate(() => window.__memory.fingerprint())
+            // A ready runtime can still be sizing the virtualized sidebar.
+            // Require its model and screen hashes to settle before comparing.
+            let fingerprint = await page.evaluate(() => window.__memory.fingerprint())
+            let stable = 0
+            for (let attempt = 0; stable < 3 && attempt < 30; attempt++) {
+              await page.waitForTimeout(250)
+              const next = await page.evaluate(() => window.__memory.fingerprint())
+              stable = JSON.stringify(next) === JSON.stringify(fingerprint) ? stable + 1 : 0
+              fingerprint = next
+            }
+            if (stable < 3) throw new Error('Screen did not settle')
             const key = `${cell}:${mode}:${sample}`
             if (parity.has(key)) {
               const previous = parity.get(key)!
