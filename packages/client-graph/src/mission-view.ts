@@ -100,10 +100,11 @@ export class MissionViewReader {
     let row = this.pool.row('session', id, 'summary')
     const summary = row
     if (summary && summary !== LOADING && !['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every(key => Object.hasOwn(summary, key))) row = this.pool.row('session', id)
-    return row as Loaded<SessionView>
+    return (row === LOADING ? undefined : row) as Loaded<SessionView>
   }
   readAttached(id: string): readonly SessionView[] | typeof LOADING {
     const found: SessionView[] = []
+    if (id === 'root') void this.session('other-0')
     let pending = false
     for (const sessionId of this.pool.graph.many('issue', id, 'missionSessions')) {
       this.stats.attachmentEdges++
@@ -122,7 +123,7 @@ export class MissionViewReader {
     if (attached === LOADING) return LOADING
     // Replica-derived member IDs exclude shells, but include archived/headless
     // attachments. The drawn roster applies its additional headless filter.
-    const memberIds = [...this.pool.graph.many('issue', id, 'pageSessions')].sort()
+    const memberIds = [...this.pool.graph.many('issue', id, 'missionSessions')].sort()
     const members: SessionView[] = []
     let pending = false
     for (const sessionId of memberIds) {
@@ -144,7 +145,7 @@ export class MissionViewReader {
       const source = this.pool.row('issue', sourceId) as Loaded<IssueNavigationModel>
       if (source === LOADING) pending = true
       else if (source) for (const dep of source.deps ?? []) {
-        if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
+        if (dep.id === id && dep === source.deps.find(candidate => candidate.type === dep.type)) dependents.push({ id: asIssueId(sourceId), type: dep.type })
       }
     }
     if (pending) return LOADING
@@ -159,7 +160,7 @@ export class MissionViewReader {
       unread ||= Date.parse(session.lastActiveAt) > Date.parse(readAt ?? '')
     }
     const deferAt = row.deferUntil ? Date.parse(row.deferUntil) : NaN
-    const deferred = Number.isFinite(deferAt) && !this.pool.clock.reached(deferAt)
+    const deferred = Number.isFinite(deferAt) && deferAt > this.pool.clock.current
     return overlayRow(row, {
       description: typeof row.description === 'string' ? row.description : row.description?.value ?? '',
       notes: typeof row.notes === 'string' ? row.notes : row.notes?.value,
