@@ -3,6 +3,7 @@ import type { InputHTMLAttributes } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import '@/test-support/model-catalog-mock'
+import '@/test-support/mock-core-store-handle'
 import { NewIssueDialog } from './NewIssueDialog'
 
 // Typed input so the assertions below can read back the payload create received.
@@ -51,13 +52,6 @@ vi.mock('@/app/store', () => {
   }
 })
 
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...await original<typeof import('@podium/client-core/react')>(),
-  useStoreHandle: () => ({ getSnapshot: () => ({ trpc: {
-    settings: { get: { query: async () => ({ sessionDefaults: { agent: 'claude-code' } }) } },
-    issues: { create: { mutate: create }, update: { mutate: update } },
-  } }) }),
-}))
 type CheckboxMockProps = {
   checked?: boolean
   onCheckedChange?: (checked: boolean) => void
